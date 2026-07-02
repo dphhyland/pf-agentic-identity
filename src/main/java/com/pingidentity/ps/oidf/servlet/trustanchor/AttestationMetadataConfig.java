@@ -20,27 +20,31 @@ final class AttestationMetadataConfig {
     private static final List<String> DEFAULT_ATTESTATION_ALGS = List.of("RS256", "PS256", "ES256");
     private static final List<String> DEFAULT_POP_ALGS = List.of("ES256", "RS256", "PS256");
     private static final List<String> DEFAULT_DPOP_ALGS = List.of("ES256", "RS256", "PS256");
+    private static final List<String> DEFAULT_FORMATS = List.of("jwt", "sd-jwt");
 
     private final List<String> tokenEndpointAuthMethodsSupported;
     private final List<String> clientAttestationSigningAlgValuesSupported;
     private final List<String> clientAttestationPopSigningAlgValuesSupported;
     private final List<String> dpopSigningAlgValuesSupported;
+    private final List<String> clientAttestationFormatsSupported;
     private final boolean challengeEndpointEnabled;
 
     AttestationMetadataConfig(List<String> tokenEndpointAuthMethodsSupported,
                              List<String> clientAttestationSigningAlgValuesSupported,
                              List<String> clientAttestationPopSigningAlgValuesSupported,
                              List<String> dpopSigningAlgValuesSupported,
+                             List<String> clientAttestationFormatsSupported,
                              boolean challengeEndpointEnabled) {
         this.tokenEndpointAuthMethodsSupported = List.copyOf(tokenEndpointAuthMethodsSupported);
         this.clientAttestationSigningAlgValuesSupported = List.copyOf(clientAttestationSigningAlgValuesSupported);
         this.clientAttestationPopSigningAlgValuesSupported = List.copyOf(clientAttestationPopSigningAlgValuesSupported);
         this.dpopSigningAlgValuesSupported = List.copyOf(dpopSigningAlgValuesSupported);
+        this.clientAttestationFormatsSupported = List.copyOf(clientAttestationFormatsSupported);
         this.challengeEndpointEnabled = challengeEndpointEnabled;
     }
 
     static AttestationMetadataConfig defaults() {
-        return new AttestationMetadataConfig(DEFAULT_AUTH_METHODS, DEFAULT_ATTESTATION_ALGS, DEFAULT_POP_ALGS, DEFAULT_DPOP_ALGS, true);
+        return new AttestationMetadataConfig(DEFAULT_AUTH_METHODS, DEFAULT_ATTESTATION_ALGS, DEFAULT_POP_ALGS, DEFAULT_DPOP_ALGS, DEFAULT_FORMATS, true);
     }
 
     static AttestationMetadataConfig fromServletConfig(ServletConfig config) {
@@ -48,8 +52,9 @@ final class AttestationMetadataConfig {
         List<String> attestationAlgs = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationSigningAlgValuesSupported"), DEFAULT_ATTESTATION_ALGS);
         List<String> popAlgs = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationPopSigningAlgValuesSupported"), DEFAULT_POP_ALGS);
         List<String> dpopAlgs = AttestationMetadataConfig.parseList(config.getInitParameter("dpopSigningAlgValuesSupported"), DEFAULT_DPOP_ALGS);
+        List<String> formats = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationFormatsSupported"), DEFAULT_FORMATS);
         boolean challengeEnabled = AttestationMetadataConfig.parseBoolean(config.getInitParameter("attestationChallengeEndpointEnabled"), true);
-        return new AttestationMetadataConfig(authMethods, attestationAlgs, popAlgs, dpopAlgs, challengeEnabled);
+        return new AttestationMetadataConfig(authMethods, attestationAlgs, popAlgs, dpopAlgs, formats, challengeEnabled);
     }
 
     List<String> tokenEndpointAuthMethodsSupported() {
@@ -66,6 +71,10 @@ final class AttestationMetadataConfig {
 
     List<String> dpopSigningAlgValuesSupported() {
         return this.dpopSigningAlgValuesSupported;
+    }
+
+    List<String> clientAttestationFormatsSupported() {
+        return this.clientAttestationFormatsSupported;
     }
 
     boolean challengeEndpointEnabled() {
