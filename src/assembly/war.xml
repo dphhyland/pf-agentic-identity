@@ -1,0 +1,31 @@
+<assembly xmlns="http://maven.apache.org/ASSEMBLY/2.1.0"
+          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+          xsi:schemaLocation="http://maven.apache.org/ASSEMBLY/2.1.0 http://maven.apache.org/xsd/assembly-2.1.0.xsd">
+    <id>webapp</id>
+    <formats><format>war</format></formats>
+    <includeBaseDirectory>false</includeBaseDirectory>
+    <fileSets>
+        <!-- WEB-INF/web.xml (+ anything else under webapp) -->
+        <fileSet>
+            <directory>${project.basedir}/src/main/webapp</directory>
+            <outputDirectory>.</outputDirectory>
+        </fileSet>
+        <!-- oidf-pf's own compiled classes (OGNL hooks, registration) -->
+        <fileSet>
+            <directory>${project.build.outputDirectory}</directory>
+            <outputDirectory>WEB-INF/classes</outputDirectory>
+        </fileSet>
+    </fileSets>
+    <dependencySets>
+        <!-- runtime scope = module jars + jose4j + jackson; excludes provided (PF SDK / servlet / commons-logging) -->
+        <dependencySet>
+            <outputDirectory>WEB-INF/lib</outputDirectory>
+            <useProjectArtifact>false</useProjectArtifact>
+            <scope>runtime</scope>
+            <excludes>
+                <exclude>commons-logging:commons-logging</exclude>
+                <exclude>org.slf4j:slf4j-api</exclude>
+            </excludes>
+        </dependencySet>
+    </dependencySets>
+</assembly>
