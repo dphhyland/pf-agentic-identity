@@ -16,6 +16,14 @@
         assembly. Depends on client-attestation + openid-federation + the PingFederate SDK.</description>
     <url>https://github.com/dphhyland/pf-integration</url>
 
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
