@@ -12,14 +12,27 @@ hardcoded `"joe"`), passes the **attested entitlement** so policy can enforce `r
 scoped **insecure-TLS dev flag** instead of an always-on trust-all manager, and implements a real
 `isEqualOrSubset` for refresh-time narrowing.
 
-## Status
+Status: **built, unit-tested (23 tests), and verified live** — governs RFC 9396 payment
+consent end-to-end (PERMIT ≤ limit / DENY over-limit), attributes the decision to the
+authenticated principal (`UserID`) with the agent as `actor`, and renders an
+attribute-focused consent page.
 
-| Phase | State |
-|-------|-------|
-| 1 — the plugin (this module) | ✅ built + unit-tested (21 tests), deployable jar produced |
-| 1b — attestation-context bridge (in `pf-oidf-modules`) | ✅ `ClientAttestationUtils` publishes `com.pingidentity.ps.oidf.rar.attestation_context` (`sub`, `client_id`, `entitlement`, `cnf_thumbprint`) on successful attestation auth |
-| 2 — PingAuthorize policy (Trust Framework) | ⏳ |
-| 3 — token embedding + demo wiring | ⏳ |
+## Repository layout
+
+| Path | What |
+|------|------|
+| [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (Java) + 23 unit tests; `PF-INF` marker; shaded Jackson |
+| [`integration/`](integration) | **PingFederate integration** — `Dockerfile.fragment`, the TLS JVM flag, `config-as-code/` (create processor instance + enable on client), `consent-template/` |
+| [`paz/`](paz) | **PingAuthorize** Trust Framework + policy-authoring scripts (PAP REST API) |
+| [`.claude/skills/pf-rar-paz-plugin/`](.claude/skills/pf-rar-paz-plugin) | reusable **skill** — build/deploy/configure knowledge for future projects |
+
+Quick start: [`integration/README.md`](integration/README.md).
+
+**Attestation context (optional):** the plugin can bound the decision by a client
+attestation's vouched subject/entitlement/workload if an upstream hook publishes them as a
+request attribute (`com.pingidentity.ps.oidf.rar.attestation_context`, a plain `Map`). This
+is a decoupled string-key contract — no code dependency — so it works with or without an
+attester. See "Attestation-context bridge" below.
 
 ## Architecture
 
@@ -73,21 +86,21 @@ as the subject and sends no attested entitlement (policy then decides on the req
 ## Build
 
 ```bash
-# PF SDK 13.0.0.3 must be in ~/.m2 (pf-protocolengine, pingfederate-sdk) — see ../README.md
+# PF SDK 13.0.0.3 must be in ~/.m2 (pf-protocolengine, pingfederate-sdk) — see integration/README.md
 mvn -o -B package            # offline; jackson pinned to 2.17.1 (all jars present in ~/.m2)
 # → target/pf.plugins.pf-rar-paz-plugin.jar
 ```
 
 ## Deploy
 
-1. Copy `pf.plugins.pf-rar-paz-plugin.jar` **and** `jackson-databind`/`jackson-core`/`jackson-annotations`
-   (2.17.1) into `<pf>/pingfederate/server/default/deploy/` (omit jackson jars already present at a compatible
-   version). HTTP uses the JDK client — no Apache HttpClient dependency.
-2. Restart PingFederate; in the admin console create an instance of **“Attestation-aware RAR to PingAuthorize”**
-   and set the fields below.
-3. Map your RAR types (`sales_agent`, `payment_initiation`, `account_information`) to this processor.
+Full recipe in [`integration/`](integration): bake the jar with
+[`integration/Dockerfile.fragment`](integration/Dockerfile.fragment) (the jar is a shaded
+uber-jar — no separate Jackson jars to copy), then create the processor instance + enable it
+on the client with [`integration/config-as-code/`](integration/config-as-code). The
+processor already declares its RAR types (`sales_agent`, `payment_initiation`,
+`account_information`) in code, so you only enable them per client.
 
-### GUI config fields
+### GUI config fields (same fields the config-as-code sets)
 
 | Field | Default | Notes |
 |-------|---------|-------|
@@ -105,6 +118,7 @@ mvn -o -B package            # offline; jackson pinned to 2.17.1 (all jars prese
 ## Test
 
 ```bash
-mvn -o test    # 18 tests: request building, decision parsing (permit/deny/obligations),
-               # client transport + auth header, statement application, containment
+mvn -o test    # 23 tests: request building (incl. principal→UserID / agent→actor),
+               # decision parsing (permit/deny/obligations), client transport + auth header,
+               # statement application, containment
 ```
