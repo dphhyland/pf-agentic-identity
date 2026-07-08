@@ -46,14 +46,23 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
     }
 
     @Override
-    public DecisionRequest build(String type, Map<String, Object> detail, AttestationSubject subject, String fallbackClientId) {
+    public DecisionRequest build(String type, Map<String, Object> detail, AttestationSubject subject,
+                                 String resourceOwner, String fallbackClientId) {
         AttestationSubject subj = subject == null ? AttestationSubject.empty() : subject;
         String domain = join(config.getDomainPrefix(), type);
         String attrPrefix = config.isPrefixAttributesWithType() ? join(config.getAttributePrefix(), type) : config.getAttributePrefix();
 
         Map<String, Object> attributes = new LinkedHashMap<>();
-        String userId = firstNonBlank(subj.getSubject(), subj.getClientId(), fallbackClientId);
+        // UserID is the PRINCIPAL the decision is about: the authenticated resource owner (the human who
+        // consents to the payment) first, then the attestation subject, then the OAuth client. The
+        // attestation subject is the delegated agent — recorded separately as 'actor' (RFC 8693 delegation:
+        // principal in the subject, agent in act) rather than masquerading as the UserID.
+        String attestationSub = subj.getSubject();
+        String userId = firstNonBlank(resourceOwner, attestationSub, subj.getClientId(), fallbackClientId);
         attributes.put("UserID", userId == null ? "unknown" : userId);
+        if (attestationSub != null && !attestationSub.equals(userId)) {
+            attributes.put("actor", attestationSub);
+        }
         String clientId = firstNonBlank(subj.getClientId(), fallbackClientId);
         if (clientId != null) {
             attributes.put("client_id", clientId);

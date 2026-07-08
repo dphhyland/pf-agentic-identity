@@ -49,6 +49,13 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String VERSION = "0.1.0";
     private static final String TYPE_NAME = "Attestation-aware RAR to PingAuthorize";
 
+    /** Request attribute an authn hook may set with the authenticated resource owner's {@code sub}. */
+    private static final String RESOURCE_OWNER_ATTRIBUTE = "com.pingidentity.ps.oidf.rar.resource_owner_sub";
+
+    /** Internal authorization_details field the BFF folds the authenticated principal into (survives PAR).
+     *  Consumed here and stripped so it never reaches the governance engine, the consent page, or the token. */
+    private static final String PRINCIPAL_DETAIL_KEY = "_principal_sub";
+
     private static final String PDP_URL = "PDP URL";
     private static final String PDP_DOMAIN_PREFIX = "PDP Domain Prefix";
     private static final String PDP_SERVICE = "PDP Service";
@@ -131,16 +138,29 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                                       AuthorizationDetailContext context,
                                       Map<String, Object> parameters) throws AuthorizationDetailProcessingException {
         AttestationSubject subject = readSubject(context);
+        // Detail on which the decision is made — a copy without the internal principal marker so it never
+        // reaches the governance engine as a payload field, the consent page, or the issued token.
+        Map<String, Object> base = authDetail.getDetail();
+        Map<String, Object> detail = base == null ? new HashMap<>() : new HashMap<>(base);
+        Object principalInDetail = detail.remove(PRINCIPAL_DETAIL_KEY);
+        // Resolve the principal: request attribute / login_hint first, then the marker the BFF folds into the
+        // authorization_details (the only BFF->plugin channel that survives PAR, since PF does not merge
+        // PAR-pushed request params back into the servlet request).
+        String resourceOwner = firstNonBlank(readResourceOwner(context), asString(principalInDetail));
         String clientId = context == null ? null : context.getClientId();
+        if (log.isLoggable(Level.INFO)) {
+            log.info("RAR governance: type=" + authDetail.getType() + " resourceOwner=" + resourceOwner
+                    + " attestationSub=" + subject.getSubject() + " clientId=" + clientId
+                    + " -> UserID=" + firstNonBlank(resourceOwner, subject.getSubject(), subject.getClientId(), clientId));
+        }
         try {
-            DecisionResponse decision = client.decide(authDetail.getType(), authDetail.getDetail(), subject, clientId);
+            DecisionResponse decision = client.decide(authDetail.getType(), detail, subject, resourceOwner, clientId);
             if (config.isDenyOnNonPermit() && !decision.isPermit()) {
                 throw new AuthorizationDetailProcessingException(
                         "governance engine denied authorization_details of type '" + authDetail.getType()
                                 + "' (decision=" + decision.getDecision() + ")");
             }
-            Map<String, Object> base = authDetail.getDetail();
-            Map<String, Object> enriched = base == null ? new HashMap<>() : new HashMap<>(base);
+            Map<String, Object> enriched = new HashMap<>(detail);
             StatementApplier.apply(decision.getStatements(), enriched, mapper);
             authDetail.setDetail(enriched);
             return authDetail;
@@ -168,17 +188,30 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     public String getUserConsentDescription(AuthorizationDetail authDetail, AuthorizationDetailContext context,
                                             Map<String, Object> parameters) {
         Map<String, Object> detail = authDetail.getDetail();
+        if (detail == null) {
+            return "";
+        }
+        // Attribute-focused consent: show ONLY the meaningful authorization_details fields the user is
+        // actually approving — friendly labels, amount + currency combined, one per line. Bookkeeping
+        // fields are dropped: 'type'/'purpose' duplicate the RAR type, '_principal_sub' is internal.
         StringBuilder sb = new StringBuilder();
-        sb.append("Authorization type: ").append(authDetail.getType()).append('\n');
-        if (detail != null) {
-            for (Map.Entry<String, Object> e : detail.entrySet()) {
-                if ("type".equals(e.getKey())) {
-                    continue;
-                }
-                sb.append(e.getKey().replace('_', ' ')).append(": ").append(e.getValue()).append('\n');
+        Object amount = detail.get("amount");
+        if (amount != null) {
+            Object currency = detail.get("currency");
+            line(sb, "Amount", currency == null ? String.valueOf(amount) : (amount + " " + currency));
+        }
+        line(sb, "From account", detail.get("debtorAccount"));
+        line(sb, "To account", detail.get("creditorAccount"));
+        line(sb, "Payee", detail.get("creditorName"));
+        // Any remaining non-bookkeeping fields, so the description stays complete for other RAR types.
+        Set<String> handled = Set.of("type", "purpose", PRINCIPAL_DETAIL_KEY, "amount", "currency",
+                "debtorAccount", "creditorAccount", "creditorName");
+        for (Map.Entry<String, Object> e : detail.entrySet()) {
+            if (!handled.contains(e.getKey())) {
+                line(sb, prettyLabel(e.getKey()), e.getValue());
             }
         }
-        return sb.toString();
+        return sb.toString().trim();
     }
 
     private AttestationSubject readSubject(AuthorizationDetailContext context) {
@@ -195,6 +228,34 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         return AttestationSubject.empty();
     }
 
+    /**
+     * The authenticated principal's {@code sub}. PingFederate's {@code AuthorizationDetailContext} has no
+     * resource-owner accessor (verified through SDK 13.0.0.3), so we look for it out-of-band: a request
+     * attribute a future authn hook may set ({@link #RESOURCE_OWNER_ATTRIBUTE}), else the {@code login_hint}
+     * the front-end BFF asserts for its interactively-authenticated user. Returns {@code null} if neither is
+     * present, in which case the builder falls back to the attestation subject / client id.
+     */
+    private String readResourceOwner(AuthorizationDetailContext context) {
+        try {
+            if (context != null) {
+                HttpServletRequest request = context.getRequest();
+                if (request != null) {
+                    Object attr = request.getAttribute(RESOURCE_OWNER_ATTRIBUTE);
+                    if (attr != null && !String.valueOf(attr).isBlank()) {
+                        return String.valueOf(attr);
+                    }
+                    String hint = request.getParameter("login_hint");
+                    if (hint != null && !hint.isBlank()) {
+                        return hint;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.log(Level.WARNING, "could not read resource owner from request", e);
+        }
+        return null;
+    }
+
     private static void addText(GuiConfigDescriptor gui, String name, String label, String defaultValue, boolean required) {
         TextFieldDescriptor field = new TextFieldDescriptor(name, label);
         field.setDefaultValue(defaultValue);
@@ -208,6 +269,34 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         CheckBoxFieldDescriptor field = new CheckBoxFieldDescriptor(name, label);
         field.setDefaultValue(defaultValue);
         gui.addField(field);
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String v : values) {
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
+    }
+
+    private static String asString(Object o) {
+        if (o == null) {
+            return null;
+        }
+        String s = String.valueOf(o);
+        return s.isBlank() ? null : s;
+    }
+
+    private static void line(StringBuilder sb, String label, Object value) {
+        if (value != null && !String.valueOf(value).isBlank()) {
+            sb.append(label).append(": ").append(value).append('\n');
+        }
+    }
+
+    private static String prettyLabel(String key) {
+        String s = key.replace('_', ' ').trim();
+        return s.isEmpty() ? key : Character.toUpperCase(s.charAt(0)) + s.substring(1);
     }
 
     private static int parseInt(String value, int fallback) {

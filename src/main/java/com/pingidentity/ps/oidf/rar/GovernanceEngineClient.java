@@ -29,8 +29,9 @@ public final class GovernanceEngineClient {
         this.mapper = mapper;
     }
 
-    public DecisionResponse decide(String type, Map<String, Object> detail, AttestationSubject subject, String fallbackClientId) throws IOException {
-        return decide(requestBuilder.build(type, detail, subject, fallbackClientId));
+    public DecisionResponse decide(String type, Map<String, Object> detail, AttestationSubject subject,
+                                   String resourceOwner, String fallbackClientId) throws IOException {
+        return decide(requestBuilder.build(type, detail, subject, resourceOwner, fallbackClientId));
     }
 
     public DecisionResponse decide(DecisionRequest request) throws IOException {

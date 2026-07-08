@@ -32,14 +32,16 @@ class GovernanceEngineRequestBuilderTest {
         AttestationSubject subject = new AttestationSubject("agent-123", "https://rp.example.com",
                 entitlement, Map.of("environment", "demo"), "thumb-xyz");
 
-        DecisionRequest req = builder.build("payment_initiation", detail, subject, "fallback-client");
+        DecisionRequest req = builder.build("payment_initiation", detail, subject, null, "fallback-client");
 
         assertEquals("idpartners.authorization_details.payment_initiation", req.getDomain());
         assertEquals("Authorization", req.getService());
         assertEquals("authorize", req.getAction());
 
         Map<String, Object> attrs = req.getAttributes();
+        // No resource owner supplied -> the attestation subject is the UserID (and not duplicated as actor).
         assertEquals("agent-123", attrs.get("UserID"));
+        assertFalse(attrs.containsKey("actor"));
         assertEquals("https://rp.example.com", attrs.get("client_id"));
         assertEquals("[\"initiate\"]", attrs.get("idp.payment_initiation.actions"));
         assertEquals("Acme", attrs.get("idp.payment_initiation.creditorName"));
@@ -54,7 +56,33 @@ class GovernanceEngineRequestBuilderTest {
     @Test
     void fallsBackToClientIdForSubjectWhenAttestationEmpty() {
         DecisionRequest req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                AttestationSubject.empty(), "fallback-client");
+                AttestationSubject.empty(), null, "fallback-client");
         assertEquals("fallback-client", req.getAttributes().get("UserID"));
+    }
+
+    @Test
+    void resourceOwnerBecomesUserIdAndAttestationSubjectIsTheActor() {
+        // The authenticated principal (e.g. the signed-in user consenting to a payment) is the UserID; the
+        // attestation subject (the delegated agent) is recorded as 'actor' — RFC 8693 delegation, not
+        // impersonation. This is the fix for PF's AuthorizationDetailContext exposing no resource owner.
+        AttestationSubject agent = new AttestationSubject("payments-agent", "https://rp.example.com",
+                List.of(), Map.of(), null);
+        DecisionRequest req = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
+                agent, "alice", "northwind-webapp");
+        Map<String, Object> attrs = req.getAttributes();
+        assertEquals("alice", attrs.get("UserID"));
+        assertEquals("payments-agent", attrs.get("actor"));
+        assertEquals("https://rp.example.com", attrs.get("client_id"));
+    }
+
+    @Test
+    void resourceOwnerBecomesUserIdWhenNoAttestation() {
+        // Browser payment-consent flow: no attestation present, so without the fix UserID would degrade to
+        // the OAuth client id. With the resource owner threaded through, UserID is correctly the principal.
+        DecisionRequest req = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
+                AttestationSubject.empty(), "alice", "northwind-webapp");
+        Map<String, Object> attrs = req.getAttributes();
+        assertEquals("alice", attrs.get("UserID"));
+        assertFalse(attrs.containsKey("actor"));
     }
 }

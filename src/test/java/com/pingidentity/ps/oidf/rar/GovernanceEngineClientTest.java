@@ -47,7 +47,7 @@ class GovernanceEngineClientTest {
     @Test
     void sendsSecretHeaderAndParsesPermit() throws Exception {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":\"PERMIT\",\"authorised\":true}"));
-        DecisionResponse r = client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), "client-1");
+        DecisionResponse r = client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "client-1");
 
         assertTrue(r.isPermit());
         assertEquals("s3cret", t.headers.get("CLIENT-TOKEN"));
@@ -59,13 +59,13 @@ class GovernanceEngineClientTest {
     @Test
     void nonPermitIsParsedAsDeny() throws Exception {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":\"DENY\",\"authorised\":false}"));
-        assertFalse(client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), "client-1").isPermit());
+        assertFalse(client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "client-1").isPermit());
     }
 
     @Test
     void nonSuccessStatusThrows() {
         StubTransport t = new StubTransport(new HttpTransport.Response(500, "boom"));
         assertThrows(IOException.class,
-                () -> client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), "client-1"));
+                () -> client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "client-1"));
     }
 }
