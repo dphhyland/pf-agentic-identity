@@ -1,0 +1,7 @@
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+generated.tf
+crash.log
+# keep .terraform.lock.hcl (pins provider versions)
