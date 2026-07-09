@@ -1,0 +1,10 @@
+# Secrets — NEVER commit. Stage locally before `railway up`.
+overlay/
+*.lic
+
+# Build outputs / config artifact — staged into the context, not versioned here.
+#   *.war, *.jar         <- `mvn -q package` outputs of this repo
+#   data.zip             <- terraform/ Phase-2 configArchive export (encrypted, but large)
+*.war
+*.jar
+data.zip
