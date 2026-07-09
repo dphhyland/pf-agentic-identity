@@ -43,5 +43,13 @@ RUN printf '\noidf.mock.attesters=/opt/out/instance/server/default/conf/oidf-moc
 # presentation that withholds them (external / unknown profile) is rejected (insufficient_disclosure).
 RUN printf '\noidf.attestation.required.claims=workload\n' >> /opt/staging/instance/bin/run.properties.subst.default
 
+# Surface the federation plugin's DEBUG resolve/fetch lines (fetchEntityStatement /
+# fetchSubordinateStatement / chain walk in HttpTrustControllerGateway + TrustChainValidator) so the demo's
+# activity panel shows the AS resolving the entity statement + walking the chain — not just the final
+# "Automatically registered" line. Scoped to the module's package; the rest of PF stays at INFO.
+RUN CONF="$(find /opt -path '*server/default/conf/log4j2.xml' 2>/dev/null | head -1)"; echo "log4j2 = $CONF"; \
+    sed -i 's#</Loggers>#    <Logger name="com.pingidentity.ps.oidf" level="DEBUG" />\n    </Loggers>#' "$CONF" \
+    && grep -c 'com.pingidentity.ps.oidf' "$CONF"
+
 USER 9031:0
 # Stock entrypoint: the drop-in-deployer imports data.zip during boot.
