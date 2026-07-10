@@ -14,4 +14,11 @@ class AttestationMetadataConfigTest {
         assertTrue(defaults.tokenEndpointAuthMethodsSupported().contains("attest_jwt_client_auth"));
         assertTrue(defaults.tokenEndpointAuthMethodsSupported().contains("attest_jwt_client_auth_dpop"));
     }
+
+    @Test
+    void defaultsAdvertiseBothPopMethods() {
+        AttestationMetadataConfig defaults = AttestationMetadataConfig.defaults();
+        assertEquals(java.util.List.of("attestation_pop_jwt", "dpop_combined"),
+                defaults.clientAttestationPopMethodsSupported());
+    }
 }

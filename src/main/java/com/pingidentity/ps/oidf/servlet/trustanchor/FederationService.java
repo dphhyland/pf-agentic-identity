@@ -51,6 +51,11 @@ final class FederationService {
         openidProvider.put("client_attestation_signing_alg_values_supported", attestationMetadata.clientAttestationSigningAlgValuesSupported());
         openidProvider.put("client_attestation_pop_signing_alg_values_supported", attestationMetadata.clientAttestationPopSigningAlgValuesSupported());
         openidProvider.put("dpop_signing_alg_values_supported", attestationMetadata.dpopSigningAlgValuesSupported());
+        List<String> popMethods = attestationMetadata.clientAttestationPopMethodsSupported();
+        if (!popMethods.isEmpty()) {
+            // draft-10 §8: the array MUST NOT be empty when the parameter is present
+            openidProvider.put("client_attestation_pop_methods_supported", popMethods);
+        }
         if (attestationMetadata.challengeEndpointEnabled()) {
             openidProvider.put("challenge_endpoint", oidcIssuer + "/federation/attestation-challenge");
         }
