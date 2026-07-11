@@ -1,0 +1,94 @@
+# Build-in-CI + deploy for pingfederate-runtime (the AS). SCAFFOLD — not yet verified; it needs the
+# provisioning below wired first (that part is the human's, not automatable here). Once provisioned,
+# PF becomes one push away, reproducibly, with NOTHING binary or secret in git.
+#
+# ── What you must provision (repo → Settings → Secrets and variables → Actions) ────────────────────
+#   PF_INTEGRATION_DEPLOY_KEY   read deploy key (SSH) for the PRIVATE github.com/dphhyland/pf-integration
+#   PF_JWK                       the PF master key (pf.jwk) contents        — decrypts data.zip
+#   PF_SYSTEM_KEYS               pingfederate-system-keys.xml contents
+#   PF_LICENSE                   pingfederate.lic contents
+#   RAILWAY_TOKEN_STAGING / _PROD   (already exist)
+# And commit the non-secret, safe artifacts into deploy/pingfederate/ (a follow-up):
+#   data.staging.zip / data.production.zip   (PF config archive — encrypted WITH pf.jwk, safe to version)
+#   oidf-mock-attesters.json, overlay/ (minus pf.jwk/system-keys), template/   (already partly present)
+#
+# ── Why no separate licensed-jar host is needed ────────────────────────────────────────────────────
+# The `provided` dep pf-protocolengine:13.0.0.3 AND the stock pf-runtime.war are EXTRACTED from the
+# pingidentity/pingfederate image the deploy already builds FROM (public pull; running it needs a
+# license, extracting jars/wars does not). The carve-out builds oidf.jar + oidf.war directly
+# (maven-assembly); only pf-runtime.war is assembled (see build/assemble-pf-runtime-war.sh).
+name: Deploy PingFederate (build-in-CI) [scaffold]
+
+# SCAFFOLD: manual-trigger only until the secrets + deploy key above are provisioned (otherwise it
+# would fail on every deploy/pingfederate/ push). Once provisioned + a first run is verified, switch
+# `on:` to the push trigger below (kept here as the target), matching the other services.
+#   on:
+#     push:
+#       branches: [sd-jwt-rar-paz, main]
+#       paths: [deploy/pingfederate/**, .github/workflows/deploy-pingfederate.yml]
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: staging or production
+        required: true
+        default: staging
+
+env:
+  PF_IMAGE: pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
+  JOSE4J: org.bitbucket.b_c:jose4j:0.9.6
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4                       # this repo (deploy/pingfederate context)
+      - uses: actions/checkout@v4                       # the private module source
+        with:
+          repository: dphhyland/pf-integration
+          ssh-key: ${{ secrets.PF_INTEGRATION_DEPLOY_KEY }}
+          path: pf-integration
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '17', cache: maven }
+
+      - name: extract licensed artifacts from the PF image (provided jar + stock war)
+        run: |
+          docker create --name pf "$PF_IMAGE"
+          # NOTE paths inside the image to CONFIRM on first run (PF server lib + deployed runtime war):
+          docker cp pf:/opt/out/instance/server/default/lib/. pf-lib/ 2>/dev/null || \
+            docker cp pf:/opt/server/server/default/lib/. pf-lib/
+          docker cp pf:/opt/out/instance/server/default/deploy/pf-runtime.war stock-pf-runtime.war 2>/dev/null || \
+            docker cp pf:/opt/server/server/default/deploy/pf-runtime.war stock-pf-runtime.war
+          docker rm pf
+          PF_PE=$(ls pf-lib/pf-protocolengine*.jar | head -1)
+          mvn -q install:install-file -Dfile="$PF_PE" -DgroupId=pingfederate \
+            -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar
+
+      - name: build the module (carve-out → oidf.jar + oidf.war)
+        working-directory: pf-integration
+        run: mvn -q -DskipTests package
+
+      - name: assemble pf-runtime.war (stock + module jar + jose4j)
+        run: |
+          mvn -q dependency:get -Dartifact="$JOSE4J"
+          JOSE4J_JAR=$(find ~/.m2 -name 'jose4j-0.9.6.jar' | head -1)
+          bash deploy/pingfederate/build/assemble-pf-runtime-war.sh \
+            stock-pf-runtime.war pf-integration/target/oidf.jar "$JOSE4J_JAR" \
+            deploy/pingfederate/pf-runtime.war
+          cp pf-integration/target/oidf.war deploy/pingfederate/oidf.war
+          cp "$JOSE4J_JAR" deploy/pingfederate/jose4j-0.9.6.jar
+
+      - name: materialise secrets + per-env config (never committed)
+        working-directory: deploy/pingfederate
+        run: |
+          mkdir -p overlay
+          printf '%s' "${{ secrets.PF_JWK }}"        > overlay/pf.jwk
+          printf '%s' "${{ secrets.PF_SYSTEM_KEYS }}" > overlay/pingfederate-system-keys.xml
+          printf '%s' "${{ secrets.PF_LICENSE }}"     > pingfederate.lic
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then cp data.production.zip data.zip; else cp data.staging.zip data.zip; fi
+
+      - name: railway up → pingfederate-runtime
+        working-directory: deploy/pingfederate
+        env:
+          RAILWAY_TOKEN: ${{ github.ref == 'refs/heads/main' && secrets.RAILWAY_TOKEN_PROD || secrets.RAILWAY_TOKEN_STAGING }}
+        run: railway up --ci --service pingfederate-runtime
