@@ -1,0 +1,46 @@
+# Push-to-deploy for fedhost (static OpenID Federation entity host), config-as-code.
+# Fires only when deploy/fedhost/** changes. Applies vars.<env>.env (which selects content.<env>.json),
+# then `railway up`s. sd-jwt-rar-paz→staging (service `fedhost`), main→production (service `fedhost-prod`).
+name: Deploy fedhost (entity host)
+
+on:
+  push:
+    branches: [sd-jwt-rar-paz, main]
+    paths:
+      - deploy/fedhost/**
+      - .github/workflows/deploy-fedhost.yml
+
+jobs:
+  staging:
+    if: github.ref == 'refs/heads/sd-jwt-rar-paz'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: deploy/fedhost } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g @railway/cli
+      - name: apply config + deploy → fedhost (staging)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+          SERVICE: fedhost
+          VARS: vars.staging.env
+        run: |
+          setargs=(); while IFS= read -r l; do [[ "$l" =~ ^[[:space:]]*# || -z "${l// }" ]] && continue; setargs+=(--set "$l"); done < "$VARS"
+          railway variables --service "$SERVICE" "${setargs[@]}"
+          railway up --ci --service "$SERVICE"
+
+  production:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: deploy/fedhost } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g @railway/cli
+      - name: apply config + deploy → fedhost-prod (production)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+          SERVICE: fedhost-prod
+          VARS: vars.production.env
+        run: |
+          setargs=(); while IFS= read -r l; do [[ "$l" =~ ^[[:space:]]*# || -z "${l// }" ]] && continue; setargs+=(--set "$l"); done < "$VARS"
+          railway variables --service "$SERVICE" "${setargs[@]}"
+          railway up --ci --service "$SERVICE"

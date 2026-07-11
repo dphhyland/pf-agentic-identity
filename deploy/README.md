@@ -32,7 +32,7 @@ deploy/<service>/
 |---|---|---|
 | `pf-demo-ui` | demo UI | ✅ CI (`deploy-demo.yml`) — pre-existing |
 | **`lighthouse`** | trust anchor / resolver (go-oidfed) | ✅ **migrated** — `deploy/lighthouse/` + `deploy-lighthouse.yml` |
-| `fedhost` | serves entity configs (public JWTs) | ⏳ next — no secrets, straightforward |
+| **`fedhost`** | serves entity configs (public JWTs) | ✅ **migrated** — `deploy/fedhost/` + `deploy-fedhost.yml`; per-env content via `FEDHOST_CONTENT` (content.{staging,production}.json) |
 | `pingfederate-runtime` | the AS (PF 13 + module) | ⏳ hard — has secrets (`pf.jwk`, license) + big wars; `deploy/pingfederate/` has the Dockerfile, needs the artifacts + secret handling |
 | `Redis` | challenge/replay store | managed DB — provisioned, `OIDF_REDIS_URL` referenced |
 | `openbao` | secrets vault | dormant, deferred (has secrets) |
