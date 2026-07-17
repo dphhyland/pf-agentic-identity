@@ -24,6 +24,8 @@ func main() {
 	var (
 		policyPath = flag.String("policy", envOr("PDP_POLICY", "policy/openbanking.yaml"), "path to the policy YAML")
 		entPath    = flag.String("entitlements", envOr("PDP_ENTITLEMENTS", "policy/entitlements.yaml"), "path to the entitlements YAML standing in for the system of record")
+		accountsAPI = flag.String("accounts-api", os.Getenv("PDP_ACCOUNTS_API_URL"),
+			"base URL of a bank accounts API to read entitlement from; when set it replaces the entitlements YAML with the real system of record")
 		addr       = flag.String("addr", ":"+envOr("PORT", "9090"), "listen address")
 		issuer     = flag.String("issuer", os.Getenv("PDP_ISSUER"), "public base URL advertised in discovery metadata")
 		exposeEnt  = flag.Bool("expose-entitlements", envOr("PDP_EXPOSE_ENTITLEMENTS", "false") == "true",
@@ -38,11 +40,22 @@ func main() {
 	log.Printf("[INFO] loaded policy %q: %d resource types, %d actions",
 		policy.Name, len(policy.Resources), len(policy.Actions))
 
-	entitlements, err := pdp.LoadEntitlements(*entPath)
-	if err != nil {
-		log.Fatalf("[FATAL] %v", err)
+	// Where the PDP looks up what the subject actually holds. The YAML stands in for a system
+	// of record; -accounts-api IS one. Prefer the real thing when it is configured: a fixture
+	// that has to be hand-synced with the bank stops being true the first time anyone opens an
+	// account, and an entitlement answer that is stale is worse than no answer.
+	var entitlements pdp.EntitlementSource
+	if *accountsAPI != "" {
+		entitlements = pdp.NewAccountsAPIEntitlements(*accountsAPI)
+		log.Printf("[INFO] entitlements read from the accounts API at %s", *accountsAPI)
+	} else {
+		static, err := pdp.LoadEntitlements(*entPath)
+		if err != nil {
+			log.Fatalf("[FATAL] %v", err)
+		}
+		entitlements = static
+		log.Printf("[INFO] loaded entitlements from %s", *entPath)
 	}
-	log.Printf("[INFO] loaded entitlements from %s", *entPath)
 	if *exposeEnt {
 		log.Printf("[WARNING] /debug/entitlements is enabled. It lets anyone enumerate a " +
 			"subject's holdings and exists only to make the demo legible. Never enable this in production.")
