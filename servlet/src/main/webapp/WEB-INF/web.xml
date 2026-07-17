@@ -74,4 +74,33 @@
     <url-pattern>/.well-known/grant-management-configuration</url-pattern>
   </servlet-mapping>
 
+  <!--
+    The MCP add-on: the same Grant Management operations as JSON-RPC tools, so an AI
+    agent can ask "may I read this account?" before it acts. It holds no credential of
+    its own. Each call is authenticated with the agent's own bearer token, so the act
+    chain that identifies the agent is preserved rather than bypassed.
+
+    Read-only: evaluate and describe. Revoke is deliberately not exposed to agents.
+    (Reminder: a double hyphen is illegal inside an XML comment and silently takes the
+    whole context down.)
+  -->
+  <servlet>
+    <servlet-name>mcp</servlet-name>
+    <servlet-class>au.com.idpartners.gm.servlet.McpServlet</servlet-class>
+    <init-param>
+      <param-name>pdpUrl</param-name>
+      <param-value>http://host.docker.internal:9099</param-value>
+    </init-param>
+    <init-param>
+      <param-name>audience</param-name>
+      <param-value>https://gm-api.demo/grants</param-value>
+    </init-param>
+    <load-on-startup>1</load-on-startup>
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>mcp</servlet-name>
+    <url-pattern>/mcp</url-pattern>
+  </servlet-mapping>
+
 </web-app>

@@ -7,7 +7,11 @@ GET    https://localhost:9131/gm-api/grants/{grantId}            query    (spec 
 DELETE https://localhost:9131/gm-api/grants/{grantId}            revoke   (spec 6.3)
 POST   https://localhost:9131/gm-api/grants/{grantId}/evaluate   evaluate (spec 6.7, proposed)
 GET    https://localhost:9131/gm-api/.well-known/grant-management-configuration
+POST   https://localhost:9131/gm-api/mcp                          MCP tools for AI agents
 ```
+
+The MCP add-on lets an AI agent ask "may I do this?" before acting, authenticated with
+the agent's own delegated token. See [`docs/MCP.md`](../docs/MCP.md).
 
 **PingFederate implements none of the Grant Management API itself** — no §7.1 metadata,
 no §6 endpoints, and it ignores the §5 `grant_management_action` parameter outright

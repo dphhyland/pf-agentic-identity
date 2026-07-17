@@ -80,7 +80,8 @@ curl -X POST https://demo-production-0792.up.railway.app/api/grants/grant-alice-
 | `docs/INTEGRATING.md` | **How to call this from your project** |
 | `docs/pingfederate-gm-api-gaps.md` | What PingFederate does and does not support, and why |
 | `examples/` | Runnable clients: curl, Go, Java |
-| `servlet/` | The API as a PingFederate servlet (query, revoke, evaluate, metadata) |
+| `servlet/` | The API as a PingFederate servlet (query, revoke, evaluate, metadata) + MCP tools for agents |
+| `docs/MCP.md` | The MCP add-on: an AI agent asking before it acts |
 | `api/` | The Grant Evaluation API: `POST /grants/{id}/evaluate`, plus grant CRUD |
 | `authzen/` | AuthZEN 1.0 PDP client (discovery, evaluation, search) |
 | `middleware/` | Bearer token validation (JWKS), scopes, rate limiting, CSRF |
