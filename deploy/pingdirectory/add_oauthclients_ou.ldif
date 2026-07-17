@@ -1,0 +1,5 @@
+dn: ou=oauthclients,dc=example,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: oauthclients
+description: Organizational Unit for OAuth clients

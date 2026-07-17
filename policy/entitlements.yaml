@@ -1,0 +1,35 @@
+# Subject entitlements — what each person actually holds.
+#
+# This stands in for the bank's system of record (PingDirectory, or the core
+# banking platform). It is deliberately NOT derived from any OAuth grant: it is
+# the other half of the authority, and the PDP looks it up rather than trusting
+# the caller to assert it.
+#
+# subject -> resource type -> resource id -> the rights held over it
+#
+# Read this next to the consents in cmd/demo. The gaps between the two are the
+# demo: Alice consented to share 222 and 444, but she no longer holds 222 at all,
+# and she only has view rights over 444.
+
+subjects:
+  alice:
+    account:
+      # Alice's own account: full rights, and the consent covers reads.
+      "111": [read_balance, read_transactions, initiate_payment]
+
+      # 222 is absent on purpose. Alice consented to share it, then closed it.
+      # The consent still names it; the authority behind it is gone.
+
+      # The business account. Alice is a signatory with view rights only, so a
+      # consent to move money from it was never worth anything.
+      "444": [read_balance]
+    payment:
+      "pmt-1": [initiate_payment]
+
+  bob:
+    account:
+      "555": [read_balance]
+
+  carol:
+    account:
+      "777": [read_balance]

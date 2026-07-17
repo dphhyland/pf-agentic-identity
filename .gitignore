@@ -1,0 +1,32 @@
+# Secrets — never commit
+.env
+*.pem
+*.key
+
+# Build output
+/bin/
+/dist/
+
+# Logs
+*.log
+logs/
+nohup.out
+
+# Test/coverage artefacts
+coverage.out
+coverage.html
+
+# OS
+.DS_Store
+
+# Terraform state and generated secrets
+*.tfvars
+.terraform/
+*.tfstate
+*.tfstate.backup
+*.plan
+
+# Java servlet build output. lib/ jars are copied out of a running PingFederate
+# (Ping-licensed) and must never be committed — see servlet/README.md.
+servlet/target/
+servlet/lib/*.jar

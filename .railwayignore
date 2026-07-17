@@ -1,0 +1,10 @@
+.git
+.env
+*.log
+logs/
+bin/
+dist/
+coverage.out
+coverage.html
+.DS_Store
+deploy/pingfederate/*.zip

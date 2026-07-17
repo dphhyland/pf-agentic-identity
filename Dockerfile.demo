@@ -1,0 +1,19 @@
+# Demo UI for the Grant Evaluation API
+FROM golang:1.23-alpine AS build
+WORKDIR /src
+
+COPY go.mod go.sum ./
+RUN go mod download
+
+COPY . .
+# The UI is embedded into the binary via go:embed, so the image needs no assets.
+RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-w -s" -o /out/demo ./cmd/demo
+
+FROM alpine:3.20
+RUN apk --no-cache add ca-certificates
+WORKDIR /app
+
+COPY --from=build /out/demo /app/demo
+
+EXPOSE 8081
+CMD ["/app/demo"]

@@ -1,0 +1,5 @@
+dn: ou=access grant,dc=example,dc=com
+objectClass: top
+objectClass: organizationalUnit
+ou: access grant
+description: Organizational Unit for storing access grants

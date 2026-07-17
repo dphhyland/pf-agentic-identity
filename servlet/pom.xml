@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>au.com.idpartners</groupId>
+  <artifactId>gm-api</artifactId>
+  <version>1.0.0</version>
+  <packaging>war</packaging>
+  <name>Grant Evaluation API (PingFederate servlet)</name>
+
+  <description>
+    The Grant Evaluation API deployed inside PingFederate. Reads grants in-process via
+    AccessGrantManagerAccessor and validates tokens against PF's own signing keys, so
+    none of the sidecar's seams exist: no service account, no TLS trust, no JWKS fetch.
+  </description>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <pingfederate.version>13.0.3</pingfederate.version>
+  </properties>
+
+  <dependencies>
+    <!-- All provided by PingFederate at runtime. Bundling any of them would break
+         linkage: PF isolates each deploy-dir artifact on its own classloader, so a
+         second copy of a PF class would not be the same class. -->
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>pingfederate-sdk</artifactId>
+      <version>${pingfederate.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>servlet-api</artifactId>
+      <version>4.0.9</version>
+      <scope>provided</scope>
+    </dependency>
+    <!-- jose4j: PF's own JWT library, and the type JwksEndpointKeyAccessor returns.
+         Using PF's copy means the JsonWebKeySet we get back is the class we expect. -->
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>jose4j</artifactId>
+      <version>1.x</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>2.x</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>jackson-core</artifactId>
+      <version>2.x</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>jackson-annotations</artifactId>
+      <version>2.x</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>commons-lang3</artifactId>
+      <version>3.x</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>local.pingfederate</groupId>
+      <artifactId>commons-logging</artifactId>
+      <version>1.x</version>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>5.10.2</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <finalName>gm-api</finalName>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-war-plugin</artifactId>
+        <version>3.4.0</version>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.2.5</version>
+      </plugin>
+    </plugins>
+  </build>
+</project>

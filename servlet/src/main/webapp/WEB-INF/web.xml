@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The Grant Management API, deployed into PingFederate's server/default/deploy.
+
+  PF's PFWebAppProvider makes the WAR name the context path, so gm-api.war serves
+  /gm-api on the runtime port (9031):
+
+      GET    /gm-api/grants/{grantId}                     query    (spec 6.2)
+      DELETE /gm-api/grants/{grantId}                     revoke   (spec 6.3)
+      POST   /gm-api/grants/{grantId}/evaluate            evaluate (spec 6.7, proposed)
+      GET    /gm-api/.well-known/grant-management-configuration    metadata (spec 7.1)
+
+  There is no authentication config here on purpose. The servlet verifies the bearer
+  token itself, against PingFederate's own signing keys via JwksEndpointKeyAccessor.
+  A container-managed constraint would be a second, weaker answer to the same question.
+
+  Servlet 3.1 matches what PingFederate's own WARs declare (see pf-ws.war). Jetty EE8
+  parses this descriptor at deploy time and refuses the context if it is not
+  well-formed, so keep it boring. Note that a double hyphen is illegal inside an XML
+  comment and will silently take the whole context down.
+-->
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+         metadata-complete="false"
+         version="3.1">
+
+  <display-name>Grant Management API</display-name>
+
+  <servlet>
+    <servlet-name>grants</servlet-name>
+    <servlet-class>au.com.idpartners.gm.servlet.GrantsServlet</servlet-class>
+
+    <!--
+      The AuthZEN PDP. Any conformant PDP works: the bundled demo PDP, or
+      PingAuthorize behind its AuthZEN facade. Override per deployment.
+    -->
+    <init-param>
+      <param-name>pdpUrl</param-name>
+      <param-value>http://host.docker.internal:9099</param-value>
+    </init-param>
+    <!--
+      The aud this API answers to: the access token manager's Audience Claim Value.
+      Leave unset only if you accept any token this server signed, whoever it was for.
+    -->
+    <init-param>
+      <param-name>audience</param-name>
+      <param-value>https://gm-api.demo/grants</param-value>
+    </init-param>
+    <init-param>
+      <param-name>pdpTimeoutMs</param-name>
+      <param-value>10000</param-value>
+    </init-param>
+
+    <load-on-startup>1</load-on-startup>
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>grants</servlet-name>
+    <url-pattern>/grants/*</url-pattern>
+  </servlet-mapping>
+
+  <servlet>
+    <servlet-name>metadata</servlet-name>
+    <servlet-class>au.com.idpartners.gm.servlet.MetadataServlet</servlet-class>
+    <init-param>
+      <param-name>issuer</param-name>
+      <param-value>https://localhost:9031</param-value>
+    </init-param>
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>metadata</servlet-name>
+    <url-pattern>/.well-known/grant-management-configuration</url-pattern>
+  </servlet-mapping>
+
+</web-app>
