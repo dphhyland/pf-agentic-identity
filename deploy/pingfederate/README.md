@@ -20,8 +20,15 @@ The Dockerfile `COPY`s these — place them here first (git-ignored; `.railwayig
 | `oidf.war`, `pf-oidf-modules.jar` | `mvn -q package` in this repo |
 | `jose4j-0.9.6.jar` | module runtime dep |
 | `oidf-mock-attesters.json` | DEV attester trust (issuer → public JWK) |
-| `overlay/` + `pingfederate.lic` | **secrets** — from `idp-paz-authzen-adapter/demo/pingfederate/` (master key + license) |
+| `overlay/` | **secret** — master key from `idp-paz-authzen-adapter/demo/pingfederate/` (git-ignored) |
 | `data.zip` | `terraform/` Phase-2 export (OIDF-only configArchive) |
+
+> **Licensing is DevOps-fetched — no `pingfederate.lic` is baked or staged.** The image sets
+> `PING_IDENTITY_ACCEPT_EULA=YES`; the base image's boot hook pulls a fresh evaluation license when
+> `PING_IDENTITY_DEVOPS_USER` + `PING_IDENTITY_DEVOPS_KEY` are present as **Railway service vars**
+> (already set on `pingfederate-runtime`) / **GitHub Actions secrets** (applied by the deploy workflow).
+> Non-secret licensing config lives in `vars.<env>.env`. Trade-off: DevOps eval licenses are short-lived
+> (~7 days) and re-fetched only at container start.
 
 ```sh
 # from repo root, after staging the artifacts above and running terraform Phase 2:

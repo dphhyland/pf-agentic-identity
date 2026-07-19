@@ -11,13 +11,24 @@
 #   overlay/pf.jwk                   <- prod master key           (SECRET, git-ignored)
 #   overlay/pingfederate-system-keys.xml                          (SECRET, git-ignored)
 #   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
-#   pingfederate.lic                 <- PF eval license           (SECRET, git-ignored)
 #   oidf.war, pf-oidf-modules.jar    <- `mvn -q package` outputs of this repo
 #   jose4j-0.9.6.jar                 <- runtime dep of the module
 #   oidf-mock-attesters.json         <- DEV attester trust (issuer -> public JWK)
+#
+# Licensing is DevOps-fetched — NO pingfederate.lic is baked. The base image's boot hook
+# 17-check-license.sh pulls a fresh evaluation license when these RUNTIME env vars are set (as Railway
+# service vars / GitHub Actions secrets — see vars.<env>.env + the deploy workflow):
+#   PING_IDENTITY_ACCEPT_EULA=YES            (baked below; non-secret)
+#   PING_IDENTITY_DEVOPS_USER=<devops email> (SECRET — never in git)
+#   PING_IDENTITY_DEVOPS_KEY=<devops key>    (SECRET — never in git)
+# Trade-off: DevOps eval licenses are short-lived (~7 days) and re-fetched only at container start.
 
 FROM pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
 USER root
+
+# Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that
+# actually authenticate the fetch are supplied as runtime secrets, never baked).
+ENV PING_IDENTITY_ACCEPT_EULA=YES
 
 # Config restore via PF's native drop-in-deployer: the DataDeployer timer imports data.zip on boot
 # (no admin API, no license-acceptance gate). ForceImport is set in the overlay below; the master-key
@@ -26,7 +37,7 @@ COPY --chown=9031:0 data.zip /opt/in/instance/server/default/data/drop-in-deploy
 COPY --chown=9031:0 overlay/pf.jwk /opt/in/instance/server/default/data/pf.jwk
 COPY --chown=9031:0 overlay/pingfederate-system-keys.xml /opt/in/instance/server/default/data/pingfederate-system-keys.xml
 COPY --chown=9031:0 overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml /opt/in/instance/server/default/data/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
-COPY --chown=9031:0 pingfederate.lic /opt/in/instance/server/default/conf/pingfederate.lic
+# NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
 
 # The OIDF attestation/federation module + its runtime dep. (No pf-rar-paz-plugin — that's agentic.)
 COPY --chown=9031:0 oidf.war /opt/in/instance/server/default/deploy/oidf.war
