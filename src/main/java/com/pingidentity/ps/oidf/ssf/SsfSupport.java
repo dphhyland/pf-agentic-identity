@@ -25,6 +25,8 @@ public final class SsfSupport {
     private static volatile SsfConfiguration configuration;
     private static volatile SsfStore store;
     private static volatile SetMinter minter;
+    private static volatile StreamManagementService streamService;
+    private static volatile ReceiverAuthenticator receiverAuthenticator;
     private static volatile StoreFactory storeFactory;
 
     private SsfSupport() {
@@ -56,6 +58,17 @@ public final class SsfSupport {
             configuration = config;
             minter = new SetMinter(config.signingAlgorithm());
             store = selectStore(config);
+            streamService = new StreamManagementService(store, minter, config);
+        }
+    }
+
+    /**
+     * Install a receiver authenticator (tests inject a fake). If none is installed, {@link #receiverAuthenticator()}
+     * lazily builds a PF-introspection authenticator from configuration.
+     */
+    public static void installReceiverAuthenticator(ReceiverAuthenticator authenticator) {
+        synchronized (LOCK) {
+            receiverAuthenticator = authenticator;
         }
     }
 
@@ -98,12 +111,47 @@ public final class SsfSupport {
         return local;
     }
 
+    public static StreamManagementService streamService() {
+        StreamManagementService local = streamService;
+        if (local == null) {
+            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+        }
+        return local;
+    }
+
+    /** The receiver authenticator: an installed one (tests) or a lazily-built PF-introspection authenticator. */
+    public static ReceiverAuthenticator receiverAuthenticator() {
+        ReceiverAuthenticator local = receiverAuthenticator;
+        if (local == null) {
+            synchronized (LOCK) {
+                if (receiverAuthenticator == null) {
+                    receiverAuthenticator = buildIntrospectionAuthenticator(configuration());
+                }
+                local = receiverAuthenticator;
+            }
+        }
+        return local;
+    }
+
+    private static ReceiverAuthenticator buildIntrospectionAuthenticator(SsfConfiguration cfg) {
+        if (!cfg.receiverAuthConfigured()) {
+            LOGGER.warn((Object) "SSF receiver auth: introspection client not configured; all receiver "
+                    + "requests will be rejected until introspectionClientId/Secret are set");
+            return token -> AuthContext.inactive();
+        }
+        return PfIntrospectionReceiverAuthenticator.forEndpoint(
+                cfg.introspectionEndpoint(), cfg.introspectionClientId(),
+                cfg.introspectionClientSecret(), cfg.introspectionInsecureTls());
+    }
+
     /** Test hook: reset all singletons so a fresh {@link #configure} takes effect. */
     static void resetForTests() {
         synchronized (LOCK) {
             configuration = null;
             store = null;
             minter = null;
+            streamService = null;
+            receiverAuthenticator = null;
             storeFactory = null;
         }
     }

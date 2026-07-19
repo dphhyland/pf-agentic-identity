@@ -52,6 +52,10 @@ public final class SsfConfiguration {
     private final int pollMaxEvents;
     private final long setTtlSeconds;
     private final String receiverScope;
+    private final String introspectionEndpoint;
+    private final String introspectionClientId;
+    private final String introspectionClientSecret;
+    private final boolean introspectionInsecureTls;
     private final List<String> defaultEventTypes;
     private final boolean verificationEventEnabled;
 
@@ -75,6 +79,10 @@ public final class SsfConfiguration {
         this.pollMaxEvents = b.pollMaxEvents;
         this.setTtlSeconds = b.setTtlSeconds;
         this.receiverScope = b.receiverScope;
+        this.introspectionEndpoint = b.introspectionEndpoint;
+        this.introspectionClientId = b.introspectionClientId;
+        this.introspectionClientSecret = b.introspectionClientSecret;
+        this.introspectionInsecureTls = b.introspectionInsecureTls;
         this.defaultEventTypes = (b.defaultEventTypes == null || b.defaultEventTypes.isEmpty())
                 ? DEFAULT_EVENT_TYPES : List.copyOf(b.defaultEventTypes);
         this.verificationEventEnabled = b.verificationEventEnabled;
@@ -102,6 +110,10 @@ public final class SsfConfiguration {
                     .pollMaxEvents(parseInt(config.getInitParameter("pollMaxEvents"), DEFAULT_POLL_MAX_EVENTS))
                     .setTtlSeconds(parseLong(config.getInitParameter("setTtlSeconds"), DEFAULT_SET_TTL_SECONDS))
                     .receiverScope(orDefault(config.getInitParameter("receiverScope"), DEFAULT_RECEIVER_SCOPE))
+                    .introspectionEndpoint(trimOrNull(config.getInitParameter("introspectionEndpoint")))
+                    .introspectionClientId(trimOrNull(config.getInitParameter("introspectionClientId")))
+                    .introspectionClientSecret(trimOrNull(config.getInitParameter("introspectionClientSecret")))
+                    .introspectionInsecureTls(parseBoolean(config.getInitParameter("introspectionInsecureTls"), false))
                     .defaultEventTypes(parseCommaSeparated(config.getInitParameter("defaultEventTypes")))
                     .verificationEventEnabled(parseBoolean(config.getInitParameter("verificationEventEnabled"), true));
             return b.build();
@@ -178,6 +190,29 @@ public final class SsfConfiguration {
 
     public String receiverScope() {
         return this.receiverScope;
+    }
+
+    /** Token introspection endpoint for receiver auth; defaults to {@code <issuer>/as/introspect.oauth2}. */
+    public String introspectionEndpoint() {
+        return this.introspectionEndpoint != null ? this.introspectionEndpoint
+                : this.issuer + "/as/introspect.oauth2";
+    }
+
+    public String introspectionClientId() {
+        return this.introspectionClientId;
+    }
+
+    public String introspectionClientSecret() {
+        return this.introspectionClientSecret;
+    }
+
+    public boolean introspectionInsecureTls() {
+        return this.introspectionInsecureTls;
+    }
+
+    /** True when the introspection client credentials needed for receiver auth are configured. */
+    public boolean receiverAuthConfigured() {
+        return this.introspectionClientId != null && !this.introspectionClientId.isBlank();
     }
 
     public List<String> defaultEventTypes() {
@@ -300,6 +335,10 @@ public final class SsfConfiguration {
         private int pollMaxEvents = DEFAULT_POLL_MAX_EVENTS;
         private long setTtlSeconds = DEFAULT_SET_TTL_SECONDS;
         private String receiverScope = DEFAULT_RECEIVER_SCOPE;
+        private String introspectionEndpoint;
+        private String introspectionClientId;
+        private String introspectionClientSecret;
+        private boolean introspectionInsecureTls;
         private List<String> defaultEventTypes;
         private boolean verificationEventEnabled = true;
 
@@ -390,6 +429,26 @@ public final class SsfConfiguration {
             if (v != null && !v.isBlank()) {
                 this.receiverScope = v;
             }
+            return this;
+        }
+
+        public Builder introspectionEndpoint(String v) {
+            this.introspectionEndpoint = v;
+            return this;
+        }
+
+        public Builder introspectionClientId(String v) {
+            this.introspectionClientId = v;
+            return this;
+        }
+
+        public Builder introspectionClientSecret(String v) {
+            this.introspectionClientSecret = v;
+            return this;
+        }
+
+        public Builder introspectionInsecureTls(boolean v) {
+            this.introspectionInsecureTls = v;
             return this;
         }
 

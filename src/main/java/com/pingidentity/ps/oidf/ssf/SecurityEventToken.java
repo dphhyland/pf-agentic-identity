@@ -32,7 +32,7 @@ public final class SecurityEventToken {
         this.audience = Objects.requireNonNull(b.audience, "aud");
         this.jti = Objects.requireNonNull(b.jti, "jti");
         this.issuedAt = b.issuedAt;
-        this.subjectId = Objects.requireNonNull(b.subjectId, "sub_id");
+        this.subjectId = b.subjectId; // optional — verification events (SSF §Verification) carry no sub_id
         this.eventType = Objects.requireNonNull(b.eventType, "eventType");
         this.eventPayload = b.eventPayload != null ? Map.copyOf(b.eventPayload) : Map.of();
         this.txn = b.txn;
@@ -73,7 +73,9 @@ public final class SecurityEventToken {
         claims.put("aud", this.audience);
         claims.put("iat", this.issuedAt);
         claims.put("jti", this.jti);
-        claims.put("sub_id", this.subjectId.toMap());
+        if (this.subjectId != null) {
+            claims.put("sub_id", this.subjectId.toMap());
+        }
         if (this.txn != null && !this.txn.isBlank()) {
             claims.put("txn", this.txn);
         }
