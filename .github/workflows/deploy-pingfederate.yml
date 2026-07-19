@@ -8,6 +8,7 @@
 #   PF_SYSTEM_KEYS               pingfederate-system-keys.xml contents
 #   PING_IDENTITY_DEVOPS_USER    Ping DevOps account email  — licensing (fetched at boot, no baked .lic)
 #   PING_IDENTITY_DEVOPS_KEY     Ping DevOps key            — licensing
+#   OIDF_SSF_INTROSPECTION_CLIENT_ID / _SECRET   (optional) PF client for SSF receiver-auth introspection
 #   RAILWAY_TOKEN_STAGING / _PROD   (already exist)
 # And commit the non-secret, safe artifacts into deploy/pingfederate/ (a follow-up):
 #   data.staging.zip / data.production.zip   (PF config archive — encrypted WITH pf.jwk, safe to version)
@@ -103,6 +104,12 @@ jobs:
           railway variables --service pingfederate-runtime --skip-deploys \
             --set "PING_IDENTITY_DEVOPS_USER=${{ secrets.PING_IDENTITY_DEVOPS_USER }}" \
             --set "PING_IDENTITY_DEVOPS_KEY=${{ secrets.PING_IDENTITY_DEVOPS_KEY }}"
+          # SSF receiver-auth introspection client (optional secrets — only set when provisioned)
+          if [ -n "${{ secrets.OIDF_SSF_INTROSPECTION_CLIENT_ID }}" ]; then
+            railway variables --service pingfederate-runtime --skip-deploys \
+              --set "OIDF_SSF_INTROSPECTION_CLIENT_ID=${{ secrets.OIDF_SSF_INTROSPECTION_CLIENT_ID }}" \
+              --set "OIDF_SSF_INTROSPECTION_CLIENT_SECRET=${{ secrets.OIDF_SSF_INTROSPECTION_CLIENT_SECRET }}"
+          fi
 
       - name: railway up → pingfederate-runtime
         working-directory: deploy/pingfederate
