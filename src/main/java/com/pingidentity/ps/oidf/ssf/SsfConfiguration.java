@@ -70,6 +70,10 @@ public final class SsfConfiguration {
     private final String receiverEndpointAuthToken;
     private final long receiverJwksCacheSeconds;
     private final boolean receiverInsecureTls;
+    private final String receiverPollUrl;
+    private final String receiverPollToken;
+    private final long receiverPollIntervalSeconds;
+    private final boolean receiverActionsEnabled;
 
     private SsfConfiguration(Builder b) {
         if (b.issuer == null || b.issuer.isBlank()) {
@@ -108,6 +112,10 @@ public final class SsfConfiguration {
         this.receiverEndpointAuthToken = b.receiverEndpointAuthToken;
         this.receiverJwksCacheSeconds = b.receiverJwksCacheSeconds;
         this.receiverInsecureTls = b.receiverInsecureTls;
+        this.receiverPollUrl = b.receiverPollUrl;
+        this.receiverPollToken = b.receiverPollToken;
+        this.receiverPollIntervalSeconds = b.receiverPollIntervalSeconds;
+        this.receiverActionsEnabled = b.receiverActionsEnabled;
         if (this.kafkaEnabled && (this.kafkaBootstrapServers == null || this.kafkaBootstrapServers.isBlank())) {
             throw new IllegalArgumentException("kafkaBootstrapServers is required when kafkaEnabled=true");
         }
@@ -147,7 +155,11 @@ public final class SsfConfiguration {
                     .receiverAudience(trimOrNull(param(config,"receiverAudience")))
                     .receiverEndpointAuthToken(trimOrNull(param(config,"receiverEndpointAuthToken")))
                     .receiverJwksCacheSeconds(parseLong(param(config,"receiverJwksCacheSeconds"), 300L))
-                    .receiverInsecureTls(parseBoolean(param(config,"receiverInsecureTls"), false));
+                    .receiverInsecureTls(parseBoolean(param(config,"receiverInsecureTls"), false))
+                    .receiverPollUrl(trimOrNull(param(config,"receiverPollUrl")))
+                    .receiverPollToken(trimOrNull(param(config,"receiverPollToken")))
+                    .receiverPollIntervalSeconds(parseLong(param(config,"receiverPollIntervalSeconds"), 10L))
+                    .receiverActionsEnabled(parseBoolean(param(config,"receiverActionsEnabled"), true));
             return b.build();
         } catch (IllegalArgumentException e) {
             throw e;
@@ -315,6 +327,24 @@ public final class SsfConfiguration {
 
     public boolean receiverInsecureTls() {
         return this.receiverInsecureTls;
+    }
+
+    /** Remote transmitter poll endpoint to pull SETs from (null = no polling; push only). */
+    public String receiverPollUrl() {
+        return this.receiverPollUrl;
+    }
+
+    public String receiverPollToken() {
+        return this.receiverPollToken;
+    }
+
+    public long receiverPollIntervalSeconds() {
+        return this.receiverPollIntervalSeconds;
+    }
+
+    /** Whether inbound revocation signals act on PF (revoke the subject's grants). Default true. */
+    public boolean receiverActionsEnabled() {
+        return this.receiverActionsEnabled;
     }
 
     // ---- endpoint URLs advertised in ssf-configuration (issuer + fixed module paths) ----
@@ -486,6 +516,10 @@ public final class SsfConfiguration {
         private String receiverEndpointAuthToken;
         private long receiverJwksCacheSeconds = 300L;
         private boolean receiverInsecureTls;
+        private String receiverPollUrl;
+        private String receiverPollToken;
+        private long receiverPollIntervalSeconds = 10L;
+        private boolean receiverActionsEnabled = true;
 
         public Builder issuer(String v) {
             this.issuer = v;
@@ -654,6 +688,26 @@ public final class SsfConfiguration {
 
         public Builder receiverInsecureTls(boolean v) {
             this.receiverInsecureTls = v;
+            return this;
+        }
+
+        public Builder receiverPollUrl(String v) {
+            this.receiverPollUrl = v;
+            return this;
+        }
+
+        public Builder receiverPollToken(String v) {
+            this.receiverPollToken = v;
+            return this;
+        }
+
+        public Builder receiverPollIntervalSeconds(long v) {
+            this.receiverPollIntervalSeconds = v;
+            return this;
+        }
+
+        public Builder receiverActionsEnabled(boolean v) {
+            this.receiverActionsEnabled = v;
             return this;
         }
 

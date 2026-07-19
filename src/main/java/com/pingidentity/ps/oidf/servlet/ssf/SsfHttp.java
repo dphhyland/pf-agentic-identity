@@ -41,6 +41,7 @@ final class SsfHttp {
         SsfSupport.installStoreFactory(new PfJdbcStoreFactory());
         try {
             SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
+            wireReceiver();
             return true;
         } catch (IllegalArgumentException e) {
             log.info((Object) ("SSF transmitter not configured (" + e.getMessage() + "); endpoints disabled "
@@ -81,6 +82,21 @@ final class SsfHttp {
         }
         return auth;
     }
+
+    /** Attach the PF action handler to the receiver and start remote polling (both idempotent). */
+    private static synchronized void wireReceiver() {
+        com.pingidentity.ps.oidf.ssf.SsfReceiverService receiver = SsfSupport.receiverService();
+        if (receiver == null || receiverWired) {
+            return;
+        }
+        if (SsfSupport.configuration().receiverActionsEnabled()) {
+            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions()));
+        }
+        SsfSupport.startReceiverPolling();
+        receiverWired = true;
+    }
+
+    private static volatile boolean receiverWired;
 
     static Map<String, Object> readBody(HttpServletRequest req) throws IOException {
         String body = new String(req.getInputStream().readAllBytes(), StandardCharsets.UTF_8);

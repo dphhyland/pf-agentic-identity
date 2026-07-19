@@ -31,6 +31,7 @@ public final class SsfSupport {
     private static volatile PushDeliveryService pushDeliveryService;
     private static volatile SetPublisher setPublisher;
     private static volatile SsfReceiverService receiverService;
+    private static volatile PollReceiverClient pollReceiverClient;
     private static volatile ReceiverAuthenticator receiverAuthenticator;
     private static volatile StoreFactory storeFactory;
 
@@ -75,6 +76,12 @@ public final class SsfSupport {
                                 config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
                 LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
                         + " (jwks " + config.receiverJwksUrl() + ")"));
+                if (config.receiverPollUrl() != null) {
+                    pollReceiverClient = new PollReceiverClient(receiverService,
+                            PollReceiverClient.httpTransport(config.receiverPollUrl(),
+                                    config.receiverPollToken(), config.receiverInsecureTls()),
+                            config.pollMaxEvents());
+                }
             }
         }
     }
@@ -97,6 +104,14 @@ public final class SsfSupport {
         PushDeliveryService local = pushDeliveryService;
         if (local != null) {
             local.start();
+        }
+    }
+
+    /** Start the receiver's remote-poll loop when {@code receiverPollUrl} is configured (idempotent). */
+    public static void startReceiverPolling() {
+        PollReceiverClient local = pollReceiverClient;
+        if (local != null) {
+            local.start(configuration().receiverPollIntervalSeconds());
         }
     }
 
@@ -229,6 +244,10 @@ public final class SsfSupport {
             scimSubjectService = null;
             pushDeliveryService = null;
             setPublisher = null;
+            if (pollReceiverClient != null) {
+                pollReceiverClient.stop();
+            }
+            pollReceiverClient = null;
             receiverService = null;
             receiverAuthenticator = null;
             storeFactory = null;
