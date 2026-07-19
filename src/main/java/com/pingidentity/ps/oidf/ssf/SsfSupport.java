@@ -26,6 +26,8 @@ public final class SsfSupport {
     private static volatile SsfStore store;
     private static volatile SetMinter minter;
     private static volatile StreamManagementService streamService;
+    private static volatile SsfEventEmitter eventEmitter;
+    private static volatile PushDeliveryService pushDeliveryService;
     private static volatile ReceiverAuthenticator receiverAuthenticator;
     private static volatile StoreFactory storeFactory;
 
@@ -59,6 +61,16 @@ public final class SsfSupport {
             minter = new SetMinter(config.signingAlgorithm());
             store = selectStore(config);
             streamService = new StreamManagementService(store, minter, config);
+            eventEmitter = new SsfEventEmitter(store, minter, config);
+            pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
+        }
+    }
+
+    /** Start the background push-delivery loop (idempotent). Called from a servlet init in the deployment. */
+    public static void startPushDelivery() {
+        PushDeliveryService local = pushDeliveryService;
+        if (local != null) {
+            local.start();
         }
     }
 
@@ -119,6 +131,22 @@ public final class SsfSupport {
         return local;
     }
 
+    public static SsfEventEmitter eventEmitter() {
+        SsfEventEmitter local = eventEmitter;
+        if (local == null) {
+            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+        }
+        return local;
+    }
+
+    public static PushDeliveryService pushDeliveryService() {
+        PushDeliveryService local = pushDeliveryService;
+        if (local == null) {
+            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+        }
+        return local;
+    }
+
     /** The receiver authenticator: an installed one (tests) or a lazily-built PF-introspection authenticator. */
     public static ReceiverAuthenticator receiverAuthenticator() {
         ReceiverAuthenticator local = receiverAuthenticator;
@@ -147,10 +175,15 @@ public final class SsfSupport {
     /** Test hook: reset all singletons so a fresh {@link #configure} takes effect. */
     static void resetForTests() {
         synchronized (LOCK) {
+            if (pushDeliveryService != null) {
+                pushDeliveryService.stop();
+            }
             configuration = null;
             store = null;
             minter = null;
             streamService = null;
+            eventEmitter = null;
+            pushDeliveryService = null;
             receiverAuthenticator = null;
             storeFactory = null;
         }

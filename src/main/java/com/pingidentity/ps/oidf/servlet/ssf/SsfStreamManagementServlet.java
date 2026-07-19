@@ -38,6 +38,7 @@ public class SsfStreamManagementServlet extends HttpServlet {
         super.init(config);
         try {
             SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
+            SsfSupport.startPushDelivery(); // background RFC 8935 delivery loop
         } catch (Exception e) {
             throw new ServletException("Failed to initialize SSF stream management servlet", e);
         }
