@@ -6,8 +6,12 @@ The **own** deploy context for `pingfederate-runtime` (Railway project `e02a8e2f
 token-exchange plane ride along.
 
 - **[`Dockerfile`](Dockerfile)** — the minus-RAR image: drops the RAR→PingAuthorize plugin, the RAR
-  consent page, and the PingAuthorize-TLS workaround; keeps `oidf.war` + `pf-oidf-modules.jar` + jose4j
-  + the mock-attester + master-key overlay, and bakes this repo's **own** `data.zip`.
+  consent page, and the PingAuthorize-TLS workaround; **merges `pf-oidf-modules.jar` + jose4j into
+  `pf-runtime.war`** (root context, single classloader) with the SSF logout filter registered in its
+  `web.xml`, keeps the mock-attester + master-key overlay, and bakes this repo's **own** `data.zip`.
+  Because the module is at root, its endpoints have **no `/oidf` prefix** (e.g. the challenge endpoint is
+  `/federation/attestation-challenge`, `/.well-known/ssf-configuration` is at root) — repoint any `/oidf/*`
+  consumers (demo UI `PF_BASE`) accordingly.
 - **[`terraform/`](terraform/)** — the config-as-code source (the federation issuance criterion) + the
   Phase-2 runbook that produces the OIDF-only `data.zip`.
 
@@ -17,8 +21,8 @@ The Dockerfile `COPY`s these — place them here first (git-ignored; `.railwayig
 
 | Artifact | Source |
 |---|---|
-| `oidf.war`, `pf-oidf-modules.jar` | `mvn -q package` in this repo |
-| `jose4j-0.9.6.jar` | module runtime dep |
+| `pf-oidf-modules.jar` | `mvn -q package` in this repo (merged into `pf-runtime.war` at build) |
+| `jose4j-0.9.6.jar` | module runtime dep (merged into `pf-runtime.war`) |
 | `oidf-mock-attesters.json` | DEV attester trust (issuer → public JWK) |
 | `overlay/` | **secret** — master key from `idp-paz-authzen-adapter/demo/pingfederate/` (git-ignored) |
 | `data.zip` | `terraform/` Phase-2 export (OIDF-only configArchive) |

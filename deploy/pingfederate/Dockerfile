@@ -11,9 +11,15 @@
 #   overlay/pf.jwk                   <- prod master key           (SECRET, git-ignored)
 #   overlay/pingfederate-system-keys.xml                          (SECRET, git-ignored)
 #   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
-#   oidf.war, pf-oidf-modules.jar    <- `mvn -q package` outputs of this repo
-#   jose4j-0.9.6.jar                 <- runtime dep of the module
+#   pf-oidf-modules.jar              <- `mvn -q package` output of this repo (merged into pf-runtime.war)
+#   jose4j-0.9.6.jar                 <- runtime dep of the module (merged into pf-runtime.war)
 #   oidf-mock-attesters.json         <- DEV attester trust (issuer -> public JWK)
+#
+# The module is MERGED INTO pf-runtime.war (not deployed as a loose oidf.war + jar). This puts its
+# @WebServlet servlets in the ROOT context — so `/.well-known/ssf-configuration`, `/ssf/*`, the challenge
+# endpoint at `/federation/attestation-challenge`, etc. serve at root (no `/oidf` prefix) — gives a single
+# classloader (one AttestationSupport singleton; no OGNL-hook caching split), and lets the SSF logout filter
+# run over PF's own `/idp/init_logout.openid`. Repoint any `/oidf/*` consumers (e.g. the demo UI PF_BASE) to root.
 #
 # Licensing is DevOps-fetched — NO pingfederate.lic is baked. The base image's boot hook
 # 17-check-license.sh pulls a fresh evaluation license when these RUNTIME env vars are set (as Railway
@@ -39,10 +45,20 @@ COPY --chown=9031:0 overlay/pingfederate-system-keys.xml /opt/in/instance/server
 COPY --chown=9031:0 overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml /opt/in/instance/server/default/data/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
 # NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
 
-# The OIDF attestation/federation module + its runtime dep. (No pf-rar-paz-plugin — that's agentic.)
-COPY --chown=9031:0 oidf.war /opt/in/instance/server/default/deploy/oidf.war
-COPY --chown=9031:0 pf-oidf-modules.jar /opt/in/instance/server/default/deploy/pf-oidf-modules.jar
-COPY --chown=9031:0 jose4j-0.9.6.jar /opt/in/instance/server/default/deploy/jose4j-0.9.6.jar
+# Merge the OIDF attestation/federation/SSF module into pf-runtime.war (root context, single classloader),
+# and register the SSF logout filter in its web.xml — via the same assemble script the build-in-CI path uses.
+# (No pf-rar-paz-plugin — that's agentic.)
+COPY build/assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
+COPY pf-oidf-modules.jar /tmp/pf-oidf-modules.jar
+COPY jose4j-0.9.6.jar /tmp/jose4j-0.9.6.jar
+RUN mkdir -p /opt/in/instance/server/default/deploy \
+ && apk add --no-cache zip unzip \
+ && STOCK="$(find /opt -name pf-runtime.war 2>/dev/null | grep -v '/opt/in/' | head -1)" \
+ && { [ -n "$STOCK" ] || { echo 'stock pf-runtime.war not found in base image'; exit 1; }; } \
+ && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/pf-oidf-modules.jar /tmp/jose4j-0.9.6.jar \
+      /opt/in/instance/server/default/deploy/pf-runtime.war \
+ && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
+ && rm -f /tmp/assemble-pf-runtime-war.sh /tmp/pf-oidf-modules.jar /tmp/jose4j-0.9.6.jar
 COPY --chown=9031:0 oidf-mock-attesters.json /opt/in/instance/server/default/conf/oidf-mock-attesters.json
 
 # Railway terminates TLS at its edge and forwards plain HTTP to the target port; PF's 9031 is HTTPS-only,
