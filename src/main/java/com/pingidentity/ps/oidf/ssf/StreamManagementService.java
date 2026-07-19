@@ -30,11 +30,17 @@ public final class StreamManagementService {
     private final SsfStore store;
     private final SetMinter minter;
     private final SsfConfiguration config;
+    private final SetPublisher publisher;
 
     public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config) {
+        this(store, minter, config, SetPublisher.NOOP);
+    }
+
+    public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config, SetPublisher publisher) {
         this.store = store;
         this.minter = minter;
         this.config = config;
+        this.publisher = publisher != null ? publisher : SetPublisher.NOOP;
     }
 
     // ─────────────────────────────── stream CRUD ───────────────────────────────
@@ -166,6 +172,7 @@ public final class StreamManagementService {
         String jws = this.minter.sign(set);
         long expiresAt = this.config.setTtlSeconds() > 0 ? now + this.config.setTtlSeconds() : 0;
         this.store.enqueue(PendingSet.fresh(jti, streamId, null, SsfEventTypes.VERIFICATION, jws, now, expiresAt));
+        this.publisher.publish(SsfEventTypes.VERIFICATION, null, jws, now);
         return jti;
     }
 

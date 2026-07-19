@@ -37,6 +37,7 @@ public class SsfStreamManagementServlet extends HttpServlet {
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
         try {
+            SsfSupport.installStoreFactory(new PfJdbcStoreFactory()); // JDBC store when dataStoreId is set
             SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
             SsfSupport.startPushDelivery(); // background RFC 8935 delivery loop
         } catch (Exception e) {

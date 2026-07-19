@@ -28,6 +28,7 @@ public final class SsfSupport {
     private static volatile StreamManagementService streamService;
     private static volatile SsfEventEmitter eventEmitter;
     private static volatile PushDeliveryService pushDeliveryService;
+    private static volatile SetPublisher setPublisher;
     private static volatile ReceiverAuthenticator receiverAuthenticator;
     private static volatile StoreFactory storeFactory;
 
@@ -60,9 +61,23 @@ public final class SsfSupport {
             configuration = config;
             minter = new SetMinter(config.signingAlgorithm());
             store = selectStore(config);
-            streamService = new StreamManagementService(store, minter, config);
-            eventEmitter = new SsfEventEmitter(store, minter, config);
+            setPublisher = buildPublisher(config);
+            streamService = new StreamManagementService(store, minter, config, setPublisher);
+            eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
             pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
+        }
+    }
+
+    /** Kafka fan-out sink when enabled (best-effort — a build failure falls back to no-op, never crashes init). */
+    private static SetPublisher buildPublisher(SsfConfiguration config) {
+        if (!config.kafkaEnabled()) {
+            return SetPublisher.NOOP;
+        }
+        try {
+            return KafkaSetPublisher.create(config);
+        } catch (RuntimeException e) {
+            LOGGER.error((Object) ("SSF Kafka publisher disabled — " + e.getMessage()));
+            return SetPublisher.NOOP;
         }
     }
 
@@ -178,12 +193,16 @@ public final class SsfSupport {
             if (pushDeliveryService != null) {
                 pushDeliveryService.stop();
             }
+            if (setPublisher != null) {
+                setPublisher.close();
+            }
             configuration = null;
             store = null;
             minter = null;
             streamService = null;
             eventEmitter = null;
             pushDeliveryService = null;
+            setPublisher = null;
             receiverAuthenticator = null;
             storeFactory = null;
         }

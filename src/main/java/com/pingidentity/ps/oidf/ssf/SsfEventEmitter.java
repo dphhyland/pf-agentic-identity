@@ -45,11 +45,17 @@ public final class SsfEventEmitter {
     private final SsfStore store;
     private final SetMinter minter;
     private final SsfConfiguration config;
+    private final SetPublisher publisher;
 
     public SsfEventEmitter(SsfStore store, SetMinter minter, SsfConfiguration config) {
+        this(store, minter, config, SetPublisher.NOOP);
+    }
+
+    public SsfEventEmitter(SsfStore store, SetMinter minter, SsfConfiguration config, SetPublisher publisher) {
         this.store = store;
         this.minter = minter;
         this.config = config;
+        this.publisher = publisher != null ? publisher : SetPublisher.NOOP;
     }
 
     /**
@@ -76,6 +82,7 @@ public final class SsfEventEmitter {
                     .build();
             String jws = this.minter.sign(set);
             this.store.enqueue(PendingSet.fresh(jti, s.id(), subject.canonicalKey(), eventType, jws, now, expiresAt));
+            this.publisher.publish(eventType, subject.canonicalKey(), jws, now);
             out.add(new Emitted(s.id(), jti, s.deliveryMethod()));
         }
         return out;
