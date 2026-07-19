@@ -302,7 +302,7 @@ public final class JdbcSsfStore implements SsfStore {
             binder.bind(ps);
             return ps.executeUpdate();
         } catch (SQLException e) {
-            throw new IllegalStateException("SSF JDBC store error: " + sql, e);
+            throw new IllegalStateException("SSF JDBC store error: " + e.getMessage(), e);
         }
     }
 
@@ -313,7 +313,7 @@ public final class JdbcSsfStore implements SsfStore {
                 return reader.read(rs);
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("SSF JDBC store query error: " + sql, e);
+            throw new IllegalStateException("SSF JDBC store query error: " + e.getMessage(), e);
         }
     }
 }

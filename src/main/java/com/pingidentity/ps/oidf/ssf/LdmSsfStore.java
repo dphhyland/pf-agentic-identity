@@ -368,7 +368,7 @@ public final class LdmSsfStore implements SsfStore {
             binder.bind(ps);
             return ps.executeUpdate();
         } catch (SQLException e) {
-            throw new IllegalStateException("SSF LDM store error: " + sql, e);
+            throw new IllegalStateException("SSF LDM store error: " + e.getMessage(), e);
         }
     }
 
@@ -379,7 +379,7 @@ public final class LdmSsfStore implements SsfStore {
                 return reader.read(rs);
             }
         } catch (SQLException e) {
-            throw new IllegalStateException("SSF LDM store query error: " + sql, e);
+            throw new IllegalStateException("SSF LDM store query error: " + e.getMessage(), e);
         }
     }
 }

@@ -45,7 +45,7 @@ public final class PfIntrospectionReceiverAuthenticator implements ReceiverAuthe
         Objects.requireNonNull(endpoint, "introspection endpoint");
         String basic = Base64.getEncoder().encodeToString(
                 (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
-        HttpClient http = HttpClient.newHttpClient();
+        HttpClient http = trustAllTls ? trustAllClient() : HttpClient.newHttpClient();
         IntrospectionClient jdk = token -> {
             String form = "token=" + java.net.URLEncoder.encode(token, StandardCharsets.UTF_8)
                     + "&token_type_hint=access_token";
@@ -80,6 +80,30 @@ public final class PfIntrospectionReceiverAuthenticator implements ReceiverAuthe
         }
         String clientId = asString(resp.get("client_id"));
         return AuthContext.active(clientId, parseScopes(resp.get("scope")));
+    }
+
+    /** Accept-any-cert HTTP client for dev PF instances serving self-signed TLS ({@code introspectionInsecureTls}). */
+    private static HttpClient trustAllClient() {
+        try {
+            javax.net.ssl.TrustManager[] trustAll = {new javax.net.ssl.X509TrustManager() {
+                public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
+                    // dev trust-all
+                }
+
+                public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
+                    // dev trust-all
+                }
+
+                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
+                    return new java.security.cert.X509Certificate[0];
+                }
+            }};
+            javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
+            ssl.init(null, trustAll, new java.security.SecureRandom());
+            return HttpClient.newBuilder().sslContext(ssl).build();
+        } catch (Exception e) {
+            throw new IllegalStateException("failed to build trust-all HTTP client", e);
+        }
     }
 
     /** RFC 7662 {@code scope} is a space-delimited string; some ATMs emit a JSON array — accept both. */

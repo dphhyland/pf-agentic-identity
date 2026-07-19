@@ -43,6 +43,9 @@ public final class SsfConfiguration {
     private final String basePath;
     private final String dataStoreId;
     private final String storeDialect;
+    private final String jdbcUrl;
+    private final String jdbcUsername;
+    private final String jdbcPassword;
     private final boolean kafkaEnabled;
     private final String kafkaBootstrapServers;
     private final String kafkaTopic;
@@ -71,6 +74,9 @@ public final class SsfConfiguration {
         this.basePath = b.basePath;
         this.dataStoreId = b.dataStoreId;
         this.storeDialect = parseStoreDialect(b.storeDialect);
+        this.jdbcUrl = b.jdbcUrl;
+        this.jdbcUsername = b.jdbcUsername;
+        this.jdbcPassword = b.jdbcPassword;
         this.kafkaEnabled = b.kafkaEnabled;
         this.kafkaBootstrapServers = b.kafkaBootstrapServers;
         this.kafkaTopic = b.kafkaTopic;
@@ -103,6 +109,9 @@ public final class SsfConfiguration {
                     .basePath(orDefault(param(config,"basePath"), DEFAULT_BASE_PATH))
                     .dataStoreId(trimOrNull(param(config,"dataStoreId")))
                     .storeDialect(trimOrNull(param(config,"storeDialect")))
+                    .jdbcUrl(trimOrNull(param(config,"jdbcUrl")))
+                    .jdbcUsername(trimOrNull(param(config,"jdbcUsername")))
+                    .jdbcPassword(trimOrNull(param(config,"jdbcPassword")))
                     .kafkaEnabled(parseBoolean(param(config,"kafkaEnabled"), false))
                     .kafkaBootstrapServers(trimOrNull(param(config,"kafkaBootstrapServers")))
                     .kafkaTopic(orDefault(param(config,"kafkaTopic"), DEFAULT_KAFKA_TOPIC))
@@ -155,7 +164,25 @@ public final class SsfConfiguration {
     }
 
     public boolean usesInMemoryStore() {
-        return this.dataStoreId == null || this.dataStoreId.isBlank();
+        return (this.dataStoreId == null || this.dataStoreId.isBlank())
+                && (this.jdbcUrl == null || this.jdbcUrl.isBlank());
+    }
+
+    /**
+     * Direct JDBC URL (e.g. {@code jdbc:postgresql://host/db}) for the store — a demo/dev alternative to a
+     * PingFederate-configured data store id. When set, it wins over {@code dataStoreId}. Production should
+     * prefer {@code dataStoreId} (PF-managed pooling).
+     */
+    public String jdbcUrl() {
+        return this.jdbcUrl;
+    }
+
+    public String jdbcUsername() {
+        return this.jdbcUsername;
+    }
+
+    public String jdbcPassword() {
+        return this.jdbcPassword;
     }
 
     public boolean kafkaEnabled() {
@@ -379,6 +406,9 @@ public final class SsfConfiguration {
         private String basePath = DEFAULT_BASE_PATH;
         private String dataStoreId;
         private String storeDialect;
+        private String jdbcUrl;
+        private String jdbcUsername;
+        private String jdbcPassword;
         private boolean kafkaEnabled;
         private String kafkaBootstrapServers;
         private String kafkaTopic = DEFAULT_KAFKA_TOPIC;
@@ -424,6 +454,21 @@ public final class SsfConfiguration {
 
         public Builder storeDialect(String v) {
             this.storeDialect = v;
+            return this;
+        }
+
+        public Builder jdbcUrl(String v) {
+            this.jdbcUrl = v;
+            return this;
+        }
+
+        public Builder jdbcUsername(String v) {
+            this.jdbcUsername = v;
+            return this;
+        }
+
+        public Builder jdbcPassword(String v) {
+            this.jdbcPassword = v;
             return this;
         }
 

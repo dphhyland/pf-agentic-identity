@@ -27,7 +27,10 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
 
     @Override
     public SsfStore create(SsfConfiguration config) {
-        PfManagedDataSource ds = new PfManagedDataSource(config.dataStoreId());
+        // A direct JDBC URL (demo/dev) wins over a PF-configured data store id (production).
+        DataSource ds = config.jdbcUrl() != null
+                ? new DriverManagerDataSource(config.jdbcUrl(), config.jdbcUsername(), config.jdbcPassword())
+                : new PfManagedDataSource(config.dataStoreId());
         if ("ldm".equals(config.storeDialect())) {
             // Identity Object Model entry store — schema owned by the model repo's migration workflow
             // (0001-add-shared-signals-ssf); this store never creates tables.
@@ -36,6 +39,88 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
         JdbcSsfStore store = new JdbcSsfStore(ds);
         store.ensureSchema();
         return store;
+    }
+
+    /** Demo/dev {@link DataSource}: unpooled connections straight from {@link java.sql.DriverManager}. */
+    private static final class DriverManagerDataSource implements DataSource {
+        private final String url;
+        private final String username;
+        private final String password;
+
+        private DriverManagerDataSource(String url, String username, String password) {
+            this.url = url;
+            this.username = username;
+            this.password = password;
+            ensureDriverLoaded(url);
+        }
+
+        /**
+         * DriverManager only auto-registers drivers from the system classpath; a driver shipped inside
+         * pf-runtime.war's WEB-INF/lib must be loaded explicitly (its static initializer self-registers).
+         */
+        private static void ensureDriverLoaded(String url) {
+            String driverClass = null;
+            if (url.startsWith("jdbc:postgresql:")) {
+                driverClass = "org.postgresql.Driver";
+            } else if (url.startsWith("jdbc:hsqldb:")) {
+                driverClass = "org.hsqldb.jdbc.JDBCDriver";
+            }
+            if (driverClass != null) {
+                try {
+                    Class.forName(driverClass, true, DriverManagerDataSource.class.getClassLoader());
+                } catch (ClassNotFoundException e) {
+                    throw new IllegalStateException("JDBC driver " + driverClass + " not on the classpath for " + url, e);
+                }
+            }
+        }
+
+        @Override
+        public Connection getConnection() throws SQLException {
+            return java.sql.DriverManager.getConnection(this.url, this.username, this.password);
+        }
+
+        @Override
+        public Connection getConnection(String u, String p) throws SQLException {
+            return java.sql.DriverManager.getConnection(this.url, u, p);
+        }
+
+        @Override
+        public PrintWriter getLogWriter() {
+            return null;
+        }
+
+        @Override
+        public void setLogWriter(PrintWriter out) {
+            // not used
+        }
+
+        @Override
+        public void setLoginTimeout(int seconds) {
+            // not used
+        }
+
+        @Override
+        public int getLoginTimeout() {
+            return 0;
+        }
+
+        @Override
+        public Logger getParentLogger() {
+            return Logger.getLogger("com.pingidentity.ps.oidf.ssf");
+        }
+
+        @Override
+        public <T> T unwrap(Class<T> iface) throws SQLException {
+            if (iface.isInstance(this)) {
+                return iface.cast(this);
+            }
+            throw new SQLException("not a wrapper for " + iface);
+        }
+
+        @Override
+        public boolean isWrapperFor(Class<?> iface) {
+            return iface.isInstance(this);
+        }
     }
 
     /** A {@link DataSource} whose connections are PF-pooled connections for one configured data store id. */
