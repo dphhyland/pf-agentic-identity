@@ -13,7 +13,10 @@
 # Inputs (all provided by the CI job — see .github/workflows/deploy-pingfederate.yml):
 #   $1  STOCK_WAR   path to the stock pf-runtime.war extracted from the pingidentity/pingfederate image
 #   $2  MODULE_JAR  path to the built module jar (pf-integration → target/oidf.jar)
-#   $3  JOSE4J_JAR  path to jose4j-0.9.6.jar (public Maven: org.bitbucket.b_c:jose4j:0.9.6)
+#   $3  JOSE4J_JAR  path to jose4j jar, or "-" to skip. SKIP for pf-runtime.war merging: PF already
+#                   ships jose4j on its server classpath, and bundling a second copy in WEB-INF/lib
+#                   causes a LinkageError (loader constraint violation) when PF-loaded jose4j types
+#                   (JwksEndpointKeyAccessor results) cross into module code.
 #   $4  OUT_WAR     path to write the assembled pf-runtime.war
 set -euo pipefail
 STOCK_WAR="$1"; MODULE_JAR="$2"; JOSE4J_JAR="$3"; OUT_WAR="$4"
@@ -26,8 +29,12 @@ cp "$STOCK_WAR" "$OUT_WAR"
 OUT_WAR="$(cd "$(dirname "$OUT_WAR")" && pwd)/$(basename "$OUT_WAR")"
 mkdir -p "$work/WEB-INF/lib"
 cp "$MODULE_JAR" "$work/WEB-INF/lib/$MODULE_NAME"
-cp "$JOSE4J_JAR" "$work/WEB-INF/lib/$(basename "$JOSE4J_JAR")"
-( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/"$MODULE_NAME" WEB-INF/lib/"$(basename "$JOSE4J_JAR")" )
+if [[ "$JOSE4J_JAR" != "-" ]]; then
+  cp "$JOSE4J_JAR" "$work/WEB-INF/lib/$(basename "$JOSE4J_JAR")"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/"$MODULE_NAME" WEB-INF/lib/"$(basename "$JOSE4J_JAR")" )
+else
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/"$MODULE_NAME" )
+fi
 
 # --- web.xml surgery: register the SSF logout filter (idempotent) ---
 unzip -oq "$OUT_WAR" WEB-INF/web.xml -d "$work"
@@ -58,7 +65,7 @@ else
 fi
 
 echo "assembled $OUT_WAR:"
-unzip -l "$OUT_WAR" | grep -E "pf-oidf-modules|jose4j" || { echo "ERROR: module jars not present in war"; exit 1; }
+unzip -l "$OUT_WAR" | grep -E "pf-oidf-modules" || { echo "ERROR: module jar not present in war"; exit 1; }
 unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "SsfLogoutSignal" \
   || { echo "ERROR: SsfLogoutSignal filter mapping not present in assembled war" >&2; exit 1; }
 echo "verified: SsfLogoutSignal filter mapped in $OUT_WAR"

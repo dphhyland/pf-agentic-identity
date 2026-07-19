@@ -50,15 +50,14 @@ COPY --chown=9031:0 overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.Da
 # (No pf-rar-paz-plugin — that's agentic.)
 COPY build/assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
 COPY pf-oidf-modules.jar /tmp/pf-oidf-modules.jar
-COPY jose4j-0.9.6.jar /tmp/jose4j-0.9.6.jar
 RUN mkdir -p /opt/in/instance/server/default/deploy \
  && apk add --no-cache zip unzip \
  && STOCK="$(find /opt -name pf-runtime.war 2>/dev/null | grep -v '/opt/in/' | head -1)" \
  && { [ -n "$STOCK" ] || { echo 'stock pf-runtime.war not found in base image'; exit 1; }; } \
- && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/pf-oidf-modules.jar /tmp/jose4j-0.9.6.jar \
+ && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/pf-oidf-modules.jar - \
       /opt/in/instance/server/default/deploy/pf-runtime.war \
  && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
- && rm -f /tmp/assemble-pf-runtime-war.sh /tmp/pf-oidf-modules.jar /tmp/jose4j-0.9.6.jar
+ && rm -f /tmp/assemble-pf-runtime-war.sh /tmp/pf-oidf-modules.jar
 COPY --chown=9031:0 oidf-mock-attesters.json /opt/in/instance/server/default/conf/oidf-mock-attesters.json
 
 # Railway terminates TLS at its edge and forwards plain HTTP to the target port; PF's 9031 is HTTPS-only,
