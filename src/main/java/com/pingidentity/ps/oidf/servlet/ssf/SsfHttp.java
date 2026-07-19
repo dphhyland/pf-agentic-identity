@@ -12,6 +12,7 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import javax.servlet.ServletConfig;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
@@ -28,6 +29,25 @@ final class SsfHttp {
     private static final Log log = LogFactory.getLog(SsfHttp.class);
 
     private SsfHttp() {
+    }
+
+    /**
+     * Fail-soft servlet bootstrap: install the JDBC store factory and configure the transmitter from
+     * init-params / {@code oidf.ssf.*} system properties / {@code OIDF_SSF_*} env vars. If SSF isn't configured
+     * (e.g. no issuer), it logs and returns {@code false} rather than throwing — a servlet must never break the
+     * runtime web application just because SSF is absent. Returns {@code true} once configured.
+     */
+    static boolean bootstrap(ServletConfig config) {
+        SsfSupport.installStoreFactory(new PfJdbcStoreFactory());
+        try {
+            SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
+            return true;
+        } catch (IllegalArgumentException e) {
+            log.info((Object) ("SSF transmitter not configured (" + e.getMessage() + "); endpoints disabled "
+                    + "until an issuer is set (init-param 'issuer', system property 'oidf.ssf.issuer', or "
+                    + "env OIDF_SSF_ISSUER)"));
+            return false;
+        }
     }
 
     /**

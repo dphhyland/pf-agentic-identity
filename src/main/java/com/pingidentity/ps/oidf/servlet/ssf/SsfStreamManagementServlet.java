@@ -36,12 +36,8 @@ public class SsfStreamManagementServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        try {
-            SsfSupport.installStoreFactory(new PfJdbcStoreFactory()); // JDBC store when dataStoreId is set
-            SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
+        if (SsfHttp.bootstrap(config)) { // fail-soft: unconfigured SSF is disabled, not fatal
             SsfSupport.startPushDelivery(); // background RFC 8935 delivery loop
-        } catch (Exception e) {
-            throw new ServletException("Failed to initialize SSF stream management servlet", e);
         }
     }
 

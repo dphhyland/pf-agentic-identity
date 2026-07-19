@@ -29,7 +29,7 @@ import org.jose4j.json.JsonUtil;
  * <p>This servlet is also the one that bootstraps {@link SsfSupport} from its init parameters, so a deployment
  * that only exposes metadata still has a fully-configured transmitter for the other SSF servlets.
  */
-@WebServlet(urlPatterns = {"/.well-known/ssf-configuration", "/ssf/.well-known/ssf-configuration"})
+@WebServlet(urlPatterns = {"/.well-known/ssf-configuration", "/ssf/.well-known/ssf-configuration"}, loadOnStartup = 1)
 public class SsfConfigurationServlet extends HttpServlet {
 
     private static final long serialVersionUID = 1L;
@@ -37,12 +37,9 @@ public class SsfConfigurationServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        try {
-            SsfSupport.installStoreFactory(new PfJdbcStoreFactory()); // JDBC store when dataStoreId is set
-            SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
-        } catch (Exception e) {
-            throw new ServletException("Failed to initialize SSF configuration servlet", e);
-        }
+        // loadOnStartup: configure the transmitter at boot so the logout filter can emit immediately.
+        // Fail-soft — an unconfigured SSF disables its endpoints; it must not break the runtime web app.
+        SsfHttp.bootstrap(config);
     }
 
     @Override

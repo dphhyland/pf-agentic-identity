@@ -94,28 +94,28 @@ public final class SsfConfiguration {
     public static SsfConfiguration fromServletConfig(ServletConfig config) {
         try {
             Builder b = new Builder()
-                    .issuer(config.getInitParameter("issuer"))
-                    .signingAlgorithm(parseSigningAlgorithm(config.getInitParameter("signingAlgorithm")))
-                    .basePath(orDefault(config.getInitParameter("basePath"), DEFAULT_BASE_PATH))
-                    .dataStoreId(trimOrNull(config.getInitParameter("dataStoreId")))
-                    .kafkaEnabled(parseBoolean(config.getInitParameter("kafkaEnabled"), false))
-                    .kafkaBootstrapServers(trimOrNull(config.getInitParameter("kafkaBootstrapServers")))
-                    .kafkaTopic(orDefault(config.getInitParameter("kafkaTopic"), DEFAULT_KAFKA_TOPIC))
-                    .kafkaSecurityProtocol(orDefault(config.getInitParameter("kafkaSecurityProtocol"), DEFAULT_KAFKA_SECURITY_PROTOCOL))
-                    .kafkaSaslMechanism(trimOrNull(config.getInitParameter("kafkaSaslMechanism")))
-                    .kafkaSaslUsername(trimOrNull(config.getInitParameter("kafkaSaslUsername")))
-                    .kafkaSaslPassword(trimOrNull(config.getInitParameter("kafkaSaslPassword")))
-                    .pushRetryMaxAttempts(parseInt(config.getInitParameter("pushRetryMaxAttempts"), DEFAULT_PUSH_RETRY_MAX_ATTEMPTS))
-                    .pushRetryBackoffSeconds(parseInt(config.getInitParameter("pushRetryBackoffSeconds"), DEFAULT_PUSH_RETRY_BACKOFF_SECONDS))
-                    .pollMaxEvents(parseInt(config.getInitParameter("pollMaxEvents"), DEFAULT_POLL_MAX_EVENTS))
-                    .setTtlSeconds(parseLong(config.getInitParameter("setTtlSeconds"), DEFAULT_SET_TTL_SECONDS))
-                    .receiverScope(orDefault(config.getInitParameter("receiverScope"), DEFAULT_RECEIVER_SCOPE))
-                    .introspectionEndpoint(trimOrNull(config.getInitParameter("introspectionEndpoint")))
-                    .introspectionClientId(trimOrNull(config.getInitParameter("introspectionClientId")))
-                    .introspectionClientSecret(trimOrNull(config.getInitParameter("introspectionClientSecret")))
-                    .introspectionInsecureTls(parseBoolean(config.getInitParameter("introspectionInsecureTls"), false))
-                    .defaultEventTypes(parseCommaSeparated(config.getInitParameter("defaultEventTypes")))
-                    .verificationEventEnabled(parseBoolean(config.getInitParameter("verificationEventEnabled"), true));
+                    .issuer(param(config,"issuer"))
+                    .signingAlgorithm(parseSigningAlgorithm(param(config,"signingAlgorithm")))
+                    .basePath(orDefault(param(config,"basePath"), DEFAULT_BASE_PATH))
+                    .dataStoreId(trimOrNull(param(config,"dataStoreId")))
+                    .kafkaEnabled(parseBoolean(param(config,"kafkaEnabled"), false))
+                    .kafkaBootstrapServers(trimOrNull(param(config,"kafkaBootstrapServers")))
+                    .kafkaTopic(orDefault(param(config,"kafkaTopic"), DEFAULT_KAFKA_TOPIC))
+                    .kafkaSecurityProtocol(orDefault(param(config,"kafkaSecurityProtocol"), DEFAULT_KAFKA_SECURITY_PROTOCOL))
+                    .kafkaSaslMechanism(trimOrNull(param(config,"kafkaSaslMechanism")))
+                    .kafkaSaslUsername(trimOrNull(param(config,"kafkaSaslUsername")))
+                    .kafkaSaslPassword(trimOrNull(param(config,"kafkaSaslPassword")))
+                    .pushRetryMaxAttempts(parseInt(param(config,"pushRetryMaxAttempts"), DEFAULT_PUSH_RETRY_MAX_ATTEMPTS))
+                    .pushRetryBackoffSeconds(parseInt(param(config,"pushRetryBackoffSeconds"), DEFAULT_PUSH_RETRY_BACKOFF_SECONDS))
+                    .pollMaxEvents(parseInt(param(config,"pollMaxEvents"), DEFAULT_POLL_MAX_EVENTS))
+                    .setTtlSeconds(parseLong(param(config,"setTtlSeconds"), DEFAULT_SET_TTL_SECONDS))
+                    .receiverScope(orDefault(param(config,"receiverScope"), DEFAULT_RECEIVER_SCOPE))
+                    .introspectionEndpoint(trimOrNull(param(config,"introspectionEndpoint")))
+                    .introspectionClientId(trimOrNull(param(config,"introspectionClientId")))
+                    .introspectionClientSecret(trimOrNull(param(config,"introspectionClientSecret")))
+                    .introspectionInsecureTls(parseBoolean(param(config,"introspectionInsecureTls"), false))
+                    .defaultEventTypes(parseCommaSeparated(param(config,"defaultEventTypes")))
+                    .verificationEventEnabled(parseBoolean(param(config,"verificationEventEnabled"), true));
             return b.build();
         } catch (IllegalArgumentException e) {
             throw e;
@@ -250,6 +250,36 @@ public final class SsfConfiguration {
     }
 
     // ---- parsing helpers (mirrors FederationConfiguration) ----
+
+    /**
+     * Resolve a configuration value from, in order: the servlet {@code init-param} (web.xml), the system
+     * property {@code oidf.ssf.<name>} (PingFederate loads {@code run.properties} entries as system
+     * properties — the same channel the attestation module uses), then the environment variable
+     * {@code OIDF_SSF_<UPPER_SNAKE(name)>}. This lets the SSF servlets be configured with no web.xml when they
+     * are annotation-mapped inside {@code pf-runtime.war} — via {@code run.properties} or Railway env vars.
+     */
+    static String param(ServletConfig config, String name) {
+        String v = config != null ? config.getInitParameter(name) : null;
+        if (v == null || v.isBlank()) {
+            v = System.getProperty("oidf.ssf." + name);
+        }
+        if (v == null || v.isBlank()) {
+            v = System.getenv("OIDF_SSF_" + camelToUpperSnake(name));
+        }
+        return v == null || v.isBlank() ? null : v;
+    }
+
+    private static String camelToUpperSnake(String camel) {
+        StringBuilder sb = new StringBuilder(camel.length() + 4);
+        for (int i = 0; i < camel.length(); i++) {
+            char c = camel.charAt(i);
+            if (Character.isUpperCase(c) && i > 0) {
+                sb.append('_');
+            }
+            sb.append(Character.toUpperCase(c));
+        }
+        return sb.toString();
+    }
 
     private static String stripTrailingSlash(String s) {
         return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;

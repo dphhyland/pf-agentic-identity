@@ -40,12 +40,7 @@ public class SsfScimSubjectServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        try {
-            SsfSupport.installStoreFactory(new PfJdbcStoreFactory());
-            SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
-        } catch (Exception e) {
-            throw new ServletException("Failed to initialize SSF SCIM servlet", e);
-        }
+        SsfHttp.bootstrap(config); // fail-soft: unconfigured SSF is disabled, not fatal
     }
 
     @Override

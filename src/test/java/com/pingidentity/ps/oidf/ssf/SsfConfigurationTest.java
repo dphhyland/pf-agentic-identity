@@ -82,6 +82,33 @@ class SsfConfigurationTest {
     }
 
     @Test
+    void resolvesFromSystemPropertyWhenInitParamAbsent() {
+        System.setProperty("oidf.ssf.issuer", "https://sysprop.example.com");
+        System.setProperty("oidf.ssf.receiverScope", "ssf.custom");
+        try {
+            SsfConfiguration cfg = SsfConfiguration.fromServletConfig(servletConfig(new HashMap<>()));
+            assertEquals("https://sysprop.example.com", cfg.issuer());
+            assertEquals("ssf.custom", cfg.receiverScope());
+        } finally {
+            System.clearProperty("oidf.ssf.issuer");
+            System.clearProperty("oidf.ssf.receiverScope");
+        }
+    }
+
+    @Test
+    void initParamTakesPrecedenceOverSystemProperty() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://initparam.example.com");
+        System.setProperty("oidf.ssf.issuer", "https://sysprop.example.com");
+        try {
+            assertEquals("https://initparam.example.com",
+                    SsfConfiguration.fromServletConfig(servletConfig(p)).issuer());
+        } finally {
+            System.clearProperty("oidf.ssf.issuer");
+        }
+    }
+
+    @Test
     void rejectsBadSigningAlgorithm() {
         Map<String, String> p = new HashMap<>();
         p.put("issuer", "https://op.example.com");
