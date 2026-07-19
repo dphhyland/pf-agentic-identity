@@ -55,4 +55,16 @@ class SubjectIdTest {
         assertNotEquals(SubjectId.email("a@b.com").canonicalKey(), SubjectId.email("c@d.com").canonicalKey());
         assertNotEquals(SubjectId.opaque("a@b.com").canonicalKey(), SubjectId.email("a@b.com").canonicalKey());
     }
+
+    @Test
+    void canonicalKeyRoundTrips() {
+        for (SubjectId s : new SubjectId[]{
+                SubjectId.issSub("https://op.example.com", "user-1"),
+                SubjectId.email("a@b.com"),
+                SubjectId.phoneNumber("+15551234567"),
+                SubjectId.opaque("abc"),
+                SubjectId.account("acct:user@example.com")}) {
+            assertEquals(s, SubjectId.fromCanonicalKey(s.canonicalKey()));
+        }
+    }
 }

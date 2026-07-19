@@ -115,6 +115,34 @@ public final class SubjectId {
         return (String) v;
     }
 
+    /** Inverse of {@link #canonicalKey()} — reconstruct a subject from its canonical-key string. */
+    public static SubjectId fromCanonicalKey(String key) {
+        if (key == null || key.indexOf(':') < 0) {
+            throw new IllegalArgumentException("not a subject canonical key: " + key);
+        }
+        int i = key.indexOf(':');
+        String fmt = key.substring(0, i);
+        String rest = key.substring(i + 1);
+        switch (fmt) {
+            case FORMAT_ISS_SUB:
+                int sp = rest.indexOf(' ');
+                if (sp < 0) {
+                    throw new IllegalArgumentException("malformed iss_sub canonical key: " + key);
+                }
+                return issSub(rest.substring(0, sp), rest.substring(sp + 1));
+            case FORMAT_EMAIL:
+                return email(rest);
+            case FORMAT_PHONE_NUMBER:
+                return phoneNumber(rest);
+            case FORMAT_OPAQUE:
+                return opaque(rest);
+            case FORMAT_ACCOUNT:
+                return account(rest);
+            default:
+                throw new IllegalArgumentException("unsupported subject format in canonical key: " + fmt);
+        }
+    }
+
     public String format() {
         return (String) this.members.get("format");
     }

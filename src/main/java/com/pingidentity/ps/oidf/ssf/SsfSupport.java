@@ -27,6 +27,7 @@ public final class SsfSupport {
     private static volatile SetMinter minter;
     private static volatile StreamManagementService streamService;
     private static volatile SsfEventEmitter eventEmitter;
+    private static volatile ScimSubjectService scimSubjectService;
     private static volatile PushDeliveryService pushDeliveryService;
     private static volatile SetPublisher setPublisher;
     private static volatile ReceiverAuthenticator receiverAuthenticator;
@@ -64,6 +65,7 @@ public final class SsfSupport {
             setPublisher = buildPublisher(config);
             streamService = new StreamManagementService(store, minter, config, setPublisher);
             eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
+            scimSubjectService = new ScimSubjectService(store, eventEmitter, config);
             pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
         }
     }
@@ -154,6 +156,14 @@ public final class SsfSupport {
         return local;
     }
 
+    public static ScimSubjectService scimSubjectService() {
+        ScimSubjectService local = scimSubjectService;
+        if (local == null) {
+            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+        }
+        return local;
+    }
+
     public static PushDeliveryService pushDeliveryService() {
         PushDeliveryService local = pushDeliveryService;
         if (local == null) {
@@ -201,6 +211,7 @@ public final class SsfSupport {
             minter = null;
             streamService = null;
             eventEmitter = null;
+            scimSubjectService = null;
             pushDeliveryService = null;
             setPublisher = null;
             receiverAuthenticator = null;
