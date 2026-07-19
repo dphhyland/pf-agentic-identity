@@ -30,6 +30,7 @@ public final class SsfSupport {
     private static volatile ScimSubjectService scimSubjectService;
     private static volatile PushDeliveryService pushDeliveryService;
     private static volatile SetPublisher setPublisher;
+    private static volatile SsfReceiverService receiverService;
     private static volatile ReceiverAuthenticator receiverAuthenticator;
     private static volatile StoreFactory storeFactory;
 
@@ -67,6 +68,14 @@ public final class SsfSupport {
             eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
             scimSubjectService = new ScimSubjectService(store, eventEmitter, config);
             pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
+            if (config.receiverConfigured()) {
+                receiverService = new SsfReceiverService(new SetVerifier(
+                        config.receiverExpectedIssuer(), config.receiverAudience(),
+                        SetVerifier.httpJwksSource(config.receiverJwksUrl(),
+                                config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
+                LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
+                        + " (jwks " + config.receiverJwksUrl() + ")"));
+            }
         }
     }
 
@@ -173,6 +182,11 @@ public final class SsfSupport {
         return local;
     }
 
+    /** The inbound-SET receiver pipeline; null when the receiver is not configured. */
+    public static SsfReceiverService receiverService() {
+        return receiverService;
+    }
+
     /** The receiver authenticator: an installed one (tests) or a lazily-built PF-introspection authenticator. */
     public static ReceiverAuthenticator receiverAuthenticator() {
         ReceiverAuthenticator local = receiverAuthenticator;
@@ -215,6 +229,7 @@ public final class SsfSupport {
             scimSubjectService = null;
             pushDeliveryService = null;
             setPublisher = null;
+            receiverService = null;
             receiverAuthenticator = null;
             storeFactory = null;
         }

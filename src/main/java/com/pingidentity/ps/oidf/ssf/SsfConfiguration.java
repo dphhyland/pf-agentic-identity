@@ -64,6 +64,12 @@ public final class SsfConfiguration {
     private final boolean introspectionInsecureTls;
     private final List<String> defaultEventTypes;
     private final boolean verificationEventEnabled;
+    private final String receiverExpectedIssuer;
+    private final String receiverJwksUrl;
+    private final String receiverAudience;
+    private final String receiverEndpointAuthToken;
+    private final long receiverJwksCacheSeconds;
+    private final boolean receiverInsecureTls;
 
     private SsfConfiguration(Builder b) {
         if (b.issuer == null || b.issuer.isBlank()) {
@@ -96,6 +102,12 @@ public final class SsfConfiguration {
         this.defaultEventTypes = (b.defaultEventTypes == null || b.defaultEventTypes.isEmpty())
                 ? DEFAULT_EVENT_TYPES : List.copyOf(b.defaultEventTypes);
         this.verificationEventEnabled = b.verificationEventEnabled;
+        this.receiverExpectedIssuer = b.receiverExpectedIssuer;
+        this.receiverJwksUrl = b.receiverJwksUrl;
+        this.receiverAudience = b.receiverAudience;
+        this.receiverEndpointAuthToken = b.receiverEndpointAuthToken;
+        this.receiverJwksCacheSeconds = b.receiverJwksCacheSeconds;
+        this.receiverInsecureTls = b.receiverInsecureTls;
         if (this.kafkaEnabled && (this.kafkaBootstrapServers == null || this.kafkaBootstrapServers.isBlank())) {
             throw new IllegalArgumentException("kafkaBootstrapServers is required when kafkaEnabled=true");
         }
@@ -129,7 +141,13 @@ public final class SsfConfiguration {
                     .introspectionClientSecret(trimOrNull(param(config,"introspectionClientSecret")))
                     .introspectionInsecureTls(parseBoolean(param(config,"introspectionInsecureTls"), false))
                     .defaultEventTypes(parseCommaSeparated(param(config,"defaultEventTypes")))
-                    .verificationEventEnabled(parseBoolean(param(config,"verificationEventEnabled"), true));
+                    .verificationEventEnabled(parseBoolean(param(config,"verificationEventEnabled"), true))
+                    .receiverExpectedIssuer(trimOrNull(param(config,"receiverExpectedIssuer")))
+                    .receiverJwksUrl(trimOrNull(param(config,"receiverJwksUrl")))
+                    .receiverAudience(trimOrNull(param(config,"receiverAudience")))
+                    .receiverEndpointAuthToken(trimOrNull(param(config,"receiverEndpointAuthToken")))
+                    .receiverJwksCacheSeconds(parseLong(param(config,"receiverJwksCacheSeconds"), 300L))
+                    .receiverInsecureTls(parseBoolean(param(config,"receiverInsecureTls"), false));
             return b.build();
         } catch (IllegalArgumentException e) {
             throw e;
@@ -262,6 +280,41 @@ public final class SsfConfiguration {
 
     public boolean verificationEventEnabled() {
         return this.verificationEventEnabled;
+    }
+
+    // ---- receiver side (inbound SETs) ----
+
+    /** The transmitter issuer we accept inbound SETs from; unset = the receiver is disabled. */
+    public String receiverExpectedIssuer() {
+        return this.receiverExpectedIssuer;
+    }
+
+    public boolean receiverConfigured() {
+        return this.receiverExpectedIssuer != null && !this.receiverExpectedIssuer.isBlank();
+    }
+
+    /** JWKS to verify inbound SETs against; defaults to {@code <receiverExpectedIssuer>/pf/JWKS}. */
+    public String receiverJwksUrl() {
+        return this.receiverJwksUrl != null ? this.receiverJwksUrl
+                : this.receiverExpectedIssuer + "/pf/JWKS";
+    }
+
+    /** Expected {@code aud} of inbound SETs (null = not enforced). */
+    public String receiverAudience() {
+        return this.receiverAudience;
+    }
+
+    /** Optional bearer token the transmitter must present when POSTing to our push endpoint. */
+    public String receiverEndpointAuthToken() {
+        return this.receiverEndpointAuthToken;
+    }
+
+    public long receiverJwksCacheSeconds() {
+        return this.receiverJwksCacheSeconds;
+    }
+
+    public boolean receiverInsecureTls() {
+        return this.receiverInsecureTls;
     }
 
     // ---- endpoint URLs advertised in ssf-configuration (issuer + fixed module paths) ----
@@ -427,6 +480,12 @@ public final class SsfConfiguration {
         private boolean introspectionInsecureTls;
         private List<String> defaultEventTypes;
         private boolean verificationEventEnabled = true;
+        private String receiverExpectedIssuer;
+        private String receiverJwksUrl;
+        private String receiverAudience;
+        private String receiverEndpointAuthToken;
+        private long receiverJwksCacheSeconds = 300L;
+        private boolean receiverInsecureTls;
 
         public Builder issuer(String v) {
             this.issuer = v;
@@ -565,6 +624,36 @@ public final class SsfConfiguration {
 
         public Builder verificationEventEnabled(boolean v) {
             this.verificationEventEnabled = v;
+            return this;
+        }
+
+        public Builder receiverExpectedIssuer(String v) {
+            this.receiverExpectedIssuer = v;
+            return this;
+        }
+
+        public Builder receiverJwksUrl(String v) {
+            this.receiverJwksUrl = v;
+            return this;
+        }
+
+        public Builder receiverAudience(String v) {
+            this.receiverAudience = v;
+            return this;
+        }
+
+        public Builder receiverEndpointAuthToken(String v) {
+            this.receiverEndpointAuthToken = v;
+            return this;
+        }
+
+        public Builder receiverJwksCacheSeconds(long v) {
+            this.receiverJwksCacheSeconds = v;
+            return this;
+        }
+
+        public Builder receiverInsecureTls(boolean v) {
+            this.receiverInsecureTls = v;
             return this;
         }
 
