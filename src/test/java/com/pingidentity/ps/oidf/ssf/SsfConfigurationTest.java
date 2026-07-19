@@ -109,6 +109,17 @@ class SsfConfigurationTest {
     }
 
     @Test
+    void storeDialectDefaultsToTablesAndAcceptsLdm() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://op.example.com");
+        assertEquals("tables", SsfConfiguration.fromServletConfig(servletConfig(p)).storeDialect());
+        p.put("storeDialect", "ldm");
+        assertEquals("ldm", SsfConfiguration.fromServletConfig(servletConfig(p)).storeDialect());
+        p.put("storeDialect", "bogus");
+        assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
+    }
+
+    @Test
     void rejectsBadSigningAlgorithm() {
         Map<String, String> p = new HashMap<>();
         p.put("issuer", "https://op.example.com");

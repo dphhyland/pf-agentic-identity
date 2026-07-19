@@ -23,6 +23,8 @@ public final class SsfConfiguration {
     private static final String DEFAULT_SIGNING_ALGORITHM = "RS256";
     private static final Set<String> SUPPORTED_SIGNING_ALGORITHMS = Set.of("RS256", "PS256");
     private static final String DEFAULT_BASE_PATH = "/ssf";
+    private static final String DEFAULT_STORE_DIALECT = "tables";
+    private static final Set<String> SUPPORTED_STORE_DIALECTS = Set.of("tables", "ldm");
     private static final String DEFAULT_KAFKA_TOPIC = "sse-events";
     private static final String DEFAULT_KAFKA_SECURITY_PROTOCOL = "PLAINTEXT";
     private static final String DEFAULT_RECEIVER_SCOPE = "ssf.manage";
@@ -40,6 +42,7 @@ public final class SsfConfiguration {
     private final String signingAlgorithm;
     private final String basePath;
     private final String dataStoreId;
+    private final String storeDialect;
     private final boolean kafkaEnabled;
     private final String kafkaBootstrapServers;
     private final String kafkaTopic;
@@ -67,6 +70,7 @@ public final class SsfConfiguration {
         this.signingAlgorithm = b.signingAlgorithm;
         this.basePath = b.basePath;
         this.dataStoreId = b.dataStoreId;
+        this.storeDialect = parseStoreDialect(b.storeDialect);
         this.kafkaEnabled = b.kafkaEnabled;
         this.kafkaBootstrapServers = b.kafkaBootstrapServers;
         this.kafkaTopic = b.kafkaTopic;
@@ -98,6 +102,7 @@ public final class SsfConfiguration {
                     .signingAlgorithm(parseSigningAlgorithm(param(config,"signingAlgorithm")))
                     .basePath(orDefault(param(config,"basePath"), DEFAULT_BASE_PATH))
                     .dataStoreId(trimOrNull(param(config,"dataStoreId")))
+                    .storeDialect(trimOrNull(param(config,"storeDialect")))
                     .kafkaEnabled(parseBoolean(param(config,"kafkaEnabled"), false))
                     .kafkaBootstrapServers(trimOrNull(param(config,"kafkaBootstrapServers")))
                     .kafkaTopic(orDefault(param(config,"kafkaTopic"), DEFAULT_KAFKA_TOPIC))
@@ -138,6 +143,15 @@ public final class SsfConfiguration {
 
     public String dataStoreId() {
         return this.dataStoreId;
+    }
+
+    /**
+     * Which persistence layout the JDBC-backed store uses: {@code tables} (the module's own three
+     * ssf_* tables) or {@code ldm} (the ID Partners Identity Object Model entry store — streams,
+     * subjects, and pending SETs as object-class entries). Only meaningful when {@code dataStoreId} is set.
+     */
+    public String storeDialect() {
+        return this.storeDialect;
     }
 
     public boolean usesInMemoryStore() {
@@ -325,6 +339,17 @@ public final class SsfConfiguration {
         return trimmed;
     }
 
+    private static String parseStoreDialect(String value) {
+        if (value == null || value.isBlank()) {
+            return DEFAULT_STORE_DIALECT;
+        }
+        String trimmed = value.trim();
+        if (!SUPPORTED_STORE_DIALECTS.contains(trimmed)) {
+            throw new IllegalArgumentException("storeDialect must be tables or ldm, got: " + trimmed);
+        }
+        return trimmed;
+    }
+
     private static int parseInt(String value, int fallback) {
         if (value == null || value.isBlank()) {
             return fallback;
@@ -353,6 +378,7 @@ public final class SsfConfiguration {
         private String signingAlgorithm = DEFAULT_SIGNING_ALGORITHM;
         private String basePath = DEFAULT_BASE_PATH;
         private String dataStoreId;
+        private String storeDialect;
         private boolean kafkaEnabled;
         private String kafkaBootstrapServers;
         private String kafkaTopic = DEFAULT_KAFKA_TOPIC;
@@ -393,6 +419,11 @@ public final class SsfConfiguration {
 
         public Builder dataStoreId(String v) {
             this.dataStoreId = v;
+            return this;
+        }
+
+        public Builder storeDialect(String v) {
+            this.storeDialect = v;
             return this;
         }
 

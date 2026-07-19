@@ -36,9 +36,9 @@ public final class SsfSupport {
     private SsfSupport() {
     }
 
-    /** Creates an {@link SsfStore} for a data store id; supplied by the JDBC-backed servlet layer at init. */
+    /** Creates an {@link SsfStore} from configuration; supplied by the JDBC-backed servlet layer at init. */
     public interface StoreFactory {
-        SsfStore create(String dataStoreId);
+        SsfStore create(SsfConfiguration config);
     }
 
     /**
@@ -112,8 +112,9 @@ public final class SsfSupport {
                     + "' configured but no JDBC store factory installed; falling back to in-memory (per-node)"));
             return new InMemorySsfStore();
         }
-        LOGGER.info((Object) ("SSF store: JDBC data store '" + config.dataStoreId() + "' (cluster-safe, durable)"));
-        return factory.create(config.dataStoreId());
+        LOGGER.info((Object) ("SSF store: JDBC data store '" + config.dataStoreId() + "' dialect '"
+                + config.storeDialect() + "' (cluster-safe, durable)"));
+        return factory.create(config);
     }
 
     public static SsfConfiguration configuration() {

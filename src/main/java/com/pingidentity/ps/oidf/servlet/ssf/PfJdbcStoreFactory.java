@@ -5,6 +5,8 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.access.DataSourceAccessor;
 import com.pingidentity.ps.oidf.ssf.JdbcSsfStore;
+import com.pingidentity.ps.oidf.ssf.LdmSsfStore;
+import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfStore;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
 import java.io.PrintWriter;
@@ -24,8 +26,14 @@ import javax.sql.DataSource;
 public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
 
     @Override
-    public SsfStore create(String dataStoreId) {
-        JdbcSsfStore store = new JdbcSsfStore(new PfManagedDataSource(dataStoreId));
+    public SsfStore create(SsfConfiguration config) {
+        PfManagedDataSource ds = new PfManagedDataSource(config.dataStoreId());
+        if ("ldm".equals(config.storeDialect())) {
+            // Identity Object Model entry store — schema owned by the model repo's migration workflow
+            // (0001-add-shared-signals-ssf); this store never creates tables.
+            return new LdmSsfStore(ds);
+        }
+        JdbcSsfStore store = new JdbcSsfStore(ds);
         store.ensureSchema();
         return store;
     }
