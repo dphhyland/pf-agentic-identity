@@ -45,7 +45,9 @@ jobs:
           PF_PE=$(ls pf-lib/pf-protocolengine*.jar | head -1)
           mvn -q install:install-file -Dfile="$PF_PE" -DgroupId=pingfederate \
             -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
-          PF_SDK=$(ls pf-lib/pf-sdk*.jar pf-lib/pingfederate-sdk*.jar 2>/dev/null | head -1)
+          docker create --name pfsdk "$PF_IMAGE" && { docker cp pfsdk:/opt/out/instance/sdk/lib/. pf-sdk-lib/ 2>/dev/null || docker cp pfsdk:/opt/server/sdk/lib/. pf-sdk-lib/ || true; }; docker rm pfsdk
+          PF_SDK=""; for j in pf-sdk-lib/*.jar pf-lib/*.jar; do unzip -l "$j" 2>/dev/null | grep -q "com/pingidentity/access/JwksEndpointKeyAccessor.class" && PF_SDK="$j" && break; done
+          echo "SDK jar picked by content: $PF_SDK"; test -n "$PF_SDK"
           mvn -q install:install-file -Dfile="$PF_SDK" -DgroupId=com.pingidentity.pingfederate \
             -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
 
