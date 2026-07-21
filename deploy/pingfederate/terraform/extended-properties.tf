@@ -24,8 +24,7 @@ resource "pingfederate_extended_properties" "props" {
     { name = "attestation_accepted_algs", description = "Allowed attestation signing algs", multi_valued = true },
     { name = "attestation_pop_algs", description = "Allowed PoP signing algs", multi_valued = true },
     { name = "attestation_dpop_algs", description = "Allowed DPoP signing algs", multi_valued = true },
-    { name = "attestation_format", description = "jwt | sd-jwt | either" },
-    { name = "attestation_required_claims", description = "SD-JWT claims that must be disclosed", multi_valued = true },
+    { name = "attestation_required_claims", description = "claims the attestation must carry", multi_valued = true },
 
     # ── attestation issuance (the hosted attester) — new ──
     { name = "attestation_issuer", description = "Attester iss and required SVID aud" },
