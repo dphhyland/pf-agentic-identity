@@ -12,7 +12,7 @@ Authentication (verification lives in [`client-attestation`](../client-attestati
 - **`AttesterSigningKey` / `JwsSigner`** — per-client attester keys: **OpenBao transit** (key never
   leaves the vault; `OpenBaoTransitSigner`) or an inline JWK (`LocalJwkSigner`).
 - **`SpiffeSvidValidator` / `SpiffeBinding`** — one-to-many SPIFFE-ID bindings per client, with
-  bound metadata carried into the attestation's `workload` claam-free claims.
+  bound metadata carried into the attestation's `workload` claim.
 - **`ClientAttestationChallengeServlet`** — the challenge endpoint (`Cache-Control: no-store`,
   one-time challenges) backing PoP freshness.
 - **`AttestationMinter`** — claim layout: `iss`/`sub`/`cnf`/`workload`/`authorization_details`
