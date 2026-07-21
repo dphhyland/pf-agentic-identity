@@ -1,0 +1,51 @@
+# Push-to-deploy for the OpenID Federation trust anchor (go-oidfed lighthouse), config-as-code.
+# Fires only when deploy/lighthouse/** changes. Applies vars.<env>.env, then `railway up`s the
+# pinned image. Same env→branch mapping as the demo: sd-jwt-rar-paz→staging, main→production.
+# Requires the two project tokens already in repo secrets (RAILWAY_TOKEN_STAGING / _PROD).
+#
+# NOTE the service-name skew this inherits: the staging service is `lighthouse`, the production
+# service is `lighthouse-prod` (the CLI could not add a same-named service to a second env). The
+# per-env jobs below carry the right name; unifying the names is a tracked follow-up in deploy/README.md.
+name: Deploy lighthouse (trust anchor)
+
+on:
+  push:
+    branches: [sd-jwt-rar-paz, main]
+    paths:
+      - deploy/lighthouse/**
+      - .github/workflows/deploy-lighthouse.yml
+
+jobs:
+  staging:
+    if: github.ref == 'refs/heads/sd-jwt-rar-paz'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: deploy/lighthouse } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g @railway/cli
+      - name: apply config + deploy → lighthouse (staging)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
+          SERVICE: lighthouse
+          VARS: vars.staging.env
+        run: |
+          setargs=(); while IFS= read -r l; do [[ "$l" =~ ^[[:space:]]*# || -z "${l// }" ]] && continue; setargs+=(--set "$l"); done < "$VARS"
+          railway variables --service "$SERVICE" "${setargs[@]}"
+          railway up --ci --service "$SERVICE"
+
+  production:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: deploy/lighthouse } }
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm i -g @railway/cli
+      - name: apply config + deploy → lighthouse-prod (production)
+        env:
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}
+          SERVICE: lighthouse-prod
+          VARS: vars.production.env
+        run: |
+          setargs=(); while IFS= read -r l; do [[ "$l" =~ ^[[:space:]]*# || -z "${l// }" ]] && continue; setargs+=(--set "$l"); done < "$VARS"
+          railway variables --service "$SERVICE" "${setargs[@]}"
+          railway up --ci --service "$SERVICE"

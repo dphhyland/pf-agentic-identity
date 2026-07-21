@@ -1,0 +1,6 @@
+# `railway up` uses THIS (not .gitignore) to decide what to upload — so the git-ignored but
+# build-required artifacts (overlay/, *.lic, *.war, *.jar, data.zip) ARE sent to the builder.
+# Exclude only what the image build doesn't need:
+.git
+terraform/
+README.md
