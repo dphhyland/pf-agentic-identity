@@ -1,0 +1,8 @@
+pf-integration
+Copyright 2026 David Hyland
+
+Licensed under the Apache License, Version 2.0 (see the LICENSE file).
+
+This module compiles against the PingFederate SDK (pf-protocolengine), which is
+proprietary software licensed separately by Ping Identity. It is a Maven "provided"
+dependency and is NOT included in or redistributed by this project.
