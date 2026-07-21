@@ -50,6 +50,14 @@ jobs:
           echo "SDK jar picked by content: $PF_SDK"; test -n "$PF_SDK"
           mvn -q install:install-file -Dfile="$PF_SDK" -DgroupId=com.pingidentity.pingfederate \
             -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
+          # gm-api's provided deps use the local.pingfederate convention — same jars, from the image lib
+          mvn -q install:install-file -Dfile="$PF_SDK" -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.3 -Dpackaging=jar -DgeneratePom=true
+          for spec in servlet-api:4.0.9 jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
+            a="${spec%%:*}"; v="${spec##*:}"
+            J=$(ls pf-lib/${a}-[0-9]*.jar 2>/dev/null | head -1); [ -z "$J" ] && J=$(ls pf-lib/*${a}*.jar 2>/dev/null | head -1)
+            echo "local.pingfederate:$a:$v <- $J"; test -n "$J"
+            mvn -q install:install-file -Dfile="$J" -DgroupId=local.pingfederate -DartifactId="$a" -Dversion="$v" -Dpackaging=jar -DgeneratePom=true
+          done
 
       - name: build the platform (reactor → oidf.jar/oidf.war + plugin jars)
         run: mvn -q -DskipTests package
