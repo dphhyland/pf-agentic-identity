@@ -1,0 +1,6 @@
+target/
+*.class
+.env
+logs/
+.DS_Store
+node_modules/
