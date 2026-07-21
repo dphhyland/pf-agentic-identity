@@ -1,0 +1,36 @@
+# Provenance — where every path came from
+
+Assembled 2026-07-19 by history-preserving absorption (`git subtree add` for whole repos,
+`git filter-repo` path extraction for pieces of the monolith). **This monorepo is canonical.**
+The source repos remain live for link-continuity, but changes flow back only as deliberate
+backports — never as parallel development.
+
+| Path here | Source | How | Notes |
+|---|---|---|---|
+| `modules/oidf-jose` | [dphhyland/oidf-jose](https://github.com/dphhyland/oidf-jose) `main` | subtree (full history) | foundation JOSE SDK |
+| `modules/client-attestation` | [dphhyland/client-attestation](https://github.com/dphhyland/client-attestation) `main` | subtree (full history) | canonical home of the challenge/replay classes |
+| `modules/openid-federation` | [dphhyland/openid-federation](https://github.com/dphhyland/openid-federation) **`draft-10-pop-methods`** | subtree (full history) | absorbed the *ahead* branch (draft-10 metadata), not `main` |
+| `modules/pf-integration` | [dphhyland/pf-integration](https://github.com/dphhyland/pf-integration) `main` | subtree (full history) | pom gained the `pingfederate-sdk` provided dep (it never compiled standalone without it) |
+| `modules/rar-paz-plugin` | local `~/Source/pf-rar-paz-plugin` `main` | subtree (full history) | tracked `target/` pruned; the copy inside pf-oidf-modules was identical at absorb time |
+| `modules/attestation-issuer` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | + same-package closure classes and test helpers (`LocalJwkSigner`, `TestJwts`, `FakeBaoServer`) copied at HEAD; 3 challenge/replay classes deduped in favour of client-attestation |
+| `modules/ssf` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | Kafka publishing is reflection-based — no compile-time Kafka dep |
+| `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | Go Grant-Evaluation service + `gm-api.war` PF servlet |
+| `deploy/` + `.github/workflows/deploy-*` | pf-oidf-modules | filter-repo path extraction | `deploy-demo.yml` stayed behind (the demo lives in pf-oidf-modules); triggers retargeted: push-to-main → staging, production via workflow_dispatch |
+
+## What deliberately did NOT move
+
+- **The demo UI / harness** (`harness/ui`, agent-workload) — stays in
+  [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules), which lives on as the demo +
+  ops repo (its `deploy-demo.yml` keeps deploying `pf-demo-ui`).
+- **The CFR-decompiled PF source** — never tracked anywhere, never absorbed.
+- **client-attestation-sdk-polyglot** — the *client/builder* side (Java/Python/TS/Go); paired by
+  wire protocol, not by source. Stays its own repo.
+- **idp-pingfed-ssf-servelet** — a docker-compose *demo* consuming this repo's SSF artifacts.
+
+## Drift rules
+
+1. New work lands **here**. The absorbed repos get no direct commits.
+2. If something must go back (e.g. a fix someone needs from `dphhyland/client-attestation`),
+   cherry-pick/backport deliberately and say so in the commit message.
+3. The same `com.pingidentity.ps.oidf.*` FQCNs exist in the old repos — never mix old artifacts
+   with monorepo artifacts on one classpath.

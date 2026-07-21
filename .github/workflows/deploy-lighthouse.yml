@@ -1,6 +1,6 @@
 # Push-to-deploy for the OpenID Federation trust anchor (go-oidfed lighthouse), config-as-code.
 # Fires only when deploy/lighthouse/** changes. Applies vars.<env>.env, then `railway up`s the
-# pinned image. Same env→branch mapping as the demo: sd-jwt-rar-paz→staging, main→production.
+# pinned image. Monorepo mapping: push to main → STAGING; production only via workflow_dispatch (explicit).
 # Requires the two project tokens already in repo secrets (RAILWAY_TOKEN_STAGING / _PROD).
 #
 # NOTE the service-name skew this inherits: the staging service is `lighthouse`, the production
@@ -10,14 +10,20 @@ name: Deploy lighthouse (trust anchor)
 
 on:
   push:
-    branches: [sd-jwt-rar-paz, main]
+    branches: [main]
     paths:
       - deploy/lighthouse/**
       - .github/workflows/deploy-lighthouse.yml
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: deploy target (only 'production' does anything)
+        required: true
+        default: production
 
 jobs:
   staging:
-    if: github.ref == 'refs/heads/sd-jwt-rar-paz'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: deploy/lighthouse } }
     steps:
@@ -34,7 +40,7 @@ jobs:
           railway up --ci --service "$SERVICE"
 
   production:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: deploy/lighthouse } }
     steps:

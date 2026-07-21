@@ -5,14 +5,20 @@ name: Deploy fedhost (entity host)
 
 on:
   push:
-    branches: [sd-jwt-rar-paz, main]
+    branches: [main]
     paths:
       - deploy/fedhost/**
       - .github/workflows/deploy-fedhost.yml
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: deploy target (only 'production' does anything)
+        required: true
+        default: production
 
 jobs:
   staging:
-    if: github.ref == 'refs/heads/sd-jwt-rar-paz'
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: deploy/fedhost } }
     steps:
@@ -29,7 +35,7 @@ jobs:
           railway up --ci --service "$SERVICE"
 
   production:
-    if: github.ref == 'refs/heads/main'
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
     runs-on: ubuntu-latest
     defaults: { run: { working-directory: deploy/fedhost } }
     steps:
