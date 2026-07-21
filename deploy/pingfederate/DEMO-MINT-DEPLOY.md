@@ -19,6 +19,16 @@ Railway: project `e02a8e2f-ff38-4043-836f-25d9e1c0f26b`, env `staging`, services
 
 ---
 
+## Current state (staging)
+
+- ✅ **UI deployed** — the demo's **③ Attestation minting** tab is live on `pf-demo-ui`.
+- ✅ **OpenBao wired** — `OIDF_OPENBAO_URL` + a **least-privilege** signer token (not root) are set on
+  `pingfederate-runtime` (`--skip-deploys`; applies on the next redeploy). See Step 2.
+- ⏳ **Remaining (gated on secrets):** provision the two clients (Step 3 — admin password) and redeploy
+  `pingfederate-runtime` (Step 4 — overlay master key). After those, the mint tab works end-to-end.
+
+---
+
 ## Prereqs (out-of-band secrets — never commit)
 
 - Railway CLI logged in (or `RAILWAY_TOKEN` = a staging project token).
@@ -47,17 +57,28 @@ MODULE_JAR="$PWD/target/pf-oidf-modules-0.0.1-SNAPSHOT.jar" bash harness/run.sh 
 # expect: ALL 3 CHECKS PASSED
 ```
 
-## Step 2 — OpenBao (vault toggle only) ⚠️ secret
+## Step 2 — OpenBao (vault toggle) — already wired ✓
 
-The transit key `attestation-es256` (type `ecdsa-p256`) already exists on the `openbao` service.
+The transit key `attestation-es256` (ecdsa-p256) exists, and PF is already pointed at the vault with a
+**least-privilege** token (not root):
 
-**2a. Point the PF runtime at the vault** (reference var — no raw token in the repo):
+- `OIDF_OPENBAO_URL = http://openbao.railway.internal:8200`
+- `OIDF_OPENBAO_TOKEN` = a token bound to the **`pf-attestation-signer`** policy (only `read` on
+  `transit/keys/attestation-es256` + `sign` on `transit/sign/attestation-es256` — nothing else). Set with
+  `--skip-deploys`, so it applies on the next redeploy (Step 4).
+
+The signer token is **periodic (32-day)** — re-mint it with this if the vault toggle ever starts failing
+(run inside the `openbao` service, authenticated with a root/privileged `BAO_TOKEN`):
 
 ```sh
-railway variables \
-  --set "OIDF_OPENBAO_URL=http://openbao.railway.internal:8200" \
-  --set 'OIDF_OPENBAO_TOKEN=${{openbao.BAO_ROOT_TOKEN}}' \
-  -s pingfederate-runtime -e staging --skip-deploys
+railway ssh -s openbao -e staging       # BAO_ADDR=http://127.0.0.1:8200
+bao policy write pf-attestation-signer - <<'HCL'
+path "transit/keys/attestation-es256" { capabilities = ["read"] }
+path "transit/sign/attestation-es256" { capabilities = ["update"] }
+HCL
+NEW=$(bao token create -policy=pf-attestation-signer -no-default-policy -period=768h -field=token)
+# set it on PF (never commit it):
+echo "$NEW" | railway variable set OIDF_OPENBAO_TOKEN --stdin --skip-deploys -s pingfederate-runtime -e staging
 ```
 
 **2b. Trust the transit key at the token endpoint** (only needed for the "use at token endpoint" loop —
@@ -65,7 +86,8 @@ the mint itself does not need it). Read the transit public key and add it to the
 
 ```sh
 railway ssh -s openbao -e staging
-  # inside: export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN="$BAO_ROOT_TOKEN"
+  # the ssh shell does NOT inherit the service's env — supply a token explicitly:
+  #   export BAO_ADDR=http://127.0.0.1:8200 BAO_TOKEN=<root or a token that can read transit/keys>
   bao read -format=json transit/keys/attestation-es256 | \
     jq -r '.data.keys[(.data.latest_version|tostring)].public_key'   # PEM
   exit
@@ -140,13 +162,15 @@ curl -sk -X POST "$RUNTIME/federation/attestation" -H 'Content-Type: application
 # expect: HTTP 400  {"error":"invalid_request","error_description":"missing client_id"}  ← servlet is live
 ```
 
-## Step 6 — deploy the demo UI
+## Step 6 — the demo UI (already deployed)
+
+The mint tab is already live (pushed via `deploy-demo.yml`). If you change `harness/ui/**`, re-deploy with:
 
 ```sh
 git push origin sd-jwt-rar-paz     # deploy-demo.yml auto-deploys harness/ui/** to pf-demo-ui (staging)
 ```
 
-Open the demo → **Deploy** tab → **"Mint an attestation from a SPIFFE SVID — the hosted attester"** → Run.
+Open the demo → **③ Attestation minting** tab → **Run**.
 - **inline JWK**: mints a Client Attestation signed by `mock-attester-1` (kid shown in the header).
 - **OpenBao transit**: mints one signed inside the vault (kid = the transit key thumbprint; "key never left
   the vault" badge). Needs Step 2.
