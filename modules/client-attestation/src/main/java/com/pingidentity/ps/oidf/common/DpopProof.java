@@ -7,7 +7,7 @@ import org.jose4j.jwk.JsonWebKey;
 
 /**
  * Immutable view of a signature-verified DPoP proof. In attestation combined mode
- * ({@code attest_jwt_client_auth_dpop}) the proof's {@code jwk} header MUST equal the attestation
+ * (PoP method {@code dpop_combined}) the proof's {@code jwk} header MUST equal the attestation
  * {@code cnf} key, and a server-issued challenge (if any) is carried in the {@code nonce} claim.
  */
 public final class DpopProof {

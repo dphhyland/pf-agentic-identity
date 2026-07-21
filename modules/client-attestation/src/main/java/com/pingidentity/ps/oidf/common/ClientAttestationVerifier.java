@@ -18,11 +18,12 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
 
 /**
- * Verifies an attestation-based client authentication, in either proof-of-possession mode:
+ * Verifies an attestation-based client authentication ({@code attest_jwt_client_auth}), in either
+ * proof-of-possession method of draft -10:
  * <ul>
- *   <li>{@code attest_jwt_client_auth} — a Client Attestation JWT plus a dedicated Client Attestation
+ *   <li>{@code attestation_pop_jwt} — a Client Attestation JWT plus a dedicated Client Attestation
  *       PoP JWT (headers {@code OAuth-Client-Attestation} + {@code OAuth-Client-Attestation-PoP}); and</li>
- *   <li>{@code attest_jwt_client_auth_dpop} — combined mode: a Client Attestation JWT plus a DPoP proof
+ *   <li>{@code dpop_combined} — DPoP combined mode: a Client Attestation JWT plus a DPoP proof
  *       (headers {@code OAuth-Client-Attestation} + {@code DPoP}, and no PoP header), where the DPoP key
  *       must equal the attestation {@code cnf} key.</li>
  * </ul>

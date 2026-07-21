@@ -15,7 +15,7 @@ public final class ClientAttestationResult {
     public enum Mode {
         /** Dedicated Client Attestation PoP JWT ({@code attest_jwt_client_auth}). */
         POP_JWT,
-        /** DPoP combined mode ({@code attest_jwt_client_auth_dpop}). */
+        /** DPoP combined mode (PoP method {@code dpop_combined}). */
         DPOP
     }
 
