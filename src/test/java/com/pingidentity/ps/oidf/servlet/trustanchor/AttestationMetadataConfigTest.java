@@ -10,7 +10,7 @@ class AttestationMetadataConfigTest {
     @Test
     void defaultsAdvertiseBothAttestationFormats() {
         AttestationMetadataConfig defaults = AttestationMetadataConfig.defaults();
-        assertEquals(java.util.List.of("jwt", "sd-jwt"), defaults.clientAttestationFormatsSupported());
+        assertEquals(java.util.List.of("jwt"), defaults.clientAttestationFormatsSupported());
         assertTrue(defaults.tokenEndpointAuthMethodsSupported().contains("attest_jwt_client_auth"));
         assertTrue(defaults.tokenEndpointAuthMethodsSupported().contains("attest_jwt_client_auth_dpop"));
     }
