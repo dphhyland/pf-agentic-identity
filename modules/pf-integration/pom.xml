@@ -38,6 +38,7 @@
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>1.2</version><scope>provided</scope></dependency>
         <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><version>4.0.0</version><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><version>13.0.0.3</version><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><version>13.0.0.3</version><scope>provided</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency>
     </dependencies>
 

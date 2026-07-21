@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>pf-agentic-identity</artifactId>
+    <version>0.1.0</version>
+    <packaging>pom</packaging>
+
+    <name>pf-agentic-identity</name>
+    <description>Agentic / workload identity on PingFederate — attestation-based client authentication
+        (issuer + authenticator), OpenID Federation trust and §12 registration against a trust controller,
+        RAR entitlements to PingAuthorize, SSF signals, and the Grant Management evaluation API — as one
+        platform. Aggregator only: each module keeps its own standalone pom.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <modules>
+        <module>modules/oidf-jose</module>
+        <module>modules/client-attestation</module>
+        <module>modules/openid-federation</module>
+        <module>modules/pf-integration</module>
+        <module>modules/attestation-issuer</module>
+        <module>modules/ssf</module>
+        <module>modules/rar-paz-plugin</module>
+        <module>services/gm-api/servlet</module>
+    </modules>
+</project>

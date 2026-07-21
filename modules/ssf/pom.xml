@@ -5,15 +5,15 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.pingidentity.ps.oidf</groupId>
-    <artifactId>attestation-issuer</artifactId>
+    <artifactId>ssf</artifactId>
     <version>0.1.0</version>
     <packaging>jar</packaging>
 
-    <name>attestation-issuer</name>
-    <description>Client Attestation issuer: the /federation/attestation issuance servlet (SPIFFE SVID → minted
-        client attestation), attestation minter, per-client attester keys (OpenBao transit or inline JWK),
-        SPIFFE SVID validation, and the attestation challenge servlet. Verification lives in client-attestation;
-        this module is the issuing side.</description>
+    <name>ssf</name>
+    <description>Shared Signals Framework 1.0 (CAEP/RISC) transmitter + receiver for PingFederate: SET minting and
+        verification, stream management + poll/push delivery, receiver actions (grant revocation via the PF access-grant
+        SDK), PF security-audit log source, and JDBC / LDM / in-memory stream stores. Kafka publishing is
+        reflection-based — no compile-time Kafka dependency.</description>
 
     <licenses>
         <license>
@@ -30,17 +30,16 @@
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>0.1.0</version></dependency>
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>0.1.0</version></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>0.1.0</version></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>0.9.6</version></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.17.1</version></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>1.2</version></dependency>
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><version>2.20.0</version><scope>provided</scope></dependency>
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><version>2.20.0</version><scope>provided</scope></dependency>
         <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><version>4.0.0</version><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><version>13.0.0.3</version><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><version>13.0.0.3</version><scope>provided</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency>
-        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>5.12.0</version><scope>test</scope></dependency>
-        <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><version>5.12.0</version><scope>test</scope></dependency>
     </dependencies>
 
     <build>
