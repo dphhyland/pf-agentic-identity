@@ -36,6 +36,7 @@ final class FakeRedisServer implements Closeable {
     private final Thread acceptor;
     private final Map<String, Entry> store = new ConcurrentHashMap<>();
     private final List<Socket> connections = new ArrayList<>();
+    private final List<Thread> handlers = new ArrayList<>();
     private final String requiredPassword;
     private volatile boolean closed;
 
@@ -60,6 +61,9 @@ final class FakeRedisServer implements Closeable {
     public void close() throws IOException {
         this.closed = true;
         this.server.close();
+        // Join the acceptor BEFORE sweeping: otherwise a socket accepted in the race window is
+        // added to `connections` after the sweep and gets served after "close" (fail-open flake).
+        join(this.acceptor);
         synchronized (this.connections) {
             for (Socket socket : this.connections) {
                 try {
@@ -70,6 +74,21 @@ final class FakeRedisServer implements Closeable {
             }
             this.connections.clear();
         }
+        List<Thread> toJoin;
+        synchronized (this.handlers) {
+            toJoin = new ArrayList<>(this.handlers);
+        }
+        for (Thread h : toJoin) {
+            join(h); // handlers exit once their socket is closed — after this, nothing can serve
+        }
+    }
+
+    private static void join(Thread t) {
+        try {
+            t.join(2000L);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
     }
 
     private void acceptLoop() {
@@ -79,8 +98,19 @@ final class FakeRedisServer implements Closeable {
                 synchronized (this.connections) {
                     this.connections.add(socket);
                 }
+                if (this.closed) { // raced close(): never serve a post-close connection
+                    try {
+                        socket.close();
+                    } catch (IOException ignored) {
+                        // best effort
+                    }
+                    return;
+                }
                 Thread handler = new Thread(() -> this.handle(socket), "fake-redis-conn");
                 handler.setDaemon(true);
+                synchronized (this.handlers) {
+                    this.handlers.add(handler);
+                }
                 handler.start();
             } catch (IOException e) {
                 return; // server closed
