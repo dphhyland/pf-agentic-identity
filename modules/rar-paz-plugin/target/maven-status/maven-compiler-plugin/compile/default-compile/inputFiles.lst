@@ -1,0 +1,12 @@
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/AttestationAwareRarProcessor.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/AttestationSubject.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/DecisionRequest.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/DecisionRequestBuilder.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/DecisionResponse.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/GovernanceEngineClient.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/GovernanceEngineConfig.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/GovernanceEngineRequestBuilder.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/HttpTransport.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/JdkHttpTransport.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/RarContainment.java
+/Users/davidhyland/Source/pf-rar-paz-plugin/src/main/java/com/pingidentity/ps/oidf/rar/StatementApplier.java

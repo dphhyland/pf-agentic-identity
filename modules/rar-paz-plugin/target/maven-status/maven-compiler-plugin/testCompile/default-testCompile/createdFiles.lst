@@ -1,0 +1,7 @@
+com/pingidentity/ps/oidf/rar/GovernanceEngineClientTest$StubTransport.class
+com/pingidentity/ps/oidf/rar/RarContainmentTest.class
+com/pingidentity/ps/oidf/rar/DecisionResponseTest.class
+com/pingidentity/ps/oidf/rar/AttestationSubjectTest.class
+com/pingidentity/ps/oidf/rar/GovernanceEngineClientTest.class
+com/pingidentity/ps/oidf/rar/GovernanceEngineRequestBuilderTest.class
+com/pingidentity/ps/oidf/rar/StatementApplierTest.class

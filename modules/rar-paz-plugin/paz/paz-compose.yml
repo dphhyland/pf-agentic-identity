@@ -1,0 +1,46 @@
+# Trimmed + fixed compose for standing up PingAuthorize PDP + PAP for RAR policy work.
+# Fixes the upstream repo's /run/secrets volume+tmpfs conflict; uses absolute host paths so the
+# project directory doesn't matter. Service names match the PDP's external policy-server host (authzen-pap).
+services:
+  authzen-pdp:
+    image: pingidentity/pingauthorize:10.2.0.1-latest
+    container_name: authzen-pdp
+    volumes:
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/ping-authorize/pd.profile.local:/opt/staging/pd.profile
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/ping-authorize/option-cache:/opt/logs/option-cache
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/webapps/console.war:/opt/in/instance/webapps/console.war
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/certs:/config/certs
+    tmpfs:
+      - /run/secrets:rw,nosuid,nodev,noexec,mode=0777
+    ports:
+      - "8443:1443"
+    environment:
+      - PING_IDENTITY_ACCEPT_EULA=YES
+      - JSON_API_HEADER_NAME=CLIENT_TOKEN
+      - PDP_SHARED_SECRET=2FederateM0re
+      - SIDEBAND_SECRET_HEADER_NAME=CLIENT_TOKEN
+      - SIDEBAND_SHARED_SECRET=2FederateM0re
+      - SIDEBAND_SERVICE=Showcase
+      - POLICY_NODE_ID=1c5385f3-c5dd-489f-b9eb-11a06d23c00f
+      - POLICY_BRANCH=AuthZEN
+      - SERVER_PROFILE_PATH=ping-authorize
+      - SERVER_PROFILE_UPDATE=true
+      - PING_LOCAL_HOST_NAME=authzen-pdp
+      - PING_INSTANCE_NAME=authzen-pdp
+  authzen-pap:
+    image: pingidentity/pingauthorizepap:10.2.0.1-latest
+    container_name: authzen-pap
+    ports:
+      - "7443:1443"
+    environment:
+      - PING_EXTERNAL_BASE_URL=localhost:7443
+      - LICENSE_DIR=/config
+      - PING_IDENTITY_ACCEPT_EULA=YES
+      - LICENSE_FILE_NAME=PingAuthorize.lic
+      - TAIL_LOG_FILES=/logs/access.log
+      - DECISION_POINT_SHARED_SECRET=2FederateM0re
+      - PING_OPTIONS_FILE=/opt/server-profile/instance/myoptions.yml
+    volumes:
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/ping-authorize/pap:/config
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/ping-authorize/pap/server-profile:/opt/server-profile/instance
+      - /Users/davidhyland/Source/idpartners-authzen-ping-authorize/certs:/config/certs
