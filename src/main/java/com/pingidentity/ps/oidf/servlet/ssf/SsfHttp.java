@@ -40,8 +40,17 @@ final class SsfHttp {
     static boolean bootstrap(ServletConfig config) {
         SsfSupport.installStoreFactory(new PfJdbcStoreFactory());
         try {
-            SsfSupport.configure(SsfConfiguration.fromServletConfig(config));
+            SsfConfiguration cfg = SsfConfiguration.fromServletConfig(config);
+            SsfSupport.configure(cfg);
             wireReceiver();
+            if (cfg.auditEventsEnabled()) {
+                try {
+                    SsfAuditLogSource.attach(cfg);
+                } catch (Throwable t) {
+                    // e.g. log4j-core absent outside PF — audit sourcing is optional, never fail boot
+                    log.info((Object) ("SSF audit source unavailable: " + t));
+                }
+            }
             return true;
         } catch (IllegalArgumentException e) {
             log.info((Object) ("SSF transmitter not configured (" + e.getMessage() + "); endpoints disabled "

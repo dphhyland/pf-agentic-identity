@@ -74,6 +74,8 @@ public final class SsfConfiguration {
     private final String receiverPollToken;
     private final long receiverPollIntervalSeconds;
     private final boolean receiverActionsEnabled;
+    private final boolean auditEventsEnabled;
+    private final String auditEventMap;
 
     private SsfConfiguration(Builder b) {
         if (b.issuer == null || b.issuer.isBlank()) {
@@ -116,6 +118,8 @@ public final class SsfConfiguration {
         this.receiverPollToken = b.receiverPollToken;
         this.receiverPollIntervalSeconds = b.receiverPollIntervalSeconds;
         this.receiverActionsEnabled = b.receiverActionsEnabled;
+        this.auditEventsEnabled = b.auditEventsEnabled;
+        this.auditEventMap = b.auditEventMap;
         if (this.kafkaEnabled && (this.kafkaBootstrapServers == null || this.kafkaBootstrapServers.isBlank())) {
             throw new IllegalArgumentException("kafkaBootstrapServers is required when kafkaEnabled=true");
         }
@@ -159,7 +163,9 @@ public final class SsfConfiguration {
                     .receiverPollUrl(trimOrNull(param(config,"receiverPollUrl")))
                     .receiverPollToken(trimOrNull(param(config,"receiverPollToken")))
                     .receiverPollIntervalSeconds(parseLong(param(config,"receiverPollIntervalSeconds"), 10L))
-                    .receiverActionsEnabled(parseBoolean(param(config,"receiverActionsEnabled"), true));
+                    .receiverActionsEnabled(parseBoolean(param(config,"receiverActionsEnabled"), true))
+                    .auditEventsEnabled(parseBoolean(param(config,"auditEventsEnabled"), true))
+                    .auditEventMap(trimOrNull(param(config,"auditEventMap")));
             return b.build();
         } catch (IllegalArgumentException e) {
             throw e;
@@ -303,6 +309,16 @@ public final class SsfConfiguration {
 
     public boolean receiverConfigured() {
         return this.receiverExpectedIssuer != null && !this.receiverExpectedIssuer.isBlank();
+    }
+
+    /** Source SSF events from PF's security-audit loggers ({@code SsfAuditLogSource}); default on. */
+    public boolean auditEventsEnabled() {
+        return this.auditEventsEnabled;
+    }
+
+    /** Optional {@code EVENT=action} CSV extending/overriding the audit event vocabulary (null = defaults). */
+    public String auditEventMap() {
+        return this.auditEventMap;
     }
 
     /** JWKS to verify inbound SETs against; defaults to {@code <receiverExpectedIssuer>/pf/JWKS}. */
@@ -520,6 +536,8 @@ public final class SsfConfiguration {
         private String receiverPollToken;
         private long receiverPollIntervalSeconds = 10L;
         private boolean receiverActionsEnabled = true;
+        private boolean auditEventsEnabled = true;
+        private String auditEventMap;
 
         public Builder issuer(String v) {
             this.issuer = v;
@@ -708,6 +726,16 @@ public final class SsfConfiguration {
 
         public Builder receiverActionsEnabled(boolean v) {
             this.receiverActionsEnabled = v;
+            return this;
+        }
+
+        public Builder auditEventsEnabled(boolean v) {
+            this.auditEventsEnabled = v;
+            return this;
+        }
+
+        public Builder auditEventMap(String v) {
+            this.auditEventMap = v;
             return this;
         }
 

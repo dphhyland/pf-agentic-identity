@@ -15,6 +15,7 @@ class SsfEventBridgeTest {
     @AfterEach
     void reset() {
         SsfSupport.resetForTests();
+        SsfEventBridge.resetRecentForTests();
     }
 
     @Test
@@ -28,5 +29,20 @@ class SsfEventBridgeTest {
     @Test
     void nullSubjectIsANoOp() {
         assertEquals(0, SsfEventBridge.onSessionRevoked(null, "logout"));
+    }
+
+    @Test
+    void duplicateSameTypeAndSubjectWithinWindowIsSuppressed() {
+        // a logout seen by both LogoutEventFilter and the audit SLO event must emit only once
+        SubjectId bob = SubjectId.issSub("https://op.example.com", "bob");
+        SsfEventBridge.recordEmission("session-revoked", bob);
+        assertEquals(true, SsfEventBridge.suppressed("session-revoked", bob));
+        // a different event type or subject is NOT suppressed
+        assertEquals(false, SsfEventBridge.suppressed("account-disabled", bob));
+        assertEquals(false, SsfEventBridge.suppressed("session-revoked",
+                SubjectId.issSub("https://op.example.com", "carol")));
+        // and the window clears with reset (stands in for time passing)
+        SsfEventBridge.resetRecentForTests();
+        assertEquals(false, SsfEventBridge.suppressed("session-revoked", bob));
     }
 }
