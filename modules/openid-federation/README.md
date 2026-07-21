@@ -1,5 +1,8 @@
 # openid-federation
 
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly the standalone repo [`dphhyland/openid-federation`](https://github.com/dphhyland/openid-federation) — still live for existing consumers, **backports only**. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
+
+
 OpenID Federation 1.0 building blocks: trust-chain validation, the federation entity endpoints, a trust
 controller gateway, and federation-gated client authorization. Framework-agnostic — depends only on
 [`oidf-jose`](https://github.com/dphhyland/oidf-jose); the PingFederate-specific signer and OGNL hooks live

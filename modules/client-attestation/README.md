@@ -1,5 +1,8 @@
 # client-attestation
 
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly the standalone repo [`dphhyland/client-attestation`](https://github.com/dphhyland/client-attestation) — still live for existing consumers, **backports only**. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
+
+
 AS-side **OAuth Attestation-Based Client Authentication**
 ([draft-ietf-oauth-attestation-based-client-auth](https://datatracker.ietf.org/doc/draft-ietf-oauth-attestation-based-client-auth/)):
 the verifier and supporting machinery an Authorization Server uses to authenticate a client presenting a

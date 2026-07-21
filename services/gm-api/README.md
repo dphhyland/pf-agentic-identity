@@ -1,5 +1,8 @@
 # idp-gm-api — AuthZEN Grant Evaluation API
 
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly a standalone local repo, absorbed with history. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
+
+
 An implementation of the proposed **Grant Evaluation API** extension to the OpenID
 Foundation's [Grant Management API](https://openid.net/specs/oauth-v2-grant-management-1_0.html):
 a client can ask whether an existing grant still permits an action, right now,

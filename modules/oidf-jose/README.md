@@ -1,5 +1,8 @@
 # oidf-jose
 
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly the standalone repo [`dphhyland/oidf-jose`](https://github.com/dphhyland/oidf-jose) — still live for existing consumers, **backports only**. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
+
+
 The shared **JOSE/JWT + SD-JWT SDK** — the crypto foundation that the
 [`client-attestation`](https://github.com/dphhyland/client-attestation) and
 [`openid-federation`](https://github.com/dphhyland/openid-federation) libraries build on.

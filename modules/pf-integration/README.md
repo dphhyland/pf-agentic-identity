@@ -1,5 +1,8 @@
 # pf-integration
 
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly the standalone repo [`dphhyland/pf-integration`](https://github.com/dphhyland/pf-integration) — still live for existing consumers, **backports only**. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
+
+
 The PingFederate integration layer that wires [`client-attestation`](https://github.com/dphhyland/client-attestation)
 and [`openid-federation`](https://github.com/dphhyland/openid-federation) into a running PingFederate, and
 assembles the deployable **`oidf.war`**. This is the only module that depends on the PingFederate SDK

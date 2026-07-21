@@ -1,5 +1,8 @@
 # pf-rar-paz-plugin
 
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly a standalone local repo, absorbed with history. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
+
+
 A PingFederate **`AuthorizationDetailProcessor`** (RFC 9396 Rich Authorization Requests) that acts as a
 **Policy Enforcement Point**: it forwards each requested `authorization_details` entry — together with the
 **client attestation's** vouched subject / entitlement / workload — to a **PingAuthorize governance-engine**
