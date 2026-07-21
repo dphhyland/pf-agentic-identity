@@ -52,7 +52,10 @@ jobs:
             -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
           # gm-api's provided deps use the local.pingfederate convention — same jars, from the image lib
           mvn -q install:install-file -Dfile="$PF_SDK" -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.3 -Dpackaging=jar -DgeneratePom=true
-          for spec in servlet-api:4.0.9 jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
+          mvn -q dependency:get -Dartifact=org.eclipse.jetty.toolchain:jetty-servlet-api:4.0.9
+          SAPI=$(find ~/.m2 -name 'jetty-servlet-api-4.0.9.jar' | head -1)
+          mvn -q install:install-file -Dfile="$SAPI" -DgroupId=local.pingfederate -DartifactId=servlet-api -Dversion=4.0.9 -Dpackaging=jar -DgeneratePom=true
+          for spec in jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
             a="${spec%%:*}"; v="${spec##*:}"
             J=$(ls pf-lib/${a}-[0-9]*.jar 2>/dev/null | head -1); [ -z "$J" ] && J=$(ls pf-lib/*${a}*.jar 2>/dev/null | head -1)
             echo "local.pingfederate:$a:$v <- $J"; test -n "$J"
