@@ -25,9 +25,9 @@ jobs:
             docker cp pf:/opt/server/server/default/lib/. pf-lib/
           docker rm pf
           mvn -q install:install-file -Dfile="$(ls pf-lib/pf-protocolengine*.jar | head -1)" \
-            -DgroupId=pingfederate -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar
+            -DgroupId=pingfederate -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
           mvn -q install:install-file -Dfile="$(ls pf-lib/pf-sdk*.jar pf-lib/pingfederate-sdk*.jar 2>/dev/null | head -1)" \
-            -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar
+            -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
       - name: reactor build (tests on)
         run: mvn package
       - uses: actions/upload-artifact@v4

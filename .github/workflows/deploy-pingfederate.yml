@@ -44,10 +44,10 @@ jobs:
           docker rm pf
           PF_PE=$(ls pf-lib/pf-protocolengine*.jar | head -1)
           mvn -q install:install-file -Dfile="$PF_PE" -DgroupId=pingfederate \
-            -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar
+            -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
           PF_SDK=$(ls pf-lib/pf-sdk*.jar pf-lib/pingfederate-sdk*.jar 2>/dev/null | head -1)
           mvn -q install:install-file -Dfile="$PF_SDK" -DgroupId=com.pingidentity.pingfederate \
-            -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar
+            -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
 
       - name: build the platform (reactor → oidf.jar/oidf.war + plugin jars)
         run: mvn -q -DskipTests package
