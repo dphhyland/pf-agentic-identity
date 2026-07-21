@@ -276,6 +276,27 @@ class AttestationIssuanceServletTest {
         assertNotNull(body.get("attestation"));
     }
 
+    // ---- default resolver seam --------------------------------------------------------------------
+
+    @Test
+    void defaultClientResolverIsPingFederateBacked() {
+        assertTrue(new AttestationIssuanceServlet().defaultClientResolver() instanceof PfIssuanceClientResolver);
+    }
+
+    @Test
+    void lazilyInitializesClientResolverFromDefaultSeam() throws Exception {
+        AttestationIssuanceConfig cfg = config();
+        AttestationIssuanceServlet s = new AttestationIssuanceServlet() {
+            @Override
+            protected com.pingidentity.ps.oidf.common.IssuanceClientResolver defaultClientResolver() {
+                return clientId -> cfg;
+            }
+        };
+        s.setAttesterSigningKey(new AttesterSigningKey(null, null)); // no resolver injected → lazy path runs
+        Map<String, Object> body = s.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        assertNotNull(body.get("attestation"));
+    }
+
     // ---- init() -----------------------------------------------------------------------------------
 
     @Test

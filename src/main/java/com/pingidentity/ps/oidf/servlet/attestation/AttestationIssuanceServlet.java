@@ -176,17 +176,25 @@ public class AttestationIssuanceServlet extends HttpServlet {
         this.challengeRequired = required;
     }
 
-    private IssuanceClientResolver clientResolver() {
+    IssuanceClientResolver clientResolver() {
         IssuanceClientResolver local = this.clientResolver;
         if (local == null) {
             synchronized (this) {
                 if (this.clientResolver == null) {
-                    this.clientResolver = new PfIssuanceClientResolver(new PfMgmtClientStore());
+                    this.clientResolver = defaultClientResolver();
                 }
                 local = this.clientResolver;
             }
         }
         return local;
+    }
+
+    /**
+     * The runtime default resolver — reads clients from PingFederate's management store. Extracted as an
+     * overridable seam so the lazy-initialization path can be exercised without a live PF runtime.
+     */
+    protected IssuanceClientResolver defaultClientResolver() {
+        return new PfIssuanceClientResolver(new PfMgmtClientStore());
     }
 
     private AttesterSigningKey attesterSigningKey() {
