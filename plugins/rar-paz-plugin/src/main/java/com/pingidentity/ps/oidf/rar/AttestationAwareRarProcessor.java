@@ -56,6 +56,9 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      *  Consumed here and stripped so it never reaches the governance engine, the consent page, or the token. */
     private static final String PRINCIPAL_DETAIL_KEY = "_principal_sub";
 
+    private static final String PDP_DIALECT = "PDP Dialect";
+    private static final String DIALECT_GOVERNANCE = "governance-engine";
+    private static final String DIALECT_AUTHZEN = "authzen";
     private static final String PDP_URL = "PDP URL";
     private static final String PDP_DOMAIN_PREFIX = "PDP Domain Prefix";
     private static final String PDP_SERVICE = "PDP Service";
@@ -76,7 +79,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private final ObjectMapper mapper = new ObjectMapper();
 
     private GovernanceEngineConfig config;
-    private GovernanceEngineClient client;
+    private PdpClient client;
 
     @Override
     public void configure(Configuration configuration) {
@@ -95,16 +98,23 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 .timeoutMillis(parseInt(configuration.getFieldValue(TIMEOUT_MS), 10_000))
                 .build();
         HttpTransport transport = new JdkHttpTransport(config.isInsecureTls(), config.getTimeoutMillis());
-        this.client = new GovernanceEngineClient(config, transport, new GovernanceEngineRequestBuilder(config, mapper), mapper);
-        log.info("Configured AttestationAwareRarProcessor -> " + config.getPdpUrl());
+        String dialect = configuration.getFieldValue(PDP_DIALECT);
+        if (DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim())) {
+            this.client = new AuthZenPdpClient(config, transport, new AuthZenRequestBuilder(config), mapper);
+        } else {
+            this.client = new GovernanceEngineClient(config, transport, new GovernanceEngineRequestBuilder(config, mapper), mapper);
+        }
+        log.info("Configured AttestationAwareRarProcessor (" + (this.client instanceof AuthZenPdpClient
+                ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl());
     }
 
     @Override
     public PluginDescriptor getPluginDescriptor() {
         GuiConfigDescriptor gui = new GuiConfigDescriptor();
-        gui.setDescription("Maps RFC 9396 authorization_details into a PingAuthorize governance-engine decision, "
-                + "bounded by the client attestation's entitlement.");
-        addText(gui, PDP_URL, "Governance engine decision URL", "https://", true);
+        gui.setDescription("Maps RFC 9396 authorization_details into a PDP decision — the native PingAuthorize "
+                + "governance engine or an OpenID AuthZEN 1.0 PDP — bounded by the client attestation's entitlement.");
+        addText(gui, PDP_DIALECT, "PDP dialect: governance-engine | authzen", DIALECT_GOVERNANCE, false);
+        addText(gui, PDP_URL, "PDP decision URL (authzen: point at /access/v1/evaluation)", "https://", true);
         addText(gui, PDP_DOMAIN_PREFIX, "PDP domain prefix", "idpartners.authorization_details", false);
         addText(gui, PDP_SERVICE, "PDP service", "Authorization", false);
         addText(gui, PDP_ACTION, "PDP action", "authorize", false);

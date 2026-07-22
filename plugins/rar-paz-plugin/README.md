@@ -125,3 +125,19 @@ mvn -o test    # 23 tests: request building (incl. principal→UserID / agent→
                # decision parsing (permit/deny/obligations), client transport + auth header,
                # statement application, containment
 ```
+
+## PDP dialects — PingAuthorize governance engine or OpenID AuthZEN
+
+The processor speaks two PDP wire dialects, selected by the **PDP Dialect** config field
+(`governance-engine`, the default, or `authzen`). Enforcement (`Deny unless PERMIT`,
+fail-open, timeouts, shared-secret header) and statement application are dialect-independent
+behind the `PdpClient` seam.
+
+| | `governance-engine` (default) | `authzen` |
+|---|---|---|
+| Wire shape | `{domain, service, action, attributes}` — Trust-Framework attributes, values JSON-stringified | AuthZEN 1.0 evaluation: `{subject, action, resource, context}` — structured JSON, point **PDP URL** at `/access/v1/evaluation` |
+| Principal / agent | `UserID` = resource owner (else attestation sub, else client); attestation sub as `actor` attribute when distinct | `subject` = `{type: user\|agent\|client, id}` by the same precedence; attestation sub as `context.actor` when distinct (RFC 8693 delegation) |
+| Requested detail | flattened, type-prefixed attributes + `req_*` scalar mirrors | `resource = {type, id, properties}` carrying the detail natively |
+| Attested ceiling | `attestation.entitlement / workload / cnf_thumbprint` attributes | `context.attestation.{entitlement, workload, cnf_thumbprint}` |
+| Decision | `decision: PERMIT/DENY…` + `authorised` | boolean `decision` (required; anything else is an error) |
+| Obligations / enrichment | `statements: [{name, payload}]` | **response `context` is mapped into the same statement pipeline**: `context.statements` is taken verbatim; every other context member becomes one statement (`context.access.limits` → `detail.access.limits`); `id` / `reason_admin` / `reason_user` are metadata, never merged |

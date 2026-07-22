@@ -14,7 +14,7 @@ import java.util.Map;
  * {@link DecisionResponse}. A non-2xx status is a transport error and throws; the permit/deny call is left to
  * {@link DecisionResponse#isPermit()} so the caller decides how to enforce it.
  */
-public final class GovernanceEngineClient {
+public final class GovernanceEngineClient implements PdpClient {
 
     private final GovernanceEngineConfig config;
     private final HttpTransport transport;
@@ -29,6 +29,7 @@ public final class GovernanceEngineClient {
         this.mapper = mapper;
     }
 
+    @Override
     public DecisionResponse decide(String type, Map<String, Object> detail, AttestationSubject subject,
                                    String resourceOwner, String fallbackClientId) throws IOException {
         return decide(requestBuilder.build(type, detail, subject, resourceOwner, fallbackClientId));
