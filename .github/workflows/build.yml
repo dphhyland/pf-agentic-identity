@@ -48,11 +48,11 @@ jobs:
         with:
           name: pf-artifacts
           path: |
-            modules/pf-integration/target/oidf.war
-            modules/pf-integration/target/oidf.jar
-            modules/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar
-            modules/attestation-issuer/target/attestation-issuer-*.jar
-            modules/ssf/target/ssf-*.jar
+            servlets/pf-integration/target/oidf.war
+            servlets/pf-integration/target/oidf.jar
+            plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar
+            servlets/attestation-issuer/target/attestation-issuer-*.jar
+            servlets/ssf/target/ssf-*.jar
             services/gm-api/servlet/target/gm-api.war
 
   go:

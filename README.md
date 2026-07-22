@@ -10,17 +10,40 @@ token fails — governance is real-time, not a credential expiry.
 One `mvn package` at the root builds every PF-side artifact; the Go Grant-Evaluation service builds
 with `go build ./...` under `services/gm-api`.
 
-## Modules
+## Layout — organized by *how it loads into PingFederate*
+
+PF has two very different extension mechanisms, and the tree mirrors them. **Servlets** are plain
+`@WebServlet` classes: they ship inside a war, PF's web container annotation-scans them, and they run
+on the webapp classloader. **Plugins** implement a PF SDK SPI: discovered via a `PF-INF/` descriptor,
+must be named `pf.plugins.*.jar`, and load on a per-plugin *isolated* classloader (which is why the
+RAR plugin shades its jackson). Pure **libs** know nothing about PF at all.
+
+### `libs/` — pure libraries (no PingFederate)
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `modules/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose.jar` |
-| `modules/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation.jar` |
-| `modules/openid-federation` | **OpenID Federation** core: trust-chain validation, entity statements, trust-controller gateway, client entity authorizer (draft-10 metadata) | `openid-federation.jar` |
-| `modules/pf-integration` | The PF glue (only module with the PF SDK dep): **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store | `oidf.jar` + `oidf.war` |
-| `modules/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (SPIFFE SVID → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer.jar` |
-| `modules/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf.jar` |
-| `modules/rar-paz-plugin` | **RAR plugin**: RFC 9396 `AuthorizationDetailProcessor` → PingAuthorize governance engine (principal as `UserID`, agent as `actor` — RFC 8693 delegation) | `pf.plugins.pf-rar-paz-plugin.jar` |
+| `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose.jar` |
+| `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation.jar` |
+| `libs/openid-federation` | **OpenID Federation** core: trust-chain validation, entity statements, trust-controller gateway, client entity authorizer (draft-10 metadata) | `openid-federation.jar` |
+
+### `servlets/` — webapp extensions (annotation-scanned, ship in `oidf.war` / `WEB-INF/lib`)
+
+| Path | What it is | Artifact |
+|---|---|---|
+| `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store | `oidf.jar` + `oidf.war` |
+| `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (SPIFFE SVID → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer.jar` |
+| `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf.jar` |
+
+### `plugins/` — PF SDK plugins (`PF-INF/` descriptor, isolated classloader)
+
+| Path | What it is | Artifact |
+|---|---|---|
+| `plugins/rar-paz-plugin` | **RAR plugin**: RFC 9396 `AuthorizationDetailProcessor` → PingAuthorize governance engine (principal as `UserID`, agent as `actor` — RFC 8693 delegation) | `pf.plugins.pf-rar-paz-plugin.jar` |
+
+### `services/` — standalone services
+
+| Path | What it is | Artifact |
+|---|---|---|
 | `services/gm-api` | **Grant Management / AuthZEN Grant Evaluation API** — Go service + PF servlet (`gm-api.war`): is this grant, intersected with what the subject holds, still enough — right now? | binary + `gm-api.war` |
 
 `deploy/` is the environment-as-code tree (Railway; per-service Dockerfile + `vars.<env>.env` +

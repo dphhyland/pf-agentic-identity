@@ -7,13 +7,13 @@ backports — never as parallel development.
 
 | Path here | Source | How | Notes |
 |---|---|---|---|
-| `modules/oidf-jose` | [dphhyland/oidf-jose](https://github.com/dphhyland/oidf-jose) `main` | subtree (full history) | foundation JOSE SDK |
-| `modules/client-attestation` | [dphhyland/client-attestation](https://github.com/dphhyland/client-attestation) `main` | subtree (full history) | canonical home of the challenge/replay classes |
-| `modules/openid-federation` | [dphhyland/openid-federation](https://github.com/dphhyland/openid-federation) **`draft-10-pop-methods`** | subtree (full history) | absorbed the *ahead* branch (draft-10 metadata), not `main` |
-| `modules/pf-integration` | [dphhyland/pf-integration](https://github.com/dphhyland/pf-integration) `main` | subtree (full history) | pom gained the `pingfederate-sdk` provided dep (it never compiled standalone without it) |
-| `modules/rar-paz-plugin` | local `~/Source/pf-rar-paz-plugin` `main` | subtree (full history) | tracked `target/` pruned; the copy inside pf-oidf-modules was identical at absorb time |
-| `modules/attestation-issuer` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | + same-package closure classes and test helpers (`LocalJwkSigner`, `TestJwts`, `FakeBaoServer`) copied at HEAD; 3 challenge/replay classes deduped in favour of client-attestation |
-| `modules/ssf` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | Kafka publishing is reflection-based — no compile-time Kafka dep |
+| `libs/oidf-jose` | [dphhyland/oidf-jose](https://github.com/dphhyland/oidf-jose) `main` | subtree (full history) | foundation JOSE SDK |
+| `libs/client-attestation` | [dphhyland/client-attestation](https://github.com/dphhyland/client-attestation) `main` | subtree (full history) | canonical home of the challenge/replay classes |
+| `libs/openid-federation` | [dphhyland/openid-federation](https://github.com/dphhyland/openid-federation) **`draft-10-pop-methods`** | subtree (full history) | absorbed the *ahead* branch (draft-10 metadata), not `main` |
+| `servlets/pf-integration` | [dphhyland/pf-integration](https://github.com/dphhyland/pf-integration) `main` | subtree (full history) | pom gained the `pingfederate-sdk` provided dep (it never compiled standalone without it) |
+| `plugins/rar-paz-plugin` | local `~/Source/pf-rar-paz-plugin` `main` | subtree (full history) | tracked `target/` pruned; the copy inside pf-oidf-modules was identical at absorb time |
+| `servlets/attestation-issuer` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | + same-package closure classes and test helpers (`LocalJwkSigner`, `TestJwts`, `FakeBaoServer`) copied at HEAD; 3 challenge/replay classes deduped in favour of client-attestation |
+| `servlets/ssf` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | Kafka publishing is reflection-based — no compile-time Kafka dep |
 | `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | Go Grant-Evaluation service + `gm-api.war` PF servlet |
 | `deploy/` + `.github/workflows/deploy-*` | pf-oidf-modules | filter-repo path extraction | `deploy-demo.yml` stayed behind (the demo lives in pf-oidf-modules); triggers retargeted: push-to-main → staging, production via workflow_dispatch |
 

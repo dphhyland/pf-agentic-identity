@@ -3,7 +3,7 @@
 > **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Extracted with history from `pf-oidf-modules` 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
 
 The **Client Attestation issuer** — the issuing side of OAuth Attestation-Based Client
-Authentication (verification lives in [`client-attestation`](../client-attestation)):
+Authentication (verification lives in [`client-attestation`](../../libs/client-attestation)):
 
 - **`AttestationIssuanceServlet`** (`/federation/attestation`) — a SPIFFE workload presents its
   JWT-SVID and instance-key proof; the servlet validates the SVID against the client's registered

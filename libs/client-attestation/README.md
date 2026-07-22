@@ -3,7 +3,7 @@
 > **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly the standalone repo [`dphhyland/client-attestation`](https://github.com/dphhyland/client-attestation) — still live for existing consumers, **backports only**. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
 
 
-> **📦 Canonical home: [dphhyland/pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity)** — this code now lives (with history) at `modules/client-attestation` in the pf-agentic-identity monorepo. This repo stays live for existing links and consumers but receives **backports only** — please open issues and PRs against the monorepo.
+> **📦 Canonical home: [dphhyland/pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity)** — this code now lives (with history) at `libs/client-attestation` in the pf-agentic-identity monorepo. This repo stays live for existing links and consumers but receives **backports only** — please open issues and PRs against the monorepo.
 
 
 AS-side **OAuth Attestation-Based Client Authentication**

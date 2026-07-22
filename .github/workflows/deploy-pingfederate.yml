@@ -70,10 +70,10 @@ jobs:
           mvn -q dependency:get -Dartifact="$JOSE4J"
           JOSE4J_JAR=$(find ~/.m2 -name 'jose4j-0.9.6.jar' | head -1)
           bash deploy/pingfederate/build/assemble-pf-runtime-war.sh \
-            stock-pf-runtime.war modules/pf-integration/target/oidf.jar "$JOSE4J_JAR" \
+            stock-pf-runtime.war servlets/pf-integration/target/oidf.jar "$JOSE4J_JAR" \
             deploy/pingfederate/pf-runtime.war
-          cp modules/pf-integration/target/oidf.war deploy/pingfederate/oidf.war
-          cp modules/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar deploy/pingfederate/
+          cp servlets/pf-integration/target/oidf.war deploy/pingfederate/oidf.war
+          cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar deploy/pingfederate/
           cp "$JOSE4J_JAR" deploy/pingfederate/jose4j-0.9.6.jar
 
       - name: materialise secrets + per-env config (never committed)

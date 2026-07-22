@@ -24,13 +24,13 @@
     </licenses>
 
     <modules>
-        <module>modules/oidf-jose</module>
-        <module>modules/client-attestation</module>
-        <module>modules/openid-federation</module>
-        <module>modules/pf-integration</module>
-        <module>modules/attestation-issuer</module>
-        <module>modules/ssf</module>
-        <module>modules/rar-paz-plugin</module>
+        <module>libs/oidf-jose</module>
+        <module>libs/client-attestation</module>
+        <module>libs/openid-federation</module>
+        <module>servlets/pf-integration</module>
+        <module>servlets/attestation-issuer</module>
+        <module>servlets/ssf</module>
+        <module>plugins/rar-paz-plugin</module>
         <module>services/gm-api/servlet</module>
     </modules>
 </project>
