@@ -1,5 +1,7 @@
 # GKE SPIFFE → Client Attestation → PingFederate demo
 
+> **Explainer (public):** https://gke-spiffe-demo-production.up.railway.app
+
 A workload running in Google Cloud proves its identity with SPIFFE evidence, exchanges it at the
 **attestation-issuer servlet** (`/federation/attestation`, inside PF's war) for a **Client Attestation**
 (draft-ietf-oauth-attestation-based-client-auth), and authenticates to PF's token endpoint with the

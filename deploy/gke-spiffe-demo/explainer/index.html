@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="How a Google Cloud workload becomes an OAuth client with no secret worth stealing: SPIFFE evidence, Client Attestation, PingFederate.">
+<title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
+<style>
+  :root {
+    --paper: #F7F8F7;
+    --ink: #1A2228;
+    --ink-soft: #4A5560;
+    --line: #DDE3E1;
+    --accent: #0F766E;        /* attestation / OAuth artifacts */
+    --accent-soft: #0F766E1A;
+    --google: #3B6FD4;        /* the Google / platform side */
+    --google-soft: #3B6FD41A;
+    --ping: #B23A48;          /* the PingFederate side */
+    --ping-soft: #B23A481A;
+    --card: #FFFFFF;
+    --code-bg: #EEF1F0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #10171C;
+      --ink: #E4E9EC;
+      --ink-soft: #93A1AC;
+      --line: #263239;
+      --accent: #2DB5A5;
+      --accent-soft: #2DB5A522;
+      --google: #7BA3F0;
+      --google-soft: #7BA3F022;
+      --ping: #E07A88;
+      --ping-soft: #E07A8822;
+      --card: #161F26;
+      --code-bg: #1C262E;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #10171C; --ink: #E4E9EC; --ink-soft: #93A1AC; --line: #263239;
+    --accent: #2DB5A5; --accent-soft: #2DB5A522; --google: #7BA3F0; --google-soft: #7BA3F022;
+    --ping: #E07A88; --ping-soft: #E07A8822; --card: #161F26; --code-bg: #1C262E;
+  }
+  :root[data-theme="light"] {
+    --paper: #F7F8F7; --ink: #1A2228; --ink-soft: #4A5560; --line: #DDE3E1;
+    --accent: #0F766E; --accent-soft: #0F766E1A; --google: #3B6FD4; --google-soft: #3B6FD41A;
+    --ping: #B23A48; --ping-soft: #B23A481A; --card: #FFFFFF; --code-bg: #EEF1F0;
+  }
+
+  body {
+    background: var(--paper);
+    color: var(--ink);
+    font-family: Charter, Georgia, 'Times New Roman', serif;
+    font-size: 17px;
+    line-height: 1.65;
+    margin: 0;
+  }
+  .wrap { max-width: 46rem; margin: 0 auto; padding: 3rem 1.25rem 5rem; }
+  .wide { max-width: 60rem; margin-left: auto; margin-right: auto; }
+
+  h1, h2, h3, .eyebrow, .chip, .stepnum, th {
+    font-family: 'Avenir Next', Avenir, Seravek, 'Segoe UI', system-ui, sans-serif;
+  }
+  h1 { font-size: 2.1rem; font-weight: 600; line-height: 1.15; letter-spacing: -0.01em; text-wrap: balance; margin: 0.4rem 0 1rem; }
+  h2 { font-size: 1.35rem; font-weight: 600; margin: 3rem 0 0.75rem; text-wrap: balance; }
+  h3 { font-size: 1.02rem; font-weight: 600; margin: 1.6rem 0 0.4rem; }
+  p { margin: 0 0 1rem; }
+  .lede { font-size: 1.15rem; color: var(--ink); }
+  .eyebrow {
+    text-transform: uppercase; letter-spacing: 0.14em; font-size: 0.72rem; font-weight: 600;
+    color: var(--accent); margin: 0;
+  }
+  a { color: var(--accent); }
+
+  code, pre, .mono {
+    font-family: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    font-size: 0.85em;
+  }
+  code { background: var(--code-bg); padding: 0.1em 0.35em; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px;
+    padding: 0.9rem 1rem; overflow-x: auto; line-height: 1.5; margin: 0 0 1rem;
+  }
+  pre code { background: none; padding: 0; }
+
+  .chips { display: flex; flex-wrap: wrap; gap: 0.5rem; margin: 1.2rem 0 0.4rem; }
+  .chip {
+    display: inline-flex; align-items: baseline; gap: 0.45em;
+    font-size: 0.8rem; font-weight: 600; padding: 0.35em 0.8em;
+    border-radius: 999px; border: 1px solid var(--line); background: var(--card);
+  }
+  .chip .dot { width: 0.55em; height: 0.55em; border-radius: 50%; align-self: center; }
+  .chip small { font-weight: 400; color: var(--ink-soft); }
+  .dot.g { background: var(--google); } .dot.a { background: var(--accent); } .dot.p { background: var(--ping); }
+
+  .steps { list-style: none; margin: 1.5rem 0; padding: 0; display: flex; flex-direction: column; gap: 1.1rem; }
+  .steps li { display: grid; grid-template-columns: 2.2rem 1fr; gap: 0.9rem; }
+  .stepnum {
+    width: 2rem; height: 2rem; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    background: var(--accent-soft); color: var(--accent); font-weight: 600; font-size: 0.95rem;
+    border: 1px solid var(--accent);
+  }
+  .steps h3 { margin: 0.25rem 0 0.2rem; }
+  .steps p { margin: 0; color: var(--ink-soft); }
+  .steps p strong { color: var(--ink); }
+
+  figure { margin: 1.5rem 0; }
+  figcaption { font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.8rem; color: var(--ink-soft); margin-top: 0.5rem; }
+  .diagram { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 1rem; overflow-x: auto; }
+
+  .jwt { border: 1px solid var(--line); border-radius: 10px; background: var(--card); overflow: hidden; }
+  .jwt header {
+    padding: 0.55rem 0.9rem; font-family: 'Avenir Next', Avenir, system-ui, sans-serif;
+    font-size: 0.8rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase;
+    border-bottom: 1px solid var(--line);
+  }
+  .jwt.google header { background: var(--google-soft); color: var(--google); }
+  .jwt.attn header  { background: var(--accent-soft); color: var(--accent); }
+  .jwt.pop header   { background: var(--ping-soft); color: var(--ping); }
+  .jwt pre { border: none; border-radius: 0; margin: 0; background: transparent; font-size: 0.78rem; }
+  .jwt footer { padding: 0.5rem 0.9rem 0.7rem; font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.78rem; color: var(--ink-soft); border-top: 1px dashed var(--line); }
+  .jwt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem; margin: 1.2rem 0; }
+
+  table { border-collapse: collapse; width: 100%; margin: 1.2rem 0; font-size: 0.92rem; }
+  th { text-align: left; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-soft); font-weight: 600; }
+  th, td { padding: 0.55rem 0.8rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td:first-child, th:first-child { padding-left: 0; }
+  .tablewrap { overflow-x: auto; }
+  .ok { color: var(--accent); font-weight: 600; font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.85rem; }
+  .deny { color: var(--ping); font-weight: 600; font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.85rem; }
+
+  .note {
+    border-left: 3px solid var(--accent); background: var(--card); border-radius: 0 8px 8px 0;
+    padding: 0.8rem 1.1rem; margin: 1.4rem 0; font-size: 0.95rem;
+  }
+  .note strong { font-family: 'Avenir Next', Avenir, system-ui, sans-serif; }
+
+  hr { border: none; border-top: 1px solid var(--line); margin: 3rem 0; }
+  .foot { color: var(--ink-soft); font-size: 0.9rem; }
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <p class="eyebrow">Explainer · pf-agentic-identity · July 2026</p>
+  <h1>How a Google workload becomes an OAuth client with no secret worth stealing</h1>
+  <p class="lede">
+    This demo answers one question: can a workload running in Google Cloud authenticate to
+    <strong>PingFederate</strong> using <em>what it is</em> — its platform-attested identity — instead of a
+    client secret someone provisioned and could leak? The answer, verified end-to-end on a live GKE
+    cluster, is yes: twice, two different ways.
+  </p>
+
+  
+  <p style="font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.9rem;">
+    <a href="https://github.com/dphhyland/pf-agentic-identity">github.com/dphhyland/pf-agentic-identity</a>
+    &nbsp;·&nbsp; demo: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo"><code>deploy/gke-spiffe-demo</code></a>
+    &nbsp;·&nbsp; servlet: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/servlets/attestation-issuer"><code>servlets/attestation-issuer</code></a>
+  </p>
+
+  <h2>The problem it solves</h2>
+  <p>
+    OAuth clients traditionally authenticate with a static credential — a client secret or a private key
+    baked into config. For human-operated apps that's tolerable. For <strong>agents and workloads</strong> that are
+    created and destroyed by the hundreds, it's the weakest link: secrets are duplicated across instances,
+    outlive the workloads that used them, and say nothing about <em>where the caller is actually running</em>.
+    Ping and Google's shared answer — the "runtime identity" model behind Google's Agent Gateway
+    integration — is to derive the credential from the platform's own attestation of the workload,
+    freshly, on every enrolment.
+  </p>
+  <p>This demo implements that model with three cooperating parties:</p>
+
+  <div class="chips">
+    <span class="chip"><span class="dot g"></span>Platform attestor <small>— SPIRE, or Google itself</small></span>
+    <span class="chip"><span class="dot a"></span>Client Attester <small>— servlet inside PF's war</small></span>
+    <span class="chip"><span class="dot p"></span>PingFederate <small>— the authorization server</small></span>
+  </div>
+  <p style="color: var(--ink-soft); font-size: 0.95rem;">
+    The colors above carry through every diagram: <span style="color:var(--google); font-weight:600;">blue</span> is
+    evidence issued by the platform, <span style="color:var(--accent); font-weight:600;">teal</span> is the
+    attestation the Client Attester mints, <span style="color:var(--ping); font-weight:600;">red</span> is what
+    PingFederate verifies at the token endpoint.
+  </p>
+
+  <h2>The flow, in five steps</h2>
+  <p>
+    The agent pod knows exactly two things at boot: a base URL and its <code>client_id</code>. Everything else
+    it learns from the attester's discovery document.
+  </p>
+
+  <ol class="steps">
+    <li>
+      <span class="stepnum">1</span>
+      <div>
+        <h3>Discover</h3>
+        <p><code>GET /.well-known/client-attester?client_id=demo-attest-gke</code> returns the issuance contract:
+        the endpoints, the <strong>evidence audience</strong> the workload must mint into its identity token, the
+        evidence type expected, proof requirements, and which RAR types it may request.</p>
+      </div>
+    </li>
+    <li>
+      <span class="stepnum">2</span>
+      <div>
+        <h3>Prove what you are</h3>
+        <p>The workload fetches <strong>identity evidence from the platform</strong> — a token only something
+        actually running in that pod could obtain. Phase 1: a SPIRE JWT-SVID from the Workload API socket.
+        Phase 2: a Kubernetes service-account token Google signs and projects into the pod.</p>
+      </div>
+    </li>
+    <li>
+      <span class="stepnum">3</span>
+      <div>
+        <h3>Bind a key</h3>
+        <p>The workload generates a fresh P-256 <strong>instance key</strong>, fetches a one-time challenge, and signs a
+        proof-of-possession over it. This is the key the eventual credential will be cryptographically bound to —
+        it never leaves the pod.</p>
+      </div>
+    </li>
+    <li>
+      <span class="stepnum">4</span>
+      <div>
+        <h3>Mint the Client Attestation</h3>
+        <p><code>POST /federation/attestation</code> with evidence + instance key + proof. The attester validates the
+        evidence against the platform's trust bundle, checks the SPIFFE ID is <strong>bound to this client</strong>,
+        enforces the entitlement ceiling, and mints a short-lived (5-minute) Client Attestation JWT
+        (draft-ietf-oauth-attestation-based-client-auth).</p>
+      </div>
+    </li>
+    <li>
+      <span class="stepnum">5</span>
+      <div>
+        <h3>Authenticate to the AS</h3>
+        <p>The workload calls PF's token endpoint carrying two headers — <code>OAuth-Client-Attestation</code>
+        (the minted JWT) and <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the instance key).
+        An issuance criterion verifies both, and PF issues the access token.</p>
+      </div>
+    </li>
+  </ol>
+
+  <div class="wide">
+    <figure>
+      <div class="diagram">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    participant W as Agent workload (GKE pod)
+    participant P as Platform attestor<br/>(SPIRE / Google)
+    participant A as Client Attester<br/>(/federation/attestation)
+    participant F as PingFederate<br/>(/as/token.oauth2)
+    W->>A: GET /.well-known/client-attester?client_id=…
+    A-->>W: endpoints, evidence_audience, evidence_type, RAR types
+    W->>P: request identity token (aud = evidence_audience)
+    P-->>W: JWT-SVID / projected SA token
+    W->>A: POST evidence + instance public key + signed proof (+ requested RAR)
+    A->>A: verify vs trust bundle · binding · ceiling · replay
+    A-->>W: Client Attestation (5 min, cnf = instance key)
+    W->>F: POST client_credentials + Attestation + PoP headers
+    F->>F: verify attester signature · PoP vs cnf · freshness
+    F-->>W: access token
+        </pre>
+      </div>
+      <figcaption>The full chain as verified live. Every artifact is a JWT; every hop is replay-protected.</figcaption>
+    </figure>
+  </div>
+
+  <h2>The three tokens that matter</h2>
+  <p>The security of the whole scheme lives in how these three JWTs chain together:</p>
+
+  <div class="wide jwt-grid">
+    <div class="jwt google">
+      <header>1 · Platform evidence</header>
+      <pre><code>{
+ "iss": "https://container.googleapis
+         .com/v1/projects/…/clusters/…",
+ "sub": "system:serviceaccount:
+         demo:payment-agent",
+ "aud": ["https://attester.example.com"],
+ "exp": …
+}</code></pre>
+      <footer>Signed by Google (Phase 2) or SPIRE (Phase 1). Proves <em>where the caller runs</em>. The workload cannot forge it.</footer>
+    </div>
+    <div class="jwt attn">
+      <header>2 · Client Attestation</header>
+      <pre><code>{
+ "iss": "https://attester.example.com",
+ "sub": "demo-attest-gke",
+ "cnf": { "jwk": { …instance key… } },
+ "workload": {
+   "spiffe_id": "spiffe://….svc.id.goog
+                 /ns/demo/sa/payment-agent",
+   "attributes": { "region": "EMEA", … }
+ },
+ "authorization_details": [ …granted… ]
+}</code></pre>
+      <footer>Minted by the attester, 5-minute TTL. Binds client, workload identity, instance key, and the <em>entitlement ceiling</em> into one vouched statement.</footer>
+    </div>
+    <div class="jwt pop">
+      <header>3 · Proof of possession</header>
+      <pre><code>{
+ "iss": "demo-attest-gke",
+ "aud": "https://localhost:9031",
+ "jti": "…one-time…",
+ "iat": …now…
+}</code></pre>
+      <footer>Signed with the instance key from <code>cnf</code>, fresh per request. A stolen attestation is useless without the key that never left the pod.</footer>
+    </div>
+  </div>
+
+  <h2>Phase 1 vs Phase 2 — who does the attesting</h2>
+  <p>
+    Both phases run the identical five steps against the identical servlet. The only thing that changes is
+    <strong>who vouches for the workload</strong> — and that's the story the demo tells.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <tr><th></th><th>Phase 1 — SPIRE on GKE</th><th>Phase 2 — Google-native</th></tr>
+      <tr>
+        <td><strong>Attestor</strong></td>
+        <td>SPIRE server + agent you operate in-cluster</td>
+        <td><strong>Google itself</strong> — the GKE control plane; zero extra infrastructure</td>
+      </tr>
+      <tr>
+        <td><strong>Evidence</strong></td>
+        <td>SPIFFE JWT-SVID from the Workload API</td>
+        <td>Projected service-account token (a pod volume)</td>
+      </tr>
+      <tr>
+        <td><strong>Trust bundle</strong></td>
+        <td>SPIRE's JWKS, pasted into client config</td>
+        <td>The cluster's <em>public</em> OIDC JWKS, fetched live by URL and cached</td>
+      </tr>
+      <tr>
+        <td><strong>SPIFFE identity</strong></td>
+        <td><code>spiffe://gke.banking.demo/ns/demo/sa/payment-agent</code></td>
+        <td><code>spiffe://&lt;project&gt;.svc.id.goog/ns/demo/sa/payment-agent</code> — Google's own canonical mapping</td>
+      </tr>
+      <tr>
+        <td><strong>Servlet change</strong></td>
+        <td>none</td>
+        <td>a small evidence adapter (~1 validator class + 3 config properties)</td>
+      </tr>
+    </table>
+  </div>
+
+  <p>
+    Phase 2 is the punchline: SPIRE was <em>uninstalled</em> before the run, and the chain still completed —
+    because Google's workload identity infrastructure supplied everything a SPIFFE attestor would.
+    The evidence adapter simply maps Kubernetes' <code>system:serviceaccount:demo:payment-agent</code> onto the
+    SPIFFE identifier Google documents for that exact workload, so the client's bindings use identifiers
+    Google already owns.
+  </p>
+
+  <h2>What makes this more than authentication</h2>
+  <p>
+    Google's Agent Identity binds <em>who the agent is</em>. This design goes one step further: the attestation
+    carries an <strong>entitlement ceiling</strong> — an RFC 9396 <code>authorization_details</code> array declaring the
+    most this workload instance may ever request. At mint time the attester enforces
+    <em>requested ⊆ attested</em>; anything over the ceiling dies before a token ever exists.
+  </p>
+
+  <div class="tablewrap">
+    <table>
+      <tr><th>Run</th><th>Request</th><th>Result</th></tr>
+      <tr><td>Positive chain (both phases)</td><td class="mono">no explicit request → full ceiling</td><td class="ok">200 → access token</td></tr>
+      <tr><td>Within ceiling</td><td class="mono">sales_regions: ["EMEA"]</td><td class="ok">200 → scoped grant + token</td></tr>
+      <tr><td>Over ceiling</td><td class="mono">sales_regions: ["APAC"]</td><td class="deny">403 access_denied at mint</td></tr>
+      <tr><td>Replayed proof</td><td class="mono">same challenge + jti resent</td><td class="deny">401 invalid_instance_proof</td></tr>
+    </table>
+  </div>
+
+  <h2>Standards it stands on</h2>
+  <p style="margin-bottom: 0.4rem;">Nothing here is proprietary protocol:</p>
+  <ul>
+    <li><strong>draft-ietf-oauth-attestation-based-client-auth</strong> — the two-header client authentication scheme (attestation + PoP)</li>
+    <li><strong>SPIFFE</strong> — workload identity: JWT-SVIDs, trust domains, the <code>spiffe://…/ns/…/sa/…</code> naming Google adopted for GKE</li>
+    <li><strong>RFC 9396</strong> (Rich Authorization Requests) — the entitlement-ceiling vocabulary</li>
+    <li><strong>OAuth client credentials</strong> — the grant itself is boring on purpose</li>
+  </ul>
+  <p>
+    It also tracks where the standards are heading: <em>draft-ietf-oauth-spiffe-client-auth</em> profiles
+    exactly this pattern (SPIFFE credentials as attestation-based client auth), and Google's Agent Gateway
+    assigns every managed agent a SPIFFE ID. The demo's architecture — platform attests, attester converts,
+    AS verifies — is the connective tissue between those two worlds.
+  </p>
+
+  <div class="note">
+    <strong>Field note — the bug worth remembering.</strong> PingFederate evaluates token-endpoint OGNL criteria on its
+    <em>engine</em> classloader, which cannot see classes inside <code>pf-runtime.war</code>'s <code>WEB-INF/lib</code>.
+    The module jar must also sit in <code>server/default/deploy/</code>, or the verification hook fails as an opaque
+    OGNL "Method failed" with no stack trace. The webapp copy (servlets) and engine copy (OGNL hook) communicate
+    only through request attributes keyed by plain strings — a cross-classloader contract that now makes sense.
+  </div>
+
+  <hr>
+
+  <p class="foot">
+    <strong>Where it lives:</strong> GCP project <code>pf-spiffe-demo-7264</code>, cluster <code>spiffe-demo</code>
+    (us-central1-a, ≈ $4/day). Source and runbooks: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo">pf-agentic-identity/deploy/gke-spiffe-demo</a>.
+    Try it: port-forward the agent and <code>POST /invoke</code> — the response contains every JWT above, ready to
+    decode. Tear down with <code>gcp/teardown.sh</code>.
+  </p>
+</div>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral" });
+</script>
+</body>
+</html>

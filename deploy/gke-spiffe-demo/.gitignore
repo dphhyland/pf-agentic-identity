@@ -3,3 +3,4 @@ pf/secret.yaml
 pf/terraform/.terraform/
 pf/terraform/*.tfstate*
 pf/terraform/generated.tf
+agent/__pycache__/
