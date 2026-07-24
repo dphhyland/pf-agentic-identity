@@ -248,6 +248,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
                 if (e.status() >= 500) {
                     deferredServerError = e;
                 }
+                if (LOGGER.isDebugEnabled()) {
+                    LOGGER.debug((Object) ("evidence rejected by client " + candidate.clientId()
+                            + " [" + config.evidenceType() + "]: " + e.error() + " " + e.getMessage()));
+                }
                 // Otherwise this client's trust config simply does not accept the evidence — try the next.
                 continue;
             }
