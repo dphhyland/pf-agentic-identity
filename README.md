@@ -7,8 +7,11 @@ trust controller** on every call; its authority is carried as fine-grained RAR e
 evaluated post-issuance through Grant Management. Revoke the type at the anchor and the very next
 token fails — governance is real-time, not a credential expiry.
 
-One `mvn package` at the root builds every PF-side artifact; the Go Grant-Evaluation service builds
-with `go build ./...` under `services/gm-api`.
+One `mvn package` at the root builds every PF-side artifact, including the gm-api servlet
+(`gm-api.war`). The authorization-server-agnostic **Go** reference implementation of the Grant
+Evaluation API lives in its own repo,
+[grant-evaluation-api](https://github.com/dphhyland/grant-evaluation-api) — it is not tied to
+PingFederate, so it does not live here.
 
 ## Layout — organized by *how it loads into PingFederate*
 
@@ -44,7 +47,7 @@ RAR plugin shades its jackson). Pure **libs** know nothing about PF at all.
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `services/gm-api` | **Grant Management / AuthZEN Grant Evaluation API** — Go service + PF servlet (`gm-api.war`): is this grant, intersected with what the subject holds, still enough — right now? | binary + `gm-api.war` |
+| `services/gm-api` | **Grant Management / AuthZEN Grant Evaluation API** as a PingFederate servlet + `/mcp` agent add-on: is this grant, intersected with what the subject holds, still enough — right now? Reads grants in-process via the PF SDK. (AS-agnostic Go reference: [grant-evaluation-api](https://github.com/dphhyland/grant-evaluation-api).) | `gm-api.war` |
 
 `deploy/` is the environment-as-code tree (Railway; per-service Dockerfile + `vars.<env>.env` +
 path-filtered workflows). Push to `main` deploys **staging**; production is an explicit
@@ -54,8 +57,7 @@ path-filtered workflows). Push to `main` deploys **staging**; production is an e
 ## Building
 
 ```
-mvn package                      # all Java modules, tests on
-cd services/gm-api && go build ./...
+mvn package                      # all Java modules (incl. gm-api.war), tests on
 ```
 
 The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.0.0.3) are extracted from the

@@ -14,7 +14,7 @@ backports — never as parallel development.
 | `plugins/rar-paz-plugin` | local `~/Source/pf-rar-paz-plugin` `main` | subtree (full history) | tracked `target/` pruned; the copy inside pf-oidf-modules was identical at absorb time |
 | `servlets/attestation-issuer` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | + same-package closure classes and test helpers (`LocalJwkSigner`, `TestJwts`, `FakeBaoServer`) copied at HEAD; 3 challenge/replay classes deduped in favour of client-attestation |
 | `servlets/ssf` | pf-oidf-modules (tracked `com/**` + `src/test`) | filter-repo path extraction | Kafka publishing is reflection-based — no compile-time Kafka dep |
-| `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | Go Grant-Evaluation service + `gm-api.war` PF servlet |
+| `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | PF servlet (`gm-api.war`) + `/mcp` add-on. The AS-agnostic **Go** Grant-Evaluation service was later extracted to [grant-evaluation-api](https://github.com/dphhyland/grant-evaluation-api); `idp-gm-api` is now a pointer. |
 | `deploy/` + `.github/workflows/deploy-*` | pf-oidf-modules | filter-repo path extraction | `deploy-demo.yml` stayed behind (the demo lives in pf-oidf-modules); triggers retargeted: push-to-main → staging, production via workflow_dispatch |
 
 ## What deliberately did NOT move
