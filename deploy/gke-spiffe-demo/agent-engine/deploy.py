@@ -38,7 +38,8 @@ def main():
         remote = agent_engines.create(
             instance,
             display_name="attested-agent-demo",
-            requirements=["cryptography>=42.0", "google-auth>=2.0", "cloudpickle"],
+            requirements=["google-cloud-aiplatform[agent_engines]", "cryptography>=42.0",
+                          "google-auth>=2.0", "cloudpickle"],
             extra_packages=["agent.py"],
             service_account=f"agent-engine-demo@{project}.iam.gserviceaccount.com",
         )
