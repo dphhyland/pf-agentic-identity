@@ -44,7 +44,7 @@ Two deployments, same contract. Pick by which AS you are in front of.
 | | Base URL | Use when |
 |---|---|---|
 | **PF servlet** | `https://<pf-runtime>/gm-api` | You are on PingFederate. In-process, nothing to run. |
-| **Go sidecar** | `http://<host>:8088/api/v1` | Any AS, or you cannot deploy into the AS. |
+| **Go sidecar** ([`grant-evaluation-api`](https://github.com/dphhyland/grant-evaluation-api)) | `http://<host>:8088/api/v1` | Any AS, or you cannot deploy into the AS. |
 
 > The Go sidecar currently **requires a token subject**, so it cannot serve the
 > `client_credentials` shape in §3.2. If you are a TPP with a standing consent and no user
@@ -253,7 +253,7 @@ Any conformant PDP works — point `AUTHZEN_BASE_URL` (Go) or the `pdpUrl` init-
 
 | PDP | Notes |
 |---|---|
-| `cmd/pdp` | bundled, zero dependencies, YAML policy. For demos. |
+| `cmd/pdp` (in [`grant-evaluation-api`](https://github.com/dphhyland/grant-evaluation-api)) | zero dependencies, YAML policy. For demos. |
 | **PingAuthorize** | via its AuthZEN facade. The real one. Needs `AUTH_TYPE=oauth`. |
 | Topaz / OPA | untested here, but the wire format is the standard |
 
