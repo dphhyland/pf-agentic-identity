@@ -1,0 +1,226 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Architecture of the Client Attestation demo on GCP — components, trust boundaries, and how it uses Google's agentic identity stack."><title>Architecture — Client Attestation on GCP</title>
+<style>
+  :root {
+    --paper:#F7F8F7; --ink:#1A2228; --soft:#4A5560; --line:#DDE3E1;
+    --a:#0F766E; --a-bg:#0F766E14; --g:#3B6FD4; --g-bg:#3B6FD414; --p:#B23A48; --p-bg:#B23A4814;
+    --card:#FFF; --code:#EEF1F0;
+  }
+  @media (prefers-color-scheme:dark){:root{
+    --paper:#10171C; --ink:#E4E9EC; --soft:#93A1AC; --line:#263239;
+    --a:#2DB5A5; --a-bg:#2DB5A522; --g:#7BA3F0; --g-bg:#7BA3F022; --p:#E07A88; --p-bg:#E07A8822;
+    --card:#161F26; --code:#1C262E;}}
+  :root[data-theme="dark"]{--paper:#10171C;--ink:#E4E9EC;--soft:#93A1AC;--line:#263239;
+    --a:#2DB5A5;--a-bg:#2DB5A522;--g:#7BA3F0;--g-bg:#7BA3F022;--p:#E07A88;--p-bg:#E07A8822;--card:#161F26;--code:#1C262E;}
+  :root[data-theme="light"]{--paper:#F7F8F7;--ink:#1A2228;--soft:#4A5560;--line:#DDE3E1;
+    --a:#0F766E;--a-bg:#0F766E14;--g:#3B6FD4;--g-bg:#3B6FD414;--p:#B23A48;--p-bg:#B23A4814;--card:#FFF;--code:#EEF1F0;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);
+    font-family:'Avenir Next',Avenir,Seravek,'Segoe UI',system-ui,sans-serif;line-height:1.55}
+  .wrap{max-width:60rem;margin:0 auto;padding:2.5rem 1.25rem 5rem}
+  .eyebrow{text-transform:uppercase;letter-spacing:.14em;font-size:.7rem;font-weight:700;color:var(--a);margin:0}
+  h1{font-size:1.8rem;margin:.3rem 0 .5rem;letter-spacing:-.01em;text-wrap:balance}
+  h2{font-size:1.2rem;margin:2.4rem 0 .6rem}
+  .lede{color:var(--soft);font-size:1.05rem;max-width:46rem}
+  .diagram{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:1rem;
+    margin:1.6rem 0 .6rem;overflow-x:auto}
+  .mermaid{min-width:640px}
+  .legend{display:flex;flex-wrap:wrap;gap:1rem;font-size:.82rem;color:var(--soft);margin:.4rem 0 0}
+  .legend span{display:inline-flex;align-items:center;gap:.45em}
+  .sw{width:.9em;height:.9em;border-radius:3px;border:1px solid var(--line)}
+  .sw.g{background:var(--g-bg);border-color:var(--g)} .sw.a{background:var(--a-bg);border-color:var(--a)}
+  .sw.p{background:var(--p-bg);border-color:var(--p)} .sw.n{background:var(--code)}
+  table{border-collapse:collapse;width:100%;margin:1rem 0;font-size:.9rem}
+  th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.08em;color:var(--soft);font-weight:700}
+  th,td{padding:.55rem .7rem;border-bottom:1px solid var(--line);vertical-align:top}
+  td:first-child,th:first-child{padding-left:0}
+  code{background:var(--code);padding:.1em .4em;border-radius:4px;
+    font-family:ui-monospace,'SF Mono',Menlo,Consolas,monospace;font-size:.85em}
+  .tag{font-size:.68rem;font-weight:700;padding:.1em .5em;border-radius:999px;white-space:nowrap}
+  .tag.g{background:var(--g-bg);color:var(--g)} .tag.a{background:var(--a-bg);color:var(--a)}
+  .tag.p{background:var(--p-bg);color:var(--p)} .tag.n{background:var(--code);color:var(--soft)}
+  .flow{list-style:none;margin:1rem 0;padding:0;display:flex;flex-direction:column;gap:.5rem}
+  .flow li{display:grid;grid-template-columns:1.6rem 1fr;gap:.7rem;font-size:.94rem}
+  .flow .n{width:1.5rem;height:1.5rem;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:.78rem;font-weight:700;background:var(--a-bg);color:var(--a);border:1px solid var(--a)}
+  .note{border-left:3px solid var(--a);background:var(--card);border-radius:0 8px 8px 0;
+    padding:.7rem 1rem;margin:1.2rem 0;font-size:.92rem}
+  .foot{margin-top:2.5rem;font-size:.82rem;color:var(--soft);border-top:1px solid var(--line);padding-top:1rem}
+  a{color:var(--a)}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <p class="eyebrow">Architecture · pf-agentic-identity</p>
+  <h1>Client Attestation on Google Cloud — the components</h1>
+  <p class="lede">A workload proves what it is with a platform-signed token, an attester converts that
+  into a short-lived Client Attestation bound to a key the workload holds, and PingFederate issues a
+  token against it. Colour marks the role: <span style="color:var(--g);font-weight:600">platform
+  evidence</span>, <span style="color:var(--a);font-weight:600">the attester</span>,
+  <span style="color:var(--p);font-weight:600">PingFederate</span>.</p>
+<div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
+
+  <div class="diagram">
+    <pre class="mermaid">
+flowchart TB
+  B["Browser / demo viewer"]:::infra
+
+  subgraph GCP["GCP project · pf-spiffe-demo-7264"]
+    direction TB
+    subgraph GKE["GKE cluster · spiffe-demo"]
+      direction TB
+      AG["payment-agent pod<br/>workload + live console<br/>holds the instance key"]:::work
+      subgraph PF["PingFederate runtime pod · ns pf"]
+        direction TB
+        ATT["attestation-issuer servlet<br/>/.well-known/client-attester<br/>/federation/attestation"]:::att
+        TOK["token endpoint<br/>/as/token.oauth2<br/>OGNL validateClientAttestation"]:::pf
+      end
+      SP["SPIRE server + agent<br/>ns spire-mgmt · Phase 1"]:::plat
+    end
+    LBA["LoadBalancer<br/>34.171.232.146"]:::infra
+    LBP["LoadBalancer<br/>35.223.142.97"]:::infra
+    AE["Vertex AI Agent Engine<br/>managed agent · Phase 3"]:::work
+  end
+
+  subgraph ROOTS["Google-operated trust roots"]
+    direction TB
+    GKEO["GKE cluster OIDC<br/>public JWKS · Phase 2"]:::plat
+    GSA["accounts.google.com<br/>SA token signer · Phase 3"]:::plat
+  end
+
+  B -->|"HTTP"| LBA --> AG
+  SP -.->|"evidence · P1<br/>JWT-SVID"| AG
+  GKEO -.->|"evidence · P2<br/>projected SA token"| AG
+  GSA -.->|"evidence · P3<br/>SA ID token"| AG
+  AG -->|"1 · discover"| ATT
+  AG -->|"3 · mint: evidence + pubkey + proof"| ATT
+  ATT -.->|"verify evidence<br/>vs trust bundle"| GKEO
+  ATT -->|"Client Attestation<br/>cnf + ceiling"| AG
+  AG -->|"4 · attestation + PoP"| TOK
+  TOK -->|"access token"| AG
+  LBP --> ATT
+  AE -.->|"same chain, external<br/>(runtime boot WIP)"| LBP
+
+  classDef plat fill:#DCE8FC,stroke:#3B6FD4,color:#12233F;
+  classDef att fill:#D6ECE8,stroke:#0F766E,color:#0A2C28;
+  classDef pf fill:#F7DEE2,stroke:#B23A48,color:#3A1116;
+  classDef work fill:#E9ECEF,stroke:#4A5560,color:#1A2228;
+  classDef infra fill:#F3F4F5,stroke:#8A97A2,color:#1A2228,stroke-dasharray:3 3;
+    </pre>
+  </div>
+  <div class="legend">
+    <span><span class="sw g"></span>platform attestor (evidence issuer)</span>
+    <span><span class="sw a"></span>Client Attester</span>
+    <span><span class="sw p"></span>PingFederate AS</span>
+    <span><span class="sw n"></span>workload / infra</span>
+    <span>— · — dashed = evidence &amp; trust-bundle fetch</span>
+  </div>
+
+  <h2>The request flow</h2>
+  <ol class="flow">
+    <li><span class="n">1</span><span><strong>Discover.</strong> The workload GETs
+      <code>/.well-known/client-attester?client_id=…</code> and learns the endpoints, the evidence
+      audience it must use, and the RAR types it may request.</span></li>
+    <li><span class="n">2</span><span><strong>Get evidence.</strong> It fetches a platform-signed
+      identity token — SPIRE JWT-SVID (P1), GKE projected SA token (P2), or Google SA ID token (P3) —
+      with <code>aud</code> set to the attester. The workload can't forge it.</span></li>
+    <li><span class="n">3</span><span><strong>Mint.</strong> It POSTs the evidence + its instance public
+      key + a challenge-bound proof to <code>/federation/attestation</code>. The attester validates the
+      evidence against the trust bundle, checks the SPIFFE ID is bound to the client, enforces the
+      entitlement ceiling, and returns a 5-minute Client Attestation.</span></li>
+    <li><span class="n">4</span><span><strong>Authenticate.</strong> It calls
+      <code>/as/token.oauth2</code> with <code>OAuth-Client-Attestation</code> + <code>-PoP</code>
+      headers. PingFederate verifies the attester signature, the PoP against <code>cnf</code>, and
+      freshness — then issues the access token.</span></li>
+  </ol>
+
+  <h2>Component inventory</h2>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th>Component</th><th>Role</th><th>Where it lives</th></tr>
+    <tr><td><strong>payment-agent pod</strong> <span class="tag n">workload</span></td>
+      <td>The client. Holds its P-256 instance key, runs the five-step chain, serves the live console.</td>
+      <td>GKE ns <code>demo</code> → LB <code>34.171.232.146</code></td></tr>
+    <tr><td><strong>attestation-issuer servlet</strong> <span class="tag a">attester</span></td>
+      <td>Discovery doc + <code>/federation/attestation</code>. Validates evidence, enforces bindings &amp; ceiling, mints the attestation.</td>
+      <td>Inside the PingFederate war (ns <code>pf</code>)</td></tr>
+    <tr><td><strong>PF token endpoint</strong> <span class="tag p">PingFederate</span></td>
+      <td><code>/as/token.oauth2</code> with the OGNL <code>validateClientAttestation</code> issuance criterion.</td>
+      <td>PingFederate runtime pod → LB <code>35.223.142.97</code></td></tr>
+    <tr><td><strong>SPIRE</strong> <span class="tag g">attestor · P1</span></td>
+      <td>Issues JWT-SVIDs to the pod via the Workload API. Its JWKS is the trust bundle.</td>
+      <td>GKE ns <code>spire-mgmt</code> (uninstalled after Phase 1)</td></tr>
+    <tr><td><strong>GKE cluster OIDC</strong> <span class="tag g">attestor · P2</span></td>
+      <td>Signs projected service-account tokens; public JWKS fetched by the attester by URL.</td>
+      <td>Google-operated, per-cluster issuer</td></tr>
+    <tr><td><strong>Google SA token signer</strong> <span class="tag g">attestor · P3</span></td>
+      <td>Signs SA ID tokens (<code>generateIdToken</code>); <code>accounts.google.com</code> public JWKS.</td>
+      <td>Google-operated</td></tr>
+    <tr><td><strong>Vertex AI Agent Engine</strong> <span class="tag n">workload · P3</span></td>
+      <td>Managed agent runtime — the same chain from outside the cluster (runtime boot still WIP).</td>
+      <td>Google-managed, in-project</td></tr>
+    <tr><td><strong>Explainer</strong> <span class="tag n">docs</span></td>
+      <td>Static write-up of the whole design.</td>
+      <td>Railway · <a href="https://gke-spiffe-demo-production.up.railway.app">public URL</a></td></tr>
+  </table>
+  </div>
+
+  <h2>Where this sits in Google's agentic identity stack</h2>
+  <p>This is not a parallel invention — it plugs into the identity model Google has built for
+  <strong>Gemini Enterprise Agent Platform</strong>, and reuses its primitives:</p>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th>Google building block</th><th>What it provides</th><th>How this demo uses it</th></tr>
+    <tr>
+      <td><strong>Agent Identity</strong> <span class="tag g">platform</span></td>
+      <td>Every managed agent gets a lifecycle-bound <strong>SPIFFE ID</strong> + auto-managed X.509,
+        attested by the platform — no developer-held long-lived keys.
+        (<a href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/agent-identity-overview">docs</a>)</td>
+      <td>We speak the same <code>spiffe://…</code> naming and treat the platform as the attestor. The
+        managed X.509 isn't exportable to third parties yet, so Phase 3 uses the agent's runtime
+        <strong>service-account ID token</strong> (which <em>is</em> exposable) as the evidence.</td>
+    </tr>
+    <tr>
+      <td><strong>Agent Gateway</strong> <span class="tag p">runtime authz</span></td>
+      <td>An <code>ext_proc</code> hook calls an external PDP (PingAuthorize) to authorize agent &amp;
+        tool traffic at execution time.
+        (<a href="https://cloud.google.com/blog/products/identity-security/introducing-agent-gateway-isv-ecosystem-for-security-and-governance">Google</a> ·
+        <a href="https://www.pingidentity.com/en/resources/blog/post/runtime-identity-for-traffic.html">Ping</a>)</td>
+      <td>Complementary leg. The gateway authorizes <em>traffic between</em> agents; this demo is the
+        <em>upstream</em> leg — how the agent first proves itself to an external authorization server
+        (PingFederate) to obtain the token it then carries through the gateway.</td>
+    </tr>
+    <tr>
+      <td><strong>Workload Identity Federation for GKE</strong> <span class="tag g">platform</span></td>
+      <td>Binds GKE pods to <code>spiffe://&lt;project&gt;.svc.id.goog/ns/…/sa/…</code> identities
+        with a public OIDC issuer.
+        (<a href="https://docs.cloud.google.com/iam/docs/managed-workload-identity">docs</a>)</td>
+      <td>Phase 2 evidence: the projected SA token is validated against that public JWKS and mapped onto
+        Google's own canonical SPIFFE identifier.</td>
+    </tr>
+  </table>
+  </div>
+  <div class="note" style="border-left-color:var(--g)">
+    <strong>The one-line relationship.</strong> Google <em>attests the agent</em> (Agent Identity) and
+    <em>authorizes its traffic</em> (Agent Gateway → PingAuthorize). This demo fills the gap between:
+    it converts Google's platform attestation into an OAuth <strong>Client Attestation</strong> carrying
+    an entitlement ceiling, so the agent can authenticate to <strong>PingFederate</strong> and obtain a
+    scoped token — with no shared secret and no key the agent has to hold.
+  </div>
+
+  <div class="note">
+    <strong>Two trust checks, two directions.</strong> The <span style="color:var(--a);font-weight:600">attester</span>
+    trusts the <span style="color:var(--g);font-weight:600">platform</span> by verifying evidence against a
+    trust bundle (SPIRE's JWKS inline, or Google's public JWKS fetched by URL). Separately,
+    <span style="color:var(--p);font-weight:600">PingFederate</span> trusts the
+    <span style="color:var(--a);font-weight:600">attester</span> by verifying the attestation's signature against a
+    configured attester key. Neither trust relationship uses a secret the workload ever holds.
+  </div>
+
+  <div class="foot">
+    Live demo: <a href="http://34.171.232.146/">34.171.232.146</a> ·
+    Explainer: <a href="https://gke-spiffe-demo-production.up.railway.app">gke-spiffe-demo-production.up.railway.app</a> ·
+    Source: <a href="https://github.com/dphhyland/pf-agentic-identity">github.com/dphhyland/pf-agentic-identity</a>
+  </div>
+</div>
+<script type="module">import m from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";const d=window.matchMedia("(prefers-color-scheme:dark)").matches;m.initialize({startOnLoad:true,theme:d?"dark":"neutral"});</script></body></html>

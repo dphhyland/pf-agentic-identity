@@ -1,10 +1,4 @@
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="How a Google Cloud workload becomes an OAuth client with no secret worth stealing: SPIFFE evidence, Client Attestation, PingFederate — across SPIRE, GKE-native, and Gemini Enterprise Agent Platform.">
-<title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="How a Google Cloud workload becomes an OAuth client with no secret worth stealing — across SPIRE, GKE-native, and Gemini Enterprise Agent Platform."><title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -158,6 +152,8 @@
     &nbsp;·&nbsp; demo: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo"><code>deploy/gke-spiffe-demo</code></a>
     &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://34.171.232.146/">34.171.232.146</a> — click Run, watch a real GKE workload authenticate
   </p>
+
+<div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
 
   <h2>The problem it solves</h2>
   <p>
@@ -384,6 +380,26 @@ sequenceDiagram
     </table>
   </div>
 
+  <h2>How this uses Google's agentic identity stack</h2>
+  <p>
+    This plugs directly into the identity model behind <strong>Gemini Enterprise Agent Platform</strong>.
+    Google's <a href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/agent-identity-overview">Agent
+    Identity</a> gives every managed agent a lifecycle-bound <strong>SPIFFE ID</strong> and auto-managed
+    X.509 — no developer-held long-lived keys — and its <a href="https://cloud.google.com/blog/products/identity-security/introducing-agent-gateway-isv-ecosystem-for-security-and-governance">Agent
+    Gateway</a> authorizes agent-and-tool <em>traffic</em> at runtime through an <code>ext_proc</code>
+    hook into PingAuthorize (the <a href="https://www.pingidentity.com/en/resources/blog/post/runtime-identity-for-traffic.html">Ping
+    integration</a>).
+  </p>
+  <p>
+    This demo is the <strong>upstream leg</strong> those two don't cover: how an agent first
+    <em>proves itself to an external authorization server</em> to get the token it will carry through the
+    gateway. Google <em>attests</em> the agent; the attester here converts that platform attestation into
+    an OAuth Client Attestation with an entitlement ceiling; PingFederate issues the scoped token. We reuse
+    Google's own primitives throughout — the <code>spiffe://…</code> naming, GKE workload identity, and (in
+    Phase 3) the agent's runtime service-account ID token, since the managed Agent Identity X.509 isn't
+    exportable to third parties yet.
+  </p>
+
   <h2>Standards it stands on</h2>
   <p style="margin-bottom: 0.4rem;">Nothing here is proprietary protocol:</p>
   <ul>
@@ -417,11 +433,4 @@ sequenceDiagram
     decode. Tear down with <code>gcp/teardown.sh</code>.
   </p>
 </div>
-
-<script type="module">
-  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
-  const dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
-  mermaid.initialize({ startOnLoad: true, theme: dark ? "dark" : "neutral" });
-</script>
-</body>
-</html>
+<script type="module">import m from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";const d=window.matchMedia("(prefers-color-scheme:dark)").matches;m.initialize({startOnLoad:true,theme:d?"dark":"neutral"});</script></body></html>
