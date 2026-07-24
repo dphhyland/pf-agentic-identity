@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<meta name="description" content="How a Google Cloud workload becomes an OAuth client with no secret worth stealing: SPIFFE evidence, Client Attestation, PingFederate.">
+<meta name="description" content="How a Google Cloud workload becomes an OAuth client with no secret worth stealing: SPIFFE evidence, Client Attestation, PingFederate — across SPIRE, GKE-native, and Gemini Enterprise Agent Platform.">
 <title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
 <style>
   :root {
@@ -147,15 +147,16 @@
   <p class="lede">
     This demo answers one question: can a workload running in Google Cloud authenticate to
     <strong>PingFederate</strong> using <em>what it is</em> — its platform-attested identity — instead of a
-    client secret someone provisioned and could leak? The answer, verified end-to-end on a live GKE
-    cluster, is yes: twice, two different ways.
+    client secret someone provisioned and could leak? The answer, verified end-to-end on live Google
+    infrastructure, is yes — <strong>three different ways</strong>, from a self-run SPIRE deployment all the
+    way up to a managed <strong>Gemini Enterprise Agent Platform</strong> agent.
   </p>
 
   
   <p style="font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.9rem;">
     <a href="https://github.com/dphhyland/pf-agentic-identity">github.com/dphhyland/pf-agentic-identity</a>
     &nbsp;·&nbsp; demo: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo"><code>deploy/gke-spiffe-demo</code></a>
-    &nbsp;·&nbsp; servlet: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/servlets/attestation-issuer"><code>servlets/attestation-issuer</code></a>
+    &nbsp;·&nbsp; live explainer: <a href="https://gke-spiffe-demo-production.up.railway.app">gke-spiffe-demo-production.up.railway.app</a>
   </p>
 
   <h2>The problem it solves</h2>
@@ -171,7 +172,7 @@
   <p>This demo implements that model with three cooperating parties:</p>
 
   <div class="chips">
-    <span class="chip"><span class="dot g"></span>Platform attestor <small>— SPIRE, or Google itself</small></span>
+    <span class="chip"><span class="dot g"></span>Platform attestor <small>— SPIRE, GKE, or Google's SA signer</small></span>
     <span class="chip"><span class="dot a"></span>Client Attester <small>— servlet inside PF's war</small></span>
     <span class="chip"><span class="dot p"></span>PingFederate <small>— the authorization server</small></span>
   </div>
@@ -244,13 +245,13 @@
 sequenceDiagram
     autonumber
     participant W as Agent workload (GKE pod)
-    participant P as Platform attestor<br/>(SPIRE / Google)
+    participant P as Platform attestor<br/>(SPIRE / GKE / Google SA)
     participant A as Client Attester<br/>(/federation/attestation)
     participant F as PingFederate<br/>(/as/token.oauth2)
     W->>A: GET /.well-known/client-attester?client_id=…
     A-->>W: endpoints, evidence_audience, evidence_type, RAR types
     W->>P: request identity token (aud = evidence_audience)
-    P-->>W: JWT-SVID / projected SA token
+    P-->>W: JWT-SVID / projected SA token / SA ID token
     W->>A: POST evidence + instance public key + signed proof (+ requested RAR)
     A->>A: verify vs trust bundle · binding · ceiling · replay
     A-->>W: Client Attestation (5 min, cnf = instance key)
@@ -277,7 +278,7 @@ sequenceDiagram
  "aud": ["https://attester.example.com"],
  "exp": …
 }</code></pre>
-      <footer>Signed by Google (Phase 2) or SPIRE (Phase 1). Proves <em>where the caller runs</em>. The workload cannot forge it.</footer>
+      <footer>Signed by SPIRE (Phase 1), the GKE control plane (Phase 2), or Google's SA signer (Phase 3). Proves <em>what the caller is</em>. The workload cannot forge it.</footer>
     </div>
     <div class="jwt attn">
       <header>2 · Client Attestation</header>
@@ -306,49 +307,63 @@ sequenceDiagram
     </div>
   </div>
 
-  <h2>Phase 1 vs Phase 2 — who does the attesting</h2>
+  <h2>Three phases — climbing away from SPIRE, up to a managed agent</h2>
   <p>
-    Both phases run the identical five steps against the identical servlet. The only thing that changes is
-    <strong>who vouches for the workload</strong> — and that's the story the demo tells.
+    All three phases run the identical five steps against the identical servlet. The only thing that
+    changes is <strong>who vouches for the workload</strong> — and each phase needs less of your own
+    infrastructure than the last.
   </p>
 
   <div class="tablewrap">
     <table>
-      <tr><th></th><th>Phase 1 — SPIRE on GKE</th><th>Phase 2 — Google-native</th></tr>
+      <tr>
+        <th></th>
+        <th>Phase 1 — SPIRE on GKE</th>
+        <th>Phase 2 — GKE-native</th>
+        <th>Phase 3 — Agent Engine</th>
+      </tr>
       <tr>
         <td><strong>Attestor</strong></td>
-        <td>SPIRE server + agent you operate in-cluster</td>
-        <td><strong>Google itself</strong> — the GKE control plane; zero extra infrastructure</td>
+        <td>SPIRE you operate in-cluster</td>
+        <td>The GKE control plane</td>
+        <td><strong>Google's SA token signer</strong> — managed agent, no cluster at all</td>
       </tr>
       <tr>
         <td><strong>Evidence</strong></td>
         <td>SPIFFE JWT-SVID from the Workload API</td>
-        <td>Projected service-account token (a pod volume)</td>
+        <td>Projected service-account token (pod volume)</td>
+        <td>Google-signed SA <strong>ID token</strong> (<code>generateIdToken</code>)</td>
       </tr>
       <tr>
         <td><strong>Trust bundle</strong></td>
-        <td>SPIRE's JWKS, pasted into client config</td>
-        <td>The cluster's <em>public</em> OIDC JWKS, fetched live by URL and cached</td>
+        <td>SPIRE's JWKS, pasted in</td>
+        <td>Cluster's public OIDC JWKS, fetched by URL</td>
+        <td>Google's public JWKS (<code>oauth2/v3/certs</code>)</td>
       </tr>
       <tr>
         <td><strong>SPIFFE identity</strong></td>
-        <td><code>spiffe://gke.banking.demo/ns/demo/sa/payment-agent</code></td>
-        <td><code>spiffe://&lt;project&gt;.svc.id.goog/ns/demo/sa/payment-agent</code> — Google's own canonical mapping</td>
+        <td><code>…/ns/demo/sa/payment-agent</code> under <code>gke.banking.demo</code></td>
+        <td><code>…/ns/demo/sa/payment-agent</code> under <code>&lt;project&gt;.svc.id.goog</code></td>
+        <td><code>/sa/&lt;sa-email&gt;</code> under a deployment trust domain</td>
       </tr>
       <tr>
-        <td><strong>Servlet change</strong></td>
-        <td>none</td>
-        <td>a small evidence adapter (~1 validator class + 3 config properties)</td>
+        <td><strong>Runs where</strong></td>
+        <td>a GKE pod</td>
+        <td>a GKE pod</td>
+        <td>Gemini Enterprise Agent Platform (also Cloud Run / GCE)</td>
       </tr>
     </table>
   </div>
 
   <p>
-    Phase 2 is the punchline: SPIRE was <em>uninstalled</em> before the run, and the chain still completed —
-    because Google's workload identity infrastructure supplied everything a SPIFFE attestor would.
-    The evidence adapter simply maps Kubernetes' <code>system:serviceaccount:demo:payment-agent</code> onto the
-    SPIFFE identifier Google documents for that exact workload, so the client's bindings use identifiers
-    Google already owns.
+    Phase 2 was the first punchline: SPIRE was <em>uninstalled</em> before the run and the chain still
+    completed, because GKE's own workload identity supplied everything a SPIFFE attestor would.
+    <strong>Phase 3 goes further still</strong> — there is no cluster the workload controls at all. A
+    Gemini Enterprise Agent Platform agent can't hand out its managed Agent Identity credentials, but its
+    runtime <em>service account</em> can mint a Google-signed ID token scoped to the attester's audience.
+    That token is the evidence; its <code>email</code> claim maps to
+    <code>spiffe://&lt;trust-domain&gt;/sa/&lt;sa-email&gt;</code>, and the attester enforces the same
+    binding and ceiling as before. Same servlet, same five steps, a third kind of platform.
   </p>
 
   <h2>What makes this more than authentication</h2>
@@ -362,7 +377,7 @@ sequenceDiagram
   <div class="tablewrap">
     <table>
       <tr><th>Run</th><th>Request</th><th>Result</th></tr>
-      <tr><td>Positive chain (both phases)</td><td class="mono">no explicit request → full ceiling</td><td class="ok">200 → access token</td></tr>
+      <tr><td>Positive chain (all three phases)</td><td class="mono">no explicit request → full ceiling</td><td class="ok">200 → access token</td></tr>
       <tr><td>Within ceiling</td><td class="mono">sales_regions: ["EMEA"]</td><td class="ok">200 → scoped grant + token</td></tr>
       <tr><td>Over ceiling</td><td class="mono">sales_regions: ["APAC"]</td><td class="deny">403 access_denied at mint</td></tr>
       <tr><td>Replayed proof</td><td class="mono">same challenge + jti resent</td><td class="deny">401 invalid_instance_proof</td></tr>
@@ -381,7 +396,8 @@ sequenceDiagram
     It also tracks where the standards are heading: <em>draft-ietf-oauth-spiffe-client-auth</em> profiles
     exactly this pattern (SPIFFE credentials as attestation-based client auth), and Google's Agent Gateway
     assigns every managed agent a SPIFFE ID. The demo's architecture — platform attests, attester converts,
-    AS verifies — is the connective tissue between those two worlds.
+    AS verifies — is the connective tissue between those two worlds, and Phase 3 shows it reaching all the
+    way into the Gemini Enterprise Agent Platform without that platform having to expose a single key.
   </p>
 
   <div class="note">
