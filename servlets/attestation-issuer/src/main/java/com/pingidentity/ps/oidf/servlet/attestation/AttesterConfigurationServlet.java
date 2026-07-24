@@ -270,9 +270,9 @@ public class AttesterConfigurationServlet extends HttpServlet {
         return local;
     }
 
-    /** The runtime default resolver — same store and status gate as the issuance endpoint. */
+    /** The runtime default resolver — CIMD document if configured, else the PF client store. */
     protected IssuanceClientResolver defaultClientResolver() {
-        return new PfIssuanceClientResolver(new PfMgmtClientStore());
+        return AttesterResolvers.fromEnvironment();
     }
 
     private static void applyCors(HttpServletResponse resp) {

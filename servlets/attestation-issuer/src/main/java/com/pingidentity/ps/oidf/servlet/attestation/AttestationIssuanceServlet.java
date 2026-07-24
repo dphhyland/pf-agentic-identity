@@ -288,11 +288,12 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /**
-     * The runtime default resolver — reads clients from PingFederate's management store. Extracted as an
-     * overridable seam so the lazy-initialization path can be exercised without a live PF runtime.
+     * The runtime default resolver. If the system property {@code oidf.attester.cimd.url} is set, the
+     * attester's SPIFFE-ID → client mapping is read from that Client ID Metadata Document; otherwise it
+     * reads clients from PingFederate's management store. Overridable so tests bypass both.
      */
     protected IssuanceClientResolver defaultClientResolver() {
-        return new PfIssuanceClientResolver(new PfMgmtClientStore());
+        return AttesterResolvers.fromEnvironment();
     }
 
     private AttesterSigningKey attesterSigningKey() {

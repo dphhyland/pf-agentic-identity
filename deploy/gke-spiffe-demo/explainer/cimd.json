@@ -1,0 +1,85 @@
+{
+  "description": "Client ID Metadata Document \u2014 the attester's private SPIFFE-ID \u2192 OAuth client mapping. Public-safe: trust bundles and entitlements only; the attester signing key is deployment config, not here.",
+  "spiffe_mappings": [
+    {
+      "spiffe_id": "spiffe://pf-spiffe-demo-7264.svc.id.goog/ns/demo/sa/payment-agent",
+      "client_id": "demo-attest-gke-native",
+      "evidence_type": "gke-sa-token",
+      "issuer": "https://attester.example.com",
+      "trust_domain": "pf-spiffe-demo-7264.svc.id.goog",
+      "evidence_issuer": "https://container.googleapis.com/v1/projects/pf-spiffe-demo-7264/locations/us-central1-a/clusters/spiffe-demo",
+      "bundle_url": "https://container.googleapis.com/v1/projects/pf-spiffe-demo-7264/locations/us-central1-a/clusters/spiffe-demo/jwks",
+      "entitlement": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts",
+            "create_opportunity",
+            "submit_quote"
+          ],
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "ttl": 300
+    },
+    {
+      "spiffe_id": "spiffe://pf-spiffe-demo-7264.gcp.banking.demo/sa/agent-engine-demo@pf-spiffe-demo-7264.iam.gserviceaccount.com",
+      "client_id": "demo-attest-agent-engine",
+      "evidence_type": "gcp-id-token",
+      "issuer": "https://attester.example.com",
+      "trust_domain": "pf-spiffe-demo-7264.gcp.banking.demo",
+      "evidence_issuer": "https://accounts.google.com",
+      "bundle_url": "https://www.googleapis.com/oauth2/v3/certs",
+      "entitlement": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts",
+            "create_opportunity",
+            "submit_quote"
+          ],
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "ttl": 300
+    },
+    {
+      "spiffe_id": "spiffe://railway.demo/workload/payment-agent",
+      "client_id": "demo-attest-railway",
+      "evidence_type": "spiffe-jwt",
+      "issuer": "https://attester.example.com",
+      "trust_domain": "railway.demo",
+      "bundle": {
+        "keys": [
+          {
+            "kty": "EC",
+            "crv": "P-256",
+            "x": "1Cc6uelwOPWpfCGC0sP6L43cGzDXeAj7qbFG_zBIWSQ",
+            "y": "VfUQaj2uOj1ehGvlfA-5IQ--W8nLc1K_JYVbxHqz6tc",
+            "kid": "railway-td-1",
+            "use": "sig",
+            "alg": "ES256"
+          }
+        ]
+      },
+      "entitlement": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts",
+            "create_opportunity",
+            "submit_quote"
+          ],
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "ttl": 300
+    }
+  ]
+}
