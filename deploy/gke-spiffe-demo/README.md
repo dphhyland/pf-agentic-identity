@@ -168,6 +168,26 @@ projected with a different `audience` → `invalid_svid`; an unbound service acc
 `spiffe_id_not_authorized`. If the public JWKS fetch is blocked from the pod, paste the JWKS inline as
 `attestation_spiffe_bundle` instead (already supported — drop `attestation_bundle_url`).
 
+## Phase 3 — Gemini Enterprise Agent Platform / Agent Engine (designed, not yet wired)
+
+Agents hosted on Google's Agent Engine can't expose their managed X.509 Agent Identity credentials to
+third parties (Google keeps those inside its fabric, and no trust-anchor export is documented yet) —
+but every such agent **runs as a GCP service account**, and its code can mint a Google-signed **ID
+token** with a custom audience (IAM Credentials `generateIdToken`, or the metadata server where
+available). The attester now accepts exactly that as a third evidence type:
+
+- `attestation_evidence = gcp-id-token` — validated against Google's public JWKS
+  (`attestation_bundle_url = https://www.googleapis.com/oauth2/v3/certs`),
+  `attestation_evidence_issuer = https://accounts.google.com`;
+- the `email` claim maps to `spiffe://<attestation_trust_domain>/sa/<sa-email>` (Google defines no
+  canonical SPIFFE mapping for bare service accounts, so the trust domain is a deployment convention);
+- bindings list the exact service-account emails allowed to act as instances of the client.
+
+To make it runnable from a real Agent Engine agent, the missing pieces are infrastructure, not code:
+PF must be reachable from outside the cluster (LoadBalancer/Ingress — note the eval license and the
+PoP-`aud` rules), and an ADK agent with the five-step chain as a tool must be deployed to Agent Engine.
+The same evidence type works today from Cloud Run or GCE with zero extra setup.
+
 ## Costs & teardown
 
 ≈ **$3.5–4/day**: one `e2-standard-4` (~$0.134/h) + 50 GB disk; the zonal cluster fee is free-tier; no

@@ -10,6 +10,7 @@ import com.pingidentity.ps.oidf.common.AttesterSigningKey;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientAttestationException;
 import com.pingidentity.ps.oidf.common.EvidenceValidator;
+import com.pingidentity.ps.oidf.common.GcpSaTokenValidator;
 import com.pingidentity.ps.oidf.common.GkeTokenValidator;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
@@ -67,6 +68,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile AttesterSigningKey attesterSigningKey;
     private volatile SpiffeSvidValidator svidValidator = new SpiffeSvidValidator();
     private volatile GkeTokenValidator gkeTokenValidator = new GkeTokenValidator();
+    private volatile GcpSaTokenValidator gcpSaTokenValidator = new GcpSaTokenValidator();
     private volatile RemoteJwksCache jwksCache = new RemoteJwksCache();
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private boolean challengeRequired;
@@ -202,6 +204,9 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private EvidenceValidator evidenceValidator(AttestationIssuanceConfig config) {
         if (AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN.equals(config.evidenceType())) {
             return this.gkeTokenValidator;
+        }
+        if (AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN.equals(config.evidenceType())) {
+            return this.gcpSaTokenValidator;
         }
         return new SpiffeJwtEvidenceValidator(this.svidValidator);
     }

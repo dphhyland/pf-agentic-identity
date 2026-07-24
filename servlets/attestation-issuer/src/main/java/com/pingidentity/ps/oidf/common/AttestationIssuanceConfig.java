@@ -42,6 +42,8 @@ public final class AttestationIssuanceConfig {
     public static final String EVIDENCE_SPIFFE_JWT = "spiffe-jwt";
     /** Evidence type: a GKE-projected Kubernetes service-account token (Google-native identity). */
     public static final String EVIDENCE_GKE_SA_TOKEN = "gke-sa-token";
+    /** Evidence type: a Google-signed GCP service-account ID token (Agent Engine / Cloud Run / GCE). */
+    public static final String EVIDENCE_GCP_ID_TOKEN = "gcp-id-token";
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
 
@@ -101,7 +103,8 @@ public final class AttestationIssuanceConfig {
         String evidenceType = trimmed(props.get(P_EVIDENCE));
         if (evidenceType == null) {
             evidenceType = EVIDENCE_SPIFFE_JWT;
-        } else if (!EVIDENCE_SPIFFE_JWT.equals(evidenceType) && !EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)) {
+        } else if (!EVIDENCE_SPIFFE_JWT.equals(evidenceType) && !EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)
+                && !EVIDENCE_GCP_ID_TOKEN.equals(evidenceType)) {
             throw IssuanceException.invalidClient(P_EVIDENCE + " is not a supported evidence type: " + evidenceType);
         }
 
@@ -128,11 +131,13 @@ public final class AttestationIssuanceConfig {
         String signingKeyRef = trimmed(props.get(P_SIGNING_KEY_REF));
         Map<String, Object> signingJwk = parseObject(trimmed(props.get(P_SIGNING_JWK)), P_SIGNING_JWK);
         String trustDomain = trimmed(props.get(P_TRUST_DOMAIN));
-        if (EVIDENCE_GKE_SA_TOKEN.equals(evidenceType) && trustDomain == null) {
+        boolean mappedEvidence = EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)
+                || EVIDENCE_GCP_ID_TOKEN.equals(evidenceType);
+        if (mappedEvidence && trustDomain == null) {
             // The mapped SPIFFE ID's namespace comes from the trust domain; without it the binding
             // identifiers would be unanchored.
             throw IssuanceException.invalidClient(P_TRUST_DOMAIN + " is required when " + P_EVIDENCE
-                    + " is " + EVIDENCE_GKE_SA_TOKEN);
+                    + " is " + evidenceType);
         }
         String evidenceIssuer = trimmed(props.get(P_EVIDENCE_ISSUER));
         List<SpiffeBinding> bindings = parseInstances(trimmed(props.get(P_INSTANCES)), ceiling);

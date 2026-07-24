@@ -48,13 +48,15 @@ import org.jose4j.json.JsonUtil;
  * behind a TLS-terminating proxy. The {@code challengeRequired} init-param mirrors the issuance servlet's
  * and must be configured to the same value.
  */
-@WebServlet(urlPatterns = {"/.well-known/client-attester", "/federation/.well-known/client-attester"})
+@WebServlet(urlPatterns = {"/.well-known/client-attester", "/federation/.well-known/client-attester",
+        "/federation/attester-configuration"})
 public class AttesterConfigurationServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
     /** Evidence formats the issuance endpoint can validate. */
     static final List<String> EVIDENCE_TYPES_SUPPORTED = List.of(
-            AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN);
+            AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN,
+            AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN);
 
     private volatile IssuanceClientResolver clientResolver;
     private boolean challengeRequired;
@@ -100,6 +102,11 @@ public class AttesterConfigurationServlet extends HttpServlet {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
         m.put("challenge_endpoint", baseUrl + "/federation/attestation-challenge");
+        // Per-client issuance view (same document plus client-specific fields, ?client_id=<id>). Kept
+        // outside /.well-known so that path can stay a static, cache-friendly deployment document —
+        // though the well-known handler also honours ?client_id (WebFinger-style) for one-round-trip
+        // constrained clients.
+        m.put("client_configuration_endpoint", baseUrl + "/federation/attester-configuration");
         m.put("challenge_required", challengeRequired);
         m.put("evidence_types_supported", EVIDENCE_TYPES_SUPPORTED);
         m.put("instance_proof_typ", InstanceKeyProofValidator.TYP);
