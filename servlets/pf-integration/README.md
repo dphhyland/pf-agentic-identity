@@ -5,7 +5,7 @@
 
 The PingFederate integration layer that wires [`client-attestation`](https://github.com/dphhyland/client-attestation)
 and [`openid-federation`](https://github.com/dphhyland/openid-federation) into a running PingFederate, and
-assembles the deployable **`oidf.war`**. This is the only module that depends on the PingFederate SDK
+is the PingFederate glue (federation entity servlet, §12 registration, OGNL hooks). The deployable `oidf.war` is assembled by the sibling `oidf-war` module
 (scope `provided`).
 
 ## What's here
@@ -27,7 +27,7 @@ mvn -o clean package     # offline; requires client-attestation + openid-federat
                          # and the PingFederate SDK (pf-protocolengine) in ~/.m2
 ```
 
-This produces `target/oidf.war`, bundling the `client-attestation`, `openid-federation`, and `oidf-jose`
+The deployable war is built by `oidf-war` (which depends on this module + `attestation-issuer`).
 jars. Deploy it via PF's drop-in deployer; the `oidf` filename maps to the `/oidf` context path.
 
 ## Note

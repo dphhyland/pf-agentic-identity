@@ -29,6 +29,7 @@
         <module>libs/openid-federation</module>
         <module>servlets/pf-integration</module>
         <module>servlets/attestation-issuer</module>
+        <module>servlets/oidf-war</module>
         <module>servlets/ssf</module>
         <module>plugins/rar-paz-plugin</module>
         <module>services/gm-api/servlet</module>

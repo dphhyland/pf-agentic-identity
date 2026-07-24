@@ -5,19 +5,14 @@
     <formats><format>war</format></formats>
     <includeBaseDirectory>false</includeBaseDirectory>
     <fileSets>
-        <!-- WEB-INF/web.xml (+ anything else under webapp) -->
+        <!-- WEB-INF/web.xml (metadata-complete=false → the container scans WEB-INF/lib for @WebServlet) -->
         <fileSet>
             <directory>${project.basedir}/src/main/webapp</directory>
             <outputDirectory>.</outputDirectory>
         </fileSet>
-        <!-- oidf-pf's own compiled classes (OGNL hooks, registration) -->
-        <fileSet>
-            <directory>${project.build.outputDirectory}</directory>
-            <outputDirectory>WEB-INF/classes</outputDirectory>
-        </fileSet>
     </fileSets>
     <dependencySets>
-        <!-- runtime scope = module jars + jose4j + jackson; excludes provided (PF SDK / servlet / commons-logging) -->
+        <!-- every servlet module + its libraries as WEB-INF/lib jars; provided (PF SDK/servlet API/logging) excluded -->
         <dependencySet>
             <outputDirectory>WEB-INF/lib</outputDirectory>
             <useProjectArtifact>false</useProjectArtifact>
