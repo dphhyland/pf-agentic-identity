@@ -36,12 +36,14 @@ import org.jose4j.json.JsonUtil;
  * ({@code AttestationMetadataConfig}); the two describe different actors and are deliberately separate
  * documents.
  *
- * <p>Without parameters the document carries only deployment-wide facts. With {@code ?client_id=<id>} the
- * per-client issuance view (resolved through the same {@link IssuanceClientResolver} the issuance endpoint
- * uses, so the status gate applies) is appended: the attester {@code issuer}, the {@code evidence_audience}
- * the workload must mint into its SVID, the pinned trust domain, and the RAR <em>type names</em> it may
- * request. The full entitlement ceiling, the instance bindings, and the signing configuration are
- * deliberately not exposed.
+ * <p>The {@code /.well-known/client-attester} document is a static, cacheable, <strong>parameterless</strong>
+ * resource (RFC 8615) carrying only deployment-wide facts; it advertises a
+ * {@code client_configuration_endpoint}. The per-client view is served separately from
+ * {@code /federation/attester-configuration?client_id=<id>} (resolved through the same
+ * {@link IssuanceClientResolver} the issuance endpoint uses, so the status gate applies): the attester
+ * {@code issuer}, the {@code evidence_audience} the workload must mint into its SVID, the pinned trust
+ * domain, and the RAR <em>type names</em> it may request. The full entitlement ceiling, the instance
+ * bindings, and the signing configuration are deliberately not exposed.
  *
  * <p>The advertised endpoint URLs are derived from the request, honouring
  * {@code X-Forwarded-Proto}/{@code X-Forwarded-Host}/{@code X-Forwarded-Port} so the document is correct
@@ -72,21 +74,36 @@ public class AttesterConfigurationServlet extends HttpServlet {
         applyCors(resp);
         resp.setContentType("application/json");
         Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired);
-        String clientId = trimmed(req.getParameter("client_id"));
-        if (clientId != null) {
-            AttestationIssuanceConfig config;
-            try {
-                config = clientResolver().resolve(clientId);
-            } catch (IssuanceException e) {
-                // Deliberately collapsed to a single code: the document must not distinguish
-                // unknown / disabled / misconfigured clients.
-                resp.setHeader("Cache-Control", "no-store");
-                write(resp, 404, Map.of("error", "invalid_client"));
-                return;
-            }
-            doc.putAll(clientMetadata(config));
+
+        // The /.well-known document is a static, cacheable, deployment-wide resource — it takes no
+        // parameters (per RFC 8615, a well-known URI is a fixed resource). The per-client view is served
+        // ONLY from the client-configuration endpoint, which the well-known document points at.
+        boolean isClientConfigEndpoint = req.getRequestURI() != null
+                && req.getRequestURI().endsWith("/federation/attester-configuration");
+        if (!isClientConfigEndpoint) {
+            resp.setHeader("Cache-Control", "public, max-age=300");
+            write(resp, 200, doc);
+            return;
         }
-        resp.setHeader("Cache-Control", "public, max-age=300");
+
+        String clientId = trimmed(req.getParameter("client_id"));
+        if (clientId == null) {
+            resp.setHeader("Cache-Control", "no-store");
+            write(resp, 400, Map.of("error", "invalid_request", "error_description", "client_id is required"));
+            return;
+        }
+        AttestationIssuanceConfig config;
+        try {
+            config = clientResolver().resolve(clientId);
+        } catch (IssuanceException e) {
+            // Deliberately collapsed to a single code: the document must not distinguish
+            // unknown / disabled / misconfigured clients.
+            resp.setHeader("Cache-Control", "no-store");
+            write(resp, 404, Map.of("error", "invalid_client"));
+            return;
+        }
+        doc.putAll(clientMetadata(config));
+        resp.setHeader("Cache-Control", "no-store");
         write(resp, 200, doc);
     }
 
@@ -102,10 +119,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
         m.put("challenge_endpoint", baseUrl + "/federation/attestation-challenge");
-        // Per-client issuance view (same document plus client-specific fields, ?client_id=<id>). Kept
-        // outside /.well-known so that path can stay a static, cache-friendly deployment document —
-        // though the well-known handler also honours ?client_id (WebFinger-style) for one-round-trip
-        // constrained clients.
+        // The per-client issuance view (issuer, evidence_audience, RAR types) — a separate endpoint that
+        // takes ?client_id, keeping this /.well-known document a static, parameterless, cacheable resource.
         m.put("client_configuration_endpoint", baseUrl + "/federation/attester-configuration");
         m.put("challenge_required", challengeRequired);
         m.put("evidence_types_supported", EVIDENCE_TYPES_SUPPORTED);

@@ -81,19 +81,25 @@ class AttesterConfigurationServletTest {
         assertFalse(json.contains("signing"), "signing config not exposed");
     }
 
+    private static HttpServletRequest baseRequest(String uri) {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getRequestURI()).thenReturn(uri);
+        when(req.getScheme()).thenReturn("http");
+        when(req.getServerName()).thenReturn("pingfederate");
+        when(req.getServerPort()).thenReturn(9080);
+        when(req.getContextPath()).thenReturn("");
+        return req;
+    }
+
     @Test
-    void unknownClientYields404InvalidClient() throws Exception {
+    void unknownClientYields404OnTheConfigurationEndpoint() throws Exception {
         AttesterConfigurationServlet servlet = new AttesterConfigurationServlet();
         servlet.setClientResolver(clientId -> {
             throw IssuanceException.invalidClient("unknown client: " + clientId);
         });
 
-        HttpServletRequest req = mock(HttpServletRequest.class);
+        HttpServletRequest req = baseRequest("/federation/attester-configuration");
         when(req.getParameter("client_id")).thenReturn("nope");
-        when(req.getScheme()).thenReturn("http");
-        when(req.getServerName()).thenReturn("pingfederate");
-        when(req.getServerPort()).thenReturn(9080);
-        when(req.getContextPath()).thenReturn("");
         HttpServletResponse resp = mock(HttpServletResponse.class);
         StringWriter body = new StringWriter();
         when(resp.getWriter()).thenReturn(new PrintWriter(body));
@@ -101,8 +107,46 @@ class AttesterConfigurationServletTest {
         servlet.doGet(req, resp);
 
         org.mockito.Mockito.verify(resp).setStatus(404);
-        Map<String, Object> error = JsonUtil.parseJson(body.toString());
-        assertEquals("invalid_client", error.get("error"));
+        assertEquals("invalid_client", JsonUtil.parseJson(body.toString()).get("error"));
+    }
+
+    @Test
+    void wellKnownIgnoresClientIdAndStaysStatic() throws Exception {
+        AttesterConfigurationServlet servlet = new AttesterConfigurationServlet();
+        // A resolver that would blow up if called — the well-known path must NOT consult it.
+        servlet.setClientResolver(clientId -> {
+            throw new AssertionError("well-known must not resolve a client");
+        });
+
+        HttpServletRequest req = baseRequest("/.well-known/client-attester");
+        when(req.getParameter("client_id")).thenReturn("demo-attest-gke"); // present but must be ignored
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        StringWriter body = new StringWriter();
+        when(resp.getWriter()).thenReturn(new PrintWriter(body));
+
+        servlet.doGet(req, resp);
+
+        org.mockito.Mockito.verify(resp).setStatus(200);
+        Map<String, Object> doc = JsonUtil.parseJson(body.toString());
+        assertEquals("http://pingfederate:9080/federation/attester-configuration",
+                doc.get("client_configuration_endpoint"));
+        assertNull(doc.get("issuer"), "no per-client fields on the well-known document");
+        org.mockito.Mockito.verify(resp).setHeader("Cache-Control", "public, max-age=300");
+    }
+
+    @Test
+    void configurationEndpointRequiresClientId() throws Exception {
+        AttesterConfigurationServlet servlet = new AttesterConfigurationServlet();
+        HttpServletRequest req = baseRequest("/federation/attester-configuration");
+        when(req.getParameter("client_id")).thenReturn(null);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        StringWriter body = new StringWriter();
+        when(resp.getWriter()).thenReturn(new PrintWriter(body));
+
+        servlet.doGet(req, resp);
+
+        org.mockito.Mockito.verify(resp).setStatus(400);
+        assertEquals("invalid_request", JsonUtil.parseJson(body.toString()).get("error"));
     }
 
     @Test

@@ -190,9 +190,11 @@
       <span class="stepnum">1</span>
       <div>
         <h3>Discover</h3>
-        <p><code>GET /.well-known/client-attester?client_id=demo-attest-gke</code> returns the issuance contract:
-        the endpoints, the <strong>evidence audience</strong> the workload must mint into its identity token, the
-        evidence type expected, proof requirements, and which RAR types it may request.</p>
+        <p><code>GET /.well-known/client-attester</code> returns the static discovery document, which points
+        at a per-client <code>/federation/attester-configuration?client_id=…</code> endpoint carrying the
+        <strong>evidence audience</strong> the workload must mint into its identity token, the evidence type
+        expected, proof requirements, and which RAR types it may request. (The well-known URI itself stays
+        parameterless, per RFC 8615.)</p>
       </div>
     </li>
     <li>
@@ -244,7 +246,7 @@ sequenceDiagram
     participant P as Platform attestor<br/>(SPIRE / GKE / Google SA)
     participant A as Client Attester<br/>(/federation/attestation)
     participant F as PingFederate<br/>(/as/token.oauth2)
-    W->>A: GET /.well-known/client-attester?client_id=…
+    W->>A: GET /.well-known/client-attester (+ /attester-configuration?client_id)
     A-->>W: endpoints, evidence_audience, evidence_type, RAR types
     W->>P: request identity token (aud = evidence_audience)
     P-->>W: JWT-SVID / projected SA token / SA ID token
@@ -398,6 +400,56 @@ sequenceDiagram
     Google's own primitives throughout — the <code>spiffe://…</code> naming, GKE workload identity, and (in
     Phase 3) the agent's runtime service-account ID token, since the managed Agent Identity X.509 isn't
     exportable to third parties yet.
+  </p>
+
+  <h2>How a Gemini Enterprise agent actually uses this</h2>
+  <p>
+    Concretely: a user asks a <strong>Gemini Enterprise agent</strong> to do something that needs a
+    protected downstream resource — read an account, submit a quote. The agent has a Google
+    <strong>Agent Identity</strong> (a SPIFFE ID) but <em>no client secret</em> for your authorization
+    server. This is the moment the demo fills: the agent turns its platform identity into a scoped token,
+    then calls the resource.
+  </p>
+
+  <div class="wide">
+    <figure>
+      <div class="diagram">
+        <pre class="mermaid">
+sequenceDiagram
+    autonumber
+    actor U as User
+    participant GA as Gemini agent<br/>(Agent Identity = SPIFFE ID)
+    participant AT as Client Attester<br/>(inside PingFederate)
+    participant PF as PingFederate (AS)
+    participant GW as Agent Gateway<br/>(ext_proc → PingAuthorize)
+    participant API as Protected tool / API
+    U->>GA: "read my EMEA accounts"
+    Note over GA: has a platform identity,<br/>holds no client secret
+    GA->>GA: mint SA ID token (evidence)
+    GA->>AT: evidence + instance key + proof
+    AT-->>GA: Client Attestation<br/>(entitlement ceiling: EMEA only)
+    GA->>PF: attestation + PoP
+    PF-->>GA: scoped access token
+    GA->>GW: call tool, bearer token
+    GW->>GW: runtime authorize this call
+    GW->>API: forward if allowed
+    API-->>GA: account data
+    GA-->>U: answer
+        </pre>
+      </div>
+      <figcaption>Steps 3–7 are this demo. Steps 8–10 are Google's Agent Gateway doing runtime
+      authorization on the token the agent just earned.</figcaption>
+    </figure>
+  </div>
+
+  <h3>When agents call other agents (A2A)</h3>
+  <p>
+    Multi-agent is where per-agent identity earns its keep. When the Gemini agent delegates to a second
+    agent, that downstream agent has its <em>own</em> Agent Identity and runs its <em>own</em> attestation
+    — it never borrows the first agent's token. Each agent authenticates <strong>as itself</strong>, gets
+    its <strong>own</strong> entitlement ceiling, and the chain of who-acted-for-whom is carried in the
+    tokens (actor claims) rather than assumed. A compromised downstream agent can only ever wield the
+    ceiling <em>it</em> was attested for — not the caller's.
   </p>
 
   <h2>Standards it stands on</h2>

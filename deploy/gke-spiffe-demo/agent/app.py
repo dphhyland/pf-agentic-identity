@@ -1,6 +1,7 @@
 """GKE demo agent workload.
 
-Bootstraps from PF's attester discovery document (/.well-known/client-attester?client_id=...), obtains
+Bootstraps from PF's attester discovery document (/.well-known/client-attester, then the per-client
+configuration endpoint it advertises), obtains
 identity evidence — a SPIRE JWT-SVID from the Workload API (spiffe-jwt) or a GKE-projected
 service-account token read from a file (gke-sa-token) — exchanges it at /federation/attestation for a
 Client Attestation bound to a locally-generated instance key, and presents attestation + PoP to the
@@ -91,11 +92,18 @@ def http_json(method: str, url: str, body: dict | None = None, headers: dict | N
 
 
 def discovery() -> dict:
-    url = ATTESTER_BASE_URL + "/.well-known/client-attester?client_id=" + urllib.parse.quote(CLIENT_ID)
-    status, body = http_json("GET", url)
+    # Step 1: the static, parameterless well-known document → the per-client config endpoint.
+    status, body = http_json("GET", ATTESTER_BASE_URL + "/.well-known/client-attester")
     if status != 200:
         raise RuntimeError(f"attester discovery failed: HTTP {status} {body}")
-    return json.loads(body)
+    doc = json.loads(body)
+    # Step 2: the per-client view (issuer, evidence_audience, evidence_type, RAR types).
+    cfg_url = doc["client_configuration_endpoint"] + "?client_id=" + urllib.parse.quote(CLIENT_ID)
+    status, body = http_json("GET", cfg_url)
+    if status != 200:
+        raise RuntimeError(f"client configuration failed: HTTP {status} {body}")
+    doc.update(json.loads(body))
+    return doc
 
 
 # ── evidence ─────────────────────────────────────────────────────────────────────────────────────

@@ -119,7 +119,8 @@ flowchart TB
   <h2>The request flow</h2>
   <ol class="flow">
     <li><span class="n">1</span><span><strong>Discover.</strong> The workload GETs
-      <code>/.well-known/client-attester?client_id=…</code> and learns the endpoints, the evidence
+      <code>/.well-known/client-attester</code> (static), follows it to
+      <code>/federation/attester-configuration?client_id=…</code>, and learns the endpoints, the evidence
       audience it must use, and the RAR types it may request.</span></li>
     <li><span class="n">2</span><span><strong>Get evidence.</strong> It fetches a platform-signed
       identity token — SPIRE JWT-SVID (P1), GKE projected SA token (P2), or Google SA ID token (P3) —

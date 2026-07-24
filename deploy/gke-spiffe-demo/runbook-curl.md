@@ -15,11 +15,15 @@ which prints ready-to-run curl. This runbook shows the wire shapes.
 ## 1. Discover the attester
 
 ```bash
-curl -s "$PF/.well-known/client-attester?client_id=demo-attest-gke" | jq .
+# The well-known document is static and parameterless — it advertises the endpoints:
+curl -s "$PF/.well-known/client-attester" | jq .
+# then the per-client view from the endpoint it points at:
+curl -s "$PF/federation/attester-configuration?client_id=demo-attest-gke" | jq .
 ```
 
-→ `attestation_endpoint`, `challenge_endpoint`, `evidence_audience` (the `aud` the SVID must carry),
-`evidence_type`, `challenge_required`, proof/attestation `typ`s and algorithms,
+The well-known doc carries `attestation_endpoint`, `challenge_endpoint`, `client_configuration_endpoint`,
+`evidence_types_supported`, proof/attestation `typ`s and algorithms. The per-client doc adds `issuer`,
+`evidence_audience` (the `aud` the SVID must carry), `evidence_type`, the pinned trust domain, and
 `authorization_details_types`.
 
 ## 2. Get identity evidence

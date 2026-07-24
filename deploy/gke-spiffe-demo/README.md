@@ -16,8 +16,10 @@ A workload running in Google Cloud proves its identity with SPIFFE evidence, exc
 Everything runs inside **one GKE cluster** (PF included) — nothing is publicly exposed; the admin API is
 reached by `kubectl port-forward`, and all token-endpoint calls run in-cluster so the PoP-`aud` proxy trap
 never appears. Workloads bootstrap from the attester discovery document
-**`/.well-known/client-attester?client_id=…`** (endpoints, `evidence_audience`, evidence type, challenge
-policy) — the only agent config is a base URL and a `client_id`.
+**`/.well-known/client-attester`** (a static, parameterless document) and the per-client
+**`/federation/attester-configuration?client_id=…`** endpoint it advertises (endpoints,
+`evidence_audience`, evidence type, challenge policy) — the only agent config is a base URL and a
+`client_id`.
 
 ## Phase 0 — GCP bootstrap
 

@@ -94,11 +94,17 @@ class AttestedAgent:
         if self._key is None:
             self.set_up()
 
-        status, body = self._http(
-            "GET", self.attester_base + "/.well-known/client-attester?client_id=" + self.client_id)
+        # Step 1: the static, parameterless well-known document.
+        status, body = self._http("GET", self.attester_base + "/.well-known/client-attester")
         if status != 200:
             return {"step": "discovery", "status": status, "body": body}
         doc = json.loads(body)
+        # Step 2: the per-client view from the advertised configuration endpoint.
+        status, body = self._http(
+            "GET", doc["client_configuration_endpoint"] + "?client_id=" + self.client_id)
+        if status != 200:
+            return {"step": "client-configuration", "status": status, "body": body}
+        doc.update(json.loads(body))
 
         evidence = self._google_id_token(doc["evidence_audience"])
 
