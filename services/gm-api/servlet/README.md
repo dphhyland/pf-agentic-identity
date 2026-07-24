@@ -137,14 +137,20 @@ request to `/gm-api/grants/{id}/evaluate` yields pathInfo `/{id}/evaluate` — n
 **PingFederate regenerates its signing keys on restart.** This container has no
 persistent keystore, so every restart invalidates every previously issued token. A token
 minted before a restart fails with `Unable to find a suitable verification key`, which
-reads like a code bug and is not. Re-run `scripts/authcode.py` after restarting.
+reads like a code bug and is not. Re-run the grant-creation flow (`scripts/authcode.py`,
+in [`grant-evaluation-api`](https://github.com/dphhyland/grant-evaluation-api)) after restarting.
 
 ## Verify
 
-```bash
-go run ./cmd/pdp -addr :9099 -expose-entitlements &   # PDP on the host
-python3 scripts/authcode.py <tpp-secret>              # fresh grant + token
+The demo PDP and the grant-creation script are not in this repo — they ship with the Go
+reference, [`grant-evaluation-api`](https://github.com/dphhyland/grant-evaluation-api).
+Run the first two from a checkout of it; the API under test is the deployed servlet.
 
+```bash
+go run ./cmd/pdp -addr :9099 -expose-entitlements &   # AuthZEN PDP the servlet calls
+python3 scripts/authcode.py <tpp-secret>              # fresh PF grant + token; prints the access token and its agid
+
+# TOKEN and AGID come from authcode.py's output above:
 curl -sk -X POST "https://localhost:9131/gm-api/grants/$AGID/evaluate" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"action":{"name":"read_balance"},"resource":{"type":"account","id":"222"}}'

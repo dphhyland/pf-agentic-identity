@@ -1,6 +1,7 @@
 # GKE SPIFFE → Client Attestation → PingFederate demo
 
-> **Explainer (public):** https://gke-spiffe-demo-production.up.railway.app
+> **Explainer (public):** https://gke-spiffe-demo-production.up.railway.app  
+> **Live interactive demo:** http://34.171.232.146/ — click *Run* and watch a real GKE workload fetch platform evidence, mint a Client Attestation, and get a PingFederate token
 
 A workload running in Google Cloud proves its identity with SPIFFE evidence, exchanges it at the
 **attestation-issuer servlet** (`/federation/attestation`, inside PF's war) for a **Client Attestation**

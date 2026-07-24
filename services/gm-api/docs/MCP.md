@@ -111,11 +111,15 @@ consent in `grant-mapping.tf` is: a demo that looks more finished than it is mis
 
 ## Try it
 
-```bash
-go run ./cmd/pdp -addr :9099 -expose-entitlements &
-python3 scripts/authcode.py <tpp-secret>          # a token + grant
+The demo PDP and the grant-creation script ship with the Go reference,
+[`grant-evaluation-api`](https://github.com/dphhyland/grant-evaluation-api) — run the
+first two from a checkout of it. The MCP endpoint under test is the deployed servlet.
 
-TOKEN=$(cat .../alice_token); GRANT=$(cat .../alice_grant_id)
+```bash
+go run ./cmd/pdp -addr :9099 -expose-entitlements &   # AuthZEN PDP the servlet calls
+python3 scripts/authcode.py <tpp-secret>              # a token + grant; prints the access token and grant id (agid)
+
+# TOKEN and GRANT (the agid) come from authcode.py's output above:
 curl -sk -X POST https://localhost:9131/gm-api/mcp \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/call\",\"params\":{

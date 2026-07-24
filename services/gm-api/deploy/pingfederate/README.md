@@ -104,6 +104,10 @@ form, approves the consent, and the code is exchanged for a token. The tokens ar
 incidental. The point is the **persistent grant** PF creates on the way, which is what
 the Grant Evaluation API answers questions about.
 
+`scripts/authcode.py` ships with the Go reference,
+[`grant-evaluation-api`](https://github.com/dphhyland/grant-evaluation-api); run it from
+a checkout of that repo (it drives PF at `https://localhost:9131`).
+
 ```bash
 python3 scripts/authcode.py <path-to-tpp-secret>
 ```
@@ -113,11 +117,12 @@ how a client names the grant it wants evaluated, without being told it out of ba
 Then:
 
 ```bash
-go run ./cmd/pdp -addr :9099 -expose-entitlements &
-set -a; . ./.env; set +a
-go run ./cmd/gm-api -insecure-skip-verify        # -insecure-skip-verify: PF's self-signed cert
+# The demo AuthZEN PDP also lives in grant-evaluation-api; run it from there.
+go run ./cmd/pdp -addr :9099 -expose-entitlements &   # PF reaches it at host.docker.internal:9099
 
-curl -X POST "localhost:8088/api/v1/grants/$AGID/evaluate" \
+# The API itself is the deployed servlet (gm-api.war) inside PF — nothing to run here.
+# TOKEN and AGID come from authcode.py's output above; hit the servlet on PF's own port:
+curl -sk -X POST "https://localhost:9131/gm-api/grants/$AGID/evaluate" \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
   -d '{"action":{"name":"read_balance"},"resource":{"type":"account","id":"222"}}'
 # {"decision":false,"context":{"reasons":[{"id":"subject_not_entitled",
