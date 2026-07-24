@@ -21,6 +21,11 @@ implements ClientStore {
     }
 
     @Override
+    public java.util.Collection<Client> getAll() {
+        return MgmtFactory.getClientManager().getClients();
+    }
+
+    @Override
     public void disable(Client client) {
         client.setEnabled(false);
         MgmtFactory.getClientManager().updateClient(client);

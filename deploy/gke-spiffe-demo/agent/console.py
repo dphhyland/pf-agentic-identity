@@ -192,8 +192,7 @@ el('run').onclick = ()=>run(false);
 el('over').onclick = ()=>run(true);
 
 fetch('/identity').then(r=>r.json()).then(d=>{
-  el('foot').innerHTML = 'Served from a GKE pod as <code style="font-family:monospace">'+
-    (d.client_id||'')+'</code> · evidence <code style="font-family:monospace">'+(d.evidence_mode||'')+
+  el('foot').innerHTML = 'Served from a GKE pod · evidence <code style="font-family:monospace">'+(d.evidence_mode||'')+
     '</code> · instance key <code style="font-family:monospace">'+((d.instance_key_kid||'').slice(0,16))+
     '…</code><br>Explainer: <a href="https://gke-spiffe-demo-production.up.railway.app">'+
     'gke-spiffe-demo-production.up.railway.app</a> · Source: '+

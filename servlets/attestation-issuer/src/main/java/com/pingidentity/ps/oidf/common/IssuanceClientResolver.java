@@ -16,4 +16,11 @@ package com.pingidentity.ps.oidf.common;
  */
 public interface IssuanceClientResolver {
     AttestationIssuanceConfig resolve(String clientId) throws IssuanceException;
+
+    /**
+     * Every attestation-enabled client the attester serves. The issuance endpoint enumerates these to
+     * reverse-map a workload's evidence identity onto a client — the workload itself names no client.
+     * Returns an empty list if none are configured.
+     */
+    java.util.List<AttesterClient> attestationClients() throws IssuanceException;
 }

@@ -94,17 +94,12 @@ class AttestedAgent:
         if self._key is None:
             self.set_up()
 
-        # Step 1: the static, parameterless well-known document.
+        # The static, parameterless well-known document — carries the deployment evidence_audience.
+        # The agent names no client; the attester maps its identity to one.
         status, body = self._http("GET", self.attester_base + "/.well-known/client-attester")
         if status != 200:
             return {"step": "discovery", "status": status, "body": body}
         doc = json.loads(body)
-        # Step 2: the per-client view from the advertised configuration endpoint.
-        status, body = self._http(
-            "GET", doc["client_configuration_endpoint"] + "?client_id=" + self.client_id)
-        if status != 200:
-            return {"step": "client-configuration", "status": status, "body": body}
-        doc.update(json.loads(body))
 
         evidence = self._google_id_token(doc["evidence_audience"])
 
@@ -121,7 +116,8 @@ class AttestedAgent:
         proof = self._sign({"alg": "ES256", "typ": "oauth-attestation-instance-proof+jwt",
                             "kid": jwk["kid"]}, proof_claims)
 
-        issuance = {"client_id": self.client_id, "instance_key": jwk, "svid": evidence, "proof": proof}
+        # No client_id — only evidence. The attester maps identity → client.
+        issuance = {"instance_key": jwk, "svid": evidence, "proof": proof}
         if requested_details:
             issuance["authorization_details"] = requested_details
         mint_status, mint_body = self._http("POST", doc["attestation_endpoint"], body=issuance)
@@ -130,12 +126,16 @@ class AttestedAgent:
             return result
 
         attestation = json.loads(mint_body)["attestation"]
+        # The attester assigned the client_id (attestation sub); the agent only relays it.
+        import base64
+        p = attestation.split(".")[1]
+        client_id = json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))).get("sub")
         pop = self._sign({"alg": "ES256", "typ": "oauth-client-attestation-pop+jwt", "kid": jwk["kid"]},
-                         {"iss": self.client_id, "aud": self.pf_token_aud,
+                         {"iss": client_id, "aud": self.pf_token_aud,
                           "jti": str(uuid.uuid4()), "iat": now})
         pf_status, pf_body = self._http(
             "POST", self.attester_base + "/as/token.oauth2",
-            form={"grant_type": "client_credentials", "client_id": self.client_id,
+            form={"grant_type": "client_credentials", "client_id": client_id,
                   "client_secret": self.client_secret},
             headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop})
         result.update({"attestation": attestation, "pop": pop,

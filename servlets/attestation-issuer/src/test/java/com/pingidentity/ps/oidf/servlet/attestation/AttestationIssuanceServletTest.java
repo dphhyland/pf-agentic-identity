@@ -133,10 +133,8 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
-    void disabledOrUnknownClientIsRejected() throws Exception {
-        servlet.setClientResolver(clientId -> {
-            throw IssuanceException.invalidClient("client is disabled: " + clientId);
-        });
+    void noAttestationClientsConfiguredIsRejected() throws Exception {
+        servlet.setClientResolver(emptyResolver());
         IssuanceException e = assertThrows(IssuanceException.class,
                 () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
         assertEquals("invalid_client", e.error());
@@ -144,8 +142,7 @@ class AttestationIssuanceServletTest {
 
     @Test
     void missingRequiredFieldsAreRejected() throws Exception {
-        assertEquals("invalid_request", assertThrows(IssuanceException.class,
-                () -> servlet.issue(mutate(r -> r.clientId = ""))).error());
+        // client_id is deliberately NOT required — the workload names no client.
         assertEquals("invalid_request", assertThrows(IssuanceException.class,
                 () -> servlet.issue(mutate(r -> r.instanceKey = null))).error());
         assertEquals("invalid_request", assertThrows(IssuanceException.class,
@@ -344,7 +341,7 @@ class AttestationIssuanceServletTest {
         AttestationIssuanceServlet s = new AttestationIssuanceServlet() {
             @Override
             protected com.pingidentity.ps.oidf.common.IssuanceClientResolver defaultClientResolver() {
-                return clientId -> cfg;
+                return fixedResolver(cfg);
             }
         };
         s.setAttesterSigningKey(new AttesterSigningKey(null, null)); // no resolver injected → lazy path runs
@@ -450,8 +447,34 @@ class AttestationIssuanceServletTest {
         return AttestationIssuanceConfig.fromProperties(props);
     }
 
+    /** A resolver exposing one client (id = CLIENT_ID) — both by-id lookup and the attestation list. */
     private static IssuanceClientResolver fixedResolver(AttestationIssuanceConfig config) {
-        return clientId -> config;
+        return new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                return config;
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.common.AttesterClient> attestationClients() {
+                return List.of(new com.pingidentity.ps.oidf.common.AttesterClient(CLIENT_ID, config));
+            }
+        };
+    }
+
+    /** A resolver with no attestation clients configured. */
+    private static IssuanceClientResolver emptyResolver() {
+        return new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) throws IssuanceException {
+                throw IssuanceException.invalidClient("unknown client: " + clientId);
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.common.AttesterClient> attestationClients() {
+                return List.of();
+            }
+        };
     }
 
     private AttestationIssuanceServlet.IssuanceRequest request(String spiffeId, String svidAudience,

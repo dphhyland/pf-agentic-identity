@@ -4,12 +4,17 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.common.AttesterClient;
 import com.pingidentity.ps.oidf.common.ClientStore;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.domain.Client;
 import org.sourceid.oauth20.domain.ParamValues;
 
@@ -21,6 +26,8 @@ import org.sourceid.oauth20.domain.ParamValues;
  * out of band via registration / admin / Terraform.
  */
 public final class PfIssuanceClientResolver implements IssuanceClientResolver {
+
+    private static final Log LOGGER = LogFactory.getLog(PfIssuanceClientResolver.class);
 
     private static final String[] PROPERTY_KEYS = {
             AttestationIssuanceConfig.P_ISSUER,
@@ -51,6 +58,38 @@ public final class PfIssuanceClientResolver implements IssuanceClientResolver {
         if (!client.isEnabled()) {
             throw IssuanceException.invalidClient("client is disabled: " + clientId);
         }
+        return AttestationIssuanceConfig.fromProperties(props(client));
+    }
+
+    @Override
+    public List<AttesterClient> attestationClients() throws IssuanceException {
+        Collection<Client> all = this.clientStore.getAll();
+        List<AttesterClient> out = new ArrayList<>();
+        if (all == null) {
+            return out;
+        }
+        for (Client client : all) {
+            if (client == null || !client.isEnabled()) {
+                continue;
+            }
+            Map<String, String> props = props(client);
+            // Only clients actually configured for attestation issuance (they carry an attester issuer).
+            if (!props.containsKey(AttestationIssuanceConfig.P_ISSUER)) {
+                continue;
+            }
+            try {
+                out.add(new AttesterClient(client.getClientId(),
+                        AttestationIssuanceConfig.fromProperties(props)));
+            } catch (IssuanceException e) {
+                // A single misconfigured client must not sink the whole attester — skip it, keep the rest.
+                LOGGER.warn((Object) ("Skipping attestation client with invalid config: "
+                        + client.getClientId() + " (" + e.error() + ": " + e.getMessage() + ")"));
+            }
+        }
+        return out;
+    }
+
+    private static Map<String, String> props(Client client) {
         Map<String, ParamValues> extended = client.getExtendedParams();
         Map<String, String> props = new HashMap<>();
         if (extended != null) {
@@ -61,7 +100,7 @@ public final class PfIssuanceClientResolver implements IssuanceClientResolver {
                 }
             }
         }
-        return AttestationIssuanceConfig.fromProperties(props);
+        return props;
     }
 
     private static String firstElement(ParamValues values) {

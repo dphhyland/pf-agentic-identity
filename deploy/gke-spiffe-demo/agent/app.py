@@ -26,7 +26,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 ATTESTER_BASE_URL = os.environ.get("ATTESTER_BASE_URL", "http://pingfederate.pf:9080")
-CLIENT_ID = os.environ.get("CLIENT_ID", "demo-attest-gke")
 CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "demo-secret-123")
 PF_TOKEN_ENDPOINT = os.environ.get("PF_TOKEN_ENDPOINT", ATTESTER_BASE_URL + "/as/token.oauth2")
 # PF validates the PoP `aud` against its configured base URL (the one inside data.zip), NOT the URL the
@@ -92,17 +91,14 @@ def http_json(method: str, url: str, body: dict | None = None, headers: dict | N
 
 
 def discovery() -> dict:
-    # Step 1: the static, parameterless well-known document → the per-client config endpoint.
+    # The static, parameterless well-known document carries everything the workload needs — endpoints
+    # and the deployment evidence_audience. It names no client; the workload never knows its client_id.
     status, body = http_json("GET", ATTESTER_BASE_URL + "/.well-known/client-attester")
     if status != 200:
         raise RuntimeError(f"attester discovery failed: HTTP {status} {body}")
     doc = json.loads(body)
-    # Step 2: the per-client view (issuer, evidence_audience, evidence_type, RAR types).
-    cfg_url = doc["client_configuration_endpoint"] + "?client_id=" + urllib.parse.quote(CLIENT_ID)
-    status, body = http_json("GET", cfg_url)
-    if status != 200:
-        raise RuntimeError(f"client configuration failed: HTTP {status} {body}")
-    doc.update(json.loads(body))
+    if "evidence_audience" not in doc:
+        raise RuntimeError("attester advertises no evidence_audience")
     return doc
 
 
@@ -132,9 +128,16 @@ def fetch_evidence(mode: str, audience: str) -> str:
 
 # ── the chain: discovery → evidence → attestation → token ────────────────────────────────────────
 
+def _jwt_claim(compact_jwt: str, claim: str):
+    payload = compact_jwt.split(".")[1]
+    payload += "=" * (-len(payload) % 4)
+    return json.loads(base64.urlsafe_b64decode(payload)).get(claim)
+
+
 def invoke(requested_details=None) -> dict:
     doc = discovery()
-    mode = EVIDENCE_MODE or doc.get("evidence_type", "spiffe-jwt")
+    # The workload knows its OWN runtime evidence type; it never learns/asserts a client_id.
+    mode = EVIDENCE_MODE or "spiffe-jwt"
     audience = doc["evidence_audience"]
     now = int(time.time())
 
@@ -153,8 +156,8 @@ def invoke(requested_details=None) -> dict:
         {"alg": "ES256", "typ": "oauth-attestation-instance-proof+jwt", "kid": INSTANCE_KEY.jwk["kid"]},
         proof_claims)
 
-    issuance_body = {"client_id": CLIENT_ID, "instance_key": INSTANCE_KEY.jwk,
-                     "svid": evidence, "proof": proof}
+    # No client_id — the workload presents only its evidence. The attester maps identity → client.
+    issuance_body = {"instance_key": INSTANCE_KEY.jwk, "svid": evidence, "proof": proof}
     if requested_details:
         issuance_body["authorization_details"] = requested_details
     mint_status, mint_body = http_json("POST", doc["attestation_endpoint"], body=issuance_body)
@@ -165,14 +168,16 @@ def invoke(requested_details=None) -> dict:
         return result
 
     attestation = json.loads(mint_body)["attestation"]
+    # The attester assigned the client_id (the attestation sub) — the workload only relays it now.
+    client_id = _jwt_claim(attestation, "sub")
     pop = INSTANCE_KEY.sign(
         {"alg": "ES256", "typ": "oauth-client-attestation-pop+jwt", "kid": INSTANCE_KEY.jwk["kid"]},
-        {"iss": CLIENT_ID, "aud": PF_TOKEN_AUD, "jti": str(uuid.uuid4()), "iat": now})
+        {"iss": client_id, "aud": PF_TOKEN_AUD, "jti": str(uuid.uuid4()), "iat": now})
     pf_status, pf_body = http_json(
         "POST", PF_TOKEN_ENDPOINT,
-        form={"grant_type": "client_credentials", "client_id": CLIENT_ID, "client_secret": CLIENT_SECRET},
+        form={"grant_type": "client_credentials", "client_id": client_id, "client_secret": CLIENT_SECRET},
         headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop})
-    result.update({"attestation": attestation, "pop": pop,
+    result.update({"client_id": client_id, "attestation": attestation, "pop": pop,
                    "pf_status": pf_status, "pf_body": pf_body})
     return result
 
@@ -206,14 +211,14 @@ class Handler(BaseHTTPRequestHandler):
         if self.path.startswith("/identity"):
             try:
                 doc = discovery()
-                mode = EVIDENCE_MODE or doc.get("evidence_type", "spiffe-jwt")
+                mode = EVIDENCE_MODE or "spiffe-jwt"
                 evidence = fetch_evidence(mode, doc["evidence_audience"])
-                return self._send(200, {"status": "up", "client_id": CLIENT_ID, "evidence_mode": mode,
+                return self._send(200, {"status": "up", "evidence_mode": mode,
                                         "evidence": evidence, "instance_key_kid": INSTANCE_KEY.jwk["kid"],
                                         "discovery": doc})
             except Exception as e:  # noqa: BLE001
                 return self._send(500, {"error": str(e)})
-        return self._send(200, {"status": "up", "client_id": CLIENT_ID})
+        return self._send(200, {"status": "up", "evidence_mode": EVIDENCE_MODE or "spiffe-jwt"})
 
     def do_POST(self):
         if self.path.startswith("/invoke"):
@@ -224,7 +229,7 @@ class Handler(BaseHTTPRequestHandler):
                     requested = json.loads(self.rfile.read(length)).get("authorization_details")
                 except Exception:  # noqa: BLE001
                     pass
-            print(f"[agent] /invoke — running the attested token exchange as {CLIENT_ID}", flush=True)
+            print("[agent] /invoke — presenting evidence; the attester assigns the client", flush=True)
             try:
                 result = invoke(requested)
             except Exception as e:  # noqa: BLE001
@@ -239,6 +244,6 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"[agent] client_id={CLIENT_ID} attester={ATTESTER_BASE_URL} · POST /invoke to run the chain",
+    print(f"[agent] evidence={EVIDENCE_MODE or 'spiffe-jwt'} attester={ATTESTER_BASE_URL} · POST /invoke to run the chain",
           flush=True)
     ThreadingHTTPServer(("0.0.0.0", PORT), Handler).serve_forever()

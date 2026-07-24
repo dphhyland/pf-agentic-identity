@@ -11,6 +11,8 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.common.AttesterClient;
+import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -81,6 +83,21 @@ class AttesterConfigurationServletTest {
         assertFalse(json.contains("signing"), "signing config not exposed");
     }
 
+    /** A resolver whose by-id lookup always fails and whose attestation list is empty. */
+    private static IssuanceClientResolver throwingResolver() {
+        return new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) throws IssuanceException {
+                throw IssuanceException.invalidClient("unknown client: " + clientId);
+            }
+
+            @Override
+            public List<AttesterClient> attestationClients() {
+                return List.of();
+            }
+        };
+    }
+
     private static HttpServletRequest baseRequest(String uri) {
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getRequestURI()).thenReturn(uri);
@@ -94,9 +111,7 @@ class AttesterConfigurationServletTest {
     @Test
     void unknownClientYields404OnTheConfigurationEndpoint() throws Exception {
         AttesterConfigurationServlet servlet = new AttesterConfigurationServlet();
-        servlet.setClientResolver(clientId -> {
-            throw IssuanceException.invalidClient("unknown client: " + clientId);
-        });
+        servlet.setClientResolver(throwingResolver());
 
         HttpServletRequest req = baseRequest("/federation/attester-configuration");
         when(req.getParameter("client_id")).thenReturn("nope");
@@ -113,9 +128,18 @@ class AttesterConfigurationServletTest {
     @Test
     void wellKnownIgnoresClientIdAndStaysStatic() throws Exception {
         AttesterConfigurationServlet servlet = new AttesterConfigurationServlet();
-        // A resolver that would blow up if called — the well-known path must NOT consult it.
-        servlet.setClientResolver(clientId -> {
-            throw new AssertionError("well-known must not resolve a client");
+        // resolve(client_id) must NOT be consulted on the well-known path; attestationClients() may be
+        // (to advertise the deployment evidence_audience) and is empty here.
+        servlet.setClientResolver(new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                throw new AssertionError("well-known must not resolve a client");
+            }
+
+            @Override
+            public java.util.List<com.pingidentity.ps.oidf.common.AttesterClient> attestationClients() {
+                return java.util.List.of();
+            }
         });
 
         HttpServletRequest req = baseRequest("/.well-known/client-attester");

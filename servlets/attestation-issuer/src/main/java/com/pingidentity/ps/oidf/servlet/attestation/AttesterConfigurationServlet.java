@@ -76,11 +76,16 @@ public class AttesterConfigurationServlet extends HttpServlet {
         Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired);
 
         // The /.well-known document is a static, cacheable, deployment-wide resource — it takes no
-        // parameters (per RFC 8615, a well-known URI is a fixed resource). The per-client view is served
-        // ONLY from the client-configuration endpoint, which the well-known document points at.
+        // parameters (per RFC 8615, a well-known URI is a fixed resource). It advertises the deployment
+        // evidence audience so a workload can mint its evidence WITHOUT knowing any client_id. The
+        // per-client view is served ONLY from the client-configuration endpoint (for operators).
         boolean isClientConfigEndpoint = req.getRequestURI() != null
                 && req.getRequestURI().endsWith("/federation/attester-configuration");
         if (!isClientConfigEndpoint) {
+            String audience = deploymentEvidenceAudience();
+            if (audience != null) {
+                doc.put("evidence_audience", audience);
+            }
             resp.setHeader("Cache-Control", "public, max-age=300");
             write(resp, 200, doc);
             return;
@@ -219,6 +224,31 @@ public class AttesterConfigurationServlet extends HttpServlet {
         List<String> out = new ArrayList<>(algorithms);
         Collections.sort(out);
         return out;
+    }
+
+    /**
+     * The deployment-wide evidence audience a workload mints into its evidence, without knowing any
+     * client. Derived from the attestation clients' shared attester issuer; returns null if they are
+     * absent or disagree (in which case the workload falls back to the per-client configuration endpoint).
+     */
+    private String deploymentEvidenceAudience() {
+        try {
+            String common = null;
+            for (com.pingidentity.ps.oidf.common.AttesterClient c : clientResolver().attestationClients()) {
+                String issuer = c.config().issuer();
+                if (issuer == null) {
+                    continue;
+                }
+                if (common == null) {
+                    common = issuer;
+                } else if (!common.equals(issuer)) {
+                    return null; // ambiguous — do not advertise a single audience
+                }
+            }
+            return common;
+        } catch (IssuanceException e) {
+            return null;
+        }
     }
 
     // ---- seams for tests / runtime defaults -------------------------------------------------------

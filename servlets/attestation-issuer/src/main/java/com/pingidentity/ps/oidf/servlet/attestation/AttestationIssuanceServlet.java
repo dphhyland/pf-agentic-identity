@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.common.AttesterClient;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
 import com.pingidentity.ps.oidf.common.AttestationSupport;
 import com.pingidentity.ps.oidf.common.AttesterSigningKey;
@@ -106,9 +107,6 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * injected {@link IssuanceClientResolver} and {@link AttesterSigningKey}.
      */
     Map<String, Object> issue(IssuanceRequest request) throws IssuanceException {
-        if (isBlank(request.clientId)) {
-            throw IssuanceException.invalidRequest("missing client_id");
-        }
         if (request.instanceKey == null || request.instanceKey.isEmpty()) {
             throw IssuanceException.invalidRequest("missing instance_key");
         }
@@ -119,20 +117,16 @@ public class AttestationIssuanceServlet extends HttpServlet {
             throw IssuanceException.invalidRequest("missing proof");
         }
 
-        // 1. Load the client + status gate; parse its issuance config (bundle source seam).
-        AttestationIssuanceConfig config = clientResolver().resolve(request.clientId);
-
-        // 2. Validate the evidence (SPIFFE JWT-SVID, or a GKE service-account token mapped onto its
-        //    canonical SPIFFE ID) against the client's trust bundle — inline or fetched by URL.
-        List<JsonWebKey> bundleKeys = config.bundleUrl() != null
-                ? jwksCache().get(config.bundleUrl())
-                : config.bundleKeys();
-        SpiffeSvid svid = evidenceValidator(config).validate(request.svid, bundleKeys, config);
-
-        // 3. The SPIFFE ID must be one bound to this client.
-        SpiffeBinding binding = config.bindingFor(svid.spiffeId()).orElseThrow(
-                () -> IssuanceException.spiffeIdNotAuthorized(
-                        "SPIFFE ID is not registered for this client: " + svid.spiffeId()));
+        // 1-3. The workload names no client — it presents only its evidence. The attester reverse-maps
+        //       the evidence's identity onto the client it is bound to: validate the evidence under each
+        //       attestation client's trust config, and the one whose bundle verifies it AND whose bindings
+        //       contain the resulting SPIFFE ID is the match. Which client an identity belongs to is the
+        //       attester's knowledge alone.
+        Match match = resolveByEvidence(request.svid);
+        AttestationIssuanceConfig config = match.config;
+        SpiffeSvid svid = match.svid;
+        SpiffeBinding binding = match.binding;
+        String clientId = match.clientId;
 
         // 4. Prove the caller holds the instance key it asks to bind, with freshness + replay protection.
         InstanceKeyProofValidator.Result proof =
@@ -144,7 +138,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
         } else if (this.challengeRequired) {
             throw IssuanceException.invalidInstanceProof("a server-issued challenge is required");
         }
-        if (!AttestationSupport.replayCache().firstSeen(request.clientId, proof.jti(), PROOF_REPLAY_TTL_SECONDS)) {
+        if (!AttestationSupport.replayCache().firstSeen(clientId, proof.jti(), PROOF_REPLAY_TTL_SECONDS)) {
             throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
 
@@ -161,12 +155,13 @@ public class AttestationIssuanceServlet extends HttpServlet {
             granted = ceiling;
         }
 
-        // 6. Mint + sign with the per-client attester key.
+        // 6. Mint + sign with the attester key. The attester assigns the client_id (the attestation sub);
+        //    the workload learns it only from the attestation it receives back.
         JwsSigner signer = attesterSigningKey().signerFor(config.signingKeyRef(), config.signingJwk());
-        String attestation = AttestationMinter.mint(config.issuer(), request.clientId, request.instanceKey,
+        String attestation = AttestationMinter.mint(config.issuer(), clientId, request.instanceKey,
                 svid, binding.metadata(), granted, config.ttlSeconds(), signer);
 
-        LOGGER.info((Object) ("Issued client attestation: client_id=" + request.clientId
+        LOGGER.info((Object) ("Issued client attestation: client_id=" + clientId
                 + " spiffe_id=" + svid.spiffeId() + " ttl=" + config.ttlSeconds() + "s"));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("attestation", attestation);
@@ -209,6 +204,74 @@ public class AttestationIssuanceServlet extends HttpServlet {
             return this.gcpSaTokenValidator;
         }
         return new SpiffeJwtEvidenceValidator(this.svidValidator);
+    }
+
+    /** The attester's private mapping: evidence identity → the client it is bound to. */
+    private static final class Match {
+        final String clientId;
+        final AttestationIssuanceConfig config;
+        final SpiffeSvid svid;
+        final SpiffeBinding binding;
+
+        Match(String clientId, AttestationIssuanceConfig config, SpiffeSvid svid, SpiffeBinding binding) {
+            this.clientId = clientId;
+            this.config = config;
+            this.svid = svid;
+            this.binding = binding;
+        }
+    }
+
+    /**
+     * Reverse-maps a workload's evidence onto the client it is bound to. Tries each attestation client's
+     * trust config: the client whose bundle cryptographically verifies the evidence AND whose bindings
+     * contain the resolved SPIFFE ID is the match. A SPIFFE ID bound to two clients is a configuration
+     * error and is rejected rather than resolved arbitrarily.
+     */
+    private Match resolveByEvidence(String evidence) throws IssuanceException {
+        List<AttesterClient> clients = clientResolver().attestationClients();
+        if (clients.isEmpty()) {
+            throw IssuanceException.invalidClient("no attestation clients are configured");
+        }
+        Match match = null;
+        boolean anyValidated = false;
+        IssuanceException deferredServerError = null;
+        for (AttesterClient candidate : clients) {
+            AttestationIssuanceConfig config = candidate.config();
+            List<JsonWebKey> bundleKeys;
+            SpiffeSvid svid;
+            try {
+                bundleKeys = config.bundleUrl() != null ? jwksCache().get(config.bundleUrl()) : config.bundleKeys();
+                svid = evidenceValidator(config).validate(evidence, bundleKeys, config);
+            } catch (IssuanceException e) {
+                // A 5xx (e.g. the trust bundle could not be fetched) is an attester-side fault, not
+                // "bad evidence" — remember it and surface it only if nothing else matches.
+                if (e.status() >= 500) {
+                    deferredServerError = e;
+                }
+                // Otherwise this client's trust config simply does not accept the evidence — try the next.
+                continue;
+            }
+            anyValidated = true;
+            SpiffeBinding binding = config.bindingFor(svid.spiffeId()).orElse(null);
+            if (binding == null) {
+                continue;
+            }
+            if (match != null) {
+                throw IssuanceException.invalidClient(
+                        "SPIFFE ID is bound to more than one client: " + svid.spiffeId());
+            }
+            match = new Match(candidate.clientId(), config, svid, binding);
+        }
+        if (match != null) {
+            return match;
+        }
+        if (anyValidated) {
+            throw IssuanceException.spiffeIdNotAuthorized("evidence identity is not registered with any client");
+        }
+        if (deferredServerError != null) {
+            throw deferredServerError;
+        }
+        throw IssuanceException.invalidSvid("no attester client accepts this evidence");
     }
 
     IssuanceClientResolver clientResolver() {

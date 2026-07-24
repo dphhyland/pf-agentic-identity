@@ -13,4 +13,7 @@ public interface ClientStore {
     public void disable(Client client);
 
     public Client get(String clientId);
+
+    /** All clients in the registry. Used to reverse-map an attested identity onto its client. */
+    public java.util.Collection<Client> getAll();
 }
