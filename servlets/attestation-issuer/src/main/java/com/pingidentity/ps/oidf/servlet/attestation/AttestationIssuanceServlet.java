@@ -9,13 +9,17 @@ import com.pingidentity.ps.oidf.common.AttestationSupport;
 import com.pingidentity.ps.oidf.common.AttesterSigningKey;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientAttestationException;
+import com.pingidentity.ps.oidf.common.EvidenceValidator;
+import com.pingidentity.ps.oidf.common.GkeTokenValidator;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
 import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.common.JwsSigner;
 import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.common.RarEntitlement;
+import com.pingidentity.ps.oidf.common.RemoteJwksCache;
 import com.pingidentity.ps.oidf.common.SpiffeBinding;
+import com.pingidentity.ps.oidf.common.SpiffeJwtEvidenceValidator;
 import com.pingidentity.ps.oidf.common.SpiffeSvid;
 import com.pingidentity.ps.oidf.common.SpiffeSvidValidator;
 import java.io.IOException;
@@ -34,6 +38,7 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
+import org.jose4j.jwk.JsonWebKey;
 
 /**
  * Issues a Client Attestation to a workload that proves its identity with a SPIFFE JWT-SVID. A workload
@@ -61,6 +66,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile IssuanceClientResolver clientResolver;
     private volatile AttesterSigningKey attesterSigningKey;
     private volatile SpiffeSvidValidator svidValidator = new SpiffeSvidValidator();
+    private volatile GkeTokenValidator gkeTokenValidator = new GkeTokenValidator();
+    private volatile RemoteJwksCache jwksCache = new RemoteJwksCache();
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private boolean challengeRequired;
 
@@ -113,9 +120,12 @@ public class AttestationIssuanceServlet extends HttpServlet {
         // 1. Load the client + status gate; parse its issuance config (bundle source seam).
         AttestationIssuanceConfig config = clientResolver().resolve(request.clientId);
 
-        // 2. Validate the SVID against the client's SPIFFE trust bundle.
-        SpiffeSvid svid = this.svidValidator.validate(
-                request.svid, config.bundleKeys(), config.issuer(), config.expectedTrustDomain());
+        // 2. Validate the evidence (SPIFFE JWT-SVID, or a GKE service-account token mapped onto its
+        //    canonical SPIFFE ID) against the client's trust bundle — inline or fetched by URL.
+        List<JsonWebKey> bundleKeys = config.bundleUrl() != null
+                ? jwksCache().get(config.bundleUrl())
+                : config.bundleKeys();
+        SpiffeSvid svid = evidenceValidator(config).validate(request.svid, bundleKeys, config);
 
         // 3. The SPIFFE ID must be one bound to this client.
         SpiffeBinding binding = config.bindingFor(svid.spiffeId()).orElseThrow(
@@ -174,6 +184,26 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     void setChallengeRequired(boolean required) {
         this.challengeRequired = required;
+    }
+
+    void setGkeTokenValidator(GkeTokenValidator validator) {
+        this.gkeTokenValidator = validator;
+    }
+
+    void setJwksCache(RemoteJwksCache cache) {
+        this.jwksCache = cache;
+    }
+
+    RemoteJwksCache jwksCache() {
+        return this.jwksCache;
+    }
+
+    /** The validator for the client's configured evidence type. */
+    private EvidenceValidator evidenceValidator(AttestationIssuanceConfig config) {
+        if (AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN.equals(config.evidenceType())) {
+            return this.gkeTokenValidator;
+        }
+        return new SpiffeJwtEvidenceValidator(this.svidValidator);
     }
 
     IssuanceClientResolver clientResolver() {

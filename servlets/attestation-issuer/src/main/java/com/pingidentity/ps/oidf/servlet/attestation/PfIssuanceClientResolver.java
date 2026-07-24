@@ -31,6 +31,9 @@ public final class PfIssuanceClientResolver implements IssuanceClientResolver {
             AttestationIssuanceConfig.P_SIGNING_JWK,
             AttestationIssuanceConfig.P_INSTANCES,
             AttestationIssuanceConfig.P_TRUST_DOMAIN,
+            AttestationIssuanceConfig.P_EVIDENCE,
+            AttestationIssuanceConfig.P_BUNDLE_URL,
+            AttestationIssuanceConfig.P_EVIDENCE_ISSUER,
     };
 
     private final ClientStore clientStore;

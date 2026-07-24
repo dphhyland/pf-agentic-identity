@@ -34,6 +34,14 @@ public final class AttestationIssuanceConfig {
     public static final String P_SIGNING_JWK = "attestation_signing_jwk";
     public static final String P_INSTANCES = "attestation_instances";
     public static final String P_TRUST_DOMAIN = "attestation_trust_domain";
+    public static final String P_EVIDENCE = "attestation_evidence";
+    public static final String P_BUNDLE_URL = "attestation_bundle_url";
+    public static final String P_EVIDENCE_ISSUER = "attestation_evidence_issuer";
+
+    /** Evidence type: a SPIFFE JWT-SVID (the default). */
+    public static final String EVIDENCE_SPIFFE_JWT = "spiffe-jwt";
+    /** Evidence type: a GKE-projected Kubernetes service-account token (Google-native identity). */
+    public static final String EVIDENCE_GKE_SA_TOKEN = "gke-sa-token";
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
 
@@ -45,11 +53,15 @@ public final class AttestationIssuanceConfig {
     private final Map<String, Object> signingJwk;
     private final String expectedTrustDomain;
     private final List<SpiffeBinding> bindings;
+    private final String evidenceType;
+    private final String bundleUrl;
+    private final String evidenceIssuer;
 
     private AttestationIssuanceConfig(String issuer, long ttlSeconds, List<JsonWebKey> bundleKeys,
                                       List<Map<String, Object>> clientCeiling, String signingKeyRef,
                                       Map<String, Object> signingJwk, String expectedTrustDomain,
-                                      List<SpiffeBinding> bindings) {
+                                      List<SpiffeBinding> bindings, String evidenceType, String bundleUrl,
+                                      String evidenceIssuer) {
         this.issuer = issuer;
         this.ttlSeconds = ttlSeconds;
         this.bundleKeys = bundleKeys;
@@ -58,6 +70,9 @@ public final class AttestationIssuanceConfig {
         this.signingJwk = signingJwk;
         this.expectedTrustDomain = expectedTrustDomain;
         this.bindings = bindings;
+        this.evidenceType = evidenceType;
+        this.bundleUrl = bundleUrl;
+        this.evidenceIssuer = evidenceIssuer;
     }
 
     /**
@@ -83,28 +98,47 @@ public final class AttestationIssuanceConfig {
             }
         }
 
+        String evidenceType = trimmed(props.get(P_EVIDENCE));
+        if (evidenceType == null) {
+            evidenceType = EVIDENCE_SPIFFE_JWT;
+        } else if (!EVIDENCE_SPIFFE_JWT.equals(evidenceType) && !EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)) {
+            throw IssuanceException.invalidClient(P_EVIDENCE + " is not a supported evidence type: " + evidenceType);
+        }
+
+        // The bundle source: an inline JWKS, or a URL fetched (and cached) at issuance time.
+        String bundleUrl = trimmed(props.get(P_BUNDLE_URL));
         String bundleJson = trimmed(props.get(P_BUNDLE));
-        if (bundleJson == null) {
-            throw IssuanceException.invalidClient("missing " + P_BUNDLE + " (SPIFFE trust bundle)");
+        if (bundleJson == null && bundleUrl == null) {
+            throw IssuanceException.invalidClient(
+                    "missing " + P_BUNDLE + " or " + P_BUNDLE_URL + " (trust bundle source)");
         }
-        List<JsonWebKey> bundleKeys;
-        try {
-            bundleKeys = new JsonWebKeySet(bundleJson).getJsonWebKeys();
-        } catch (JoseException e) {
-            throw IssuanceException.invalidClient(P_BUNDLE + " is not a valid JWKS");
-        }
-        if (bundleKeys.isEmpty()) {
-            throw IssuanceException.invalidClient(P_BUNDLE + " carries no keys");
+        List<JsonWebKey> bundleKeys = List.of();
+        if (bundleJson != null) {
+            try {
+                bundleKeys = new JsonWebKeySet(bundleJson).getJsonWebKeys();
+            } catch (JoseException e) {
+                throw IssuanceException.invalidClient(P_BUNDLE + " is not a valid JWKS");
+            }
+            if (bundleKeys.isEmpty()) {
+                throw IssuanceException.invalidClient(P_BUNDLE + " carries no keys");
+            }
         }
 
         List<Map<String, Object>> ceiling = parseAuthDetails(trimmed(props.get(P_ENTITLEMENT)), P_ENTITLEMENT);
         String signingKeyRef = trimmed(props.get(P_SIGNING_KEY_REF));
         Map<String, Object> signingJwk = parseObject(trimmed(props.get(P_SIGNING_JWK)), P_SIGNING_JWK);
         String trustDomain = trimmed(props.get(P_TRUST_DOMAIN));
+        if (EVIDENCE_GKE_SA_TOKEN.equals(evidenceType) && trustDomain == null) {
+            // The mapped SPIFFE ID's namespace comes from the trust domain; without it the binding
+            // identifiers would be unanchored.
+            throw IssuanceException.invalidClient(P_TRUST_DOMAIN + " is required when " + P_EVIDENCE
+                    + " is " + EVIDENCE_GKE_SA_TOKEN);
+        }
+        String evidenceIssuer = trimmed(props.get(P_EVIDENCE_ISSUER));
         List<SpiffeBinding> bindings = parseInstances(trimmed(props.get(P_INSTANCES)), ceiling);
 
         return new AttestationIssuanceConfig(issuer, ttl, bundleKeys, ceiling, signingKeyRef, signingJwk,
-                trustDomain, bindings);
+                trustDomain, bindings, evidenceType, bundleUrl, evidenceIssuer);
     }
 
     public String issuer() {
@@ -139,6 +173,21 @@ public final class AttestationIssuanceConfig {
 
     public List<SpiffeBinding> bindings() {
         return this.bindings;
+    }
+
+    /** The evidence type this client presents ({@link #EVIDENCE_SPIFFE_JWT} unless configured otherwise). */
+    public String evidenceType() {
+        return this.evidenceType;
+    }
+
+    /** The trust-bundle JWKS URL, if the client's bundle is fetched rather than inline; else null. */
+    public String bundleUrl() {
+        return this.bundleUrl;
+    }
+
+    /** The pinned evidence {@code iss} (e.g. the GKE cluster issuer URL), if configured; else null. */
+    public String evidenceIssuer() {
+        return this.evidenceIssuer;
     }
 
     /** Finds the binding for a validated SPIFFE ID, or empty if the id is not registered for this client. */

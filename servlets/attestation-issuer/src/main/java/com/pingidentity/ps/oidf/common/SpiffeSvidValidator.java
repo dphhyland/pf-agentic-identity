@@ -144,7 +144,8 @@ public final class SpiffeSvidValidator {
         return new SpiffeSvid(subject, trustDomain, path, audiences, exp, iat, compactSvid);
     }
 
-    private static Key selectKey(List<JsonWebKey> bundleKeys, String kid) throws IssuanceException {
+    /** Selects the bundle verification key for a token's {@code kid} (shared with other evidence validators). */
+    static Key selectKey(List<JsonWebKey> bundleKeys, String kid) throws IssuanceException {
         JsonWebKey chosen = null;
         if (kid != null && !kid.isBlank()) {
             for (JsonWebKey k : bundleKeys) {

@@ -1,0 +1,56 @@
+# Phase 2 agent: Google-native identity, no SPIRE. Kubernetes projects a service-account token with
+# the attester's audience into the pod; the attestation-issuer validates it against the cluster's
+# public OIDC JWKS (attestation_bundle_url) and maps it onto the canonical GKE SPIFFE ID.
+# Replace IMAGE:  sed "s|IMAGE|<registry>/agent:demo|" deployment-phase2.yaml | kubectl apply -f -
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: payment-agent
+  namespace: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-agent
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: payment-agent
+  template:
+    metadata:
+      labels:
+        app: payment-agent
+    spec:
+      serviceAccountName: payment-agent
+      containers:
+        - name: agent
+          image: IMAGE
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ATTESTER_BASE_URL
+              value: "http://pingfederate.pf:9080"
+            - name: CLIENT_ID
+              value: "demo-attest-gke-native"
+            - name: CLIENT_SECRET
+              value: "demo-secret-123"
+            - name: EVIDENCE_MODE
+              value: "gke-sa-token"
+            - name: TOKEN_FILE
+              value: "/var/run/secrets/tokens/attester-token"
+            - name: PF_TOKEN_AUD
+              value: "https://localhost:9031"
+          volumeMounts:
+            - name: attester-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+      volumes:
+        - name: attester-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "https://attester.example.com" # == the client's attestation_issuer
+                  expirationSeconds: 3600
+                  path: attester-token

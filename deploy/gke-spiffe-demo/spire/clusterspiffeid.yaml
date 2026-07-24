@@ -1,0 +1,16 @@
+# Registration for the demo agent: pods labelled app=payment-agent in namespace `demo` get
+#   spiffe://gke.banking.demo/ns/demo/sa/payment-agent
+# which must match the client's attestation_instances binding (pf/terraform/gke-demo-client.tf).
+apiVersion: spire.spiffe.io/v1alpha1
+kind: ClusterSPIFFEID
+metadata:
+  name: payment-agent
+spec:
+  className: spire-mgmt-spire # the hardened chart's controller-manager only reconciles this class
+  spiffeIDTemplate: "spiffe://{{ .TrustDomain }}/ns/{{ .PodMeta.Namespace }}/sa/{{ .PodSpec.ServiceAccountName }}"
+  podSelector:
+    matchLabels:
+      app: payment-agent
+  namespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: demo

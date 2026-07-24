@@ -21,6 +21,7 @@ import com.pingidentity.ps.oidf.common.InMemoryAttestationReplayCache;
 import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
+import com.pingidentity.ps.oidf.common.RemoteJwksCache;
 import com.pingidentity.ps.oidf.common.StaticAttesterKeyResolver;
 import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
@@ -54,6 +55,8 @@ class AttestationIssuanceServletTest {
     private static final String OP_ISSUER = "https://op.example.com";
     private static final String TOKEN_ENDPOINT = OP_ISSUER + "/as/token.oauth2";
     private static final String SPIFFE_ID = "spiffe://banking.demo/payment-agent";
+    private static final String GKE_CLUSTER_ISSUER =
+            "https://container.googleapis.com/v1/projects/demo-project/locations/us-central1-a/clusters/spiffe-demo";
 
     private PublicJsonWebKey bundleKey;   // signs SVIDs
     private PublicJsonWebKey attesterKey; // signs attestations (inline signer)
@@ -157,6 +160,58 @@ class AttestationIssuanceServletTest {
                 List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA")));
         Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), requested));
         assertRoundTrips((String) body.get("attestation"));
+    }
+
+    // ---- gke-sa-token evidence --------------------------------------------------------------------
+
+    @Test
+    void gkeEvidenceWithFetchedBundleIssuesVerifiableAttestation() throws Exception {
+        servlet.setClientResolver(fixedResolver(gkeConfig()));
+        servlet.setJwksCache(fakeJwksCache());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.clientId = CLIENT_ID;
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = ksaToken("system:serviceaccount:demo:payment-agent");
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+
+        Map<String, Object> body = servlet.issue(req);
+        String attestation = (String) body.get("attestation");
+        assertRoundTrips(attestation);
+        // The attestation's workload claim carries the mapped canonical GKE SPIFFE ID.
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]),
+                StandardCharsets.UTF_8);
+        assertTrue(payload.contains("spiffe://demo-project.svc.id.goog/ns/demo/sa/payment-agent"), payload);
+    }
+
+    @Test
+    void gkeEvidenceForUnboundServiceAccountIsRejected() throws Exception {
+        servlet.setClientResolver(fixedResolver(gkeConfig()));
+        servlet.setJwksCache(fakeJwksCache());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.clientId = CLIENT_ID;
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = ksaToken("system:serviceaccount:demo:stranger");
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("spiffe_id_not_authorized", e.error());
+    }
+
+    @Test
+    void gkeBundleFetchFailureWithNoCacheIsServerError() throws Exception {
+        servlet.setClientResolver(fixedResolver(gkeConfig()));
+        servlet.setJwksCache(new RemoteJwksCache((url, accept) -> {
+            throw new IllegalStateException("upstream down");
+        }, 300));
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.clientId = CLIENT_ID;
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = ksaToken("system:serviceaccount:demo:payment-agent");
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("server_error", e.error());
     }
 
     @Test
@@ -350,6 +405,39 @@ class AttestationIssuanceServletTest {
                         + "\"entitlement\":[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}],"
                         + "\"metadata\":{\"region\":\"EMEA\"}}]");
         return AttestationIssuanceConfig.fromProperties(props);
+    }
+
+    /** gke-sa-token client: bundle by URL, trust domain pinned, same inline attester signing key. */
+    private AttestationIssuanceConfig gkeConfig() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_EVIDENCE, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN);
+        props.put(AttestationIssuanceConfig.P_TRUST_DOMAIN, "demo-project.svc.id.goog");
+        props.put(AttestationIssuanceConfig.P_BUNDLE_URL, "https://cluster.example/jwks");
+        props.put(AttestationIssuanceConfig.P_EVIDENCE_ISSUER, GKE_CLUSTER_ISSUER);
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK,
+                org.jose4j.json.JsonUtil.toJson(privateParams(attesterKey)));
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"spiffe://demo-project.svc.id.goog/ns/demo/sa/payment-agent\","
+                        + "\"entitlement\":[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]}]");
+        return AttestationIssuanceConfig.fromProperties(props);
+    }
+
+    /** Serves the bundle key's JWKS for any URL (stands in for the GKE cluster's public JWKS). */
+    private RemoteJwksCache fakeJwksCache() throws Exception {
+        String jwks = new JsonWebKeySet(JsonWebKey.Factory.newJwk(publicParams(bundleKey))).toJson();
+        return new RemoteJwksCache((url, accept) -> jwks, 300);
+    }
+
+    /** A GKE-projected service-account token signed by the cluster (test bundle) key. */
+    private String ksaToken(String subject) throws Exception {
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer(GKE_CLUSTER_ISSUER);
+        claims.setSubject(subject);
+        claims.setAudience(ISSUER);
+        claims.setIssuedAtToNow();
+        claims.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600));
+        return signCompact(bundleKey, "ES256", "JWT", claims);
     }
 
     private AttestationIssuanceConfig configWithKeyRef() throws Exception {

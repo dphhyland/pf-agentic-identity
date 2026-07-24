@@ -1,0 +1,52 @@
+# PingFederate (the image from deploy/pingfederate/Dockerfile — attestation issuer + verifier merged
+# into pf-runtime.war at root context). Replace IMAGE before applying:
+#   sed "s|IMAGE|us-central1-docker.pkg.dev/$PROJECT_ID/demo/pf:phase1|" deployment.yaml | kubectl apply -f -
+#
+# Single replica: the challenge/replay store falls back to in-memory when no OIDF_REDIS_URL is set,
+# which is only correct with one pod. Boot is slow (license fetch + drop-in-deployer data.zip import).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pingfederate
+  namespace: pf
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: pingfederate
+  template:
+    metadata:
+      labels:
+        app: pingfederate
+    spec:
+      containers:
+        - name: pingfederate
+          image: IMAGE
+          ports:
+            - name: runtime
+              containerPort: 9080
+            - name: admin
+              containerPort: 9999
+          envFrom:
+            - secretRef:
+                name: pf-devops-license
+          resources:
+            requests:
+              cpu: "1"
+              memory: 3Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          readinessProbe:
+            httpGet:
+              path: /pf/heartbeat.ping
+              port: 9080
+            initialDelaySeconds: 120
+            periodSeconds: 10
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /pf/heartbeat.ping
+              port: 9080
+            initialDelaySeconds: 300
+            periodSeconds: 30

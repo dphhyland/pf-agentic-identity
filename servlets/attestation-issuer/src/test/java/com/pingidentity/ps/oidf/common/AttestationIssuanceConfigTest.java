@@ -76,6 +76,43 @@ class AttestationIssuanceConfigTest {
     }
 
     @Test
+    void bundleUrlAloneIsAnAcceptedBundleSource() throws Exception {
+        Map<String, String> props = baseProps();
+        props.remove(AttestationIssuanceConfig.P_BUNDLE);
+        props.put(AttestationIssuanceConfig.P_BUNDLE_URL, "https://cluster.example/jwks");
+        AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(props);
+        assertEquals("https://cluster.example/jwks", config.bundleUrl());
+        assertTrue(config.bundleKeys().isEmpty());
+        assertEquals(AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, config.evidenceType());
+    }
+
+    @Test
+    void gkeEvidenceRequiresATrustDomain() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_EVIDENCE, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN);
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props));
+        assertEquals("invalid_client", e.error());
+
+        props.put(AttestationIssuanceConfig.P_TRUST_DOMAIN, "demo-project.svc.id.goog");
+        props.put(AttestationIssuanceConfig.P_EVIDENCE_ISSUER,
+                "https://container.googleapis.com/v1/projects/demo-project/locations/us-central1-a/clusters/spiffe-demo");
+        AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(props);
+        assertEquals(AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, config.evidenceType());
+        assertEquals("demo-project.svc.id.goog", config.expectedTrustDomain());
+        assertTrue(config.evidenceIssuer().startsWith("https://container.googleapis.com/"));
+    }
+
+    @Test
+    void unknownEvidenceTypeIsRejected() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_EVIDENCE, "x509-svid");
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props));
+        assertEquals("invalid_client", e.error());
+    }
+
+    @Test
     void instanceEntitlementExceedingClientCeilingIsRejected() throws Exception {
         Map<String, String> props = baseProps();
         // sales_regions LATAM is not within the client ceiling {EMEA, APAC}.

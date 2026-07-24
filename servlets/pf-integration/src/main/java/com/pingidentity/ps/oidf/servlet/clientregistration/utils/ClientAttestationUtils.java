@@ -54,7 +54,21 @@ public final class ClientAttestationUtils {
         return ClientAttestationUtils.validateClientAttestation(inObj, RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST);
     }
 
+    /**
+     * Thin fail-closed shell around {@link #validateClientAttestationInner}: a linkage error in the
+     * body's class graph surfaces at the inner method's call site, so this shell can log it — inside a
+     * single method it would escape to OGNL as an opaque "Method failed" with no trace.
+     */
     public static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
+        try {
+            return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost);
+        } catch (Throwable t) {
+            LOGGER.error((Object) "Attestation-based client authentication failed with a non-Exception throwable", t);
+            return false;
+        }
+    }
+
+    private static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
         try {
             if (!(inObj instanceof Map)) {
                 LOGGER.error((Object) ("In parameters not instance of Map. " + (inObj == null ? "null" : inObj.getClass().getName())));
@@ -108,6 +122,12 @@ public final class ClientAttestationUtils {
             return false;
         } catch (Exception e) {
             LOGGER.info((Object) "Attestation-based client authentication failed", (Throwable) e);
+            return false;
+        } catch (Throwable t) {
+            // An Error escaping here surfaces as an opaque OGNL "Method failed" with no trace; this
+            // boundary must stay fail-closed AND diagnosable (e.g. a linkage error in the module jar).
+            LOGGER.error((Object) "Attestation-based client authentication failed with a non-Exception throwable",
+                    t);
             return false;
         }
     }

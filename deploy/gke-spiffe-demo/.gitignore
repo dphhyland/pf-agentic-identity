@@ -1,0 +1,5 @@
+# Filled secrets and terraform state never leave the machine.
+pf/secret.yaml
+pf/terraform/.terraform/
+pf/terraform/*.tfstate*
+pf/terraform/generated.tf
