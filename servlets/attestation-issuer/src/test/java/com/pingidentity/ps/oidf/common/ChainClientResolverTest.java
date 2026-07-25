@@ -60,6 +60,21 @@ class ChainClientResolverTest {
     }
 
     @Test
+    void sameClientInTwoPluginsIsDedupedFirstWins() throws Exception {
+        // The same client declared by CIMD and by the PF store: the earlier plugin's mapping wins, so
+        // evidence-first resolution sees ONE candidate rather than an ambiguous pair.
+        AttesterClient fromCimd = new AttesterClient("client-a", config("spiffe://td/from-cimd"));
+        AttesterClient fromPf = new AttesterClient("client-a", config("spiffe://td/from-pf"));
+        ChainClientResolver chain = new ChainClientResolver(List.of(
+                plugin("cimd", fromCimd), plugin("pf-client-metadata", fromPf)));
+
+        List<AttesterClient> clients = chain.attestationClients();
+        assertEquals(1, clients.size());
+        assertTrue(clients.get(0).config().bindingFor("spiffe://td/from-cimd").isPresent(),
+                "the first plugin's binding is the one kept");
+    }
+
+    @Test
     void aFailingPluginDoesNotSinkTheOthers() throws Exception {
         AttesterClient a = new AttesterClient("client-a", config("spiffe://td/a"));
         IssuanceClientResolver broken = new IssuanceClientResolver() {

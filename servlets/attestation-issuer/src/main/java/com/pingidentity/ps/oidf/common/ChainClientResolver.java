@@ -38,13 +38,24 @@ public final class ChainClientResolver implements IssuanceClientResolver {
         throw last != null ? last : IssuanceException.invalidClient("unknown client: " + clientId);
     }
 
+    /**
+     * The union of every plugin's clients, in plugin order and <strong>de-duplicated by client id</strong>:
+     * the first plugin to declare a client wins. Order is precedence — an external mapping source (CIMD,
+     * federation) listed before the PF store overrides the same client's locally-configured bindings,
+     * rather than colliding with them during evidence-first resolution.
+     */
     @Override
     public List<AttesterClient> attestationClients() throws IssuanceException {
         List<AttesterClient> out = new ArrayList<>();
+        java.util.Set<String> seen = new java.util.HashSet<>();
         IssuanceException deferred = null;
         for (IssuanceClientResolver plugin : this.plugins) {
             try {
-                out.addAll(plugin.attestationClients());
+                for (AttesterClient client : plugin.attestationClients()) {
+                    if (seen.add(client.clientId())) {
+                        out.add(client);
+                    }
+                }
             } catch (IssuanceException e) {
                 deferred = e; // remember, but let the other plugins contribute
             }

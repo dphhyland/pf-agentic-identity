@@ -11,6 +11,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 OUT="${1:-$REPO_ROOT/deploy/pingfederate/pf-oidf-modules.jar}"
 
+# Guard: merging stale module jars silently ships old code (the merged jar looks fine, but classes
+# added since the last `mvn package` are simply absent). Rebuild unless SKIP_BUILD=1.
+if [ "${SKIP_BUILD:-0}" != "1" ]; then
+  echo "==> mvn package (set SKIP_BUILD=1 to skip)"
+  ( cd "$REPO_ROOT" && mvn -q -o -B -DskipTests package )
+fi
+
 JARS=(
   "$REPO_ROOT/libs/oidf-jose/target/oidf-jose-0.1.0.jar"
   "$REPO_ROOT/libs/client-attestation/target/client-attestation-0.1.0.jar"
