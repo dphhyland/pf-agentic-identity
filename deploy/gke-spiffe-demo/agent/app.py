@@ -70,8 +70,26 @@ INSTANCE_KEY = InstanceKey()
 
 # ── HTTP helpers ─────────────────────────────────────────────────────────────────────────────────
 
+def _curl(method: str, url: str, hdrs: dict, body: dict | None, form: dict | None) -> str:
+    """The exact request as a runnable curl — what the demo displays for each step."""
+    parts = ["curl -s -X {} '{}'".format(method, url)]
+    for key, value in hdrs.items():
+        parts.append("  -H '{}: {}'".format(key, value))
+    if body is not None:
+        parts.append("  -H 'Content-Type: application/json'")
+        parts.append("  -d '{}'".format(json.dumps(body, indent=2)))
+    elif form is not None:
+        parts.append("  -H 'Content-Type: application/x-www-form-urlencoded'")
+        parts.append("  -d '{}'".format(urllib.parse.urlencode(form)))
+    return " \\\n".join(parts)
+
+
+# Every call this process makes, recorded as curl for the console. Reset per /invoke.
+CALLS: list = []
+
+
 def http_json(method: str, url: str, body: dict | None = None, headers: dict | None = None,
-              form: dict | None = None):
+              form: dict | None = None, label: str | None = None):
     data = None
     hdrs = dict(headers or {})
     if body is not None:
@@ -80,6 +98,8 @@ def http_json(method: str, url: str, body: dict | None = None, headers: dict | N
     elif form is not None:
         data = urllib.parse.urlencode(form).encode()
         hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+    if label:
+        CALLS.append({"step": label, "curl": _curl(method, url, dict(headers or {}), body, form)})
     req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
@@ -93,7 +113,8 @@ def http_json(method: str, url: str, body: dict | None = None, headers: dict | N
 def discovery() -> dict:
     # The static, parameterless well-known document carries everything the workload needs — endpoints
     # and the deployment evidence_audience. It names no client; the workload never knows its client_id.
-    status, body = http_json("GET", ATTESTER_BASE_URL + "/.well-known/client-attester")
+    status, body = http_json("GET", ATTESTER_BASE_URL + "/.well-known/client-attester",
+                             label="discover")
     if status != 200:
         raise RuntimeError(f"attester discovery failed: HTTP {status} {body}")
     doc = json.loads(body)
@@ -135,6 +156,7 @@ def _jwt_claim(compact_jwt: str, claim: str):
 
 
 def invoke(requested_details=None) -> dict:
+    CALLS.clear()
     doc = discovery()
     # The workload knows its OWN runtime evidence type; it never learns/asserts a client_id.
     mode = EVIDENCE_MODE or "spiffe-jwt"
@@ -145,7 +167,7 @@ def invoke(requested_details=None) -> dict:
 
     # Challenge (always used when the endpoint offers one — replay-protects the proof).
     challenge = None
-    status, body = http_json("POST", doc["challenge_endpoint"])
+    status, body = http_json("POST", doc["challenge_endpoint"], label="challenge")
     if status == 200:
         challenge = json.loads(body).get("attestation_challenge")
 
@@ -160,10 +182,11 @@ def invoke(requested_details=None) -> dict:
     issuance_body = {"instance_key": INSTANCE_KEY.jwk, "svid": evidence, "proof": proof}
     if requested_details:
         issuance_body["authorization_details"] = requested_details
-    mint_status, mint_body = http_json("POST", doc["attestation_endpoint"], body=issuance_body)
+    mint_status, mint_body = http_json("POST", doc["attestation_endpoint"], body=issuance_body,
+                                       label="mint")
     result = {"evidence_mode": mode, "evidence": evidence, "discovery": doc,
               "challenge": challenge, "proof": proof,
-              "mint_status": mint_status, "mint_body": mint_body}
+              "mint_status": mint_status, "mint_body": mint_body, "calls": list(CALLS)}
     if mint_status != 200:
         return result
 
@@ -176,9 +199,10 @@ def invoke(requested_details=None) -> dict:
     pf_status, pf_body = http_json(
         "POST", PF_TOKEN_ENDPOINT,
         form={"grant_type": "client_credentials", "client_id": client_id, "client_secret": CLIENT_SECRET},
-        headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop})
+        headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop},
+        label="token")
     result.update({"client_id": client_id, "attestation": attestation, "pop": pop,
-                   "pf_status": pf_status, "pf_body": pf_body})
+                   "pf_status": pf_status, "pf_body": pf_body, "calls": list(CALLS)})
     return result
 
 

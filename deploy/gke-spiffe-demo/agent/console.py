@@ -42,6 +42,15 @@ CONSOLE_HTML = r"""<!doctype html>
   .req{background:var(--g-bg);border:1px solid var(--g);border-radius:8px;padding:.5rem .7rem;
     margin:.5rem 0 0;font-size:.8rem}
   .req b{color:var(--g)}
+  .curl{margin:.6rem 0 0}
+  .curl summary{cursor:pointer;font-size:.78rem;color:var(--a);font-weight:600;list-style:none}
+  .curl summary::-webkit-details-marker{display:none}
+  .curl summary:before{content:'▸ ';font-weight:400}
+  .curl[open] summary:before{content:'▾ '}
+  .curl pre{background:#0d1117;color:#d5e0ea;border:1px solid var(--line);font-size:.72rem;
+    line-height:1.5;max-height:22rem;overflow:auto;white-space:pre;word-break:normal}
+  .curl .cp{float:right;font-size:.7rem;font-weight:600;border:1px solid var(--line);
+    background:var(--card);color:var(--ink);border-radius:6px;padding:.15em .5em;cursor:pointer}
   .steps{list-style:none;margin:1.5rem 0 0;padding:0;display:flex;flex-direction:column;gap:.7rem}
   .step{border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden;
     opacity:.5;transition:opacity .3s}
@@ -132,6 +141,21 @@ function setBody(k,html){el('body-'+k).innerHTML=html;}
 
 // Shows the RFC 9396 authorization_details the workload sent with the mint call — the thing the
 // ceiling is checked against. Without this the allow/deny outcome has no visible cause.
+// The exact HTTP request the workload made for this step, as a runnable curl.
+function curlBlock(r, step){
+  const c=(r.calls||[]).find(x=>x.step===step);
+  if(!c) return '';
+  const id='curl-'+step;
+  return '<details class="curl"><summary>show the exact request '+
+    '<button class="cp" onclick="copyCurl(event,\''+id+'\')">copy</button></summary>'+
+    '<pre id="'+id+'">'+c.curl.replace(/&/g,'&amp;').replace(/</g,'&lt;')+'</pre></details>';
+}
+function copyCurl(e,id){
+  e.preventDefault(); e.stopPropagation();
+  navigator.clipboard.writeText(el(id).textContent);
+  e.target.textContent='copied'; setTimeout(()=>e.target.textContent='copy',1200);
+}
+
 function reqBlock(r){
   if(!r._requested) return '<div class="req">No <b>authorization_details</b> requested — the attester '+
     'grants the workload\'s full attested ceiling.</div>';
@@ -172,7 +196,8 @@ async function run(mode){
     const plugins = (d.resolver_plugins_active||[]).length
       ? '<div class="kv">resolver plugins active (they map identity → client at mint): <code>'+
         (d.resolver_plugins_active||[]).join('</code> <code>')+'</code></div>' : '';
-    setBody('discover','<div class="kv">a static document — note it carries no client_id</div>'+plugins+
+    setBody('discover', curlBlock(r,'discover')+
+      '<div class="kv">a static document — note it carries no client_id</div>'+plugins+
       '<pre>'+JSON.stringify({evidence_audience:d.evidence_audience,
         evidence_types_supported:d.evidence_types_supported,
         attestation_endpoint:d.attestation_endpoint,
@@ -183,7 +208,12 @@ async function run(mode){
   // 2 evidence
   activate('evidence');
   if(r.evidence){ const c=decodeJwt(r.evidence); setPill('evidence','ok','signed');
-    setBody('evidence','<div class="kv">Google/SPIRE signed this — the pod cannot forge it</div><pre>'+c+
+    const how = r.evidence_mode==='gke-sa-token'
+      ? '<details class="curl"><summary>how this token was obtained</summary><pre># Kubernetes projects it into the pod; the workload just reads the file:\ncat /var/run/secrets/tokens/attester-token</pre></details>'
+      : (r.evidence_mode==='spiffe-jwt'
+        ? '<details class="curl"><summary>how this token was obtained</summary><pre># from the SPIRE Workload API (aud = the attester the discovery doc named):\nspire-agent api fetch jwt -audience https://attester.example.com</pre></details>'
+        : '');
+    setBody('evidence', how+'<div class="kv">Google/SPIRE signed this — the pod cannot forge it</div><pre>'+c+
       '</pre><div class="tok">'+r.evidence.slice(0,88)+'…</div>');
     done('evidence',true); }
 
@@ -198,11 +228,11 @@ async function run(mode){
         const s=(w.attributes||{}).selectors;
         return s&&s.length ? '<div class="kv">SPIRE selectors introspected: <code>'+s.join('</code> <code>')+
           '</code></div>' : ''; }catch(e){ return ''; } })();
-    setBody('mint', reqBlock(r) + assigned + sel +
+    setBody('mint', curlBlock(r,'challenge') + curlBlock(r,'mint') + reqBlock(r) + assigned + sel +
       '<div class="kv">the attester vouches: identity + instance key (cnf) + entitlement</div><pre>'+
       c+'</pre>'); done('mint',true); }
   else { setPill('mint','err',r.mint_status||'fail');
-    setBody('mint', reqBlock(r) +
+    setBody('mint', curlBlock(r,'mint') + reqBlock(r) +
       '<div class="kv">the attester refused — the request exceeded what this workload is attested for</div>'+
       '<pre>'+(r.mint_body||'').replace(/</g,'&lt;')+'</pre>'); done('mint',true);
     return finish(r,mode); }
@@ -220,7 +250,8 @@ async function run(mode){
           'and <code>act</code> records which platform attested it</div>';
       }
     }catch(e){}
-    setBody('token','<div class="kv">PingFederate verified the attestation + PoP and issued a token</div><pre>'+
+    setBody('token', curlBlock(r,'token')+
+      '<div class="kv">PingFederate verified the attestation + PoP and issued a token</div><pre>'+
       (r.pf_body||'')+'</pre>'+extra); done('token',true); }
   else { setPill('token','err',r.pf_status||'fail');
     setBody('token','<pre>'+(r.pf_body||'').replace(/</g,'&lt;')+'</pre>'); done('token',true); }

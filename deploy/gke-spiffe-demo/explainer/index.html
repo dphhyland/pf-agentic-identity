@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Client Attestation for workloads: platform identity instead of client secrets, across GKE, Gemini Enterprise Agent Platform and Railway."><title>Client Attestation for workloads — PingFederate on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Client Attestation for workloads: platform identity instead of client secrets, with the full request flow."><title>Client Attestation for workloads — PingFederate on GCP</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -317,6 +317,52 @@ sequenceDiagram
     them usable for conditioning the grant — for example, only granting EMEA to a workload whose selectors
     include <code>k8s:ns:demo</code>. The lookup is best-effort: if it fails, the attestation is not
     enriched and issuance continues.
+  </p>
+
+  <h2>The requests, in full</h2>
+  <p>
+    Four HTTP calls. The live consoles show each one as a runnable curl with the real values filled in
+    (the <em>show the exact request</em> toggle under each step);
+    <a href="https://github.com/dphhyland/pf-agentic-identity/blob/main/deploy/gke-spiffe-demo/runbook-curl.md">runbook-curl.md</a>
+    has the annotated version.
+  </p>
+<pre><code># 1. Discovery — static, no parameters, no client_id
+curl -s -X GET '$PF/.well-known/client-attester'
+
+# 2. Evidence — from the platform, aud = the evidence_audience the document named
+cat /var/run/secrets/tokens/attester-token          # GKE projects it into the pod
+
+# 3. Challenge, then mint. No client_id in the body.
+curl -s -X POST '$PF/federation/attestation-challenge'
+curl -s -X POST '$PF/federation/attestation' \
+  -H 'Content-Type: application/json' \
+  -d '{
+  "instance_key": {"kty":"EC","crv":"P-256","x":"…","y":"…","kid":"…"},
+  "svid":  "eyJhbGciOiJSUzI1NiIs…",
+  "proof": "eyJhbGciOiJFUzI1NiIs…",
+  "authorization_details": [{"type":"sales_agent","sales_regions":["EMEA"]}]
+}'
+# → {"attestation":"eyJhbGciOiJFUzI1NiIs…","expires_in":300}
+
+# 4. Token. client_id comes from the attestation's sub.
+curl -s -X POST '$PF/as/token.oauth2' \
+  -H 'OAuth-Client-Attestation: eyJhbGciOiJFUzI1NiIs…' \
+  -H 'OAuth-Client-Attestation-PoP: eyJhbGciOiJFUzI1NiIs…' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=client_credentials&amp;client_id=demo-attest-gke-native&amp;client_secret=…'</code></pre>
+  <p>
+    The access token that comes back is a JWT (<code>typ: at+jwt</code>) whose <code>sub</code> is the
+    attested workload:
+  </p>
+<pre><code>{
+ "sub": "spiffe://&lt;project&gt;.svc.id.goog/ns/demo/sa/payment-agent",
+ "act": {"sub": "demo-attest-gke-native", "attested_by": "spiffe"},
+ "client_id": "demo-attest-gke-native",
+ "jti": "9WU8ePqjpVVuJjxZVly9js", "iat": 1784951215, "exp": 1784994415
+}</code></pre>
+  <p>
+    A resource server holding this token can see which workload the call came from, and
+    <code>act</code> records the client and the platform that attested it.
   </p>
 
   <h2>The three tokens that matter</h2>

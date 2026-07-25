@@ -1,100 +1,145 @@
-# The chain as raw curl — five steps
+# The chain as raw curl
 
-The same flow the agent's `/invoke` runs, narrated step by step. Run the PF-facing curls **in-cluster**
-(so the request URL is stable) via:
+The five steps the workload runs, as curl. The live consoles show these same requests with real values
+filled in — each step has a **show the exact request** toggle — so this file is the annotated version.
+
+Run the PF-facing calls **in-cluster**, so the request URL matches what PF expects for the PoP `aud`:
 
 ```bash
 kubectl run curl -n demo --rm -it --image=curlimages/curl --restart=Never -- sh
 PF=http://pingfederate.pf:9080
 ```
 
-JWT-minting steps (the proof and PoP need the instance private key) are easiest done through the agent
-pod's debug surface — or locally with `harness/AttestationFlowHarness.java live` in pf-oidf-modules,
-which prints ready-to-run curl. This runbook shows the wire shapes.
+The workload never sends a `client_id`. It presents evidence; the attester decides which OAuth client
+that identity maps to and returns it in the attestation's `sub`.
 
 ## 1. Discover the attester
 
 ```bash
-# The well-known document is static and parameterless — it advertises the endpoints:
-curl -s "$PF/.well-known/client-attester" | jq .
-# then the per-client view from the endpoint it points at:
-curl -s "$PF/federation/attester-configuration?client_id=demo-attest-gke" | jq .
+curl -s -X GET "$PF/.well-known/client-attester"
 ```
 
-The well-known doc carries `attestation_endpoint`, `challenge_endpoint`, `client_configuration_endpoint`,
-`evidence_types_supported`, proof/attestation `typ`s and algorithms. The per-client doc adds `issuer`,
-`evidence_audience` (the `aud` the SVID must carry), `evidence_type`, the pinned trust domain, and
-`authorization_details_types`.
+A static, parameterless document (RFC 8615). The fields that matter to a workload:
 
-## 2. Get identity evidence
-
-**Phase 1 (SPIRE):** from inside the agent pod, the Workload API answers with a JWT-SVID whose
-`aud` = `evidence_audience`:
-
-```bash
-kubectl -n demo exec deploy/payment-agent -- \
-  python -c "from app import fetch_spiffe_svid; print(fetch_spiffe_svid('https://attester.example.com'))"
+```json
+{
+  "attestation_endpoint": "http://pingfederate.pf:9080/federation/attestation",
+  "challenge_endpoint": "http://pingfederate.pf:9080/federation/attestation-challenge",
+  "evidence_audience": "https://attester.example.com",
+  "evidence_types_supported": ["spiffe-jwt", "gke-sa-token", "gcp-id-token"],
+  "resolver_plugins_active": ["cimd", "pf-client-metadata"],
+  "instance_proof_typ": "oauth-attestation-instance-proof+jwt"
+}
 ```
 
-**Phase 2 (Google-native):** the projected token is just a file:
+`resolver_plugins_active` shows where the SPIFFE-ID → client mapping comes from. There is no
+`client_id` anywhere in this document.
+
+## 2. Get platform evidence
+
+The `aud` must be the `evidence_audience` from step 1.
 
 ```bash
-kubectl -n demo exec deploy/payment-agent -- cat /var/run/secrets/tokens/attester-token
+# Phase 1 — SPIRE JWT-SVID from the Workload API:
+spire-agent api fetch jwt -audience https://attester.example.com
+
+# Phase 2 — GKE projects a service-account token into the pod; just read it:
+cat /var/run/secrets/tokens/attester-token
+
+# Phase 3 — a Google-signed ID token for the runtime service account:
+curl -s -X POST \
+  "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA_EMAIL}:generateIdToken" \
+  -H "Authorization: Bearer $(gcloud auth print-access-token)" \
+  -H 'Content-Type: application/json' \
+  -d '{"audience":"https://attester.example.com","includeEmail":true}'
 ```
 
-Decode either at jwt.io: Phase 1 has `sub: spiffe://gke.banking.demo/ns/demo/sa/payment-agent`
-(SPIRE-signed); Phase 2 has `sub: system:serviceaccount:demo:payment-agent` and
-`iss: https://container.googleapis.com/v1/projects/…` (Google-signed).
+Decoded, a Phase-2 token has `iss: https://container.googleapis.com/v1/projects/…`,
+`sub: system:serviceaccount:demo:payment-agent`, `aud: ["https://attester.example.com"]`.
 
-## 3. Challenge (replay protection)
+## 3. Get a challenge
 
 ```bash
-curl -s -X POST "$PF/federation/attestation-challenge" | jq .
+curl -s -X POST "$PF/federation/attestation-challenge"
 # → {"attestation_challenge":"…","expires_in":300}
 ```
 
 ## 4. Mint the Client Attestation
 
-The instance-key proof is a JWS: header `{"alg":"ES256","typ":"oauth-attestation-instance-proof+jwt"}`,
-claims `{"aud":"<evidence_audience>","jti":"<uuid>","iat":<now>,"challenge":"<step 3>"}`, signed by the
-**instance key** (a fresh P-256 keypair the workload holds).
+The `proof` is a JWS signed by a **fresh P-256 instance key the workload generates**: header
+`{"alg":"ES256","typ":"oauth-attestation-instance-proof+jwt","kid":"<thumbprint>"}`, claims
+`{"aud":"<evidence_audience>","jti":"<uuid>","iat":<now>,"challenge":"<step 3>"}`.
 
 ```bash
-curl -s -X POST "$PF/federation/attestation" -H 'Content-Type: application/json' -d '{
-  "client_id":   "demo-attest-gke",
+curl -s -X POST "$PF/federation/attestation" \
+  -H 'Content-Type: application/json' \
+  -d '{
   "instance_key": { "kty":"EC","crv":"P-256","x":"…","y":"…","kid":"…" },
-  "svid":        "<step 2>",
-  "proof":       "<the instance-key proof JWS>",
-  "authorization_details": [{"type":"sales_agent","sales_regions":["EMEA"]}]
-}' | jq .
+  "svid": "<step 2>",
+  "proof": "<the instance-key proof JWS>",
+  "authorization_details": [ {"type":"sales_agent","sales_regions":["EMEA"]} ]
+}'
 # → {"attestation":"<jwt>","expires_in":300}
 ```
 
-Decode the attestation: `iss` = attester, `sub` = client_id, `cnf.jwk` = the instance key,
-`workload.spiffe_id` + `workload.attestor`, and the **granted** `authorization_details` (the requested
-set, contained within the binding's ceiling).
+`authorization_details` is optional (RFC 9396). Omit it and the full attested ceiling is granted;
+include it and the attester enforces *requested ⊆ attested*.
 
-Negative variants worth showing:
-- `"sales_regions":["APAC"]` → `403 access_denied` (over the ceiling)
-- re-send the same `proof` → `401 invalid_instance_proof` (jti replay)
-- an SVID for an unbound SPIFFE ID → `403 spiffe_id_not_authorized`
+The minted attestation decodes to:
+
+```json
+{
+  "iss": "https://attester.example.com",
+  "sub": "demo-attest-gke-native",          // the client the ATTESTER chose
+  "cnf": { "jwk": { …the instance key… } },
+  "workload": {
+    "spiffe_id": "spiffe://<project>.svc.id.goog/ns/demo/sa/payment-agent",
+    "attested_by": "spiffe",
+    "attributes": { "selectors": ["k8s:ns:demo", "k8s:sa:payment-agent"] }
+  },
+  "authorization_details": [ …granted… ]
+}
+```
+
+Failure cases worth demonstrating:
+
+| Change | Result |
+|---|---|
+| `"sales_regions":["APAC"]` | `403 access_denied` — above the ceiling |
+| resend the same `proof` | `401 invalid_instance_proof` — jti replay |
+| evidence for an unmapped SPIFFE ID | `403 spiffe_id_not_authorized` |
+| evidence signed by an untrusted key | `401 invalid_svid` — no plugin accepts it |
 
 ## 5. Authenticate to the token endpoint
 
-The PoP is a second JWS by the instance key: header `typ: oauth-client-attestation-pop+jwt`, claims
-`{"iss":"demo-attest-gke","aud":"https://localhost:9031","jti":"…","iat":…}` — `aud` must be **PF's
-configured base URL**, not the URL you dialled.
+`client_id` comes from the attestation's `sub` (step 4) — the workload relays it, it doesn't choose it.
+The PoP is a second JWS by the instance key: `typ: oauth-client-attestation-pop+jwt`, claims
+`{"iss":"<sub>","aud":"https://localhost:9031","jti":"…","iat":…}`. The `aud` is PF's **configured base
+URL**, not the URL you dialled.
 
 ```bash
 curl -s -X POST "$PF/as/token.oauth2" \
-  -H "OAuth-Client-Attestation: <step 4>" \
-  -H "OAuth-Client-Attestation-PoP: <the PoP JWS>" \
-  -d 'grant_type=client_credentials&client_id=demo-attest-gke&client_secret=demo-secret-123' | jq .
-# → {"access_token":"…","token_type":"Bearer",…}
+  -H 'OAuth-Client-Attestation: <step 4 attestation>' \
+  -H 'OAuth-Client-Attestation-PoP: <the PoP JWS>' \
+  -H 'Content-Type: application/x-www-form-urlencoded' \
+  -d 'grant_type=client_credentials&client_id=demo-attest-gke-native&client_secret=demo-secret-123'
 ```
 
-The token-endpoint gate (`validateClientAttestation` OGNL issuance criterion) verified: the attestation's
-signature against the trusted attester key, the PoP against the attestation's `cnf` key, freshness,
-replay — and published the attested context for downstream RAR/PAZ policy.
+The access token is a JWT (`typ: at+jwt`). Decoded:
 
-One-shot equivalent: `curl -s -X POST <agent>/invoke | jq .` returns every artifact from all five steps.
+```json
+{
+  "sub": "spiffe://<project>.svc.id.goog/ns/demo/sa/payment-agent",
+  "act": {"sub": "demo-attest-gke-native", "attested_by": "spiffe"},
+  "client_id": "demo-attest-gke-native",
+  "jti": "…", "iat": …, "exp": …
+}
+```
+
+`sub` is the attested workload, so a resource server receiving this token can see which workload the
+call came from, and `act` records the client and the platform that attested it.
+
+---
+
+Or run the whole thing at once: `curl -s -X POST <agent>/invoke | jq .` returns every artifact plus a
+`calls` array containing exactly these curl commands with the real values substituted.

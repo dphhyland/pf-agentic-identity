@@ -81,7 +81,24 @@ TD_SIGNER = EcSigner(json.loads(TD_PRIVATE_JWK)) if TD_PRIVATE_JWK else None
 INSTANCE_KEY = InstanceKey()
 
 
-def http_json(method, url, body=None, headers=None, form=None):
+def _curl(method, url, hdrs, body, form):
+    """The exact request as a runnable curl — what the demo displays for each step."""
+    parts = ["curl -s -X {} '{}'".format(method, url)]
+    for key, value in hdrs.items():
+        parts.append("  -H '{}: {}'".format(key, value))
+    if body is not None:
+        parts.append("  -H 'Content-Type: application/json'")
+        parts.append("  -d '{}'".format(json.dumps(body, indent=2)))
+    elif form is not None:
+        parts.append("  -H 'Content-Type: application/x-www-form-urlencoded'")
+        parts.append("  -d '{}'".format(urllib.parse.urlencode(form)))
+    return " \\\n".join(parts)
+
+
+CALLS = []
+
+
+def http_json(method, url, body=None, headers=None, form=None, label=None):
     data, hdrs = None, dict(headers or {})
     if body is not None:
         data = json.dumps(body).encode()
@@ -89,6 +106,8 @@ def http_json(method, url, body=None, headers=None, form=None):
     elif form is not None:
         data = urllib.parse.urlencode(form).encode()
         hdrs["Content-Type"] = "application/x-www-form-urlencoded"
+    if label:
+        CALLS.append({"step": label, "curl": _curl(method, url, dict(headers or {}), body, form)})
     req = urllib.request.Request(url, data=data, method=method, headers=hdrs)
     try:
         with urllib.request.urlopen(req, timeout=20) as r:
@@ -114,7 +133,8 @@ def make_svid(audience: str) -> str:
 
 
 def discovery() -> dict:
-    status, body = http_json("GET", ATTESTER_BASE_URL + "/.well-known/client-attester")
+    status, body = http_json("GET", ATTESTER_BASE_URL + "/.well-known/client-attester",
+                             label="discover")
     if status != 200:
         raise RuntimeError(f"attester discovery failed: HTTP {status} {body}")
     doc = json.loads(body)
@@ -124,13 +144,14 @@ def discovery() -> dict:
 
 
 def invoke(requested_details=None) -> dict:
+    CALLS.clear()
     doc = discovery()
     audience = doc["evidence_audience"]
     now = int(time.time())
     evidence = make_svid(audience)
 
     challenge = None
-    status, body = http_json("POST", doc["challenge_endpoint"])
+    status, body = http_json("POST", doc["challenge_endpoint"], label="challenge")
     if status == 200:
         challenge = json.loads(body).get("attestation_challenge")
     proof_claims = {"aud": audience, "jti": str(uuid.uuid4()), "iat": now}
@@ -143,9 +164,11 @@ def invoke(requested_details=None) -> dict:
     issuance = {"instance_key": INSTANCE_KEY.jwk, "svid": evidence, "proof": proof}
     if requested_details:
         issuance["authorization_details"] = requested_details
-    mint_status, mint_body = http_json("POST", doc["attestation_endpoint"], body=issuance)
+    mint_status, mint_body = http_json("POST", doc["attestation_endpoint"], body=issuance,
+                                       label="mint")
     result = {"evidence_mode": "spiffe-jwt", "evidence": evidence, "discovery": doc,
-              "challenge": challenge, "proof": proof, "mint_status": mint_status, "mint_body": mint_body}
+              "challenge": challenge, "proof": proof, "mint_status": mint_status,
+              "mint_body": mint_body, "calls": list(CALLS)}
     if mint_status != 200:
         return result
 
@@ -157,9 +180,10 @@ def invoke(requested_details=None) -> dict:
     pf_status, pf_body = http_json(
         "POST", PF_TOKEN_ENDPOINT,
         form={"grant_type": "client_credentials", "client_id": client_id, "client_secret": CLIENT_SECRET},
-        headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop})
+        headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop},
+        label="token")
     result.update({"client_id": client_id, "attestation": attestation, "pop": pop,
-                   "pf_status": pf_status, "pf_body": pf_body})
+                   "pf_status": pf_status, "pf_body": pf_body, "calls": list(CALLS)})
     return result
 
 
