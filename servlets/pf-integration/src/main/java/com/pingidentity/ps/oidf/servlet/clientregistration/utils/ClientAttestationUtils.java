@@ -143,6 +143,20 @@ public final class ClientAttestationUtils {
         ctx.put("sub", result.clientId());
         ctx.put("client_id", result.clientId());
         ctx.put("entitlement", result.entitledAuthorizationDetails());
+        // The workload behind the client — SPIFFE ID, attestor and any introspected selectors. Surfaced
+        // flat as well so an access-token attribute mapping (OGNL) can name the workload in the token.
+        Map<String, Object> workload = result.workload();
+        if (workload != null && !workload.isEmpty()) {
+            ctx.put("workload", workload);
+            Object spiffeId = workload.get("spiffe_id");
+            if (spiffeId != null) {
+                ctx.put("spiffe_id", spiffeId);
+            }
+            Object attestedBy = workload.get("attested_by");
+            if (attestedBy != null) {
+                ctx.put("attested_by", attestedBy);
+            }
+        }
         try {
             ctx.put("cnf_thumbprint", Jwks.thumbprint(result.cnfJwk()));
         } catch (Exception e) {
@@ -292,6 +306,53 @@ public final class ClientAttestationUtils {
     private static long trustChainEntryMaxAge(Map inParameters) {
         Long value = ClientAttestationUtils.longProp(inParameters, "extproperties.trust_chain_request_max_age");
         return value != null ? value : -1L;
+    }
+
+    /**
+     * OGNL helper for access-token attribute mapping: reads one claim out of the presented Client
+     * Attestation so an issued JWT access token can name the attested workload — {@code spiffe_id},
+     * {@code attested_by}, {@code client_id} (the attestation {@code sub}), or {@code trust_domain}.
+     *
+     * <p>PingFederate fulfils the attribute contract <em>before</em> it evaluates issuance criteria, so the
+     * verified context {@link #validateClientAttestation} publishes on the request is not yet available
+     * here. This therefore reads the claim straight from the attestation's payload without re-verifying
+     * it. That is safe because issuance is separately gated by {@code validateClientAttestation} as an
+     * issuance criterion on the same mapping: if the attestation does not verify, no token is issued at
+     * all, so an unverified read can never produce a token carrying attacker-chosen claims. Returns an
+     * empty string when the header or claim is absent, which OGNL maps to an omitted attribute.
+     */
+    public static String attestationClaim(Object inObj, String claimName) {
+        try {
+            if (!(inObj instanceof Map)) {
+                return "";
+            }
+            HttpServletRequest request =
+                    (HttpServletRequest) ((AttributeValue) ((Map) inObj).get("context.HttpRequest")).getObjectValue();
+            String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
+            if (attestation == null || attestation.isBlank()) {
+                return "";
+            }
+            String[] parts = attestation.split("\\.");
+            if (parts.length < 2) {
+                return "";
+            }
+            String json = new String(java.util.Base64.getUrlDecoder().decode(parts[1]),
+                    java.nio.charset.StandardCharsets.UTF_8);
+            Map<String, Object> claims = org.jose4j.json.JsonUtil.parseJson(json);
+            if ("client_id".equals(claimName)) {
+                Object sub = claims.get("sub");
+                return sub == null ? "" : String.valueOf(sub);
+            }
+            Object workloadRaw = claims.get("workload");
+            if (!(workloadRaw instanceof Map)) {
+                return "";
+            }
+            Object value = ((Map) workloadRaw).get(claimName);
+            return value == null ? "" : String.valueOf(value);
+        } catch (Exception e) {
+            LOGGER.info((Object) ("could not read attestation claim '" + claimName + "' for token mapping"), e);
+            return "";
+        }
     }
 
     private static String singleHeader(HttpServletRequest request, String name) {

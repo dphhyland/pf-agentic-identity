@@ -37,6 +37,11 @@ CONSOLE_HTML = r"""<!doctype html>
   button:disabled{opacity:.5;cursor:default}
   .meta{font-size:.82rem;color:var(--soft)}
   .meta code{background:var(--code);padding:.1em .4em;border-radius:4px;font-size:.92em}
+  .ask{font-size:.86rem;color:var(--soft);max-width:44rem;margin:.1rem 0 0}
+  .ask code{background:var(--code);padding:.1em .4em;border-radius:4px}
+  .req{background:var(--g-bg);border:1px solid var(--g);border-radius:8px;padding:.5rem .7rem;
+    margin:.5rem 0 0;font-size:.8rem}
+  .req b{color:var(--g)}
   .steps{list-style:none;margin:1.5rem 0 0;padding:0;display:flex;flex-direction:column;gap:.7rem}
   .step{border:1px solid var(--line);border-radius:10px;background:var(--card);overflow:hidden;
     opacity:.5;transition:opacity .3s}
@@ -79,10 +84,15 @@ CONSOLE_HTML = r"""<!doctype html>
   calls the live PingFederate. The JWTs below are the real ones, minted just now.</p>
 
   <div class="bar">
-    <button class="run" id="run">▶ Run the attestation chain</button>
-    <button class="ghost" id="over">Try an over-ceiling request</button>
+    <button class="run" id="run">▶ Run the chain</button>
+    <button class="ghost" id="emea">Ask for EMEA</button>
+    <button class="ghost" id="apac">Ask for APAC</button>
     <span class="meta" id="meta"></span>
   </div>
+  <p class="ask">This workload is attested for <strong>sales_agent</strong> in
+  <strong>EMEA only</strong> — that ceiling comes from the resolver plugin's mapping, not from anything the
+  workload says. The buttons send an RFC 9396 <code>authorization_details</code> request along with the
+  mint call: <em>Ask for EMEA</em> is inside the ceiling, <em>Ask for APAC</em> is outside it.</p>
 
   <ol class="steps" id="steps"></ol>
   <div class="verdict" id="verdict"></div>
@@ -120,17 +130,38 @@ function activate(k){el('st-'+k).classList.add('active');}
 function done(k,openIt){const s=el('st-'+k);s.classList.add('done');if(openIt)s.classList.add('open');}
 function setBody(k,html){el('body-'+k).innerHTML=html;}
 
-async function run(overCeiling){
-  el('run').disabled = el('over').disabled = true;
+// Shows the RFC 9396 authorization_details the workload sent with the mint call — the thing the
+// ceiling is checked against. Without this the allow/deny outcome has no visible cause.
+function reqBlock(r){
+  if(!r._requested) return '<div class="req">No <b>authorization_details</b> requested — the attester '+
+    'grants the workload\'s full attested ceiling.</div>';
+  return '<div class="req">Sent with the mint request — <b>authorization_details</b>:'+
+    '<pre style="margin-top:.4rem">'+JSON.stringify(r._requested,null,1)+'</pre></div>';
+}
+
+const BUTTONS=['run','emea','apac'];
+function setBusy(b){ BUTTONS.forEach(id=>el(id).disabled=b); }
+
+// mode: null = no explicit request (grants the full ceiling); otherwise the RAR request we send.
+function requestFor(mode){
+  if(mode==='emea') return [{type:'sales_agent',sales_regions:['EMEA']}];
+  if(mode==='apac') return [{type:'sales_agent',sales_regions:['APAC']}];
+  return null;
+}
+
+async function run(mode){
+  setBusy(true);
   el('verdict').className='verdict'; render();
   el('meta').textContent = 'running…';
-  const body = overCeiling ? {authorization_details:[{type:'sales_agent',sales_regions:['APAC']}]} : {};
+  const requested = requestFor(mode);
+  const body = requested ? {authorization_details:requested} : {};
   let r;
   try{
     const resp = await fetch('/invoke',{method:'POST',headers:{'Content-Type':'application/json'},
       body:JSON.stringify(body)});
     r = await resp.json();
-  }catch(e){ el('meta').textContent='error: '+e; el('run').disabled=el('over').disabled=false; return; }
+  }catch(e){ el('meta').textContent='error: '+e; setBusy(false); return; }
+  r._requested = requested;
 
   el('meta').innerHTML = 'evidence type <code>'+(r.evidence_mode||'?')+'</code>';
 
@@ -167,30 +198,44 @@ async function run(overCeiling){
         const s=(w.attributes||{}).selectors;
         return s&&s.length ? '<div class="kv">SPIRE selectors introspected: <code>'+s.join('</code> <code>')+
           '</code></div>' : ''; }catch(e){ return ''; } })();
-    setBody('mint', assigned + sel +
+    setBody('mint', reqBlock(r) + assigned + sel +
       '<div class="kv">the attester vouches: identity + instance key (cnf) + entitlement</div><pre>'+
       c+'</pre>'); done('mint',true); }
   else { setPill('mint','err',r.mint_status||'fail');
-    setBody('mint','<pre>'+(r.mint_body||'').replace(/</g,'&lt;')+'</pre>'); done('mint',true);
-    return finish(r,overCeiling); }
+    setBody('mint', reqBlock(r) +
+      '<div class="kv">the attester refused — the request exceeded what this workload is attested for</div>'+
+      '<pre>'+(r.mint_body||'').replace(/</g,'&lt;')+'</pre>'); done('mint',true);
+    return finish(r,mode); }
 
   // 4 token
   activate('token');
   if(r.pf_status===200){ setPill('token','ok','200');
+    let extra='';
+    try{
+      const at=JSON.parse(r.pf_body||'{}').access_token||'';
+      if(at.split('.').length===3){
+        extra='<div class="kv">the access token is a JWT — decoded payload:</div><pre>'+
+          JSON.stringify(JSON.parse(b64urlDecode(at.split('.')[1])),null,1)+'</pre>'+
+          '<div class="kv">note <code>sub</code>: the resource server sees the attested workload, '+
+          'and <code>act</code> records which platform attested it</div>';
+      }
+    }catch(e){}
     setBody('token','<div class="kv">PingFederate verified the attestation + PoP and issued a token</div><pre>'+
-      (r.pf_body||'')+'</pre>'); done('token',true); }
+      (r.pf_body||'')+'</pre>'+extra); done('token',true); }
   else { setPill('token','err',r.pf_status||'fail');
     setBody('token','<pre>'+(r.pf_body||'').replace(/</g,'&lt;')+'</pre>'); done('token',true); }
-  finish(r,overCeiling);
+  finish(r,mode);
 }
 
-function finish(r,overCeiling){
+function finish(r,mode){
   const v=el('verdict');
-  if(overCeiling){
+  if(r.mint_status && r.mint_status!==200){
     v.className='verdict show fail';
-    v.innerHTML='<h3>Denied at mint — exactly as designed</h3><p>The request asked for a region outside '+
-      'the attested entitlement ceiling, so the attester refused before any token could exist '+
-      '(<code>'+ (r.mint_status||'') +' '+ (JSON.parse(r.mint_body||'{}').error||'') +'</code>).</p>';
+    v.innerHTML='<h3>Denied at mint — before any token existed</h3><p>The workload asked for '+
+      '<code>sales_regions: ["APAC"]</code>, but it is only attested for <code>["EMEA"]</code>. The '+
+      'attester enforces <em>requested &sube; attested</em> and refused '+
+      '(<code>'+ (r.mint_status||'') +' '+ (JSON.parse(r.mint_body||'{}').error||'') +'</code>) — so no '+
+      'access token was ever issued for APAC, anywhere.</p>';
   } else if(r.pf_status===200){
     v.className='verdict show pass';
     v.innerHTML='<h3>Authenticated — no shared secret, no client_id</h3><p>This workload proved only '+
@@ -202,11 +247,12 @@ function finish(r,overCeiling){
     v.className='verdict show fail';
     v.innerHTML='<h3>Chain stopped</h3><p>See the step above for the response.</p>';
   }
-  el('run').disabled = el('over').disabled = false;
+  setBusy(false);
 }
 
-el('run').onclick = ()=>run(false);
-el('over').onclick = ()=>run(true);
+el('run').onclick  = ()=>run(null);
+el('emea').onclick = ()=>run('emea');
+el('apac').onclick = ()=>run('apac');
 
 fetch('/identity').then(r=>r.json()).then(d=>{
   el('foot').innerHTML = 'Served from a GKE pod · evidence <code style="font-family:monospace">'+(d.evidence_mode||'')+

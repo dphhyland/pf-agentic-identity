@@ -26,14 +26,23 @@ public final class ClientAttestationResult {
     private final String proofJti;
     private final List<Map<String, Object>> entitledAuthorizationDetails;
     private final List<Map<String, Object>> grantedAuthorizationDetails;
+    private final Map<String, Object> workload;
 
     public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti) {
-        this(clientId, cnfJwk, mode, attesterIssuer, proofJti, java.util.List.of(), java.util.List.of());
+        this(clientId, cnfJwk, mode, attesterIssuer, proofJti, java.util.List.of(), java.util.List.of(), java.util.Map.of());
     }
 
     public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti,
                                    List<Map<String, Object>> entitledAuthorizationDetails,
                                    List<Map<String, Object>> grantedAuthorizationDetails) {
+        this(clientId, cnfJwk, mode, attesterIssuer, proofJti, entitledAuthorizationDetails,
+                grantedAuthorizationDetails, java.util.Map.of());
+    }
+
+    public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti,
+                                   List<Map<String, Object>> entitledAuthorizationDetails,
+                                   List<Map<String, Object>> grantedAuthorizationDetails,
+                                   Map<String, Object> workload) {
         this.clientId = clientId;
         this.cnfJwk = cnfJwk;
         this.mode = mode;
@@ -41,6 +50,7 @@ public final class ClientAttestationResult {
         this.proofJti = proofJti;
         this.entitledAuthorizationDetails = entitledAuthorizationDetails;
         this.grantedAuthorizationDetails = grantedAuthorizationDetails;
+        this.workload = workload == null ? java.util.Map.of() : workload;
     }
 
     public String clientId() {
@@ -71,5 +81,14 @@ public final class ClientAttestationResult {
     /** The requested {@code authorization_details} that were authorized against the entitlement; empty if none requested. */
     public List<Map<String, Object>> grantedAuthorizationDetails() {
         return this.grantedAuthorizationDetails;
+    }
+
+    /**
+     * The attestation's {@code workload} claim — how the platform attested the caller: its SPIFFE ID,
+     * the attestor, and any introspected attributes (SPIRE selectors). Empty if the attestation carried
+     * none. This is what lets an issued access token name the workload behind the client.
+     */
+    public Map<String, Object> workload() {
+        return this.workload;
     }
 }

@@ -12,6 +12,10 @@ resource "pingfederate_oauth_client" "demo_attest_railway" {
   bypass_approval_page             = true
   persistent_grant_expiration_type = "SERVER_DEFAULT"
 
+  # Issue JWT access tokens (decodable) rather than opaque reference tokens.
+  default_access_token_manager_ref        = { id = "attestJwtATM" }
+  restrict_to_default_access_token_manager = true
+
   extended_parameters = {
     attestation_required = { values = ["true"] }
   }

@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="How a workload becomes an OAuth client with no secret and no client_id — evidence-first attestation, resolver plugins, SPIRE introspection, across GKE, Agent Engine and Railway."><title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Client Attestation for workloads: platform identity instead of client secrets, across GKE, Gemini Enterprise Agent Platform and Railway."><title>Client Attestation for workloads — PingFederate on GCP</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -137,13 +137,12 @@
 
 <div class="wrap">
   <p class="eyebrow">Explainer · pf-agentic-identity · July 2026</p>
-  <h1>How a Google workload becomes an OAuth client with no secret worth stealing</h1>
+  <h1>Authenticating workloads to PingFederate with platform identity instead of secrets</h1>
   <p class="lede">
-    This demo answers one question: can a workload running in Google Cloud authenticate to
-    <strong>PingFederate</strong> using <em>what it is</em> — its platform-attested identity — instead of a
-    client secret someone provisioned and could leak? The answer, verified end-to-end on live Google
-    infrastructure, is yes — <strong>three different ways</strong>, from a self-run SPIRE deployment all the
-    way up to a managed <strong>Gemini Enterprise Agent Platform</strong> agent.
+    A workload authenticates to <strong>PingFederate</strong> using an identity token its platform
+    already issues it, instead of a provisioned client secret. This is running on live Google
+    infrastructure across four platforms: SPIRE on GKE, GKE workload identity, Gemini Enterprise Agent
+    Platform service accounts, and a workload on Railway.
   </p>
 
   
@@ -157,15 +156,13 @@
 
   <h2>The problem it solves</h2>
   <p>
-    OAuth clients traditionally authenticate with a static credential — a client secret or a private key
-    baked into config. For human-operated apps that's tolerable. For <strong>agents and workloads</strong> that are
-    created and destroyed by the hundreds, it's the weakest link: secrets are duplicated across instances,
-    outlive the workloads that used them, and say nothing about <em>where the caller is actually running</em>.
-    Ping and Google's shared answer — the "runtime identity" model behind Google's Agent Gateway
-    integration — is to derive the credential from the platform's own attestation of the workload,
-    freshly, on every enrolment.
+    An OAuth client normally authenticates with a static credential: a client secret or a private key in
+    config. For workloads and agents that are created and destroyed continuously, that credential is
+    duplicated across instances, outlives the workloads that used it, and carries no information about
+    where the caller is running. The alternative used here is to derive a short-lived credential from the
+    platform's own attestation of the workload, on each enrolment.
   </p>
-  <p>This demo implements that model with three cooperating parties:</p>
+  <p>Three parties are involved:</p>
 
   <div class="chips">
     <span class="chip"><span class="dot g"></span>Platform attestor <small>— SPIRE, GKE, or Google's SA signer</small></span>
@@ -173,16 +170,16 @@
     <span class="chip"><span class="dot p"></span>PingFederate <small>— the authorization server</small></span>
   </div>
   <p style="color: var(--ink-soft); font-size: 0.95rem;">
-    The colors above carry through every diagram: <span style="color:var(--google); font-weight:600;">blue</span> is
-    evidence issued by the platform, <span style="color:var(--accent); font-weight:600;">teal</span> is the
-    attestation the Client Attester mints, <span style="color:var(--ping); font-weight:600;">red</span> is what
+    These colours are used in the diagrams: <span style="color:var(--google); font-weight:600;">blue</span>
+    for evidence issued by the platform, <span style="color:var(--accent); font-weight:600;">teal</span> for
+    the attestation the attester mints, <span style="color:var(--ping); font-weight:600;">red</span> for what
     PingFederate verifies at the token endpoint.
   </p>
 
   <h2>The flow, in five steps</h2>
   <p>
-    The agent pod knows exactly two things at boot: a base URL and its <code>client_id</code>. Everything else
-    it learns from the attester's discovery document.
+    The workload is configured with one value: the attester's base URL. It learns the rest from the
+    discovery document, and it is never told which OAuth client it is.
   </p>
 
   <ol class="steps">
@@ -222,17 +219,16 @@
         client_id</strong>. The attester validates the evidence against a trust bundle, then
         <strong>reverse-maps the identity onto the client it belongs to</strong> (see resolver plugins
         below), optionally introspects the workload further, enforces that client's entitlement ceiling,
-        and mints a short-lived (5-minute) Client Attestation JWT
-        (draft-ietf-oauth-attestation-based-client-auth). The client identity is the
-        <em>attester's</em> conclusion, not the workload's claim.</p>
+        and mints a 5-minute Client Attestation JWT
+        (draft-ietf-oauth-attestation-based-client-auth) whose <code>sub</code> is the client it
+        selected.</p>
       </div>
     </li>
     <li>
       <span class="stepnum">5</span>
       <div>
         <h3>Authenticate to the AS</h3>
-        <p>The workload reads the client id out of the attestation it just received (its <code>sub</code>) —
-        relaying the attester's decision rather than asserting an identity of its own — and calls PF's token
+        <p>The workload reads the client id from the attestation's <code>sub</code> and calls PF's token
         endpoint with two headers: <code>OAuth-Client-Attestation</code> (the minted JWT) and
         <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the instance key). An issuance
         criterion verifies both, and PF issues the access token.</p>
@@ -263,27 +259,30 @@ sequenceDiagram
     F-->>W: access token
         </pre>
       </div>
-      <figcaption>The full chain as verified live. Every artifact is a JWT; every hop is replay-protected.</figcaption>
+      <figcaption>The issuance and token flow. Each artifact is a JWT; the proof and PoP carry one-time
+      <code>jti</code> values checked against a replay cache.</figcaption>
     </figure>
   </div>
 
-  <h2>The workload never knows which client it is</h2>
+  <h2>The workload is not configured with a client_id</h2>
   <p>
-    This is the design's sharpest edge, and it's deliberate. A workload that holds a <code>client_id</code>
-    holds a fact about the authorization server it has no business knowing — and a fact it could assert
-    falsely. So it doesn't get one. It presents <em>only</em> evidence of what it is; the attester alone
-    decides which OAuth client that identity corresponds to, and stamps that into the attestation's
-    <code>sub</code>. The workload then relays that value to the token endpoint. Its whole identity
-    configuration is a base URL.
+    The issuance request contains only <code>instance_key</code>, <code>svid</code> and <code>proof</code>.
+    The attester determines which OAuth client the evidence identity maps to and writes that into the
+    attestation's <code>sub</code>; the workload reads it back from there when it calls the token endpoint.
+  </p>
+  <p>
+    Two consequences. A workload cannot request a client it was not mapped to, because it has no way to name
+    one. And re-mapping a workload to a different client is a change in the attester's configuration only —
+    no redeploy, no config change on the workload.
   </p>
 
   <h2>Resolver plugins — where the mapping comes from</h2>
   <p>
-    "Which client does this identity belong to?" is answered by a <strong>resolver plugin</strong>. At mint
-    time the attester tries each configured plugin against the presented evidence: the one whose trust
-    bundle verifies it <em>and</em> whose bindings contain the resulting SPIFFE ID supplies both the client
-    identity and the <strong>entitlement ceiling</strong> that downscopes the attestation. Plugins chain,
-    and the deployment's supported and active sets are published in the discovery document.
+    The identity-to-client mapping comes from a <strong>resolver plugin</strong>. At mint time the attester
+    tries each configured plugin against the presented evidence. The plugin whose trust bundle verifies the
+    evidence, and whose bindings contain the resulting SPIFFE ID, supplies the client id and the
+    <strong>entitlement ceiling</strong> applied to the attestation. Plugins can be chained; the supported
+    and active sets are published in the discovery document.
   </p>
   <div class="tablewrap">
     <table>
@@ -308,22 +307,20 @@ sequenceDiagram
 
   <h2>Introspecting the workload — SPIRE selectors as policy input</h2>
   <p>
-    A bare SVID proves a SPIFFE ID and nothing more. So after validating it, the attester can look up the
-    <strong>SPIRE registration selectors</strong> behind that identity — <code>k8s:ns:demo</code>,
-    <code>k8s:sa:payment-agent</code>, <code>unix:uid:0</code>, <code>docker:image:…</code> — and fold them
-    into the attestation's <code>workload.attributes</code>, where the issuance policy can condition the
-    granted entitlement on them.
+    An SVID carries a SPIFFE ID and little else. After validating it, the attester can query SPIRE for the
+    <strong>registration selectors</strong> behind that identity — <code>k8s:ns:demo</code>,
+    <code>k8s:sa:payment-agent</code>, <code>unix:uid:0</code>, <code>docker:image:…</code> — and add them
+    to the attestation's <code>workload.attributes</code>, where the issuance policy can read them.
   </p>
   <p>
-    The reason this matters: selectors record <em>how SPIRE attested the workload</em> — facts established
-    by the platform at attestation time, not claims the workload makes about itself. That makes them a
-    sound basis for downscoping ("only grant EMEA to a workload actually running in the
-    <code>demo</code> namespace"). Introspection is best-effort by design: if the lookup fails the
-    attestation is simply not enriched, and issuance proceeds.
+    Selectors are recorded by SPIRE when it attests the workload, so they are not self-asserted. That makes
+    them usable for conditioning the grant — for example, only granting EMEA to a workload whose selectors
+    include <code>k8s:ns:demo</code>. The lookup is best-effort: if it fails, the attestation is not
+    enriched and issuance continues.
   </p>
 
   <h2>The three tokens that matter</h2>
-  <p>The security of the whole scheme lives in how these three JWTs chain together:</p>
+  <p>Three JWTs are involved, each signed by a different party:</p>
 
   <div class="wide jwt-grid">
     <div class="jwt google">
@@ -336,7 +333,7 @@ sequenceDiagram
  "aud": ["https://attester.example.com"],
  "exp": …
 }</code></pre>
-      <footer>Signed by SPIRE (Phase 1), the GKE control plane (Phase 2), or Google's SA signer (Phase 3). Proves <em>what the caller is</em>. The workload cannot forge it.</footer>
+      <footer>Signed by SPIRE (Phase 1), the GKE control plane (Phase 2) or Google's service-account signer (Phase 3). The workload holds no signing key for it.</footer>
     </div>
     <div class="jwt attn">
       <header>2 · Client Attestation</header>
@@ -351,7 +348,7 @@ sequenceDiagram
  },
  "authorization_details": [ …granted… ]
 }</code></pre>
-      <footer>Minted by the attester, 5-minute TTL. Binds client, workload identity, instance key, and the <em>entitlement ceiling</em> into one vouched statement.</footer>
+      <footer>Minted by the attester, 5-minute TTL. Binds the client id, workload identity, instance key and entitlement ceiling in one signed statement.</footer>
     </div>
     <div class="jwt pop">
       <header>3 · Proof of possession</header>
@@ -361,15 +358,14 @@ sequenceDiagram
  "jti": "…one-time…",
  "iat": …now…
 }</code></pre>
-      <footer>Signed with the instance key from <code>cnf</code>, fresh per request. A stolen attestation is useless without the key that never left the pod.</footer>
+      <footer>Signed with the instance key from <code>cnf</code>, fresh per request. An attestation replayed without that key fails verification.</footer>
     </div>
   </div>
 
-  <h2>Three phases — climbing away from SPIRE, up to a managed agent</h2>
+  <h2>Four platforms, one issuance flow</h2>
   <p>
-    All three phases run the identical five steps against the identical servlet. The only thing that
-    changes is <strong>who vouches for the workload</strong> — and each phase needs less of your own
-    infrastructure than the last.
+    Each phase runs the same five steps against the same servlet. What changes is which system attests
+    the workload, and how much infrastructure you have to run yourself.
   </p>
 
   <div class="tablewrap">
@@ -414,32 +410,29 @@ sequenceDiagram
   </div>
 
   <p>
-    <strong>And a fourth, off Google entirely.</strong> A workload running on
-    <a href="https://railway-workload-production.up.railway.app/">Railway</a> has no SPIFFE infrastructure
-    and no Google identity, so it acts as its own trust domain: it signs a
-    <code>spiffe://railway.demo/…</code> JWT-SVID with a key whose public half sits in the CIMD. Everything
-    downstream is unchanged — same endpoint, same evidence-first contract, same ceiling — which is the
-    point: <em>the attester doesn't care what kind of platform vouched for the workload, only that
-    something it trusts did.</em>
+    A fourth deployment runs outside Google. The
+    <a href="https://railway-workload-production.up.railway.app/">Railway workload</a> has neither SPIFFE
+    infrastructure nor a Google identity, so it acts as its own trust domain: it signs a
+    <code>spiffe://railway.demo/…</code> JWT-SVID with a key whose public half is published in the CIMD.
+    The issuance path is unchanged. The attester's requirement is that the evidence verifies against a
+    trust bundle it is configured with — not that it came from any particular platform.
   </p>
 
   <p>
-    Phase 2 was the first punchline: SPIRE was <em>uninstalled</em> before the run and the chain still
-    completed, because GKE's own workload identity supplied everything a SPIFFE attestor would.
-    <strong>Phase 3 goes further still</strong> — there is no cluster the workload controls at all. A
-    Gemini Enterprise Agent Platform agent can't hand out its managed Agent Identity credentials, but its
-    runtime <em>service account</em> can mint a Google-signed ID token scoped to the attester's audience.
-    That token is the evidence; its <code>email</code> claim maps to
-    <code>spiffe://&lt;trust-domain&gt;/sa/&lt;sa-email&gt;</code>, and the attester enforces the same
-    binding and ceiling as before. Same servlet, same five steps, a third kind of platform.
+    In Phase 2, SPIRE was uninstalled before the run and the chain still completed: GKE's own workload
+    identity provided the evidence. Phase 3 removes the cluster as well. A Gemini Enterprise Agent Platform
+    agent cannot export its managed Agent Identity credentials, but its runtime service account can mint a
+    Google-signed ID token scoped to the attester's audience. That token is the evidence; its
+    <code>email</code> claim maps to <code>spiffe://&lt;trust-domain&gt;/sa/&lt;sa-email&gt;</code>, and the
+    same binding and ceiling checks apply.
   </p>
 
   <h2>What makes this more than authentication</h2>
   <p>
-    Google's Agent Identity binds <em>who the agent is</em>. This design goes one step further: the attestation
-    carries an <strong>entitlement ceiling</strong> — an RFC 9396 <code>authorization_details</code> array declaring the
-    most this workload instance may ever request. At mint time the attester enforces
-    <em>requested ⊆ attested</em>; anything over the ceiling dies before a token ever exists.
+    Agent Identity establishes which agent is calling. The attestation adds an <strong>entitlement
+    ceiling</strong>: an RFC 9396 <code>authorization_details</code> array stating the maximum this workload
+    instance may request. At mint time the attester checks <em>requested ⊆ attested</em> and rejects
+    anything above the ceiling, so no token is issued for it.
   </p>
 
   <div class="tablewrap">
@@ -463,13 +456,12 @@ sequenceDiagram
     integration</a>).
   </p>
   <p>
-    This demo is the <strong>upstream leg</strong> those two don't cover: how an agent first
-    <em>proves itself to an external authorization server</em> to get the token it will carry through the
-    gateway. Google <em>attests</em> the agent; the attester here converts that platform attestation into
-    an OAuth Client Attestation with an entitlement ceiling; PingFederate issues the scoped token. We reuse
-    Google's own primitives throughout — the <code>spiffe://…</code> naming, GKE workload identity, and (in
-    Phase 3) the agent's runtime service-account ID token, since the managed Agent Identity X.509 isn't
-    exportable to third parties yet.
+    Neither covers how an agent authenticates to an authorization server outside Google to obtain that
+    token in the first place. That is what this implements: Google attests the agent, the attester converts
+    that attestation into an OAuth Client Attestation carrying an entitlement ceiling, and PingFederate
+    issues the token. It uses Google's own primitives — the <code>spiffe://…</code> naming, GKE workload
+    identity, and in Phase 3 the runtime service account's ID token, because the managed Agent Identity
+    X.509 credentials are not exportable to third parties.
   </p>
 
   <h2>How a Gemini Enterprise agent actually uses this</h2>
@@ -514,28 +506,26 @@ sequenceDiagram
 
   <h3>When agents call other agents (A2A)</h3>
   <p>
-    Multi-agent is where per-agent identity earns its keep. When the Gemini agent delegates to a second
-    agent, that downstream agent has its <em>own</em> Agent Identity and runs its <em>own</em> attestation
-    — it never borrows the first agent's token. Each agent authenticates <strong>as itself</strong>, gets
-    its <strong>own</strong> entitlement ceiling, and the chain of who-acted-for-whom is carried in the
-    tokens (actor claims) rather than assumed. A compromised downstream agent can only ever wield the
-    ceiling <em>it</em> was attested for — not the caller's.
+    When one agent delegates to another, the second agent has its own Agent Identity and runs its own
+    attestation rather than reusing the first agent's token. Each agent authenticates as itself and gets its
+    own entitlement ceiling, and the delegation chain is carried in actor claims. A compromised downstream
+    agent holds only the ceiling it was attested for.
   </p>
 
   <h2>Standards it stands on</h2>
-  <p style="margin-bottom: 0.4rem;">Nothing here is proprietary protocol:</p>
+  <p style="margin-bottom: 0.4rem;">The components are all specified:</p>
   <ul>
     <li><strong>draft-ietf-oauth-attestation-based-client-auth</strong> — the two-header client authentication scheme (attestation + PoP)</li>
     <li><strong>SPIFFE</strong> — workload identity: JWT-SVIDs, trust domains, the <code>spiffe://…/ns/…/sa/…</code> naming Google adopted for GKE</li>
     <li><strong>RFC 9396</strong> (Rich Authorization Requests) — the entitlement-ceiling vocabulary</li>
-    <li><strong>OAuth client credentials</strong> — the grant itself is boring on purpose</li>
+    <li><strong>OAuth client credentials</strong> — the grant type used</li>
   </ul>
   <p>
-    It also tracks where the standards are heading: <em>draft-ietf-oauth-spiffe-client-auth</em> profiles
-    exactly this pattern (SPIFFE credentials as attestation-based client auth), and Google's Agent Gateway
-    assigns every managed agent a SPIFFE ID. The demo's architecture — platform attests, attester converts,
-    AS verifies — is the connective tissue between those two worlds, and Phase 3 shows it reaching all the
-    way into the Gemini Enterprise Agent Platform without that platform having to expose a single key.
+    <em>draft-ietf-oauth-spiffe-client-auth</em> profiles this pattern directly — SPIFFE credentials used
+    as attestation-based client authentication — and Google's Agent Gateway assigns every managed agent a
+    SPIFFE ID. The structure here (platform attests, attester converts, AS verifies) sits between the two,
+    and Phase 3 covers the Gemini Enterprise Agent Platform case without that platform exporting any key
+    material.
   </p>
 
   <div class="note">

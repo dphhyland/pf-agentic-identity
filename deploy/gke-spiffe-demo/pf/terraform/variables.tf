@@ -54,3 +54,11 @@ variable "gke_jwks_uri" {
   type        = string
   default     = ""
 }
+
+# The OGNL hook class from the merged module jar, used by the attestation gate and by the JWT
+# access-token attribute mapping (attestationClaim).
+variable "attestation_utils_class" {
+  description = "FQCN of ClientAttestationUtils (OGNL hook)"
+  type        = string
+  default     = "com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils"
+}
