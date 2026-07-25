@@ -87,10 +87,15 @@ CONSOLE_HTML = r"""<!doctype html>
 <body>
 <div class="wrap">
   <p class="eyebrow">Live demo · running in GCP</p>
-  <h1>Watch a workload authenticate with no shared secret</h1>
+  <h1>Watch a workload authenticate with a platform-attested identity</h1>
   <p class="lede">Each run makes <em>this pod</em> fetch fresh platform evidence and present it —
   <strong>with no client_id</strong> — to the attester, which maps the identity to an OAuth client, then
   calls the live PingFederate. The JWTs below are the real ones, minted just now.</p>
+  <p class="ask" style="margin-top:.6rem">Note the <code>client_secret</code> in step 4. PingFederate
+  requires one of its own client-authentication methods for the <code>client_credentials</code> grant, and
+  <code>attest_jwt_client_auth</code> is not yet one of them — so the attestation is enforced as an
+  additional gate rather than as the client authentication itself. Both are checked: a wrong secret fails
+  before the attestation is read, and a valid secret with no attestation fails too.</p>
 
   <div class="bar">
     <button class="run" id="run">▶ Run the chain</button>
@@ -269,11 +274,12 @@ function finish(r,mode){
       'access token was ever issued for APAC, anywhere.</p>';
   } else if(r.pf_status===200){
     v.className='verdict show pass';
-    v.innerHTML='<h3>Authenticated — no shared secret, no client_id</h3><p>This workload proved only '+
-      '<em>what it is</em> with a platform-signed token. The attester resolved that identity to '+
+    v.innerHTML='<h3>Authenticated with a platform-attested identity</h3><p>This workload presented '+
+      'only <em>what it is</em> — no client_id. The attester resolved that identity to '+
       (r.client_id ? '<code>'+r.client_id+'</code>' : 'an OAuth client')+' via its resolver plugins, '+
-      'applied that client\'s entitlement ceiling, and PingFederate issued a token. Nothing reusable '+
-      'was provisioned anywhere.</p>';
+      'applied that client\'s entitlement ceiling, and PingFederate issued the token. The static '+
+      'client_secret is a PingFederate requirement for this grant type, not part of the attestation '+
+      'design — it carries no workload identity and no entitlement.</p>';
   } else {
     v.className='verdict show fail';
     v.innerHTML='<h3>Chain stopped</h3><p>See the step above for the response.</p>';

@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Client Attestation for workloads: platform identity instead of client secrets, with the full request flow."><title>Client Attestation for workloads — PingFederate on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Client Attestation for workloads on GCP: platform identity, resolver plugins, and an honest account of the remaining client_secret."><title>Client Attestation for workloads — PingFederate on GCP</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -140,7 +140,7 @@
   <h1>Authenticating workloads to PingFederate with platform identity instead of secrets</h1>
   <p class="lede">
     A workload authenticates to <strong>PingFederate</strong> using an identity token its platform
-    already issues it, instead of a provisioned client secret. This is running on live Google
+    already issues it, rather than a provisioned per-workload credential. This is running on live Google
     infrastructure across four platforms: SPIRE on GKE, GKE workload identity, Gemini Enterprise Agent
     Platform service accounts, and a workload on Railway.
   </p>
@@ -363,6 +363,44 @@ curl -s -X POST '$PF/as/token.oauth2' \
   <p>
     A resource server holding this token can see which workload the call came from, and
     <code>act</code> records the client and the platform that attested it.
+  </p>
+
+  <h2>Why there is still a client_secret</h2>
+  <p>
+    The token call carries <code>client_secret=…</code>, which looks at odds with the rest of this. The
+    reason is a PingFederate constraint: the <code>client_credentials</code> grant requires one of PF's own
+    client-authentication methods, and rejects a client configured without one —
+    <em>"A client authentication method is required for using the client credentials grant type."</em>
+    PF's methods are secret, mTLS certificate, and <code>private_key_jwt</code>;
+    <code>attest_jwt_client_auth</code> from
+    draft-ietf-oauth-attestation-based-client-auth is not among them.
+  </p>
+  <p>
+    So in this deployment the attestation is enforced as an <em>additional</em> issuance criterion rather
+    than as the client authentication itself. Both are checked, in this order:
+  </p>
+  <div class="tablewrap">
+    <table>
+      <tr><th>Request</th><th>Result</th></tr>
+      <tr><td>Correct secret + valid attestation</td><td class="ok">200 — token issued</td></tr>
+      <tr><td>Correct secret, no attestation</td><td class="deny">400 <code>attestation_validation_failed</code></td></tr>
+      <tr><td>Wrong secret + valid attestation</td><td class="deny">401 <code>invalid_client</code> — rejected before the attestation is read</td></tr>
+      <tr><td>No secret + valid attestation</td><td class="deny">401 <code>invalid_client</code></td></tr>
+    </table>
+  </div>
+  <p>
+    The secret is a static value shared by every instance of a client; it carries no workload identity and
+    no entitlement. Everything that distinguishes one workload from another — which SPIFFE ID called, which
+    client it maps to, what it is allowed to request — comes from the attestation. But it is a provisioned
+    shared credential, and this demo does not eliminate it.
+  </p>
+  <p>
+    Removing it properly means giving PF a client-auth method the workload can satisfy from what it already
+    holds. The workload does hold a private key: the per-instance key bound in the attestation's
+    <code>cnf</code>. Configuring the client for <code>private_key_jwt</code> against a JWKS the attester
+    publishes for currently-bound instance keys would let the workload authenticate with that key and drop
+    the secret entirely. That is a change to the attester (a key registry and JWKS endpoint) rather than to
+    the issuance model, and it is not implemented here.
   </p>
 
   <h2>The three tokens that matter</h2>
