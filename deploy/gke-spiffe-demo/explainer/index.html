@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="How a Google Cloud workload becomes an OAuth client with no secret worth stealing — across SPIRE, GKE-native, and Gemini Enterprise Agent Platform."><title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="How a workload becomes an OAuth client with no secret and no client_id — evidence-first attestation, resolver plugins, SPIRE introspection, across GKE, Agent Engine and Railway."><title>Runtime Identity on GKE — the Client Attestation demo, explained</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -153,7 +153,7 @@
     &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://34.171.232.146/">34.171.232.146</a> — click Run, watch a real GKE workload authenticate
   </p>
 
-<div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
+<div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
 
   <h2>The problem it solves</h2>
   <p>
@@ -190,11 +190,10 @@
       <span class="stepnum">1</span>
       <div>
         <h3>Discover</h3>
-        <p><code>GET /.well-known/client-attester</code> returns the static discovery document, which points
-        at a per-client <code>/federation/attester-configuration?client_id=…</code> endpoint carrying the
-        <strong>evidence audience</strong> the workload must mint into its identity token, the evidence type
-        expected, proof requirements, and which RAR types it may request. (The well-known URI itself stays
-        parameterless, per RFC 8615.)</p>
+        <p><code>GET /.well-known/client-attester</code> — a static, parameterless document (RFC 8615)
+        carrying the endpoints, the <strong>evidence audience</strong> the workload must mint into its
+        identity token, and the proof requirements. Note what it does <em>not</em> carry: any
+        <code>client_id</code>. The workload doesn't know which OAuth client it is, and doesn't need to.</p>
       </div>
     </li>
     <li>
@@ -219,19 +218,24 @@
       <span class="stepnum">4</span>
       <div>
         <h3>Mint the Client Attestation</h3>
-        <p><code>POST /federation/attestation</code> with evidence + instance key + proof. The attester validates the
-        evidence against the platform's trust bundle, checks the SPIFFE ID is <strong>bound to this client</strong>,
-        enforces the entitlement ceiling, and mints a short-lived (5-minute) Client Attestation JWT
-        (draft-ietf-oauth-attestation-based-client-auth).</p>
+        <p><code>POST /federation/attestation</code> with <strong>evidence + instance key + proof — and no
+        client_id</strong>. The attester validates the evidence against a trust bundle, then
+        <strong>reverse-maps the identity onto the client it belongs to</strong> (see resolver plugins
+        below), optionally introspects the workload further, enforces that client's entitlement ceiling,
+        and mints a short-lived (5-minute) Client Attestation JWT
+        (draft-ietf-oauth-attestation-based-client-auth). The client identity is the
+        <em>attester's</em> conclusion, not the workload's claim.</p>
       </div>
     </li>
     <li>
       <span class="stepnum">5</span>
       <div>
         <h3>Authenticate to the AS</h3>
-        <p>The workload calls PF's token endpoint carrying two headers — <code>OAuth-Client-Attestation</code>
-        (the minted JWT) and <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the instance key).
-        An issuance criterion verifies both, and PF issues the access token.</p>
+        <p>The workload reads the client id out of the attestation it just received (its <code>sub</code>) —
+        relaying the attester's decision rather than asserting an identity of its own — and calls PF's token
+        endpoint with two headers: <code>OAuth-Client-Attestation</code> (the minted JWT) and
+        <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the instance key). An issuance
+        criterion verifies both, and PF issues the access token.</p>
       </div>
     </li>
   </ol>
@@ -246,13 +250,14 @@ sequenceDiagram
     participant P as Platform attestor<br/>(SPIRE / GKE / Google SA)
     participant A as Client Attester<br/>(/federation/attestation)
     participant F as PingFederate<br/>(/as/token.oauth2)
-    W->>A: GET /.well-known/client-attester (+ /attester-configuration?client_id)
-    A-->>W: endpoints, evidence_audience, evidence_type, RAR types
+    W->>A: GET /.well-known/client-attester (static, no client_id)
+    A-->>W: endpoints, evidence_audience, proof requirements
     W->>P: request identity token (aud = evidence_audience)
     P-->>W: JWT-SVID / projected SA token / SA ID token
-    W->>A: POST evidence + instance public key + signed proof (+ requested RAR)
-    A->>A: verify vs trust bundle · binding · ceiling · replay
-    A-->>W: Client Attestation (5 min, cnf = instance key)
+    W->>A: POST evidence + instance public key + signed proof (NO client_id)
+    A->>A: verify vs trust bundle · resolver plugins map identity → client
+    A->>A: introspect SPIRE selectors · apply that client's ceiling
+    A-->>W: Client Attestation (5 min, cnf = key, sub = the client IT chose)
     W->>F: POST client_credentials + Attestation + PoP headers
     F->>F: verify attester signature · PoP vs cnf · freshness
     F-->>W: access token
@@ -261,6 +266,61 @@ sequenceDiagram
       <figcaption>The full chain as verified live. Every artifact is a JWT; every hop is replay-protected.</figcaption>
     </figure>
   </div>
+
+  <h2>The workload never knows which client it is</h2>
+  <p>
+    This is the design's sharpest edge, and it's deliberate. A workload that holds a <code>client_id</code>
+    holds a fact about the authorization server it has no business knowing — and a fact it could assert
+    falsely. So it doesn't get one. It presents <em>only</em> evidence of what it is; the attester alone
+    decides which OAuth client that identity corresponds to, and stamps that into the attestation's
+    <code>sub</code>. The workload then relays that value to the token endpoint. Its whole identity
+    configuration is a base URL.
+  </p>
+
+  <h2>Resolver plugins — where the mapping comes from</h2>
+  <p>
+    "Which client does this identity belong to?" is answered by a <strong>resolver plugin</strong>. At mint
+    time the attester tries each configured plugin against the presented evidence: the one whose trust
+    bundle verifies it <em>and</em> whose bindings contain the resulting SPIFFE ID supplies both the client
+    identity and the <strong>entitlement ceiling</strong> that downscopes the attestation. Plugins chain,
+    and the deployment's supported and active sets are published in the discovery document.
+  </p>
+  <div class="tablewrap">
+    <table>
+      <tr><th>Plugin</th><th>Mapping lives in</th><th>Why you'd pick it</th></tr>
+      <tr><td><code>pf-client-metadata</code></td>
+        <td>Each client's <code>attestation_*</code> extended properties in PingFederate</td>
+        <td>No external document; the mapping is config-as-code beside the client itself</td></tr>
+      <tr><td><code>cimd</code></td>
+        <td>A hosted <strong>Client ID Metadata Document</strong> fetched by URL</td>
+        <td>Mapping in git or a static host, changed without touching the AS — this demo's
+          <a href="/cimd.json">cimd.json</a></td></tr>
+      <tr><td><code>openid-federation</code></td>
+        <td>A signed federation entity statement's <code>spiffe_client_bindings</code> claim</td>
+        <td>Governed by a federation you already trust, and tamper-evident by signature</td></tr>
+    </table>
+  </div>
+  <p style="color:var(--soft);font-size:.95rem">
+    Chaining order is precedence: the first plugin to declare a client id wins, so an external source
+    overrides local config. Two <em>different</em> clients claiming the same SPIFFE ID is a configuration
+    error and is rejected rather than resolved arbitrarily.
+  </p>
+
+  <h2>Introspecting the workload — SPIRE selectors as policy input</h2>
+  <p>
+    A bare SVID proves a SPIFFE ID and nothing more. So after validating it, the attester can look up the
+    <strong>SPIRE registration selectors</strong> behind that identity — <code>k8s:ns:demo</code>,
+    <code>k8s:sa:payment-agent</code>, <code>unix:uid:0</code>, <code>docker:image:…</code> — and fold them
+    into the attestation's <code>workload.attributes</code>, where the issuance policy can condition the
+    granted entitlement on them.
+  </p>
+  <p>
+    The reason this matters: selectors record <em>how SPIRE attested the workload</em> — facts established
+    by the platform at attestation time, not claims the workload makes about itself. That makes them a
+    sound basis for downscoping ("only grant EMEA to a workload actually running in the
+    <code>demo</code> namespace"). Introspection is best-effort by design: if the lookup fails the
+    attestation is simply not enriched, and issuance proceeds.
+  </p>
 
   <h2>The three tokens that matter</h2>
   <p>The security of the whole scheme lives in how these three JWTs chain together:</p>
@@ -352,6 +412,16 @@ sequenceDiagram
       </tr>
     </table>
   </div>
+
+  <p>
+    <strong>And a fourth, off Google entirely.</strong> A workload running on
+    <a href="https://railway-workload-production.up.railway.app/">Railway</a> has no SPIFFE infrastructure
+    and no Google identity, so it acts as its own trust domain: it signs a
+    <code>spiffe://railway.demo/…</code> JWT-SVID with a key whose public half sits in the CIMD. Everything
+    downstream is unchanged — same endpoint, same evidence-first contract, same ceiling — which is the
+    point: <em>the attester doesn't care what kind of platform vouched for the workload, only that
+    something it trusts did.</em>
+  </p>
 
   <p>
     Phase 2 was the first punchline: SPIRE was <em>uninstalled</em> before the run and the chain still

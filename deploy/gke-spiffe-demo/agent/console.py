@@ -74,8 +74,9 @@ CONSOLE_HTML = r"""<!doctype html>
 <div class="wrap">
   <p class="eyebrow">Live demo · running in GCP</p>
   <h1>Watch a workload authenticate with no shared secret</h1>
-  <p class="lede">Each run makes <em>this pod</em> fetch fresh platform evidence, mint a Client
-  Attestation, and call the live PingFederate. The JWTs below are the real ones, minted just now.</p>
+  <p class="lede">Each run makes <em>this pod</em> fetch fresh platform evidence and present it —
+  <strong>with no client_id</strong> — to the attester, which maps the identity to an OAuth client, then
+  calls the live PingFederate. The JWTs below are the real ones, minted just now.</p>
 
   <div class="bar">
     <button class="run" id="run">▶ Run the attestation chain</button>
@@ -136,10 +137,15 @@ async function run(overCeiling){
   // 1 discover
   activate('discover');
   if(r.discovery){ setPill('discover','ok','200');
-    setBody('discover','<div class="kv">the attester advertises its contract</div><pre>'+
-      JSON.stringify({evidence_type:r.discovery.evidence_type,evidence_audience:r.discovery.evidence_audience,
-        attestation_endpoint:r.discovery.attestation_endpoint,
-        authorization_details_types:r.discovery.authorization_details_types},null,1)+'</pre>');
+    const d=r.discovery;
+    const plugins = (d.resolver_plugins_active||[]).length
+      ? '<div class="kv">resolver plugins active (they map identity → client at mint): <code>'+
+        (d.resolver_plugins_active||[]).join('</code> <code>')+'</code></div>' : '';
+    setBody('discover','<div class="kv">a static document — note it carries no client_id</div>'+plugins+
+      '<pre>'+JSON.stringify({evidence_audience:d.evidence_audience,
+        evidence_types_supported:d.evidence_types_supported,
+        attestation_endpoint:d.attestation_endpoint,
+        resolver_plugins_active:d.resolver_plugins_active},null,1)+'</pre>');
     done('discover'); }
   else { setPill('discover','err','fail'); }
 
@@ -153,7 +159,16 @@ async function run(overCeiling){
   // 3 mint
   activate('mint');
   if(r.mint_status===200){ const att=r.attestation; const c=decodeJwt(att); setPill('mint','ok','200');
-    setBody('mint','<div class="kv">the attester vouches: identity + instance key (cnf) + entitlement</div><pre>'+
+    // The client id is the ATTESTER's conclusion — the request carried none.
+    const assigned = r.client_id ? '<div class="kv">the attester resolved this identity to client '+
+      '<code style="font-family:ui-monospace,Menlo,monospace">'+r.client_id+'</code>'+
+      ' — the request carried no client_id</div>' : '';
+    const sel = (()=>{ try{ const w=JSON.parse(b64urlDecode(att.split('.')[1])).workload||{};
+        const s=(w.attributes||{}).selectors;
+        return s&&s.length ? '<div class="kv">SPIRE selectors introspected: <code>'+s.join('</code> <code>')+
+          '</code></div>' : ''; }catch(e){ return ''; } })();
+    setBody('mint', assigned + sel +
+      '<div class="kv">the attester vouches: identity + instance key (cnf) + entitlement</div><pre>'+
       c+'</pre>'); done('mint',true); }
   else { setPill('mint','err',r.mint_status||'fail');
     setBody('mint','<pre>'+(r.mint_body||'').replace(/</g,'&lt;')+'</pre>'); done('mint',true);
@@ -178,9 +193,11 @@ function finish(r,overCeiling){
       '(<code>'+ (r.mint_status||'') +' '+ (JSON.parse(r.mint_body||'{}').error||'') +'</code>).</p>';
   } else if(r.pf_status===200){
     v.className='verdict show pass';
-    v.innerHTML='<h3>Authenticated — no shared secret involved</h3><p>This pod proved what it is with a '+
-      'platform-signed token, and walked away with a PingFederate access token. Nothing reusable was '+
-      'provisioned anywhere.</p>';
+    v.innerHTML='<h3>Authenticated — no shared secret, no client_id</h3><p>This workload proved only '+
+      '<em>what it is</em> with a platform-signed token. The attester resolved that identity to '+
+      (r.client_id ? '<code>'+r.client_id+'</code>' : 'an OAuth client')+' via its resolver plugins, '+
+      'applied that client\'s entitlement ceiling, and PingFederate issued a token. Nothing reusable '+
+      'was provisioned anywhere.</p>';
   } else {
     v.className='verdict show fail';
     v.innerHTML='<h3>Chain stopped</h3><p>See the step above for the response.</p>';
