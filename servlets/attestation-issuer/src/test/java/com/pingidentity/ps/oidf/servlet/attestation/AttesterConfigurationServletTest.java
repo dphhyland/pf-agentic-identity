@@ -49,6 +49,8 @@ class AttesterConfigurationServletTest {
 
         assertEquals("https://pf.example.com/federation/attestation", m.get("attestation_endpoint"));
         assertEquals("https://pf.example.com/federation/attestation-challenge", m.get("challenge_endpoint"));
+        assertEquals("https://pf.example.com/as/token.oauth2", m.get("token_endpoint"));
+        assertEquals(List.of("attest_jwt_client_auth"), m.get("token_endpoint_auth_methods_supported"));
         assertEquals(Boolean.TRUE, m.get("challenge_required"));
         assertEquals(List.of("spiffe-jwt", "gke-sa-token", "gcp-id-token"), m.get("evidence_types_supported"));
         assertEquals("https://pf.example.com/federation/attester-configuration",

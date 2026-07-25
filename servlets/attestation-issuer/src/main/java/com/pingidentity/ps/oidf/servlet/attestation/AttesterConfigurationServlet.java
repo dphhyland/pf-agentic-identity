@@ -61,6 +61,9 @@ public class AttesterConfigurationServlet extends HttpServlet {
             AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN,
             AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN);
 
+    /** The client-authentication method the advertised token endpoint accepts. */
+    static final List<String> TOKEN_ENDPOINT_AUTH_METHODS = List.of("attest_jwt_client_auth");
+
     private volatile IssuanceClientResolver clientResolver;
     private boolean challengeRequired;
 
@@ -91,6 +94,13 @@ public class AttesterConfigurationServlet extends HttpServlet {
             // client mapping (and its downscoping ceiling) come from these at mint time.
             doc.put("resolver_plugins_supported", ClientResolverPlugins.supported());
             doc.put("resolver_plugins_active", AttesterResolvers.activePluginIds(clientResolver()));
+            // The audience the workload must set in its token-endpoint PoP: PF's configured OP issuer,
+            // which is stable regardless of how the request was routed (the "aud trap" — the dialed URL
+            // can differ from the issuer behind a proxy). Advertised so the SDK does not have to guess it.
+            String popAudience = opIssuer(req);
+            if (popAudience != null) {
+                doc.put("pop_audience", popAudience);
+            }
             resp.setHeader("Cache-Control", "public, max-age=300");
             write(resp, 200, doc);
             return;
@@ -129,6 +139,11 @@ public class AttesterConfigurationServlet extends HttpServlet {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
         m.put("challenge_endpoint", baseUrl + "/federation/attestation-challenge");
+        // The PF token endpoint that accepts the minted attestation as client authentication
+        // (attest_jwt_client_auth, via ClientAttestationAuthFilter). Advertised so a client SDK can run
+        // the whole flow from the PF host alone.
+        m.put("token_endpoint", baseUrl + "/as/token.oauth2");
+        m.put("token_endpoint_auth_methods_supported", TOKEN_ENDPOINT_AUTH_METHODS);
         // The per-client issuance view (issuer, evidence_audience, RAR types) — a separate endpoint that
         // takes ?client_id, keeping this /.well-known document a static, parameterless, cacheable resource.
         m.put("client_configuration_endpoint", baseUrl + "/federation/attester-configuration");
@@ -176,6 +191,21 @@ public class AttesterConfigurationServlet extends HttpServlet {
             if (type instanceof String && !((String) type).isBlank()) {
                 out.add((String) type);
             }
+        }
+    }
+
+    /**
+     * PingFederate's configured OP issuer (its base URL), which the workload must use as the
+     * token-endpoint PoP audience. Read via PF's own {@code OAuthIssuerUtils} so it matches exactly what
+     * the token endpoint expects; returns {@code null} if PF cannot resolve it (then the field is omitted
+     * and the SDK falls back to the token endpoint URL).
+     */
+    private static String opIssuer(HttpServletRequest req) {
+        try {
+            String issuer = org.sourceid.oauth20.issuer.OAuthIssuerUtils.getInstance().getIssuerValue(req);
+            return issuer == null || issuer.isBlank() ? null : issuer;
+        } catch (Throwable t) {
+            return null;
         }
     }
 
