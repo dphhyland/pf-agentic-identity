@@ -26,7 +26,6 @@ from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 
 ATTESTER_BASE_URL = os.environ.get("ATTESTER_BASE_URL", "http://pingfederate.pf:9080")
-CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "demo-secret-123")
 PF_TOKEN_ENDPOINT = os.environ.get("PF_TOKEN_ENDPOINT", ATTESTER_BASE_URL + "/as/token.oauth2")
 # PF validates the PoP `aud` against its configured base URL (the one inside data.zip), NOT the URL the
 # request arrived on — the classic aud trap. Override if the archive's base differs.
@@ -191,14 +190,17 @@ def invoke(requested_details=None) -> dict:
         return result
 
     attestation = json.loads(mint_body)["attestation"]
-    # The attester assigned the client_id (the attestation sub) — the workload only relays it now.
+    # The draft requires the PoP 'iss' to name the client, so the workload reads it from the attestation
+    # 'sub' the attester chose. It is used only to sign the PoP — it is NOT sent as a request parameter.
     client_id = _jwt_claim(attestation, "sub")
     pop = INSTANCE_KEY.sign(
         {"alg": "ES256", "typ": "oauth-client-attestation-pop+jwt", "kid": INSTANCE_KEY.jwk["kid"]},
         {"iss": client_id, "aud": PF_TOKEN_AUD, "jti": str(uuid.uuid4()), "iat": now})
+    # attest_jwt_client_auth: the only credential is the attestation. No client_id, no client_secret —
+    # PF's ClientAttestationAuthFilter verifies the two headers and authenticates the resolved client.
     pf_status, pf_body = http_json(
         "POST", PF_TOKEN_ENDPOINT,
-        form={"grant_type": "client_credentials", "client_id": client_id, "client_secret": CLIENT_SECRET},
+        form={"grant_type": "client_credentials"},
         headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop},
         label="token")
     result.update({"client_id": client_id, "attestation": attestation, "pop": pop,

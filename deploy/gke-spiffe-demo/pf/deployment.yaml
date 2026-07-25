@@ -30,6 +30,15 @@ spec:
           envFrom:
             - secretRef:
                 name: pf-devops-license
+          env:
+            # Private half of the attest_jwt_client_auth bridge key. ClientAttestationAuthFilter signs the
+            # per-request private_key_jwt client_assertion with it; PF trusts it via each client's registered
+            # public JWKS (bridge_public_jwks in Terraform). Provisioned as the pf-bridge-key secret.
+            - name: OIDF_BRIDGE_PRIVATE_JWK
+              valueFrom:
+                secretKeyRef:
+                  name: pf-bridge-key
+                  key: private-jwk
           resources:
             requests:
               cpu: "1"

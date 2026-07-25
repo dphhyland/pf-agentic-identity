@@ -32,10 +32,8 @@ spec:
           env:
             - name: ATTESTER_BASE_URL
               value: "http://pingfederate.pf:9080"
-            - name: CLIENT_ID
-              value: "demo-attest-gke-native"
-            - name: CLIENT_SECRET
-              value: "demo-secret-123"
+            # No CLIENT_ID / CLIENT_SECRET: the workload presents only its attestation. PF authenticates
+            # the resolved client via the attest_jwt_client_auth filter (private_key_jwt bridge key).
             - name: EVIDENCE_MODE
               value: "gke-sa-token"
             - name: TOKEN_FILE

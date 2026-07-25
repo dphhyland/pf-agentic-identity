@@ -112,18 +112,28 @@ Failure cases worth demonstrating:
 
 ## 5. Authenticate to the token endpoint
 
-`client_id` comes from the attestation's `sub` (step 4) — the workload relays it, it doesn't choose it.
-The PoP is a second JWS by the instance key: `typ: oauth-client-attestation-pop+jwt`, claims
-`{"iss":"<sub>","aud":"https://localhost:9031","jti":"…","iat":…}`. The `aud` is PF's **configured base
-URL**, not the URL you dialled.
+`attest_jwt_client_auth`: the request carries **only** the two attestation headers and
+`grant_type` — no `client_id`, no `client_secret`. The PoP is a second JWS by the instance key:
+`typ: oauth-client-attestation-pop+jwt`, claims
+`{"iss":"<sub>","aud":"https://localhost:9031","jti":"…","iat":…}`. Its `iss` names the client (read
+from the attestation `sub`); its `aud` is PF's **configured base URL**, not the URL you dialled.
 
 ```bash
 curl -s -X POST "$PF/as/token.oauth2" \
   -H 'OAuth-Client-Attestation: <step 4 attestation>' \
   -H 'OAuth-Client-Attestation-PoP: <the PoP JWS>' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'grant_type=client_credentials&client_id=demo-attest-gke-native&client_secret=demo-secret-123'
+  -d 'grant_type=client_credentials'
 ```
+
+PingFederate has no native support for `attest_jwt_client_auth`, so this endpoint sits behind
+`ClientAttestationAuthFilter` (registered in `pf-runtime.war`'s web.xml over `/as/token.oauth2`). The
+filter verifies the two headers with the same code as the issuance criterion, resolves the client from
+the attestation `sub`, and forwards the request authenticated to PF as that client with a
+`private_key_jwt` `client_assertion` signed by a deployment-held **bridge key** — whose public half is
+registered in each client's JWKS. The workload never holds that key or any secret. If the attestation is
+absent the filter passes the request through untouched; if it is present but invalid the filter rejects
+with `invalid_client_attestation` and PF is never reached.
 
 The access token is a JWT (`typ: at+jwt`). Decoded:
 

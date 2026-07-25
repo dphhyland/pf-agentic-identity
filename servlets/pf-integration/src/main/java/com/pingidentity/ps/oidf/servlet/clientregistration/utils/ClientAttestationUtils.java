@@ -165,6 +165,35 @@ public final class ClientAttestationUtils {
         return ctx;
     }
 
+    /**
+     * Shared entry point for the token-endpoint auth filter: the same attester trust resolution this
+     * class uses from OGNL (mock-attester file in dev, OpenID Federation trust chain otherwise), with
+     * the same instance caching. Kept here so the filter and the issuance criterion cannot drift.
+     */
+    public static AttesterKeyResolver attesterResolver(String opIssuer) {
+        AttesterKeyResolver resolver = ClientAttestationUtils.mockAttesterResolver();
+        if (resolver != null) {
+            return resolver;
+        }
+        TrustChainValidator chainValidator = ClientAttestationUtils.getValidator(
+                RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST);
+        return new FederationAttesterKeyResolver(chainValidator, opIssuer, -1L);
+    }
+
+    /**
+     * Default verification policy for the token-endpoint auth filter: PoP audience = OP issuer or the
+     * request URL, method POST. The filter has no issuance-criteria context, so the per-client
+     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here; the OGNL issuance
+     * criterion still enforces it on the same request.
+     */
+    public static ClientAttestationConfig defaultConfig(String opIssuer, String requestUri) {
+        return ClientAttestationConfig.builder()
+                .addAcceptedAudience(opIssuer)
+                .addAcceptedAudience(requestUri)
+                .expectedHtm("POST")
+                .build();
+    }
+
     private static volatile AttesterKeyResolver mockResolver;
     private static volatile boolean mockResolverLoaded;
 

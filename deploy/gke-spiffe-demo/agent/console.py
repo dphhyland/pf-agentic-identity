@@ -91,11 +91,12 @@ CONSOLE_HTML = r"""<!doctype html>
   <p class="lede">Each run makes <em>this pod</em> fetch fresh platform evidence and present it —
   <strong>with no client_id</strong> — to the attester, which maps the identity to an OAuth client, then
   calls the live PingFederate. The JWTs below are the real ones, minted just now.</p>
-  <p class="ask" style="margin-top:.6rem">Note the <code>client_secret</code> in step 4. PingFederate
-  requires one of its own client-authentication methods for the <code>client_credentials</code> grant, and
-  <code>attest_jwt_client_auth</code> is not yet one of them — so the attestation is enforced as an
-  additional gate rather than as the client authentication itself. Both are checked: a wrong secret fails
-  before the attestation is read, and a valid secret with no attestation fails too.</p>
+  <p class="ask" style="margin-top:.6rem">Look at the token call in step 4: <strong>no
+  <code>client_secret</code>, no <code>client_id</code></strong> — just the two
+  <code>OAuth-Client-Attestation</code> headers. PingFederate has no native support for
+  <code>attest_jwt_client_auth</code>, so a filter over its token endpoint verifies the attestation and
+  authenticates the resolved client to PF with a <code>private_key_jwt</code> assertion the workload never
+  sees. The attestation is the only credential.</p>
 
   <div class="bar">
     <button class="run" id="run">▶ Run the chain</button>
@@ -274,12 +275,13 @@ function finish(r,mode){
       'access token was ever issued for APAC, anywhere.</p>';
   } else if(r.pf_status===200){
     v.className='verdict show pass';
-    v.innerHTML='<h3>Authenticated with a platform-attested identity</h3><p>This workload presented '+
-      'only <em>what it is</em> — no client_id. The attester resolved that identity to '+
-      (r.client_id ? '<code>'+r.client_id+'</code>' : 'an OAuth client')+' via its resolver plugins, '+
-      'applied that client\'s entitlement ceiling, and PingFederate issued the token. The static '+
-      'client_secret is a PingFederate requirement for this grant type, not part of the attestation '+
-      'design — it carries no workload identity and no entitlement.</p>';
+    v.innerHTML='<h3>Authenticated with a platform-attested identity — no secret</h3><p>This workload '+
+      'presented only <em>what it is</em>: two attestation headers, no client_id, no client_secret. The '+
+      'token-endpoint filter verified the attestation, resolved the identity to '+
+      (r.client_id ? '<code>'+r.client_id+'</code>' : 'an OAuth client')+' via its resolver plugins, and '+
+      'authenticated that client to PingFederate with a private_key_jwt the workload never holds. PF '+
+      'applied the client\'s entitlement ceiling and issued the token. Nothing reusable was provisioned '+
+      'to the workload.</p>';
   } else {
     v.className='verdict show fail';
     v.innerHTML='<h3>Chain stopped</h3><p>See the step above for the response.</p>';

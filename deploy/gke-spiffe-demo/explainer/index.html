@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Client Attestation for workloads on GCP: platform identity, resolver plugins, and an honest account of the remaining client_secret."><title>Client Attestation for workloads — PingFederate on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="A workload authenticates to PingFederate with a platform-attested identity and no client secret, via an attest_jwt_client_auth filter."><title>Client Attestation for workloads — PingFederate on GCP</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -344,12 +344,12 @@ curl -s -X POST '$PF/federation/attestation' \
 }'
 # → {"attestation":"eyJhbGciOiJFUzI1NiIs…","expires_in":300}
 
-# 4. Token. client_id comes from the attestation's sub.
+# 4. Token. Only the two attestation headers — no client_id, no client_secret.
 curl -s -X POST '$PF/as/token.oauth2' \
   -H 'OAuth-Client-Attestation: eyJhbGciOiJFUzI1NiIs…' \
   -H 'OAuth-Client-Attestation-PoP: eyJhbGciOiJFUzI1NiIs…' \
   -H 'Content-Type: application/x-www-form-urlencoded' \
-  -d 'grant_type=client_credentials&amp;client_id=demo-attest-gke-native&amp;client_secret=…'</code></pre>
+  -d 'grant_type=client_credentials'</code></pre>
   <p>
     The access token that comes back is a JWT (<code>typ: at+jwt</code>) whose <code>sub</code> is the
     attested workload:
@@ -365,42 +365,45 @@ curl -s -X POST '$PF/as/token.oauth2' \
     <code>act</code> records the client and the platform that attested it.
   </p>
 
-  <h2>Why there is still a client_secret</h2>
+  <h2>How the token call carries no secret</h2>
   <p>
-    The token call carries <code>client_secret=…</code>, which looks at odds with the rest of this. The
-    reason is a PingFederate constraint: the <code>client_credentials</code> grant requires one of PF's own
-    client-authentication methods, and rejects a client configured without one —
-    <em>"A client authentication method is required for using the client credentials grant type."</em>
-    PF's methods are secret, mTLS certificate, and <code>private_key_jwt</code>;
-    <code>attest_jwt_client_auth</code> from
-    draft-ietf-oauth-attestation-based-client-auth is not among them.
+    PingFederate has no native support for <code>attest_jwt_client_auth</code>
+    (draft-ietf-oauth-attestation-based-client-auth) and no SDK extension point to add a token-endpoint
+    authentication method. Its native methods are client secret, mTLS certificate, and
+    <code>private_key_jwt</code>. Left alone, PF would demand one of those in addition to the attestation.
   </p>
   <p>
-    So in this deployment the attestation is enforced as an <em>additional</em> issuance criterion rather
-    than as the client authentication itself. Both are checked, in this order:
+    So a servlet filter, <code>ClientAttestationAuthFilter</code>, is registered over
+    <code>/as/token.oauth2</code> in <code>pf-runtime.war</code> — the same mechanism this project already
+    uses to register a logout-signal filter. When the two attestation headers are present it verifies them
+    with the same code as the issuance criterion, resolves the client from the attestation's
+    <code>sub</code>, and rewrites the request to authenticate to PF with <code>private_key_jwt</code>: a
+    <code>client_assertion</code> signed by a deployment-held <em>bridge key</em> whose public half is
+    registered in each client's JWKS. The workload never holds that key. PF sees a client authenticating
+    with a method it supports; the workload sends only the draft's two headers.
   </p>
   <div class="tablewrap">
     <table>
       <tr><th>Request</th><th>Result</th></tr>
-      <tr><td>Correct secret + valid attestation</td><td class="ok">200 — token issued</td></tr>
-      <tr><td>Correct secret, no attestation</td><td class="deny">400 <code>attestation_validation_failed</code></td></tr>
-      <tr><td>Wrong secret + valid attestation</td><td class="deny">401 <code>invalid_client</code> — rejected before the attestation is read</td></tr>
-      <tr><td>No secret + valid attestation</td><td class="deny">401 <code>invalid_client</code></td></tr>
+      <tr><td>Two attestation headers, no secret, no client_id</td><td class="ok">200 — token issued</td></tr>
+      <tr><td>No attestation headers</td><td class="deny">passed through; PF rejects the credential-less request</td></tr>
+      <tr><td>Attestation without a PoP</td><td class="deny">401 <code>invalid_client</code> — rejected at the filter</td></tr>
+      <tr><td>Tampered attestation, or PoP with wrong <code>aud</code></td><td class="deny">401 <code>invalid_client</code> — PF never reached</td></tr>
+      <tr><td>Requested access above the attested ceiling</td><td class="deny">403 <code>access_denied</code> at mint</td></tr>
     </table>
   </div>
   <p>
-    The secret is a static value shared by every instance of a client; it carries no workload identity and
-    no entitlement. Everything that distinguishes one workload from another — which SPIFFE ID called, which
-    client it maps to, what it is allowed to request — comes from the attestation. But it is a provisioned
-    shared credential, and this demo does not eliminate it.
+    The attestation is now the workload's only credential. Nothing shared or reusable is provisioned to the
+    workload; the bridge key lives only in the PingFederate deployment and authenticates on the workload's
+    behalf once its attestation has been verified. The issuance criterion still runs independently on the
+    token, so the attestation is checked twice — at the filter and inside PF.
   </p>
   <p>
-    Removing it properly means giving PF a client-auth method the workload can satisfy from what it already
-    holds. The workload does hold a private key: the per-instance key bound in the attestation's
-    <code>cnf</code>. Configuring the client for <code>private_key_jwt</code> against a JWKS the attester
-    publishes for currently-bound instance keys would let the workload authenticate with that key and drop
-    the secret entirely. That is a change to the attester (a key registry and JWKS endpoint) rather than to
-    the issuance model, and it is not implemented here.
+    Two honest caveats. This registers a filter in PingFederate's own web application, which Ping does not
+    document as an extension point, so it carries an upgrade-time re-validation cost. And the bridge key is
+    a component the deployment holds on the workload's behalf — it is not a workload secret, but it is a key
+    that must be protected like one. The design point stands: <em>no per-workload credential is
+    provisioned, and the workload authenticates with a platform-attested identity alone.</em>
   </p>
 
   <h2>The three tokens that matter</h2>

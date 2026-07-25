@@ -27,7 +27,6 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 ATTESTER_BASE_URL = os.environ.get("ATTESTER_BASE_URL", "http://35.223.142.97")
 PF_TOKEN_ENDPOINT = os.environ.get("PF_TOKEN_ENDPOINT", ATTESTER_BASE_URL + "/as/token.oauth2")
 PF_TOKEN_AUD = os.environ.get("PF_TOKEN_AUD", "https://localhost:9031")
-CLIENT_SECRET = os.environ.get("CLIENT_SECRET", "demo-secret-123")
 SPIFFE_ID = os.environ.get("SPIFFE_ID", "spiffe://railway.demo/workload/payment-agent")
 # The demo trust-domain PRIVATE JWK (JSON). Its public half is in the CIMD the attester trusts.
 TD_PRIVATE_JWK = os.environ.get("TD_PRIVATE_JWK", "")
@@ -173,13 +172,16 @@ def invoke(requested_details=None) -> dict:
         return result
 
     attestation = json.loads(mint_body)["attestation"]
+    # The draft requires the PoP 'iss' to name the client; read it from the attestation 'sub' the attester
+    # chose. Used only to sign the PoP — never sent as a request parameter.
     client_id = _sub(attestation)
     pop = INSTANCE_KEY.sign(
         {"alg": "ES256", "typ": "oauth-client-attestation-pop+jwt", "kid": INSTANCE_KEY.jwk["kid"]},
         {"iss": client_id, "aud": PF_TOKEN_AUD, "jti": str(uuid.uuid4()), "iat": now})
+    # attest_jwt_client_auth: the attestation is the only credential — no client_id, no client_secret.
     pf_status, pf_body = http_json(
         "POST", PF_TOKEN_ENDPOINT,
-        form={"grant_type": "client_credentials", "client_id": client_id, "client_secret": CLIENT_SECRET},
+        form={"grant_type": "client_credentials"},
         headers={"OAuth-Client-Attestation": attestation, "OAuth-Client-Attestation-PoP": pop},
         label="token")
     result.update({"client_id": client_id, "attestation": attestation, "pop": pop,

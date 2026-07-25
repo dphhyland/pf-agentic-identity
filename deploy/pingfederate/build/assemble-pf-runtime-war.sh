@@ -64,8 +64,36 @@ else
   echo "web.xml: registered SsfLogoutSignal over /idp/init_logout.openid"
 fi
 
+# ClientAttestationAuth (ClientAttestationAuthFilter) over /as/token.oauth2 — implements
+# attest_jwt_client_auth (draft-ietf-oauth-attestation-based-client-auth): verifies the
+# OAuth-Client-Attestation(+PoP) headers and forwards the request authenticated to PF via a bridge
+# private_key_jwt. Requires the OIDF_BRIDGE_PRIVATE_JWK env var at runtime; without it the filter
+# passes through untouched. Registered after SsfLogoutSignal, immediately before PF's own servlet.
+if grep -q "ClientAttestationAuth" "$WEBXML"; then
+  echo "web.xml: ClientAttestationAuth already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>ClientAttestationAuth</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>ClientAttestationAuth</filter-name>"
+      print "    <url-pattern>/as/token.oauth2</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered ClientAttestationAuth over /as/token.oauth2"
+fi
+
 echo "assembled $OUT_WAR:"
 unzip -l "$OUT_WAR" | grep -E "pf-oidf-modules" || { echo "ERROR: module jar not present in war"; exit 1; }
 unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "SsfLogoutSignal" \
   || { echo "ERROR: SsfLogoutSignal filter mapping not present in assembled war" >&2; exit 1; }
-echo "verified: SsfLogoutSignal filter mapped in $OUT_WAR"
+unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "ClientAttestationAuth" \
+  || { echo "ERROR: ClientAttestationAuth filter mapping not present in assembled war" >&2; exit 1; }
+echo "verified: SsfLogoutSignal + ClientAttestationAuth filters mapped in $OUT_WAR"

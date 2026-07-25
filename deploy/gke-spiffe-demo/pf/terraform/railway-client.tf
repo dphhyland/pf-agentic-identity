@@ -7,13 +7,14 @@ resource "pingfederate_oauth_client" "demo_attest_railway" {
   client_id                        = "demo-attest-railway"
   name                             = "Demo attester — Railway workload (SPIFFE via CIMD)"
   grant_types                      = ["CLIENT_CREDENTIALS"]
-  client_auth                      = { type = "SECRET", secret = var.demo_attest_client_secret }
+  client_auth                      = { type = "PRIVATE_KEY_JWT" }
+  jwks_settings                    = { jwks = var.bridge_public_jwks }
   restrict_scopes                  = false
   bypass_approval_page             = true
   persistent_grant_expiration_type = "SERVER_DEFAULT"
 
   # Issue JWT access tokens (decodable) rather than opaque reference tokens.
-  default_access_token_manager_ref        = { id = "attestJwtATM" }
+  default_access_token_manager_ref         = { id = "attestJwtATM" }
   restrict_to_default_access_token_manager = true
 
   extended_parameters = {

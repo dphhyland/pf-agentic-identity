@@ -27,24 +27,28 @@ locals {
   }])
 }
 
-variable "demo_attest_client_secret" {
-  description = "Demo-only client secret (the attestation hook is the real client auth)"
+# The attest_jwt_client_auth bridge public JWKS. The ClientAttestationAuthFilter in pf-runtime.war
+# verifies the workload's OAuth-Client-Attestation headers, then authenticates to PF as this client with
+# a private_key_jwt client_assertion signed by the bridge PRIVATE key (OIDF_BRIDGE_PRIVATE_JWK in the PF
+# deployment). PF trusts that assertion because its public half is registered here. There is no client
+# secret: the workload's only credential is the attestation.
+variable "bridge_public_jwks" {
+  description = "Public JWKS (JSON) of the attest_jwt_client_auth bridge key; private half is in the PF deployment env"
   type        = string
-  default     = "demo-secret-123"
-  sensitive   = true
 }
 
 resource "pingfederate_oauth_client" "demo_attest_gke" {
   client_id                        = "demo-attest-gke"
   name                             = "Demo attester — SPIRE on GKE"
   grant_types                      = ["CLIENT_CREDENTIALS"]
-  client_auth                      = { type = "SECRET", secret = var.demo_attest_client_secret }
+  client_auth                      = { type = "PRIVATE_KEY_JWT" }
+  jwks_settings                    = { jwks = var.bridge_public_jwks }
   restrict_scopes                  = false
   bypass_approval_page             = true
   persistent_grant_expiration_type = "SERVER_DEFAULT"
 
   # Issue JWT access tokens (decodable) rather than opaque reference tokens.
-  default_access_token_manager_ref        = { id = "attestJwtATM" }
+  default_access_token_manager_ref         = { id = "attestJwtATM" }
   restrict_to_default_access_token_manager = true
 
   extended_parameters = {
