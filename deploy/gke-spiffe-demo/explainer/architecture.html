@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Architecture of the Client Attestation demo on GCP — components, trust boundaries, and how it uses Google's agentic identity stack."><title>Architecture — Client Attestation on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="Architecture of the Client Attestation demo on GCP — components, resolver plugins, SPIRE introspection, and Google's agentic identity stack."><title>Architecture — Client Attestation on GCP</title>
 <style>
   :root {
     --paper:#F7F8F7; --ink:#1A2228; --soft:#4A5560; --line:#DDE3E1;
@@ -208,6 +208,42 @@ flowchart TB
     an entitlement ceiling, so the agent can authenticate to <strong>PingFederate</strong> and obtain a
     scoped token — with no shared secret and no key the agent has to hold.
   </div>
+
+  <h2>Resolver plugins — how the attester maps identity → client</h2>
+  <p>
+    The workload never names a client. At mint time the attester tries each of its configured
+    <strong>resolver plugins</strong> against the presented evidence: the plugin whose trust bundle
+    verifies it <em>and</em> whose bindings contain the resulting SPIFFE ID supplies both the client
+    identity and the entitlement ceiling (<strong>downscoping</strong>) the attestation carries. Plugins
+    chain — several can be active at once — and the deployment's supported/active set is advertised in
+    the discovery document.
+  </p>
+  <div style="overflow-x:auto">
+  <table>
+    <tr><th>Plugin</th><th>Source of the mapping</th><th>Used for</th></tr>
+    <tr><td><code>pf-client-metadata</code></td>
+      <td>Each client's <code>attestation_*</code> extended properties in the PingFederate client store</td>
+      <td>The default — no external document; config-as-code alongside the client itself</td></tr>
+    <tr><td><code>cimd</code></td>
+      <td>A hosted <strong>Client ID Metadata Document</strong> the attester fetches by URL</td>
+      <td>The mapping lives in git / a static host, independent of PF; this demo's <a href="/cimd.json">cimd.json</a></td></tr>
+    <tr><td><code>openid-federation</code></td>
+      <td>A signed OpenID Federation entity statement's <code>spiffe_client_bindings</code> claim</td>
+      <td>Governance by a federation the attester already trusts, not a flat file</td></tr>
+  </table>
+  </div>
+
+  <h2>Workload introspection — SPIRE selectors feed the issuance policy</h2>
+  <p>
+    A bare SVID only proves a SPIFFE ID. After validation, the attester can <strong>introspect</strong> the
+    workload further: look up the <strong>SPIRE registration selectors</strong> that produced that
+    identity — <code>k8s:ns:demo</code>, <code>k8s:sa:payment-agent</code>, <code>unix:uid:0</code>,
+    <code>docker:image:…</code> — and fold them into the attestation's <code>workload.attributes</code>.
+    Selectors describe <em>how SPIRE attested the workload</em>, which is a stronger basis for policy than
+    anything the workload asserts about itself, so they're available to condition the granted entitlement
+    (downscope unless a specific namespace/service-account selector is present) before the ceiling is
+    applied.
+  </p>
 
   <div class="note">
     <strong>Two trust checks, two directions.</strong> The <span style="color:var(--a);font-weight:600">attester</span>
