@@ -50,6 +50,11 @@ public final class PfIssuanceClientResolver implements IssuanceClientResolver {
     }
 
     @Override
+    public String pluginId() {
+        return com.pingidentity.ps.oidf.common.ClientResolverPlugins.PF_CLIENT_METADATA;
+    }
+
+    @Override
     public AttestationIssuanceConfig resolve(String clientId) throws IssuanceException {
         Client client = this.clientStore.get(clientId);
         if (client == null) {

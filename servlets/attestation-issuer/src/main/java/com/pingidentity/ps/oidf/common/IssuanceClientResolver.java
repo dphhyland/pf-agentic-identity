@@ -23,4 +23,13 @@ public interface IssuanceClientResolver {
      * Returns an empty list if none are configured.
      */
     java.util.List<AttesterClient> attestationClients() throws IssuanceException;
+
+    /**
+     * Stable id of the resolver plugin backing this resolver (e.g. {@code pf-client-metadata},
+     * {@code cimd}, {@code openid-federation}) — surfaced in the attester discovery document so operators
+     * can see where the SPIFFE-ID → client mapping and its entitlement ceiling (downscoping) come from.
+     */
+    default String pluginId() {
+        return "unknown";
+    }
 }

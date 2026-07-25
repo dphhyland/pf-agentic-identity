@@ -22,6 +22,8 @@ import com.pingidentity.ps.oidf.common.RarEntitlement;
 import com.pingidentity.ps.oidf.common.RemoteJwksCache;
 import com.pingidentity.ps.oidf.common.SpiffeBinding;
 import com.pingidentity.ps.oidf.common.SpiffeJwtEvidenceValidator;
+import com.pingidentity.ps.oidf.common.SpireSelectorIntrospector;
+import com.pingidentity.ps.oidf.common.WorkloadIntrospector;
 import com.pingidentity.ps.oidf.common.SpiffeSvid;
 import com.pingidentity.ps.oidf.common.SpiffeSvidValidator;
 import java.io.IOException;
@@ -72,6 +74,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile GcpSaTokenValidator gcpSaTokenValidator = new GcpSaTokenValidator();
     private volatile RemoteJwksCache jwksCache = new RemoteJwksCache();
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
+    private volatile WorkloadIntrospector workloadIntrospector;
     private boolean challengeRequired;
 
     @Override
@@ -142,7 +145,17 @@ public class AttestationIssuanceServlet extends HttpServlet {
             throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
 
-        // 5. Resolve the granted entitlement against the effective ceiling.
+        // 5. Introspect the workload beyond the bare SVID — SPIRE registration selectors, etc. — and
+        //    merge those attributes over the binding's declared metadata. These ride into the attestation
+        //    and are available to the issuance policy for downscoping.
+        Map<String, Object> workloadAttributes = new LinkedHashMap<>(binding.metadata());
+        Map<String, Object> introspected = workloadIntrospector().introspect(svid);
+        if (introspected != null) {
+            workloadAttributes.putAll(introspected);
+        }
+
+        // 6. Resolve the granted entitlement against the effective ceiling, then apply any
+        //    selector-conditioned downscoping the policy requires.
         List<Map<String, Object>> ceiling = config.effectiveCeiling(binding);
         List<Map<String, Object>> granted;
         if (!request.requestedDetails.isEmpty()) {
@@ -155,11 +168,11 @@ public class AttestationIssuanceServlet extends HttpServlet {
             granted = ceiling;
         }
 
-        // 6. Mint + sign with the attester key. The attester assigns the client_id (the attestation sub);
+        // 7. Mint + sign with the attester key. The attester assigns the client_id (the attestation sub);
         //    the workload learns it only from the attestation it receives back.
         JwsSigner signer = attesterSigningKey().signerFor(config.signingKeyRef(), config.signingJwk());
         String attestation = AttestationMinter.mint(config.issuer(), clientId, request.instanceKey,
-                svid, binding.metadata(), granted, config.ttlSeconds(), signer);
+                svid, workloadAttributes, granted, config.ttlSeconds(), signer);
 
         LOGGER.info((Object) ("Issued client attestation: client_id=" + clientId
                 + " spiffe_id=" + svid.spiffeId() + " ttl=" + config.ttlSeconds() + "s"));
@@ -193,6 +206,40 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     RemoteJwksCache jwksCache() {
         return this.jwksCache;
+    }
+
+    void setWorkloadIntrospector(WorkloadIntrospector introspector) {
+        this.workloadIntrospector = introspector;
+    }
+
+    /**
+     * The workload introspector — a SPIRE selector lookup if {@code oidf.attester.spire.entries.url}
+     * (env {@code OIDF_ATTESTER_SPIRE_ENTRIES_URL}) is set, else a no-op. Lazily initialized so tests can
+     * inject one and the runtime path needs no live SPIRE by default.
+     */
+    WorkloadIntrospector workloadIntrospector() {
+        WorkloadIntrospector local = this.workloadIntrospector;
+        if (local == null) {
+            synchronized (this) {
+                if (this.workloadIntrospector == null) {
+                    this.workloadIntrospector = defaultWorkloadIntrospector();
+                }
+                local = this.workloadIntrospector;
+            }
+        }
+        return local;
+    }
+
+    protected WorkloadIntrospector defaultWorkloadIntrospector() {
+        String url = System.getProperty("oidf.attester.spire.entries.url");
+        if (url == null || url.isBlank()) {
+            url = System.getenv("OIDF_ATTESTER_SPIRE_ENTRIES_URL");
+        }
+        if (url != null && !url.isBlank()) {
+            LOGGER.info((Object) ("Workload introspection via SPIRE entries endpoint: " + url));
+            return new SpireSelectorIntrospector(url.trim());
+        }
+        return WorkloadIntrospector.none();
     }
 
     /** The validator for the client's configured evidence type. */

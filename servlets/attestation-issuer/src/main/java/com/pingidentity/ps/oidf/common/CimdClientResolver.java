@@ -73,6 +73,11 @@ public final class CimdClientResolver implements IssuanceClientResolver {
     }
 
     @Override
+    public String pluginId() {
+        return ClientResolverPlugins.CIMD;
+    }
+
+    @Override
     public AttestationIssuanceConfig resolve(String clientId) throws IssuanceException {
         for (AttesterClient c : attestationClients()) {
             if (c.clientId().equals(clientId)) {
@@ -127,65 +132,12 @@ public final class CimdClientResolver implements IssuanceClientResolver {
             if (clientId == null || spiffeId == null) {
                 continue; // a mapping needs both ends
             }
-            out.add(new AttesterClient(clientId, toConfig(entry, spiffeId, this.defaultSigningJwk)));
+            out.add(new AttesterClient(clientId, CimdMapping.toConfig(entry, spiffeId, this.defaultSigningJwk)));
         }
         return out;
     }
 
-    /** Projects a CIMD mapping entry onto the {@code attestation_*} property map an issuance config parses. */
-    private static AttestationIssuanceConfig toConfig(Map<String, Object> entry, String spiffeId,
-            String defaultSigningJwk) throws IssuanceException {
-        Map<String, String> props = new LinkedHashMap<>();
-        putIf(props, AttestationIssuanceConfig.P_ISSUER, str(entry.get("issuer")));
-        putIf(props, AttestationIssuanceConfig.P_EVIDENCE, str(entry.get("evidence_type")));
-        putIf(props, AttestationIssuanceConfig.P_TRUST_DOMAIN, str(entry.get("trust_domain")));
-        putIf(props, AttestationIssuanceConfig.P_EVIDENCE_ISSUER, str(entry.get("evidence_issuer")));
-        putIf(props, AttestationIssuanceConfig.P_BUNDLE_URL, str(entry.get("bundle_url")));
-        putIf(props, AttestationIssuanceConfig.P_BUNDLE, json(entry.get("bundle")));
-        // The attester's signing key comes from deployment config, not the public CIMD. A per-entry
-        // signing_key_ref (a vault key name, not a secret) is still honoured if present.
-        putIf(props, AttestationIssuanceConfig.P_SIGNING_JWK, defaultSigningJwk);
-        putIf(props, AttestationIssuanceConfig.P_SIGNING_KEY_REF, str(entry.get("signing_key_ref")));
-        Object ttl = entry.get("ttl");
-        if (ttl != null) {
-            props.put(AttestationIssuanceConfig.P_TTL, String.valueOf(((Number) ttl).longValue()));
-        }
-        // The one binding this mapping declares: the SPIFFE ID and its entitlement ceiling.
-        Map<String, Object> binding = new LinkedHashMap<>();
-        binding.put("spiffe_id", spiffeId);
-        Object entitlement = entry.get("entitlement");
-        if (entitlement instanceof List) {
-            binding.put("entitlement", entitlement);
-        }
-        Object metadata = entry.get("metadata");
-        if (metadata instanceof Map) {
-            binding.put("metadata", metadata);
-        }
-        // P_INSTANCES is a JSON array; wrap the single binding and serialize via a Map (jose4j's toJson
-        // takes a Map) by nesting under a throwaway key, then slice the array out.
-        Map<String, Object> arrayHolder = new LinkedHashMap<>();
-        arrayHolder.put("v", List.of(binding));
-        String holderJson = JsonUtil.toJson(arrayHolder);
-        String instancesJson = holderJson.substring(holderJson.indexOf(':') + 1, holderJson.lastIndexOf('}'));
-        props.put(AttestationIssuanceConfig.P_INSTANCES, instancesJson);
-        return AttestationIssuanceConfig.fromProperties(props);
-    }
-
-    private static void putIf(Map<String, String> props, String key, String value) {
-        if (value != null && !value.isBlank()) {
-            props.put(key, value);
-        }
-    }
-
     private static String str(Object o) {
         return o == null ? null : String.valueOf(o);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static String json(Object o) {
-        if (!(o instanceof Map)) {
-            return null; // only object-shaped fields (bundle, signing_jwk) are stringified this way
-        }
-        return JsonUtil.toJson((Map<String, Object>) o);
     }
 }

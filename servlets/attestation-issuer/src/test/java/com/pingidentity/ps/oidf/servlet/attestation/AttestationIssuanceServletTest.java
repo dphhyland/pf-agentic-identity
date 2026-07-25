@@ -212,6 +212,23 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    void spireSelectorsAreIntrospectedIntoWorkloadAttributes() throws Exception {
+        // A SPIRE-backed introspector adds selectors for the validated SPIFFE ID; they must appear in the
+        // minted attestation's workload.attributes (available to the issuance/downscoping policy).
+        servlet.setWorkloadIntrospector(svid -> Map.of(
+                "selectors", List.of("k8s:ns:demo", "k8s:sa:payment-agent"),
+                "spire", Map.of("k8s", List.of("ns:demo", "sa:payment-agent"))));
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        String attestation = (String) body.get("attestation");
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]),
+                StandardCharsets.UTF_8);
+        assertTrue(payload.contains("k8s:ns:demo"), payload);
+        assertTrue(payload.contains("k8s:sa:payment-agent"), payload);
+        // The binding's own metadata (region=EMEA) survives alongside the introspected selectors.
+        assertTrue(payload.contains("EMEA"), payload);
+    }
+
+    @Test
     void malformedAuthorizationDetailsMapsToInvalidRequest() throws Exception {
         // An entry missing its 'type' is malformed → invalid_authorization_details → invalid_request.
         List<Map<String, Object>> requested = List.of(Map.of("sales_regions", List.of("EMEA")));

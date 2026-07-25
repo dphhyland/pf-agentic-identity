@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.servlet.attestation;
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.common.ClientResolverPlugins;
 import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
@@ -86,6 +87,10 @@ public class AttesterConfigurationServlet extends HttpServlet {
             if (audience != null) {
                 doc.put("evidence_audience", audience);
             }
+            // Surface the resolver plugins: the full supported set, and which are active — the SPIFFE-ID →
+            // client mapping (and its downscoping ceiling) come from these at mint time.
+            doc.put("resolver_plugins_supported", ClientResolverPlugins.supported());
+            doc.put("resolver_plugins_active", AttesterResolvers.activePluginIds(clientResolver()));
             resp.setHeader("Cache-Control", "public, max-age=300");
             write(resp, 200, doc);
             return;
