@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="A workload authenticates to PingFederate with a platform-attested identity and no client secret, via an attest_jwt_client_auth filter."><title>Client Attestation for workloads — PingFederate on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="A workload authenticates to PingFederate with a platform-attested identity and no client secret; one SDK call gets the token."><title>Client Attestation for workloads — PingFederate on GCP</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -152,7 +152,7 @@
     &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://34.171.232.146/">34.171.232.146</a> — click Run, watch a real GKE workload authenticate
   </p>
 
-<div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
+  <div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
 
   <h2>The problem it solves</h2>
   <p>
@@ -228,10 +228,12 @@
       <span class="stepnum">5</span>
       <div>
         <h3>Authenticate to the AS</h3>
-        <p>The workload reads the client id from the attestation's <code>sub</code> and calls PF's token
-        endpoint with two headers: <code>OAuth-Client-Attestation</code> (the minted JWT) and
-        <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the instance key). An issuance
-        criterion verifies both, and PF issues the access token.</p>
+        <p>The workload calls PF's token endpoint with two headers — <code>OAuth-Client-Attestation</code>
+        (the minted JWT) and <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the
+        instance key) — and no <code>client_id</code> or <code>client_secret</code>. A filter over the token
+        endpoint verifies both and authenticates the client to PF with a <code>private_key_jwt</code> the
+        workload never holds; PF issues a JWT access token. The attestation is the only credential the
+        workload sends (see "How the token call carries no secret" below).</p>
       </div>
     </li>
   </ol>
@@ -263,6 +265,33 @@ sequenceDiagram
       <code>jti</code> values checked against a replay cache.</figcaption>
     </figure>
   </div>
+
+  <h2>You do not write the five steps — the SDK does</h2>
+  <p>
+    A workload uses one call. The polyglot SDK
+    (<a href="https://github.com/dphhyland/client-attestation-sdk-polyglot">client-attestation-sdk-polyglot</a>,
+    in Java, Python, TypeScript, and Go) runs discovery, evidence, mint, and the token call, and caches the
+    token until it nears expiry:
+  </p>
+<pre><code>from client_attestation_sdk import ClientAttestation
+
+ca = ClientAttestation("pf.example.com")   # finds the workload's platform identity itself
+token = ca.token()                          # access token — no secret, no client_id</code></pre>
+  <p>
+    The PingFederate host is the only required configuration. The attester's
+    <code>/.well-known/client-attester</code> advertises the token endpoint and the PoP audience, so the SDK
+    resolves the rest. It finds the platform identity by checking the runtime in order — an environment
+    token, a projected token file (<code>/var/run/secrets/tokens/…</code>), a SPIRE socket, or the GCP
+    metadata server — and you can override that with an explicit source.
+  </p>
+  <p>
+    For an agent, take the <code>Authorization</code> header the SDK gives you and attach it to a tool's HTTP
+    call, or hand the SDK's adapter to your HTTP client (a <code>requests</code>/<code>httpx</code> auth in
+    Python, a <code>fetch</code> wrapper in TypeScript, an <code>http.RoundTripper</code> in Go, a
+    <code>java.net.http</code> helper in Java). In Gemini/ADK, that is an ADK
+    <code>header_provider</code> or <code>before_tool_callback</code> — the agent's tool call then carries an
+    attestation-derived token with no secret and no extra code.
+  </p>
 
   <h2>The workload is not configured with a client_id</h2>
   <p>

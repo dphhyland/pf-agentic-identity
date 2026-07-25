@@ -33,7 +33,7 @@ RAR plugin shades its jackson). Pure **libs** know nothing about PF at all.
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store | `oidf.jar` + `oidf.war` |
+| `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store, and **`ClientAttestationAuthFilter`** — a token-endpoint filter that implements `attest_jwt_client_auth` (the attestation becomes the client's only credential; see `deploy/pingfederate/build/assemble-pf-runtime-war.sh`) | `oidf.jar` + `oidf.war` |
 | `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (SPIFFE SVID → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer.jar` |
 | `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf.jar` |
 
