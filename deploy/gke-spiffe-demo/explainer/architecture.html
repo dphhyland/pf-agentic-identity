@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="The components of client attestation on Google Cloud: attester, token-endpoint filter, bridge key, and the one-call SDK."><title>Architecture — Client Attestation on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="The components of client attestation on Google Cloud: attester, token-endpoint filter, bridge key, resolver plugins, and the one-call SDK."><title>Architecture — Client Attestation on GCP</title>
 <style>
   :root {
     --paper:#F7F8F7; --ink:#1A2228; --soft:#4A5560; --line:#DDE3E1;
@@ -75,23 +75,23 @@ flowchart TB
         FILT["ClientAttestationAuthFilter<br/>over /as/token.oauth2<br/>verify headers → bridge private_key_jwt"]:::att
         TOK["token endpoint /as/token.oauth2<br/>issues JWT access token"]:::pf
       end
-      SP["SPIRE server + agent<br/>ns spire-mgmt · Phase 1"]:::plat
+      SP["SPIRE server + agent<br/>ns spire-mgmt"]:::plat
     end
     LBA["LoadBalancer<br/>34.171.232.146"]:::infra
     LBP["LoadBalancer<br/>35.223.142.97"]:::infra
-    AE["Vertex AI Agent Engine<br/>managed agent · Phase 3"]:::work
+    AE["Vertex AI Agent Engine<br/>managed agent"]:::work
   end
 
   subgraph ROOTS["Google-operated trust roots"]
     direction TB
-    GKEO["GKE cluster OIDC<br/>public JWKS · Phase 2"]:::plat
-    GSA["accounts.google.com<br/>SA token signer · Phase 3"]:::plat
+    GKEO["GKE cluster OIDC<br/>public JWKS"]:::plat
+    GSA["accounts.google.com<br/>SA token signer"]:::plat
   end
 
   B -->|"HTTP"| LBA --> AG
-  SP -.->|"evidence · P1<br/>JWT-SVID"| AG
-  GKEO -.->|"evidence · P2<br/>projected SA token"| AG
-  GSA -.->|"evidence · P3<br/>SA ID token"| AG
+  SP -.->|"evidence<br/>JWT-SVID"| AG
+  GKEO -.->|"evidence<br/>projected SA token"| AG
+  GSA -.->|"evidence<br/>SA ID token"| AG
   AG -->|"1 · discover"| ATT
   AG -->|"3 · mint: evidence + pubkey + proof"| ATT
   ATT -.->|"verify evidence<br/>vs trust bundle"| GKEO
@@ -100,7 +100,7 @@ flowchart TB
   FILT -->|"private_key_jwt<br/>bridge assertion"| TOK
   TOK -->|"JWT access token"| AG
   LBP --> ATT
-  AE -.->|"same chain, external<br/>(runtime boot WIP)"| LBP
+  AE -.->|"same chain, external"| LBP
 
   classDef plat fill:#DCE8FC,stroke:#3B6FD4,color:#12233F;
   classDef att fill:#D6ECE8,stroke:#0F766E,color:#0A2C28;
@@ -126,7 +126,7 @@ flowchart TB
       <code>/federation/attester-configuration?client_id=…</code>, and learns the endpoints, the evidence
       audience it must use, and the RAR types it may request.</span></li>
     <li><span class="n">2</span><span><strong>Get evidence.</strong> It fetches a platform-signed
-      identity token — SPIRE JWT-SVID (P1), GKE projected SA token (P2), or Google SA ID token (P3) —
+      identity token — a SPIRE JWT-SVID, a GKE projected SA token, or a Google SA ID token —
       with <code>aud</code> set to the attester. The workload can't forge it.</span></li>
     <li><span class="n">3</span><span><strong>Mint.</strong> It POSTs the evidence + its instance public
       key + a challenge-bound proof to <code>/federation/attestation</code>. The attester validates the
@@ -179,22 +179,22 @@ token = ca.token()                          # access token — no secret, no cli
       <td>Servlet filter over <code>/as/token.oauth2</code>. Verifies the two attestation headers and authenticates the resolved client to PF with a <code>private_key_jwt</code> bridge assertion. Implements <code>attest_jwt_client_auth</code>, which PF has no native support for.</td>
       <td>Registered in <code>pf-runtime.war</code> web.xml (ns <code>pf</code>)</td></tr>
     <tr><td><strong>PF token endpoint</strong> <span class="tag p">PingFederate</span></td>
-      <td><code>/as/token.oauth2</code>. Authenticates the bridge <code>private_key_jwt</code> and issues a JWT access token. The OGNL <code>validateClientAttestation</code> issuance criterion still runs as a second, independent check on the attestation.</td>
+      <td><code>/as/token.oauth2</code>. Authenticates the bridge <code>private_key_jwt</code> and issues a JWT access token. The OGNL <code>validateClientAttestation</code> issuance criterion runs as a second, independent check on the attestation.</td>
       <td>PingFederate runtime pod → LB <code>35.223.142.97</code></td></tr>
     <tr><td><strong>Polyglot SDK</strong> <span class="tag n">client</span></td>
       <td>Runs the whole flow from the PF host: <code>ClientAttestation(host).token()</code>. Auto-detects the platform identity; caches the token; HTTP adapters for requests/httpx, fetch, http.RoundTripper, java.net.http.</td>
       <td>Java · Python · TypeScript · Go (<a href="https://github.com/dphhyland/client-attestation-sdk-polyglot">repo</a>)</td></tr>
-    <tr><td><strong>SPIRE</strong> <span class="tag g">attestor · P1</span></td>
+    <tr><td><strong>SPIRE</strong> <span class="tag g">attestor</span></td>
       <td>Issues JWT-SVIDs to the pod via the Workload API. Its JWKS is the trust bundle.</td>
-      <td>GKE ns <code>spire-mgmt</code> (uninstalled after Phase 1)</td></tr>
-    <tr><td><strong>GKE cluster OIDC</strong> <span class="tag g">attestor · P2</span></td>
+      <td>GKE ns <code>spire-mgmt</code></td></tr>
+    <tr><td><strong>GKE cluster OIDC</strong> <span class="tag g">attestor</span></td>
       <td>Signs projected service-account tokens; public JWKS fetched by the attester by URL.</td>
       <td>Google-operated, per-cluster issuer</td></tr>
-    <tr><td><strong>Google SA token signer</strong> <span class="tag g">attestor · P3</span></td>
+    <tr><td><strong>Google SA token signer</strong> <span class="tag g">attestor</span></td>
       <td>Signs SA ID tokens (<code>generateIdToken</code>); <code>accounts.google.com</code> public JWKS.</td>
       <td>Google-operated</td></tr>
-    <tr><td><strong>Vertex AI Agent Engine</strong> <span class="tag n">workload · P3</span></td>
-      <td>Managed agent runtime — the same chain from outside the cluster (runtime boot still WIP).</td>
+    <tr><td><strong>Vertex AI Agent Engine</strong> <span class="tag n">workload</span></td>
+      <td>Managed agent runtime — the same chain from outside the cluster, using its service-account ID token as evidence.</td>
       <td>Google-managed, in-project</td></tr>
     <tr><td><strong>Explainer</strong> <span class="tag n">docs</span></td>
       <td>Static write-up of the whole design.</td>
@@ -214,7 +214,7 @@ token = ca.token()                          # access token — no secret, no cli
         attested by the platform — no developer-held long-lived keys.
         (<a href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/agent-identity-overview">docs</a>)</td>
       <td>We speak the same <code>spiffe://…</code> naming and treat the platform as the attestor. The
-        managed X.509 isn't exportable to third parties yet, so Phase 3 uses the agent's runtime
+        the managed X.509 isn't exportable to third parties, so the agent presents its runtime
         <strong>service-account ID token</strong> (which <em>is</em> exposable) as the evidence.</td>
     </tr>
     <tr>
@@ -232,7 +232,7 @@ token = ca.token()                          # access token — no secret, no cli
       <td>Binds GKE pods to <code>spiffe://&lt;project&gt;.svc.id.goog/ns/…/sa/…</code> identities
         with a public OIDC issuer.
         (<a href="https://docs.cloud.google.com/iam/docs/managed-workload-identity">docs</a>)</td>
-      <td>Phase 2 evidence: the projected SA token is validated against that public JWKS and mapped onto
+      <td>The projected SA token is validated against that public JWKS and mapped onto
         Google's own canonical SPIFFE identifier.</td>
     </tr>
   </table>

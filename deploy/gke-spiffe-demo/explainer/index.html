@@ -198,8 +198,8 @@
       <div>
         <h3>Prove what you are</h3>
         <p>The workload fetches <strong>identity evidence from the platform</strong> — a token only something
-        actually running in that pod could obtain. Phase 1: a SPIRE JWT-SVID from the Workload API socket.
-        Phase 2: a Kubernetes service-account token Google signs and projects into the pod.</p>
+        actually running in that pod could obtain: a SPIRE JWT-SVID from the Workload API socket, a Kubernetes
+        service-account token Google signs and projects into the pod, or a Google service-account ID token.</p>
       </div>
     </li>
     <li>
@@ -424,7 +424,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
   <p>
     The attestation is now the workload's only credential. Nothing shared or reusable is provisioned to the
     workload; the bridge key lives only in the PingFederate deployment and authenticates on the workload's
-    behalf once its attestation has been verified. The issuance criterion still runs independently on the
+    behalf once its attestation has been verified. The issuance criterion runs independently on the
     token, so the attestation is checked twice — at the filter and inside PF.
   </p>
   <p>
@@ -449,7 +449,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
  "aud": ["https://attester.example.com"],
  "exp": …
 }</code></pre>
-      <footer>Signed by SPIRE (Phase 1), the GKE control plane (Phase 2) or Google's service-account signer (Phase 3). The workload holds no signing key for it.</footer>
+      <footer>Signed by SPIRE, the GKE control plane, or Google's service-account signer. The workload holds no signing key for it.</footer>
     </div>
     <div class="jwt attn">
       <header>2 · Client Attestation</header>
@@ -488,9 +488,9 @@ curl -s -X POST '$PF/as/token.oauth2' \
     <table>
       <tr>
         <th></th>
-        <th>Phase 1 — SPIRE on GKE</th>
-        <th>Phase 2 — GKE-native</th>
-        <th>Phase 3 — Agent Engine</th>
+        <th>SPIRE on GKE</th>
+        <th>GKE workload identity</th>
+        <th>Vertex AI Agent Engine</th>
       </tr>
       <tr>
         <td><strong>Attestor</strong></td>
@@ -535,8 +535,8 @@ curl -s -X POST '$PF/as/token.oauth2' \
   </p>
 
   <p>
-    In Phase 2, SPIRE was uninstalled before the run and the chain still completed: GKE's own workload
-    identity provided the evidence. Phase 3 removes the cluster as well. A Gemini Enterprise Agent Platform
+    The same flow works with no SPIRE at all: GKE's own workload identity provides the evidence. It also works
+    with no cluster at all. A Gemini Enterprise Agent Platform
     agent cannot export its managed Agent Identity credentials, but its runtime service account can mint a
     Google-signed ID token scoped to the attester's audience. That token is the evidence; its
     <code>email</code> claim maps to <code>spiffe://&lt;trust-domain&gt;/sa/&lt;sa-email&gt;</code>, and the
@@ -576,7 +576,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
     token in the first place. That is what this implements: Google attests the agent, the attester converts
     that attestation into an OAuth Client Attestation carrying an entitlement ceiling, and PingFederate
     issues the token. It uses Google's own primitives — the <code>spiffe://…</code> naming, GKE workload
-    identity, and in Phase 3 the runtime service account's ID token, because the managed Agent Identity
+    identity, and the runtime service account's ID token for a managed agent, because the managed Agent Identity
     X.509 credentials are not exportable to third parties.
   </p>
 
@@ -640,7 +640,7 @@ sequenceDiagram
     <em>draft-ietf-oauth-spiffe-client-auth</em> profiles this pattern directly — SPIFFE credentials used
     as attestation-based client authentication — and Google's Agent Gateway assigns every managed agent a
     SPIFFE ID. The structure here (platform attests, attester converts, AS verifies) sits between the two,
-    and Phase 3 covers the Gemini Enterprise Agent Platform case without that platform exporting any key
+    and the Google service-account ID token covers the Gemini Enterprise Agent Platform case without that platform exporting any key
     material.
   </p>
 
