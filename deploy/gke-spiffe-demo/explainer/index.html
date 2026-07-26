@@ -266,6 +266,36 @@ sequenceDiagram
     </figure>
   </div>
 
+  <h3>What the platform evidence in step 2 actually is</h3>
+  <p>
+    The evidence is a token the platform issues to the pod, not something the workload can write itself.
+    Take the GKE case, which is the <code>/var/run/secrets/tokens/…</code> file the SDK reads. You declare a
+    <strong>projected service-account token</strong> on the pod and set its audience to the attester:
+  </p>
+<pre><code>volumes:
+  - name: attester-token
+    projected:
+      sources:
+        - serviceAccountToken:
+            audience: "https://attester.example.com"   # who the token is for
+            expirationSeconds: 3600                     # short-lived
+            path: attester-token                        # → /var/run/secrets/tokens/attester-token</code></pre>
+  <p>
+    The kubelet, not the container, asks the Kubernetes API server for a JWT identifying the pod's service
+    account, and writes it to that file. The token is signed by the cluster's OIDC key, so the attester
+    verifies it against the cluster's public JWKS; its <code>sub</code> is
+    <code>system:serviceaccount:demo:payment-agent</code>; and its <code>aud</code> is the attester, so it
+    cannot be replayed against anything else. The kubelet rotates it before it expires, which is why the SDK
+    reads the file on each call rather than caching it. The workload only reads the file. It cannot mint or
+    alter the token, and that is what makes presenting it proof of what the workload is.
+  </p>
+  <p>
+    The other two evidence types work the same way, from a different issuer: a SPIRE JWT-SVID comes from the
+    SPIRE agent over the Workload API socket, and a Google service-account ID token comes from
+    <code>generateIdToken</code>. In every case the workload holds no signing key; it only fetches a token a
+    trusted platform component produced for it.
+  </p>
+
   <h2>The SDK runs the five steps for you</h2>
   <p>
     A workload uses one call. The polyglot SDK
