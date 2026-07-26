@@ -1,4 +1,4 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="A workload authenticates to PingFederate with a platform-attested identity and no client secret; one SDK call gets the token."><title>Client Attestation for workloads — PingFederate on GCP</title>
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="description" content="A workload authenticates to PingFederate with a platform-attested identity and no client secret; one SDK call gets the token."><title>Client Attestation for workloads – PingFederate on GCP</title>
 <style>
   :root {
     --paper: #F7F8F7;
@@ -149,7 +149,7 @@
   <p style="font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.9rem;">
     <a href="https://github.com/dphhyland/pf-agentic-identity">github.com/dphhyland/pf-agentic-identity</a>
     &nbsp;·&nbsp; demo: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo"><code>deploy/gke-spiffe-demo</code></a>
-    &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://34.171.232.146/">34.171.232.146</a> — click Run, watch a real GKE workload authenticate
+    &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://34.171.232.146/">34.171.232.146</a> – click Run, watch a real GKE workload authenticate
   </p>
 
   <div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
@@ -165,9 +165,9 @@
   <p>Three parties are involved:</p>
 
   <div class="chips">
-    <span class="chip"><span class="dot g"></span>Platform attestor <small>— SPIRE, GKE, or Google's SA signer</small></span>
-    <span class="chip"><span class="dot a"></span>Client Attester <small>— servlet inside PF's war</small></span>
-    <span class="chip"><span class="dot p"></span>PingFederate <small>— the authorization server</small></span>
+    <span class="chip"><span class="dot g"></span>Platform attestor <small>– SPIRE, GKE, or Google's SA signer</small></span>
+    <span class="chip"><span class="dot a"></span>Client Attester <small>– servlet inside PF's war</small></span>
+    <span class="chip"><span class="dot p"></span>PingFederate <small>– the authorization server</small></span>
   </div>
   <p style="color: var(--ink-soft); font-size: 0.95rem;">
     These colours are used in the diagrams: <span style="color:var(--google); font-weight:600;">blue</span>
@@ -187,52 +187,52 @@
       <span class="stepnum">1</span>
       <div>
         <h3>Discover</h3>
-        <p><code>GET /.well-known/client-attester</code> — a static, parameterless document (RFC 8615)
-        carrying the endpoints, the <strong>evidence audience</strong> the workload must mint into its
-        identity token, and the proof requirements. Note what it does <em>not</em> carry: any
-        <code>client_id</code>. The workload doesn't know which OAuth client it is, and doesn't need to.</p>
+        <p><code>GET /.well-known/client-attester</code> returns a static, parameterless document
+        (RFC 8615). It carries the endpoints, the <strong>evidence audience</strong> the workload must mint
+        into its identity token, and the proof requirements. It carries no <code>client_id</code>. The
+        workload does not know which OAuth client it is, and does not need to.</p>
       </div>
     </li>
     <li>
       <span class="stepnum">2</span>
       <div>
         <h3>Prove what you are</h3>
-        <p>The workload fetches <strong>identity evidence from the platform</strong> — a token only something
-        actually running in that pod could obtain: a SPIRE JWT-SVID from the Workload API socket, a Kubernetes
-        service-account token Google signs and projects into the pod, or a Google service-account ID token.</p>
+        <p>The workload fetches <strong>identity evidence from the platform</strong>: a token only something
+        actually running in that pod could obtain. That is a SPIRE JWT-SVID from the Workload API socket, a
+        Kubernetes service-account token Google signs and projects into the pod, or a Google service-account
+        ID token.</p>
       </div>
     </li>
     <li>
       <span class="stepnum">3</span>
       <div>
         <h3>Bind a key</h3>
-        <p>The workload generates a fresh P-256 <strong>instance key</strong>, fetches a one-time challenge, and signs a
-        proof-of-possession over it. This is the key the eventual credential will be cryptographically bound to —
-        it never leaves the pod.</p>
+        <p>The workload generates a fresh P-256 <strong>instance key</strong>, fetches a one-time challenge,
+        and signs a proof-of-possession over it. The eventual credential is cryptographically bound to this
+        key, and the key never leaves the pod.</p>
       </div>
     </li>
     <li>
       <span class="stepnum">4</span>
       <div>
         <h3>Mint the Client Attestation</h3>
-        <p><code>POST /federation/attestation</code> with <strong>evidence + instance key + proof — and no
-        client_id</strong>. The attester validates the evidence against a trust bundle, then
+        <p><code>POST /federation/attestation</code> with the evidence, the instance key, and the proof, and
+        no <code>client_id</code>. The attester validates the evidence against a trust bundle. It then
         <strong>reverse-maps the identity onto the client it belongs to</strong> (see resolver plugins
-        below), optionally introspects the workload further, enforces that client's entitlement ceiling,
-        and mints a 5-minute Client Attestation JWT
-        (draft-ietf-oauth-attestation-based-client-auth) whose <code>sub</code> is the client it
-        selected.</p>
+        below), optionally introspects the workload further, and enforces that client's entitlement ceiling.
+        It mints a 5-minute Client Attestation JWT (draft-ietf-oauth-attestation-based-client-auth) whose
+        <code>sub</code> is the client it selected.</p>
       </div>
     </li>
     <li>
       <span class="stepnum">5</span>
       <div>
         <h3>Authenticate to the AS</h3>
-        <p>The workload calls PF's token endpoint with two headers — <code>OAuth-Client-Attestation</code>
+        <p>The workload calls PF's token endpoint with two headers, <code>OAuth-Client-Attestation</code>
         (the minted JWT) and <code>OAuth-Client-Attestation-PoP</code> (a fresh proof signed with the
-        instance key) — and no <code>client_id</code> or <code>client_secret</code>. A filter over the token
+        instance key), and no <code>client_id</code> or <code>client_secret</code>. A filter over the token
         endpoint verifies both and authenticates the client to PF with a <code>private_key_jwt</code> the
-        workload never holds; PF issues a JWT access token. The attestation is the only credential the
+        workload never holds; PF then issues a JWT access token. The attestation is the only credential the
         workload sends (see "How the token call carries no secret" below).</p>
       </div>
     </li>
@@ -266,7 +266,7 @@ sequenceDiagram
     </figure>
   </div>
 
-  <h2>You do not write the five steps — the SDK does</h2>
+  <h2>The SDK runs the five steps for you</h2>
   <p>
     A workload uses one call. The polyglot SDK
     (<a href="https://github.com/dphhyland/client-attestation-sdk-polyglot">client-attestation-sdk-polyglot</a>,
@@ -276,20 +276,20 @@ sequenceDiagram
 <pre><code>from client_attestation_sdk import ClientAttestation
 
 ca = ClientAttestation("pf.example.com")   # finds the workload's platform identity itself
-token = ca.token()                          # access token — no secret, no client_id</code></pre>
+token = ca.token()                          # access token, no secret, no client_id</code></pre>
   <p>
     The PingFederate host is the only required configuration. The attester's
     <code>/.well-known/client-attester</code> advertises the token endpoint and the PoP audience, so the SDK
-    resolves the rest. It finds the platform identity by checking the runtime in order — an environment
-    token, a projected token file (<code>/var/run/secrets/tokens/…</code>), a SPIRE socket, or the GCP
-    metadata server — and you can override that with an explicit source.
+    resolves the rest. It finds the platform identity by checking the runtime in order: an environment
+    token, a projected token file (<code>/var/run/secrets/tokens/…</code>), a SPIRE socket, then the GCP
+    metadata server. You can override that with an explicit source.
   </p>
   <p>
     For an agent, take the <code>Authorization</code> header the SDK gives you and attach it to a tool's HTTP
     call, or hand the SDK's adapter to your HTTP client (a <code>requests</code>/<code>httpx</code> auth in
     Python, a <code>fetch</code> wrapper in TypeScript, an <code>http.RoundTripper</code> in Go, a
-    <code>java.net.http</code> helper in Java). In Gemini/ADK, that is an ADK
-    <code>header_provider</code> or <code>before_tool_callback</code> — the agent's tool call then carries an
+    <code>java.net.http</code> helper in Java). In Gemini/ADK, that adapter is an ADK
+    <code>header_provider</code> or <code>before_tool_callback</code>; the agent's tool call then carries an
     attestation-derived token with no secret and no extra code.
   </p>
 
@@ -300,12 +300,12 @@ token = ca.token()                          # access token — no secret, no cli
     attestation's <code>sub</code>; the workload reads it back from there when it calls the token endpoint.
   </p>
   <p>
-    Two consequences. A workload cannot request a client it was not mapped to, because it has no way to name
-    one. And re-mapping a workload to a different client is a change in the attester's configuration only —
-    no redeploy, no config change on the workload.
+    Two consequences follow. A workload cannot request a client it was not mapped to, because it has no way
+    to name one. And re-mapping a workload to a different client is a change in the attester's configuration
+    alone; the workload is not redeployed and its config does not change.
   </p>
 
-  <h2>Resolver plugins — where the mapping comes from</h2>
+  <h2>Resolver plugins: where the mapping comes from</h2>
   <p>
     The identity-to-client mapping comes from a <strong>resolver plugin</strong>. At mint time the attester
     tries each configured plugin against the presented evidence. The plugin whose trust bundle verifies the
@@ -321,7 +321,7 @@ token = ca.token()                          # access token — no secret, no cli
         <td>No external document; the mapping is config-as-code beside the client itself</td></tr>
       <tr><td><code>cimd</code></td>
         <td>A hosted <strong>Client ID Metadata Document</strong> fetched by URL</td>
-        <td>Mapping in git or a static host, changed without touching the AS — this demo's
+        <td>Mapping in git or a static host, changed without touching the AS – this demo's
           <a href="/cimd.json">cimd.json</a></td></tr>
       <tr><td><code>openid-federation</code></td>
         <td>A signed federation entity statement's <code>spiffe_client_bindings</code> claim</td>
@@ -334,17 +334,17 @@ token = ca.token()                          # access token — no secret, no cli
     error and is rejected rather than resolved arbitrarily.
   </p>
 
-  <h2>Introspecting the workload — SPIRE selectors as policy input</h2>
+  <h2>Introspecting the workload: SPIRE selectors as policy input</h2>
   <p>
     An SVID carries a SPIFFE ID and little else. After validating it, the attester can query SPIRE for the
-    <strong>registration selectors</strong> behind that identity — <code>k8s:ns:demo</code>,
-    <code>k8s:sa:payment-agent</code>, <code>unix:uid:0</code>, <code>docker:image:…</code> — and add them
+    <strong>registration selectors</strong> behind that identity (<code>k8s:ns:demo</code>,
+    <code>k8s:sa:payment-agent</code>, <code>unix:uid:0</code>, <code>docker:image:…</code>) and add them
     to the attestation's <code>workload.attributes</code>, where the issuance policy can read them.
   </p>
   <p>
     Selectors are recorded by SPIRE when it attests the workload, so they are not self-asserted. That makes
-    them usable for conditioning the grant — for example, only granting EMEA to a workload whose selectors
-    include <code>k8s:ns:demo</code>. The lookup is best-effort: if it fails, the attestation is not
+    them usable for conditioning the grant; for example, only granting EMEA to a workload whose selectors
+    include <code>k8s:ns:demo</code>. The lookup is best-effort. If it fails, the attestation is not
     enriched and issuance continues.
   </p>
 
@@ -355,10 +355,10 @@ token = ca.token()                          # access token — no secret, no cli
     <a href="https://github.com/dphhyland/pf-agentic-identity/blob/main/deploy/gke-spiffe-demo/runbook-curl.md">runbook-curl.md</a>
     has the annotated version.
   </p>
-<pre><code># 1. Discovery — static, no parameters, no client_id
+<pre><code># 1. Discovery: static, no parameters, no client_id
 curl -s -X GET '$PF/.well-known/client-attester'
 
-# 2. Evidence — from the platform, aud = the evidence_audience the document named
+# 2. Evidence from the platform. aud = the evidence_audience the document named
 cat /var/run/secrets/tokens/attester-token          # GKE projects it into the pod
 
 # 3. Challenge, then mint. No client_id in the body.
@@ -373,7 +373,7 @@ curl -s -X POST '$PF/federation/attestation' \
 }'
 # → {"attestation":"eyJhbGciOiJFUzI1NiIs…","expires_in":300}
 
-# 4. Token. Only the two attestation headers — no client_id, no client_secret.
+# 4. Token. Only the two attestation headers, no client_id, no client_secret.
 curl -s -X POST '$PF/as/token.oauth2' \
   -H 'OAuth-Client-Attestation: eyJhbGciOiJFUzI1NiIs…' \
   -H 'OAuth-Client-Attestation-PoP: eyJhbGciOiJFUzI1NiIs…' \
@@ -403,7 +403,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
   </p>
   <p>
     So a servlet filter, <code>ClientAttestationAuthFilter</code>, is registered over
-    <code>/as/token.oauth2</code> in <code>pf-runtime.war</code> — the same mechanism this project already
+    <code>/as/token.oauth2</code> in <code>pf-runtime.war</code>, the same mechanism this project already
     uses to register a logout-signal filter. When the two attestation headers are present it verifies them
     with the same code as the issuance criterion, resolves the client from the attestation's
     <code>sub</code>, and rewrites the request to authenticate to PF with <code>private_key_jwt</code>: a
@@ -414,10 +414,10 @@ curl -s -X POST '$PF/as/token.oauth2' \
   <div class="tablewrap">
     <table>
       <tr><th>Request</th><th>Result</th></tr>
-      <tr><td>Two attestation headers, no secret, no client_id</td><td class="ok">200 — token issued</td></tr>
+      <tr><td>Two attestation headers, no secret, no client_id</td><td class="ok">200, token issued</td></tr>
       <tr><td>No attestation headers</td><td class="deny">passed through; PF rejects the credential-less request</td></tr>
-      <tr><td>Attestation without a PoP</td><td class="deny">401 <code>invalid_client</code> — rejected at the filter</td></tr>
-      <tr><td>Tampered attestation, or PoP with wrong <code>aud</code></td><td class="deny">401 <code>invalid_client</code> — PF never reached</td></tr>
+      <tr><td>Attestation without a PoP</td><td class="deny">401 <code>invalid_client</code>, rejected at the filter</td></tr>
+      <tr><td>Tampered attestation, or PoP with wrong <code>aud</code></td><td class="deny">401 <code>invalid_client</code>, PF never reached</td></tr>
       <tr><td>Requested access above the attested ceiling</td><td class="deny">403 <code>access_denied</code> at mint</td></tr>
     </table>
   </div>
@@ -425,13 +425,13 @@ curl -s -X POST '$PF/as/token.oauth2' \
     The attestation is now the workload's only credential. Nothing shared or reusable is provisioned to the
     workload; the bridge key lives only in the PingFederate deployment and authenticates on the workload's
     behalf once its attestation has been verified. The issuance criterion runs independently on the
-    token, so the attestation is checked twice — at the filter and inside PF.
+    token, so the attestation is checked twice: at the filter and inside PF.
   </p>
   <p>
-    Two honest caveats. This registers a filter in PingFederate's own web application, which Ping does not
-    document as an extension point, so it carries an upgrade-time re-validation cost. And the bridge key is
-    a component the deployment holds on the workload's behalf — it is not a workload secret, but it is a key
-    that must be protected like one. The design point stands: <em>no per-workload credential is
+    Two caveats are worth stating. This registers a filter in PingFederate's own web application, which Ping
+    does not document as an extension point, so it carries an upgrade-time re-validation cost. And the bridge
+    key is a component the deployment holds on the workload's behalf; it is not a workload secret, but it is
+    a key that must be protected like one. The design point stands: <em>no per-workload credential is
     provisioned, and the workload authenticates with a platform-attested identity alone.</em>
   </p>
 
@@ -480,8 +480,8 @@ curl -s -X POST '$PF/as/token.oauth2' \
 
   <h2>Four platforms, one issuance flow</h2>
   <p>
-    Each phase runs the same five steps against the same servlet. What changes is which system attests
-    the workload, and how much infrastructure you have to run yourself.
+    Each deployment runs the same five steps against the same servlet. What changes is which system attests
+    the workload, and how much infrastructure you run yourself.
   </p>
 
   <div class="tablewrap">
@@ -496,7 +496,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
         <td><strong>Attestor</strong></td>
         <td>SPIRE you operate in-cluster</td>
         <td>The GKE control plane</td>
-        <td><strong>Google's SA token signer</strong> — managed agent, no cluster at all</td>
+        <td><strong>Google's SA token signer</strong> (managed agent, no cluster at all)</td>
       </tr>
       <tr>
         <td><strong>Evidence</strong></td>
@@ -531,7 +531,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
     infrastructure nor a Google identity, so it acts as its own trust domain: it signs a
     <code>spiffe://railway.demo/…</code> JWT-SVID with a key whose public half is published in the CIMD.
     The issuance path is unchanged. The attester's requirement is that the evidence verifies against a
-    trust bundle it is configured with — not that it came from any particular platform.
+    trust bundle it is configured with, not that it came from any particular platform.
   </p>
 
   <p>
@@ -554,8 +554,8 @@ curl -s -X POST '$PF/as/token.oauth2' \
   <div class="tablewrap">
     <table>
       <tr><th>Run</th><th>Request</th><th>Result</th></tr>
-      <tr><td>Positive chain (all three phases)</td><td class="mono">no explicit request → full ceiling</td><td class="ok">200 → access token</td></tr>
-      <tr><td>Within ceiling</td><td class="mono">sales_regions: ["EMEA"]</td><td class="ok">200 → scoped grant + token</td></tr>
+      <tr><td>All three platforms</td><td class="mono">no explicit request, full ceiling</td><td class="ok">200, access token</td></tr>
+      <tr><td>Within ceiling</td><td class="mono">sales_regions: ["EMEA"]</td><td class="ok">200, scoped grant + token</td></tr>
       <tr><td>Over ceiling</td><td class="mono">sales_regions: ["APAC"]</td><td class="deny">403 access_denied at mint</td></tr>
       <tr><td>Replayed proof</td><td class="mono">same challenge + jti resent</td><td class="deny">401 invalid_instance_proof</td></tr>
     </table>
@@ -566,7 +566,7 @@ curl -s -X POST '$PF/as/token.oauth2' \
     This plugs directly into the identity model behind <strong>Gemini Enterprise Agent Platform</strong>.
     Google's <a href="https://docs.cloud.google.com/gemini-enterprise-agent-platform/govern/agent-identity-overview">Agent
     Identity</a> gives every managed agent a lifecycle-bound <strong>SPIFFE ID</strong> and auto-managed
-    X.509 — no developer-held long-lived keys — and its <a href="https://cloud.google.com/blog/products/identity-security/introducing-agent-gateway-isv-ecosystem-for-security-and-governance">Agent
+    X.509, with no developer-held long-lived keys. Its <a href="https://cloud.google.com/blog/products/identity-security/introducing-agent-gateway-isv-ecosystem-for-security-and-governance">Agent
     Gateway</a> authorizes agent-and-tool <em>traffic</em> at runtime through an <code>ext_proc</code>
     hook into PingAuthorize (the <a href="https://www.pingidentity.com/en/resources/blog/post/runtime-identity-for-traffic.html">Ping
     integration</a>).
@@ -575,15 +575,15 @@ curl -s -X POST '$PF/as/token.oauth2' \
     Neither covers how an agent authenticates to an authorization server outside Google to obtain that
     token in the first place. That is what this implements: Google attests the agent, the attester converts
     that attestation into an OAuth Client Attestation carrying an entitlement ceiling, and PingFederate
-    issues the token. It uses Google's own primitives — the <code>spiffe://…</code> naming, GKE workload
-    identity, and the runtime service account's ID token for a managed agent, because the managed Agent Identity
-    X.509 credentials are not exportable to third parties.
+    issues the token. It uses Google's own primitives: the <code>spiffe://…</code> naming, GKE workload
+    identity, and the runtime service account's ID token for a managed agent. The last of these is needed
+    because the managed Agent Identity X.509 credentials are not exportable to third parties.
   </p>
 
   <h2>How a Gemini Enterprise agent actually uses this</h2>
   <p>
     Concretely: a user asks a <strong>Gemini Enterprise agent</strong> to do something that needs a
-    protected downstream resource — read an account, submit a quote. The agent has a Google
+    protected downstream resource, such as reading an account or submitting a quote. The agent has a Google
     <strong>Agent Identity</strong> (a SPIFFE ID) but <em>no client secret</em> for your authorization
     server. This is the moment the demo fills: the agent turns its platform identity into a scoped token,
     then calls the resource.
@@ -631,25 +631,25 @@ sequenceDiagram
   <h2>Standards it stands on</h2>
   <p style="margin-bottom: 0.4rem;">The components are all specified:</p>
   <ul>
-    <li><strong>draft-ietf-oauth-attestation-based-client-auth</strong> — the two-header client authentication scheme (attestation + PoP)</li>
-    <li><strong>SPIFFE</strong> — workload identity: JWT-SVIDs, trust domains, the <code>spiffe://…/ns/…/sa/…</code> naming Google adopted for GKE</li>
-    <li><strong>RFC 9396</strong> (Rich Authorization Requests) — the entitlement-ceiling vocabulary</li>
-    <li><strong>OAuth client credentials</strong> — the grant type used</li>
+    <li><strong>draft-ietf-oauth-attestation-based-client-auth</strong> – the two-header client authentication scheme (attestation + PoP)</li>
+    <li><strong>SPIFFE</strong> – workload identity: JWT-SVIDs, trust domains, the <code>spiffe://…/ns/…/sa/…</code> naming Google adopted for GKE</li>
+    <li><strong>RFC 9396</strong> (Rich Authorization Requests) – the entitlement-ceiling vocabulary</li>
+    <li><strong>OAuth client credentials</strong> – the grant type used</li>
   </ul>
   <p>
-    <em>draft-ietf-oauth-spiffe-client-auth</em> profiles this pattern directly — SPIFFE credentials used
-    as attestation-based client authentication — and Google's Agent Gateway assigns every managed agent a
-    SPIFFE ID. The structure here (platform attests, attester converts, AS verifies) sits between the two,
-    and the Google service-account ID token covers the Gemini Enterprise Agent Platform case without that platform exporting any key
-    material.
+    <em>draft-ietf-oauth-spiffe-client-auth</em> profiles this pattern directly, with SPIFFE credentials
+    used as attestation-based client authentication, and Google's Agent Gateway assigns every managed agent
+    a SPIFFE ID. The structure here (platform attests, attester converts, AS verifies) sits between the two.
+    The Google service-account ID token covers the Gemini Enterprise Agent Platform case without that
+    platform exporting any key material.
   </p>
 
   <div class="note">
-    <strong>Field note — the bug worth remembering.</strong> PingFederate evaluates token-endpoint OGNL criteria on its
+    <strong>Implementation note: the classloader split.</strong> PingFederate evaluates token-endpoint OGNL criteria on its
     <em>engine</em> classloader, which cannot see classes inside <code>pf-runtime.war</code>'s <code>WEB-INF/lib</code>.
     The module jar must also sit in <code>server/default/deploy/</code>, or the verification hook fails as an opaque
     OGNL "Method failed" with no stack trace. The webapp copy (servlets) and engine copy (OGNL hook) communicate
-    only through request attributes keyed by plain strings — a cross-classloader contract that now makes sense.
+    only through request attributes keyed by plain strings, a deliberate cross-classloader contract.
   </div>
 
   <hr>
@@ -657,7 +657,7 @@ sequenceDiagram
   <p class="foot">
     <strong>Where it lives:</strong> GCP project <code>pf-spiffe-demo-7264</code>, cluster <code>spiffe-demo</code>
     (us-central1-a, ≈ $4/day). Source and runbooks: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo">pf-agentic-identity/deploy/gke-spiffe-demo</a>.
-    Try it: port-forward the agent and <code>POST /invoke</code> — the response contains every JWT above, ready to
+    Try it: port-forward the agent and <code>POST /invoke</code>; the response contains every JWT above, ready to
     decode. Tear down with <code>gcp/teardown.sh</code>.
   </p>
 </div>
