@@ -1,7 +1,7 @@
 """The live demo console served at GET / by the agent. A single self-contained HTML string.
 
 Every "Run" click makes the pod fetch fresh platform evidence, mint a real Client Attestation, and
-call the live PingFederate — then the page decodes and displays every JWT. It is genuinely live: the
+call the live PingFederate – then the page decodes and displays every JWT. It is genuinely live: the
 tokens shown are the ones just minted inside GCP.
 """
 
@@ -10,7 +10,7 @@ CONSOLE_HTML = r"""<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Client Attestation — live demo</title>
+<title>Client Attestation – live demo</title>
 <style>
   :root {
     --paper:#F7F8F7; --ink:#1A2228; --soft:#4A5560; --line:#DDE3E1;
@@ -88,11 +88,11 @@ CONSOLE_HTML = r"""<!doctype html>
 <div class="wrap">
   <p class="eyebrow">Live demo · running in GCP</p>
   <h1>Watch a workload authenticate with a platform-attested identity</h1>
-  <p class="lede">Each run makes <em>this pod</em> fetch fresh platform evidence and present it —
-  <strong>with no client_id</strong> — to the attester, which maps the identity to an OAuth client, then
+  <p class="lede">Each run makes <em>this pod</em> fetch fresh platform evidence and present it –
+  <strong>with no client_id</strong> – to the attester, which maps the identity to an OAuth client, then
   calls the live PingFederate. The JWTs below are the real ones, minted just now.</p>
   <p class="ask" style="margin-top:.6rem">Look at the token call in step 4: <strong>no
-  <code>client_secret</code>, no <code>client_id</code></strong> — just the two
+  <code>client_secret</code>, no <code>client_id</code></strong> – just the two
   <code>OAuth-Client-Attestation</code> headers. PingFederate has no native support for
   <code>attest_jwt_client_auth</code>, so a filter over its token endpoint verifies the attestation and
   authenticates the resolved client to PF with a <code>private_key_jwt</code> assertion the workload never
@@ -105,7 +105,7 @@ CONSOLE_HTML = r"""<!doctype html>
     <span class="meta" id="meta"></span>
   </div>
   <p class="ask">This workload is attested for <strong>sales_agent</strong> in
-  <strong>EMEA only</strong> — that ceiling comes from the resolver plugin's mapping, not from anything the
+  <strong>EMEA only</strong> – that ceiling comes from the resolver plugin's mapping, not from anything the
   workload says. The buttons send an RFC 9396 <code>authorization_details</code> request along with the
   mint call: <em>Ask for EMEA</em> is inside the ceiling, <em>Ask for APAC</em> is outside it.</p>
 
@@ -145,7 +145,7 @@ function activate(k){el('st-'+k).classList.add('active');}
 function done(k,openIt){const s=el('st-'+k);s.classList.add('done');if(openIt)s.classList.add('open');}
 function setBody(k,html){el('body-'+k).innerHTML=html;}
 
-// Shows the RFC 9396 authorization_details the workload sent with the mint call — the thing the
+// Shows the RFC 9396 authorization_details the workload sent with the mint call – the thing the
 // ceiling is checked against. Without this the allow/deny outcome has no visible cause.
 // The exact HTTP request the workload made for this step, as a runnable curl.
 function curlBlock(r, step){
@@ -163,9 +163,9 @@ function copyCurl(e,id){
 }
 
 function reqBlock(r){
-  if(!r._requested) return '<div class="req">No <b>authorization_details</b> requested — the attester '+
+  if(!r._requested) return '<div class="req">No <b>authorization_details</b> requested – the attester '+
     'grants the workload\'s full attested ceiling.</div>';
-  return '<div class="req">Sent with the mint request — <b>authorization_details</b>:'+
+  return '<div class="req">Sent with the mint request – <b>authorization_details</b>:'+
     '<pre style="margin-top:.4rem">'+JSON.stringify(r._requested,null,1)+'</pre></div>';
 }
 
@@ -203,7 +203,7 @@ async function run(mode){
       ? '<div class="kv">resolver plugins active (they map identity → client at mint): <code>'+
         (d.resolver_plugins_active||[]).join('</code> <code>')+'</code></div>' : '';
     setBody('discover', curlBlock(r,'discover')+
-      '<div class="kv">a static document — note it carries no client_id</div>'+plugins+
+      '<div class="kv">a static document – note it carries no client_id</div>'+plugins+
       '<pre>'+JSON.stringify({evidence_audience:d.evidence_audience,
         evidence_types_supported:d.evidence_types_supported,
         attestation_endpoint:d.attestation_endpoint,
@@ -219,17 +219,17 @@ async function run(mode){
       : (r.evidence_mode==='spiffe-jwt'
         ? '<details class="curl"><summary>how this token was obtained</summary><pre># from the SPIRE Workload API (aud = the attester the discovery doc named):\nspire-agent api fetch jwt -audience https://attester.example.com</pre></details>'
         : '');
-    setBody('evidence', how+'<div class="kv">Google/SPIRE signed this — the pod cannot forge it</div><pre>'+c+
+    setBody('evidence', how+'<div class="kv">Google/SPIRE signed this – the pod cannot forge it</div><pre>'+c+
       '</pre><div class="tok">'+r.evidence.slice(0,88)+'…</div>');
     done('evidence',true); }
 
   // 3 mint
   activate('mint');
   if(r.mint_status===200){ const att=r.attestation; const c=decodeJwt(att); setPill('mint','ok','200');
-    // The client id is the ATTESTER's conclusion — the request carried none.
+    // The client id came from the attester; the request carried none.
     const assigned = r.client_id ? '<div class="kv">the attester resolved this identity to client '+
       '<code style="font-family:ui-monospace,Menlo,monospace">'+r.client_id+'</code>'+
-      ' — the request carried no client_id</div>' : '';
+      ' – the request carried no client_id</div>' : '';
     const sel = (()=>{ try{ const w=JSON.parse(b64urlDecode(att.split('.')[1])).workload||{};
         const s=(w.attributes||{}).selectors;
         return s&&s.length ? '<div class="kv">SPIRE selectors introspected: <code>'+s.join('</code> <code>')+
@@ -239,7 +239,7 @@ async function run(mode){
       c+'</pre>'); done('mint',true); }
   else { setPill('mint','err',r.mint_status||'fail');
     setBody('mint', curlBlock(r,'mint') + reqBlock(r) +
-      '<div class="kv">the attester refused — the request exceeded what this workload is attested for</div>'+
+      '<div class="kv">the attester refused – the request exceeded what this workload is attested for</div>'+
       '<pre>'+(r.mint_body||'').replace(/</g,'&lt;')+'</pre>'); done('mint',true);
     return finish(r,mode); }
 
@@ -250,7 +250,7 @@ async function run(mode){
     try{
       const at=JSON.parse(r.pf_body||'{}').access_token||'';
       if(at.split('.').length===3){
-        extra='<div class="kv">the access token is a JWT — decoded payload:</div><pre>'+
+        extra='<div class="kv">the access token is a JWT – decoded payload:</div><pre>'+
           JSON.stringify(JSON.parse(b64urlDecode(at.split('.')[1])),null,1)+'</pre>'+
           '<div class="kv">note <code>sub</code>: the resource server sees the attested workload, '+
           'and <code>act</code> records which platform attested it</div>';
@@ -268,14 +268,14 @@ function finish(r,mode){
   const v=el('verdict');
   if(r.mint_status && r.mint_status!==200){
     v.className='verdict show fail';
-    v.innerHTML='<h3>Denied at mint — before any token existed</h3><p>The workload asked for '+
+    v.innerHTML='<h3>Denied at mint – before any token existed</h3><p>The workload asked for '+
       '<code>sales_regions: ["APAC"]</code>, but it is only attested for <code>["EMEA"]</code>. The '+
       'attester enforces <em>requested &sube; attested</em> and refused '+
-      '(<code>'+ (r.mint_status||'') +' '+ (JSON.parse(r.mint_body||'{}').error||'') +'</code>) — so no '+
+      '(<code>'+ (r.mint_status||'') +' '+ (JSON.parse(r.mint_body||'{}').error||'') +'</code>) – so no '+
       'access token was ever issued for APAC, anywhere.</p>';
   } else if(r.pf_status===200){
     v.className='verdict show pass';
-    v.innerHTML='<h3>Authenticated with a platform-attested identity — no secret</h3><p>This workload '+
+    v.innerHTML='<h3>Authenticated with a platform-attested identity – no secret</h3><p>This workload '+
       'presented only <em>what it is</em>: two attestation headers, no client_id, no client_secret. The '+
       'token-endpoint filter verified the attestation, resolved the identity to '+
       (r.client_id ? '<code>'+r.client_id+'</code>' : 'an OAuth client')+' via its resolver plugins, and '+
