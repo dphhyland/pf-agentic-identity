@@ -37,6 +37,27 @@ configuration), and both entity configurations publish the attester's public key
 chain instead of a locally pinned attester file. Chain verified leaf(EKS)→anchor. The AWS leaf side is
 in `deploy/aws-bedrock-demo/DEMO-STATE.md`.
 
+## Cross-cloud token exchange (P2, image `pingfederate:federation-p2b`)
+
+Both PFs run an RFC 8693 delegation plane, config in `pf/terraform/token-exchange.tf` (+
+`imports-issuer.tf`/`adopted-issuer.tf`) and baked into `data.zip`:
+
+- `attestJwtATM` stamps `iss` = the PF's public issuer; `subjectJwtProc` validates it (a JWT token
+  processor rejects issuerless subject tokens with "Invalid Issuer").
+- The token-exchange mapping's `act` is built by `ClientAttestationUtils.delegationActChain` —
+  `{"sub": <exchanging client>, "act": <subject token's chain>}`, one level per hop. (PF 13 mapping
+  OGNL cannot reference token-exchange policy contract attributes, only `context.*`.)
+- The EKS PF adds `gkeSubjectProc` (subject_token_type `urn:ietf:params:oauth:token-type:jwt`)
+  validating GKE-issued tokens against `http://35.223.142.97/pf/JWKS` — the same keys the anchor
+  vouches for in its subordinate statement.
+- `demo-attest-agentcore` and `demo-attest-gke-native` carry the `TOKEN_EXCHANGE` grant on both PFs.
+
+Verified live, both hops, attestation-only client auth throughout: A (GKE workload) → B (AgentCore,
+AWS attestation presented at the **GKE** PF) → token2 `act={B,{A}}` → C (GKE attestation presented at
+the **EKS** PF, subject_token = token2) → token3 `sub=A`, `act={C,{B,{A}}}`. Negative: a PoP minted
+for one AS is rejected 401 by the other. Drivers: `hop1_exchange.py` / `hop2_inpod.py` (session
+scratchpad; to be productised as the P3 agents).
+
 ## What the demo does
 
 A workload authenticates to PingFederate using a platform-attested identity, with no client secret and no
