@@ -9,9 +9,15 @@ PingFederate runs on EKS and serves two AWS evidence paths, both verified end-to
 | Path | Workload | Evidence | Token `sub` |
 |---|---|---|---|
 | `eks-sa-token` | EKS pod (IRSA) | projected SA token, cluster OIDC JWKS | `spiffe://eks.demo.aws/ns/demo/sa/payment-agent` |
-| `aws-sts-web-identity` | Bedrock AgentCore agent | `sts:GetWebIdentityToken` OIDC JWT | `spiffe://971422710168.aws.demo/aws/971422710168/role/agentcore-attest-demo` |
+| `aws-sts-web-identity` | **Bedrock AgentCore Runtime agent** | `sts:GetWebIdentityToken` OIDC JWT | `spiffe://971422710168.aws.demo/aws/971422710168/role/agentcore-attest-demo` |
 
 Over-ceiling (APAC) → 403 on both. Same attester also serves the GCP demo (one attester, two clouds).
+
+The AgentCore path runs in the real managed runtime: `InvokeAgentRuntime` on
+`arn:aws:bedrock-agentcore:ap-southeast-2:971422710168:runtime/attest_demo_agent-2iANTrG4vB` returns
+mint 200 / pf 200. The agent (container `agentcore-agent:latest`, arm64, HTTP protocol, PUBLIC network)
+reaches PF over its public load balancer
+`aedf8922e217a444d8260c5a4cbb2c45-1761953978.ap-southeast-2.elb.amazonaws.com`.
 
 ## Coordinates
 
@@ -41,11 +47,13 @@ kubectl --context "$EKS" -n demo exec "$POD" -- python3 -c \
 # AgentCore path — assume the role, run agentcore/agent.py against the EKS PF (port-forward 19080→9080)
 ```
 
-## Not yet durable
+## Durable
 
-`demo-attest-eks` was added to the running EKS PF via the admin API, so a PF pod restart loses it (the
-baked data.zip predates it). To lock in: export the EKS PF config archive, rebuild the ECR PF image, roll.
-`demo-attest-agentcore` IS baked in.
+Both clients are baked into the PF image. The EKS PF runs the re-baked image
+`971422710168.dkr.ecr.ap-southeast-2.amazonaws.com/pingfederate@sha256:399d8e6dcc8a7287a499d7bd4e2bd0af6e5778ebefdcacdf2dfe466d55e39d74`,
+whose `data.zip` includes `demo-attest-eks` and `demo-attest-agentcore`. A fresh pod boots with both, no
+Terraform or admin-API step. Verified: after rolling to this image, `demo-attest-eks` is present as
+`PRIVATE_KEY_JWT` straight from the baked config.
 
 ## Teardown
 
