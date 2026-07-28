@@ -28,6 +28,7 @@ final class FederationConfiguration {
     private final int corsMaxAge;
     private final String signingAlgorithm;
     private final AttestationMetadataConfig attestationMetadata;
+    private final String attesterJwks;
 
     FederationConfiguration(List<String> trustAnchorIssuers, List<String> subordinates, String trustControllerHost, boolean ignoreSslErrors) {
         this(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, true, DEFAULT_CORS_ALLOW_ORIGIN, DEFAULT_CORS_ALLOW_METHODS, DEFAULT_CORS_ALLOW_HEADERS, 3600, DEFAULT_SIGNING_ALGORITHM);
@@ -42,6 +43,10 @@ final class FederationConfiguration {
     }
 
     FederationConfiguration(List<String> trustAnchorIssuers, List<String> subordinates, String trustControllerHost, boolean ignoreSslErrors, boolean corsEnabled, String corsAllowOrigin, String corsAllowMethods, String corsAllowHeaders, int corsMaxAge, String signingAlgorithm, AttestationMetadataConfig attestationMetadata) {
+        this(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, corsEnabled, corsAllowOrigin, corsAllowMethods, corsAllowHeaders, corsMaxAge, signingAlgorithm, attestationMetadata, null);
+    }
+
+    FederationConfiguration(List<String> trustAnchorIssuers, List<String> subordinates, String trustControllerHost, boolean ignoreSslErrors, boolean corsEnabled, String corsAllowOrigin, String corsAllowMethods, String corsAllowHeaders, int corsMaxAge, String signingAlgorithm, AttestationMetadataConfig attestationMetadata, String attesterJwks) {
         this.trustAnchorIssuers = List.copyOf(trustAnchorIssuers);
         this.subordinates = List.copyOf(subordinates);
         this.ignoreSslErrors = ignoreSslErrors;
@@ -53,6 +58,7 @@ final class FederationConfiguration {
         this.corsMaxAge = corsMaxAge;
         this.signingAlgorithm = signingAlgorithm;
         this.attestationMetadata = attestationMetadata != null ? attestationMetadata : AttestationMetadataConfig.defaults();
+        this.attesterJwks = attesterJwks == null || attesterJwks.isBlank() ? null : attesterJwks;
     }
 
     /**
@@ -84,7 +90,8 @@ final class FederationConfiguration {
             String corsAllowHeaders = orDefault(config.getInitParameter("corsAllowHeaders"), DEFAULT_CORS_ALLOW_HEADERS);
             int corsMaxAge = parseInt(config.getInitParameter("corsMaxAge"), 3600);
             AttestationMetadataConfig attestationMetadata = AttestationMetadataConfig.fromServletConfig(config);
-            return new FederationConfiguration(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, corsEnabled, corsAllowOrigin, corsAllowMethods, corsAllowHeaders, corsMaxAge, signingAlgorithm, attestationMetadata);
+            String attesterJwks = setting(config, "attesterJwks", "OIDF_FEDERATION_ATTESTER_JWKS");
+            return new FederationConfiguration(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, corsEnabled, corsAllowOrigin, corsAllowMethods, corsAllowHeaders, corsMaxAge, signingAlgorithm, attestationMetadata, attesterJwks);
         }
         catch (Exception e) {
             throw new IllegalArgumentException("Invalid federation servlet configuration", e);
@@ -173,6 +180,16 @@ final class FederationConfiguration {
 
     String signingAlgorithm() {
         return this.signingAlgorithm;
+    }
+
+    /**
+     * Public JWKS (raw JSON) of the Client Attester co-hosted with this entity, published in the
+     * entity configuration as {@code metadata.oauth_client_attester.jwks} so that remote ASes can
+     * resolve the attestation-signing keys through the federation trust chain instead of a locally
+     * pinned attester file. Null when this entity hosts no attester.
+     */
+    String attesterJwks() {
+        return this.attesterJwks;
     }
 
     AttestationMetadataConfig attestationMetadata() {

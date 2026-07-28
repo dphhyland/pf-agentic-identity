@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.common.PfJwksSigningKeyProvider;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -34,7 +35,8 @@ extends HttpServlet {
         try {
             this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
             this.federationService = new FederationService(this.federationConfiguration,
-                new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()));
+                new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()),
+                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()));
         }
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);
