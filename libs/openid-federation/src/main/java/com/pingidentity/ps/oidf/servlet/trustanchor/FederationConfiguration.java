@@ -55,16 +55,29 @@ final class FederationConfiguration {
         this.attestationMetadata = attestationMetadata != null ? attestationMetadata : AttestationMetadataConfig.defaults();
     }
 
+    /**
+     * Reads a setting from the servlet {@code init-param}, falling back to an environment variable. The env
+     * fallback lets an ephemeral, image-baked PingFederate be configured as a federation entity through
+     * deployment env (like the other {@code OIDF_*} settings) rather than a web.xml rebuild per deployment.
+     */
+    private static String setting(ServletConfig config, String initParam, String envVar) {
+        String value = config.getInitParameter(initParam);
+        if (value == null || value.isBlank()) {
+            value = System.getenv(envVar);
+        }
+        return value;
+    }
+
     static FederationConfiguration fromServletConfig(ServletConfig config) {
         try {
-            String trustControllerHost = config.getInitParameter("trustControllerHost");
-            boolean ignoreSslErrors = Boolean.parseBoolean(config.getInitParameter("ignoreSslErrors"));
-            List<String> trustAnchorIssuers = parseCommaSeparated(config.getInitParameter("trustAnchorIssuers"));
-            List<String> subordinates = parseCommaSeparated(config.getInitParameter("subordinates"));
+            String trustControllerHost = setting(config, "trustControllerHost", "OIDF_FEDERATION_TRUST_CONTROLLER_HOST");
+            boolean ignoreSslErrors = Boolean.parseBoolean(setting(config, "ignoreSslErrors", "OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
+            List<String> trustAnchorIssuers = parseCommaSeparated(setting(config, "trustAnchorIssuers", "OIDF_FEDERATION_TRUST_ANCHORS"));
+            List<String> subordinates = parseCommaSeparated(setting(config, "subordinates", "OIDF_FEDERATION_SUBORDINATES"));
             if (trustAnchorIssuers.isEmpty()) {
                 throw new IllegalArgumentException("Configuration must contain at least one trust anchor issuer");
             }
-            String signingAlgorithm = parseSigningAlgorithm(config.getInitParameter("signingAlgorithm"));
+            String signingAlgorithm = parseSigningAlgorithm(setting(config, "signingAlgorithm", "OIDF_FEDERATION_SIGNING_ALG"));
             boolean corsEnabled = parseBoolean(config.getInitParameter("corsEnabled"), true);
             String corsAllowOrigin = orDefault(config.getInitParameter("corsAllowOrigin"), DEFAULT_CORS_ALLOW_ORIGIN);
             String corsAllowMethods = orDefault(config.getInitParameter("corsAllowMethods"), DEFAULT_CORS_ALLOW_METHODS);
