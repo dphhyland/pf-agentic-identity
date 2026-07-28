@@ -37,6 +37,20 @@ configuration), and both entity configurations publish the attester's public key
 chain instead of a locally pinned attester file. Chain verified leaf(EKS)→anchor. The AWS leaf side is
 in `deploy/aws-bedrock-demo/DEMO-STATE.md`.
 
+## Live cross-cloud agent chain
+
+One call runs a request through three agents in two clouds and into a resource server:
+
+```
+curl -s -X POST http://34.70.227.225/run | jq
+```
+
+Agents and clients: A = `chain-agent-a` (SA payment-agent → `demo-attest-gke-native`), B = the
+Bedrock AgentCore runtime (`demo-attest-agentcore`), C = `chain-agent-c` (SA delivery-agent →
+`demo-attest-gke-delivery`, LB 136.112.33.181), resource = `mock-resource` on EKS. Full tree and
+runbook in `deploy/cross-cloud-chain/`. Both PFs run `pingfederate:federation-p3`, whose `data.zip`
+includes the delivery client, so a fresh pod boots with the whole chain working.
+
 ## Cross-cloud token exchange (P2, image `pingfederate:federation-p2b`)
 
 Both PFs run an RFC 8693 delegation plane, config in `pf/terraform/token-exchange.tf` (+
