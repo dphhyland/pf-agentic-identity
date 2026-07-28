@@ -1,0 +1,32 @@
+# The mock resource server, on EKS. Trusts tokens issued by the EKS PF (the AS agent C exchanged at)
+# and verifies them against that issuer's published keys.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mock-resource
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: mock-resource }
+  template:
+    metadata:
+      labels: { app: mock-resource }
+    spec:
+      containers:
+        - name: resource
+          image: IMAGE_R
+          ports: [{ containerPort: 8080 }]
+          env:
+            - { name: TRUSTED_ISSUER, value: "EKS_PF_URL" }
+            - { name: REQUIRED_FINAL_ACTOR, value: "demo-attest-gke-delivery" }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mock-resource
+  namespace: demo
+spec:
+  type: LoadBalancer
+  selector: { app: mock-resource }
+  ports: [{ port: 80, targetPort: 8080 }]
