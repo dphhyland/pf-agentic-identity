@@ -573,6 +573,63 @@ curl -s -X POST '$PF/as/token.oauth2' \
     same binding and ceiling checks apply.
   </p>
 
+  <h2>The Google evidence paths, and the servlet support they need</h2>
+  <p>
+    SPIRE hands the attester a real SVID it can verify against a SPIFFE trust bundle. Google's two platforms
+    do not issue SVIDs, so the attester cannot treat their tokens generically. Each Google path needs a
+    dedicated validator in the issuance servlet that knows the token's shape: it verifies the Google-issued
+    token, then <strong>synthesises</strong> a SPIFFE ID from its claims. Both validators implement the same
+    <code>EvidenceValidator</code> interface, and the servlet selects one from the client's
+    <code>attestation_evidence</code> setting. After validation every path produces a SPIFFE ID, so the
+    resolver plugins and the entitlement ceiling downstream are identical.
+  </p>
+
+  <h3>GKE workload identity (<code>gke-sa-token</code>)</h3>
+  <p>
+    The evidence is the projected service-account token from step 2, signed by the GKE cluster's OIDC issuer.
+    <code>GkeTokenValidator</code> checks the signature against the cluster's public JWKS (fetched by URL,
+    key selected by <code>kid</code>), requires <code>exp</code> present and unexpired, requires
+    <code>aud</code> to include the attester, and, when pinned, requires <code>iss</code> to equal the
+    cluster issuer URL. The <code>sub</code> must be Kubernetes-shaped,
+    <code>system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code>. From that it builds the SPIFFE ID Google itself
+    uses for GKE workload identity:
+  </p>
+<pre><code>attestation_evidence         = gke-sa-token
+attestation_trust_domain     = &lt;project&gt;.svc.id.goog
+attestation_bundle_url       = &lt;cluster OIDC JWKS URL&gt;
+attestation_evidence_issuer  = &lt;cluster issuer URL&gt;         # optional, pins iss
+
+# sub system:serviceaccount:demo:payment-agent
+#   → spiffe://&lt;project&gt;.svc.id.goog/ns/demo/sa/payment-agent</code></pre>
+
+  <h3>Google service-account ID token (<code>gcp-id-token</code>): Agent Engine, Cloud Run, GCE</h3>
+  <p>
+    The evidence is a Google-signed OIDC ID token for the runtime service account, obtained from the
+    metadata server's <code>identity</code> endpoint or from IAM Credentials <code>generateIdToken</code>,
+    with the attester as audience. This is the evidence a workload has when its platform identity is a
+    service account rather than a Kubernetes one, which is the Gemini Enterprise Agent Platform case.
+    <code>GcpSaTokenValidator</code> checks the signature against Google's rotating JWKS, requires
+    <code>iss</code> to equal <code>https://accounts.google.com</code> when pinned, requires <code>aud</code>
+    to include the attester, requires <code>exp</code> present and unexpired, and requires an
+    <code>email</code> claim. The <code>sub</code> is the account's opaque numeric id, so the stable
+    identifier is <code>email</code>, and the mapped SPIFFE ID uses it. Google defines no canonical SPIFFE
+    mapping for a bare service account, so the trust domain here is a deployment convention:
+  </p>
+<pre><code>attestation_evidence         = gcp-id-token
+attestation_trust_domain     = &lt;project&gt;.gcp.example        # deployment convention
+attestation_bundle_url       = https://www.googleapis.com/oauth2/v3/certs
+attestation_evidence_issuer  = https://accounts.google.com   # optional, pins iss
+
+# email payment-agent@&lt;project&gt;.iam.gserviceaccount.com
+#   → spiffe://&lt;project&gt;.gcp.example/sa/payment-agent@&lt;project&gt;.iam.gserviceaccount.com</code></pre>
+  <p>
+    So each client declares which path it uses through four attestation settings: the evidence type, the
+    trust domain that names the SPIFFE-ID space, the JWKS to verify against, and optionally the exact
+    <code>iss</code> to require. The SPIRE path differs only in that its bundle is an inline JWKS rather than
+    a URL. Adding a new platform means adding one more <code>EvidenceValidator</code>: verify that platform's
+    token, then produce a SPIFFE ID.
+  </p>
+
   <h2>What makes this more than authentication</h2>
   <p>
     Agent Identity establishes which agent is calling. The attestation adds an <strong>entitlement
