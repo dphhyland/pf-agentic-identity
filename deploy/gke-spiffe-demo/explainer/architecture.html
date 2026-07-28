@@ -188,10 +188,10 @@ token = ca.token()                          # access token, no secret, no client
       <td>Issues JWT-SVIDs to the pod via the Workload API. Its JWKS is the trust bundle.</td>
       <td>GKE ns <code>spire-mgmt</code></td></tr>
     <tr><td><strong>GKE cluster OIDC</strong> <span class="tag g">attestor</span></td>
-      <td>Signs projected service-account tokens; public JWKS fetched by the attester by URL.</td>
+      <td>Signs projected service-account tokens; public JWKS fetched by the attester by URL. Validated by <code>GkeTokenValidator</code>, which maps <code>system:serviceaccount:&lt;ns&gt;:&lt;sa&gt;</code> to <code>spiffe://&lt;project&gt;.svc.id.goog/ns/&lt;ns&gt;/sa/&lt;sa&gt;</code>.</td>
       <td>Google-operated, per-cluster issuer</td></tr>
     <tr><td><strong>Google SA token signer</strong> <span class="tag g">attestor</span></td>
-      <td>Signs SA ID tokens (<code>generateIdToken</code>); <code>accounts.google.com</code> public JWKS.</td>
+      <td>Signs SA ID tokens (<code>generateIdToken</code>); <code>accounts.google.com</code> public JWKS. Validated by <code>GcpSaTokenValidator</code>, which maps the <code>email</code> claim to <code>spiffe://&lt;trust-domain&gt;/sa/&lt;email&gt;</code>.</td>
       <td>Google-operated</td></tr>
     <tr><td><strong>Vertex AI Agent Engine</strong> <span class="tag n">workload</span></td>
       <td>Managed agent runtime running the same chain from outside the cluster, using its service-account ID token as evidence.</td>

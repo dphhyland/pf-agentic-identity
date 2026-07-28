@@ -1,7 +1,7 @@
 # The chain as raw curl
 
 The five steps the workload runs, as curl. The live consoles show these same requests with real values
-filled in — each step has a **show the exact request** toggle — so this file is the annotated version.
+filled in (each step has a **show the exact request** toggle), so this file is the annotated version.
 
 Run the PF-facing calls **in-cluster**, so the request URL matches what PF expects for the PoP `aud`:
 
@@ -37,16 +37,18 @@ A static, parameterless document (RFC 8615). The fields that matter to a workloa
 
 ## 2. Get platform evidence
 
-The `aud` must be the `evidence_audience` from step 1.
+The `aud` must be the `evidence_audience` from step 1. The evidence type depends on the platform; the mint
+request field is called `svid`, but only the SPIRE case carries an actual SPIFFE SVID. The GKE and Google
+tokens are not SVIDs; the attester validates each and synthesises a SPIFFE ID from its claims.
 
 ```bash
-# Phase 1 — SPIRE JWT-SVID from the Workload API:
+# spiffe-jwt: a real SPIRE JWT-SVID from the Workload API
 spire-agent api fetch jwt -audience https://attester.example.com
 
-# Phase 2 — GKE projects a service-account token into the pod; just read it:
+# gke-sa-token: GKE projects a service-account token into the pod; just read it
 cat /var/run/secrets/tokens/attester-token
 
-# Phase 3 — a Google-signed ID token for the runtime service account:
+# gcp-id-token: a Google-signed ID token for the runtime service account (Agent Engine / Cloud Run / GCE)
 curl -s -X POST \
   "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA_EMAIL}:generateIdToken" \
   -H "Authorization: Bearer $(gcloud auth print-access-token)" \
@@ -54,8 +56,10 @@ curl -s -X POST \
   -d '{"audience":"https://attester.example.com","includeEmail":true}'
 ```
 
-Decoded, a Phase-2 token has `iss: https://container.googleapis.com/v1/projects/…`,
-`sub: system:serviceaccount:demo:payment-agent`, `aud: ["https://attester.example.com"]`.
+The GKE token decodes to `iss: https://container.googleapis.com/v1/projects/…`,
+`sub: system:serviceaccount:demo:payment-agent`, `aud: ["https://attester.example.com"]`. `GkeTokenValidator`
+maps that `sub` to `spiffe://<project>.svc.id.goog/ns/demo/sa/payment-agent`. The Google SA ID token instead
+carries an `email` claim, which `GcpSaTokenValidator` maps to `spiffe://<trust-domain>/sa/<email>`.
 
 ## 3. Get a challenge
 
@@ -105,15 +109,15 @@ Failure cases worth demonstrating:
 
 | Change | Result |
 |---|---|
-| `"sales_regions":["APAC"]` | `403 access_denied` — above the ceiling |
-| resend the same `proof` | `401 invalid_instance_proof` — jti replay |
+| `"sales_regions":["APAC"]` | `403 access_denied` (above the ceiling) |
+| resend the same `proof` | `401 invalid_instance_proof` (jti replay) |
 | evidence for an unmapped SPIFFE ID | `403 spiffe_id_not_authorized` |
-| evidence signed by an untrusted key | `401 invalid_svid` — no plugin accepts it |
+| evidence signed by an untrusted key | `401 invalid_svid` (no plugin accepts it) |
 
 ## 5. Authenticate to the token endpoint
 
 `attest_jwt_client_auth`: the request carries **only** the two attestation headers and
-`grant_type` — no `client_id`, no `client_secret`. The PoP is a second JWS by the instance key:
+`grant_type`, with no `client_id` or `client_secret`. The PoP is a second JWS by the instance key:
 `typ: oauth-client-attestation-pop+jwt`, claims
 `{"iss":"<sub>","aud":"https://localhost:9031","jti":"…","iat":…}`. Its `iss` names the client (read
 from the attestation `sub`); its `aud` is PF's **configured base URL**, not the URL you dialled.
@@ -130,7 +134,7 @@ PingFederate has no native support for `attest_jwt_client_auth`, so this endpoin
 `ClientAttestationAuthFilter` (registered in `pf-runtime.war`'s web.xml over `/as/token.oauth2`). The
 filter verifies the two headers with the same code as the issuance criterion, resolves the client from
 the attestation `sub`, and forwards the request authenticated to PF as that client with a
-`private_key_jwt` `client_assertion` signed by a deployment-held **bridge key** — whose public half is
+`private_key_jwt` `client_assertion` signed by a deployment-held **bridge key** whose public half is
 registered in each client's JWKS. The workload never holds that key or any secret. If the attestation is
 absent the filter passes the request through untouched; if it is present but invalid the filter rejects
 with `invalid_client_attestation` and PF is never reached.
