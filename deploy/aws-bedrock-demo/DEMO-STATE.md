@@ -1,6 +1,25 @@
 # Locked AWS demo state
 
-The live AWS demo. Recorded 2026-07-28. Account 971422710168, region ap-southeast-2.
+The live AWS demo. Recorded 2026-07-28 (updated same day: distinct issuer + federation leaf). Account
+971422710168, region ap-southeast-2.
+
+## Distinct issuer + OpenID Federation leaf
+
+Since image `…dkr.ecr…/pingfederate:federation-p1` (`sha256:0af98269…`) this PF's OAuth issuer (and
+`pop_audience`) is `http://<its public ELB hostname>` — baked into `data.zip`. The EKS workload pins
+`PF_TOKEN_AUD=<issuer>`; the AgentCore agent reads `pop_audience` from discovery and adapts on its own.
+
+The PF is a federation **leaf** under the GKE anchor (`http://35.223.142.97`), via deployment env:
+
+```
+OIDF_FEDERATION_TRUST_ANCHORS=http://35.223.142.97
+OIDF_FEDERATION_TRUST_CONTROLLER_HOST=http://35.223.142.97
+OIDF_FEDERATION_ATTESTER_JWKS=<mock-attester-1 public JWKS>
+```
+
+Its entity configuration at `/.well-known/openid-federation` carries `authority_hints` → the anchor; the
+anchor's subordinate statement vouches for this PF's own federation signing key. Chain verified
+leaf→anchor. Anchor details: `deploy/gke-spiffe-demo/DEMO-STATE.md`.
 
 ## What's live
 

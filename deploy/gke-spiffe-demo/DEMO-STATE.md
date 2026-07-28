@@ -1,18 +1,41 @@
 # Locked demo state (GKE)
 
-The exact state the live GKE + Railway demo runs at. Recorded 2026-07-28.
+The exact state the live GKE + Railway demo runs at. Recorded 2026-07-28 (updated same day: distinct
+issuer + federation anchor).
 
-## Running images (by digest)
+## Running images
 
 | Component | Image |
 |---|---|
-| PingFederate | `us-central1-docker.pkg.dev/pf-spiffe-demo-7264/demo/pingfederate@sha256:b731f69745556df12a82bd10d9a23b6d06b6266f9cc0488046112cfd77f7020e` |
+| PingFederate | `us-central1-docker.pkg.dev/pf-spiffe-demo-7264/demo/pingfederate:federation-p1` (`sha256:cfc7df5c…`) |
 | GKE agent | `us-central1-docker.pkg.dev/pf-spiffe-demo-7264/demo/agent@sha256:3979b01acf26a4a4ef26e82a227b44032ee190d74154c28ede6fa6c9e41d8e3e` |
 
 The PF image is the **baked-config** build: the four attestation clients are baked into `data.zip` as
 `PRIVATE_KEY_JWT` with the bridge public JWKS, so a fresh pod boots working with no Terraform step. The
 bridge private key lives only in the k8s secret `pf-bridge-key` (data key `private-jwk`, kid
 `cJ-4Fg9oUAar1TNoqvgJdERxxSZfTPnNiUJ_JT1Jvcc`).
+
+## Distinct issuer + OpenID Federation trust anchor
+
+Since `federation-p1` this PF's OAuth issuer (and therefore `pop_audience`) is its public URL
+`http://35.223.142.97` — baked into `data.zip`, so it survives pod replacement. The workload deployment
+pins `PF_TOKEN_AUD=http://35.223.142.97` (env overrides discovery in app.py).
+
+The same PF is the federation **trust anchor** for the cross-cloud demo, configured by deployment env:
+
+```
+OIDF_FEDERATION_TRUST_ANCHORS=http://35.223.142.97
+OIDF_FEDERATION_SUBORDINATES=http://35.223.142.97,http://<eks-elb-hostname>
+OIDF_FEDERATION_TRUST_CONTROLLER_HOST=http://35.223.142.97
+OIDF_FEDERATION_ATTESTER_JWKS=<mock-attester-1 public JWKS>
+```
+
+It serves `/.well-known/openid-federation` plus `/federation/{entity,fetch,list,resolve}`. Subordinate
+statements about the EKS PF carry the EKS PF's **own** federation key (fetched from its entity
+configuration), and both entity configurations publish the attester's public key under
+`metadata.oauth_client_attester.jwks` — a remote AS resolves attestation-signing keys through the
+chain instead of a locally pinned attester file. Chain verified leaf(EKS)→anchor. The AWS leaf side is
+in `deploy/aws-bedrock-demo/DEMO-STATE.md`.
 
 ## What the demo does
 
