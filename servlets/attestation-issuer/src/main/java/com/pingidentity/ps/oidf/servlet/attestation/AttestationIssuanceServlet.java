@@ -8,8 +8,10 @@ import com.pingidentity.ps.oidf.common.AttesterClient;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
 import com.pingidentity.ps.oidf.common.AttestationSupport;
 import com.pingidentity.ps.oidf.common.AttesterSigningKey;
+import com.pingidentity.ps.oidf.common.AwsStsWebIdentityValidator;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientAttestationException;
+import com.pingidentity.ps.oidf.common.EksTokenValidator;
 import com.pingidentity.ps.oidf.common.EvidenceValidator;
 import com.pingidentity.ps.oidf.common.GcpSaTokenValidator;
 import com.pingidentity.ps.oidf.common.GkeTokenValidator;
@@ -72,6 +74,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile SpiffeSvidValidator svidValidator = new SpiffeSvidValidator();
     private volatile GkeTokenValidator gkeTokenValidator = new GkeTokenValidator();
     private volatile GcpSaTokenValidator gcpSaTokenValidator = new GcpSaTokenValidator();
+    private volatile EksTokenValidator eksTokenValidator = new EksTokenValidator();
+    private volatile AwsStsWebIdentityValidator awsStsWebIdentityValidator = new AwsStsWebIdentityValidator();
     private volatile RemoteJwksCache jwksCache = new RemoteJwksCache();
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private volatile WorkloadIntrospector workloadIntrospector;
@@ -249,6 +253,12 @@ public class AttestationIssuanceServlet extends HttpServlet {
         }
         if (AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN.equals(config.evidenceType())) {
             return this.gcpSaTokenValidator;
+        }
+        if (AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN.equals(config.evidenceType())) {
+            return this.eksTokenValidator;
+        }
+        if (AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY.equals(config.evidenceType())) {
+            return this.awsStsWebIdentityValidator;
         }
         return new SpiffeJwtEvidenceValidator(this.svidValidator);
     }

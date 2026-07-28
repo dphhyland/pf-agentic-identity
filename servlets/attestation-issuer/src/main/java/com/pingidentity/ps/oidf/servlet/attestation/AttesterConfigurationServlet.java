@@ -59,7 +59,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
     /** Evidence formats the issuance endpoint can validate. */
     static final List<String> EVIDENCE_TYPES_SUPPORTED = List.of(
             AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN,
-            AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN);
+            AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN,
+            AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY);
 
     /** The client-authentication method the advertised token endpoint accepts. */
     static final List<String> TOKEN_ENDPOINT_AUTH_METHODS = List.of("attest_jwt_client_auth");

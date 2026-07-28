@@ -44,6 +44,11 @@ public final class AttestationIssuanceConfig {
     public static final String EVIDENCE_GKE_SA_TOKEN = "gke-sa-token";
     /** Evidence type: a Google-signed GCP service-account ID token (Agent Engine / Cloud Run / GCE). */
     public static final String EVIDENCE_GCP_ID_TOKEN = "gcp-id-token";
+    /** Evidence type: an EKS-projected Kubernetes service-account token (IRSA). */
+    public static final String EVIDENCE_EKS_SA_TOKEN = "eks-sa-token";
+    /** Evidence type: an AWS-signed OIDC token from {@code sts:GetWebIdentityToken} (any AWS workload,
+     *  including Bedrock AgentCore). */
+    public static final String EVIDENCE_AWS_STS_WEB_IDENTITY = "aws-sts-web-identity";
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
 
@@ -104,7 +109,8 @@ public final class AttestationIssuanceConfig {
         if (evidenceType == null) {
             evidenceType = EVIDENCE_SPIFFE_JWT;
         } else if (!EVIDENCE_SPIFFE_JWT.equals(evidenceType) && !EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)
-                && !EVIDENCE_GCP_ID_TOKEN.equals(evidenceType)) {
+                && !EVIDENCE_GCP_ID_TOKEN.equals(evidenceType) && !EVIDENCE_EKS_SA_TOKEN.equals(evidenceType)
+                && !EVIDENCE_AWS_STS_WEB_IDENTITY.equals(evidenceType)) {
             throw IssuanceException.invalidClient(P_EVIDENCE + " is not a supported evidence type: " + evidenceType);
         }
 
@@ -132,7 +138,9 @@ public final class AttestationIssuanceConfig {
         Map<String, Object> signingJwk = parseObject(trimmed(props.get(P_SIGNING_JWK)), P_SIGNING_JWK);
         String trustDomain = trimmed(props.get(P_TRUST_DOMAIN));
         boolean mappedEvidence = EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)
-                || EVIDENCE_GCP_ID_TOKEN.equals(evidenceType);
+                || EVIDENCE_GCP_ID_TOKEN.equals(evidenceType)
+                || EVIDENCE_EKS_SA_TOKEN.equals(evidenceType)
+                || EVIDENCE_AWS_STS_WEB_IDENTITY.equals(evidenceType);
         if (mappedEvidence && trustDomain == null) {
             // The mapped SPIFFE ID's namespace comes from the trust domain; without it the binding
             // identifiers would be unanchored.
