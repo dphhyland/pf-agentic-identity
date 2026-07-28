@@ -197,6 +197,13 @@ font:16px/1.6 ui-serif,Georgia,serif;padding:2rem 1.25rem 4rem}
 .lede{color:var(--mut);margin:0 0 1.5rem}
 button{font:600 15px ui-sans-serif,system-ui;background:var(--fg);color:var(--bg);border:0;
 border-radius:7px;padding:.7rem 1.3rem;cursor:pointer}button[disabled]{opacity:.5;cursor:default}
+.diagram{margin:1.5rem 0 .4rem;overflow-x:auto}
+.diagram svg{min-width:34rem}
+.t{font-family:ui-sans-serif,system-ui;fill:var(--fg)}
+.t.b{font-size:14px;font-weight:650}
+.t.s{font-size:11.5px;fill:var(--mut)}
+.t.lane{font-size:11px;font-weight:700;letter-spacing:.09em}
+.cap{color:var(--mut);font-size:13px;margin:0 0 1.4rem}
 .hops{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:1.5rem 0}
 .hop{border:1px solid var(--line);border-radius:8px;padding:.5rem .8rem;background:var(--card);
 font:13px ui-sans-serif,system-ui;min-width:9rem}
@@ -217,12 +224,57 @@ pre{overflow-x:auto;background:rgba(127,127,127,.09);padding:.7rem;border-radius
 <p class="lede">One request, four parties, two clouds, two Authorization Servers - and no agent holds a secret.
 Each agent proves what it is to its own cloud's attester, then presents that attestation to whichever
 Authorization Server it needs.</p>
-<div class="hops">
-  <div class="hop gcp"><b>Agent A &middot; GCP</b>GKE payment-agent</div><span class="arw">&rarr;</span>
-  <div class="hop aws"><b>Agent B &middot; AWS</b>Bedrock AgentCore</div><span class="arw">&rarr;</span>
-  <div class="hop gcp"><b>Agent C &middot; GCP</b>GKE delivery-agent</div><span class="arw">&rarr;</span>
-  <div class="hop aws"><b>Resource &middot; AWS</b>mock settlement</div>
-</div>
+<div class="diagram"><svg viewBox="0 0 880 500" width="100%" role="img"
+ aria-label="Swimlane diagram: agents in Google Cloud and AWS, with a federation controller above both">
+ <defs><marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7"
+  orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--mut)"/></marker></defs>
+ <!-- federation controller, above both clouds -->
+ <rect x="270" y="8" width="340" height="46" rx="8" fill="var(--card)" stroke="#7b5cff" stroke-width="2"/>
+ <text x="440" y="27" text-anchor="middle" class="t b">OpenID Federation controller</text>
+ <text x="440" y="44" text-anchor="middle" class="t s">trust anchor &middot; vouches for each member's keys</text>
+ <path d="M400,54 L250,92" stroke="#7b5cff" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
+ <path d="M480,54 L640,92" stroke="#7b5cff" stroke-width="1.5" stroke-dasharray="4 3" fill="none"/>
+ <!-- cloud lanes -->
+ <rect x="20" y="92" width="400" height="392" rx="10" fill="none" stroke="var(--gcp)" stroke-width="1.5" opacity=".55"/>
+ <rect x="460" y="92" width="400" height="392" rx="10" fill="none" stroke="var(--aws)" stroke-width="1.5" opacity=".55"/>
+ <text x="34" y="112" class="t lane" fill="var(--gcp)">GOOGLE CLOUD</text>
+ <text x="474" y="112" class="t lane" fill="var(--aws)">AWS</text>
+ <!-- nodes -->
+ <rect x="50" y="130" width="180" height="46" rx="7" fill="var(--card)" stroke="var(--gcp)" stroke-width="2"/>
+ <text x="140" y="149" text-anchor="middle" class="t b">Agent A</text>
+ <text x="140" y="166" text-anchor="middle" class="t s">GKE payment-agent</text>
+ <rect x="600" y="130" width="200" height="46" rx="7" fill="var(--card)" stroke="var(--aws)" stroke-width="2"/>
+ <text x="700" y="149" text-anchor="middle" class="t b">Agent B</text>
+ <text x="700" y="166" text-anchor="middle" class="t s">Bedrock AgentCore</text>
+ <rect x="200" y="250" width="180" height="46" rx="7" fill="var(--card)" stroke="var(--gcp)" stroke-width="2"/>
+ <text x="290" y="269" text-anchor="middle" class="t b">Agent C</text>
+ <text x="290" y="286" text-anchor="middle" class="t s">GKE delivery-agent</text>
+ <rect x="50" y="400" width="230" height="46" rx="7" fill="var(--card)" stroke="#ea4335" stroke-width="2"/>
+ <text x="165" y="419" text-anchor="middle" class="t b">Google Authorization Server</text>
+ <text x="165" y="436" text-anchor="middle" class="t s">also hosts the controller</text>
+ <rect x="600" y="330" width="220" height="46" rx="7" fill="var(--card)" stroke="#ea4335" stroke-width="2"/>
+ <text x="710" y="349" text-anchor="middle" class="t b">AWS Authorization Server</text>
+ <text x="710" y="366" text-anchor="middle" class="t s">federation leaf</text>
+ <rect x="600" y="420" width="220" height="46" rx="7" fill="var(--card)" stroke="#0a7c42" stroke-width="2"/>
+ <text x="710" y="439" text-anchor="middle" class="t b">Mock resource</text>
+ <text x="710" y="456" text-anchor="middle" class="t s">verifies + decides</text>
+ <!-- steps -->
+ <path d="M110,176 L110,400" stroke="var(--mut)" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+ <text x="118" y="350" class="t s">1 &middot; token for itself</text>
+ <path d="M230,148 L600,148" stroke="var(--mut)" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+ <text x="415" y="141" text-anchor="middle" class="t s">2 &middot; call</text>
+ <path d="M640,176 Q470,250 280,405" stroke="var(--mut)" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+ <text x="452" y="243" text-anchor="middle" class="t s">3 &middot; exchange, AWS-attested &rarr; act {B,{A}}</text>
+ <path d="M600,168 L380,262" stroke="var(--mut)" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+ <text x="470" y="205" text-anchor="middle" class="t s">4 &middot; call</text>
+ <path d="M300,296 Q450,315 600,345" stroke="var(--mut)" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+ <text x="425" y="313" text-anchor="middle" class="t s">5 &middot; exchange, GCP-attested &rarr; act {C,{B,{A}}}</text>
+ <path d="M280,296 Q400,430 600,440" stroke="var(--mut)" stroke-width="1.5" fill="none" marker-end="url(#a)"/>
+ <text x="420" y="415" text-anchor="middle" class="t s">6 &middot; Bearer + act chain</text>
+</svg></div>
+<p class="cap">Every arrow that crosses a lane is an agent authenticating to the <em>other</em> cloud's
+Authorization Server with a credential attested in its own. Steps 3 and 5 are the exchanges; the dashed
+lines are what makes them checkable.</p>
 <div class="card" style="border-left:3px solid #7b5cff">
 <h3>Behind all of it: a federation controller</h3>
 <p style="margin:.2rem 0 .6rem">None of these agents were pre-registered with the other cloud's
