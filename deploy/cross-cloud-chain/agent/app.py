@@ -223,6 +223,23 @@ Authorization Server it needs.</p>
   <div class="hop gcp"><b>Agent C &middot; GCP</b>GKE delivery-agent</div><span class="arw">&rarr;</span>
   <div class="hop aws"><b>Resource &middot; AWS</b>mock settlement</div>
 </div>
+<div class="card" style="border-left:3px solid #7b5cff">
+<h3>Behind all of it: a federation controller</h3>
+<p style="margin:.2rem 0 .6rem">None of these agents were pre-registered with the other cloud's
+Authorization Server. What makes a foreign attestation checkable is an <b>OpenID Federation
+controller</b> - the trust anchor - which publishes a signed statement about every member carrying
+<em>that member's own</em> keys. A verifier walks the chain rather than trusting a pasted key file.
+In this deployment the GCP Authorization Server plays that role; the AWS one is a leaf beneath it.</p>
+<div class="kv">the controller's endpoints</div>
+<pre>GET /.well-known/openid-federation   the anchor's own entity statement
+GET /federation/list                 who is in the federation
+GET /federation/fetch?iss=&amp;sub=      the anchor's statement about a member
+GET /federation/resolve?sub=         the assembled trust chain</pre>
+<div class="kv" style="margin-top:.5rem">each member also publishes its attester's keys</div>
+<pre>metadata.oauth_client_attester.jwks</pre>
+<p style="margin:.5rem 0 0;color:var(--mut);font-size:13px">Remove a member from the controller and
+its agents stop resolving everywhere in the federation - the revocation point for cross-cloud trust.</p>
+</div>
 <button id="go">Run the chain</button>
 <div id="out"></div>
 <p class="foot">Every hop is real: live attestation against each cloud's platform evidence, RFC 8693

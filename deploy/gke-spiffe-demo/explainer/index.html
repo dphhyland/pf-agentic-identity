@@ -780,14 +780,32 @@ sequenceDiagram
     the other, so a captured pair cannot be replayed sideways.
   </p>
 
-  <h3>Why an Authorization Server trusts an attestation it did not issue</h3>
+  <h3>Behind the trust: a federation controller</h3>
   <p>
-    Each AS publishes an OpenID Federation entity configuration at
-    <code>/.well-known/openid-federation</code>, and one of them is the trust anchor. The anchor publishes a
-    subordinate statement for every member, carrying <em>that member's own</em> signing keys. A verifier
-    walks the chain: the member's self-signed statement, checked against the keys the anchor vouches for,
-    checked against the anchor's own published key.
+    None of this works by pre-registering agents with each other's Authorization Servers. There is a real
+    component holding it together – an <strong>OpenID Federation controller</strong>, acting as the trust
+    anchor. It is what a verifier consults when it meets a credential from a cloud it has never spoken to.
   </p>
+  <p style="margin-bottom:.4rem">The controller serves four endpoints:</p>
+  <ul>
+    <li><code>/.well-known/openid-federation</code> – its own signed entity statement</li>
+    <li><code>/federation/list</code> – who is in the federation</li>
+    <li><code>/federation/fetch?iss=&amp;sub=</code> – its signed statement <em>about a member</em>, carrying that member's own keys</li>
+    <li><code>/federation/resolve?sub=</code> – the assembled trust chain for a member</li>
+  </ul>
+  <p>
+    Each member publishes its own entity configuration with an <code>authority_hints</code> pointer back at
+    the anchor. A verifier walks it: the member's self-signed statement, checked against the keys the anchor
+    vouches for, checked against the anchor's own published key. Three signatures, no shared secret, and
+    nothing pinned locally.
+  </p>
+  <div class="note">
+    In this deployment the Google Authorization Server plays the controller role and the AWS one is a leaf
+    beneath it. That is a deployment choice, not a constraint – the controller can be a standalone service,
+    and in a real ecosystem it usually is, operated by whoever governs membership. The important part is
+    that it is a <em>named place where membership is decided</em>: remove a member there and its agents stop
+    resolving everywhere in the federation. That is the revocation point for cross-cloud trust.
+  </div>
   <p>
     Each entity also publishes the signing keys of the attester it hosts, under
     <code>metadata.oauth_client_attester.jwks</code>. That is what makes a foreign attestation checkable at
