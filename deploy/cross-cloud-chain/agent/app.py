@@ -186,6 +186,82 @@ def run_role_c(subject_token: str) -> dict:
     return {"ok": status == 200, "trace": [trace], "resource": resource_result}
 
 
+CONSOLE_HTML = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Cross-cloud agent chain - live demo</title><style>
+:root{--bg:#fbfbfa;--fg:#1a1a1a;--mut:#666;--line:#e3e3e0;--gcp:#4285f4;--aws:#ff9900;--ok:#0a7c42;--no:#b3261e;--card:#fff}
+@media(prefers-color-scheme:dark){:root{--bg:#16171a;--fg:#e8e8e6;--mut:#9a9a96;--line:#2c2d31;--card:#1e1f23}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);
+font:16px/1.6 ui-serif,Georgia,serif;padding:2rem 1.25rem 4rem}
+.w{max-width:60rem;margin:0 auto}h1{font-size:1.6rem;margin:0 0 .3rem}
+.lede{color:var(--mut);margin:0 0 1.5rem}
+button{font:600 15px ui-sans-serif,system-ui;background:var(--fg);color:var(--bg);border:0;
+border-radius:7px;padding:.7rem 1.3rem;cursor:pointer}button[disabled]{opacity:.5;cursor:default}
+.hops{display:flex;flex-wrap:wrap;gap:.5rem;align-items:center;margin:1.5rem 0}
+.hop{border:1px solid var(--line);border-radius:8px;padding:.5rem .8rem;background:var(--card);
+font:13px ui-sans-serif,system-ui;min-width:9rem}
+.hop b{display:block;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--mut)}
+.gcp{border-left:3px solid var(--gcp)}.aws{border-left:3px solid var(--aws)}
+.arw{color:var(--mut)}
+.card{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:1rem 1.1rem;margin:.7rem 0}
+.card h3{margin:0 0 .5rem;font-size:1rem}
+code,pre{font:13px ui-monospace,SFMono-Regular,Menlo,monospace}
+pre{overflow-x:auto;background:rgba(127,127,127,.09);padding:.7rem;border-radius:6px;margin:.4rem 0}
+.kv{color:var(--mut);font:12px ui-sans-serif,system-ui;letter-spacing:.03em;text-transform:uppercase}
+.ok{color:var(--ok);font-weight:700}.no{color:var(--no);font-weight:700}
+.chain{list-style:none;padding:0;margin:.3rem 0}
+.chain li{padding:.25rem 0 .25rem 1.1rem;border-left:2px solid var(--line);margin-left:.5rem}
+.foot{color:var(--mut);font-size:13px;margin-top:2rem;border-top:1px solid var(--line);padding-top:1rem}
+</style></head><body><div class="w">
+<h1>Cross-cloud agent chain</h1>
+<p class="lede">One request, four parties, two clouds, two Authorization Servers - and no agent holds a secret.
+Each agent proves what it is to its own cloud's attester, then presents that attestation to whichever
+Authorization Server it needs.</p>
+<div class="hops">
+  <div class="hop gcp"><b>Agent A &middot; GCP</b>GKE payment-agent</div><span class="arw">&rarr;</span>
+  <div class="hop aws"><b>Agent B &middot; AWS</b>Bedrock AgentCore</div><span class="arw">&rarr;</span>
+  <div class="hop gcp"><b>Agent C &middot; GCP</b>GKE delivery-agent</div><span class="arw">&rarr;</span>
+  <div class="hop aws"><b>Resource &middot; AWS</b>mock settlement</div>
+</div>
+<button id="go">Run the chain</button>
+<div id="out"></div>
+<p class="foot">Every hop is real: live attestation against each cloud's platform evidence, RFC 8693
+token exchange at each Authorization Server, and a resource that verifies the token against the
+issuer's published keys before deciding.</p>
+</div><script>
+const esc=s=>String(s).replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+function chainList(a){if(!a||!a.length)return '<em>none</em>';
+ return '<ul class="chain">'+a.map((x,i)=>'<li>'+(i===0?'presented by ':'via ')+'<code>'+esc(x.sub)+'</code></li>').join('')+'</ul>';}
+document.getElementById('go').onclick=async e=>{
+ const b=e.target,o=document.getElementById('out');
+ b.disabled=true;b.textContent='Running the chain...';o.innerHTML='';
+ try{
+  const r=await fetch('/run',{method:'POST'});const d=await r.json();
+  let h='';
+  (d.trace||[]).forEach(t=>{
+   const cloud=(t.agent||'').includes('AgentCore')?'aws':'gcp';
+   const c=t.token_claims||{};
+   h+='<div class="card '+cloud+'"><h3>'+esc(t.agent||'')+'</h3>'
+    +'<div class="kv">authenticated as</div><code>'+esc(t.client_id||'-')+'</code>'
+    +'<div class="kv" style="margin-top:.5rem">authorization server</div><code>'+esc(t.as||'-')+'</code>'
+    +(t.attested_by?'<div class="kv" style="margin-top:.5rem">attested at</div><code>'+esc(t.attested_by)+'</code>':'')
+    +'<div class="kv" style="margin-top:.5rem">token it received</div>'
+    +'<pre>sub: '+esc(c.sub||'-')+'\\nact: '+esc(c.act||'-')+'</pre></div>';});
+  const R=d.resource;
+  if(R){const al=R.decision&&R.decision.allowed;
+   h+='<div class="card aws"><h3>Resource decision (AWS)</h3>'
+    +'<div class="kv">on behalf of</div><code>'+esc(R.on_behalf_of||'-')+'</code>'
+    +'<div class="kv" style="margin-top:.5rem">actor chain</div>'+chainList(R.actor_chain)
+    +'<div class="kv" style="margin-top:.5rem">decision</div>'
+    +'<span class="'+(al?'ok':'no')+'">'+(al?'ALLOWED':'DENIED')+'</span> '
+    +'<span style="color:var(--mut)">- '+esc((R.decision||{}).reason||'')+'</span>'
+    +(R.settled?'<pre>settled '+esc(JSON.stringify(R.settled))+'</pre>':'')+'</div>';}
+  o.innerHTML=h||'<div class="card">No trace returned.</div>';
+ }catch(err){o.innerHTML='<div class="card"><span class="no">Failed</span> '+esc(err)+'</div>';}
+ b.disabled=false;b.textContent='Run the chain again';};
+</script></body></html>"""
+
+
 class Handler(BaseHTTPRequestHandler):
     def _send(self, code, obj):
         payload = json.dumps(obj, indent=1).encode()
@@ -196,7 +272,15 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(payload)
 
     def do_GET(self):
-        self._send(200, {"role": ROLE, "healthy": True})
+        if ROLE != "A":
+            self._send(200, {"role": ROLE, "healthy": True})
+            return
+        page = CONSOLE_HTML.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(page)))
+        self.end_headers()
+        self.wfile.write(page)
 
     def do_POST(self):
         length = int(self.headers.get("Content-Length") or 0)
