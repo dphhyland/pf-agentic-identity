@@ -140,9 +140,9 @@
   <h1>Authenticating workloads to PingFederate with platform identity instead of secrets</h1>
   <p class="lede">
     A workload authenticates to <strong>PingFederate</strong> using an identity token its platform
-    already issues it, rather than a provisioned per-workload credential. This is running on live Google
-    infrastructure across four platforms: SPIRE on GKE, GKE workload identity, Gemini Enterprise Agent
-    Platform service accounts, and a workload on Railway.
+    already issues it, rather than a provisioned per-workload credential. One attester serves two clouds.
+    On Google it runs across SPIRE on GKE, GKE workload identity, and a Gemini Enterprise Agent Platform
+    service account, plus a workload on Railway. On AWS it runs on EKS with a Bedrock AgentCore agent.
   </p>
 
   
@@ -630,14 +630,53 @@ attestation_evidence_issuer  = https://accounts.google.com   # optional, pins is
     token, then produce a SPIFFE ID.
   </p>
   <p>
-    AWS is supported the same way, by two more validators. <code>EksTokenValidator</code>
-    (<code>eks-sa-token</code>) takes an EKS IRSA projected token, the direct analogue of the GKE path.
-    <code>AwsStsWebIdentityValidator</code> (<code>aws-sts-web-identity</code>) takes the AWS-signed OIDC
-    token from <code>sts:GetWebIdentityToken</code> (AWS Outbound Identity Federation), which gives any AWS
-    workload, including a <strong>Bedrock AgentCore</strong> agent, a JWKS-verifiable JWT whose
-    <code>sub</code> is the IAM role ARN. Both validators are built and tested; the AWS demo (PingFederate
-    on EKS, an EKS workload, and a Bedrock AgentCore agent) deploys separately in
-    <code>deploy/aws-bedrock-demo</code>.
+    AWS is supported the same way, by two more validators, and the demo runs self-contained on AWS.
+  </p>
+
+  <h2>The AWS evidence paths, and Bedrock AgentCore</h2>
+  <p>
+    The AWS demo is the same design on a second cloud: PingFederate on EKS, an EKS workload, and a Bedrock
+    AgentCore agent, all in <code>deploy/aws-bedrock-demo</code>. One attester serves both clouds; only the
+    evidence validators differ.
+  </p>
+
+  <h3>EKS workload identity (<code>eks-sa-token</code>)</h3>
+  <p>
+    The direct analogue of the GKE path. An EKS pod projects a service-account token with the attester as its
+    audience, signed by the cluster's OIDC issuer. <code>EksTokenValidator</code> verifies it against the
+    cluster JWKS, requires the Kubernetes <code>sub</code>, and maps it to a SPIFFE ID. The one place EKS
+    differs from GKE is the JWKS location: <code>&lt;issuer&gt;/keys</code>, not
+    <code>/.well-known/jwks.json</code>.
+  </p>
+<pre><code>attestation_evidence         = eks-sa-token
+attestation_trust_domain     = eks.demo.aws
+attestation_bundle_url       = https://oidc.eks.&lt;region&gt;.amazonaws.com/id/&lt;id&gt;/keys
+attestation_evidence_issuer  = https://oidc.eks.&lt;region&gt;.amazonaws.com/id/&lt;id&gt;
+
+# sub system:serviceaccount:demo:payment-agent
+#   → spiffe://eks.demo.aws/ns/demo/sa/payment-agent</code></pre>
+
+  <h3>AWS Outbound Identity Federation (<code>aws-sts-web-identity</code>): the Bedrock AgentCore path</h3>
+  <p>
+    A Bedrock AgentCore agent has no JWT of its own that an external server could verify. Its workload access
+    token is opaque and first-party only, in AWS's own words it "cannot be used for external services". But an
+    AgentCore agent runs under an IAM execution role, so it calls <code>sts:GetWebIdentityToken</code> (AWS
+    Outbound Identity Federation) and gets an AWS-signed OIDC token with an account-specific public JWKS.
+    <code>AwsStsWebIdentityValidator</code> verifies it, reads the IAM role ARN from <code>sub</code>, and
+    maps it. The same call works for any AWS workload with an IAM role: Lambda, ECS, EC2.
+  </p>
+<pre><code>attestation_evidence         = aws-sts-web-identity
+attestation_trust_domain     = &lt;account&gt;.aws.demo
+attestation_bundle_url       = https://&lt;uuid&gt;.tokens.sts.global.api.aws/.well-known/jwks.json
+attestation_evidence_issuer  = https://&lt;uuid&gt;.tokens.sts.global.api.aws
+
+# sub arn:aws:iam::&lt;account&gt;:role/agentcore-attest-demo
+#   → spiffe://&lt;account&gt;.aws.demo/aws/&lt;account&gt;/role/agentcore-attest-demo</code></pre>
+  <p>
+    This runs in the real managed runtime. The agent is deployed to Bedrock AgentCore Runtime as an ARM64
+    container, obtains its web-identity token, and authenticates to PingFederate over its load balancer. The
+    issued token's <code>sub</code> is the agent's role identity and <code>act</code> records the client and
+    that it was attested. Nothing shared or reusable is provisioned to the agent.
   </p>
 
   <h2>What makes this more than authentication</h2>
