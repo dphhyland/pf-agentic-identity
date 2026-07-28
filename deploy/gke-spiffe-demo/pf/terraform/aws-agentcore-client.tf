@@ -10,7 +10,8 @@
 resource "pingfederate_oauth_client" "demo_attest_agentcore" {
   client_id                        = "demo-attest-agentcore"
   name                             = "Demo attester - Bedrock AgentCore agent"
-  grant_types                      = ["CLIENT_CREDENTIALS"]
+  # TOKEN_EXCHANGE: agent B exchanges agent A's token here (the cross-cloud hop), attestation as client auth.
+  grant_types                      = ["CLIENT_CREDENTIALS", "TOKEN_EXCHANGE"]
   client_auth                      = { type = "PRIVATE_KEY_JWT" }
   jwks_settings                    = { jwks = var.bridge_public_jwks }
   restrict_scopes                  = false

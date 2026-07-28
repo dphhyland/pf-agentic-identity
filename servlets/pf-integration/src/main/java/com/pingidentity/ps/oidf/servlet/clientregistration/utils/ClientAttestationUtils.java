@@ -384,6 +384,58 @@ public final class ClientAttestationUtils {
         }
     }
 
+    /**
+     * OGNL helper for token-exchange access-token mappings: builds the RFC 8693 delegation chain
+     * {@code {"sub": <exchanging client>, "act": <subject token's chain>}} as a JSON string claim.
+     *
+     * <p>Needed because PF's expression validator exposes ONLY context attributes
+     * ({@code context.HttpRequest}, {@code context.ClientId}) to a mapping's OGNL — token-exchange
+     * processor-policy contract attributes are not referable, so the prior chain cannot be nested
+     * from a policy attribute. Instead this reads the {@code subject_token} request parameter and
+     * decodes its {@code act} claim without verifying the signature. That is safe for the same
+     * reason as {@link #attestationClaim}: the subject token's validity is separately enforced by
+     * the token-exchange processor before any token is issued, so an unverified read can never
+     * produce a token for a subject token PF rejected. The {@code act} claim is emitted (and
+     * consumed) as a JSON string; a string-encoded prior chain is re-parsed so it nests as an
+     * object rather than double-escaped text.
+     */
+    @SuppressWarnings("unchecked")
+    public static String delegationActChain(Object inObj) {
+        try {
+            if (!(inObj instanceof Map)) {
+                return "";
+            }
+            Map<String, Object> map = (Map<String, Object>) inObj;
+            Object clientIdRaw = map.get("context.ClientId");
+            String clientId = clientIdRaw instanceof AttributeValue
+                    ? ((AttributeValue) clientIdRaw).getValue() : null;
+            if (clientId == null || clientId.isBlank()) {
+                return "";
+            }
+            java.util.LinkedHashMap<String, Object> chain = new java.util.LinkedHashMap<>();
+            chain.put("sub", clientId);
+            HttpServletRequest request =
+                    (HttpServletRequest) ((AttributeValue) map.get("context.HttpRequest")).getObjectValue();
+            String subjectToken = request.getParameter("subject_token");
+            String[] parts = subjectToken == null ? new String[0] : subjectToken.split("\\.");
+            if (parts.length >= 2) {
+                String json = new String(java.util.Base64.getUrlDecoder().decode(parts[1]),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                Object priorAct = org.jose4j.json.JsonUtil.parseJson(json).get("act");
+                if (priorAct instanceof String && !((String) priorAct).isBlank()) {
+                    priorAct = org.jose4j.json.JsonUtil.parseJson((String) priorAct);
+                }
+                if (priorAct instanceof Map) {
+                    chain.put("act", priorAct);
+                }
+            }
+            return org.jose4j.json.JsonUtil.toJson(chain);
+        } catch (Exception e) {
+            LOGGER.info((Object) "could not build delegation act chain for token mapping", e);
+            return "";
+        }
+    }
+
     private static String singleHeader(HttpServletRequest request, String name) {
         Enumeration<String> values = request.getHeaders(name);
         if (values == null) {

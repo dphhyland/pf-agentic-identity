@@ -13,7 +13,8 @@ resource "pingfederate_oauth_client" "demo_attest_gke_native" {
 
   client_id                        = "demo-attest-gke-native"
   name                             = "Demo attester — GKE native identity"
-  grant_types                      = ["CLIENT_CREDENTIALS"]
+  # TOKEN_EXCHANGE: agent C (same client) exchanges the delegated token onward in the cross-cloud chain.
+  grant_types                      = ["CLIENT_CREDENTIALS", "TOKEN_EXCHANGE"]
   client_auth                      = { type = "PRIVATE_KEY_JWT" }
   jwks_settings                    = { jwks = var.bridge_public_jwks }
   restrict_scopes                  = false
