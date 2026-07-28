@@ -1,0 +1,63 @@
+# EKS IRSA workload. The projected serviceAccountToken volume mints a token with the ATTESTER as its
+# audience (not the IRSA default of sts.amazonaws.com), signed by the cluster's OIDC issuer. The attester
+# validates it against the cluster's public JWKS and maps system:serviceaccount:demo:payment-agent to a
+# SPIFFE ID. Set ATTESTER_BASE_URL to the PF service on EKS.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: payment-agent
+  namespace: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment-agent
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: payment-agent }
+  template:
+    metadata:
+      labels: { app: payment-agent }
+    spec:
+      serviceAccountName: payment-agent
+      containers:
+        - name: workload
+          image: IMAGE                       # set to the pushed ECR image at deploy time
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - name: ATTESTER_BASE_URL
+              value: "http://pingfederate.pf:9080"   # the PF service in-cluster
+            - name: PF_TOKEN_AUD
+              value: "https://localhost:9031"
+            - name: EKS_TOKEN_FILE
+              value: "/var/run/secrets/tokens/attester-token"
+          volumeMounts:
+            - name: attester-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+      volumes:
+        - name: attester-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "https://attester.example.com"   # == the attester's evidence_audience
+                  expirationSeconds: 3600
+                  path: attester-token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment-agent
+  namespace: demo
+spec:
+  selector: { app: payment-agent }
+  ports:
+    - { port: 80, targetPort: 8080 }
