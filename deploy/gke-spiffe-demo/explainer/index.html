@@ -629,6 +629,16 @@ attestation_evidence_issuer  = https://accounts.google.com   # optional, pins is
     a URL. Adding a new platform means adding one more <code>EvidenceValidator</code>: verify that platform's
     token, then produce a SPIFFE ID.
   </p>
+  <p>
+    AWS is supported the same way, by two more validators. <code>EksTokenValidator</code>
+    (<code>eks-sa-token</code>) takes an EKS IRSA projected token, the direct analogue of the GKE path.
+    <code>AwsStsWebIdentityValidator</code> (<code>aws-sts-web-identity</code>) takes the AWS-signed OIDC
+    token from <code>sts:GetWebIdentityToken</code> (AWS Outbound Identity Federation), which gives any AWS
+    workload, including a <strong>Bedrock AgentCore</strong> agent, a JWKS-verifiable JWT whose
+    <code>sub</code> is the IAM role ARN. Both validators are built and tested; the AWS demo (PingFederate
+    on EKS, an EKS workload, and a Bedrock AgentCore agent) deploys separately in
+    <code>deploy/aws-bedrock-demo</code>.
+  </p>
 
   <h2>What makes this more than authentication</h2>
   <p>
