@@ -500,11 +500,11 @@ curl -s -X POST '$PF/as/token.oauth2' \
       <header>3 · Proof of possession</header>
       <pre><code>{
  "iss": "demo-attest-gke",
- "aud": "https://localhost:9031",
+ "aud": "…the target AS…",
  "jti": "…one-time…",
  "iat": …now…
 }</code></pre>
-      <footer>Signed with the instance key from <code>cnf</code>, fresh per request. An attestation replayed without that key fails verification.</footer>
+      <footer>Signed with the instance key from <code>cnf</code>, fresh per request. An attestation replayed without that key fails verification. <code>aud</code> names the Authorization Server being called – the one artefact minted per target, which is what lets the attestation above travel between clouds.</footer>
     </div>
   </div>
 
@@ -764,13 +764,112 @@ sequenceDiagram
     agent holds only the ceiling it was attested for.
   </p>
 
+  <h2>When the agent it calls is in another cloud</h2>
+  <p>
+    The five steps get one workload a token from its own Authorization Server. The harder case is a chain:
+    an agent in Google Cloud asks an agent in AWS to do something, that agent comes back to a second agent
+    in Google Cloud, and that one calls a resource in AWS. Four parties, two clouds, two Authorization
+    Servers – and at the end someone has to decide whether to honour the request.
+  </p>
+  <p>
+    <strong>The attestation is what travels.</strong> An agent proves what it is to <em>its own</em> attester –
+    the one in its own cloud, that understands its platform's evidence – and gets back a Client Attestation.
+    That attestation names no particular Authorization Server, so the agent can present it to any of them.
+    Only the proof-of-possession is per-target: for each AS it talks to, the agent mints a fresh PoP whose
+    <code>aud</code> is that AS's advertised <code>pop_audience</code>. A PoP minted for one AS is refused by
+    the other, so a captured pair cannot be replayed sideways.
+  </p>
+
+  <h3>Why an Authorization Server trusts an attestation it did not issue</h3>
+  <p>
+    Each AS publishes an OpenID Federation entity configuration at
+    <code>/.well-known/openid-federation</code>, and one of them is the trust anchor. The anchor publishes a
+    subordinate statement for every member, carrying <em>that member's own</em> signing keys. A verifier
+    walks the chain: the member's self-signed statement, checked against the keys the anchor vouches for,
+    checked against the anchor's own published key.
+  </p>
+  <p>
+    Each entity also publishes the signing keys of the attester it hosts, under
+    <code>metadata.oauth_client_attester.jwks</code>. That is what makes a foreign attestation checkable at
+    all – the AWS Authorization Server resolves the Google attester's keys <em>through the chain</em>,
+    rather than having them pasted into a local trust file. Add a cloud to the federation and its agents
+    become recognisable everywhere in it; remove it and they stop resolving.
+  </p>
+
+  <h3>The chain, and what it leaves behind</h3>
+  <div class="wide"><figure><div class="diagram"><pre class="mermaid">
+flowchart TB
+  subgraph GCP["Google Cloud"]
+    A["Agent A · GKE<br/>payment-agent"]:::work
+    C["Agent C · GKE<br/>delivery-agent"]:::work
+    GAS["Google Authorization Server<br/>(federation trust anchor)"]:::pf
+  end
+  subgraph AWS["AWS"]
+    B["Agent B<br/>Bedrock AgentCore"]:::work
+    AAS["AWS Authorization Server"]:::pf
+    R["Mock resource"]:::infra
+  end
+  A -->|"1 · token for itself"| GAS
+  A -->|"2 · call"| B
+  B -->|"3 · exchange, AWS-attested<br/>act = {B, {A}}"| GAS
+  B -->|"4 · call"| C
+  C -->|"5 · exchange, GCP-attested<br/>act = {C, {B, {A}}}"| AAS
+  C -->|"6 · Bearer + act chain"| R
+  classDef work fill:#e8f0fe,stroke:#4285f4;
+  classDef pf fill:#fce8e6,stroke:#ea4335;
+  classDef infra fill:#e6f4ea,stroke:#34a853;
+</pre></div>
+    <figcaption>Each agent attests locally and exchanges at whichever AS it needs. B authenticates to the
+    Google AS with an AWS-attested credential; C authenticates to the AWS AS with a Google-attested one.</figcaption>
+  </figure></div>
+  <p>
+    Every exchange is RFC 8693 <em>delegation</em>, not impersonation. The incoming token is the
+    <code>subject_token</code>; the exchanging agent's own attestation is its client authentication. The
+    issued token keeps the original <code>sub</code> and nests the current actor over the previous chain, so
+    it grows by exactly one layer per hop:
+  </p>
+  <div class="tablewrap"><table>
+    <tr><th>After</th><th><code>sub</code></th><th><code>act</code></th></tr>
+    <tr><td>A gets its own token</td><td>the A workload</td><td><code>{A}</code></td></tr>
+    <tr><td>B exchanges it at the Google AS</td><td>the A workload</td><td><code>{B, {A}}</code></td></tr>
+    <tr><td>C exchanges it at the AWS AS</td><td>the A workload</td><td><code>{C, {B, {A}}}</code></td></tr>
+  </table></div>
+  <p>
+    No single agent could have produced that token. The resource at the end reads <code>sub</code> to learn
+    which workload the request started from, and walks <code>act</code> to see everyone who has handled it
+    since – across two clouds and two Authorization Servers, with no agent holding a secret anywhere along
+    the way.
+  </p>
+
+  <h3>What the resource does with it</h3>
+  <p>
+    It verifies the token against the issuing AS's published keys, walks the actor chain, and decides. The
+    decision goes to a PingAuthorize AuthZEN policy decision point when one is configured, and otherwise to
+    a built-in rule; both get the same inputs – subject, action, resource, and the actor chain as context.
+  </p>
+  <div class="tablewrap"><table>
+    <tr><th>Presented</th><th>Result</th></tr>
+    <tr><td>Delegated token, chain ending at the expected delegate</td><td class="ok">200, settled</td></tr>
+    <tr><td>No token</td><td class="deny">401</td></tr>
+    <tr><td>Token from an issuer this resource does not trust</td><td class="deny">401</td></tr>
+    <tr><td>Tampered signature</td><td class="deny">401 <code>invalid_token</code></td></tr>
+    <tr><td><strong>Valid token, right issuer, final actor is not the delegate it was issued to</strong></td><td class="deny">403</td></tr>
+  </table></div>
+  <p>
+    That last row is the one worth dwelling on. It is a real, unexpired, correctly-signed token from a
+    trusted Authorization Server, and it is still refused – because the party presenting it is not the party
+    it was delegated to. Bearer semantics alone cannot draw that distinction. The actor chain can.
+  </p>
+
   <h2>Standards it stands on</h2>
   <p style="margin-bottom: 0.4rem;">The components are all specified:</p>
   <ul>
     <li><strong>draft-ietf-oauth-attestation-based-client-auth</strong> – the two-header client authentication scheme (attestation + PoP)</li>
     <li><strong>SPIFFE</strong> – workload identity: JWT-SVIDs, trust domains, the <code>spiffe://…/ns/…/sa/…</code> naming Google adopted for GKE</li>
     <li><strong>RFC 9396</strong> (Rich Authorization Requests) – the entitlement-ceiling vocabulary</li>
-    <li><strong>OAuth client credentials</strong> – the grant type used</li>
+    <li><strong>RFC 8693</strong> (Token Exchange) – each cross-cloud hop, carrying the actor chain in <code>act</code></li>
+    <li><strong>OpenID Federation 1.0</strong> – entity statements and trust chains, so one Authorization Server can resolve another's attester</li>
+    <li><strong>OAuth client credentials</strong> – the grant type used for the first token</li>
   </ul>
   <p>
     <em>draft-ietf-oauth-spiffe-client-auth</em> profiles this pattern directly, with SPIFFE credentials

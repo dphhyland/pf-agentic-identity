@@ -306,12 +306,47 @@ flowchart TB
   <figcaption>One attester on EKS, two AWS evidence paths. The EKS pod reaches PF in-cluster; the AgentCore
   agent reaches it over the load balancer.</figcaption></figure></div>
 
+  <h2>The AgentCore agent in a cross-cloud chain</h2>
+  <p>
+    Everything above gets an AWS workload a token from the AWS Authorization Server. The AgentCore agent
+    also does the harder job: it takes a token issued by the <em>Google</em> Authorization Server, and
+    exchanges it there, using nothing but its AWS-attested identity.
+  </p>
+  <p>
+    That works because the attestation is portable. The agent proves what it is to its own attester on EKS,
+    with <code>sts:GetWebIdentityToken</code> as before, and gets a Client Attestation that names no
+    particular Authorization Server. To use it against Google's AS it mints one extra artefact – a
+    proof-of-possession whose <code>aud</code> is the audience that AS advertises. Nothing about the agent is
+    pre-registered in Google Cloud beyond a client record; the trust in the AWS attester is resolved through
+    an OpenID Federation chain, where each Authorization Server publishes its attester's signing keys under
+    <code>metadata.oauth_client_attester.jwks</code> and a trust anchor vouches for each member's own keys.
+  </p>
+  <p>
+    The chain runs Google → AWS → Google → AWS: agent A on GKE gets a token for itself, the AgentCore agent
+    exchanges it at the Google AS, a second GKE agent exchanges that at the AWS AS, and a mock resource in
+    AWS decides. Each exchange is RFC 8693 delegation, so the token keeps the original <code>sub</code> and
+    nests one actor per hop – arriving as <code>{delivery, {agentcore, {payment}}}</code>. The resource can
+    name the workload the request started from and everyone who has handled it since.
+  </p>
+  <div class="note">
+    A PoP minted for one Authorization Server is refused by the other, so a captured attestation and proof
+    cannot be replayed sideways. And a valid, correctly-signed, unexpired token is still refused
+    <strong>403</strong> by the resource when the party presenting it is not the delegate it was issued to –
+    which bearer semantics alone cannot detect.
+  </div>
+  <p class="foot" style="margin-top:.6rem;">
+    Full walkthrough of the chain, the federation trust walk and the negative cases:
+    <a href="https://gke-spiffe-demo-production.up.railway.app/">the Google explainer</a>.
+  </p>
+
   <h2>What's live</h2>
   <div class="tablewrap"><table>
     <tr><th>Component</th><th>Detail</th></tr>
-    <tr><td><strong>PingFederate</strong></td><td>on EKS <code>attest-demo</code>, config baked into the image (both AWS clients survive a pod restart)</td></tr>
+    <tr><td><strong>PingFederate</strong></td><td>on EKS <code>attest-demo</code>, config baked into the image (clients and issuer survive a pod restart)</td></tr>
     <tr><td><strong>EKS workload</strong></td><td>IRSA pod → <code>eks-sa-token</code> → <code>spiffe://eks.demo.aws/ns/demo/sa/payment-agent</code></td></tr>
-    <tr><td><strong>Bedrock AgentCore agent</strong></td><td>managed runtime <code>attest_demo_agent</code> → <code>aws-sts-web-identity</code> → <code>spiffe://…/aws/…/role/agentcore-attest-demo</code></td></tr>
+    <tr><td><strong>Bedrock AgentCore agent</strong></td><td>managed runtime <code>attest_demo_agent</code> → <code>aws-sts-web-identity</code> → <code>spiffe://…/aws/…/role/agentcore-attest-demo</code>; also plays agent B in the cross-cloud chain</td></tr>
+    <tr><td><strong>Federation</strong></td><td>this AS is a leaf under the Google AS as trust anchor; entity configuration at <code>/.well-known/openid-federation</code></td></tr>
+    <tr><td><strong>Mock resource</strong></td><td>on EKS, verifies the delegated token and authorizes on the actor chain</td></tr>
     <tr><td><strong>Over-ceiling</strong></td><td>APAC request → 403 on both paths</td></tr>
   </table></div>
 
@@ -322,6 +357,8 @@ flowchart TB
     <li><strong>EKS IRSA</strong> – projected service-account tokens with a public cluster OIDC issuer</li>
     <li><strong>SPIFFE</strong> – the <code>spiffe://…</code> naming the attester maps every identity onto</li>
     <li><strong>RFC 9396</strong> – the entitlement-ceiling vocabulary</li>
+    <li><strong>RFC 8693</strong> (Token Exchange) – each cross-cloud hop, carrying the actor chain in <code>act</code></li>
+    <li><strong>OpenID Federation 1.0</strong> – entity statements and trust chains, so each Authorization Server can resolve the other's attester</li>
   </ul>
 
   <hr>
