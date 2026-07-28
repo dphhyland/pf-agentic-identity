@@ -81,7 +81,8 @@ def web_identity_token(audience: str) -> str:
     import boto3
     sts = boto3.client("sts", region_name=AWS_REGION)
     # AWS Outbound Identity Federation. The token's sub is the caller's role ARN; aud is what we pass here.
-    response = sts.get_web_identity_token(Audience=audience)
+    # Audience is a list and SigningAlgorithm is required (RS256 or ES384).
+    response = sts.get_web_identity_token(Audience=[audience], SigningAlgorithm="RS256")
     return response["WebIdentityToken"]
 
 
