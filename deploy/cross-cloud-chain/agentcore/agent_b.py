@@ -80,7 +80,10 @@ def claims_of(token: str) -> dict:
     return json.loads(base64.urlsafe_b64decode(part + "=" * (-len(part) % 4)))
 
 
-def handle(subject_token: str) -> dict:
+def handle(subject_token: str = None) -> dict:
+    """With a subject_token, act as chain agent B. Without one, run the standalone AWS attestation
+    demo (client_credentials at the local AS) that this runtime served before it joined the chain —
+    so `invoke_agent_runtime` with an empty payload keeps working as documented."""
     local = json.loads(http("GET", ATTESTER_BASE_URL + "/.well-known/client-attester")[1])
     foreign = json.loads(http("GET", EXCHANGE_BASE_URL + "/.well-known/client-attester")[1])
 
@@ -107,6 +110,17 @@ def handle(subject_token: str) -> dict:
                                         "error": body[:300]}]}
     attestation = json.loads(body)["attestation"]
     client_id = claims_of(attestation)["sub"]
+
+    if not subject_token:
+        # Standalone: get a token for myself at my OWN AS, no delegation involved.
+        pop = INSTANCE_KEY.sign(
+            {"alg": "ES256", "typ": "oauth-client-attestation-pop+jwt", "kid": INSTANCE_KEY.jwk["kid"]},
+            {"iss": client_id, "aud": local["pop_audience"], "jti": str(uuid.uuid4()), "iat": now})
+        status, body = http("POST", local["token_endpoint"], form={"grant_type": "client_credentials"},
+                            headers={"OAuth-Client-Attestation": attestation,
+                                     "OAuth-Client-Attestation-PoP": pop})
+        return {"ok": status == 200, "mode": "standalone", "mint_status": 200, "pf_status": status,
+                "client_id": client_id, "as": local["pop_audience"]}
 
     # The PoP is minted for the FOREIGN AS — that is the only per-target artifact.
     pop = INSTANCE_KEY.sign(
@@ -166,12 +180,8 @@ class Handler(BaseHTTPRequestHandler):
             request = json.loads(raw or b"{}")
         except Exception:  # noqa: BLE001
             request = {}
-        subject_token = request.get("subject_token")
-        if not subject_token:
-            self._send(400, {"error": "subject_token required"})
-            return
         try:
-            self._send(200, handle(subject_token))
+            self._send(200, handle(request.get("subject_token")))
         except Exception as e:  # noqa: BLE001
             self._send(500, {"error": str(e)})
 

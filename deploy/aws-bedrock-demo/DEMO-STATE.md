@@ -21,6 +21,17 @@ Its entity configuration at `/.well-known/openid-federation` carries `authority_
 anchor's subordinate statement vouches for this PF's own federation signing key. Chain verified
 leaf→anchor. Anchor details: `deploy/gke-spiffe-demo/DEMO-STATE.md`.
 
+## The AgentCore runtime now also plays chain agent B
+
+Since the cross-cloud chain landed (`deploy/cross-cloud-chain/`), the runtime
+`attest_demo_agent-2iANTrG4vB` runs image `agentcore-agent:chain-v2` and serves two modes on
+`InvokeAgentRuntime`:
+
+- **empty payload** → the standalone AWS attestation demo described below (`client_credentials` at
+  its own AS), unchanged;
+- **`{"subject_token": …}`** → chain agent B: exchanges that token at the **GCP** AS using its own
+  AWS-attested credential, then calls agent C.
+
 ## What's live
 
 PingFederate runs on EKS and serves two AWS evidence paths, both verified end-to-end (no client secret):
