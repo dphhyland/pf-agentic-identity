@@ -149,10 +149,10 @@
   <p style="font-family: 'Avenir Next', Avenir, system-ui, sans-serif; font-size: 0.9rem;">
     <a href="https://github.com/dphhyland/pf-agentic-identity">github.com/dphhyland/pf-agentic-identity</a>
     &nbsp;·&nbsp; demo: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo"><code>deploy/gke-spiffe-demo</code></a>
-    &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://34.171.232.146/">34.171.232.146</a> – click Run, watch a real GKE workload authenticate
+    &nbsp;·&nbsp; <strong>live interactive demo</strong>: <a href="http://35.190.164.92/">35.190.164.92</a> – click Run, watch a real GKE workload authenticate
   </p>
 
-  <div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
+  <div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://35.190.164.92/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
 
   <h2>The problem it solves</h2>
   <p>
@@ -840,6 +840,13 @@ flowchart TB
     <figcaption>Each agent attests locally and exchanges at whichever AS it needs. B authenticates to the
     Google AS with an AWS-attested credential; C authenticates to the AWS AS with a Google-attested one.</figcaption>
   </figure></div>
+  <p class="note" style="margin-top:0">
+    <strong>Run it.</strong> The chain is live at
+    <a href="http://35.196.205.152/">35.196.205.152</a> &ndash; one click drives all four parties across
+    both clouds and shows each hop's client, Authorization Server, and the <code>act</code> chain as it
+    grows. The single-workload console (one agent, one AS) is at
+    <a href="http://35.190.164.92/">35.190.164.92</a>.
+  </p>
   <p>
     Every exchange is RFC 8693 <em>delegation</em>, not impersonation. The incoming token is the
     <code>subject_token</code>; the exchanging agent's own attestation is its client authentication. The
@@ -908,8 +915,8 @@ flowchart TB
   <hr>
 
   <p class="foot">
-    <strong>Where it lives:</strong> GCP project <code>pf-spiffe-demo-7264</code>, cluster <code>spiffe-demo</code>
-    (us-central1-a, ≈ $4/day). Source and runbooks: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo">pf-agentic-identity/deploy/gke-spiffe-demo</a>.
+    <strong>Where it lives:</strong> GCP project <code>pf-spiffe-demo-4412</code>, cluster <code>spiffe-demo-e</code>
+    (us-east1-b, ≈ $4/day). Source and runbooks: <a href="https://github.com/dphhyland/pf-agentic-identity/tree/main/deploy/gke-spiffe-demo">pf-agentic-identity/deploy/gke-spiffe-demo</a>.
     Try it: port-forward the agent and <code>POST /invoke</code>; the response contains every JWT above, ready to
     decode. Tear down with <code>gcp/teardown.sh</code>.
   </p>

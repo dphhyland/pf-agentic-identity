@@ -64,7 +64,7 @@
 flowchart TB
   B["Browser / demo viewer"]:::infra
 
-  subgraph GCP["GCP project · pf-spiffe-demo-7264"]
+  subgraph GCP["GCP project · pf-spiffe-demo-4412"]
     direction TB
     subgraph GKE["GKE cluster · spiffe-demo"]
       direction TB
@@ -77,8 +77,8 @@ flowchart TB
       end
       SP["SPIRE server + agent<br/>ns spire-mgmt"]:::plat
     end
-    LBA["LoadBalancer<br/>34.171.232.146"]:::infra
-    LBP["LoadBalancer<br/>35.223.142.97"]:::infra
+    LBA["LoadBalancer<br/>35.190.164.92"]:::infra
+    LBP["LoadBalancer<br/>34.138.163.107"]:::infra
     AE["Vertex AI Agent Engine<br/>managed agent"]:::work
   end
 
@@ -117,7 +117,7 @@ flowchart TB
     <span>— · — dashed = evidence &amp; trust-bundle fetch</span>
   </div>
 
-  <div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://34.171.232.146/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
+  <div style="font-family:'Avenir Next',Avenir,system-ui,sans-serif;font-size:.82rem;display:flex;gap:1rem;flex-wrap:wrap;padding:.2rem 0 .6rem"><a href="/">Explainer</a><a href="/architecture.html">Architecture diagram</a><a href="http://35.190.164.92/">Live demo (GKE)</a><a href="https://railway-workload-production.up.railway.app/">Live demo (Railway)</a><a href="/cimd.json">CIMD</a><a href="https://github.com/dphhyland/pf-agentic-identity">Source</a></div>
 
   <h2>The request flow</h2>
   <ol class="flow">
@@ -171,7 +171,7 @@ token = ca.token()                          # access token, no secret, no client
     <tr><th>Component</th><th>Role</th><th>Where it lives</th></tr>
     <tr><td><strong>payment-agent pod</strong> <span class="tag n">workload</span></td>
       <td>The client. Holds its P-256 instance key, runs the five-step chain, serves the live console.</td>
-      <td>GKE ns <code>demo</code> → LB <code>34.171.232.146</code></td></tr>
+      <td>GKE ns <code>demo</code> → LB <code>35.190.164.92</code></td></tr>
     <tr><td><strong>attestation-issuer servlet</strong> <span class="tag a">attester</span></td>
       <td>Discovery doc + <code>/federation/attestation</code>. Validates evidence, enforces bindings &amp; ceiling, mints the attestation. Discovery advertises the token endpoint and PoP audience so the SDK needs only the host.</td>
       <td>Inside the PingFederate war (ns <code>pf</code>)</td></tr>
@@ -180,7 +180,7 @@ token = ca.token()                          # access token, no secret, no client
       <td>Registered in <code>pf-runtime.war</code> web.xml (ns <code>pf</code>)</td></tr>
     <tr><td><strong>PF token endpoint</strong> <span class="tag p">PingFederate</span></td>
       <td><code>/as/token.oauth2</code>. Authenticates the bridge <code>private_key_jwt</code> and issues a JWT access token. The OGNL <code>validateClientAttestation</code> issuance criterion runs as a second, independent check on the attestation.</td>
-      <td>PingFederate runtime pod → LB <code>35.223.142.97</code></td></tr>
+      <td>PingFederate runtime pod → LB <code>34.138.163.107</code></td></tr>
     <tr><td><strong>Polyglot SDK</strong> <span class="tag n">client</span></td>
       <td>Runs the whole flow from the PF host: <code>ClientAttestation(host).token()</code>. Auto-detects the platform identity; caches the token; HTTP adapters for requests/httpx, fetch, http.RoundTripper, java.net.http.</td>
       <td>Java · Python · TypeScript · Go (<a href="https://github.com/dphhyland/client-attestation-sdk-polyglot">repo</a>)</td></tr>
@@ -291,7 +291,7 @@ token = ca.token()                          # access token, no secret, no client
   </div>
 
   <div class="foot">
-    Live demo: <a href="http://34.171.232.146/">34.171.232.146</a> ·
+    Live demo: <a href="http://35.190.164.92/">35.190.164.92</a> ·
     Explainer: <a href="https://gke-spiffe-demo-production.up.railway.app">gke-spiffe-demo-production.up.railway.app</a> ·
     Source: <a href="https://github.com/dphhyland/pf-agentic-identity">github.com/dphhyland/pf-agentic-identity</a>
   </div>
