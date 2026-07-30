@@ -71,6 +71,25 @@ the teardown rehearsal. Verified both ways: the adopt path imports it, the from-
 Option 2 is probably right, but it removes an object from a live server, so it wants doing
 deliberately rather than as part of a recovery under pressure.
 
+## A rebuilt EKS cluster has a NEW OIDC issuer
+
+Learned in the 2026-07-30 rebuild test. `eksctl create cluster` mints a fresh cluster OIDC issuer
+every time:
+
+```
+before  https://oidc.eks.ap-southeast-2.amazonaws.com/id/9B3C4E687CA92CD350F551C7E0C69A07
+after   https://oidc.eks.ap-southeast-2.amazonaws.com/id/DE6B6D49900B87B9BF65A45D4822CD7D
+```
+
+That issuer is the trust root for the `eks-sa-token` evidence path, so after any cluster rebuild the
+`demo-attest-eks` client's `attestation_evidence_issuer` and `attestation_bundle_url` are stale and
+the EKS workload will fail attestation. Take both values from `bootstrap.sh`'s output
+(`EKS_CLUSTER_ISSUER` / `EKS_JWKS_URL`) and pass them as `TF_VAR_eks_cluster_issuer` /
+`TF_VAR_eks_jwks_url` — never hardcode them.
+
+The account STS issuer (`aws-sts-web-identity`, used by the AgentCore agent) is account-level and does
+NOT change, which is why teardown leaves outbound federation enabled.
+
 ## Not in Terraform at all
 
 These are created by the bootstrap scripts or by hand, and Terraform never sees them:

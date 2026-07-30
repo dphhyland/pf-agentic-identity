@@ -84,8 +84,12 @@ iam = boto3.client("iam", region_name=region)
 try:
     iam.enable_outbound_web_identity_federation()
 except botocore.exceptions.ClientError as e:
-    # already enabled is not an error for our purposes
-    if e.response["Error"]["Code"] not in ("InvalidActionException", "ValidationError",
+    # Already-enabled is the normal case on any re-run: teardown.sh deliberately LEAVES outbound
+    # federation on, because disabling it changes the account STS issuer and would invalidate every
+    # attestation_evidence_issuer already configured. The real error code is "FeatureEnabled"
+    # (FeatureEnabledException) - found the hard way during the 2026-07-30 rebuild test.
+    if e.response["Error"]["Code"] not in ("FeatureEnabled", "FeatureEnabledException",
+                                           "InvalidActionException", "ValidationError",
                                            "EntityAlreadyExists", "OperationNotPermitted"):
         raise
 sts = boto3.client("sts", region_name=region)
