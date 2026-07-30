@@ -312,16 +312,16 @@ resource "pingfederate_oauth_client" "demo_attest_gke_native" {
   exclusive_scopes                     = []
   extended_parameters = {
     attestation_bundle_url = {
-      values = ["https://container.googleapis.com/v1/projects/pf-spiffe-demo-7264/locations/us-central1-a/clusters/spiffe-demo/jwks"]
+      values = ["https://container.googleapis.com/v1/projects/pf-spiffe-demo-4412/locations/us-east1-b/clusters/spiffe-demo-e/jwks"]
     }
     attestation_evidence = {
       values = ["gke-sa-token"]
     }
     attestation_evidence_issuer = {
-      values = ["https://container.googleapis.com/v1/projects/pf-spiffe-demo-7264/locations/us-central1-a/clusters/spiffe-demo"]
+      values = ["https://container.googleapis.com/v1/projects/pf-spiffe-demo-4412/locations/us-east1-b/clusters/spiffe-demo-e"]
     }
     attestation_instances = {
-      values = ["[{\"entitlement\":[{\"actions\":[\"read_accounts\",\"create_opportunity\",\"submit_quote\"],\"sales_regions\":[\"EMEA\"],\"type\":\"sales_agent\"}],\"metadata\":{\"attestor\":\"gke-workload-identity\",\"environment\":\"gke\",\"region\":\"EMEA\"},\"spiffe_id\":\"spiffe://pf-spiffe-demo-7264.svc.id.goog/ns/demo/sa/payment-agent\"}]"]
+      values = ["[{\"entitlement\":[{\"actions\":[\"read_accounts\",\"create_opportunity\",\"submit_quote\"],\"sales_regions\":[\"EMEA\"],\"type\":\"sales_agent\"}],\"metadata\":{\"attestor\":\"gke-workload-identity\",\"environment\":\"gke\",\"region\":\"EMEA\"},\"spiffe_id\":\"spiffe://pf-spiffe-demo-4412.svc.id.goog/ns/demo/sa/payment-agent\"}]"]
     }
     attestation_issued_ttl = {
       values = ["300"]
@@ -336,7 +336,7 @@ resource "pingfederate_oauth_client" "demo_attest_gke_native" {
       values = ["{\"crv\":\"P-256\",\"d\":\"9TAjv9_QP_mzZOn0NIWeERR_gtXjcqqj8KDp-XX-C84\",\"kid\":\"mock-attester-1\",\"kty\":\"EC\",\"x\":\"c2pTtxD_E2ZGIMam9QGsiDvlY57axE9Q9LKSnidQUag\",\"y\":\"ZI_wiUp0BUd_Gmi9412cAet7vBMhi4fkwclL_ujlTSI\"}"]
     }
     attestation_trust_domain = {
-      values = ["pf-spiffe-demo-7264.svc.id.goog"]
+      values = ["pf-spiffe-demo-4412.svc.id.goog"]
     }
   }
   grant_types = ["CLIENT_CREDENTIALS", "TOKEN_EXCHANGE"]

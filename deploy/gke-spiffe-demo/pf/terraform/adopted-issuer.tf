@@ -34,7 +34,7 @@ resource "pingfederate_idp_token_processor" "subject_jwt_proc" {
       },
       {
         name  = "Issuer"
-        value = "http://35.223.142.97"
+        value = "http://34.138.163.107"
       },
       {
         name  = "JWKS Endpoint URI"
@@ -154,7 +154,7 @@ resource "pingfederate_oauth_access_token_manager" "attest_jwt_atm" {
       },
       {
         name  = "Issuer Claim Value"
-        value = "http://35.223.142.97"
+        value = "http://34.138.163.107"
       },
       {
         name  = "JWE Algorithm"

@@ -43,7 +43,7 @@ variable "gcp_project_id" {
 variable "gke_cluster_issuer" {
   description = <<-EOT
     The GKE cluster's OIDC issuer URL, e.g.
-      https://container.googleapis.com/v1/projects/<project>/locations/us-central1-a/clusters/spiffe-demo
+      https://container.googleapis.com/v1/projects/<project>/locations/us-east1-b/clusters/spiffe-demo-e
   EOT
   type        = string
   default     = ""

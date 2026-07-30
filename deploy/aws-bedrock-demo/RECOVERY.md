@@ -131,6 +131,44 @@ image that fails with `Client ID is already in use` / `The plugin ID is already 
 `recover-config.sh` strips them for the genuine from-zero case. The rule: if the object is in the
 archive, it needs an import block.
 
+## serverSettings is NOT terraform-managed by default - and that bites twice
+
+The single most confusing failure of the full rebuild. `serverSettings.federationInfo.baseUrl` was
+set through the admin API, then a `kubectl set env` rolled the pod, which re-imported the baked
+`data.zip` and **silently reverted the issuer to the old value**. Symptom: mint 200, then the token
+endpoint rejects the PoP with `Expected one of [..., http://<old-ip>]`.
+
+It happened again on the other PF an hour later, with `gkeSubjectProc`'s Issuer: terraform-applied,
+then an env change rolled the pod and reverted it, giving `Invalid Issuer` on the second exchange hop.
+
+**The rule: any admin-API or terraform change is provisional until you export and re-bake. Rolling
+the pod for any reason - including an unrelated env var - reverts everything to the image.**
+
+`server-settings.tf` now manages `base_url` declaratively so terraform reasserts it. Note the
+provider requires a non-empty `saml_2_entity_id` even for an OAuth-only deployment; a placeholder is
+used, which is harmless because nothing references it.
+
+## A rebuilt GCP project changes the SPIFFE trust domain
+
+`gcloud projects delete` locks the project ID for ~30 days, so a rebuild lands on a NEW project id -
+and the GKE trust domain is derived from it. Everything below changes together:
+
+| Value | Derived from |
+|---|---|
+| `attestation_trust_domain` | `<project>.svc.id.goog` |
+| `attestation_evidence_issuer` / `attestation_bundle_url` | project **and** zone/cluster name |
+| every `spiffe_id` binding | the trust domain |
+| the anchor's entity id, `OIDF_FEDERATION_*` on both PFs | the new LoadBalancer IP |
+| the AWS root's `gke_pf_issuer`, `gkeSubjectProc` | the new anchor IP |
+
+Verified 2026-07-30: rebuilt into `pf-spiffe-demo-4412` (us-east1-b) and the chain came back
+identical - `sub` on the new trust domain, `act` three deep, resource allowed.
+
+**GCP capacity is a real failure mode.** `e2-standard-4` was stocked out across every us-central1
+zone (`GCE_STOCKOUT`, ~20 minutes to report). Racing two regions in parallel and taking the winner is
+far faster than trying zones serially. `gcloud projects undelete <id>` restores the old project
+within the window, which avoids the whole trust-domain cascade if you catch it early.
+
 ## Not in Terraform at all
 
 These are created by the bootstrap scripts or by hand, and Terraform never sees them:

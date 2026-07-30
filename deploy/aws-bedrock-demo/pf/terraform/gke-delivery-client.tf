@@ -10,7 +10,7 @@
 locals {
   # The attester's signing key, as registered on this PF's other attestation clients.
   delivery_attester_signing_jwk = "{\"crv\":\"P-256\",\"d\":\"9TAjv9_QP_mzZOn0NIWeERR_gtXjcqqj8KDp-XX-C84\",\"kid\":\"mock-attester-1\",\"kty\":\"EC\",\"x\":\"c2pTtxD_E2ZGIMam9QGsiDvlY57axE9Q9LKSnidQUag\",\"y\":\"ZI_wiUp0BUd_Gmi9412cAet7vBMhi4fkwclL_ujlTSI\"}"
-  gke_cluster_issuer            = "https://container.googleapis.com/v1/projects/pf-spiffe-demo-7264/locations/us-central1-a/clusters/spiffe-demo"
+  gke_cluster_issuer            = "https://container.googleapis.com/v1/projects/pf-spiffe-demo-4412/locations/us-east1-b/clusters/spiffe-demo-e"
   attester_issuer               = "https://attester.example.com"
 }
 
@@ -37,11 +37,11 @@ resource "pingfederate_oauth_client" "demo_attest_gke_delivery" {
   extended_parameters = {
     attestation_issuer          = { values = [local.attester_issuer] }
     attestation_evidence        = { values = ["gke-sa-token"] }
-    attestation_trust_domain    = { values = ["pf-spiffe-demo-7264.svc.id.goog"] }
+    attestation_trust_domain    = { values = ["pf-spiffe-demo-4412.svc.id.goog"] }
     attestation_bundle_url      = { values = ["${local.gke_cluster_issuer}/jwks"] }
     attestation_evidence_issuer = { values = [local.gke_cluster_issuer] }
     attestation_instances = { values = [jsonencode([{
-      spiffe_id   = "spiffe://pf-spiffe-demo-7264.svc.id.goog/ns/demo/sa/delivery-agent"
+      spiffe_id   = "spiffe://pf-spiffe-demo-4412.svc.id.goog/ns/demo/sa/delivery-agent"
       entitlement = [{ type = "sales_agent", actions = ["read_accounts", "submit_quote"], sales_regions = ["EMEA"] }]
       metadata    = { region = "EMEA", environment = "gke", attestor = "gke-workload-identity", role = "delivery" }
     }])] }

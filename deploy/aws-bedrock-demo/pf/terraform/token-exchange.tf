@@ -13,7 +13,7 @@
 variable "gke_pf_issuer" {
   description = "The GKE PF's public issuer / federation entity id (the anchor)"
   type        = string
-  default     = "http://35.223.142.97"
+  default     = "http://34.138.163.107"
 }
 
 # Validates subject tokens ISSUED BY THE GKE PF (cross-cloud hop). Presented with
