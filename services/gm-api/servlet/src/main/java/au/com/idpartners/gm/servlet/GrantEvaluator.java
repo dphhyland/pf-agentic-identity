@@ -179,6 +179,41 @@ public final class GrantEvaluator {
             Map<String, Object> actionProps,
             Map<String, Object> callerContext) throws RefusedException {
 
+        if (resourceId == null || resourceId.isBlank()) {
+            throw new RefusedException(Refusal.MISSING_RESOURCE, "resource.id is required");
+        }
+        return build(grant, token, resourceType, resourceId, actionName, actionProps, callerContext);
+    }
+
+    /**
+     * Builds the AuthZEN RESOURCE-SEARCH request: "which resources of this type may this
+     * subject act on?".
+     *
+     * <p>Identical to an evaluation but for the resource, which carries its type and no id —
+     * the set of ids is the answer. Everything that makes the question safe is unchanged and
+     * shared: the same scope check, the same expiry refusal, the same subject taken from the
+     * grant (never from the caller), and the same grant/actor enrichment. A search must not
+     * be a way to ask a question you are not allowed to ask.
+     */
+    public static Map<String, Object> buildSearchRequest(
+            GrantView grant,
+            TokenClaims token,
+            String resourceType,
+            String actionName,
+            Map<String, Object> callerContext) throws RefusedException {
+
+        return build(grant, token, resourceType, null, actionName, null, callerContext);
+    }
+
+    private static Map<String, Object> build(
+            GrantView grant,
+            TokenClaims token,
+            String resourceType,
+            String resourceId,
+            String actionName,
+            Map<String, Object> actionProps,
+            Map<String, Object> callerContext) throws RefusedException {
+
         authorise(grant, token, SCOPE_EVALUATE);
 
         if (resourceType == null || resourceType.isBlank()) {
@@ -212,7 +247,10 @@ public final class GrantEvaluator {
 
         Map<String, Object> resource = new LinkedHashMap<>();
         resource.put("type", resourceType);
-        resource.put("id", resourceId);
+        // A search omits the id: the permitted set is what is being asked for.
+        if (resourceId != null) {
+            resource.put("id", resourceId);
+        }
 
         // The grant's constraints become the AuthZEN context. This is what lets a
         // general-purpose PDP decide against this specific consent.

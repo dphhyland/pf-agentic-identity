@@ -174,6 +174,46 @@ final class GrantOperations {
     }
 
     /**
+     * Asks which resources of a type the grant permits acting on — the AuthZEN resource
+     * search. Returns the permitted ids, in order, or an empty list when the subject holds
+     * none.
+     *
+     * <p>Same shape of contract as {@link #evaluate}: an AS-side refusal is an answer (an
+     * empty set with the refusal logged), but an unreachable PDP throws. "I could not ask"
+     * must never render as "you hold nothing" — the caller would tell the user something
+     * false and act on it.
+     */
+    List<String> search(GrantView grant, TokenClaims token, String resourceType,
+                        String actionName, Map<String, Object> callerContext)
+            throws UnavailableException, GrantEvaluator.RefusedException {
+
+        Map<String, Object> request =
+                GrantEvaluator.buildSearchRequest(grant, token, resourceType, actionName, callerContext);
+
+        Map<String, Object> response;
+        try {
+            response = pdp.search(request);
+        } catch (PdpClient.PdpUnavailableException e) {
+            throw new UnavailableException("the policy decision service is unavailable", e);
+        }
+        if (response == null) {
+            throw new UnavailableException("the policy decision service returned a null document", null);
+        }
+
+        List<String> ids = new java.util.ArrayList<>();
+        Object results = response.get("results");
+        if (results instanceof List<?> list) {
+            for (Object entry : list) {
+                Object id = asMap(entry).get("id");
+                if (id != null && !String.valueOf(id).isBlank()) {
+                    ids.add(String.valueOf(id));
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
      * The user-facing half of the PDP's reasons, and only that half.
      *
      * <p>AuthZEN's reason_admin may name internal policy detail; section 8.4.3 says it

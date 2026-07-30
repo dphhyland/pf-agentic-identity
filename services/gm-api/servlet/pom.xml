@@ -98,6 +98,51 @@
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.2.5</version>
       </plugin>
+
+      <!--
+        Coverage gate on the request-building logic: what the PDP is asked, and which
+        requests are refused before it is asked at all. 100% line + branch, enforced — a
+        missed branch here is a question asked on the wrong subject or a guard that does
+        not fire, not a cosmetic gap.
+
+        Gated per METHOD, not per class, so the socket-bound and servlet-plumbing members
+        stay honestly out of scope: PdpClient.post/readAll open real connections, and the
+        McpServlet/GrantsServlet HTTP paths need a running PingFederate. Those are covered
+        by the deployed probes instead.
+      -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>0.8.12</version>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>coverage-gate</id>
+            <phase>verify</phase>
+            <goals><goal>check</goal></goals>
+            <configuration>
+              <rules>
+                <rule>
+                  <element>METHOD</element>
+                  <includes>
+                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.build(*</include>
+                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildSearchRequest(*</include>
+                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildDecisionRequest(*</include>
+                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.authorise(*</include>
+                  </includes>
+                  <limits>
+                    <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                    <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                  </limits>
+                </rule>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
 </project>

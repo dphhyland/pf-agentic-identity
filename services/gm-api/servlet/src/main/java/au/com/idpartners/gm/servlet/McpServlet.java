@@ -140,30 +140,50 @@ public class McpServlet extends HttpServlet {
      * what it does mechanically.
      */
     private static List<Map<String, Object>> toolDefinitions() {
+        // NOTE the shape: these take a well-formed AuthZEN request MINUS the subject. The
+        // subject is never a parameter — it is inferred from the presented token (its sub,
+        // plus the actor chain on a delegated token) and enforced here. A caller cannot ask
+        // about anyone but itself, so there is nothing to spoof.
         Map<String, Object> evaluateSchema = Map.of(
                 "type", "object",
                 "properties", Map.of(
-                        "grant_id", Map.of("type", "string",
-                                "description", "The grant to ask about. This is the 'agid' claim "
-                                        + "in your own access token."),
-                        "resource_type", Map.of("type", "string",
-                                "description", "What kind of thing, e.g. 'account' or 'payment'."),
-                        "resource_id", Map.of("type", "string",
-                                "description", "Which one, e.g. the account number."),
-                        "action", Map.of("type", "string",
-                                "description", "What you want to do, e.g. 'read_balance', "
-                                        + "'read_transactions', 'initiate_payment'."),
-                        "amount", Map.of("type", "number",
-                                "description", "For payments: the amount. Consent may cap it.")),
-                "required", List.of("grant_id", "resource_type", "resource_id", "action"));
+                        "action", Map.of("type", "object",
+                                "description", "AuthZEN action, e.g. {\"name\":\"read_balance\"}. "
+                                        + "Names: read_balance, read_transactions, initiate_payment.",
+                                "properties", Map.of("name", Map.of("type", "string")),
+                                "required", List.of("name")),
+                        "resource", Map.of("type", "object",
+                                "description", "AuthZEN resource, e.g. "
+                                        + "{\"type\":\"account\",\"id\":\"CHK-1001\"}.",
+                                "properties", Map.of(
+                                        "type", Map.of("type", "string"),
+                                        "id", Map.of("type", "string")),
+                                "required", List.of("type", "id")),
+                        "context", Map.of("type", "object",
+                                "description", "Optional AuthZEN context, e.g. {\"amount\":500}. "
+                                        + "A consent may cap the amount.")),
+                "required", List.of("action", "resource"));
+
+        Map<String, Object> searchSchema = Map.of(
+                "type", "object",
+                "properties", Map.of(
+                        "action", Map.of("type", "object",
+                                "description", "The action you want the permitted set for, e.g. "
+                                        + "{\"name\":\"search_accounts\"}.",
+                                "properties", Map.of("name", Map.of("type", "string")),
+                                "required", List.of("name")),
+                        "resource", Map.of("type", "object",
+                                "description", "The KIND of resource to enumerate — type only, no "
+                                        + "id: the set of ids is the answer. e.g. "
+                                        + "{\"type\":\"account\"}.",
+                                "properties", Map.of("type", Map.of("type", "string")),
+                                "required", List.of("type"))),
+                "required", List.of("action", "resource"));
 
         Map<String, Object> describeSchema = Map.of(
                 "type", "object",
-                "properties", Map.of(
-                        "grant_id", Map.of("type", "string",
-                                "description", "The grant to describe. This is the 'agid' claim "
-                                        + "in your own access token.")),
-                "required", List.of("grant_id"));
+                "properties", Map.of(),
+                "required", List.of());
 
         return List.of(
                 Map.of("name", "evaluate_grant",
@@ -174,11 +194,21 @@ public class McpServlet extends HttpServlet {
                                 + "had the access they consented to share. Always call this before "
                                 + "acting on someone's data.",
                         "inputSchema", evaluateSchema),
+                Map.of("name", "list_entitlements",
+                        "description",
+                        "Ask which resources you may act on AT ALL — the authorization server "
+                                + "returns the permitted set, computed from the user's live holdings. "
+                                + "Use this instead of remembering, guessing, or listing from an "
+                                + "earlier answer: an account you saw before may since have been "
+                                + "closed or withdrawn. Call it first when you need to choose a "
+                                + "resource, then confirm the specific action with evaluate_grant.",
+                        "inputSchema", searchSchema),
                 Map.of("name", "describe_grant",
                         "description",
                         "See what a user actually consented to: which scopes, which accounts, and "
                                 + "which actions. Useful for explaining to the user what you may do, "
-                                + "or for deciding whether an operation is worth attempting.",
+                                + "or for deciding whether an operation is worth attempting. Takes no "
+                                + "arguments: it describes the grant behind your own token.",
                         "inputSchema", describeSchema));
     }
 
@@ -207,41 +237,62 @@ public class McpServlet extends HttpServlet {
         }
 
         String grantId = str(args.get("grant_id"));
-        if (grantId == null || grantId.isBlank()) {
-            writeError(resp, id, INVALID_PARAMS, "grant_id is required");
-            return;
-        }
-
         GrantView grant;
-        try {
-            grant = ops.lookup(grantId);
-        } catch (GrantOperations.GrantStoreException e) {
-            log.log(Level.SEVERE, "grant lookup failed for " + grantId, e);
-            writeToolError(resp, id, "The grant could not be read. This is a service problem, "
-                    + "not a decision: do not assume you are denied. Try again shortly.");
-            return;
+        if (grantId == null || grantId.isBlank()) {
+            // No grant reference. A token minted by RFC 8693 token exchange carries no
+            // agid, because the exchange creates no persistent access grant — yet the
+            // token IS this server's signed record of what was granted: subject, client
+            // and scopes were all fixed at issuance and verified above. Evaluate that
+            // record directly. Only the grant-store read is substituted; the decision
+            // still belongs to the PDP, and the ownership checks hold trivially.
+            grant = new GrantView("urn:token:presented", token.getSubject(),
+                    token.getClientId(), token.getScopes(), null, java.util.List.of());
+        } else {
+            try {
+                grant = ops.lookup(grantId);
+            } catch (GrantOperations.GrantStoreException e) {
+                log.log(Level.SEVERE, "grant lookup failed for " + grantId, e);
+                writeToolError(resp, id, "The grant could not be read. This is a service problem, "
+                        + "not a decision: do not assume you are denied. Try again shortly.");
+                return;
+            }
         }
 
         switch (name == null ? "" : name) {
             case "evaluate_grant" -> evaluateTool(resp, id, grant, token, args);
+            case "list_entitlements" -> listEntitlementsTool(resp, id, grant, token, args);
             case "describe_grant" -> describeTool(resp, id, grant, token);
             default -> writeError(resp, id, INVALID_PARAMS, "unknown tool: " + name);
         }
     }
 
+    /** The AuthZEN {@code action.name} of a request, or null when absent/blank. */
+    static String actionName(Map<String, Object> args) {
+        return str(GrantOperations.asMap(args.get("action")).get("name"));
+    }
+
+    /** The AuthZEN {@code resource} of a request as a map (never null). */
+    static Map<String, Object> resourceOf(Map<String, Object> args) {
+        return GrantOperations.asMap(args.get("resource"));
+    }
+
     private void evaluateTool(HttpServletResponse resp, Object id, GrantView grant,
                               TokenClaims token, Map<String, Object> args) throws IOException {
-        String resourceType = str(args.get("resource_type"));
-        String resourceId = str(args.get("resource_id"));
-        String action = str(args.get("action"));
+        Map<String, Object> resource = resourceOf(args);
+        String resourceType = str(resource.get("type"));
+        String resourceId = str(resource.get("id"));
+        String action = actionName(args);
         if (resourceType == null || resourceId == null || action == null) {
             writeError(resp, id, INVALID_PARAMS,
-                    "resource_type, resource_id and action are required");
+                    "action.name and resource.type/resource.id are required");
             return;
         }
 
+        // Context carries the qualifiers a consent can cap (amount today). The subject is
+        // NOT read from the request — it is the token's, resolved above.
         Map<String, Object> props = new LinkedHashMap<>();
-        if (args.get("amount") instanceof Number amount) {
+        Map<String, Object> context = GrantOperations.asMap(args.get("context"));
+        if (context.get("amount") instanceof Number amount) {
             props.put("amount", amount);
         }
 
@@ -282,6 +333,61 @@ public class McpServlet extends HttpServlet {
         result.put("guidance", guidance);
         result.put("consent_would_help", d.retryable());
 
+        writeToolResult(resp, id, result, false);
+    }
+
+    /**
+     * The permitted set: "which resources may I act on at all?".
+     *
+     * <p>This exists so a model never has to remember. Its context holds accounts it saw
+     * earlier in the conversation, and any of them may since have been closed or withdrawn —
+     * answering from memory is how an agent ends up confidently acting on authority it no
+     * longer has. The guidance text says so explicitly, because the guidance is the only part
+     * a model reliably reads.
+     */
+    private void listEntitlementsTool(HttpServletResponse resp, Object id, GrantView grant,
+                                      TokenClaims token, Map<String, Object> args) throws IOException {
+        String resourceType = str(resourceOf(args).get("type"));
+        String action = actionName(args);
+        if (resourceType == null || action == null) {
+            writeError(resp, id, INVALID_PARAMS, "action.name and resource.type are required");
+            return;
+        }
+
+        List<String> ids;
+        try {
+            ids = ops.search(grant, token, resourceType, action, null);
+        } catch (GrantOperations.UnavailableException e) {
+            log.log(Level.SEVERE, "MCP search: PDP unavailable", e);
+            // Must not read as "you hold nothing".
+            writeToolError(resp, id, "The decision service is unavailable, so the permitted set "
+                    + "could not be read. This is NOT an empty set — do not conclude the user holds "
+                    + "nothing. Retry shortly.");
+            return;
+        } catch (GrantEvaluator.RefusedException e) {
+            log.info("MCP search refused: " + e.refusal.code + ": " + e.getMessage());
+            writeToolResult(resp, id, Map.of(
+                    "reason", e.refusal.code,
+                    "explanation", e.refusal.userMessage,
+                    "guidance", "You cannot ask this. Check your token carries the "
+                            + "grant_management_evaluate scope."), true);
+            return;
+        }
+
+        log.info("MCP search grant=" + grant.guid() + " agent=" + token.getActor()
+                + " action=" + action + " type=" + resourceType + " -> " + ids.size() + " permitted");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("resource_type", resourceType);
+        result.put("action", action);
+        result.put("permitted", ids);
+        result.put("count", ids.size());
+        result.put("guidance", ids.isEmpty()
+                ? "The user holds NO " + resourceType + " you may " + action + " on. Do not guess "
+                        + "an id and do not retry from memory; tell the user and stop."
+                : "These are the only " + resourceType + " values you may " + action + " on right "
+                        + "now. Use one of them — do not use an id remembered from earlier in the "
+                        + "conversation. Confirm the specific operation with evaluate_grant.");
         writeToolResult(resp, id, result, false);
     }
 

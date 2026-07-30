@@ -22,23 +22,31 @@ public final class PdpClient {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     private final String evaluationUrl;
+    private final String resourceSearchUrl;
     private final String bearerToken;
     private final int timeoutMs;
 
     /**
-     * @param baseUrl     the PDP's base URL; /access/v1/evaluation is appended
+     * @param baseUrl     the PDP's base URL; the AuthZEN endpoint paths are appended
      * @param bearerToken credential for the PDP, or null/blank for an unprotected one
      * @param timeoutMs   connect and read timeout
      */
     public PdpClient(String baseUrl, String bearerToken, int timeoutMs) {
         String base = baseUrl == null ? "" : baseUrl.replaceAll("/+$", "");
         this.evaluationUrl = base + "/access/v1/evaluation";
+        // AuthZEN 1.0 spells resource search /access/v1/search/resource. (The draft-era Go
+        // adapter used /access/v1/resourcesearch; PingAuthorize's native servlet is 1.0.)
+        this.resourceSearchUrl = base + "/access/v1/search/resource";
         this.bearerToken = bearerToken;
         this.timeoutMs = timeoutMs;
     }
 
     public String getEvaluationUrl() {
         return evaluationUrl;
+    }
+
+    public String getResourceSearchUrl() {
+        return resourceSearchUrl;
     }
 
     /** Thrown when the PDP cannot be reached or does not answer coherently. */
@@ -61,9 +69,26 @@ public final class PdpClient {
      * catastrophic.
      */
     public Map<String, Object> evaluate(Map<String, Object> request) throws PdpUnavailableException {
+        return post(evaluationUrl, request);
+    }
+
+    /**
+     * Posts an AuthZEN resource-search request and returns the decoded response
+     * ({@code {"results":[{"type","id"}...],"page":{}}}).
+     *
+     * <p>Same contract as {@link #evaluate}: an unreachable PDP is an error, never an empty
+     * result set. Silently returning "no entitlements" would look identical to a subject who
+     * genuinely holds nothing, and the caller would tell the user the wrong thing.
+     */
+    public Map<String, Object> search(Map<String, Object> request) throws PdpUnavailableException {
+        return post(resourceSearchUrl, request);
+    }
+
+    private Map<String, Object> post(String url, Map<String, Object> request)
+            throws PdpUnavailableException {
         HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(evaluationUrl).openConnection();
+            conn = (HttpURLConnection) new URL(url).openConnection();
             conn.setRequestMethod("POST");
             conn.setConnectTimeout(timeoutMs);
             conn.setReadTimeout(timeoutMs);
@@ -83,11 +108,11 @@ public final class PdpClient {
             if (status != 200) {
                 String err = readAll(conn, true);
                 throw new PdpUnavailableException(
-                        "PDP returned " + status + " from " + evaluationUrl + ": " + err);
+                        "PDP returned " + status + " from " + url + ": " + err);
             }
             return MAPPER.readValue(readAll(conn, false), Map.class);
         } catch (IOException e) {
-            throw new PdpUnavailableException("could not reach the PDP at " + evaluationUrl, e);
+            throw new PdpUnavailableException("could not reach the PDP at " + url, e);
         } finally {
             if (conn != null) {
                 conn.disconnect();
