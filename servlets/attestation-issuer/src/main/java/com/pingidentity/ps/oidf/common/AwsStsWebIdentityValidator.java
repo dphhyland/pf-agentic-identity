@@ -38,7 +38,7 @@ import org.jose4j.jwt.NumericDate;
  * {@code iss} must equal the client's pinned {@code attestation_evidence_issuer} (the account issuer URL).
  * The trust domain is required. Failures throw {@code invalid_svid}.
  */
-public final class AwsStsWebIdentityValidator implements EvidenceValidator {
+public final class AwsStsWebIdentityValidator implements InstanceAttestationValidator {
 
     /** {@code arn:aws:iam::<account>:role/<path/name>} — group 1 account, group 2 the role path+name. */
     private static final Pattern IAM_ROLE_ARN =
@@ -60,7 +60,43 @@ public final class AwsStsWebIdentityValidator implements EvidenceValidator {
     }
 
     @Override
-    public SpiffeSvid validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+    public String id() {
+        return AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY;
+    }
+
+    @Override
+    public String format() {
+        return SpiffeInstanceAttestationValidator.FORMAT;
+    }
+
+    /** AWS has no canonical SPIFFE mapping — the ID is synthesised from the IAM role ARN. */
+    @Override
+    public boolean requiresTrustDomain() {
+        return true;
+    }
+
+    @Override
+    public String title() {
+        return "AWS STS web-identity token";
+    }
+
+    @Override
+    public String description() {
+        return "An AWS-signed OIDC token from sts:GetWebIdentityToken (any AWS workload, including "
+                + "Bedrock AgentCore), mapped onto a synthetic SPIFFE ID from its IAM role ARN.";
+    }
+
+    @Override
+    public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config));
+    }
+
+    /**
+     * The SPIFFE-typed validation, kept public so the mapping detail (trust domain, path, raw token) stays
+     * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
+     */
+    public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no web-identity token presented");

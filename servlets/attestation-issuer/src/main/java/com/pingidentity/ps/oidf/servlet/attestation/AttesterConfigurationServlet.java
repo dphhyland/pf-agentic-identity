@@ -7,6 +7,7 @@ import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientResolverPlugins;
+import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
 import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
@@ -56,11 +57,13 @@ import org.jose4j.json.JsonUtil;
 public class AttesterConfigurationServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
-    /** Evidence formats the issuance endpoint can validate. */
-    static final List<String> EVIDENCE_TYPES_SUPPORTED = List.of(
-            AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN,
-            AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN,
-            AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY);
+    /**
+     * Evidence formats the issuance endpoint can validate — read off the validator registry, so a newly
+     * registered evidence type is advertised without editing anything here.
+     */
+    static List<String> evidenceTypesSupported() {
+        return InstanceAttestationValidators.defaults().ids();
+    }
 
     /** The client-authentication method the advertised token endpoint accepts. */
     static final List<String> TOKEN_ENDPOINT_AUTH_METHODS = List.of("attest_jwt_client_auth");
@@ -149,7 +152,9 @@ public class AttesterConfigurationServlet extends HttpServlet {
         // takes ?client_id, keeping this /.well-known document a static, parameterless, cacheable resource.
         m.put("client_configuration_endpoint", baseUrl + "/federation/attester-configuration");
         m.put("challenge_required", challengeRequired);
-        m.put("evidence_types_supported", EVIDENCE_TYPES_SUPPORTED);
+        m.put("evidence_types_supported", evidenceTypesSupported());
+        // The self-described catalogue behind that list: id, format family, title, description.
+        m.put("evidence_types", InstanceAttestationValidators.defaults().supported());
         m.put("instance_proof_typ", InstanceKeyProofValidator.TYP);
         m.put("instance_proof_signing_alg_values_supported", algorithms);
         m.put("instance_proof_max_age_seconds", ClientAttestationConfig.DEFAULT_POP_MAX_AGE_SECONDS);

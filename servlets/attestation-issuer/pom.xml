@@ -32,6 +32,8 @@
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>0.1.0</version></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>0.1.0</version></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>0.1.0</version></dependency>
+        <!-- Trust-chain validation for federation-backed wallet-provider trust (was only transitive). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>0.1.0</version></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>0.9.6</version></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.17.1</version></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>1.2</version></dependency>

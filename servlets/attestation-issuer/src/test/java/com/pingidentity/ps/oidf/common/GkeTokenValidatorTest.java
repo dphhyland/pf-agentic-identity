@@ -62,7 +62,7 @@ class GkeTokenValidatorTest {
     @Test
     void mapsVerifiedTokenOntoCanonicalSpiffeId() throws Exception {
         String token = token(CLUSTER_ISSUER, "system:serviceaccount:demo:payment-agent", ATTESTER, 600);
-        SpiffeSvid svid = this.validator.validate(token, this.bundle, this.config);
+        SpiffeSvid svid = this.validator.validateSvid(token, this.bundle, this.config);
         assertEquals("spiffe://demo-project.svc.id.goog/ns/demo/sa/payment-agent", svid.spiffeId());
         assertEquals(TRUST_DOMAIN, svid.trustDomain());
         assertEquals("/ns/demo/sa/payment-agent", svid.path());
@@ -75,7 +75,7 @@ class GkeTokenValidatorTest {
         String token = token("https://kubernetes.default.svc", "system:serviceaccount:demo:payment-agent",
                 ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -84,7 +84,7 @@ class GkeTokenValidatorTest {
         String token = token(CLUSTER_ISSUER, "spiffe://demo-project.svc.id.goog/ns/demo/sa/payment-agent",
                 ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -93,7 +93,7 @@ class GkeTokenValidatorTest {
         String token = token(CLUSTER_ISSUER, "system:serviceaccount:demo:payment-agent",
                 "https://other.example.com", 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -101,7 +101,7 @@ class GkeTokenValidatorTest {
     void expiredTokenIsRejected() throws Exception {
         String token = token(CLUSTER_ISSUER, "system:serviceaccount:demo:payment-agent", ATTESTER, -600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -115,7 +115,7 @@ class GkeTokenValidatorTest {
         claims.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600));
         String token = TestJwts.sign(otherKey, "ES256", null, claims);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 }

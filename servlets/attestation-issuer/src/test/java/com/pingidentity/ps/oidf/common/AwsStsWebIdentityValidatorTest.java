@@ -61,7 +61,7 @@ class AwsStsWebIdentityValidatorTest {
     @Test
     void mapsIamRoleArnOntoSpiffeId() throws Exception {
         String token = token(ACCOUNT_ISSUER, "arn:aws:iam::123456789012:role/AgentExecutionRole", ATTESTER, 600);
-        SpiffeSvid svid = this.validator.validate(token, this.bundle, this.config);
+        SpiffeSvid svid = this.validator.validateSvid(token, this.bundle, this.config);
         assertEquals("spiffe://123456789012.aws.demo/aws/123456789012/role/AgentExecutionRole", svid.spiffeId());
         assertEquals(TRUST_DOMAIN, svid.trustDomain());
         assertEquals("/aws/123456789012/role/AgentExecutionRole", svid.path());
@@ -71,7 +71,7 @@ class AwsStsWebIdentityValidatorTest {
     void mapsAssumedRoleArnDroppingSession() throws Exception {
         String token = token(ACCOUNT_ISSUER,
                 "arn:aws:sts::123456789012:assumed-role/AgentExecutionRole/session-abc123", ATTESTER, 600);
-        SpiffeSvid svid = this.validator.validate(token, this.bundle, this.config);
+        SpiffeSvid svid = this.validator.validateSvid(token, this.bundle, this.config);
         assertEquals("spiffe://123456789012.aws.demo/aws/123456789012/role/AgentExecutionRole", svid.spiffeId());
     }
 
@@ -79,7 +79,7 @@ class AwsStsWebIdentityValidatorTest {
     void nonRoleSubjectIsRejected() throws Exception {
         String token = token(ACCOUNT_ISSUER, "system:serviceaccount:demo:payment-agent", ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -88,7 +88,7 @@ class AwsStsWebIdentityValidatorTest {
         String token = token("https://evil.tokens.sts.global.api.aws",
                 "arn:aws:iam::123456789012:role/AgentExecutionRole", ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -97,7 +97,7 @@ class AwsStsWebIdentityValidatorTest {
         String token = token(ACCOUNT_ISSUER, "arn:aws:iam::123456789012:role/AgentExecutionRole",
                 "https://other.example.com", 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -105,7 +105,7 @@ class AwsStsWebIdentityValidatorTest {
     void expiredTokenIsRejected() throws Exception {
         String token = token(ACCOUNT_ISSUER, "arn:aws:iam::123456789012:role/AgentExecutionRole", ATTESTER, -600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 }

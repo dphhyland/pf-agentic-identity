@@ -32,7 +32,7 @@ import org.jose4j.jwt.NumericDate;
  * issuer; optionally {@code iss} must equal the client's pinned {@code attestation_evidence_issuer} (the EKS
  * cluster issuer URL). The trust domain is required in this mode. Failures throw {@code invalid_svid}.
  */
-public final class EksTokenValidator implements EvidenceValidator {
+public final class EksTokenValidator implements InstanceAttestationValidator {
 
     /** Kubernetes service-account subject shape: {@code system:serviceaccount:<namespace>:<name>}. */
     private static final Pattern KSA_SUBJECT = Pattern.compile("system:serviceaccount:([^:]+):([^:]+)");
@@ -50,7 +50,43 @@ public final class EksTokenValidator implements EvidenceValidator {
     }
 
     @Override
-    public SpiffeSvid validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+    public String id() {
+        return AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN;
+    }
+
+    @Override
+    public String format() {
+        return SpiffeInstanceAttestationValidator.FORMAT;
+    }
+
+    /** The SPIFFE ID is built from the token's namespace/service-account, namespaced by the trust domain. */
+    @Override
+    public boolean requiresTrustDomain() {
+        return true;
+    }
+
+    @Override
+    public String title() {
+        return "EKS projected service-account token (IRSA)";
+    }
+
+    @Override
+    public String description() {
+        return "An EKS-projected Kubernetes service-account token, verified against the cluster's OIDC "
+                + "JWKS and mapped onto a SPIFFE ID under the configured trust domain.";
+    }
+
+    @Override
+    public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config));
+    }
+
+    /**
+     * The SPIFFE-typed validation, kept public so the mapping detail (trust domain, path, raw token) stays
+     * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
+     */
+    public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no service-account token presented");

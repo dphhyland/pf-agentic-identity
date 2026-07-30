@@ -12,7 +12,11 @@ import org.junit.jupiter.api.Test;
 
 class SpireSelectorIntrospectorTest {
 
-    private static SpiffeSvid svid(String id) {
+    private static InstanceIdentity svid(String id) {
+        return InstanceIdentity.ofSpiffe(rawSvid(id));
+    }
+
+    private static SpiffeSvid rawSvid(String id) {
         return new SpiffeSvid(id, "gke.banking.demo", "/ns/demo/sa/payment-agent",
                 List.of("https://attester.example.com"), 0, 0, "raw");
     }

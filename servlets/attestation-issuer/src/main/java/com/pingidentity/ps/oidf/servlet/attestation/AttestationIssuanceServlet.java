@@ -8,14 +8,20 @@ import com.pingidentity.ps.oidf.common.AttesterClient;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
 import com.pingidentity.ps.oidf.common.AttestationSupport;
 import com.pingidentity.ps.oidf.common.AttesterSigningKey;
-import com.pingidentity.ps.oidf.common.AwsStsWebIdentityValidator;
+import com.pingidentity.ps.oidf.common.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientAttestationException;
-import com.pingidentity.ps.oidf.common.EksTokenValidator;
-import com.pingidentity.ps.oidf.common.EvidenceValidator;
-import com.pingidentity.ps.oidf.common.GcpSaTokenValidator;
-import com.pingidentity.ps.oidf.common.GkeTokenValidator;
+import com.pingidentity.ps.oidf.common.FederationWalletProviderKeyResolver;
+import com.pingidentity.ps.oidf.common.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.common.InstanceAttestationValidator;
+import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
+import com.pingidentity.ps.oidf.common.InstanceIdentity;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
+import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.common.Jwks;
+import com.pingidentity.ps.oidf.common.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.common.TrustChainValidator;
+import com.pingidentity.ps.oidf.common.WalletInstanceAttestationValidator;
 import com.pingidentity.ps.oidf.common.IssuanceException;
 import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.common.JwsSigner;
@@ -23,11 +29,9 @@ import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.common.RarEntitlement;
 import com.pingidentity.ps.oidf.common.RemoteJwksCache;
 import com.pingidentity.ps.oidf.common.SpiffeBinding;
-import com.pingidentity.ps.oidf.common.SpiffeJwtEvidenceValidator;
+import com.pingidentity.ps.oidf.common.SpiffeInstanceAttestationValidator;
 import com.pingidentity.ps.oidf.common.SpireSelectorIntrospector;
 import com.pingidentity.ps.oidf.common.WorkloadIntrospector;
-import com.pingidentity.ps.oidf.common.SpiffeSvid;
-import com.pingidentity.ps.oidf.common.SpiffeSvidValidator;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -45,6 +49,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jwk.JsonWebKey;
+import org.jose4j.jwk.JsonWebKeySet;
 
 /**
  * Issues a Client Attestation to a workload that proves its identity with a SPIFFE JWT-SVID. A workload
@@ -71,11 +76,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     private volatile IssuanceClientResolver clientResolver;
     private volatile AttesterSigningKey attesterSigningKey;
-    private volatile SpiffeSvidValidator svidValidator = new SpiffeSvidValidator();
-    private volatile GkeTokenValidator gkeTokenValidator = new GkeTokenValidator();
-    private volatile GcpSaTokenValidator gcpSaTokenValidator = new GcpSaTokenValidator();
-    private volatile EksTokenValidator eksTokenValidator = new EksTokenValidator();
-    private volatile AwsStsWebIdentityValidator awsStsWebIdentityValidator = new AwsStsWebIdentityValidator();
+    private volatile InstanceAttestationValidators instanceValidators;
     private volatile RemoteJwksCache jwksCache = new RemoteJwksCache();
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private volatile WorkloadIntrospector workloadIntrospector;
@@ -129,9 +130,9 @@ public class AttestationIssuanceServlet extends HttpServlet {
         //       attestation client's trust config, and the one whose bundle verifies it AND whose bindings
         //       contain the resulting SPIFFE ID is the match. Which client an identity belongs to is the
         //       attester's knowledge alone.
-        Match match = resolveByEvidence(request.svid);
+        Match match = resolveByEvidence(request.svid, request.format);
         AttestationIssuanceConfig config = match.config;
-        SpiffeSvid svid = match.svid;
+        InstanceIdentity instance = match.instance;
         SpiffeBinding binding = match.binding;
         String clientId = match.clientId;
 
@@ -149,11 +150,23 @@ public class AttestationIssuanceServlet extends HttpServlet {
             throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
 
+        // 4a. If the instance attestation itself binds a key (a WIA cnf), the key being bound must be that
+        //     very key — so the attestation being consumed is about this instance_key, not some other. A
+        //     SPIFFE SVID binds no key, so this is a no-op there.
+        if (instance.boundKey() != null) {
+            try {
+                Jwks.assertSameKey(instance.boundKey(), Jwks.fromMap(request.instanceKey));
+            } catch (Exception e) {
+                throw IssuanceException.invalidInstanceProof(
+                        "instance_key does not match the key bound by the instance attestation");
+            }
+        }
+
         // 5. Introspect the workload beyond the bare SVID — SPIRE registration selectors, etc. — and
         //    merge those attributes over the binding's declared metadata. These ride into the attestation
         //    and are available to the issuance policy for downscoping.
         Map<String, Object> workloadAttributes = new LinkedHashMap<>(binding.metadata());
-        Map<String, Object> introspected = workloadIntrospector().introspect(svid);
+        Map<String, Object> introspected = workloadIntrospector().introspect(instance);
         if (introspected != null) {
             workloadAttributes.putAll(introspected);
         }
@@ -176,10 +189,11 @@ public class AttestationIssuanceServlet extends HttpServlet {
         //    the workload learns it only from the attestation it receives back.
         JwsSigner signer = attesterSigningKey().signerFor(config.signingKeyRef(), config.signingJwk());
         String attestation = AttestationMinter.mint(config.issuer(), clientId, request.instanceKey,
-                svid, workloadAttributes, granted, config.ttlSeconds(), signer);
+                instance, workloadAttributes, granted, config.ttlSeconds(), signer);
 
         LOGGER.info((Object) ("Issued client attestation: client_id=" + clientId
-                + " spiffe_id=" + svid.spiffeId() + " ttl=" + config.ttlSeconds() + "s"));
+                + " format=" + instance.format() + " subject=" + instance.subject()
+                + " ttl=" + config.ttlSeconds() + "s"));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("attestation", attestation);
         body.put("expires_in", config.ttlSeconds());
@@ -200,12 +214,116 @@ public class AttestationIssuanceServlet extends HttpServlet {
         this.challengeRequired = required;
     }
 
-    void setGkeTokenValidator(GkeTokenValidator validator) {
-        this.gkeTokenValidator = validator;
+    void setInstanceValidators(InstanceAttestationValidators validators) {
+        this.instanceValidators = validators;
     }
 
     void setJwksCache(RemoteJwksCache cache) {
         this.jwksCache = cache;
+    }
+
+    /** The active instance-attestation registry, lazily built from the environment. */
+    InstanceAttestationValidators instanceValidators() {
+        InstanceAttestationValidators local = this.instanceValidators;
+        if (local == null) {
+            synchronized (this) {
+                if (this.instanceValidators == null) {
+                    this.instanceValidators = defaultInstanceValidators();
+                }
+                local = this.instanceValidators;
+            }
+        }
+        return local;
+    }
+
+    /**
+     * The runtime default registry: every built-in evidence type, with the placeholder wallet validator
+     * replaced by a wired one when wallet-provider trust is configured — federation-backed
+     * ({@code OIDF_TRUST_CONTROLLER_HOST} + {@code OIDF_ATTESTER_OP_ISSUER}) in preference to a static
+     * provider→JWKS map ({@code OIDF_WALLET_PROVIDER_JWKS}). Overridable so the lazy-init path is testable.
+     */
+    protected InstanceAttestationValidators defaultInstanceValidators() {
+        InstanceAttestationValidators registry = InstanceAttestationValidators.defaults();
+        InstanceAttestationValidator wallet = walletValidatorFromEnv();
+        if (wallet != null) {
+            registry = registry.with(wallet);
+        }
+        return registry;
+    }
+
+    /**
+     * Builds the wallet (WIA) validator, preferring federation-backed wallet-provider trust over the static
+     * map, or null when neither is configured (the placeholder stays, and any WIA is refused).
+     */
+    static InstanceAttestationValidator walletValidatorFromEnv() {
+        InstanceAttestationValidator federation = federationWalletValidatorFromEnv();
+        return federation != null ? federation : staticWalletValidatorFromEnv();
+    }
+
+    /**
+     * Builds a wallet validator whose provider keys are resolved through the OpenID Federation trust chain
+     * ({@link FederationWalletProviderKeyResolver}), mirroring the AS-side attester wiring. Enabled when the
+     * trust controller host ({@code OIDF_TRUST_CONTROLLER_HOST}) and the hosted attester's own entity id
+     * ({@code OIDF_ATTESTER_OP_ISSUER}, the relying party in the WIA trust chain) are set; returns null
+     * otherwise. {@code OIDF_TRUST_CONTROLLER_IGNORE_SSL} relaxes TLS for a dev trust controller.
+     */
+    static InstanceAttestationValidator federationWalletValidatorFromEnv() {
+        String trustControllerHost = env("oidf.trust.controller.host", "OIDF_TRUST_CONTROLLER_HOST");
+        String opIssuer = env("oidf.attester.op.issuer", "OIDF_ATTESTER_OP_ISSUER");
+        if (trustControllerHost == null || opIssuer == null) {
+            return null;
+        }
+        boolean ignoreSsl = Boolean.parseBoolean(
+                String.valueOf(env("oidf.trust.controller.ignore.ssl", "OIDF_TRUST_CONTROLLER_IGNORE_SSL")));
+        TrustChainValidator chainValidator = new TrustChainValidator(
+                new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSsl), trustControllerHost),
+                trustControllerHost);
+        AttesterKeyResolver resolver = new FederationWalletProviderKeyResolver(chainValidator, opIssuer);
+        LOGGER.info((Object) ("Wallet instance attestation: federation-backed provider trust via "
+                + trustControllerHost));
+        return new WalletInstanceAttestationValidator(resolver);
+    }
+
+    /**
+     * Builds a wallet validator from {@code OIDF_WALLET_PROVIDER_JWKS} — a JSON object mapping each accepted
+     * wallet-provider entity id to its JWKS — trusting those keys statically (dev / no-federation). Returns
+     * null when unset or unparseable.
+     */
+    static InstanceAttestationValidator staticWalletValidatorFromEnv() {
+        String jwks = env("oidf.wallet.provider.jwks", "OIDF_WALLET_PROVIDER_JWKS");
+        if (jwks == null) {
+            return null;
+        }
+        Map<String, List<JsonWebKey>> byProvider = new LinkedHashMap<>();
+        try {
+            JsonUtil.parseJson(jwks).forEach((provider, value) -> {
+                if (value instanceof Map) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> jwksObj = (Map<String, Object>) value;
+                        byProvider.put(provider, new JsonWebKeySet(JsonUtil.toJson(jwksObj)).getJsonWebKeys());
+                    } catch (Exception ignored) {
+                        // skip a malformed provider entry
+                    }
+                }
+            });
+        } catch (Exception e) {
+            return null;
+        }
+        if (byProvider.isEmpty()) {
+            return null;
+        }
+        LOGGER.info((Object) ("Wallet instance attestation: statically trusted providers " + byProvider.keySet()));
+        return new WalletInstanceAttestationValidator(new StaticAttesterKeyResolver(byProvider));
+    }
+
+    /** A system property, falling back to an environment variable; null when neither is set. */
+    private static String env(String property, String envVar) {
+        String value = System.getProperty(property);
+        if (value == null || value.isBlank()) {
+            value = System.getenv(envVar);
+        }
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     RemoteJwksCache jwksCache() {
@@ -246,34 +364,17 @@ public class AttestationIssuanceServlet extends HttpServlet {
         return WorkloadIntrospector.none();
     }
 
-    /** The validator for the client's configured evidence type. */
-    private EvidenceValidator evidenceValidator(AttestationIssuanceConfig config) {
-        if (AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN.equals(config.evidenceType())) {
-            return this.gkeTokenValidator;
-        }
-        if (AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN.equals(config.evidenceType())) {
-            return this.gcpSaTokenValidator;
-        }
-        if (AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN.equals(config.evidenceType())) {
-            return this.eksTokenValidator;
-        }
-        if (AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY.equals(config.evidenceType())) {
-            return this.awsStsWebIdentityValidator;
-        }
-        return new SpiffeJwtEvidenceValidator(this.svidValidator);
-    }
-
     /** The attester's private mapping: evidence identity → the client it is bound to. */
     private static final class Match {
         final String clientId;
         final AttestationIssuanceConfig config;
-        final SpiffeSvid svid;
+        final InstanceIdentity instance;
         final SpiffeBinding binding;
 
-        Match(String clientId, AttestationIssuanceConfig config, SpiffeSvid svid, SpiffeBinding binding) {
+        Match(String clientId, AttestationIssuanceConfig config, InstanceIdentity instance, SpiffeBinding binding) {
             this.clientId = clientId;
             this.config = config;
-            this.svid = svid;
+            this.instance = instance;
             this.binding = binding;
         }
     }
@@ -284,21 +385,36 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * contain the resolved SPIFFE ID is the match. A SPIFFE ID bound to two clients is a configuration
      * error and is rejected rather than resolved arbitrarily.
      */
-    private Match resolveByEvidence(String evidence) throws IssuanceException {
+    private Match resolveByEvidence(String evidence, String declaredFormat) throws IssuanceException {
         List<AttesterClient> clients = clientResolver().attestationClients();
         if (clients.isEmpty()) {
             throw IssuanceException.invalidClient("no attestation clients are configured");
         }
+        InstanceAttestationValidators registry = instanceValidators();
         Match match = null;
         boolean anyValidated = false;
+        String validatedFormat = null;
         IssuanceException deferredServerError = null;
         for (AttesterClient candidate : clients) {
             AttestationIssuanceConfig config = candidate.config();
+            InstanceAttestationValidator validator = registry.find(config.evidenceType()).orElse(null);
+            if (validator == null) {
+                // The client names an evidence type this attester does not implement — a config fault on
+                // that client alone, not a reason to reject evidence another client may accept.
+                LOGGER.warn((Object) ("client " + candidate.clientId() + " declares unsupported evidence type: "
+                        + config.evidenceType()));
+                continue;
+            }
+            // An explicitly declared format narrows the search; a sniffed one never does, so a
+            // mis-sniffed token can still find its client.
+            if (declaredFormat != null && !declaredFormat.equals(validator.format())) {
+                continue;
+            }
             List<JsonWebKey> bundleKeys;
-            SpiffeSvid svid;
+            InstanceIdentity instance;
             try {
                 bundleKeys = config.bundleUrl() != null ? jwksCache().get(config.bundleUrl()) : config.bundleKeys();
-                svid = evidenceValidator(config).validate(evidence, bundleKeys, config);
+                instance = validator.validate(evidence, bundleKeys, config);
             } catch (IssuanceException e) {
                 // A 5xx (e.g. the trust bundle could not be fetched) is an attester-side fault, not
                 // "bad evidence" — remember it and surface it only if nothing else matches.
@@ -313,26 +429,34 @@ public class AttestationIssuanceServlet extends HttpServlet {
                 continue;
             }
             anyValidated = true;
-            SpiffeBinding binding = config.bindingFor(svid.spiffeId()).orElse(null);
+            validatedFormat = instance.format();
+            SpiffeBinding binding = config.bindingFor(instance.subject()).orElse(null);
             if (binding == null) {
                 continue;
             }
             if (match != null) {
                 throw IssuanceException.invalidClient(
-                        "SPIFFE ID is bound to more than one client: " + svid.spiffeId());
+                        "instance identity is bound to more than one client: " + instance.subject());
             }
-            match = new Match(candidate.clientId(), config, svid, binding);
+            match = new Match(candidate.clientId(), config, instance, binding);
         }
         if (match != null) {
             return match;
         }
         if (anyValidated) {
-            throw IssuanceException.spiffeIdNotAuthorized("evidence identity is not registered with any client");
+            // A SPIFFE identity keeps the long-standing, documented error code; other formats get the
+            // format-neutral one.
+            String message = "evidence identity is not registered with any client";
+            throw SpiffeInstanceAttestationValidator.FORMAT.equals(validatedFormat)
+                    ? IssuanceException.spiffeIdNotAuthorized(message)
+                    : IssuanceException.instanceNotAuthorized(message);
         }
         if (deferredServerError != null) {
             throw deferredServerError;
         }
-        throw IssuanceException.invalidSvid("no attester client accepts this evidence");
+        throw IssuanceException.invalidSvid("no attester client accepts this evidence"
+                + (declaredFormat != null ? " for format '" + declaredFormat + "'" : "")
+                + " (looks like format '" + InstanceAttestationValidators.sniff(evidence) + "')");
     }
 
     IssuanceClientResolver clientResolver() {
@@ -390,7 +514,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
         IssuanceRequest request = new IssuanceRequest();
         request.clientId = asString(json.get("client_id"));
         request.instanceKey = asObject(json.get("instance_key"));
-        request.svid = asString(json.get("svid"));
+        // 'svid' is the original field name; 'instance_attestation' is the format-neutral alias a
+        // non-SPIFFE client (a wallet presenting a WIA) reads more naturally.
+        request.svid = firstNonBlank(asString(json.get("instance_attestation")), asString(json.get("svid")));
+        request.format = asString(json.get("instance_attestation_format"));
         request.proof = asString(json.get("proof"));
         request.requestedDetails = asObjectList(json.get("authorization_details"));
         return request;
@@ -443,11 +570,17 @@ public class AttestationIssuanceServlet extends HttpServlet {
         return s == null || s.isBlank();
     }
 
+    private static String firstNonBlank(String a, String b) {
+        return !isBlank(a) ? a : b;
+    }
+
     /** Parsed issuance request. */
     static final class IssuanceRequest {
         String clientId;
         Map<String, Object> instanceKey;
         String svid;
+        /** Optional explicit {@code instance_attestation_format} ("spiffe" | "wallet" | …); null to infer. */
+        String format;
         String proof;
         List<Map<String, Object>> requestedDetails = List.of();
     }

@@ -61,7 +61,7 @@ class EksTokenValidatorTest {
     @Test
     void mapsVerifiedTokenOntoSpiffeId() throws Exception {
         String token = token(CLUSTER_ISSUER, "system:serviceaccount:demo:payment-agent", ATTESTER, 600);
-        SpiffeSvid svid = this.validator.validate(token, this.bundle, this.config);
+        SpiffeSvid svid = this.validator.validateSvid(token, this.bundle, this.config);
         assertEquals("spiffe://eks.demo.aws/ns/demo/sa/payment-agent", svid.spiffeId());
         assertEquals(TRUST_DOMAIN, svid.trustDomain());
         assertEquals("/ns/demo/sa/payment-agent", svid.path());
@@ -74,7 +74,7 @@ class EksTokenValidatorTest {
         String token = token("https://oidc.eks.us-west-2.amazonaws.com/id/OTHER",
                 "system:serviceaccount:demo:payment-agent", ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -82,7 +82,7 @@ class EksTokenValidatorTest {
     void nonServiceAccountSubjectIsRejected() throws Exception {
         String token = token(CLUSTER_ISSUER, "arn:aws:iam::123456789012:role/SomeRole", ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -91,7 +91,7 @@ class EksTokenValidatorTest {
         String token = token(CLUSTER_ISSUER, "system:serviceaccount:demo:payment-agent",
                 "https://other.example.com", 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -99,7 +99,7 @@ class EksTokenValidatorTest {
     void expiredTokenIsRejected() throws Exception {
         String token = token(CLUSTER_ISSUER, "system:serviceaccount:demo:payment-agent", ATTESTER, -600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 }

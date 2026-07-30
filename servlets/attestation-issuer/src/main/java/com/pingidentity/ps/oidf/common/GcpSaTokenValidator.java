@@ -33,7 +33,7 @@ import org.jose4j.jwt.NumericDate;
  * ({@code https://accounts.google.com}) when set; {@code aud} must include the attester issuer;
  * {@code exp} required and unexpired; {@code email} required. Failures throw {@code invalid_svid}.
  */
-public final class GcpSaTokenValidator implements EvidenceValidator {
+public final class GcpSaTokenValidator implements InstanceAttestationValidator {
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
@@ -48,7 +48,43 @@ public final class GcpSaTokenValidator implements EvidenceValidator {
     }
 
     @Override
-    public SpiffeSvid validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+    public String id() {
+        return AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN;
+    }
+
+    @Override
+    public String format() {
+        return SpiffeInstanceAttestationValidator.FORMAT;
+    }
+
+    /** GCP has no canonical SPIFFE mapping — the ID is synthesised from the service-account email. */
+    @Override
+    public boolean requiresTrustDomain() {
+        return true;
+    }
+
+    @Override
+    public String title() {
+        return "GCP service-account ID token";
+    }
+
+    @Override
+    public String description() {
+        return "A Google-signed service-account ID token (Agent Engine / Cloud Run / GCE), verified "
+                + "against Google's public JWKS and mapped onto a synthetic SPIFFE ID from its email claim.";
+    }
+
+    @Override
+    public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config));
+    }
+
+    /**
+     * The SPIFFE-typed validation, kept public so the mapping detail (trust domain, path, raw token) stays
+     * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
+     */
+    public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no ID token presented");

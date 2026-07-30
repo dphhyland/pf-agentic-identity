@@ -42,12 +42,12 @@ public final class SpireSelectorIntrospector implements WorkloadIntrospector {
 
     @Override
     @SuppressWarnings("unchecked")
-    public Map<String, Object> introspect(SpiffeSvid svid) {
-        if (svid == null || svid.spiffeId() == null) {
+    public Map<String, Object> introspect(InstanceIdentity svid) {
+        if (svid == null || svid.subject() == null) {
             return Map.of();
         }
         String url = this.entriesBaseUrl + "/entries?spiffe_id="
-                + java.net.URLEncoder.encode(svid.spiffeId(), java.nio.charset.StandardCharsets.UTF_8);
+                + java.net.URLEncoder.encode(svid.subject(), java.nio.charset.StandardCharsets.UTF_8);
         String body;
         try {
             body = this.http.get(url, "application/json");

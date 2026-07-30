@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttesterClient;
+import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
 import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.common.IssuanceException;
 import java.io.PrintWriter;
@@ -52,8 +53,13 @@ class AttesterConfigurationServletTest {
         assertEquals("https://pf.example.com/as/token.oauth2", m.get("token_endpoint"));
         assertEquals(List.of("attest_jwt_client_auth"), m.get("token_endpoint_auth_methods_supported"));
         assertEquals(Boolean.TRUE, m.get("challenge_required"));
-        assertEquals(List.of("spiffe-jwt", "gke-sa-token", "gcp-id-token", "eks-sa-token", "aws-sts-web-identity"),
-                m.get("evidence_types_supported"));
+        // The advertised set is the registry's, not a list restated here — that is the point of the
+        // registry. Assert the identity, plus that the known built-ins are all present.
+        assertEquals(InstanceAttestationValidators.defaults().ids(), m.get("evidence_types_supported"));
+        @SuppressWarnings("unchecked")
+        List<String> advertised = (List<String>) m.get("evidence_types_supported");
+        assertTrue(advertised.containsAll(List.of("spiffe-jwt", "gke-sa-token", "gcp-id-token",
+                "eks-sa-token", "aws-sts-web-identity", "wallet-instance-attestation")));
         assertEquals("https://pf.example.com/federation/attester-configuration",
                 m.get("client_configuration_endpoint"));
         assertEquals("oauth-attestation-instance-proof+jwt", m.get("instance_proof_typ"));

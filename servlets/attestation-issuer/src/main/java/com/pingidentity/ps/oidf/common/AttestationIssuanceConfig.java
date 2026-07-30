@@ -49,6 +49,8 @@ public final class AttestationIssuanceConfig {
     /** Evidence type: an AWS-signed OIDC token from {@code sts:GetWebIdentityToken} (any AWS workload,
      *  including Bedrock AgentCore). */
     public static final String EVIDENCE_AWS_STS_WEB_IDENTITY = "aws-sts-web-identity";
+    /** Evidence type: a digital wallet's Wallet Instance Attestation, signed by its Wallet Provider. */
+    public static final String EVIDENCE_WALLET_INSTANCE_ATTESTATION = "wallet-instance-attestation";
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
 
@@ -105,19 +107,21 @@ public final class AttestationIssuanceConfig {
             }
         }
 
+        // What a given evidence type is and requires is the validator's own declaration — see
+        // InstanceAttestationValidators. Nothing about the supported set is restated here.
+        InstanceAttestationValidators known = InstanceAttestationValidators.defaults();
         String evidenceType = trimmed(props.get(P_EVIDENCE));
         if (evidenceType == null) {
             evidenceType = EVIDENCE_SPIFFE_JWT;
-        } else if (!EVIDENCE_SPIFFE_JWT.equals(evidenceType) && !EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)
-                && !EVIDENCE_GCP_ID_TOKEN.equals(evidenceType) && !EVIDENCE_EKS_SA_TOKEN.equals(evidenceType)
-                && !EVIDENCE_AWS_STS_WEB_IDENTITY.equals(evidenceType)) {
+        } else if (!known.supports(evidenceType)) {
             throw IssuanceException.invalidClient(P_EVIDENCE + " is not a supported evidence type: " + evidenceType);
         }
 
-        // The bundle source: an inline JWKS, or a URL fetched (and cached) at issuance time.
+        // The bundle source: an inline JWKS, or a URL fetched (and cached) at issuance time. Formats that
+        // establish trust elsewhere (a wallet WIA trusts its provider) need none.
         String bundleUrl = trimmed(props.get(P_BUNDLE_URL));
         String bundleJson = trimmed(props.get(P_BUNDLE));
-        if (bundleJson == null && bundleUrl == null) {
+        if (bundleJson == null && bundleUrl == null && known.requiresTrustBundle(evidenceType)) {
             throw IssuanceException.invalidClient(
                     "missing " + P_BUNDLE + " or " + P_BUNDLE_URL + " (trust bundle source)");
         }
@@ -137,11 +141,7 @@ public final class AttestationIssuanceConfig {
         String signingKeyRef = trimmed(props.get(P_SIGNING_KEY_REF));
         Map<String, Object> signingJwk = parseObject(trimmed(props.get(P_SIGNING_JWK)), P_SIGNING_JWK);
         String trustDomain = trimmed(props.get(P_TRUST_DOMAIN));
-        boolean mappedEvidence = EVIDENCE_GKE_SA_TOKEN.equals(evidenceType)
-                || EVIDENCE_GCP_ID_TOKEN.equals(evidenceType)
-                || EVIDENCE_EKS_SA_TOKEN.equals(evidenceType)
-                || EVIDENCE_AWS_STS_WEB_IDENTITY.equals(evidenceType);
-        if (mappedEvidence && trustDomain == null) {
+        if (known.requiresTrustDomain(evidenceType) && trustDomain == null) {
             // The mapped SPIFFE ID's namespace comes from the trust domain; without it the binding
             // identifiers would be unanchored.
             throw IssuanceException.invalidClient(P_TRUST_DOMAIN + " is required when " + P_EVIDENCE
@@ -239,10 +239,19 @@ public final class AttestationIssuanceConfig {
             }
             @SuppressWarnings("unchecked")
             Map<String, Object> entry = (Map<String, Object>) item;
+            // The instance subject: a SPIFFE ID, or a wallet instance id. Accept any of the aliases so a
+            // wallet binding reads naturally; they populate the same format-neutral binding subject.
             Object idValue = entry.get("spiffe_id");
-            String spiffeId = idValue == null ? null : String.valueOf(idValue).trim();
-            if (spiffeId == null || spiffeId.isBlank()) {
-                throw IssuanceException.invalidClient(P_INSTANCES + " entry is missing 'spiffe_id'");
+            if (idValue == null) {
+                idValue = entry.get("subject");
+            }
+            if (idValue == null) {
+                idValue = entry.get("wallet_instance");
+            }
+            String subject = idValue == null ? null : String.valueOf(idValue).trim();
+            if (subject == null || subject.isBlank()) {
+                throw IssuanceException.invalidClient(
+                        P_INSTANCES + " entry is missing an instance id (spiffe_id / subject / wallet_instance)");
             }
             List<Map<String, Object>> entitlement = asObjectList(entry.get("entitlement"), "entitlement");
             Map<String, Object> metadata = asObject(entry.get("metadata"), "metadata");
@@ -252,10 +261,10 @@ public final class AttestationIssuanceConfig {
                     RarEntitlement.authorize(entitlement, clientCeiling);
                 } catch (ClientAttestationException e) {
                     throw IssuanceException.invalidClient(
-                            "instance '" + spiffeId + "' entitlement exceeds the client-level ceiling");
+                            "instance '" + subject + "' entitlement exceeds the client-level ceiling");
                 }
             }
-            out.add(new SpiffeBinding(spiffeId, entitlement, metadata));
+            out.add(new SpiffeBinding(subject, entitlement, metadata));
         }
         return out;
     }

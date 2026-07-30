@@ -45,6 +45,14 @@ public final class IssuanceException extends Exception {
         return new IssuanceException("invalid_svid", 401, message);
     }
 
+    /**
+     * A presented instance attestation of a non-SPIFFE format (e.g. a wallet Wallet Instance Attestation)
+     * failed validation (signature, trust root, audience, expiry, key binding).
+     */
+    public static IssuanceException invalidInstanceAttestation(String message) {
+        return new IssuanceException("invalid_instance_attestation", 401, message);
+    }
+
     /** The instance-key proof of possession failed (bad signature, stale/missing challenge, replay). */
     public static IssuanceException invalidInstanceProof(String message) {
         return new IssuanceException("invalid_instance_proof", 401, message);
@@ -53,6 +61,11 @@ public final class IssuanceException extends Exception {
     /** The validated SPIFFE ID is not bound to the requested client. */
     public static IssuanceException spiffeIdNotAuthorized(String message) {
         return new IssuanceException("spiffe_id_not_authorized", 403, message);
+    }
+
+    /** The validated instance (of a non-SPIFFE format) is not bound to the requested client. */
+    public static IssuanceException instanceNotAuthorized(String message) {
+        return new IssuanceException("instance_not_authorized", 403, message);
     }
 
     /** The requested authorization_details exceed the instance's entitlement ceiling. */

@@ -28,6 +28,15 @@ public final class SpiffeBinding {
         return this.spiffeId;
     }
 
+    /**
+     * The instance subject this entry binds — the SPIFFE ID for a SPIFFE workload, or the wallet instance
+     * id for a wallet binding. The format-neutral alias for {@link #spiffeId()}; matched against
+     * {@link InstanceIdentity#subject()}.
+     */
+    public String subject() {
+        return this.spiffeId;
+    }
+
     /** This instance's RFC 9396 entitlement ceiling; empty if the entry defers to the client-level ceiling. */
     public List<Map<String, Object>> entitlement() {
         return this.entitlement;

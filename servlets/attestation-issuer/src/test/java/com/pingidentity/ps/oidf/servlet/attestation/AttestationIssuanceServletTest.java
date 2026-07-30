@@ -55,12 +55,15 @@ class AttestationIssuanceServletTest {
     private static final String OP_ISSUER = "https://op.example.com";
     private static final String TOKEN_ENDPOINT = OP_ISSUER + "/as/token.oauth2";
     private static final String SPIFFE_ID = "spiffe://banking.demo/payment-agent";
+    private static final String WALLET_PROVIDER = "https://wallet.example.com";
+    private static final String WALLET_INSTANCE_ID = "urn:wallet:instance:abc123";
     private static final String GKE_CLUSTER_ISSUER =
             "https://container.googleapis.com/v1/projects/demo-project/locations/us-central1-a/clusters/spiffe-demo";
 
     private PublicJsonWebKey bundleKey;   // signs SVIDs
     private PublicJsonWebKey attesterKey; // signs attestations (inline signer)
     private PublicJsonWebKey instanceKey; // the workload's cnf key
+    private PublicJsonWebKey walletProviderKey; // signs Wallet Instance Attestations
     private AttestationIssuanceServlet servlet;
 
     @BeforeEach
@@ -68,6 +71,7 @@ class AttestationIssuanceServletTest {
         bundleKey = ec("svid-key-1");
         attesterKey = ec("attester-1");
         instanceKey = ec("instance-1");
+        walletProviderKey = ec("wallet-provider-1");
         servlet = new AttestationIssuanceServlet();
         servlet.setClientResolver(fixedResolver(config()));
         servlet.setAttesterSigningKey(new AttesterSigningKey(null, null)); // inline JWK signing
@@ -179,6 +183,79 @@ class AttestationIssuanceServletTest {
         String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]),
                 StandardCharsets.UTF_8);
         assertTrue(payload.contains("spiffe://demo-project.svc.id.goog/ns/demo/sa/payment-agent"), payload);
+    }
+
+    // ---- wallet instance attestation (a non-SPIFFE format through the same reverse-mapping flow) --------
+
+    @Test
+    void walletInstanceAttestationIssuesAttestationAttestedByWallet() throws Exception {
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        servlet.setInstanceValidators(walletRegistry());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = wia(WALLET_INSTANCE_ID, publicParams(instanceKey), 600L);
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+
+        Map<String, Object> body = servlet.issue(req);
+        String attestation = (String) body.get("attestation");
+        assertRoundTrips(attestation);
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]),
+                StandardCharsets.UTF_8);
+        // The minted workload claim reports the proving format and the wallet members, not a SPIFFE id.
+        assertTrue(payload.contains("\"attested_by\":\"wallet\""), payload);
+        assertTrue(payload.contains(WALLET_PROVIDER), payload);
+        assertTrue(payload.contains(WALLET_INSTANCE_ID), payload);
+    }
+
+    @Test
+    void walletAttestationBindingADifferentKeyThanInstanceKeyIsRejected() throws Exception {
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        servlet.setInstanceValidators(walletRegistry());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        // The WIA binds someone else's key — the request must not be able to bind its own instead.
+        req.svid = wia(WALLET_INSTANCE_ID, publicParams(ec("other-instance")), 600L);
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("invalid_instance_proof", e.error());
+        assertTrue(e.getMessage().contains("does not match the key bound"), e.getMessage());
+    }
+
+    @Test
+    void walletAttestationIsRefusedWhenNoWalletTrustIsConfigured() throws Exception {
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        // No setInstanceValidators: the default registry holds the unconfigured-trust placeholder.
+        servlet.setInstanceValidators(
+                com.pingidentity.ps.oidf.common.InstanceAttestationValidators.defaults());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = wia(WALLET_INSTANCE_ID, publicParams(instanceKey), 600L);
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+
+        // It must refuse, never fall through to accepting an unverifiable provider.
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("invalid_svid", e.error());
+    }
+
+    @Test
+    void declaredFormatNarrowsWhichClientsAreTried() throws Exception {
+        // A wallet client is configured, but the request declares the spiffe format: no candidate matches.
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        servlet.setInstanceValidators(walletRegistry());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = wia(WALLET_INSTANCE_ID, publicParams(instanceKey), 600L);
+        req.format = "spiffe";
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("invalid_svid", e.error());
+        assertTrue(e.getMessage().contains("format 'spiffe'"), e.getMessage());
     }
 
     @Test
@@ -419,6 +496,53 @@ class AttestationIssuanceServletTest {
                         + "\"entitlement\":[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}],"
                         + "\"metadata\":{\"region\":\"EMEA\"}}]");
         return AttestationIssuanceConfig.fromProperties(props);
+    }
+
+    /**
+     * A wallet-only client: it declares the wallet evidence type (which is what makes a SPIFFE bundle
+     * unnecessary) and binds a wallet instance id rather than a SPIFFE ID.
+     */
+    private AttestationIssuanceConfig walletConfig(String pinnedProvider) throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_EVIDENCE,
+                AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION);
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK,
+                org.jose4j.json.JsonUtil.toJson(privateParams(attesterKey)));
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"wallet_instance\":\"" + WALLET_INSTANCE_ID + "\",\"metadata\":{\"tenant\":\"gold\"}}]");
+        if (pinnedProvider != null) {
+            props.put(AttestationIssuanceConfig.P_TRUST_DOMAIN, pinnedProvider);
+        }
+        return AttestationIssuanceConfig.fromProperties(props);
+    }
+
+    /** The default registry with the placeholder wallet validator replaced by one trusting our test provider. */
+    private com.pingidentity.ps.oidf.common.InstanceAttestationValidators walletRegistry() throws Exception {
+        AttesterKeyResolver providerKeys = new StaticAttesterKeyResolver(Map.of(
+                WALLET_PROVIDER, List.of(JsonWebKey.Factory.newJwk(publicParams(walletProviderKey)))));
+        return com.pingidentity.ps.oidf.common.InstanceAttestationValidators.defaults()
+                .with(new com.pingidentity.ps.oidf.common.WalletInstanceAttestationValidator(providerKeys));
+    }
+
+    /** A Wallet Instance Attestation signed by the test wallet provider, binding {@code cnfJwk}. */
+    private String wia(String instanceId, Map<String, Object> cnfJwk, long ttlSeconds) throws Exception {
+        JwtClaims c = new JwtClaims();
+        c.setIssuer(WALLET_PROVIDER);
+        c.setSubject(instanceId);
+        c.setAudience(ISSUER);
+        c.setIssuedAtToNow();
+        c.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + ttlSeconds));
+        Map<String, Object> cnf = new LinkedHashMap<>();
+        cnf.put("jwk", cnfJwk);
+        c.setClaim("cnf", cnf);
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setPayload(c.toJson());
+        jws.setKey(walletProviderKey.getPrivateKey());
+        jws.setAlgorithmHeaderValue("ES256");
+        jws.setKeyIdHeaderValue(walletProviderKey.getKeyId());
+        jws.setHeader("typ", "wallet-instance-attestation+jwt");
+        return jws.getCompactSerialization();
     }
 
     /** gke-sa-token client: bundle by URL, trust domain pinned, same inline attester signing key. */

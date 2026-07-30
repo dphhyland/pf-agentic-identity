@@ -63,7 +63,7 @@ class GcpSaTokenValidatorTest {
     @Test
     void mapsVerifiedTokenOntoServiceAccountSpiffeId() throws Exception {
         String token = token(GOOGLE_ISSUER, SA_EMAIL, ATTESTER, 600);
-        SpiffeSvid svid = this.validator.validate(token, this.bundle, this.config);
+        SpiffeSvid svid = this.validator.validateSvid(token, this.bundle, this.config);
         assertEquals("spiffe://" + TRUST_DOMAIN + "/sa/" + SA_EMAIL, svid.spiffeId());
         assertEquals(TRUST_DOMAIN, svid.trustDomain());
         assertEquals("/sa/" + SA_EMAIL, svid.path());
@@ -74,7 +74,7 @@ class GcpSaTokenValidatorTest {
     void wrongIssuerIsRejected() throws Exception {
         String token = token("https://evil.example.com", SA_EMAIL, ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -82,7 +82,7 @@ class GcpSaTokenValidatorTest {
     void missingEmailIsRejected() throws Exception {
         String token = token(GOOGLE_ISSUER, null, ATTESTER, 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -90,7 +90,7 @@ class GcpSaTokenValidatorTest {
     void wrongAudienceIsRejected() throws Exception {
         String token = token(GOOGLE_ISSUER, SA_EMAIL, "https://other.example.com", 600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 
@@ -98,7 +98,7 @@ class GcpSaTokenValidatorTest {
     void expiredTokenIsRejected() throws Exception {
         String token = token(GOOGLE_ISSUER, SA_EMAIL, ATTESTER, -600);
         IssuanceException e = assertThrows(IssuanceException.class,
-                () -> this.validator.validate(token, this.bundle, this.config));
+                () -> this.validator.validateSvid(token, this.bundle, this.config));
         assertEquals("invalid_svid", e.error());
     }
 

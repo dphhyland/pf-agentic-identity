@@ -31,12 +31,13 @@ public final class AttestationMinter {
     }
 
     /**
-     * Builds and signs a Client Attestation.
+     * Builds and signs a Client Attestation for a validated instance identity (any format).
      *
      * @param issuer               the attester entity identifier ({@code iss})
      * @param clientId             the attested client ({@code sub})
      * @param instancePublicJwk    the workload instance public key to bind as {@code cnf.jwk}
-     * @param svid                 the validated SVID (its {@code spiffe_id} and raw token ride in {@code workload})
+     * @param instance             the validated instance identity (its {@code format} → {@code attested_by},
+     *                             and its {@code workloadClaims} ride in {@code workload})
      * @param workloadMetadata     per-instance attributes surfaced as {@code workload.attributes} (may be empty)
      * @param authorizationDetails the granted RFC 9396 entitlement (may be empty)
      * @param ttlSeconds           lifetime; {@code exp = iat + ttlSeconds}
@@ -44,7 +45,7 @@ public final class AttestationMinter {
      * @return the compact Client Attestation JWT
      */
     public static String mint(String issuer, String clientId, Map<String, Object> instancePublicJwk,
-                              SpiffeSvid svid, Map<String, Object> workloadMetadata,
+                              InstanceIdentity instance, Map<String, Object> workloadMetadata,
                               List<Map<String, Object>> authorizationDetails, long ttlSeconds, JwsSigner signer) {
         long iat = NumericDate.now().getValue();
         JwtClaims claims = new JwtClaims();
@@ -58,12 +59,11 @@ public final class AttestationMinter {
         claims.setClaim("cnf", cnf);
 
         Map<String, Object> workload = new LinkedHashMap<>();
-        workload.put("attested_by", "spiffe");
-        workload.put("spiffe_id", svid.spiffeId());
+        workload.put("attested_by", instance.format());
+        workload.putAll(instance.workloadClaims());
         if (workloadMetadata != null && !workloadMetadata.isEmpty()) {
             workload.put("attributes", workloadMetadata);
         }
-        workload.put("svid", svid.raw());
         claims.setClaim("workload", workload);
 
         if (authorizationDetails != null && !authorizationDetails.isEmpty()) {
@@ -71,6 +71,17 @@ public final class AttestationMinter {
         }
 
         return sign(claims.toJson(), signer);
+    }
+
+    /**
+     * Convenience overload for a SPIFFE JWT-SVID — adapts it via {@link InstanceIdentity#ofSpiffe} and mints
+     * exactly as before. Retained so SPIFFE callers (and their tests) are unaffected by the generalisation.
+     */
+    public static String mint(String issuer, String clientId, Map<String, Object> instancePublicJwk,
+                              SpiffeSvid svid, Map<String, Object> workloadMetadata,
+                              List<Map<String, Object>> authorizationDetails, long ttlSeconds, JwsSigner signer) {
+        return mint(issuer, clientId, instancePublicJwk, InstanceIdentity.ofSpiffe(svid),
+                workloadMetadata, authorizationDetails, ttlSeconds, signer);
     }
 
     /**
