@@ -53,14 +53,16 @@ cd deploy/gke-spiffe-demo/pf/terraform
 
 Then export the archive and bake it into the image, as `DEMO-STATE.md` describes.
 
-## One gap this exposed, still open
+## The gap this exposed - now closed
 
 `attest_cc_mapping` (`client_credentials|attestATM`) references an access-token manager called
 **`attestATM`** — the Reference-token variant — which **no Terraform resource manages**. It came from
 the original agentic demo's archive. On a from-zero apply the mapping will be created and then fail,
 because its `access_token_manager_ref` points at something that does not exist.
 
-Two ways to close it, neither done yet:
+**Closed 2026-07-30.** `attest-reference-atm.tf` now manages it, captured from the live server before
+the teardown rehearsal. Verified both ways: the adopt path imports it, the from-zero path creates it
+(14 creations). The original options, for the record:
 
 1. Add a `pingfederate_oauth_access_token_manager` resource for `attestATM` (Reference plugin), or
 2. Drop `attest_cc_mapping` from the config — nothing in the current demo issues reference tokens;
