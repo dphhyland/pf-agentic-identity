@@ -90,6 +90,47 @@ the EKS workload will fail attestation. Take both values from `bootstrap.sh`'s o
 The account STS issuer (`aws-sts-web-identity`, used by the AgentCore agent) is account-level and does
 NOT change, which is why teardown leaves outbound federation enabled.
 
+## A rebuilt load balancer breaks THREE baked settings
+
+The sharpest finding of the rebuild test. A new EKS cluster gets a new ELB hostname, and that
+hostname is the PF's public issuer — baked into `data.zip` in three independent places. Fixing one is
+not enough, and the symptom of missing one is subtle:
+
+| Setting | Drives | Symptom if stale |
+|---|---|---|
+| `serverSettings.federationInfo.baseUrl` | the OP issuer and `pop_audience` in discovery | attestation PoP rejected, `invalid_client` |
+| `attestJwtATM` field **Issuer Claim Value** | the `iss` claim stamped into issued tokens | the resource rejects the token: `wrong issuer` |
+| `subjectJwtProc` field **Issuer** | which issuer subject tokens are accepted from | token exchange fails `Invalid Issuer` |
+
+Observed: after fixing only `baseUrl`, all three hops returned 200 and the chain still failed at the
+resource with
+
+```
+invalid_token: wrong issuer 'http://<old-elb>' (this resource trusts 'http://<new-elb>')
+```
+
+Both ATM/processor values live in `adopted-issuer.tf`. `generate-config` writes them as **literals**,
+so the Terraform variables do not help — grep the old hostname out of `*.tf` and replace it:
+
+```sh
+grep -rln '<old-elb-hostname>' *.tf
+sed -i '' 's|<old-elb-hostname>|<new-elb-hostname>|g' *.tf
+```
+
+Also update the **anchor's** `OIDF_FEDERATION_SUBORDINATES` on the other PF, or `/federation/fetch`
+correctly refuses with `Unknown subordinate` and no trust chain resolves.
+
+**The durable fix** is to stop using raw ELB/LB hostnames as issuers: put a stable DNS name in front
+of each PF so the issuer survives a rebuild. Until then, budget for the three-place update.
+
+## Every object that can arrive via data.zip needs an import block
+
+A resource with no `import {}` block will be **created**, and against a server built from the baked
+image that fails with `Client ID is already in use` / `The plugin ID is already defined`. Found on
+`demo-attest-gke-delivery` and `gkeSubjectProc` during the rebuild. Both now have import blocks;
+`recover-config.sh` strips them for the genuine from-zero case. The rule: if the object is in the
+archive, it needs an import block.
+
 ## Not in Terraform at all
 
 These are created by the bootstrap scripts or by hand, and Terraform never sees them:

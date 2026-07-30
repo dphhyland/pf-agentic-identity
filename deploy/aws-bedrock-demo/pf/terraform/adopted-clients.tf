@@ -37,13 +37,13 @@ resource "pingfederate_oauth_client" "demo_attest_eks" {
   exclusive_scopes                     = []
   extended_parameters = {
     attestation_bundle_url = {
-      values = ["https://oidc.eks.ap-southeast-2.amazonaws.com/id/9B3C4E687CA92CD350F551C7E0C69A07/keys"]
+      values = ["https://oidc.eks.ap-southeast-2.amazonaws.com/id/DE6B6D49900B87B9BF65A45D4822CD7D/keys"]
     }
     attestation_evidence = {
       values = ["eks-sa-token"]
     }
     attestation_evidence_issuer = {
-      values = ["https://oidc.eks.ap-southeast-2.amazonaws.com/id/9B3C4E687CA92CD350F551C7E0C69A07"]
+      values = ["https://oidc.eks.ap-southeast-2.amazonaws.com/id/DE6B6D49900B87B9BF65A45D4822CD7D"]
     }
     attestation_instances = {
       values = ["[{\"spiffe_id\": \"spiffe://eks.demo.aws/ns/demo/sa/payment-agent\", \"entitlement\": [{\"type\": \"sales_agent\", \"actions\": [\"read_accounts\", \"create_opportunity\", \"submit_quote\"], \"sales_regions\": [\"EMEA\"]}], \"metadata\": {\"region\": \"EMEA\", \"environment\": \"eks\", \"attestor\": \"eks-irsa\"}}]"]

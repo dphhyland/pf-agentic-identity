@@ -34,7 +34,7 @@ resource "pingfederate_idp_token_processor" "subject_jwt_proc" {
       },
       {
         name  = "Issuer"
-        value = "http://aedf8922e217a444d8260c5a4cbb2c45-1761953978.ap-southeast-2.elb.amazonaws.com"
+        value = "http://ae546b15c1b884e858e24d0c021d7e20-548341687.ap-southeast-2.elb.amazonaws.com"
       },
       {
         name  = "JWKS Endpoint URI"
@@ -154,7 +154,7 @@ resource "pingfederate_oauth_access_token_manager" "attest_jwt_atm" {
       },
       {
         name  = "Issuer Claim Value"
-        value = "http://aedf8922e217a444d8260c5a4cbb2c45-1761953978.ap-southeast-2.elb.amazonaws.com"
+        value = "http://ae546b15c1b884e858e24d0c021d7e20-548341687.ap-southeast-2.elb.amazonaws.com"
       },
       {
         name  = "JWE Algorithm"

@@ -14,6 +14,13 @@ locals {
   attester_issuer               = "https://attester.example.com"
 }
 
+# Adopted: this client arrives via the baked config archive on any server built from the image.
+# recover-config.sh strips this block so a from-zero rebuild creates it instead.
+import {
+  to = pingfederate_oauth_client.demo_attest_gke_delivery
+  id = "demo-attest-gke-delivery"
+}
+
 resource "pingfederate_oauth_client" "demo_attest_gke_delivery" {
   client_id                        = "demo-attest-gke-delivery"
   name                             = "Demo attester — GKE delivery agent (chain agent C)"

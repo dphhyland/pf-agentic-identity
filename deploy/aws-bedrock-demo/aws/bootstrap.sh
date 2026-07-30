@@ -130,6 +130,36 @@ iam.put_role_policy(RoleName="$AGENT_ROLE", PolicyName="attest-demo",
 print("  policy attached")
 EOF
 
+# ── Bedrock AgentCore runtime ────────────────────────────────────────────────────────────────────
+# Nothing else creates this. cross-cloud-chain/deploy.sh only UPDATES an existing runtime, so a
+# from-zero rebuild had no agent B at all until this block was added (found in the 2026-07-30
+# rebuild test). Requires the agentcore-agent image to already be in ECR.
+say "ensuring the Bedrock AgentCore runtime"
+AGENTCORE_IMAGE="${AGENTCORE_IMAGE:-$ACCOUNT.dkr.ecr.$REGION.amazonaws.com/agentcore-agent:chain-v2}"
+ACCOUNT="$ACCOUNT" AGENT_ROLE="$AGENT_ROLE" AGENTCORE_IMAGE="$AGENTCORE_IMAGE" "$PY" - <<'EOF'
+import boto3, os, time
+region = os.environ["AWS_REGION"]
+c = boto3.client("bedrock-agentcore-control", region_name=region)
+name = "attest_demo_agent"
+existing = next((r for r in c.list_agent_runtimes().get("agentRuntimes", [])
+                 if r.get("agentRuntimeName") == name), None)
+if existing:
+    print("  exists  " + existing["agentRuntimeArn"]); raise SystemExit(0)
+r = c.create_agent_runtime(
+    agentRuntimeName=name,
+    agentRuntimeArtifact={"containerConfiguration": {"containerUri": os.environ["AGENTCORE_IMAGE"]}},
+    roleArn="arn:aws:iam::%s:role/%s" % (os.environ["ACCOUNT"], os.environ["AGENT_ROLE"]),
+    networkConfiguration={"networkMode": "PUBLIC"},
+    protocolConfiguration={"serverProtocol": "HTTP"},
+    environmentVariables={"AWS_REGION": region})
+arn = r["agentRuntimeArn"]
+print("  created " + arn)
+for _ in range(40):
+    if c.get_agent_runtime(agentRuntimeId=arn.rsplit("/",1)[1])["status"] == "READY":
+        print("  READY"); break
+    time.sleep(15)
+EOF
+
 # ── secrets PingFederate needs (bridge key + DevOps licence) ──────────────────────────────────────
 kubectl create namespace pf --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -166,6 +196,10 @@ cat <<SUMMARY
   export AWS_STS_JWKS_URL="$STS_ISSUER/.well-known/jwks.json"
   export AGENT_EXECUTION_ROLE="$AGENT_ROLE"
   export ECR="$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
+  export AGENTCORE_ARN="$("$PY" -c "
+import boto3,os
+c=boto3.client('bedrock-agentcore-control',region_name='$REGION')
+print(next((r['agentRuntimeArn'] for r in c.list_agent_runtimes().get('agentRuntimes',[]) if r.get('agentRuntimeName')=='attest_demo_agent'),''))" 2>/dev/null)"
 
 Next: deploy PingFederate (see ../DEMO-STATE.md), apply ../pf/terraform, then
 ../../cross-cloud-chain/deploy.sh for the agents and the resource.

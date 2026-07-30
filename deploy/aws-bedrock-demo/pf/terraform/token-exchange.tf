@@ -20,6 +20,12 @@ variable "gke_pf_issuer" {
 # subject_token_type urn:ietf:params:oauth:token-type:jwt (the local access_token type stays on
 # subjectJwtProc). The issued tokens carry no `iss` claim today, so the Issuer field is
 # documentation until the ATMs stamp one; the signature check against the GKE JWKS is what gates.
+# Adopted: present in the baked archive once this PF has been baked at least once.
+import {
+  to = pingfederate_idp_token_processor.gke_subject_proc
+  id = "gkeSubjectProc"
+}
+
 resource "pingfederate_idp_token_processor" "gke_subject_proc" {
   processor_id = "gkeSubjectProc"
   name         = "Subject JWT Processor (GKE PF tokens)"
