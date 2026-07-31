@@ -13,6 +13,7 @@ import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
 import com.pingidentity.ps.oidf.device.JdbcInstanceRegistry;
 import java.time.Duration;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
@@ -88,22 +89,39 @@ public final class Main {
     }
 
     /**
-     * The IdP seam. Not yet implemented against a live PingOne tenant — no tenant exists in this
-     * repository — so this refuses rather than pretending. Milestone 2 wires the real verifier; until
-     * then the service is exercised through its tests, which supply their own.
+     * The IdP verifier. Refuses rather than defaulting to permissive when unconfigured — an auth
+     * service that silently accepts anything is worse than one that is plainly switched off.
+     *
+     * <p>{@code PINGONE_ACR_AAL2} lists the sign-on policy names that genuinely represent AAL2, comma
+     * separated. PingOne puts the applied policy name in {@code acr} and this environment advertises no
+     * {@code acr_values_supported}, so the mapping cannot be discovered and has to be stated. Anything
+     * not listed is treated as AAL1 and will fail the binding requirement.
      */
     private static UserAuthenticationVerifier pingOneVerifier() {
         String issuer = System.getenv("PINGONE_ISSUER");
-        if (issuer == null || issuer.isBlank()) {
-            LOGGER.warn((Object) "PINGONE_ISSUER is unset — user authentication will be refused. "
-                    + "Enrolment cannot complete until the IdP verifier is configured.");
+        String clientId = System.getenv("PINGONE_CLIENT_ID");
+        if (issuer == null || issuer.isBlank() || clientId == null || clientId.isBlank()) {
+            LOGGER.warn((Object) "PINGONE_ISSUER / PINGONE_CLIENT_ID are unset — user authentication "
+                    + "will be refused, so enrolment cannot complete on this deployment.");
             return evidence -> {
                 throw EnrolmentException.userAuthenticationFailed(
                         "no IdP is configured on this deployment");
             };
         }
-        throw new UnsupportedOperationException(
-                "the PingOne verifier is not implemented yet; see docs/unverified.md item 7");
+        Map<String, UserAuthentication.AssuranceLevel> assuranceByAcr = new LinkedHashMap<>();
+        for (String policy : env("PINGONE_ACR_AAL2", "").split(",")) {
+            String name = policy.trim();
+            if (!name.isEmpty()) {
+                assuranceByAcr.put(name, UserAuthentication.AssuranceLevel.AAL2);
+            }
+        }
+        if (assuranceByAcr.isEmpty()) {
+            LOGGER.warn((Object) "PINGONE_ACR_AAL2 is empty — every authentication will be treated as "
+                    + "AAL1 and refused for binding. Set it to the passkey sign-on policy name.");
+        }
+        LOGGER.info((Object) ("PingOne verifier: issuer=" + issuer
+                + " aal2Policies=" + assuranceByAcr.keySet()));
+        return PingOneIdTokenVerifier.forEnvironment(issuer, clientId, assuranceByAcr);
     }
 
     private static DataSource dataSource(String url) {
