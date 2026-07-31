@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>device-instance</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <name>device-instance</name>
+    <description>The agent instance registry and the device Client Attestation minter. The registry is the
+        only place an opaque instance identifier resolves to a human; the minter issues attestations whose
+        subject is that opaque identifier and never the user. No HTTP, no PingFederate, no servlet.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <version.jose4j>0.9.6</version.jose4j>
+        <version.jackson>2.17.1</version.jackson>
+        <version.commons-logging>1.2</version.commons-logging>
+        <version.junit.jupiter>5.10.2</version.junit.jupiter>
+        <version.postgresql>42.7.3</version.postgresql>
+        <version.h2>2.2.224</version.h2>
+    </properties>
+
+    <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>0.1.0</version></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.jose4j}</version></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
+        <!-- The JDBC driver is provided: the registry is written against java.sql, and the deployment
+             supplies the driver. Tests run the same SQL against H2 in PostgreSQL mode. -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version><scope>provided</scope></dependency>
+
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version><scope>test</scope></dependency>
+        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${version.h2}</version><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+        </plugins>
+    </build>
+</project>

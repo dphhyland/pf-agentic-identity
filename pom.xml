@@ -26,6 +26,7 @@
     <modules>
         <module>libs/oidf-jose</module>
         <module>libs/app-attest</module>
+        <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
         <module>libs/openid-federation</module>
         <module>servlets/pf-integration</module>

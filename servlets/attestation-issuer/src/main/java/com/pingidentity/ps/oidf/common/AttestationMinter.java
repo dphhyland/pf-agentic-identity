@@ -84,21 +84,8 @@ public final class AttestationMinter {
                 workloadMetadata, authorizationDetails, ttlSeconds, signer);
     }
 
-    /**
-     * Assembles the compact JWS: {@code BASE64URL(header).BASE64URL(payload)} is signed by the
-     * {@link JwsSigner} (which returns the raw JWS signature), and the three parts are joined. The header
-     * carries {@code alg}, {@code typ} and the signer's {@code kid} (issuing keys are referenced by id,
-     * never embedded).
-     */
+    /** Assembly is shared with the other minters — see {@link CompactJws}. */
     private static String sign(String payloadJson, JwsSigner signer) {
-        Map<String, Object> header = new LinkedHashMap<>();
-        header.put("alg", signer.algorithm());
-        header.put("typ", TYP);
-        header.put("kid", signer.keyId());
-        Base64.Encoder b64 = Base64.getUrlEncoder().withoutPadding();
-        String signingInput = b64.encodeToString(JsonUtil.toJson(header).getBytes(StandardCharsets.UTF_8))
-                + "." + b64.encodeToString(payloadJson.getBytes(StandardCharsets.UTF_8));
-        byte[] signature = signer.sign(signingInput.getBytes(StandardCharsets.US_ASCII));
-        return signingInput + "." + b64.encodeToString(signature);
+        return CompactJws.sign(TYP, payloadJson, signer);
     }
 }
