@@ -1,0 +1,57 @@
+# Local run: Postgres plus the enrolment service, with the schema applied on first start.
+#
+#   docker compose -f deploy/device-enrolment/docker-compose.yml up --build
+#
+# Enrolment will refuse until an IdP verifier is configured (PINGONE_ISSUER) — the service says so
+# at startup rather than pretending to authenticate. Everything else, including the challenge
+# endpoint, the JWKS and the schema, comes up and is exercisable.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: enrolment
+      POSTGRES_PASSWORD: enrolment
+      POSTGRES_DB: enrolment
+    # The migration is mounted into the image's init directory, so a fresh volume is schema-ready.
+    # Postgres runs these only when the data directory is empty; drop the volume to re-apply.
+    volumes:
+      - ../../libs/device-instance/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
+      - enrolment-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U enrolment -d enrolment"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  device-enrolment:
+    build:
+      context: ../..
+      dockerfile: deploy/device-enrolment/Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      ENROLMENT_ISSUER: http://localhost:8080
+      DATABASE_URL: jdbc:postgresql://postgres:5432/enrolment?user=enrolment&password=enrolment
+      APPLE_TEAM_ID: ABCDE12345
+      APPLE_BUNDLE_ID: com.example.agent
+      # Local development uses a development Apple account; every such enrolment is flagged in the
+      # registry so it can never later pass as production.
+      APPLE_ALLOW_DEVELOPMENT: "true"
+      UV_MAX_AGE_SECONDS: "300"
+      # Off locally only so the flow can be walked without an MDM attached. It is on in both
+      # deployed environments, because "never assessed" must not mean "fine".
+      REQUIRE_COMPLIANT_DEVICE: "false"
+      # The RFC 7515 Appendix A.3.1 example key — deliberately one whose private half is published in
+      # an RFC, so it is obviously worthless and nobody can mistake it for a real attester key.
+      # Generate your own for anything that leaves your laptop.
+      ENROLMENT_SIGNING_JWK: >-
+        {"kty":"EC","crv":"P-256","kid":"local-dev-1",
+         "x":"f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+         "y":"x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0",
+         "d":"jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI"}
+
+volumes:
+  enrolment-data:

@@ -53,6 +53,16 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <!-- The synthetic Apple-shaped chain builder is reused by device-enrolment's tests.
+                 Publishing it as a test-jar beats duplicating certificate minting in two modules. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution><goals><goal>test-jar</goal></goals></execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 </project>

@@ -42,10 +42,10 @@ import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
  * device can, and that gap is recorded in {@code docs/unverified.md} and closed in milestone 1's
  * on-device acceptance test.
  */
-final class AppAttestFixtures {
+public final class AppAttestFixtures {
 
-    static final String TEAM_ID = "ABCDE12345";
-    static final String BUNDLE_ID = "com.example.agent";
+    public static final String TEAM_ID = "ABCDE12345";
+    public static final String BUNDLE_ID = "com.example.agent";
 
     private static final ObjectMapper CBOR = new ObjectMapper(new CBORFactory());
 
@@ -56,22 +56,22 @@ final class AppAttestFixtures {
     private final KeyPair rootKey;
     private final X509Certificate rootCert;
 
-    AppAttestFixtures() throws Exception {
+    public AppAttestFixtures() throws Exception {
         this.rootKey = generateEcKeyPair();
         this.rootCert = selfSignedRoot(this.rootKey);
     }
 
-    X509Certificate rootCertificate() {
+    public X509Certificate rootCertificate() {
         return this.rootCert;
     }
 
     /** A config trusting this fixture's root rather than Apple's, accepting the given environments. */
-    AppAttestConfig config(java.util.Set<AppAttestEnvironment> accepted) {
+    public AppAttestConfig config(java.util.Set<AppAttestEnvironment> accepted) {
         return AppAttestConfig.withTrustRoot(TEAM_ID, BUNDLE_ID, accepted, this.rootCert);
     }
 
     /** The default happy-path build: production environment, counter 0, correct everything. */
-    Attestation attestation(byte[] clientDataHash) throws Exception {
+    public Attestation attestation(byte[] clientDataHash) throws Exception {
         return attestation(clientDataHash, AppAttestEnvironment.PRODUCTION, 0L, TEAM_ID + "." + BUNDLE_ID, true);
     }
 
@@ -81,7 +81,7 @@ final class AppAttestFixtures {
      *
      * @param bindNonceCorrectly when false, the credCert commits to a different nonce
      */
-    Attestation attestation(byte[] clientDataHash, AppAttestEnvironment environment, long signCount,
+    public Attestation attestation(byte[] clientDataHash, AppAttestEnvironment environment, long signCount,
                             String appId, boolean bindNonceCorrectly) throws Exception {
         KeyPair attestedKey = generateEcKeyPair();
         byte[] keyId = sha256(AppAttestVerifier.uncompressedPoint((ECPublicKey) attestedKey.getPublic()));
@@ -106,7 +106,7 @@ final class AppAttestFixtures {
     }
 
     /** A CBOR assertion signed by a previously attested key. */
-    byte[] assertion(KeyPair attestedKey, byte[] clientDataHash, long signCount, String appId) throws Exception {
+    public byte[] assertion(KeyPair attestedKey, byte[] clientDataHash, long signCount, String appId) throws Exception {
         byte[] authData = assertionAuthenticatorData(appId, signCount);
         Signature ecdsa = Signature.getInstance("SHA256withECDSA");
         ecdsa.initSign(attestedKey.getPrivate());
@@ -190,11 +190,11 @@ final class AppAttestFixtures {
         return new byte[]{(byte) (value >>> 24), (byte) (value >>> 16), (byte) (value >>> 8), (byte) value};
     }
 
-    static byte[] sha256(byte[] input) throws Exception {
+    public static byte[] sha256(byte[] input) throws Exception {
         return MessageDigest.getInstance("SHA-256").digest(input);
     }
 
-    static byte[] concat(byte[] a, byte[] b) {
+    public static byte[] concat(byte[] a, byte[] b) {
         byte[] out = new byte[a.length + b.length];
         System.arraycopy(a, 0, out, 0, a.length);
         System.arraycopy(b, 0, out, a.length, b.length);
@@ -202,6 +202,6 @@ final class AppAttestFixtures {
     }
 
     /** A built attestation plus the pieces a test needs to assert against it. */
-    record Attestation(byte[] cbor, byte[] keyId, KeyPair attestedKey, byte[] authData) {
+    public record Attestation(byte[] cbor, byte[] keyId, KeyPair attestedKey, byte[] authData) {
     }
 }

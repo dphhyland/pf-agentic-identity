@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>device-enrolment</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <name>device-enrolment</name>
+    <description>The agent platform backend: the Client Attester for device-resident agents. Runs the
+        enrolment ceremony (App Attest + PingOne + Secure Enclave key binding), owns the instance registry,
+        and mints Client Attestations. Standalone — this is not a PingFederate extension.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <version.jose4j>0.9.6</version.jose4j>
+        <version.jackson>2.17.1</version.jackson>
+        <version.commons-logging>1.2</version.commons-logging>
+        <version.junit.jupiter>5.10.2</version.junit.jupiter>
+        <version.postgresql>42.7.3</version.postgresql>
+        <version.h2>2.2.224</version.h2>
+    </properties>
+
+    <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>0.1.0</version></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>0.1.0</version></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId><version>0.1.0</version></dependency>
+        <!-- Challenge issue/consume and jti replay already exist here; no reason to write them twice. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>0.1.0</version></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.jose4j}</version></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
+        <!-- Runtime only: the service ships the driver, the library does not. -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version></dependency>
+
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version><scope>test</scope></dependency>
+        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${version.h2}</version><scope>test</scope></dependency>
+        <!-- The synthetic Apple-shaped chain builder, reused rather than reimplemented. It mints
+             certificates, so BouncyCastle comes with it — test scope, never at runtime. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>0.1.0</version><type>test-jar</type><scope>test</scope></dependency>
+        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.78.1</version><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <!-- This module is a deployable, not a library: the runtime image needs its dependencies
+                 beside the jar. Copied rather than shaded so the classpath stays inspectable in an
+                 incident, and so nothing is silently relocated. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-dependency-plugin</artifactId>
+                <version>3.6.1</version>
+                <executions>
+                    <execution>
+                        <id>copy-runtime-dependencies</id>
+                        <phase>package</phase>
+                        <goals><goal>copy-dependencies</goal></goals>
+                        <configuration>
+                            <outputDirectory>${project.build.directory}/dependency</outputDirectory>
+                            <includeScope>runtime</includeScope>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>
