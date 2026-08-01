@@ -83,9 +83,14 @@ All by environment variable. `DATABASE_URL` and `ENROLMENT_SIGNING_JWK` are secr
 docker compose -f deploy/device-enrolment/docker-compose.yml up --build
 ```
 
-Brings up Postgres with the schema applied and the service on `:8080`. Enrolment will refuse until an
-IdP verifier is configured — the service says so at startup rather than pretending — but the challenge
-endpoint, the JWKS and the schema are all exercisable.
+Brings up Postgres with the schema applied and the service on `:8080`, wired to the real PingOne
+tenant. **This runs `DemoServerMain`, not `Main`** — App Attest can only be verified against Apple's
+real root, which nothing but a physical iPhone can produce, so the compose file trusts a bundled
+synthetic root instead of Apple's. See [demo/phone-simulator/README.md](../../demo/phone-simulator/README.md)
+for exactly what that does and does not prove, and for `phone-simulator`, the CLI that plays the
+phone's side of the ceremony against it — including a zero-setup run that shows the server correctly
+refusing fabricated authentication evidence, and a full green-path run against a real PingOne ID
+token.
 
 ## PingOne
 

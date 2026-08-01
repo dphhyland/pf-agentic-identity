@@ -38,5 +38,6 @@
         <module>services/device-enrolment</module>
         <module>services/demo-rs</module>
         <module>services/gm-api/servlet</module>
+        <module>demo/phone-simulator</module>
     </modules>
 </project>

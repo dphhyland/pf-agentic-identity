@@ -61,6 +61,16 @@ public final class AppAttestFixtures {
         this.rootCert = selfSignedRoot(this.rootKey);
     }
 
+    /**
+     * Reuses an existing root instead of minting a fresh one. Needed whenever the party verifying an
+     * attestation (a demo server) and the party building one (a demo client) are different JVMs: they
+     * must share one trust root, which a per-process random one cannot provide.
+     */
+    public AppAttestFixtures(KeyPair rootKey, X509Certificate rootCert) {
+        this.rootKey = rootKey;
+        this.rootCert = rootCert;
+    }
+
     public X509Certificate rootCertificate() {
         return this.rootCert;
     }

@@ -97,7 +97,7 @@ public final class Main {
      * {@code acr_values_supported}, so the mapping cannot be discovered and has to be stated. Anything
      * not listed is treated as AAL1 and will fail the binding requirement.
      */
-    private static UserAuthenticationVerifier pingOneVerifier() {
+    public static UserAuthenticationVerifier pingOneVerifier() {
         String issuer = System.getenv("PINGONE_ISSUER");
         String clientId = System.getenv("PINGONE_CLIENT_ID");
         if (issuer == null || issuer.isBlank() || clientId == null || clientId.isBlank()) {

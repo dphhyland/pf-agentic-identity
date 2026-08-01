@@ -1,0 +1,25 @@
+# The LOCAL DEMO variant of device-enrolment — NOT the production image (that is ./Dockerfile).
+#
+# Identical two-stage build, one substitution: the entry point is DemoServerMain, not Main. It is
+# Main's own wiring except for one thing App Attest genuinely cannot get without a physical iPhone —
+# a chain to Apple's real root — so it trusts a synthetic root bundled in demo/phone-simulator instead.
+# See demo/phone-simulator/README.md for what that does and does not prove.
+FROM maven:3.9-eclipse-temurin-17 AS build
+WORKDIR /src
+COPY pom.xml .
+COPY libs libs
+COPY servlets servlets
+COPY plugins plugins
+COPY services services
+COPY demo demo
+RUN mvn -B -q -pl demo/phone-simulator -am -DskipTests package
+
+FROM eclipse-temurin:17-jre-alpine
+WORKDIR /app
+COPY --from=build /src/demo/phone-simulator/target/phone-simulator-0.1.0.jar app.jar
+COPY --from=build /src/demo/phone-simulator/target/dependency ./lib
+COPY --from=build /src/libs/device-instance/src/main/resources/db/migration ./db/migration
+
+EXPOSE 8080
+ENV PORT=8080
+ENTRYPOINT ["java", "-cp", "app.jar:lib/*", "com.pingidentity.ps.oidf.demo.phonesim.DemoServerMain"]
