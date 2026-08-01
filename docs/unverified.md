@@ -151,6 +151,41 @@ accepts a captured proof for as long as it stays fresh, so the HTTP layer must w
 `AttestationReplayCache` (which already exists in `libs/client-attestation`) before it is used for
 anything real.
 
+## 11. The OpenID Federation metadata_policy merge table
+
+**Assumed:** rules chosen to be *no more permissive than any plausible reading*, and refusal wherever
+the direction is ambiguous.
+
+Verified and implemented exactly: the operator set (§6.1.3.1), the application order — quoted, *"The
+operators MUST be applied in this order: value, default, one_of, subset_of, superset_of, add,
+essential"* (§6.1.4.1), note `add` runs near the **end** — and `metadata_policy_crit` invalidating a
+statement that names an operator the implementation does not understand (§3.1.3).
+
+**Not verified:** the normative per-operator merge table in §6.1.4. Both published renderings —
+`openid.net/specs/openid-federation-1_0-final.html` and `openid.github.io/federation/main.html` —
+truncate before that section, anchors included, so it could not be read.
+
+`MetadataPolicy.composeWith` therefore implements: intersection for `one_of` and `subset_of`, union
+for `superset_of`, logical OR for `essential`, exact match or refusal for `value` and `default`, and —
+the genuinely ambiguous one — a subordinate `add` accepted only when it introduces nothing the
+superior did not already have. Adding to `grant_types` would widen where adding to `contacts` would
+not, and nothing in what could be read distinguishes them.
+
+Where these are stricter than the specification the cost is a chain refused that ought to resolve.
+That is recoverable; the opposite error is the one the brief names as the worst outcome in this build.
+**Confirm against §6.1.4 before this is relied on in production.**
+
+## 12. Whether PingOne emits CAEP device-compliance-change at all
+
+**Assumed:** the event shape from CAEP 1.0 Final, nothing about PingOne's transmitter.
+
+`CaepEventHandler` implements `device-compliance-change`, `session-revoked` and `credential-change`
+against the claim definitions verified in CAEP 1.0 Final. What remains unknown is item 7: whether
+PingOne transmits these natively, and with which subject identifier format. The handler accepts
+`opaque`/`id`, a bare `sub`, and a plain string subject, which covers the likely shapes — but the
+mapping from PingOne's device identifier to this registry's `device.id` is **not** established, and
+without it the loop does not close on real signals.
+
 ---
 
 ## Related deliberate divergences
