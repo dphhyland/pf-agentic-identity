@@ -38,8 +38,9 @@ can. See [docs/unverified.md](../../docs/unverified.md) and milestone 1 (M1b) in
 docker compose -f deploy/device-enrolment/docker-compose.yml up --build
 ```
 
-Brings up real Postgres with the schema applied, and `DemoServerMain` on `:8080`, wired to the real
-PingOne tenant (`fe8ab8dc-0dbb-4da4-8ee5-004cb3a6f21d`, matching
+Brings up real Postgres with the schema applied, and `DemoServerMain` on host port `8180` (mapped from
+the container's `8080` — `8080` itself is a common local conflict, so the compose file avoids it),
+wired to the real PingOne tenant (`fe8ab8dc-0dbb-4da4-8ee5-004cb3a6f21d`, matching
 [vars.staging.env](../../deploy/device-enrolment/vars.staging.env) exactly) — so `user_authentication`
 is genuinely verified, not stubbed.
 
@@ -52,8 +53,8 @@ mvn -pl demo/phone-simulator -am -DskipTests package
 ### See it fail closed (zero setup beyond the two commands above)
 
 ```bash
-java -cp demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/* \
-  com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --demo-evidence
+java -cp "demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/*" \
+  com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --base-url http://localhost:8180 --demo-evidence
 ```
 
 This builds a real, verifiable synthetic App Attest attestation and gets past the challenge, the nonce
@@ -76,8 +77,8 @@ temporary redirect URI added deliberately for this purpose.
 Once you have one:
 
 ```bash
-java -cp demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/* \
-  com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --id-token <the ID token>
+java -cp "demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/*" \
+  com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --base-url http://localhost:8180 --id-token <the ID token>
 ```
 
 This runs the full ceremony: challenge, App Attest, enrolment, and a re-mint on the hot path, printing
@@ -98,8 +99,9 @@ docker compose -f deploy/device-enrolment/docker-compose.yml exec postgres \
 Then:
 
 ```bash
-java -cp demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/* \
-  com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --id-token <token> --suspend-device <that id>
+java -cp "demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/*" \
+  com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --base-url http://localhost:8180 \
+  --id-token <token> --suspend-device <that id>
 ```
 
 The run enrols, re-mints once, applies a `device-compliance-change`-shaped signal, then re-mints again

@@ -14,7 +14,9 @@ COPY services services
 COPY demo demo
 RUN mvn -B -q -pl demo/phone-simulator -am -DskipTests package
 
-FROM eclipse-temurin:17-jre-alpine
+# Not -alpine: that tag publishes linux/amd64 only today, so it fails to resolve on Apple Silicon.
+# This tag (Ubuntu-based) is multi-arch, including linux/arm64.
+FROM eclipse-temurin:17-jre
 WORKDIR /app
 COPY --from=build /src/demo/phone-simulator/target/phone-simulator-0.1.0.jar app.jar
 COPY --from=build /src/demo/phone-simulator/target/dependency ./lib

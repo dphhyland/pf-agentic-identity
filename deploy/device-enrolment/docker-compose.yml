@@ -36,9 +36,10 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "8080:8080"
+      # Host port 8180, not 8080: several other local stacks on this machine already bind 8080.
+      - "8180:8080"
     environment:
-      ENROLMENT_ISSUER: http://localhost:8080
+      ENROLMENT_ISSUER: http://localhost:8180
       DATABASE_URL: jdbc:postgresql://postgres:5432/enrolment?user=enrolment&password=enrolment
       # No APPLE_TEAM_ID / APPLE_BUNDLE_ID here: the demo server's App ID is fixed to
       # AppAttestFixtures.TEAM_ID/BUNDLE_ID so it can never drift from what phone-simulator builds.
