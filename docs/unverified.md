@@ -112,6 +112,45 @@ third-party MDM. No PingOne reference exists anywhere in this repository today.
 Whether PingOne transmits SSF/CAEP natively, or whether a polling shim must translate into CAEP, is a
 meaningful difference in effort and must be settled before milestone 6 is estimated.
 
+## 8. Whether PingFederate can emit `act` as a JSON object
+
+**Assumed:** nothing. The resource server accepts both forms and reports which one arrived.
+
+RFC 8693 §4.1 defines `act` as a claim whose value is a **JSON object**.
+`deploy/gke-spiffe-demo/pf/terraform/token-exchange.tf` emits it as a JSON *string* for consumers to
+decode, with a comment noting PF 13.x rejects OGNL referencing an attribute literally named `act`
+(`ognl_expression_invalid_attribute`, worked around with a second contract name `prior_act`).
+
+Whether PF's JWT access token manager can emit a genuinely nested JSON claim — rather than a string
+holding JSON — was **not determined**. It needs a running PF to settle, and guessing would mean
+either shipping a spec deviation or breaking the existing mapping.
+
+Until then `ActChain` parses both: the object form is the spec shape, and the legacy string form is
+parsed so older tokens keep working but reported via `legacyStringForm()` so the deviation is visible
+rather than permanent.
+
+## 9. The PingFederate access token mapping for the instance registry
+
+**Assumed:** the `CustomDataSourceDriver` contract as compiled, nothing about how PF drives it.
+
+`InstanceRegistryDataSource` implements the interface exactly as it appears in the 13.0.3 SDK jar, and
+`InstanceLookup` — all the actual logic — is unit tested with no PF on the classpath. What is
+**unverified** is the surrounding configuration: that `PF-INF/custom-drivers` is the right descriptor
+name for this plugin type (see item 4), that a filter field reaches `retrieveValues` the way the GUI
+descriptor implies, and that an issuance criterion can gate on the returned booleans.
+
+Symptom to expect if the descriptor name is wrong: PF ignores the jar silently, with no error.
+
+## 10. demo-rs has no HTTP surface or replay cache yet
+
+**Assumed:** nothing, but the gap is load-bearing enough to name.
+
+`DelegatedTokenValidator` reports the DPoP proof's `jti` precisely so a caller can replay-cache it,
+and a test asserts it is reported — but no caller exists yet. A resource server that skips that cache
+accepts a captured proof for as long as it stays fresh, so the HTTP layer must wire
+`AttestationReplayCache` (which already exists in `libs/client-attestation`) before it is used for
+anything real.
+
 ---
 
 ## Related deliberate divergences
