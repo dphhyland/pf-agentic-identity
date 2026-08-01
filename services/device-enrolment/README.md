@@ -87,12 +87,39 @@ Brings up Postgres with the schema applied and the service on `:8080`. Enrolment
 IdP verifier is configured — the service says so at startup rather than pretending — but the challenge
 endpoint, the JWKS and the schema are all exercisable.
 
+## PingOne
+
+Wired against environment `fe8ab8dc-0dbb-4da4-8ee5-004cb3a6f21d` ("P1AS", region AP).
+`PingOneIdTokenVerifier` validates an ID token offline against the environment JWKS, so neither
+enrolment nor the time-box refresh depends on PingOne being reachable at that instant.
+
+The client is **Device Agent Enrolment** (`fad0652e`), a public native app with PKCE `S256_REQUIRED`,
+assigned the `Bank_Signup_Passkey` sign-on policy. It is separate from `ID Partners Bank Approver`
+(`98d2bb66`), which is on `Autonomous_MFA_Push` — reassigning that one would have changed how the
+existing autonomous/CIBA demo authenticates.
+
+Two things worth knowing about that environment:
+
+- **`Bank_Signup_Passkey` is an authentication policy, not a registration one**, despite its
+  description. One `MULTI_FACTOR_AUTHENTICATION` action, `fido2` enabled, everything else disabled —
+  so it serves both enrolment and the recurring refresh.
+- **It sets `noDevicesMode: BLOCK`.** A user with no registered passkey is blocked rather than invited
+  to enrol, so a first-ever enrolment needs the passkey to already exist. That is arguably right here
+  — the passkey *is* the pre-existing account credential and we are binding a new device key to it —
+  but it means the demo needs a passkey-registration path somewhere.
+
+`PINGONE_ACR_AAL2` names the sign-on policies whose `acr` genuinely means AAL2. PingOne puts the
+applied policy name in `acr`, and this environment advertises no `acr_values_supported`, so the
+mapping cannot be discovered and has to be stated. Anything unlisted is treated as AAL1 and refused.
+
 ## What is not done yet
 
-- **The PingOne verifier.** No tenant exists in this repository, so `UserAuthenticationVerifier` has no
-  production implementation. `Main` refuses rather than stubbing it, and the tests supply their own.
-- **The out-of-band notification** NIST SP 800-63B §6.1.2.1 requires when an authenticator is bound.
-  This service has no channel to the user; the caller must send it.
+- **A real device.** The end-to-end harness mints a *synthetic* Apple chain, so it does not prove
+  Apple's real attestation objects parse. Only hardware can.
+- **A wired notification channel.** `BindingNotifier` exists as a seam and its default logs loudly on
+  every binding; nothing actually reaches the user until an implementation is supplied.
 - **Concurrency against real Postgres.** The registry contract is tested against H2 in PostgreSQL
   mode, which is a compatibility layer. The revocation write racing an issuance read needs a real
   Postgres integration test.
+- **The compose stack has not been run.** The Dockerfile and `docker-compose.yml` are written but
+  unexercised — no Docker was available in the session that wrote them.

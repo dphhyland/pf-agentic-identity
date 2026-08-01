@@ -70,6 +70,7 @@ public final class EnrolmentService {
     private final String audience;
     private final Duration userVerificationMaxAge;
     private final boolean requireCompliantDevice;
+    private final BindingNotifier notifier;
 
     public EnrolmentService(AppAttestVerifier appAttest, UserAuthenticationVerifier userAuthentication,
                             InstanceRegistry registry, DeviceAttestationMinter minter,
@@ -91,6 +92,23 @@ public final class EnrolmentService {
                             AttestationChallengeService challenges, AttestationReplayCache replayCache,
                             JwsSigner signer, String audience, Duration userVerificationMaxAge,
                             boolean requireCompliantDevice) {
+        this(appAttest, userAuthentication, registry, minter, challenges, replayCache, signer, audience,
+                userVerificationMaxAge, requireCompliantDevice, BindingNotifier.logOnly());
+    }
+
+    /**
+     * The full constructor.
+     *
+     * @param notifier the out-of-band channel that tells an owner a device key was bound to them
+     *                 (NIST SP 800-63B §6.1.2.1). {@link BindingNotifier#logOnly()} is the default and
+     *                 is deliberately noisy, so a deployment with no channel wired cannot stay quietly
+     *                 non-compliant
+     */
+    public EnrolmentService(AppAttestVerifier appAttest, UserAuthenticationVerifier userAuthentication,
+                            InstanceRegistry registry, DeviceAttestationMinter minter,
+                            AttestationChallengeService challenges, AttestationReplayCache replayCache,
+                            JwsSigner signer, String audience, Duration userVerificationMaxAge,
+                            boolean requireCompliantDevice, BindingNotifier notifier) {
         this.appAttest = Objects.requireNonNull(appAttest, "appAttest");
         this.userAuthentication = Objects.requireNonNull(userAuthentication, "userAuthentication");
         this.registry = Objects.requireNonNull(registry, "registry");
@@ -102,6 +120,7 @@ public final class EnrolmentService {
         this.audience = Objects.requireNonNull(audience, "audience");
         this.userVerificationMaxAge = Objects.requireNonNull(userVerificationMaxAge, "userVerificationMaxAge");
         this.requireCompliantDevice = requireCompliantDevice;
+        this.notifier = Objects.requireNonNull(notifier, "notifier");
     }
 
     /** Issues a one-time challenge. At least 16 bytes, per Apple's guidance for {@code clientDataHash}. */
@@ -179,9 +198,20 @@ public final class EnrolmentService {
             LOGGER.info((Object) ("Enrolled agent instance " + instance.id()
                     + " on a " + attested.environment() + " device"
                     + " (owner is recorded in the registry only)"));
-            // NIST SP 800-63B §6.1.2.1 also requires an out-of-band notification to the subscriber when
-            // an authenticator is bound. That is the caller's job — this service has no channel to the
-            // user — and it is tracked as an outstanding item rather than silently skipped.
+
+            // NIST SP 800-63B §6.1.2.1: tell the owner, through a channel independent of this
+            // transaction. Deliberately after the binding is durable and never fatal — refusing to
+            // enrol because email is down is worse than enrolling without the message — but the
+            // default implementation is loud so an unwired deployment cannot stay quietly
+            // non-compliant.
+            try {
+                this.notifier.authenticatorBound(authentication.subject(),
+                        describe(request), instance.id());
+            } catch (RuntimeException e) {
+                LOGGER.warn((Object) ("the binding notification failed for instance " + instance.id()
+                        + "; the binding stands and the owner has not been told"), e);
+            }
+
             return new Enrolled(instance.id(), minted.attestation(), minted.expiresInSeconds(),
                     attested.keyIdBase64Url());
         } catch (RegistryException e) {
@@ -358,6 +388,13 @@ public final class EnrolmentService {
         if (!condition) {
             throw EnrolmentException.invalidRequest(message);
         }
+    }
+
+    /** A human-readable device description for the notification. No identifiers, just recognisability. */
+    private static String describe(EnrolmentRequest request) {
+        String model = request.model() == null ? "an unknown device" : request.model();
+        return request.osVersion() == null ? model : model + " (" + request.platform() + " "
+                + request.osVersion() + ")";
     }
 
     private static boolean notBlank(String value) {
