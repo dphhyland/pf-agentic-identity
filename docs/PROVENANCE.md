@@ -17,6 +17,29 @@ backports — never as parallel development.
 | `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | PF servlet (`gm-api.war`) + `/mcp` add-on. The AS-agnostic **Go** Grant-Evaluation service was later extracted to [grant-evaluation-api](https://github.com/dphhyland/grant-evaluation-api); `idp-gm-api` is now a pointer. |
 | `deploy/` + `.github/workflows/deploy-*` | pf-oidf-modules | filter-repo path extraction | `deploy-demo.yml` stayed behind (the demo lives in pf-oidf-modules); triggers retargeted: push-to-main → staging, production via workflow_dispatch |
 
+## 2026-08-04 — CAS metadata endpoint + custom-claims enforcement
+
+The implementation flagged as not-yet-ported in the 2026-08-01 CAS-draft entry above, from
+`pf-oidf-modules@sd-jwt-rar-paz` `41c7dd1` (a WIP safety-net commit on that non-canonical branch).
+It depended on the fork's `client_id`-taking `AttestationIssuanceServlet.issue()`; ported here against
+this repo's reverse-mapping version instead (adjusting the enforcement step's numbering and the
+default-registry wiring to match, not a straight copy):
+
+- `ClientAttestationServiceMetadataServlet` — new, serves the spec's own
+  `GET /.well-known/client-attestation-service` (see `docs/openid-client-attestation-service-1_0.md`
+  §5). Deliberately separate from `AttesterConfigurationServlet`'s `/.well-known/client-attester`,
+  which is this deployment's own richer discovery surface (resolver plugins, per-client config,
+  PoP audience) — the two documents serve different purposes and neither replaces the other.
+- `AttestationIssuanceServlet` — enforces `customClaimsRequired` (init-param /
+  `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) against the instance-key proof's claims; the same
+  configuration drives what the metadata servlet advertises as `custom_claims_required`, so
+  advertisement and enforcement cannot drift apart.
+- `InstanceKeyProofValidator.Result` — carries the proof's full claim map now, so the servlet can
+  read arbitrary custom claims rather than only the fields the record used to name explicitly.
+
+`InstanceAttestationValidators.formats()`, which the fork's WIP commit also added, already existed
+here (from the 2026-07-31 reconciliation) with the same purpose — no change needed.
+
 ## What deliberately did NOT move
 
 - **The demo UI / harness** (`harness/ui`, agent-workload) — stays in

@@ -81,11 +81,14 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private volatile WorkloadIntrospector workloadIntrospector;
     private boolean challengeRequired;
+    private volatile List<String> customClaimsRequired = List.of();
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
         this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
+        this.customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
+                "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
         String baoUrl = config.getInitParameter("openBaoUrl");
         String baoToken = config.getInitParameter("openBaoToken");
         if (baoUrl != null && baoToken != null) {
@@ -150,7 +153,17 @@ public class AttestationIssuanceServlet extends HttpServlet {
             throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
 
-        // 4a. If the instance attestation itself binds a key (a WIA cnf), the key being bound must be that
+        // 4a. Deployment-required custom claims must be present in the proof (advertised as
+        // custom_claims_required in the /.well-known/client-attestation-service metadata). They are
+        // evidence for policy only — never copied into the minted attestation.
+        for (String claim : this.customClaimsRequired) {
+            Object value = proof.claims().get(claim);
+            if (value == null || (value instanceof String && ((String) value).isBlank())) {
+                throw IssuanceException.invalidInstanceProof("proof is missing required claim: " + claim);
+            }
+        }
+
+        // 4b. If the instance attestation itself binds a key (a WIA cnf), the key being bound must be that
         //     very key — so the attestation being consumed is about this instance_key, not some other. A
         //     SPIFFE SVID binds no key, so this is a no-op there.
         if (instance.boundKey() != null) {
@@ -212,6 +225,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     void setChallengeRequired(boolean required) {
         this.challengeRequired = required;
+    }
+
+    void setCustomClaimsRequired(List<String> claims) {
+        this.customClaimsRequired = List.copyOf(claims);
     }
 
     void setInstanceValidators(InstanceAttestationValidators validators) {
@@ -318,12 +335,32 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /** A system property, falling back to an environment variable; null when neither is set. */
-    private static String env(String property, String envVar) {
+    static String env(String property, String envVar) {
         String value = System.getProperty(property);
         if (value == null || value.isBlank()) {
             value = System.getenv(envVar);
         }
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    /**
+     * A comma-separated claim-name list from a servlet init-param, else the environment (sys-prop /
+     * env var); empty when neither is set. Shared with the discovery metadata servlet so the
+     * advertised {@code custom_claims_required} and the enforced set come from one configuration.
+     */
+    static List<String> customClaimsFrom(String initParam, String sysProp, String envVar) {
+        String csv = (initParam != null && !initParam.isBlank()) ? initParam : env(sysProp, envVar);
+        if (csv == null) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (String token : csv.split(",")) {
+            String trimmed = token.trim();
+            if (!trimmed.isEmpty()) {
+                out.add(trimmed);
+            }
+        }
+        return List.copyOf(out);
     }
 
     RemoteJwksCache jwksCache() {
