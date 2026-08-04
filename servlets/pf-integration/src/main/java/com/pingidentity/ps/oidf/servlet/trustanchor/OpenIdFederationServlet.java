@@ -75,6 +75,9 @@ extends HttpServlet {
                 }
             }
         }
+        catch (FederationEntityNotFoundException e) {
+            writeError(resp, 404, "not_found", e.getMessage(), e);
+        }
         catch (IllegalArgumentException e) {
             writeError(resp, 400, "invalid_request", e.getMessage(), e);
         }

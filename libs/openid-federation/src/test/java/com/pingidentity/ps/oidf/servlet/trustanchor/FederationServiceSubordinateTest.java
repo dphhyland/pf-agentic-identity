@@ -69,14 +69,18 @@ class FederationServiceSubordinateTest {
 
     @Test
     void unknownSubjectIsRejected() throws Exception {
+        // A subject this federation doesn't recognise is "not found" (404), not a malformed request
+        // (400) — the two used to collapse onto the same IllegalArgumentException, which is exactly
+        // what OpenIdFederationServlet could not tell apart.
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         FederationConfiguration anchorConfig = new FederationConfiguration(
                 List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys, (url, accept) -> {
             throw new AssertionError("must not fetch for an unknown subject");
         });
-        assertThrows(IllegalArgumentException.class,
+        FederationEntityNotFoundException e = assertThrows(FederationEntityNotFoundException.class,
                 () -> anchor.createEntityStatement("https://stranger.example.com", null, ANCHOR));
+        assertTrue(e.getMessage().contains("https://stranger.example.com"), e.getMessage());
     }
 
     @Test

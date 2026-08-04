@@ -114,7 +114,8 @@ final class FederationService {
 
     private Map<String, Object> fetchSubordinateJwks(String subject) {
         if (!this.configuration.subordinates().contains(subject)) {
-            throw new IllegalArgumentException("Unknown subordinate: " + subject);
+            // The subject itself doesn't exist here — not_found (404), not a malformed request.
+            throw new FederationEntityNotFoundException("Unknown subordinate: " + subject);
         }
         CachedSubordinateConfig cached = this.subordinateConfigCache.get(subject);
         long now = Instant.now().getEpochSecond();
