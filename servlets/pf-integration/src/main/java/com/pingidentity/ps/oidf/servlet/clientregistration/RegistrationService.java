@@ -69,7 +69,7 @@ final class RegistrationService {
         String clientId = request.sub();
         String trustAnchorIssuer = validation.trustAnchorIssuer();
         String rpSubject = validation.leafSubject();
-        Map<String, Object> leafMetadata = validation.leafMetadata();
+        Map<String, Object> leafMetadata = validation.metadataFor("openid_relying_party");
         JwtClaims leafEntityStatement = validation.leafEntityStatement();
         Map jwks = leafEntityStatement.getClaimValue("jwks", Map.class);
         LinkedHashMap<String, Object> responseRpMetadata = new LinkedHashMap<String, Object>(leafMetadata != null ? leafMetadata : Map.of());

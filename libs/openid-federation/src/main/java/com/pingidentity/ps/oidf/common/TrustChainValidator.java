@@ -116,9 +116,13 @@ public final class TrustChainValidator {
             }
             ++i;
         }
-        Map<String, Object> leafMetadata = Claims.optionalNestedMap(Claims.optionalMap(verifiedLeaf, "metadata"), "openid_relying_party");
+        // The full metadata claim, one block per entity type the leaf holds (e.g. an agent is
+        // typically both openid_relying_party and oauth_client at once) — not narrowed to a single
+        // assumed type, so a caller that needs a type other than openid_relying_party (e.g.
+        // ClientEntityAuthorizer, which reads oauth_client) actually receives it.
+        Map<String, Object> resolvedMetadata = Claims.optionalMap(verifiedLeaf, "metadata");
         pendingWrites.commit();
-        return new TrustChainValidationResult(trustAnchorIssuer, verifiedLeaf.getSubject(), leafMetadata, trustChain, verifiedLeaf);
+        return new TrustChainValidationResult(trustAnchorIssuer, verifiedLeaf.getSubject(), resolvedMetadata, trustChain, verifiedLeaf);
     }
 
     public static JwtClaims selectLeafEntityStatement(List<String> trustChain) throws Exception {
