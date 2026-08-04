@@ -1,7 +1,7 @@
 /*
  * In-process fake of the OpenBao transit API used by OpenBaoTransitSigner (mirrored from the SDK).
  */
-package com.pingidentity.ps.oidf.common;
+package com.pingidentity.ps.oidf.authority;
 
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
@@ -20,14 +20,10 @@ import org.jose4j.jws.EcdsaUsingShaAlgorithm;
 import org.jose4j.keys.EllipticCurves;
 
 /**
- * In-process fake of the OpenBao transit API surface {@link OpenBaoTransitSigner} uses:
- * {@code GET /v1/transit/keys/<name>} and {@code POST /v1/transit/sign/<name>} with
- * {@code marshaling_algorithm=jws}. Holds a real local P-256 key so produced signatures genuinely verify.
- *
- * <p>Duplicated from {@code libs/oidf-jose}'s own copy (which {@link OpenBaoTransitSigner} now lives
- * beside) rather than shared across modules via a test-jar dependency — this codebase's established
- * pattern for a small, self-contained test double more than one module needs, matching how
- * {@code TestJwts} is deliberately duplicated rather than centralised.
+ * In-process fake of the OpenBao transit API surface {@code OpenBaoTransitSigner} uses. Duplicated from
+ * {@code libs/oidf-jose}'s and {@code servlets/attestation-issuer}'s own copies rather than shared via a
+ * test-jar dependency — this codebase's established pattern for a small, self-contained test double
+ * more than one module needs.
  */
 final class FakeBaoServer implements Closeable {
 

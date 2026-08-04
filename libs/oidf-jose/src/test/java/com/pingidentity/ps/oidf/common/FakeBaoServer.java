@@ -23,11 +23,6 @@ import org.jose4j.keys.EllipticCurves;
  * In-process fake of the OpenBao transit API surface {@link OpenBaoTransitSigner} uses:
  * {@code GET /v1/transit/keys/<name>} and {@code POST /v1/transit/sign/<name>} with
  * {@code marshaling_algorithm=jws}. Holds a real local P-256 key so produced signatures genuinely verify.
- *
- * <p>Duplicated from {@code libs/oidf-jose}'s own copy (which {@link OpenBaoTransitSigner} now lives
- * beside) rather than shared across modules via a test-jar dependency — this codebase's established
- * pattern for a small, self-contained test double more than one module needs, matching how
- * {@code TestJwts} is deliberately duplicated rather than centralised.
  */
 final class FakeBaoServer implements Closeable {
 
