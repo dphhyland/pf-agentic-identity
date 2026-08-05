@@ -33,11 +33,12 @@ import org.jose4j.lang.JoseException;
  *
  * <p>A subordinate that is instead <em>hosted</em> by this same authority (see
  * {@code com.pingidentity.ps.oidf.authority} — an ephemeral entity with no HTTPS endpoint of its own to
- * fetch) is resolved by {@code hostedEntityJwksLookup} first, ahead of and bypassing
+ * fetch) is resolved by {@code hostedSubordinateLookup} first, ahead of and bypassing
  * {@link #subordinateConfigCache} entirely: a revoked hosted entity must stop resolving on the very next
- * call, not after a cache TTL. Deliberately a plain {@code subject -> jwks-or-null} function rather than
- * a direct dependency on the {@code authority} package's types, so this class and its existing tests
- * stay unaware of — and unaffected by — that package's own (static, process-wide) state.
+ * call, not after a cache TTL. The lookup returns a claims fragment — {@code "jwks"} and, when this
+ * authority declares one for the entity, {@code "metadata_policy"} — rather than a direct dependency on
+ * the {@code authority} package's types, so this class and its existing tests stay unaware of, and
+ * unaffected by, that package's own (static, process-wide) state.
  */
 final class FederationService {
     private static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
@@ -46,7 +47,7 @@ final class FederationService {
     private final FederationConfiguration configuration;
     private final SigningKeyProvider signingKeyProvider;
     private final HttpGetClient subordinateFetcher;
-    private final Function<String, Map<String, Object>> hostedEntityJwksLookup;
+    private final Function<String, Map<String, Object>> hostedSubordinateLookup;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -57,12 +58,17 @@ final class FederationService {
         this(configuration, signingKeyProvider, subordinateFetcher, null);
     }
 
+    /**
+     * @param hostedSubordinateLookup subject -> a {@code Map} with a {@code "jwks"} entry and, optionally,
+     *                                a {@code "metadata_policy"} entry, or {@code null} if the subject is
+     *                                not (or no longer) hosted by this authority
+     */
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
-                       HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedEntityJwksLookup) {
+                       HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedSubordinateLookup) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.signingKeyProvider = Objects.requireNonNull(signingKeyProvider, "signingKeyProvider");
         this.subordinateFetcher = subordinateFetcher;
-        this.hostedEntityJwksLookup = hostedEntityJwksLookup;
+        this.hostedSubordinateLookup = hostedSubordinateLookup;
     }
 
     Map<String, Object> federationWellKnownMetadata(String oidcIssuer) {
@@ -115,6 +121,24 @@ final class FederationService {
         String actualIssuer = requestedIssuer == null || requestedIssuer.isBlank() ? oidcIssuer : requestedIssuer;
         JwtClaims claims = baseClaims(actualIssuer, subject);
         if (!subject.equals(oidcIssuer)) {
+            // A subordinate hosted by this same authority (see com.pingidentity.ps.oidf.authority) is
+            // checked first, ahead of and bypassing subordinateConfigCache entirely: a revoked hosted
+            // entity must stop resolving on the very next call, not after a 300s cache TTL. Its claims
+            // may carry "jwks" and, when this authority declares one, "metadata_policy" — the only two
+            // claims a subordinate statement ever needs (metadata and authority_hints stay on the
+            // subordinate's own leaf statement).
+            if (this.hostedSubordinateLookup != null) {
+                Map<String, Object> hosted = this.hostedSubordinateLookup.apply(subject);
+                if (hosted != null) {
+                    claims.setClaim("jwks", hosted.get("jwks"));
+                    Object metadataPolicy = hosted.get("metadata_policy");
+                    if (metadataPolicy != null) {
+                        claims.setClaim("metadata_policy", metadataPolicy);
+                    }
+                    return this.signClaims(claims);
+                }
+                // null means "not a hosted entity" (or no longer resolvable) — fall through below.
+            }
             // Subordinate statement about a foreign entity: vouch for ITS keys, learned from its own
             // entity configuration. Metadata and authority_hints stay on the subordinate's leaf
             // statement — a subordinate statement only needs iss/sub/jwks for chain verification.
@@ -129,14 +153,6 @@ final class FederationService {
     }
 
     private Map<String, Object> fetchSubordinateJwks(String subject) {
-        if (this.hostedEntityJwksLookup != null) {
-            Map<String, Object> hosted = this.hostedEntityJwksLookup.apply(subject);
-            if (hosted != null) {
-                return hosted;
-            }
-            // null means "not a hosted entity" (or no longer resolvable) — fall through to the
-            // statically-configured-subordinate + fetch path below, unchanged.
-        }
         if (!this.configuration.subordinates().contains(subject)) {
             // The subject itself doesn't exist here — not_found (404), not a malformed request.
             throw new FederationEntityNotFoundException("Unknown subordinate: " + subject);

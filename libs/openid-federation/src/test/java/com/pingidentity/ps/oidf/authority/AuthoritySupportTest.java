@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
@@ -71,16 +72,16 @@ class AuthoritySupportTest {
         assertSame(before, AuthoritySupport.registry(), "the first-established registry must not be replaced");
     }
 
-    // ---- hostedEntityJwks — the two branches that never touch the (test-order-dependent) signer -----
+    // ---- hostedSubordinateClaims — the two branches that never touch the (test-order-dependent) signer -----
 
     @Test
-    void hostedEntityJwksReturnsNullForASubjectNeverRegistered() throws Exception {
-        assertNull(AuthoritySupport.hostedEntityJwks(
+    void hostedSubordinateClaimsReturnsNullForASubjectNeverRegistered() throws Exception {
+        assertNull(AuthoritySupport.hostedSubordinateClaims(
                 "https://never-registered-" + Instant.now().toEpochMilli() + ".example.com"));
     }
 
     @Test
-    void hostedEntityJwksReturnsNullForARevokedEntity() throws Exception {
+    void hostedSubordinateClaimsReturnsNullForARevokedEntity() throws Exception {
         // A registered-but-unresolvable entity must short-circuit to null before ever touching the
         // signer — this holds regardless of which signer an earlier test in this class installed.
         String entityId = "https://as.example.com/agents/revoked-" + Instant.now().toEpochMilli();
@@ -88,7 +89,97 @@ class AuthoritySupportTest {
                 entityId, "some-key-ref", Map.of("oauth_client", Map.of()), null));
         AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, "test");
 
-        assertNull(AuthoritySupport.hostedEntityJwks(entityId));
+        assertNull(AuthoritySupport.hostedSubordinateClaims(entityId));
+    }
+
+    // ---- composedMetadataPolicyFor — pure logic, no registry or signer needed ----------------------
+
+    @Test
+    void noDefaultAndNoEntityPolicyComposeToEmpty() {
+        HostedEntity entity = HostedEntity.hosted("https://as.example.com/agents/a1", "k1",
+                Map.of("oauth_client", Map.of()), null);
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        assertTrue(AuthoritySupport.composedMetadataPolicyFor(entity).isEmpty());
+    }
+
+    @Test
+    void domainDefaultAloneIsEmittedAsIs() {
+        Map<String, Object> domainDefault = Map.of("oauth_client",
+                Map.of("grant_types", Map.of("subset_of", List.of("client_credentials"))));
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(domainDefault);
+        try {
+            HostedEntity entity = HostedEntity.hosted("https://as.example.com/agents/a2", "k1",
+                    Map.of("oauth_client", Map.of()), null);
+            assertEquals(domainDefault, AuthoritySupport.composedMetadataPolicyFor(entity));
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
+    }
+
+    @Test
+    void entityPolicyNarrowsBelowTheDomainDefault() {
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client",
+                Map.of("grant_types", Map.of("subset_of", List.of("client_credentials", "authorization_code")))));
+        try {
+            HostedEntity entity = new HostedEntity("https://as.example.com/agents/a3",
+                    HostingMode.AUTHORITY_SIGNED, "k1", Map.of("oauth_client", Map.of()),
+                    Map.of("oauth_client", Map.of("grant_types", Map.of("subset_of", List.of("client_credentials")))),
+                    EntityStatus.ACTIVE, false, null, Instant.now(), null);
+
+            Map<String, Object> composed = AuthoritySupport.composedMetadataPolicyFor(entity);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> oauthClientOps = (Map<String, Object>) composed.get("oauth_client");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> subsetOf = (Map<String, Object>) oauthClientOps.get("grant_types");
+            assertEquals(List.of("client_credentials"), subsetOf.get("subset_of"),
+                    "the composed (narrower) subset must win, not the wider domain default");
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
+    }
+
+    @Test
+    void anEntityPolicyRequestingBeyondTheDomainDefaultIsAutomaticallyClampedToTheIntersection() {
+        // The domain default permits only client_credentials; the entity's own policy also names
+        // authorization_code. MetadataPolicy.composeWith intersects subset_of rather than rejecting a
+        // wider subordinate outright — the composed result is always constrained to what's common to
+        // both, so there is no way for a subordinate's own policy to escape the domain default.
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client",
+                Map.of("grant_types", Map.of("subset_of", List.of("client_credentials")))));
+        try {
+            HostedEntity entity = new HostedEntity("https://as.example.com/agents/a4",
+                    HostingMode.AUTHORITY_SIGNED, "k1", Map.of("oauth_client", Map.of()),
+                    Map.of("oauth_client", Map.of("grant_types",
+                            Map.of("subset_of", List.of("client_credentials", "authorization_code")))),
+                    EntityStatus.ACTIVE, false, null, Instant.now(), null);
+
+            Map<String, Object> composed = AuthoritySupport.composedMetadataPolicyFor(entity);
+            @SuppressWarnings("unchecked")
+            Map<String, Object> oauthClientOps = (Map<String, Object>) composed.get("oauth_client");
+            @SuppressWarnings("unchecked")
+            Map<String, Object> subsetOf = (Map<String, Object>) oauthClientOps.get("grant_types");
+            assertEquals(List.of("client_credentials"), subsetOf.get("subset_of"));
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
+    }
+
+    @Test
+    void completelyDisjointPoliciesFailClosedRatherThanResolvingToUnrestricted() {
+        // Nothing satisfies both the domain default and the entity's own policy — an empty intersection
+        // must refuse, not silently resolve to "no restriction" (which an empty array could be misread
+        // as), matching MetadataPolicy's own documented rule for exactly this case.
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client",
+                Map.of("grant_types", Map.of("subset_of", List.of("client_credentials")))));
+        try {
+            HostedEntity entity = new HostedEntity("https://as.example.com/agents/a5",
+                    HostingMode.AUTHORITY_SIGNED, "k1", Map.of("oauth_client", Map.of()),
+                    Map.of("oauth_client", Map.of("grant_types", Map.of("subset_of", List.of("implicit")))),
+                    EntityStatus.ACTIVE, false, null, Instant.now(), null);
+            assertThrows(IllegalStateException.class, () -> AuthoritySupport.composedMetadataPolicyFor(entity));
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
     }
 
     private static javax.sql.DataSource null_datasource() {

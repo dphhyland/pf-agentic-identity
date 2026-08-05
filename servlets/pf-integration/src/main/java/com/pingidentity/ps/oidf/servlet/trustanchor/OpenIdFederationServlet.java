@@ -42,7 +42,7 @@ extends HttpServlet {
                 // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
                 // if HostedEntityServlet is never configured, since AuthoritySupport.registry() then
                 // lazily defaults to an empty in-memory registry and every lookup simply returns null.
-                AuthoritySupport::hostedEntityJwks);
+                AuthoritySupport::hostedSubordinateClaims);
         }
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);

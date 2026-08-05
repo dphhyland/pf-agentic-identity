@@ -90,6 +90,7 @@ class FederationServiceSubordinateTest {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         String hostedId = "https://as.example.com/federation/agents/agent-1";
         Map<String, Object> hostedJwks = Map.of("keys", List.of(Map.of("kty", "EC", "kid", "hosted-key")));
+        Map<String, Object> claimsFragment = Map.of("jwks", hostedJwks);
 
         FederationConfiguration anchorConfig = new FederationConfiguration(
                 List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
@@ -97,12 +98,34 @@ class FederationServiceSubordinateTest {
                 (url, accept) -> {
                     throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
                 },
-                subject -> hostedId.equals(subject) ? hostedJwks : null);
+                subject -> hostedId.equals(subject) ? claimsFragment : null);
 
         Map<String, Object> claims = payload(anchor.createEntityStatement(hostedId, null, ANCHOR));
         assertEquals(ANCHOR, claims.get("iss"));
         assertEquals(hostedId, claims.get("sub"));
         assertEquals("hosted-key", firstKid(claims));
+        assertFalse(claims.containsKey("metadata_policy"), "no metadata_policy entry means no claim is emitted");
+    }
+
+    @Test
+    void hostedEntityLookupCanAlsoEmitAMetadataPolicyClaim() throws Exception {
+        SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
+        String hostedId = "https://as.example.com/federation/agents/agent-2";
+        Map<String, Object> hostedJwks = Map.of("keys", List.of(Map.of("kty", "EC", "kid", "hosted-key")));
+        Map<String, Object> policy = Map.of("oauth_client",
+                Map.of("grant_types", Map.of("subset_of", List.of("client_credentials"))));
+        Map<String, Object> claimsFragment = Map.of("jwks", hostedJwks, "metadata_policy", policy);
+
+        FederationConfiguration anchorConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+        FederationService anchor = new FederationService(anchorConfig, anchorKeys,
+                (url, accept) -> {
+                    throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
+                },
+                subject -> hostedId.equals(subject) ? claimsFragment : null);
+
+        Map<String, Object> claims = payload(anchor.createEntityStatement(hostedId, null, ANCHOR));
+        assertEquals(policy, claims.get("metadata_policy"));
     }
 
     @Test

@@ -4,11 +4,15 @@
 package com.pingidentity.ps.oidf.authority;
 
 import com.pingidentity.ps.oidf.common.JwsSigner;
+import com.pingidentity.ps.oidf.common.MetadataPolicy;
 import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Set;
 import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -37,6 +41,9 @@ public final class AuthoritySupport {
     private static volatile HostedEntitySigner signer;
     private static volatile String authorityEntityId;
     private static volatile HostedEntityConfigurationBuilder configurationBuilder;
+    /** One block per entity type, the same shape as {@link HostedEntity#metadataPolicy()}. Empty (no
+     *  domain-wide constraint) unless {@link #configureDomainDefaultMetadataPolicy} is called. */
+    private static volatile Map<String, Object> domainDefaultMetadataPolicy = Map.of();
 
     private AuthoritySupport() {
     }
@@ -104,6 +111,18 @@ public final class AuthoritySupport {
         return local;
     }
 
+    /**
+     * Sets the domain-wide default {@code metadata_policy} — one block per entity type, composed as the
+     * superior against every hosted entity's own {@link HostedEntity#metadataPolicy()} (the subordinate)
+     * each time a subordinate statement about it is issued. Unlike {@link #configureJdbcRegistry} and
+     * {@link #configureSigning}, this may be called more than once and the latest call always wins: it is
+     * plain policy data, not a stateful resource with connection or classloader identity, so there is no
+     * hazard in an operator updating it without a restart.
+     */
+    public static void configureDomainDefaultMetadataPolicy(Map<String, Object> policy) {
+        domainDefaultMetadataPolicy = policy == null ? Map.of() : Map.copyOf(policy);
+    }
+
     public static HostedEntitySigner hostedEntitySigner() {
         HostedEntitySigner local = signer;
         if (local == null) {
@@ -113,17 +132,21 @@ public final class AuthoritySupport {
     }
 
     /**
-     * The public {@code jwks} (wrapped as {@code {"keys": [...]}}, the shape a subordinate statement's
-     * own {@code jwks} claim uses) for a resolvable hosted entity, or {@code null} if {@code subject} is
-     * not — or is no longer — one. {@code null} rather than an exception on "not found" is deliberate:
-     * this is meant to be wired straight into {@code FederationService}'s subordinate-statement path as
-     * a lookup function it falls through past when a subject isn't hosted here at all, and a subject
-     * that plainly isn't a hosted entity is the overwhelmingly common case, not an error.
+     * The subordinate-statement claims fragment for a resolvable hosted entity — {@code "jwks"} (wrapped
+     * as {@code {"keys": [...]}}, the shape a subordinate statement's own {@code jwks} claim uses) and,
+     * when a domain default or a per-entity policy applies, {@code "metadata_policy"} — or {@code null}
+     * if {@code subject} is not, or is no longer, a hosted entity here. {@code null} rather than an
+     * exception on "not found" is deliberate: this is meant to be wired straight into
+     * {@code FederationService}'s subordinate-statement path as a lookup function it falls through past
+     * when a subject isn't hosted here at all, and a subject that plainly isn't a hosted entity is the
+     * overwhelmingly common case, not an error.
      *
-     * @throws IllegalStateException if the registry itself is unavailable, or signing fails — both are
-     *                                genuine faults, not "subject not hosted"
+     * @throws IllegalStateException if the registry itself is unavailable, signing fails, or the
+     *                                composed policy is internally inconsistent (e.g. the domain default
+     *                                and the entity's own policy disagree on a fixed value) — all genuine
+     *                                faults, not "subject not hosted"
      */
-    public static Map<String, Object> hostedEntityJwks(String subject) {
+    public static Map<String, Object> hostedSubordinateClaims(String subject) {
         Optional<HostedEntity> found;
         try {
             found = registry().find(subject);
@@ -133,12 +156,66 @@ public final class AuthoritySupport {
         if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
             return null;
         }
+        HostedEntity entity = found.get();
+
         JwsSigner jwsSigner;
         try {
-            jwsSigner = hostedEntitySigner().signerFor(found.get());
+            jwsSigner = hostedEntitySigner().signerFor(entity);
         } catch (RuntimeException e) {
             throw new IllegalStateException("could not resolve signer for hosted entity " + subject, e);
         }
-        return Map.of("keys", List.of(jwsSigner.publicJwk()));
+
+        LinkedHashMap<String, Object> claims = new LinkedHashMap<>();
+        claims.put("jwks", Map.of("keys", List.of(jwsSigner.publicJwk())));
+        Map<String, Object> policy = composedMetadataPolicyFor(entity);
+        if (!policy.isEmpty()) {
+            claims.put("metadata_policy", policy);
+        }
+        return claims;
+    }
+
+    /**
+     * Composes {@link #domainDefaultMetadataPolicy} (the superior) with {@code entity}'s own
+     * {@link HostedEntity#metadataPolicy()} (the subordinate) per entity type, via
+     * {@link MetadataPolicy#composeWith} — the same fail-closed, narrow-only composition Phase 0.2 wired
+     * into chain validation, reused here for emission instead of application.
+     */
+    /** Package-private (not private) specifically so this pure, signer-free composition logic is
+     *  directly testable without needing a registry or a working signer configured. */
+    static Map<String, Object> composedMetadataPolicyFor(HostedEntity entity) {
+        Set<String> types = new LinkedHashSet<>(domainDefaultMetadataPolicy.keySet());
+        types.addAll(entity.metadataPolicy().keySet());
+        if (types.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<String, Object> composed = new LinkedHashMap<>();
+        for (String type : types) {
+            try {
+                MetadataPolicy domainPolicy = MetadataPolicy.parse(asPolicyMap(domainDefaultMetadataPolicy.get(type)), null);
+                MetadataPolicy entityPolicy = MetadataPolicy.parse(asPolicyMap(entity.metadataPolicy().get(type)), null);
+                MetadataPolicy result = domainPolicy.composeWith(entityPolicy);
+                if (!result.isEmpty()) {
+                    composed.put(type, asRawMap(result));
+                }
+            } catch (MetadataPolicy.PolicyException e) {
+                throw new IllegalStateException("metadata_policy composition failed for hosted entity "
+                        + entity.entityId() + ", type '" + type + "': " + e.getMessage(), e);
+            }
+        }
+        return composed;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> asPolicyMap(Object raw) {
+        return raw instanceof Map ? (Map<String, Object>) raw : Map.of();
+    }
+
+    /** Reconstructs the raw {@code metadata_policy.<type>} shape from a composed {@link MetadataPolicy}. */
+    private static Map<String, Object> asRawMap(MetadataPolicy policy) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        for (String parameter : policy.parameters()) {
+            out.put(parameter, policy.operatorsFor(parameter));
+        }
+        return out;
     }
 }
