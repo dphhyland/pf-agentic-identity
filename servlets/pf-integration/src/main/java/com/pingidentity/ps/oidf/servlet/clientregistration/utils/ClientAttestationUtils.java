@@ -348,7 +348,7 @@ public final class ClientAttestationUtils {
      * Attestation so an issued JWT access token can name the attested workload — {@code spiffe_id},
      * {@code attested_by}, {@code client_id} (the attestation {@code sub}), {@code agent_id} (the
      * attester-minted per-instance identifier, Phase 2.6; empty string if the attestation carried none),
-     * or {@code trust_domain}.
+     * {@code iss} (the attester's own issuer), or {@code trust_domain}.
      *
      * <p>PingFederate fulfils the attribute contract <em>before</em> it evaluates issuance criteria, so the
      * verified context {@link #validateClientAttestation} publishes on the request is not yet available
@@ -380,11 +380,11 @@ public final class ClientAttestationUtils {
                 Object sub = claims.get("sub");
                 return sub == null ? "" : String.valueOf(sub);
             }
-            if ("agent_id".equals(claimName)) {
-                // Top-level, like sub — not nested under workload, so it needs its own case rather than
-                // falling through to the workload.<claimName> lookup below.
-                Object agentId = claims.get("agent_id");
-                return agentId == null ? "" : String.valueOf(agentId);
+            if ("agent_id".equals(claimName) || "iss".equals(claimName)) {
+                // Top-level, like sub — not nested under workload, so these need their own case rather
+                // than falling through to the workload.<claimName> lookup below.
+                Object value = claims.get(claimName);
+                return value == null ? "" : String.valueOf(value);
             }
             Object workloadRaw = claims.get("workload");
             if (!(workloadRaw instanceof Map)) {
@@ -400,7 +400,8 @@ public final class ClientAttestationUtils {
 
     /**
      * OGNL helper for token-exchange access-token mappings: builds the RFC 8693 delegation chain
-     * {@code {"sub": <exchanging client>, "act": <subject token's chain>}} as a JSON string claim.
+     * {@code {"sub": <acting party>, "iss": <attester issuer>, "act": <subject token's chain>}} as a
+     * JSON string claim.
      *
      * <p>Needed because PF's expression validator exposes ONLY context attributes
      * ({@code context.HttpRequest}, {@code context.ClientId}) to a mapping's OGNL — token-exchange
@@ -412,6 +413,15 @@ public final class ClientAttestationUtils {
      * produce a token for a subject token PF rejected. The {@code act} claim is emitted (and
      * consumed) as a JSON string; a string-encoded prior chain is re-parsed so it nests as an
      * object rather than double-escaped text.
+     *
+     * <p>Phase 2.8: the acting party's {@code sub} is the attester-minted {@code agent_id} when the
+     * exchanging client's presented attestation carries one — naming the specific instance, not just its
+     * registered client/agent type — falling back to {@code client_id} otherwise (the fallback lives
+     * here, in Java, rather than as an OGNL ternary at the Terraform call site, which stays a plain
+     * {@code delegationActChain(#this)} invocation unchanged by this addition). {@code iss} is the
+     * attester's own issuer, included because {@code agent_id}/{@code client_id} are only unique within
+     * their issuing authority — the full identity of the acting party is the pair. Both reads go through
+     * {@link #attestationClaim}, so they share its exact same "unverified but safe" reasoning.
      */
     @SuppressWarnings("unchecked")
     public static String delegationActChain(Object inObj) {
@@ -427,7 +437,12 @@ public final class ClientAttestationUtils {
                 return "";
             }
             java.util.LinkedHashMap<String, Object> chain = new java.util.LinkedHashMap<>();
-            chain.put("sub", clientId);
+            String agentId = ClientAttestationUtils.attestationClaim(map, "agent_id");
+            chain.put("sub", ClientAttestationUtils.actingPartySub(agentId, clientId));
+            String attesterIssuer = ClientAttestationUtils.attestationClaim(map, "iss");
+            if (attesterIssuer != null && !attesterIssuer.isBlank()) {
+                chain.put("iss", attesterIssuer);
+            }
             HttpServletRequest request =
                     (HttpServletRequest) ((AttributeValue) map.get("context.HttpRequest")).getObjectValue();
             String subjectToken = request.getParameter("subject_token");
@@ -448,6 +463,17 @@ public final class ClientAttestationUtils {
             LOGGER.info((Object) "could not build delegation act chain for token mapping", e);
             return "";
         }
+    }
+
+    /**
+     * The RFC 8693 acting party's {@code sub} (Phase 2.8): the attester-minted {@code agent_id} when
+     * present and non-blank, naming the specific instance rather than just its registered client/agent
+     * type; {@code clientId} otherwise. Extracted as a pure function (no OGNL/servlet types) specifically
+     * so this fallback decision is directly unit-testable without mocking PF's request/attribute types —
+     * {@link #delegationActChain} itself has no other test coverage precedent in this class.
+     */
+    static String actingPartySub(String agentId, String clientId) {
+        return agentId != null && !agentId.isBlank() ? agentId : clientId;
     }
 
     private static String singleHeader(HttpServletRequest request, String name) {
