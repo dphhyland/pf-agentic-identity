@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
+import com.pingidentity.ps.oidf.agent.AgentRegistrySupport;
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
@@ -81,7 +82,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         applyCors(resp);
         resp.setContentType("application/json");
-        Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired);
+        Map<String, Object> doc = metadata(baseUrl(req), this.challengeRequired, AgentRegistrySupport.isConfigured());
 
         // The /.well-known document is a static, cacheable, deployment-wide resource — it takes no
         // parameters (per RFC 8615, a well-known URI is a fixed resource). It advertises the deployment
@@ -138,7 +139,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
     }
 
     /** The deployment-wide document: endpoints, evidence formats, and proof requirements. */
-    static Map<String, Object> metadata(String baseUrl, boolean challengeRequired) {
+    static Map<String, Object> metadata(String baseUrl, boolean challengeRequired, boolean agentIdSupported) {
         List<String> algorithms = sortedAlgorithms(ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
@@ -160,6 +161,10 @@ public class AttesterConfigurationServlet extends HttpServlet {
         m.put("instance_proof_max_age_seconds", ClientAttestationConfig.DEFAULT_POP_MAX_AGE_SECONDS);
         m.put("attestation_typ", AttestationMinter.TYP);
         m.put("attestation_signing_alg_values_supported", algorithms);
+        // Phase 2.4: whether this deployment has an AgentRegistry configured — optional, since a registry
+        // is not yet standard, and a workload should not expect an agent_id claim on an attestation
+        // minted by a deployment where this is false.
+        m.put("agent_id_supported", agentIdSupported);
         return m;
     }
 

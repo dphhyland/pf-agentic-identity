@@ -46,7 +46,7 @@ class AttesterConfigurationServletTest {
 
     @Test
     void globalDocumentAdvertisesEndpointsAndProofRequirements() {
-        Map<String, Object> m = AttesterConfigurationServlet.metadata("https://pf.example.com", true);
+        Map<String, Object> m = AttesterConfigurationServlet.metadata("https://pf.example.com", true, false);
 
         assertEquals("https://pf.example.com/federation/attestation", m.get("attestation_endpoint"));
         assertEquals("https://pf.example.com/federation/attestation-challenge", m.get("challenge_endpoint"));
@@ -73,6 +73,14 @@ class AttesterConfigurationServletTest {
         // No client-specific fields without ?client_id.
         assertNull(m.get("issuer"));
         assertNull(m.get("evidence_audience"));
+    }
+
+    @Test
+    void agentIdSupportedReflectsTheGivenFlagInEitherDirection() {
+        assertEquals(Boolean.FALSE,
+                AttesterConfigurationServlet.metadata("https://pf.example.com", true, false).get("agent_id_supported"));
+        assertEquals(Boolean.TRUE,
+                AttesterConfigurationServlet.metadata("https://pf.example.com", true, true).get("agent_id_supported"));
     }
 
     @Test
