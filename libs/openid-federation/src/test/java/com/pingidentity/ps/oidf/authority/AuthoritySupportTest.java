@@ -92,6 +92,30 @@ class AuthoritySupportTest {
         assertNull(AuthoritySupport.hostedSubordinateClaims(entityId));
     }
 
+    // ---- hostedEntityIds — delegates entirely to the registry's own listable/resolvable/type filter ----
+
+    @Test
+    void hostedEntityIdsOmitsANonListableEntity() throws Exception {
+        String entityId = "https://as.example.com/agents/not-listable-" + Instant.now().toEpochMilli();
+        AuthoritySupport.registry().register(HostedEntity.hosted(
+                entityId, "some-key-ref", Map.of("oauth_client", Map.of()), null));
+
+        assertTrue(!AuthoritySupport.hostedEntityIds(null).contains(entityId),
+                "HostedEntity.hosted(...) defaults to listable=false");
+    }
+
+    @Test
+    void hostedEntityIdsIncludesAListableEntityAndRespectsTheTypeFilter() throws Exception {
+        String entityId = "https://as.example.com/agents/listable-" + Instant.now().toEpochMilli();
+        AuthoritySupport.registry().register(new HostedEntity(entityId, HostingMode.AUTHORITY_SIGNED,
+                "some-key-ref", Map.of("oauth_client", Map.of()), Map.of(), EntityStatus.ACTIVE,
+                true, null, Instant.now(), null));
+
+        assertTrue(AuthoritySupport.hostedEntityIds(null).contains(entityId));
+        assertTrue(AuthoritySupport.hostedEntityIds("oauth_client").contains(entityId));
+        assertTrue(!AuthoritySupport.hostedEntityIds("oauth_resource").contains(entityId));
+    }
+
     // ---- composedMetadataPolicyFor — pure logic, no registry or signer needed ----------------------
 
     @Test

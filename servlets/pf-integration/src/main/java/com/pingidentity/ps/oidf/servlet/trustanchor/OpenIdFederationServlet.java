@@ -42,7 +42,10 @@ extends HttpServlet {
                 // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
                 // if HostedEntityServlet is never configured, since AuthoritySupport.registry() then
                 // lazily defaults to an empty in-memory registry and every lookup simply returns null.
-                AuthoritySupport::hostedSubordinateClaims);
+                AuthoritySupport::hostedSubordinateClaims,
+                // Likewise for /federation/list — AuthoritySupport.hostedEntityIds already applies the
+                // listable/resolvable/type filtering, so this is unconditionally safe to wire in.
+                AuthoritySupport::hostedEntityIds);
         }
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);

@@ -5,6 +5,7 @@ import com.pingidentity.ps.oidf.common.JwtCodec;
 import com.pingidentity.ps.oidf.common.SigningKeyProvider;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -48,6 +49,7 @@ final class FederationService {
     private final SigningKeyProvider signingKeyProvider;
     private final HttpGetClient subordinateFetcher;
     private final Function<String, Map<String, Object>> hostedSubordinateLookup;
+    private final Function<String, List<String>> hostedSubordinateIds;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -65,10 +67,23 @@ final class FederationService {
      */
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
                        HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedSubordinateLookup) {
+        this(configuration, signingKeyProvider, subordinateFetcher, hostedSubordinateLookup, null);
+    }
+
+    /**
+     * @param hostedSubordinateIds entity_type (possibly {@code null}) -> the hosted entity ids
+     *                             {@code /federation/list} should include for that filter — already
+     *                             restricted by the caller to listable, resolvable entities; see
+     *                             {@code AuthoritySupport.hostedEntityIds}
+     */
+    FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
+                       HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedSubordinateLookup,
+                       Function<String, List<String>> hostedSubordinateIds) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.signingKeyProvider = Objects.requireNonNull(signingKeyProvider, "signingKeyProvider");
         this.subordinateFetcher = subordinateFetcher;
         this.hostedSubordinateLookup = hostedSubordinateLookup;
+        this.hostedSubordinateIds = hostedSubordinateIds;
     }
 
     Map<String, Object> federationWellKnownMetadata(String oidcIssuer) {
@@ -211,7 +226,16 @@ final class FederationService {
     }
 
     List<String> listSubordinates(String entityType) {
-        return this.configuration.subordinates();
+        List<String> subordinates = new ArrayList<String>();
+        if (entityType == null || entityType.isBlank()) {
+            // The statically configured subordinates carry no verified type — including them under a
+            // typed filter would be a guess, not a fact, so they only ever appear on the untyped list.
+            subordinates.addAll(this.configuration.subordinates());
+        }
+        if (this.hostedSubordinateIds != null) {
+            subordinates.addAll(this.hostedSubordinateIds.apply(entityType));
+        }
+        return List.copyOf(subordinates);
     }
 
     Map<String, Object> resolveTrustChain(String subject, String trustAnchorIssuer, String oidcIssuer) throws JoseException {

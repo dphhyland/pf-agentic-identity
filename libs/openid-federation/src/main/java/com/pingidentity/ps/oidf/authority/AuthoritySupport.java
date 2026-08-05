@@ -132,6 +132,24 @@ public final class AuthoritySupport {
     }
 
     /**
+     * Entity ids of hosted entities visible via {@code /federation/list} — {@link HostedEntityRegistry#list}
+     * already restricts this to entities that are active, resolvable now, and marked
+     * {@link HostedEntity#listable()}, optionally narrowed to one metadata type. Agents default to
+     * {@code listable=false} at registration (see {@link HostedEntity#hosted}): listing an agent publishes
+     * an inventory of pseudonymous identifiers keyed by exactly the value whose whole purpose is being
+     * uncorrelatable without the registry, so nothing here overrides that default.
+     *
+     * @throws IllegalStateException if the registry itself is unavailable
+     */
+    public static List<String> hostedEntityIds(String entityType) {
+        try {
+            return registry().list(entityType).stream().map(HostedEntity::entityId).toList();
+        } catch (AuthorityRegistryException e) {
+            throw new IllegalStateException("hosted-entity listing failed for entity_type=" + entityType, e);
+        }
+    }
+
+    /**
      * The subordinate-statement claims fragment for a resolvable hosted entity — {@code "jwks"} (wrapped
      * as {@code {"keys": [...]}}, the shape a subordinate statement's own {@code jwks} claim uses) and,
      * when a domain default or a per-entity policy applies, {@code "metadata_policy"} — or {@code null}
