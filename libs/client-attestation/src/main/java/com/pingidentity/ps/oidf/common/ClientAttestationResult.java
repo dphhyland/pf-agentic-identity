@@ -27,6 +27,7 @@ public final class ClientAttestationResult {
     private final List<Map<String, Object>> entitledAuthorizationDetails;
     private final List<Map<String, Object>> grantedAuthorizationDetails;
     private final Map<String, Object> workload;
+    private final String agentId;
 
     public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti) {
         this(clientId, cnfJwk, mode, attesterIssuer, proofJti, java.util.List.of(), java.util.List.of(), java.util.Map.of());
@@ -43,6 +44,19 @@ public final class ClientAttestationResult {
                                    List<Map<String, Object>> entitledAuthorizationDetails,
                                    List<Map<String, Object>> grantedAuthorizationDetails,
                                    Map<String, Object> workload) {
+        this(clientId, cnfJwk, mode, attesterIssuer, proofJti, entitledAuthorizationDetails,
+                grantedAuthorizationDetails, workload, null);
+    }
+
+    /**
+     * @param agentId the attester-minted {@code agent_id} (Phase 2.6), or {@code null} if the
+     *                attestation carried none — see {@link ClientAttestation}'s own javadoc: never a
+     *                substitute for {@code clientId} anywhere this is consumed
+     */
+    public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti,
+                                   List<Map<String, Object>> entitledAuthorizationDetails,
+                                   List<Map<String, Object>> grantedAuthorizationDetails,
+                                   Map<String, Object> workload, String agentId) {
         this.clientId = clientId;
         this.cnfJwk = cnfJwk;
         this.mode = mode;
@@ -51,6 +65,7 @@ public final class ClientAttestationResult {
         this.entitledAuthorizationDetails = entitledAuthorizationDetails;
         this.grantedAuthorizationDetails = grantedAuthorizationDetails;
         this.workload = workload == null ? java.util.Map.of() : workload;
+        this.agentId = agentId;
     }
 
     public String clientId() {
@@ -90,5 +105,10 @@ public final class ClientAttestationResult {
      */
     public Map<String, Object> workload() {
         return this.workload;
+    }
+
+    /** The attester-minted {@code agent_id}, or {@code null} if the attestation carried none. */
+    public String agentId() {
+        return this.agentId;
     }
 }

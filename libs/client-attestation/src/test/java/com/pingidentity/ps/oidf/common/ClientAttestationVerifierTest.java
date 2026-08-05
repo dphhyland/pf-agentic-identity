@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.common;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
@@ -44,12 +45,19 @@ class ClientAttestationVerifierTest {
     }
 
     private String attestation(Map<String, Object> cnfJwk, long expSecondsFromNow) throws Exception {
+        return attestation(cnfJwk, expSecondsFromNow, null);
+    }
+
+    private String attestation(Map<String, Object> cnfJwk, long expSecondsFromNow, String agentId) throws Exception {
         JwtClaims att = new JwtClaims();
         att.setIssuer(ATTESTER);
         att.setSubject(CLIENT_ID);
         att.setIssuedAtToNow();
         att.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + expSecondsFromNow));
         att.setClaim("cnf", Map.of("jwk", cnfJwk));
+        if (agentId != null) {
+            att.setClaim("agent_id", agentId);
+        }
         return TestJwts.sign(attesterKey, "ES256", "oauth-client-attestation+jwt", att);
     }
 
@@ -176,5 +184,60 @@ class ClientAttestationVerifierTest {
         ClientAttestationException ex = assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", "never-issued"), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
         assertEquals(ClientAttestationException.USE_ATTESTATION_CHALLENGE, ex.error());
+    }
+
+    // ---- agent_id (Phase 2.6) ------------------------------------------------------------------------
+
+    @Test
+    void agentIdIsAbsentWhenTheAttestationCarriesNone() throws Exception {
+        ClientAttestationResult result = verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertNull(result.agentId());
+    }
+
+    @Test
+    void agentIdIsCarriedThroughToTheResultWhenPresent() throws Exception {
+        String att = attestation(TestJwts.publicParams(instanceKey), 600L, "agent-id-1");
+        ClientAttestationResult result = verifier.verify(att, pop(OP_ISSUER, "p1", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals("agent-id-1", result.agentId());
+    }
+
+    @Test
+    void agentIdIsCarriedThroughInDpopModeToo() throws Exception {
+        String att = attestation(TestJwts.publicParams(instanceKey), 600L, "agent-id-2");
+        ClientAttestationResult result = verifier.verify(att, null, dpop(instanceKey, "d1", null), "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals("agent-id-2", result.agentId());
+    }
+
+    /**
+     * Pin (Phase 2.6): a present agent_id — even one that is neither the client_id nor anything else in
+     * play — has no effect on the sub == client_id / PoP-iss == sub checks. Verification succeeds exactly
+     * as it would with no agent_id at all.
+     */
+    @Test
+    void anUnrelatedAgentIdDoesNotAffectNormalVerification() throws Exception {
+        String att = attestation(TestJwts.publicParams(instanceKey), 600L, "completely-unrelated-value");
+        ClientAttestationResult result = verifier.verify(att, pop(OP_ISSUER, "p1", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals(CLIENT_ID, result.clientId());
+    }
+
+    /**
+     * Pin (Phase 2.6): a PoP whose 'iss' is set to the agent_id — not the client_id — must still be
+     * rejected. Proves the "PoP 'iss' does not match the attestation 'sub'" check is genuinely keyed off
+     * clientId/sub and is not accidentally satisfiable via agent_id.
+     */
+    @Test
+    void popIssuerSetToTheAgentIdRatherThanTheClientIdIsStillRejected() throws Exception {
+        String agentId = "agent-id-3";
+        String att = attestation(TestJwts.publicParams(instanceKey), 600L, agentId);
+        JwtClaims pop = new JwtClaims();
+        pop.setIssuer(agentId); // deliberately the agent_id, not CLIENT_ID
+        pop.setAudience(OP_ISSUER);
+        pop.setJwtId("p1");
+        pop.setIssuedAtToNow();
+        String popJwt = TestJwts.sign(instanceKey, "ES256", "oauth-client-attestation-pop+jwt", pop);
+
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(att, popJwt, null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INVALID_CLIENT, ex.error());
     }
 }

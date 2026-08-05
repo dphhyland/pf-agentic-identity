@@ -142,6 +142,12 @@ public final class ClientAttestationUtils {
         Map<String, Object> ctx = new java.util.LinkedHashMap<>();
         ctx.put("sub", result.clientId());
         ctx.put("client_id", result.clientId());
+        // The running instance's identity (Phase 2.6), kept as its own key rather than folded into "sub"
+        // or "client_id" — those two name the registered client/agent TYPE and must stay unaffected by
+        // whether an agent_id happens to be present at all.
+        if (result.agentId() != null && !result.agentId().isBlank()) {
+            ctx.put("agent_id", result.agentId());
+        }
         ctx.put("entitlement", result.entitledAuthorizationDetails());
         // The workload behind the client — SPIFFE ID, attestor and any introspected selectors. Surfaced
         // flat as well so an access-token attribute mapping (OGNL) can name the workload in the token.
@@ -340,7 +346,9 @@ public final class ClientAttestationUtils {
     /**
      * OGNL helper for access-token attribute mapping: reads one claim out of the presented Client
      * Attestation so an issued JWT access token can name the attested workload — {@code spiffe_id},
-     * {@code attested_by}, {@code client_id} (the attestation {@code sub}), or {@code trust_domain}.
+     * {@code attested_by}, {@code client_id} (the attestation {@code sub}), {@code agent_id} (the
+     * attester-minted per-instance identifier, Phase 2.6; empty string if the attestation carried none),
+     * or {@code trust_domain}.
      *
      * <p>PingFederate fulfils the attribute contract <em>before</em> it evaluates issuance criteria, so the
      * verified context {@link #validateClientAttestation} publishes on the request is not yet available
@@ -371,6 +379,12 @@ public final class ClientAttestationUtils {
             if ("client_id".equals(claimName)) {
                 Object sub = claims.get("sub");
                 return sub == null ? "" : String.valueOf(sub);
+            }
+            if ("agent_id".equals(claimName)) {
+                // Top-level, like sub — not nested under workload, so it needs its own case rather than
+                // falling through to the workload.<claimName> lookup below.
+                Object agentId = claims.get("agent_id");
+                return agentId == null ? "" : String.valueOf(agentId);
             }
             Object workloadRaw = claims.get("workload");
             if (!(workloadRaw instanceof Map)) {
