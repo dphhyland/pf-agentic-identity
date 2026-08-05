@@ -8,6 +8,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -49,5 +50,24 @@ class AttestationSubjectTest {
         AttestationSubject s = AttestationSubject.fromAttribute(attr);
         assertEquals(1, s.getEntitlement().size());
         assertEquals("payment_initiation", s.getEntitlement().get(0).get("type"));
+    }
+
+    @Test
+    void parsesAgentIdWhenPresent() {
+        // Mirror of ClientAttestationUtils.attestationContext(result) with an agent_id minted (Phase 2.6).
+        Map<String, Object> attr = new LinkedHashMap<>();
+        attr.put("sub", "https://rp.example.com");
+        attr.put("client_id", "https://rp.example.com");
+        attr.put("agent_id", "agent-id-1");
+
+        AttestationSubject s = AttestationSubject.fromAttribute(attr);
+        assertEquals("agent-id-1", s.getAgentId());
+    }
+
+    @Test
+    void agentIdIsNullWhenNotPublished() {
+        Map<String, Object> attr = Map.of("sub", "https://rp.example.com", "client_id", "https://rp.example.com");
+        AttestationSubject s = AttestationSubject.fromAttribute(attr);
+        assertNull(s.getAgentId());
     }
 }

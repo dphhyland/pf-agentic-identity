@@ -10,8 +10,13 @@ import java.util.Map;
 
 /**
  * The attester-vouched context the decision should be bounded by: the authenticated {@code subject}
- * (attestation {@code sub}), the {@code client_id}, the attested entitlement ceiling (RFC 9396
- * {@code authorization_details}), the {@code workload} attributes, and the {@code cnf} thumbprint.
+ * (attestation {@code sub} — the registered client/agent TYPE, never a per-instance identity), the
+ * {@code client_id}, the attested entitlement ceiling (RFC 9396 {@code authorization_details}), the
+ * {@code workload} attributes, the {@code cnf} thumbprint, and (Phase 2.9) {@code agent_id} — the
+ * attester-minted identifier of the specific running instance, when one was minted. {@code subject} and
+ * {@code clientId} are, today, always the same value (see {@code ClientAttestationUtils.attestationContext});
+ * {@code agentId} is the only field that ever names an actual agent, which is exactly the labelling bug
+ * this phase fixes in {@link AuthZenRequestBuilder}.
  *
  * <p>The client-attestation issuance hook publishes this as a {@code Map} request attribute under
  * {@link #REQUEST_ATTRIBUTE}; this processor reads it back via {@code AuthorizationDetailContext.getRequest()}.
@@ -27,14 +32,21 @@ public final class AttestationSubject {
     private final List<Map<String, Object>> entitlement;
     private final Map<String, Object> workload;
     private final String cnfThumbprint;
+    private final String agentId;
 
     public AttestationSubject(String subject, String clientId, List<Map<String, Object>> entitlement,
                               Map<String, Object> workload, String cnfThumbprint) {
+        this(subject, clientId, entitlement, workload, cnfThumbprint, null);
+    }
+
+    public AttestationSubject(String subject, String clientId, List<Map<String, Object>> entitlement,
+                              Map<String, Object> workload, String cnfThumbprint, String agentId) {
         this.subject = subject;
         this.clientId = clientId;
         this.entitlement = entitlement == null ? List.of() : entitlement;
         this.workload = workload == null ? Map.of() : workload;
         this.cnfThumbprint = cnfThumbprint;
+        this.agentId = agentId;
     }
 
     public String getSubject() { return subject; }
@@ -43,18 +55,22 @@ public final class AttestationSubject {
     public Map<String, Object> getWorkload() { return workload; }
     public String getCnfThumbprint() { return cnfThumbprint; }
 
+    /** The attester-minted identifier of the specific running instance, or {@code null} if none was minted. */
+    public String getAgentId() { return agentId; }
+
     public boolean isPresent() {
         return subject != null || clientId != null || !entitlement.isEmpty();
     }
 
     public static AttestationSubject empty() {
-        return new AttestationSubject(null, null, List.of(), Map.of(), null);
+        return new AttestationSubject(null, null, List.of(), Map.of(), null, null);
     }
 
     /**
      * Parses whatever the hook stashed on the request. Accepts a {@code Map} with keys {@code sub}/{@code subject},
      * {@code client_id}, {@code entitlement}/{@code authorization_details}, {@code workload},
-     * {@code cnf_thumbprint}. Returns {@link #empty()} for anything else (including {@code null}).
+     * {@code cnf_thumbprint}, {@code agent_id}. Returns {@link #empty()} for anything else (including
+     * {@code null}).
      */
     @SuppressWarnings("unchecked")
     public static AttestationSubject fromAttribute(Object attr) {
@@ -73,7 +89,8 @@ public final class AttestationSubject {
         }
         Map<String, Object> workload = m.get("workload") instanceof Map ? (Map<String, Object>) m.get("workload") : Map.of();
         String cnf = str(m.get("cnf_thumbprint"));
-        return new AttestationSubject(sub, clientId, ent, workload, cnf);
+        String agentId = str(m.get("agent_id"));
+        return new AttestationSubject(sub, clientId, ent, workload, cnf, agentId);
     }
 
     @SuppressWarnings("unchecked")

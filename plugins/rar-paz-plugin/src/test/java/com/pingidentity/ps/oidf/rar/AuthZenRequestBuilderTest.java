@@ -23,11 +23,11 @@ class AuthZenRequestBuilderTest {
     }
 
     @Test
-    void resourceOwnerIsTheSubjectAndAttestationSubjectIsTheActor() {
-        // RFC 8693 delegation: the authenticated principal is the subject; the attested agent is the
-        // actor in context — never disguised as the subject.
-        AttestationSubject agent = new AttestationSubject("payments-agent", "https://rp.example.com",
-                List.of(), Map.of(), null);
+    void resourceOwnerIsTheSubjectAndAgentIdIsTheActor() {
+        // RFC 8693 delegation: the authenticated principal is the subject; the attester-minted agent_id
+        // is the actor in context — never disguised as the subject.
+        AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "payments-agent");
         Map<String, Object> req = builder.build("payment_initiation",
                 Map.of("type", "payment_initiation", "amount", "50.00"), agent, "alice", "northwind-webapp");
 
@@ -38,15 +38,32 @@ class AuthZenRequestBuilderTest {
     }
 
     @Test
-    void attestationSubjectIsTheSubjectWhenNoResourceOwner() {
-        AttestationSubject agent = new AttestationSubject("agent-123", "https://rp.example.com",
+    void clientIsTheSubjectWhenNoResourceOwner() {
+        // Pin (Phase 2.9): the attestation 'sub' (always == client_id) must never be labelled "agent" as
+        // the subject — that was the PDP actor-labelling bug. With no agent_id minted either, there is no
+        // actor at all: a bare client_credentials call, no delegation in play.
+        AttestationSubject noAgent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 List.of(), Map.of(), null);
+        Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
+                noAgent, null, "fallback-client");
+
+        assertEquals(Map.of("type", "client", "id", "https://rp.example.com"), node(req, "subject"));
+        assertFalse(node(req, "context").containsKey("actor"));
+    }
+
+    @Test
+    void agentIdStillSurfacesAsActorEvenWithoutAResourceOwner() {
+        // A machine-to-machine call with no human in the loop still names the specific instance acting,
+        // when the attester minted one — this is exactly what lets policy express "refuse when there is
+        // no actor" or a per-agent_id rate limit, neither expressible on client_id alone.
+        AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "agent-123");
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
                 agent, null, "fallback-client");
 
-        assertEquals(Map.of("type", "agent", "id", "agent-123"), node(req, "subject"));
-        // The subject IS the agent — no separate actor entry.
-        assertFalse(node(req, "context").containsKey("actor"));
+        assertEquals(Map.of("type", "client", "id", "https://rp.example.com"), node(req, "subject"));
+        Map<String, Object> context = node(req, "context");
+        assertEquals(Map.of("type", "agent", "id", "agent-123"), context.get("actor"));
     }
 
     @Test
@@ -80,8 +97,8 @@ class AuthZenRequestBuilderTest {
     void attestedEntitlementRidesInContext() {
         List<Map<String, Object>> entitlement = List.of(Map.of("type", "sales_agent",
                 "sales_regions", List.of("EMEA")));
-        AttestationSubject subject = new AttestationSubject("agent-123", "https://rp.example.com",
-                entitlement, Map.of("environment", "demo"), "thumb-xyz");
+        AttestationSubject subject = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                entitlement, Map.of("environment", "demo"), "thumb-xyz", "agent-123");
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
                 subject, "alice", null);
 

@@ -29,8 +29,10 @@ class GovernanceEngineRequestBuilderTest {
         detail.put("creditorName", "Acme");
         List<Map<String, Object>> entitlement =
                 List.of(Map.of("type", "payment_initiation", "actions", List.of("initiate", "status")));
-        AttestationSubject subject = new AttestationSubject("agent-123", "https://rp.example.com",
-                entitlement, Map.of("environment", "demo"), "thumb-xyz");
+        // agentId (not "subject") is the delegated agent, Phase 2.9 — the attestation 'sub' is never
+        // itself an actor/UserID candidate; it always equals client_id.
+        AttestationSubject subject = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                entitlement, Map.of("environment", "demo"), "thumb-xyz", "agent-123");
 
         DecisionRequest req = builder.build("payment_initiation", detail, subject, null, "fallback-client");
 
@@ -39,9 +41,11 @@ class GovernanceEngineRequestBuilderTest {
         assertEquals("authorize", req.getAction());
 
         Map<String, Object> attrs = req.getAttributes();
-        // No resource owner supplied -> the attestation subject is the UserID (and not duplicated as actor).
-        assertEquals("agent-123", attrs.get("UserID"));
-        assertFalse(attrs.containsKey("actor"));
+        // No resource owner supplied -> UserID falls back to the client, never to the agent_id — and the
+        // agent_id still surfaces as 'actor' even on a bare machine-to-machine call, since that is exactly
+        // what lets policy rate-limit or attribute a specific instance (Phase 2.9's own worked example).
+        assertEquals("https://rp.example.com", attrs.get("UserID"));
+        assertEquals("agent-123", attrs.get("actor"));
         assertEquals("https://rp.example.com", attrs.get("client_id"));
         assertEquals("[\"initiate\"]", attrs.get("idp.payment_initiation.actions"));
         assertEquals("Acme", attrs.get("idp.payment_initiation.creditorName"));
@@ -54,6 +58,19 @@ class GovernanceEngineRequestBuilderTest {
     }
 
     @Test
+    void withNoAgentIdTheAttestationSubjectNeverBecomesUserIdOrActor() {
+        // Pin (Phase 2.9): even though the attestation 'sub' field is set, it must never surface as
+        // UserID or actor — only agent_id (absent here) can.
+        AttestationSubject subject = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null);
+        DecisionRequest req = builder.build("sales_agent", Map.of("type", "sales_agent"),
+                subject, null, "fallback-client");
+        Map<String, Object> attrs = req.getAttributes();
+        assertEquals("https://rp.example.com", attrs.get("UserID"));
+        assertFalse(attrs.containsKey("actor"));
+    }
+
+    @Test
     void fallsBackToClientIdForSubjectWhenAttestationEmpty() {
         DecisionRequest req = builder.build("sales_agent", Map.of("type", "sales_agent"),
                 AttestationSubject.empty(), null, "fallback-client");
@@ -61,12 +78,12 @@ class GovernanceEngineRequestBuilderTest {
     }
 
     @Test
-    void resourceOwnerBecomesUserIdAndAttestationSubjectIsTheActor() {
+    void resourceOwnerBecomesUserIdAndAgentIdIsTheActor() {
         // The authenticated principal (e.g. the signed-in user consenting to a payment) is the UserID; the
-        // attestation subject (the delegated agent) is recorded as 'actor' — RFC 8693 delegation, not
+        // attester-minted agent_id (the delegated agent) is recorded as 'actor' — RFC 8693 delegation, not
         // impersonation. This is the fix for PF's AuthorizationDetailContext exposing no resource owner.
-        AttestationSubject agent = new AttestationSubject("payments-agent", "https://rp.example.com",
-                List.of(), Map.of(), null);
+        AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "payments-agent");
         DecisionRequest req = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
                 agent, "alice", "northwind-webapp");
         Map<String, Object> attrs = req.getAttributes();
