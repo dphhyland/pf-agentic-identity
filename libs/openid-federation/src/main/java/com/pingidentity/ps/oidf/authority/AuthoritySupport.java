@@ -3,7 +3,12 @@
  */
 package com.pingidentity.ps.oidf.authority;
 
+import com.pingidentity.ps.oidf.common.JwsSigner;
+import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -97,5 +102,43 @@ public final class AuthoritySupport {
             throw new IllegalStateException("AuthoritySupport.configureSigning(...) must be called before authorityEntityId()");
         }
         return local;
+    }
+
+    public static HostedEntitySigner hostedEntitySigner() {
+        HostedEntitySigner local = signer;
+        if (local == null) {
+            throw new IllegalStateException("AuthoritySupport.configureSigning(...) must be called before hostedEntitySigner()");
+        }
+        return local;
+    }
+
+    /**
+     * The public {@code jwks} (wrapped as {@code {"keys": [...]}}, the shape a subordinate statement's
+     * own {@code jwks} claim uses) for a resolvable hosted entity, or {@code null} if {@code subject} is
+     * not — or is no longer — one. {@code null} rather than an exception on "not found" is deliberate:
+     * this is meant to be wired straight into {@code FederationService}'s subordinate-statement path as
+     * a lookup function it falls through past when a subject isn't hosted here at all, and a subject
+     * that plainly isn't a hosted entity is the overwhelmingly common case, not an error.
+     *
+     * @throws IllegalStateException if the registry itself is unavailable, or signing fails — both are
+     *                                genuine faults, not "subject not hosted"
+     */
+    public static Map<String, Object> hostedEntityJwks(String subject) {
+        Optional<HostedEntity> found;
+        try {
+            found = registry().find(subject);
+        } catch (AuthorityRegistryException e) {
+            throw new IllegalStateException("hosted-entity lookup failed for " + subject, e);
+        }
+        if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
+            return null;
+        }
+        JwsSigner jwsSigner;
+        try {
+            jwsSigner = hostedEntitySigner().signerFor(found.get());
+        } catch (RuntimeException e) {
+            throw new IllegalStateException("could not resolve signer for hosted entity " + subject, e);
+        }
+        return Map.of("keys", List.of(jwsSigner.publicJwk()));
     }
 }

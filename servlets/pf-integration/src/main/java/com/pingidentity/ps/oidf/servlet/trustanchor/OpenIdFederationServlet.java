@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.common.PfJwksSigningKeyProvider;
 import java.io.IOException;
@@ -36,7 +37,12 @@ extends HttpServlet {
             this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
             this.federationService = new FederationService(this.federationConfiguration,
                 new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()),
-                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()));
+                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()),
+                // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
+                // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
+                // if HostedEntityServlet is never configured, since AuthoritySupport.registry() then
+                // lazily defaults to an empty in-memory registry and every lookup simply returns null.
+                AuthoritySupport::hostedEntityJwks);
         }
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);

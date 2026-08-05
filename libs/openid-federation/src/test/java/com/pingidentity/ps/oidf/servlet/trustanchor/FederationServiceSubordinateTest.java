@@ -83,6 +83,61 @@ class FederationServiceSubordinateTest {
         assertTrue(e.getMessage().contains("https://stranger.example.com"), e.getMessage());
     }
 
+    // ---- hosted-entity lookup (Phase 1.4) ----------------------------------------------------------
+
+    @Test
+    void hostedEntityLookupTakesPriorityOverTheFetchPath() throws Exception {
+        SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
+        String hostedId = "https://as.example.com/federation/agents/agent-1";
+        Map<String, Object> hostedJwks = Map.of("keys", List.of(Map.of("kty", "EC", "kid", "hosted-key")));
+
+        FederationConfiguration anchorConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+        FederationService anchor = new FederationService(anchorConfig, anchorKeys,
+                (url, accept) -> {
+                    throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
+                },
+                subject -> hostedId.equals(subject) ? hostedJwks : null);
+
+        Map<String, Object> claims = payload(anchor.createEntityStatement(hostedId, null, ANCHOR));
+        assertEquals(ANCHOR, claims.get("iss"));
+        assertEquals(hostedId, claims.get("sub"));
+        assertEquals("hosted-key", firstKid(claims));
+    }
+
+    @Test
+    void aSubjectTheLookupDoesNotRecognizeFallsThroughToTheFetchPath() throws Exception {
+        SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
+        SigningKeyProvider leafKeys = testSigningKeys("leaf-key");
+        FederationConfiguration leafConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(), null, false, false, null, null, null, 0, "RS256", null);
+        String leafSelfConfig = new FederationService(leafConfig, leafKeys).createEntityConfigurationJwt(SUBORDINATE);
+
+        HttpGetClient fetcher = (url, accept) -> leafSelfConfig;
+        FederationConfiguration anchorConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(ANCHOR, SUBORDINATE), null, false, false, null, null, null, 0, "RS256", null);
+        // The lookup answers for every subject but this one — proving "not hosted" (null) falls through
+        // rather than short-circuiting the whole subordinate-statement path.
+        FederationService anchor = new FederationService(anchorConfig, anchorKeys, fetcher, subject -> null);
+
+        Map<String, Object> claims = payload(anchor.createEntityStatement(SUBORDINATE, null, ANCHOR));
+        assertEquals("leaf-key", firstKid(claims));
+    }
+
+    @Test
+    void noLookupConfiguredBehavesExactlyAsBeforeThisChange() throws Exception {
+        // The three-arg constructor (no hosted-entity lookup) must be unaffected — existing callers that
+        // never learned about hosted entities keep working unchanged.
+        SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
+        FederationConfiguration anchorConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+        FederationService anchor = new FederationService(anchorConfig, anchorKeys, (url, accept) -> {
+            throw new AssertionError("must not fetch for an unknown subject");
+        });
+        assertThrows(FederationEntityNotFoundException.class,
+                () -> anchor.createEntityStatement("https://stranger.example.com", null, ANCHOR));
+    }
+
     @Test
     void configuredAttesterJwksIsPublishedInEntityConfiguration() throws Exception {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");

@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
@@ -29,6 +30,14 @@ import org.jose4j.lang.JoseException;
  * {@code <subject>/.well-known/openid-federation} (cached briefly). This is what makes the anchor's
  * vouching meaningful: a validator verifies the subordinate's self-statement against the keys the
  * anchor asserts, so those keys must be the subordinate's, not the anchor's.
+ *
+ * <p>A subordinate that is instead <em>hosted</em> by this same authority (see
+ * {@code com.pingidentity.ps.oidf.authority} — an ephemeral entity with no HTTPS endpoint of its own to
+ * fetch) is resolved by {@code hostedEntityJwksLookup} first, ahead of and bypassing
+ * {@link #subordinateConfigCache} entirely: a revoked hosted entity must stop resolving on the very next
+ * call, not after a cache TTL. Deliberately a plain {@code subject -> jwks-or-null} function rather than
+ * a direct dependency on the {@code authority} package's types, so this class and its existing tests
+ * stay unaware of — and unaffected by — that package's own (static, process-wide) state.
  */
 final class FederationService {
     private static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
@@ -37,6 +46,7 @@ final class FederationService {
     private final FederationConfiguration configuration;
     private final SigningKeyProvider signingKeyProvider;
     private final HttpGetClient subordinateFetcher;
+    private final Function<String, Map<String, Object>> hostedEntityJwksLookup;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -44,9 +54,15 @@ final class FederationService {
     }
 
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider, HttpGetClient subordinateFetcher) {
+        this(configuration, signingKeyProvider, subordinateFetcher, null);
+    }
+
+    FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
+                       HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedEntityJwksLookup) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.signingKeyProvider = Objects.requireNonNull(signingKeyProvider, "signingKeyProvider");
         this.subordinateFetcher = subordinateFetcher;
+        this.hostedEntityJwksLookup = hostedEntityJwksLookup;
     }
 
     Map<String, Object> federationWellKnownMetadata(String oidcIssuer) {
@@ -113,6 +129,14 @@ final class FederationService {
     }
 
     private Map<String, Object> fetchSubordinateJwks(String subject) {
+        if (this.hostedEntityJwksLookup != null) {
+            Map<String, Object> hosted = this.hostedEntityJwksLookup.apply(subject);
+            if (hosted != null) {
+                return hosted;
+            }
+            // null means "not a hosted entity" (or no longer resolvable) — fall through to the
+            // statically-configured-subordinate + fetch path below, unchanged.
+        }
         if (!this.configuration.subordinates().contains(subject)) {
             // The subject itself doesn't exist here — not_found (404), not a malformed request.
             throw new FederationEntityNotFoundException("Unknown subordinate: " + subject);

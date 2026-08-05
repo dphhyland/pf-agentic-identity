@@ -1,10 +1,13 @@
 package com.pingidentity.ps.oidf.authority;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Instant;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -66,6 +69,26 @@ class AuthoritySupportTest {
         HostedEntityRegistry before = AuthoritySupport.registry();
         AuthoritySupport.configureJdbcRegistry(null_datasource());
         assertSame(before, AuthoritySupport.registry(), "the first-established registry must not be replaced");
+    }
+
+    // ---- hostedEntityJwks — the two branches that never touch the (test-order-dependent) signer -----
+
+    @Test
+    void hostedEntityJwksReturnsNullForASubjectNeverRegistered() throws Exception {
+        assertNull(AuthoritySupport.hostedEntityJwks(
+                "https://never-registered-" + Instant.now().toEpochMilli() + ".example.com"));
+    }
+
+    @Test
+    void hostedEntityJwksReturnsNullForARevokedEntity() throws Exception {
+        // A registered-but-unresolvable entity must short-circuit to null before ever touching the
+        // signer — this holds regardless of which signer an earlier test in this class installed.
+        String entityId = "https://as.example.com/agents/revoked-" + Instant.now().toEpochMilli();
+        AuthoritySupport.registry().register(HostedEntity.hosted(
+                entityId, "some-key-ref", Map.of("oauth_client", Map.of()), null));
+        AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, "test");
+
+        assertNull(AuthoritySupport.hostedEntityJwks(entityId));
     }
 
     private static javax.sql.DataSource null_datasource() {
