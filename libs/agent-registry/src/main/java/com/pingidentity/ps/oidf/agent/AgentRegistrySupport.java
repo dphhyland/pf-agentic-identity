@@ -54,6 +54,11 @@ public final class AgentRegistrySupport {
         }
     }
 
+    /** Whether something has configured a registry yet — the caller's own signal for "opted in or not". */
+    public static boolean isConfigured() {
+        return registry != null;
+    }
+
     /**
      * @throws IllegalStateException if nothing has configured a registry yet — deliberately not a silent
      *                                in-memory fallback; see this class's own javadoc

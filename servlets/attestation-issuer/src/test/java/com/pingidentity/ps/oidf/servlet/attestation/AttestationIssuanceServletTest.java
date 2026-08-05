@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.servlet.attestation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -9,6 +10,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.agent.AgentIdentity;
+import com.pingidentity.ps.oidf.agent.AgentRegistry;
+import com.pingidentity.ps.oidf.agent.AgentRegistryException;
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttestationSupport;
 import com.pingidentity.ps.oidf.common.AttesterKeyResolver;
@@ -27,6 +31,7 @@ import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -161,6 +166,56 @@ class AttestationIssuanceServletTest {
                 List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA")));
         Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), requested));
         assertRoundTrips((String) body.get("attestation"));
+    }
+
+    // ---- agent_id resolution (Phase 2.1) -----------------------------------------------------------
+
+    @Test
+    void noAgentRegistryConfiguredMeansNoAgentIdClaim() throws Exception {
+        // servlet.setAgentRegistry is never called in setUp() — back-compatible default.
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        assertNull(claimsOf((String) body.get("attestation")).getClaimValue("agent_id"));
+    }
+
+    @Test
+    void configuredAgentRegistryEmitsTheResolvedAgentId() throws Exception {
+        servlet.setAgentRegistry(fixedAgentRegistry("agent-id-xyz"));
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        assertEquals("agent-id-xyz", claimsOf((String) body.get("attestation")).getClaimValue("agent_id"));
+    }
+
+    @Test
+    void agentRegistryReceivesTheResolvedInstanceSubjectNotTheRawSvid() throws Exception {
+        List<String[]> calls = new java.util.ArrayList<>();
+        servlet.setAgentRegistry((iss, clientId, instanceFormat, instanceSubject) -> {
+            calls.add(new String[]{iss, clientId, instanceFormat, instanceSubject});
+            return new AgentIdentity("agent-1", iss, clientId, instanceFormat, instanceSubject, Instant.now());
+        });
+        servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+
+        assertEquals(1, calls.size());
+        assertEquals(List.of(ISSUER, CLIENT_ID, "spiffe", SPIFFE_ID), List.of(calls.get(0)));
+    }
+
+    @Test
+    void aFailingAgentRegistryFailsTheRequestRatherThanSilentlyOmittingAgentId() throws Exception {
+        servlet.setAgentRegistry((iss, clientId, instanceFormat, instanceSubject) -> {
+            throw new AgentRegistryException(AgentRegistryException.STORAGE_FAILURE, "db is down");
+        });
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("server_error", e.error());
+    }
+
+    private static AgentRegistry fixedAgentRegistry(String agentId) {
+        return (iss, clientId, instanceFormat, instanceSubject) ->
+                new AgentIdentity(agentId, iss, clientId, instanceFormat, instanceSubject, Instant.now());
+    }
+
+    private JwtClaims claimsOf(String jwt) throws Exception {
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setCompactSerialization(jwt);
+        return JwtClaims.parse(jws.getUnverifiedPayload());
     }
 
     // ---- gke-sa-token evidence --------------------------------------------------------------------

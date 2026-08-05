@@ -31,7 +31,9 @@ public final class AttestationMinter {
     }
 
     /**
-     * Builds and signs a Client Attestation for a validated instance identity (any format).
+     * Builds and signs a Client Attestation for a validated instance identity (any format), with no
+     * {@code agent_id} claim. Retained so existing callers (and their tests) are unaffected; equivalent
+     * to calling the 9-argument overload with {@code agentId = null}.
      *
      * @param issuer               the attester entity identifier ({@code iss})
      * @param clientId             the attested client ({@code sub})
@@ -47,6 +49,23 @@ public final class AttestationMinter {
     public static String mint(String issuer, String clientId, Map<String, Object> instancePublicJwk,
                               InstanceIdentity instance, Map<String, Object> workloadMetadata,
                               List<Map<String, Object>> authorizationDetails, long ttlSeconds, JwsSigner signer) {
+        return mint(issuer, clientId, instancePublicJwk, instance, workloadMetadata, authorizationDetails,
+                ttlSeconds, signer, null);
+    }
+
+    /**
+     * As above, with an optional {@code agent_id} (Phase 2.1/2.2): the stable, pseudonymous identifier of
+     * this specific running instance, minted by an {@code AgentRegistry} — distinct from {@code sub}
+     * (the client/agent <em>type</em>) and from {@code workload.subject} (the proven instance identifier
+     * the registry minted it against). Omitted from the JWT entirely when {@code agentId} is
+     * {@code null} or blank, rather than emitted as an empty claim.
+     *
+     * @param agentId the minted agent identity, or {@code null} if no registry is configured
+     */
+    public static String mint(String issuer, String clientId, Map<String, Object> instancePublicJwk,
+                              InstanceIdentity instance, Map<String, Object> workloadMetadata,
+                              List<Map<String, Object>> authorizationDetails, long ttlSeconds, JwsSigner signer,
+                              String agentId) {
         long iat = NumericDate.now().getValue();
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(issuer);
@@ -61,6 +80,9 @@ public final class AttestationMinter {
         Map<String, Object> workload = new LinkedHashMap<>();
         workload.put("attested_by", instance.format());
         workload.putAll(instance.workloadClaims());
+        // The spec's format-neutral instance identifier, set after workloadClaims so it is authoritative
+        // even if a format's own claims happen to use the same key.
+        workload.put("subject", instance.subject());
         if (workloadMetadata != null && !workloadMetadata.isEmpty()) {
             workload.put("attributes", workloadMetadata);
         }
@@ -68,6 +90,10 @@ public final class AttestationMinter {
 
         if (authorizationDetails != null && !authorizationDetails.isEmpty()) {
             claims.setClaim("authorization_details", authorizationDetails);
+        }
+
+        if (agentId != null && !agentId.isBlank()) {
+            claims.setClaim("agent_id", agentId);
         }
 
         return sign(claims.toJson(), signer);
