@@ -3,23 +3,29 @@
  */
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
+import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner;
 import com.pingidentity.ps.oidf.common.PfDataSources;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Pattern;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
@@ -47,11 +53,20 @@ public class HostedEntityServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(HostedEntityServlet.class);
     private static final String WELL_KNOWN_SUFFIX = "/.well-known/openid-federation";
+    /** Mirrors the lighthouse trust anchor's own enrolment slug shape (harness/ui/server.py's SLUG_RE). */
+    private static final Pattern SLUG = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
+
+    private String adminToken;
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
         try {
+            // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
+            // not, and a servlet that refuses to boot just because enrolment isn't configured would take
+            // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
+            this.adminToken = optionalInitParam(config, "adminToken",
+                    "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
             String authorityEntityId = requireInitParam(config, "authorityEntityId",
                     "oidf.authority.entity_id", "OIDF_AUTHORITY_ENTITY_ID");
             String baoUrl = optionalInitParam(config, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
@@ -118,6 +133,147 @@ public class HostedEntityServlet extends HttpServlet {
         try (PrintWriter out = resp.getWriter()) {
             out.write(jwt);
         }
+    }
+
+    /**
+     * Registers a new hosted entity. {@code POST} to the collection root — {@code /federation/agents} or
+     * {@code /federation/resources}, matching whichever of the two mappings the request came in on — not
+     * to a specific id, since the id is server-assigned from the caller's requested slug.
+     *
+     * <p>Request body:
+     * <pre>{@code
+     * {
+     *   "id": "payments-agent",                 // slug: ^[a-z0-9][a-z0-9-]{0,63}$, mirrors lighthouse's own
+     *   "hostingKeyRef": "agent-payments-1",     // an OpenBao transit key that already exists — this
+     *                                            // endpoint registers the entity, it does not provision keys
+     *   "metadata": { "oauth_client": {...} },   // required, one block per entity type this entity holds
+     *   "listable": false,                       // optional, default false
+     *   "ownerRef": "operator:dave",              // optional, free-form accountability field
+     *   "notAfterSeconds": null                   // optional TTL from now; omit/null for no expiry
+     * }
+     * }</pre>
+     *
+     * <p>Gated by a static bearer token (the {@code adminToken} configured at startup), compared in
+     * constant time — this endpoint creates federation-trusted identities, so unlike the read path it
+     * cannot be left open. Mirrors the shape of the lighthouse trust anchor's own
+     * {@code POST /api/v1/admin/subordinates}, which this repo's demo harness already drives
+     * programmatically, adapted to this registry's richer, multi-type-metadata model.
+     */
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!authorized(req)) {
+            resp.setHeader("WWW-Authenticate", "Bearer");
+            writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
+            return;
+        }
+        String pathInfo = req.getPathInfo();
+        if (pathInfo != null && !pathInfo.equals("/")) {
+            writeError(resp, 404, "not_found", "POST only the collection root, e.g. /federation/agents");
+            return;
+        }
+
+        Map<String, Object> body;
+        try {
+            body = JsonUtil.parseJson(readBody(req));
+        } catch (Exception e) {
+            writeError(resp, 400, "invalid_request", "malformed JSON body");
+            return;
+        }
+
+        String slug = stringField(body, "id");
+        if (slug == null || !SLUG.matcher(slug).matches()) {
+            writeError(resp, 400, "invalid_request", "'id' must match ^[a-z0-9][a-z0-9-]{0,63}$");
+            return;
+        }
+        String hostingKeyRef = stringField(body, "hostingKeyRef");
+        if (hostingKeyRef == null) {
+            writeError(resp, 400, "invalid_request", "'hostingKeyRef' is required");
+            return;
+        }
+        Object metadataRaw = body.get("metadata");
+        if (!(metadataRaw instanceof Map)) {
+            writeError(resp, 400, "invalid_request", "'metadata' is required and must be an object");
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) metadataRaw;
+        boolean listable = Boolean.TRUE.equals(body.get("listable"));
+        String ownerRef = stringField(body, "ownerRef");
+        Instant notAfter = null;
+        if (body.get("notAfterSeconds") instanceof Number n) {
+            notAfter = Instant.now().plusSeconds(n.longValue());
+        }
+
+        String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + slug;
+        HostedEntity entity;
+        try {
+            entity = new HostedEntity(entityId, HostingMode.AUTHORITY_SIGNED, hostingKeyRef, metadata,
+                    Map.of(), EntityStatus.ACTIVE, listable, ownerRef, Instant.now(), notAfter);
+        } catch (IllegalArgumentException e) {
+            writeError(resp, 400, "invalid_request", e.getMessage());
+            return;
+        }
+
+        try {
+            AuthoritySupport.registry().register(entity);
+        } catch (AuthorityRegistryException e) {
+            int status = AuthorityRegistryException.DUPLICATE.equals(e.reason()) ? 409 : 500;
+            writeError(resp, status, e.reason(), e.getMessage());
+            return;
+        }
+
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
+        out.put("entityId", entityId);
+        out.put("entityConfigurationUrl", entityId + WELL_KNOWN_SUFFIX);
+        resp.setStatus(201);
+        resp.setContentType("application/json");
+        try (PrintWriter w = resp.getWriter()) {
+            w.write(JsonUtil.toJson(out));
+        }
+    }
+
+    /** Constant-time comparison against the configured admin token — a timing side channel on this check
+     *  would leak the token one byte at a time, exactly what {@link MessageDigest#isEqual} exists to prevent. */
+    private boolean authorized(HttpServletRequest req) {
+        return isAuthorized(this.adminToken, req.getHeader("Authorization"));
+    }
+
+    /**
+     * The actual bearer-token check, factored out from {@link #authorized(HttpServletRequest)} so it's
+     * testable without a servlet container. Constant-time: a timing side channel on this comparison
+     * would leak the configured token one byte at a time, exactly what {@link MessageDigest#isEqual}
+     * exists to prevent.
+     */
+    static boolean isAuthorized(String configuredAdminToken, String authorizationHeader) {
+        if (configuredAdminToken == null) {
+            return false;
+        }
+        if (authorizationHeader == null || !authorizationHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
+            return false;
+        }
+        String presented = authorizationHeader.substring(7).trim();
+        return MessageDigest.isEqual(
+                presented.getBytes(StandardCharsets.UTF_8), configuredAdminToken.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String readBody(HttpServletRequest req) throws IOException {
+        try (var reader = req.getReader()) {
+            StringBuilder sb = new StringBuilder();
+            char[] buf = new char[4096];
+            int n;
+            while ((n = reader.read(buf)) != -1) {
+                sb.append(buf, 0, n);
+            }
+            return sb.toString();
+        }
+    }
+
+    private static String stringField(Map<String, Object> body, String name) {
+        Object value = body.get(name);
+        if (!(value instanceof String s) || s.isBlank()) {
+            return null;
+        }
+        return s;
     }
 
     /**
