@@ -68,6 +68,29 @@ class FederationServiceSubordinateTest {
     }
 
     @Test
+    void selfStatementPublishesFederationEntityJustLikeTheEntityConfigurationDoes() throws Exception {
+        // Phase 1.8: before this, createEntityStatement's self-subject branch published only
+        // openid_provider, omitting federation_entity — so a chain resolved down to this authority
+        // (e.g. an Intermediate) via resolveTrustChain's leaf statement never learned this authority's
+        // federation_fetch_endpoint, and subordinate resolution had nowhere to go. Both paths now share
+        // one metadata builder, so they can no longer drift apart.
+        SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
+        String attesterJwks = "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"mock-attester-1\",\"k\":\"c2VjcmV0\"}]}";
+        FederationConfiguration anchorConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null, attesterJwks);
+        FederationService anchor = new FederationService(anchorConfig, anchorKeys);
+
+        Map<String, Object> selfStatementMetadata = cast(payload(anchor.createEntityStatement(ANCHOR, null, ANCHOR)).get("metadata"));
+        Map<String, Object> entityConfigMetadata = cast(payload(anchor.createEntityConfigurationJwt(ANCHOR)).get("metadata"));
+
+        assertEquals(entityConfigMetadata.keySet(), selfStatementMetadata.keySet(),
+                "the self-statement and the entity configuration must publish the same set of metadata blocks");
+        assertTrue(selfStatementMetadata.containsKey("federation_entity"));
+        assertTrue(selfStatementMetadata.containsKey("oauth_authorization_server"));
+        assertTrue(selfStatementMetadata.containsKey("oauth_client_attester"));
+    }
+
+    @Test
     void unknownSubjectIsRejected() throws Exception {
         // A subject this federation doesn't recognise is "not found" (404), not a malformed request
         // (400) — the two used to collapse onto the same IllegalArgumentException, which is exactly

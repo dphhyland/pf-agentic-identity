@@ -93,7 +93,26 @@ final class FederationService {
     String createEntityConfigurationJwt(String oidcIssuer) throws JoseException {
         JwtClaims claims = baseClaims(oidcIssuer, oidcIssuer);
         claims.setClaim("jwks", this.buildInlineJwks());
-        LinkedHashMap<String, Map<String, Object>> metadata = new LinkedHashMap<String, Map<String, Object>>();
+        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
+        List<String> authorityHints = this.configuration.authorityHints();
+        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
+            claims.setClaim("authority_hints", authorityHints);
+        }
+        return this.signClaims(claims);
+    }
+
+    /**
+     * The metadata blocks this authority publishes about itself — {@code federation_entity},
+     * {@code openid_provider}, {@code oauth_authorization_server} and (when an attester is co-hosted)
+     * {@code oauth_client_attester}. Shared by {@link #createEntityConfigurationJwt} and the self-subject
+     * branch of {@link #createEntityStatement} (Phase 1.8) so the two can no longer drift apart: before
+     * this, the self-statement branch published only {@code openid_provider}, omitting
+     * {@code federation_entity} — so a trust chain resolved down to an Intermediate via
+     * {@code createEntityStatement} never learned that Intermediate's
+     * {@code federation_fetch_endpoint}, and subordinate resolution had nowhere to go.
+     */
+    private LinkedHashMap<String, Object> selfMetadata(String oidcIssuer) throws JoseException {
+        LinkedHashMap<String, Object> metadata = new LinkedHashMap<String, Object>();
         metadata.put("federation_entity", Map.of("federation_fetch_endpoint", oidcIssuer + "/federation/fetch", "federation_list_endpoint", oidcIssuer + "/federation/list", "federation_resolve_endpoint", oidcIssuer + "/federation/resolve"));
         AttestationMetadataConfig attestationMetadata = this.configuration.attestationMetadata();
         LinkedHashMap<String, Object> openidProvider = new LinkedHashMap<String, Object>();
@@ -124,12 +143,7 @@ final class FederationService {
             // prefers metadata.oauth_client_attester.jwks over the entity's federation jwks).
             metadata.put("oauth_client_attester", Map.of("jwks", JsonUtil.parseJson(attesterJwks)));
         }
-        claims.setClaim("metadata", metadata);
-        List<String> authorityHints = this.configuration.authorityHints();
-        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
-            claims.setClaim("authority_hints", authorityHints);
-        }
-        return this.signClaims(claims);
+        return metadata;
     }
 
     String createEntityStatement(String subject, String requestedIssuer, String oidcIssuer) throws JoseException {
@@ -160,9 +174,8 @@ final class FederationService {
             claims.setClaim("jwks", this.fetchSubordinateJwks(subject));
             return this.signClaims(claims);
         }
-        Map<String, Map<String, Object>> metadata = Map.of("openid_provider", Map.of("issuer", oidcIssuer, "jwks_uri", oidcIssuer + "/pf/JWKS", "authorization_endpoint", oidcIssuer + "/as/authorization.oauth2", "token_endpoint", oidcIssuer + "/as/token.oauth2", "pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2"));
         claims.setClaim("jwks", this.buildInlineJwks());
-        claims.setClaim("metadata", metadata);
+        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
         claims.setClaim("authority_hints", this.configuration.authorityHints());
         return this.signClaims(claims);
     }
