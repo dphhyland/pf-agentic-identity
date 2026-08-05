@@ -262,6 +262,16 @@ public final class AttestationIssuanceConfig {
             }
             List<Map<String, Object>> entitlement = asObjectList(entry.get("entitlement"), "entitlement");
             Map<String, Object> metadata = asObject(entry.get("metadata"), "metadata");
+            // Phase 2.3: the same firewall as the request-time checks in AttestationIssuanceServlet,
+            // applied at config-parse time. Binding metadata rides unmodified into the minted
+            // attestation's workload.attributes; an operator (or a config mistake) setting metadata
+            // .agent_id there would sit confusingly close to the real, attester-minted top-level agent_id
+            // claim, so it is rejected outright rather than merely harmless-but-misleading.
+            if (metadata.containsKey("agent_id")) {
+                throw IssuanceException.invalidClient(
+                        P_INSTANCES + " entry '" + subject + "' metadata must not set agent_id: "
+                                + "it is minted by the attester, never configured");
+            }
             // Defense: a per-instance entitlement must sit within the client-level ceiling.
             if (!entitlement.isEmpty() && clientCeiling != null && !clientCeiling.isEmpty()) {
                 try {

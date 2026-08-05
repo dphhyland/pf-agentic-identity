@@ -467,6 +467,61 @@ class AttestationIssuanceServletTest {
         assertTrue(out.body.contains("server_error"), out.body);
     }
 
+    // ---- agent_id firewall (Phase 2.3) --------------------------------------------------------------
+
+    @Test
+    void aTopLevelAgentIdInTheRequestBodyIsRejected() throws Exception {
+        Map<String, Object> body = baseBody();
+        body.put("agent_id", "attacker-chosen");
+        Captured out = doPost(JsonUtil.toJson(body));
+        assertEquals(400, out.status);
+        assertTrue(out.body.contains("invalid_request"), out.body);
+    }
+
+    @Test
+    void anAgentIdInsideAnAuthorizationDetailsEntryIsRejected() throws Exception {
+        Map<String, Object> body = baseBody();
+        body.put("authorization_details",
+                List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"), "agent_id", "attacker-chosen")));
+        Captured out = doPost(JsonUtil.toJson(body));
+        assertEquals(400, out.status);
+        assertTrue(out.body.contains("invalid_request"), out.body);
+    }
+
+    @Test
+    void anAgentIdInBindingMetadataIsRejectedAtConfigParseTime() {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK, "{}");
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"" + SPIFFE_ID + "\",\"metadata\":{\"agent_id\":\"operator-typo\"}}]");
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props));
+        assertEquals("invalid_client", e.error());
+    }
+
+    @Test
+    void anAgentIdClaimInsideTheInstanceKeyProofDoesNotInfluenceTheMintedOne() throws Exception {
+        // The proof JWT is fully parsed by InstanceKeyProofValidator, but only jti/challenge are ever
+        // read out of it — a claim named agent_id inside the proof's own payload must have no effect.
+        servlet.setAgentRegistry(fixedAgentRegistry("real-minted-agent-id"));
+        JwtClaims proofClaims = new JwtClaims();
+        proofClaims.setIssuer(CLIENT_ID);
+        proofClaims.setAudience(ISSUER);
+        proofClaims.setJwtId(UUID.randomUUID().toString());
+        proofClaims.setIssuedAtToNow();
+        proofClaims.setClaim("agent_id", "attacker-chosen-via-proof");
+        String proof = signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, proofClaims);
+
+        Map<String, Object> body = baseBody();
+        body.put("proof", proof);
+        Captured out = doPost(JsonUtil.toJson(body));
+
+        assertEquals(200, out.status);
+        Map<String, Object> parsed = JsonUtil.parseJson(out.body);
+        assertEquals("real-minted-agent-id", claimsOf((String) parsed.get("attestation")).getClaimValue("agent_id"));
+    }
+
     @Test
     void attesterSigningKeyDefaultsToEnvironmentWhenUnset() throws Exception {
         // No signer injected → the servlet lazily builds one from the environment; inline-JWK config

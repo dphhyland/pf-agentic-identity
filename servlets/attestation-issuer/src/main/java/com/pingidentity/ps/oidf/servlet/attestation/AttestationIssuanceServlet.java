@@ -559,6 +559,14 @@ public class AttestationIssuanceServlet extends HttpServlet {
         } catch (Exception e) {
             throw IssuanceException.invalidRequest("request body is not valid JSON");
         }
+        // Phase 2.3: agent_id is minted by the attester's own AgentRegistry after evidence validation —
+        // it is never something a caller supplies. Reject a request that tries, rather than silently
+        // ignoring the field: a caller sending it is either an integration bug worth surfacing now, or an
+        // attempt to influence a claim that must only ever come from the attester's own minting.
+        if (json.containsKey("agent_id")) {
+            throw IssuanceException.invalidRequest("agent_id is minted by the attester; it is not an accepted request field");
+        }
+
         IssuanceRequest request = new IssuanceRequest();
         request.clientId = asString(json.get("client_id"));
         request.instanceKey = asObject(json.get("instance_key"));
@@ -593,7 +601,15 @@ public class AttestationIssuanceServlet extends HttpServlet {
             if (!(item instanceof Map)) {
                 throw IssuanceException.invalidRequest("each authorization_details entry must be a JSON object");
             }
-            out.add((Map<String, Object>) item);
+            Map<String, Object> entry = (Map<String, Object>) item;
+            // Phase 2.3: the same firewall as the top-level agent_id field, applied to a caller's
+            // requested authorization_details — a caller must not be able to smuggle an agent_id through
+            // an entitlement entry either.
+            if (entry.containsKey("agent_id")) {
+                throw IssuanceException.invalidRequest(
+                        "agent_id is minted by the attester; it is not an accepted authorization_details field");
+            }
+            out.add(entry);
         }
         return out;
     }
