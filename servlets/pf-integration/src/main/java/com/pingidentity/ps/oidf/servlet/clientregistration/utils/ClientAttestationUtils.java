@@ -343,18 +343,8 @@ public final class ClientAttestationUtils {
         if (dpopAlgs != null) {
             b.dpopAlgorithms(dpopAlgs);
         }
-        // Optional attestation encoding policy (default: accept plain JWT and SD-JWT).
-        String format = ClientAttestationUtils.stringProp(inParameters, "extproperties.attestation_format");
-        if (format != null) {
-            if ("jwt".equalsIgnoreCase(format)) {
-                b.acceptSdJwt(false);
-            } else if ("sd-jwt".equalsIgnoreCase(format) || "sd_jwt".equalsIgnoreCase(format)) {
-                b.requireSdJwt(true);
-            }
-            // "either" (or anything else) leaves the default: accept both encodings
-        }
-        // Federation-gated disclosure (AS side): top-level claims this AS requires disclosed even under
-        // SD-JWT. Per-client via extproperties.attestation_required_claims, else a global default from the
+        // Required-claims policy (AS side): top-level claims this AS requires the attestation to carry.
+        // Per-client via extproperties.attestation_required_claims, else a global default from the
         // oidf.attestation.required.claims system property (comma-separated; e.g. "workload").
         Set<String> requiredClaims = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_required_claims");
         if (requiredClaims == null) {

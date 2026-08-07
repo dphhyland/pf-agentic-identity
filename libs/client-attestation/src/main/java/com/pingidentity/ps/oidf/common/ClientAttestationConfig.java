@@ -31,8 +31,6 @@ public final class ClientAttestationConfig {
     private final String expectedHtu;
     private final String expectedHtm;
     private final boolean challengeRequired;
-    private final boolean acceptSdJwt;
-    private final boolean requireSdJwt;
     private final Set<String> requiredDisclosedClaims;
 
     private ClientAttestationConfig(Builder b) {
@@ -46,8 +44,6 @@ public final class ClientAttestationConfig {
         this.expectedHtu = b.expectedHtu;
         this.expectedHtm = b.expectedHtm;
         this.challengeRequired = b.challengeRequired;
-        this.acceptSdJwt = b.acceptSdJwt;
-        this.requireSdJwt = b.requireSdJwt;
         this.requiredDisclosedClaims = Set.copyOf(b.requiredDisclosedClaims);
     }
 
@@ -95,21 +91,10 @@ public final class ClientAttestationConfig {
         return this.challengeRequired;
     }
 
-    /** Whether an SD-JWT-encoded attestation presentation is accepted (default {@code true}). */
-    public boolean acceptSdJwt() {
-        return this.acceptSdJwt;
-    }
-
-    /** Whether a plain-JWT attestation is rejected in favour of SD-JWT (default {@code false}). */
-    public boolean requireSdJwt() {
-        return this.requireSdJwt;
-    }
-
     /**
-     * Top-level attestation claims this AS requires to be DISCLOSED (present and non-empty), even under
-     * SD-JWT selective disclosure — e.g. {@code "workload"} or {@code "authorization_details"}. Empty =
-     * no requirement (default). The AS side of federation-gated disclosure: the AS declares what it needs
-     * and rejects a presentation that withholds it.
+     * Top-level attestation claims this AS requires (present and non-empty) — e.g. {@code "workload"} or
+     * {@code "authorization_details"}. Empty = no requirement (default). The AS declares what it needs
+     * and rejects an attestation minted without it.
      */
     public Set<String> requiredDisclosedClaims() {
         return this.requiredDisclosedClaims;
@@ -126,8 +111,6 @@ public final class ClientAttestationConfig {
         private String expectedHtu;
         private String expectedHtm = DEFAULT_HTTP_METHOD;
         private boolean challengeRequired;
-        private boolean acceptSdJwt = true;
-        private boolean requireSdJwt;
         private Set<String> requiredDisclosedClaims = new LinkedHashSet<>();
 
         private Builder() {
@@ -197,19 +180,6 @@ public final class ClientAttestationConfig {
 
         public Builder challengeRequired(boolean required) {
             this.challengeRequired = required;
-            return this;
-        }
-
-        public Builder acceptSdJwt(boolean accept) {
-            this.acceptSdJwt = accept;
-            return this;
-        }
-
-        public Builder requireSdJwt(boolean required) {
-            this.requireSdJwt = required;
-            if (required) {
-                this.acceptSdJwt = true;
-            }
             return this;
         }
 

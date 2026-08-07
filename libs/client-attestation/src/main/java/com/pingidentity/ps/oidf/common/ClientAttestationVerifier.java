@@ -3,9 +3,7 @@
  */
 package com.pingidentity.ps.oidf.common;
 
-import java.nio.charset.StandardCharsets;
 import java.security.Key;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,7 +33,6 @@ import org.jose4j.jwt.consumer.InvalidJwtException;
 public final class ClientAttestationVerifier {
     private static final Log LOGGER = LogFactory.getLog(ClientAttestationVerifier.class);
     private static final String ATTESTATION_TYP = "oauth-client-attestation+jwt";
-    private static final String ATTESTATION_SD_JWT_TYP = "oauth-client-attestation+sd-jwt";
     private static final String POP_TYP = "oauth-client-attestation-pop+jwt";
 
     private final AttesterKeyResolver attesterKeyResolver;
@@ -97,17 +94,12 @@ public final class ClientAttestationVerifier {
                         "Missing proof of possession: provide OAuth-Client-Attestation-PoP or DPoP");
             }
 
-            // An SD-JWT presentation contains '~'; a plain attestation JWT never does. Auto-detect, then apply policy.
-            boolean isSdJwt = attestationHeader.contains("~");
-            if (isSdJwt && !this.config.acceptSdJwt()) {
-                throw ClientAttestationException.invalidClient("SD-JWT client attestation is not accepted");
+            // '~' marks the retired SD-JWT presentation encoding; only plain attestation JWTs are accepted.
+            if (attestationHeader.contains("~")) {
+                throw ClientAttestationException.invalidClient(
+                        "SD-JWT-encoded client attestations are no longer supported; present a plain attestation JWT");
             }
-            if (!isSdJwt && this.config.requireSdJwt()) {
-                throw ClientAttestationException.invalidClient("A SD-JWT client attestation is required");
-            }
-            ClientAttestation attestation = isSdJwt
-                    ? this.verifyAttestationSdJwt(attestationHeader)
-                    : this.verifyAttestation(attestationHeader);
+            ClientAttestation attestation = this.verifyAttestation(attestationHeader);
             Jwks.assertPublicOnly(attestation.cnfJwk());
 
             if (requestedClientId != null && !requestedClientId.isBlank()
@@ -116,19 +108,13 @@ public final class ClientAttestationVerifier {
                         "client_id request parameter does not match the attestation 'sub'");
             }
 
-            // The AS side of federation-gated disclosure: reject a presentation that withholds a claim
-            // this AS declares it requires (e.g. the workload attributes) even under selective disclosure.
+            // Reject an attestation that omits a claim this AS declares it requires (e.g. workload).
             this.enforceRequiredDisclosures(attestation);
 
             // Authenticate (attestation + proof of possession) first ...
             ClientAttestationResult authenticated = hasPop
                     ? this.verifyPopMode(attestation, popHeader)
                     : this.verifyDpopMode(attestation, dpopHeader, requestMethod, requestUri);
-
-            // For SD-JWT, bind the proof (Key-Binding JWT) to the exact presented SD-JWT + disclosures.
-            if (isSdJwt) {
-                this.verifySdHash(hasPop ? popHeader : dpopHeader, attestationHeader);
-            }
 
             // ... then authorize the requested access against the attested RFC 9396 entitlement.
             List<Map<String, Object>> entitled = attestation.authorizationDetails();
@@ -146,11 +132,11 @@ public final class ClientAttestationVerifier {
     }
 
     /**
-     * Enforces the AS's federation-gated disclosure requirements: every claim named in
+     * Enforces the AS's required-claims policy: every claim named in
      * {@link ClientAttestationConfig#requiredDisclosedClaims()} must be present and non-empty in the
-     * (possibly SD-JWT-reduced) attestation. Lets an AS declare, per its position in the federation,
-     * which claims it needs and reject a presentation that withholds them. Known groups:
-     * {@code workload} and {@code authorization_details}; an unrecognised name is treated as satisfied.
+     * attestation. Lets an AS declare, per its position in the federation, which claims it needs and
+     * reject an attestation minted without them. Known groups: {@code workload} and
+     * {@code authorization_details}; an unrecognised name is treated as satisfied.
      */
     private void enforceRequiredDisclosures(ClientAttestation attestation) throws ClientAttestationException {
         for (String claim : this.config.requiredDisclosedClaims()) {
@@ -191,46 +177,6 @@ public final class ClientAttestationVerifier {
             throw ClientAttestationException.invalidClient("Client Attestation verification failed: " + e.getMessage(), e);
         }
         return ClientAttestation.fromVerifiedClaims(verified, attestationHeader);
-    }
-
-    /**
-     * Verifies the optional SD-JWT attestation encoding: verify the issuer JWT signature exactly as the plain
-     * path, then reconstruct the disclosed claims. The Key-Binding proof ({@code sd_hash}) is checked in
-     * {@link #verifySdHash} after the PoP/DPoP is verified.
-     */
-    private ClientAttestation verifyAttestationSdJwt(String presentation) throws Exception {
-        SdJwt.Parsed parsed = SdJwt.parse(presentation);
-        String issuerJwt = parsed.issuerJwt();
-        Map<String, Object> headers = JwtCodec.getJwtHeaders(issuerJwt);
-        JwtCodec.requireType(headers, ATTESTATION_SD_JWT_TYP);
-        JwtClaims unverified = JwtCodec.parseUnverifiedClaims(issuerJwt);
-        String attesterIssuer = Claims.requireNonBlank(unverified.getIssuer(), "iss");
-        List<String> trustChain = ClientAttestationVerifier.trustChainHeader(headers);
-
-        List<JsonWebKey> attesterKeys = this.attesterKeyResolver.resolve(attesterIssuer, trustChain);
-
-        JwtClaims verified;
-        try {
-            verified = JwtCodec.verifyAgainstKeys(issuerJwt, attesterKeys, attesterIssuer, this.config.attestationAlgorithms());
-        } catch (InvalidJwtException e) {
-            if (e.hasExpired()) {
-                throw ClientAttestationException.useFreshAttestation("Client Attestation has expired");
-            }
-            throw ClientAttestationException.invalidClient("Client Attestation verification failed: " + e.getMessage(), e);
-        }
-        return ClientAttestation.fromSdJwt(verified, parsed.disclosures(), presentation);
-    }
-
-    /** Binds the Key-Binding proof to the presented SD-JWT + disclosures via its {@code sd_hash} claim. */
-    private void verifySdHash(String proofHeader, String presentation) throws Exception {
-        String presented = JwtCodec.parseUnverifiedClaims(proofHeader).getStringClaimValue("sd_hash");
-        if (presented == null || presented.isBlank()) {
-            throw ClientAttestationException.invalidClient("Proof is missing the 'sd_hash' binding for the SD-JWT");
-        }
-        String expected = SdJwt.digest(presentation);
-        if (!MessageDigest.isEqual(presented.getBytes(StandardCharsets.US_ASCII), expected.getBytes(StandardCharsets.US_ASCII))) {
-            throw ClientAttestationException.invalidClient("Proof 'sd_hash' does not match the presented attestation");
-        }
     }
 
     private ClientAttestationResult verifyPopMode(ClientAttestation attestation, String popHeader) throws Exception {
