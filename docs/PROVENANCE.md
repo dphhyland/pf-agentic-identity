@@ -17,6 +17,19 @@ backports — never as parallel development.
 | `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | PF servlet (`gm-api.war`) + `/mcp` add-on. The AS-agnostic **Go** Grant-Evaluation service was later extracted to [grant-evaluation-api](https://github.com/dphhyland/grant-evaluation-api); `idp-gm-api` is now a pointer. |
 | `deploy/` + `.github/workflows/deploy-*` | pf-oidf-modules | filter-repo path extraction | `deploy-demo.yml` stayed behind (the demo lives in pf-oidf-modules); triggers retargeted: push-to-main → staging, production via workflow_dispatch |
 
+## 2026-08-01 — the CAS specification draft
+
+`docs/openid-client-attestation-service-1_0.md` ("OpenID Client Attestation Service for AI Agents 1.0
+— draft 00") copied here from `pf-oidf-modules@sd-jwt-rar-paz`, where it existed **uncommitted**
+alongside an implementation (`ClientAttestationServiceMetadataServlet` and five modified attester
+classes) discovered mid-reconciliation of that fork — non-mine, in-progress work that this document's
+move does not resolve. The document has no code dependency and no merge conflict with anything here,
+so it moves on its own timeline: onto this repo's canonical `docs/`, off a branch this repo has
+already declared non-canonical. **The implementation is not ported by this commit** — it depends on
+the fork's `client_id`-taking `AttestationIssuanceServlet.issue()`, which diverges from this repo's
+reverse-mapping version, and porting it is a separate three-way merge, not yet attempted. The
+pf-oidf-modules working tree is untouched otherwise.
+
 ## What deliberately did NOT move
 
 - **The demo UI / harness** (`harness/ui`, agent-workload) — stays in
