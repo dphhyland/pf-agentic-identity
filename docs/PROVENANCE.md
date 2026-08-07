@@ -79,6 +79,37 @@ default-registry wiring to match, not a straight copy):
 `InstanceAttestationValidators.formats()`, which the fork's WIP commit also added, already existed
 here (from the 2026-07-31 reconciliation) with the same purpose — no change needed.
 
+## 2026-08-08 — device-instance-identity joins main
+
+Merged in two halves by two concurrent sessions, converging on identical resolutions
+(`749f955` + `17c8906` from the domain-authority session, `88ee7c4` bringing in the branch's
+`aa46c22` reconciliation). What landed:
+
+- **The Azure leg of the cross-cloud chain**: `AksWorkloadIdentityValidator` +
+  `AzureManagedIdentityValidator` instance-attestation validators, the
+  `AssertedContext`/`AssertedContextResolver` seam with `EntraDirectoryAssertedContextResolver`,
+  and the `deploy/azure-aks-demo` + cross-cloud-chain Azure deploy leg.
+- **Trust-chain reconciliation**: main's recursive `extendRoute`/`walkRoute` walk with
+  `metadata_policy` application is canonical; the branch's self-signed Entity-Configuration
+  verification fast path (kills a live cross-cloud re-fetch per token request) is grafted into the
+  verification loop. The gateway adds `iss=` to `federation_fetch_endpoint` URLs (OIDF 1.0 §8.1) —
+  the test fixtures were updated to match, not the gateway.
+- **FederationService union**: `federationBasePath` endpoint prefixing (war context path in
+  advertised `/federation/*` endpoints) AND the hosted-subordinate lookup/list seams, one canonical
+  constructor. `OpenIdFederationServlet` passes both and keeps the subordinate prewarm.
+- **Backports from pf-oidf-modules** (per drift rule 2, both said so in their commit messages):
+  the SD-JWT attestation-encoding drop (`c23f471` — verifier rejects `~` presentations;
+  `SdJwt`/`SdJwtException` remain in `oidf-jose` as library primitives) and OIDF §12.1 automatic
+  registration (`b312460` — `RegistrationService.automaticRegister`,
+  `TokenEndpointAutoRegistrationFilter`, `RegisteredClientsServlet`, previously only in that repo's
+  gitignored build tree).
+
+The two sessions resolved the same six files independently and every resolution was semantically
+identical (same walk union, same §8.1 fixture fixes, same `CompactJws` overloads — only formatting
+and constructor-parameter order differed). Reassuring for the code; another data point for the
+"prose rules decay" section below all the same. `device-instance-identity` is level with main as of
+`88ee7c4`.
+
 ## Written here, not absorbed from anywhere
 
 Everything below is net-new to this repo and has no upstream. Recorded so a future provenance
