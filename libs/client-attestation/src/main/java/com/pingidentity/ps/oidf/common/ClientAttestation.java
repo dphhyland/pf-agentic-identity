@@ -6,11 +6,8 @@ package com.pingidentity.ps.oidf.common;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import org.jose4j.json.JsonUtil;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.MalformedClaimException;
-import org.jose4j.jwt.consumer.InvalidJwtException;
-import org.jose4j.lang.JoseException;
 
 /**
  * Immutable view of a verified Client Attestation JWT. The Attestation is issued by a Client Attester
@@ -69,26 +66,6 @@ public final class ClientAttestation {
         Object agentIdClaim = claims.getClaimValue("agent_id");
         String agentId = agentIdClaim == null ? null : String.valueOf(agentIdClaim);
         return new ClientAttestation(attester, clientId, jwk, exp, iat, authorizationDetails(claims), workload(claims), agentId, raw);
-    }
-
-    /**
-     * Builds a {@link ClientAttestation} from a verified SD-JWT (the optional attestation encoding): the
-     * issuer JWT's already-signature-verified {@code issuerClaims} plus the presented {@code disclosures}.
-     * The disclosed claim set is reconstructed ({@link SdJwt#reconstruct}) and then run through the same
-     * required-claim checks as {@link #fromVerifiedClaims}. The caller verifies the issuer signature and the
-     * Key-Binding JWT separately.
-     */
-    public static ClientAttestation fromSdJwt(JwtClaims issuerClaims, List<String> disclosures, String raw)
-            throws MalformedClaimException {
-        JwtClaims disclosed;
-        try {
-            Map<String, Object> payload = JsonUtil.parseJson(issuerClaims.toJson());
-            Map<String, Object> reconstructed = SdJwt.reconstruct(payload, disclosures);
-            disclosed = JwtClaims.parse(JsonUtil.toJson(reconstructed));
-        } catch (JoseException | InvalidJwtException e) {
-            throw new IllegalArgumentException("invalid SD-JWT presentation", e);
-        }
-        return fromVerifiedClaims(disclosed, raw);
     }
 
     /** The optional RFC 9396 {@code authorization_details} entitlement asserted by the attester. */

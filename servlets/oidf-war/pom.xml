@@ -34,8 +34,14 @@
         <!-- the servlet modules whose @WebServlet endpoints make up oidf.war -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>0.1.0</version></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId><version>0.1.0</version></dependency>
-        <!-- their runtime libraries (bundled into WEB-INF/lib); the PF SDK + servlet API stay provided -->
-        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>0.9.6</version></dependency>
+        <!-- jackson is bundled into WEB-INF/lib (no separate copy on PF's shared classpath). jose4j
+             stays PROVIDED: every deployment of this war also drops jose4j-0.9.6.jar directly onto
+             PF's shared classpath (see deploy/pingfederate/Dockerfile), and bundling it a second
+             time here caused a `LinkageError: loader constraint violation` on org.jose4j.jwk.JsonWebKey
+             the moment a servlet touching jose4j types crossed the war's own classloader boundary
+             (found via OpenIdFederationServlet, which the old static-mock-attester path never
+             exercised) — two classloaders defining the "same" class are NOT the same class to the JVM. -->
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>0.9.6</version><scope>provided</scope></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>2.17.1</version></dependency>
         <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><version>4.0.0</version><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><version>13.0.0.3</version><scope>provided</scope></dependency>

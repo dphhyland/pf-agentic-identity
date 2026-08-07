@@ -1,0 +1,65 @@
+# Agent D — the Azure hop, on AKS, with its OWN service account so it is a distinct actor in the
+# delegation chain (client demo-attest-aks-chain). Publicly reachable because agent C calls it from
+# GKE. Requires the cluster to have been created with --enable-oidc-issuer --enable-workload-identity
+# (see ../../azure-aks-demo/azure/bootstrap.sh) — the projected token below carries a custom audience,
+# which a plain AKS cluster cannot do.
+#
+# The Container Apps alternative (managed identity via IMDS instead of a projected token) needs no
+# manifest — the same image auto-detects: no TOKEN_FILE present, so it falls through to IMDS. See
+# ../azure/agent_d.py's azure_evidence().
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: chain-agent-d
+  namespace: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: chain-agent-d
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: chain-agent-d }
+  template:
+    metadata:
+      labels: { app: chain-agent-d }
+    spec:
+      serviceAccountName: chain-agent-d
+      containers:
+        - name: agent
+          image: IMAGE_D
+          ports: [{ containerPort: 8080 }]
+          env:
+            # D attests at its OWN (Azure) attester, but exchanges at the AS named below. That split
+            # is the cross-cloud move; getting these two the wrong way round silently breaks the demo.
+            - { name: ATTESTER_BASE_URL, value: "http://pingfederate.pf:9080" }
+            - { name: EXCHANGE_BASE_URL, value: "EXCHANGE_PF_URL" }
+            - { name: NEXT_HOP_URL, value: "RESOURCE_URL" }
+            - { name: TOKEN_FILE, value: "/var/run/secrets/tokens/attester-token" }
+            # Optional: the asserted Entra Agent ID this hop claims to be acting for. Must be a key in
+            # the attester's OIDF_ENTRA_AGENT_DIRECTORY or the mint is refused (access_denied) — which
+            # is the intended behaviour, not a misconfiguration. Leave empty to present only D's own
+            # evidenced identity. A per-request X-Copilot-Agent-Id header overrides this.
+            - { name: ASSERTED_COPILOT_AGENT_ID, value: "ASSERTED_OID" }
+          volumeMounts:
+            - { name: attester-token, mountPath: /var/run/secrets/tokens, readOnly: true }
+      volumes:
+        - name: attester-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "https://attester.example.com"
+                  expirationSeconds: 3600
+                  path: attester-token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: chain-agent-d
+  namespace: demo
+spec:
+  type: LoadBalancer
+  selector: { app: chain-agent-d }
+  ports: [{ port: 80, targetPort: 8080 }]

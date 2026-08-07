@@ -49,7 +49,7 @@ final class RegistrationService {
     static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
 
     RegistrationService(RegistrationConfiguration configuration) {
-        this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors()), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), configuration.trustControllerHost(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
+        this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors()), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), configuration.trustControllerHost(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
     }
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore) {
@@ -77,8 +77,37 @@ final class RegistrationService {
         responseRpMetadata.put("client_id_issued_at", Instant.now().getEpochSecond());
         String signedJwt = this.buildSignedRegistrationResponse(opIssuer, rpSubject, trustAnchorIssuer, responseRpMetadata);
         RegisteredClient registeredClient = new RegisteredClient(clientId, rpSubject, trustAnchorIssuer, request.trustChain(), responseRpMetadata, "registered", signedJwt);
-        this.clientStore.add(buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration));
+        this.clientStore.add(buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "registered"));
         return registeredClient;
+    }
+
+    /**
+     * OIDF §12.1 automatic registration: provision the client just-in-time from its resolved federation
+     * metadata. Returns null when the client already exists (idempotent); requires the resolved leaf to
+     * advertise {@code client_registration_types} ⊇ {@code automatic}.
+     */
+    RegisteredClient automaticRegister(List<String> trustChain, String clientId, String opIssuer) throws Exception {
+        Objects.requireNonNull(clientId, "clientId");
+        if (trustChain == null || trustChain.isEmpty()) {
+            throw new IllegalArgumentException("trust_chain is required for automatic registration");
+        }
+        if (this.clientStore.get(clientId) != null) {
+            return null;
+        }
+        TrustChainValidationResult validation = this.trustChainValidator.validate(trustChain, clientId, opIssuer, -1L, -1L, this.configuration.trustChainEntryMaxAgeSeconds());
+        Map<String, Object> leafMetadata = validation.leafMetadata();
+        if (leafMetadata == null || leafMetadata.isEmpty()) {
+            throw new IllegalStateException("resolved leaf has no oauth_client/openid_relying_party metadata; cannot automatically register " + clientId);
+        }
+        Object regTypes = leafMetadata.get("client_registration_types");
+        if (!(regTypes instanceof List) || !((List)regTypes).contains("automatic")) {
+            throw new IllegalStateException("client " + clientId + " does not advertise client_registration_types=automatic; refusing automatic registration");
+        }
+        JwtClaims leafEntityStatement = validation.leafEntityStatement();
+        Map jwks = leafEntityStatement.getClaimValue("jwks", Map.class);
+        this.clientStore.add(buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "auto_registered"));
+        LOGGER.info((Object)("Automatically registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
+        return new RegisteredClient(clientId, validation.leafSubject(), validation.trustAnchorIssuer(), validation.trustChain(), leafMetadata, "auto_registered", null);
     }
 
     private String buildSignedRegistrationResponse(String opIssuer, String rpIssuer, String trustAnchorIssuer, Map<String, Object> rpMetadata) throws JoseException {
@@ -117,7 +146,7 @@ final class RegistrationService {
         return JsonUtil.parseJson(jwksJson);
     }
 
-    private static Client buildClient(String clientId, Map<String, Object> metadata, String opIssuer, Map<String, Object> jwks, List<String> trustChain, RegistrationConfiguration configuration) throws Exception {
+    private static Client buildClient(String clientId, Map<String, Object> metadata, String opIssuer, Map<String, Object> jwks, List<String> trustChain, RegistrationConfiguration configuration, String status) throws Exception {
         Client client = new Client();
         Map<String, Object> oidcRPMetadata = metadata;
         String tokenEndpointAuthMethod = metadataString(oidcRPMetadata, "token_endpoint_auth_method");
@@ -137,7 +166,7 @@ final class RegistrationService {
         client.setRestrictedScopes(scopes);
         client.setBypassApprovalPage(true);
         HashMap<String, ParamValues> extendedParams = new HashMap<String, ParamValues>();
-        addParamValue(extendedParams, "status", "registered");
+        addParamValue(extendedParams, "status", status);
         addParamValue(extendedParams, oidcRPMetadata, "application_type");
         addParamValue(extendedParams, oidcRPMetadata, "subject_type");
         addParamValue(extendedParams, oidcRPMetadata, "contacts");

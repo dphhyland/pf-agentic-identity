@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientAttestationException;
 import com.pingidentity.ps.oidf.common.ClientAttestationResult;
 import com.pingidentity.ps.oidf.common.ClientAttestationVerifier;
+import com.pingidentity.ps.oidf.common.FallbackAttesterKeyResolver;
 import com.pingidentity.ps.oidf.common.FederationAttesterKeyResolver;
 import com.pingidentity.ps.oidf.common.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
@@ -46,29 +47,61 @@ public final class ClientAttestationUtils {
     private static volatile TrustChainValidator validator;
     private static volatile Boolean configuredIgnoreSslErrors;
     private static volatile String configuredTrustControllerHost;
+    private static volatile String configuredTrustControllerBaseUrl;
 
     private ClientAttestationUtils() {
     }
 
     public static boolean validateClientAttestation(Object inObj) {
-        return ClientAttestationUtils.validateClientAttestation(inObj, RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST);
+        // RegistrationConfiguration._TRUST_CONTROLLER_HOST is only populated once some
+        // RegistrationConfiguration has been constructed — i.e. after /federation/register has been
+        // hit at least once in this JVM's lifetime (OpenIdRegistrationServlet.init() is lazy). A
+        // token-exchange request (this call site) can easily be the FIRST request PF ever serves, so
+        // don't depend on that ordering: fall back to the same env var directly.
+        String trustControllerHost = RegistrationConfiguration._TRUST_CONTROLLER_HOST;
+        if (trustControllerHost == null || trustControllerHost.isBlank()) {
+            trustControllerHost = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_HOST");
+        }
+        String trustControllerBaseUrl = RegistrationConfiguration._TRUST_CONTROLLER_BASE_URL;
+        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
+            trustControllerBaseUrl = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL");
+        }
+        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
+            trustControllerBaseUrl = trustControllerHost;
+        }
+        boolean ignoreSslErrors = RegistrationConfiguration._IGNORE_SSL_ERRORS
+                || Boolean.parseBoolean(System.getenv("OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
+        return ClientAttestationUtils.validateClientAttestation(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
     }
 
     /**
      * Thin fail-closed shell around {@link #validateClientAttestationInner}: a linkage error in the
      * body's class graph surfaces at the inner method's call site, so this shell can log it — inside a
      * single method it would escape to OGNL as an opaque "Method failed" with no trace.
+     *
+     * @param trustControllerHost the trust controller's bare federation identity (used for
+     *     {@code knownTrustAnchor} matching)
      */
     public static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
+        return ClientAttestationUtils.validateClientAttestation(inObj, ignoreSslErrors, trustControllerHost, trustControllerHost);
+    }
+
+    /**
+     * @param trustControllerBaseUrl the HTTP base actually used to reach the trust controller's
+     *     federation endpoints — distinct from {@code trustControllerHost} when that identity string
+     *     isn't itself a reachable URL (e.g. PF acting as its own anchor; see
+     *     {@code HttpTrustControllerGateway}'s {@code selfIssuer} javadoc).
+     */
+    public static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
         try {
-            return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost);
+            return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
         } catch (Throwable t) {
             LOGGER.error((Object) "Attestation-based client authentication failed with a non-Exception throwable", t);
             return false;
         }
     }
 
-    private static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
+    private static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
         try {
             if (!(inObj instanceof Map)) {
                 LOGGER.error((Object) ("In parameters not instance of Map. " + (inObj == null ? "null" : inObj.getClass().getName())));
@@ -84,11 +117,9 @@ public final class ClientAttestationUtils {
             String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
             String requestUri = request.getRequestURL() == null ? null : request.getRequestURL().toString();
 
-            AttesterKeyResolver resolver = ClientAttestationUtils.mockAttesterResolver();
-            if (resolver == null) {
-                TrustChainValidator chainValidator = ClientAttestationUtils.getValidator(ignoreSslErrors, trustControllerHost);
-                resolver = new FederationAttesterKeyResolver(chainValidator, opIssuer, ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
-            }
+            AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
+                    ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
+                    ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
             ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, requestUri);
             ClientAttestationVerifier verifier = new ClientAttestationVerifier(resolver, config, AttestationSupport.replayCache(), AttestationSupport.challengeService());
 
@@ -177,13 +208,24 @@ public final class ClientAttestationUtils {
      * the same instance caching. Kept here so the filter and the issuance criterion cannot drift.
      */
     public static AttesterKeyResolver attesterResolver(String opIssuer) {
-        AttesterKeyResolver resolver = ClientAttestationUtils.mockAttesterResolver();
-        if (resolver != null) {
-            return resolver;
-        }
-        TrustChainValidator chainValidator = ClientAttestationUtils.getValidator(
-                RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST);
-        return new FederationAttesterKeyResolver(chainValidator, opIssuer, -1L);
+        return ClientAttestationUtils.resolveAttesterTrust(
+                RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST,
+                RegistrationConfiguration._TRUST_CONTROLLER_BASE_URL, opIssuer, -1L);
+    }
+
+    /**
+     * Resolves attester trust for one request: if {@code oidf.mock.attesters} is configured, static
+     * entries resolve exactly as before and anything NOT in that file falls through to real OpenID
+     * Federation trust-chain validation (see {@link FallbackAttesterKeyResolver}) — lets a static
+     * legacy-demo trust list and newly-onboarded federation-backed attesters coexist on one PF
+     * instance. With no static file configured, this is pure federation, as before.
+     */
+    private static AttesterKeyResolver resolveAttesterTrust(boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, String opIssuer, long trustChainEntryMaxAge) {
+        StaticAttesterKeyResolver staticResolver = ClientAttestationUtils.mockAttesterResolver();
+        TrustChainValidator chainValidator = ClientAttestationUtils.getValidator(ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
+        FederationAttesterKeyResolver federationResolver = new FederationAttesterKeyResolver(chainValidator, opIssuer, trustChainEntryMaxAge);
+        return staticResolver == null ? federationResolver : new FallbackAttesterKeyResolver(staticResolver, federationResolver);
     }
 
     /**
@@ -200,7 +242,7 @@ public final class ClientAttestationUtils {
                 .build();
     }
 
-    private static volatile AttesterKeyResolver mockResolver;
+    private static volatile StaticAttesterKeyResolver mockResolver;
     private static volatile boolean mockResolverLoaded;
 
     /**
@@ -208,7 +250,7 @@ public final class ClientAttestationUtils {
      * mock-attester JWKS file, returns a {@link StaticAttesterKeyResolver} that trusts those keys
      * directly (no federation trust chain). Returns {@code null} in normal operation.
      */
-    private static AttesterKeyResolver mockAttesterResolver() {
+    private static StaticAttesterKeyResolver mockAttesterResolver() {
         if (mockResolverLoaded) {
             return mockResolver;
         }
@@ -230,27 +272,34 @@ public final class ClientAttestationUtils {
         return mockResolver;
     }
 
-    private static TrustChainValidator getValidator(boolean ignoreSslErrors, String trustControllerHost) {
+    private static TrustChainValidator getValidator(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        String effectiveBaseUrl = trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank() ? trustControllerHost : trustControllerBaseUrl;
         TrustChainValidator local = validator;
         if (local != null) {
-            ClientAttestationUtils.validateConfiguration(ignoreSslErrors, trustControllerHost);
+            ClientAttestationUtils.validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             return local;
         }
         synchronized (LOCK) {
             if (validator == null) {
-                gateway = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors), trustControllerHost);
+                // trustControllerHost is the bare identity used for knownTrustAnchor matching;
+                // effectiveBaseUrl is the (possibly different) HTTP base actually needed to reach it —
+                // see HttpTrustControllerGateway's selfIssuer javadoc for why these can diverge.
+                gateway = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors), effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
+                configuredTrustControllerBaseUrl = effectiveBaseUrl;
                 validator = new TrustChainValidator(gateway, trustControllerHost);
             } else {
-                ClientAttestationUtils.validateConfiguration(ignoreSslErrors, trustControllerHost);
+                ClientAttestationUtils.validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             }
             return validator;
         }
     }
 
-    private static void validateConfiguration(boolean ignoreSslErrors, String trustControllerHost) {
-        if (!java.util.Objects.equals(configuredIgnoreSslErrors, ignoreSslErrors) || !java.util.Objects.equals(configuredTrustControllerHost, trustControllerHost)) {
+    private static void validateConfiguration(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        if (!java.util.Objects.equals(configuredIgnoreSslErrors, ignoreSslErrors)
+                || !java.util.Objects.equals(configuredTrustControllerHost, trustControllerHost)
+                || !java.util.Objects.equals(configuredTrustControllerBaseUrl, trustControllerBaseUrl)) {
             throw new IllegalStateException("TrustControllerGateway already initialized with different configuration");
         }
     }
@@ -300,18 +349,8 @@ public final class ClientAttestationUtils {
         if (dpopAlgs != null) {
             b.dpopAlgorithms(dpopAlgs);
         }
-        // Optional attestation encoding policy (default: accept plain JWT and SD-JWT).
-        String format = ClientAttestationUtils.stringProp(inParameters, "extproperties.attestation_format");
-        if (format != null) {
-            if ("jwt".equalsIgnoreCase(format)) {
-                b.acceptSdJwt(false);
-            } else if ("sd-jwt".equalsIgnoreCase(format) || "sd_jwt".equalsIgnoreCase(format)) {
-                b.requireSdJwt(true);
-            }
-            // "either" (or anything else) leaves the default: accept both encodings
-        }
-        // Federation-gated disclosure (AS side): top-level claims this AS requires disclosed even under
-        // SD-JWT. Per-client via extproperties.attestation_required_claims, else a global default from the
+        // Required-claims policy (AS side): top-level claims this AS requires the attestation to carry.
+        // Per-client via extproperties.attestation_required_claims, else a global default from the
         // oidf.attestation.required.claims system property (comma-separated; e.g. "workload").
         Set<String> requiredClaims = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_required_claims");
         if (requiredClaims == null) {

@@ -74,7 +74,9 @@ class TrustChainValidatorPolicyTest {
         Map<String, String> responses = new HashMap<>();
         responses.put(LEAF + "/.well-known/openid-federation", leafConfig);
         responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig);
-        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(LEAF, StandardCharsets.UTF_8), subordinate);
+        // The gateway appends both sub and iss (OIDF 1.0 §8.1 requires both on federation_fetch_endpoint).
+        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(LEAF, StandardCharsets.UTF_8)
+                + "&iss=" + URLEncoder.encode(ANCHOR, StandardCharsets.UTF_8), subordinate);
         HttpGetClient http = (url, accept) -> {
             String jwt = responses.get(url);
             if (jwt == null) {

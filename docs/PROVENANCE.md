@@ -17,6 +17,32 @@ backports — never as parallel development.
 | `services/gm-api` | local `~/Source/idp-gm-api` `main` | subtree (full history) | PF servlet (`gm-api.war`) + `/mcp` add-on. The AS-agnostic **Go** Grant-Evaluation service was later extracted to [grant-evaluation-api](https://github.com/dphhyland/grant-evaluation-api); `idp-gm-api` is now a pointer. |
 | `deploy/` + `.github/workflows/deploy-*` | pf-oidf-modules | filter-repo path extraction | `deploy-demo.yml` stayed behind (the demo lives in pf-oidf-modules); triggers retargeted: push-to-main → staging, production via workflow_dispatch |
 
+## The 2026-07-31 reconciliation
+
+The drift rules below were written on 19 July and broke within three days. Between 22 and 24 July,
+five commits landed on `pf-oidf-modules@sd-jwt-rar-paz` — two of them **features touching the same
+attester classes this repo was independently changing on 24 and 28 July**. Neither side had the
+other's work, and both had edited `AttestationIssuanceServlet`, `AttestationIssuanceConfig` and
+`AttestationMinter`. It was a merge, not a fast-forward.
+
+Reconciled in this direction, because this repo is canonical:
+
+| Came here | From | Notes |
+|---|---|---|
+| `InstanceIdentity`, `InstanceAttestationValidator(s)`, `SpiffeInstanceAttestationValidator`, `WalletInstanceAttestationValidator` | `pf-oidf-modules@sd-jwt-rar-paz` `05df5ac` | folded into the evidence-type registry rather than kept as a parallel dispatch axis |
+| `FederationWalletProviderKeyResolver` | same branch, `6612272` | landed in `servlets/pf-integration`, beside its `FederationAttesterKeyResolver` sibling |
+
+**Kept from here**, where this repo was ahead: the reverse-mapping `issue()` that takes no
+`client_id`, `RemoteJwksCache`, `CimdMapping`'s single `fromProperties` path, `IssuanceClientResolver`
+with `pluginId()`, and the `*ClientResolver` names. The fork's `fromEntityMetadata` was **not**
+ported — `CimdMapping` already does that job and supports evidence types too.
+
+**Not ported, and deliberately:** the three demo/docs commits (`demo/spiffe-bootstrap`,
+`docs/explainers/*.html`) stay with the demos.
+
+The fork tip is preserved as tag **`pre-reconcile-sd-jwt-rar-paz`** (→ `78f676e`), pushed to
+`pf-oidf-modules`, so nothing is lost if the merge turns out to have missed something.
+
 ## 2026-08-01 — the CAS specification draft
 
 `docs/openid-client-attestation-service-1_0.md` ("OpenID Client Attestation Service for AI Agents 1.0
@@ -29,6 +55,22 @@ already declared non-canonical. **The implementation is not ported by this commi
 the fork's `client_id`-taking `AttestationIssuanceServlet.issue()`, which diverges from this repo's
 reverse-mapping version, and porting it is a separate three-way merge, not yet attempted. The
 pf-oidf-modules working tree is untouched otherwise.
+
+## Written here, not absorbed from anywhere
+
+Everything below is net-new to this repo and has no upstream. Recorded so a future provenance
+question has an answer other than silence.
+
+| Path | What it is |
+|---|---|
+| `libs/app-attest` | Apple App Attest verification (attestation + assertion) to Apple's pinned root |
+| `libs/device-instance` | the agent instance registry and the device Client Attestation minter |
+| `services/device-enrolment` | the agent platform backend — the Client Attester for on-device agents |
+| `services/demo-rs` | a resource server validating DPoP sender-constraint and the RFC 8693 `act` chain |
+| `plugins/instance-registry-datasource` | a PF `CustomDataSourceDriver` over the instance registry |
+| `libs/oidf-jose` → `JwsSigner`, `LocalJwkSigner`, `CompactJws` | `JwsSigner`/`LocalJwkSigner` **moved** here from `servlets/attestation-issuer` (a library cannot depend on a servlet module); `CompactJws` is new |
+| `libs/openid-federation` → `MetadataPolicy` | OIDF `metadata_policy` composition and application — did not exist before |
+>>>>>>> device-instance-identity
 
 ## What deliberately did NOT move
 
@@ -47,3 +89,25 @@ pf-oidf-modules working tree is untouched otherwise.
    cherry-pick/backport deliberately and say so in the commit message.
 3. The same `com.pingidentity.ps.oidf.*` FQCNs exist in the old repos — never mix old artifacts
    with monorepo artifacts on one classpath.
+
+### Rule 1 is prose, and prose did not hold
+
+It was written on 19 July and broken by 22 July, by someone reading the same README that says this
+repo is canonical. Two hundred lines of duplicated design and a three-way merge later, the lesson is
+that a convention nobody's tooling enforces is a convention that decays.
+
+So it is being made mechanical rather than restated more firmly:
+
+- a CI check in `pf-oidf-modules` that fails if `com/**/*.java` reappears there;
+- this repo's README naming it as the only home for module code.
+
+Both are tracked as part of retiring the fork. Until the check exists, rule 1 is still only prose.
+
+### A standing hazard while both repos have deploy trees
+
+`pf-oidf-modules` still carries `deploy/{fedhost,lighthouse,pingfederate}` and its own
+`deploy-{fedhost,lighthouse,pingfederate}.yml`, already diverged from this repo's — 
+`deploy-pingfederate.yml` by 109 lines. **Both repos can therefore deploy to the same Railway
+services from different definitions.** Nothing fires accidentally today (path-filtered or
+`workflow_dispatch`), but the two keep drifting, and the failure mode is a deploy that silently
+undoes the other repo's.

@@ -1,0 +1,95 @@
+# The two Azure attestation clients. Both authenticate with attest_jwt_client_auth (the two attestation
+# headers become the credential via ClientAttestationAuthFilter, backed by the shared bridge key), so
+# client_auth is PRIVATE_KEY_JWT with the bridge public JWKS — identical to the GKE/AWS demo clients.
+#
+# The shared PF config (the attestJwtATM access-token manager, the client_credentials access-token mapping
+# that stamps sub/act from the attestation, extended-property registration, server settings) is the same as
+# deploy/gke-spiffe-demo/pf/terraform — copy those files in alongside these two, minus the GCP count guards.
+
+locals {
+  attester_issuer = "https://attester.example.com"
+}
+
+# 1. AKS workload — Workload Identity Federation projected service-account token (aks-sa-token).
+#    Evidence: the pod's projected SA token (audience = attester), signed by the AKS cluster OIDC issuer,
+#    validated against the cluster's public JWKS at <issuer>openid/v1/jwks. sub
+#    system:serviceaccount:demo:gateway-agent maps to spiffe://<aks_trust_domain>/ns/demo/sa/gateway-agent —
+#    the identical path shape GKE/EKS use, so this client is a near-copy of demo_attest_eks.
+resource "pingfederate_oauth_client" "demo_attest_aks" {
+  client_id                        = "demo-attest-aks"
+  name                             = "Demo attester - AKS Workload Identity Federation workload"
+  grant_types                      = ["CLIENT_CREDENTIALS"]
+  client_auth                      = { type = "PRIVATE_KEY_JWT" }
+  jwks_settings                    = { jwks = var.bridge_public_jwks }
+  restrict_scopes                  = false
+  bypass_approval_page             = true
+  persistent_grant_expiration_type = "SERVER_DEFAULT"
+
+  default_access_token_manager_ref         = { id = "attestJwtATM" }
+  restrict_to_default_access_token_manager = true
+
+  extended_parameters = {
+    attestation_issuer          = { values = [local.attester_issuer] }
+    attestation_evidence        = { values = ["aks-sa-token"] }
+    attestation_trust_domain    = { values = [var.aks_trust_domain] }
+    attestation_bundle_url      = { values = [var.aks_jwks_url] }        # <cluster OIDC issuer>openid/v1/jwks
+    attestation_evidence_issuer = { values = [var.aks_cluster_issuer] }
+    attestation_instances = { values = [jsonencode([{
+      spiffe_id   = "spiffe://${var.aks_trust_domain}/ns/demo/sa/gateway-agent"
+      entitlement = [{ type = "account_information", actions = ["read"] },
+                     { type = "payment_initiation", actions = ["initiate"] }]
+      metadata    = { environment = "aks", attestor = "aks-workload-identity-federation" }
+    }])] }
+    attestation_issued_ttl  = { values = ["300"] }
+    attestation_required    = { values = ["true"] }
+    attestation_signing_jwk = { values = [var.attester_signing_jwk] }
+  }
+
+  depends_on = [pingfederate_extended_properties.props]
+}
+
+# 2. Azure Container Apps gateway — Azure managed identity via IMDS (azure-mi-token), opted into the
+#    entra-directory AssertedContextResolver (servlets/attestation-issuer). This is the leaf's distinctive
+#    piece: THE SAME evidenced workload identity, but a caller-asserted Entra Agent ID (a Copilot Studio
+#    agent oid Copilot Studio itself cannot cryptographically prove — see ../../README.md) can NARROW —
+#    never extend — this client's ceiling per request, via deploy/azure-aks-demo/agent-runtime/gateway.py's
+#    asserted_context. Evidence: an Entra-signed managed-identity token from Azure IMDS (audience =
+#    attester), validated against the tenant's public JWKS. sub is opaque; oid is the stable identifier,
+#    mapped to spiffe://<azure_mi_trust_domain>/azure/mi/<oid>.
+resource "pingfederate_oauth_client" "demo_attest_azure_gateway" {
+  client_id                        = "demo-attest-azure-gateway"
+  name                             = "Demo attester - Azure Container Apps gateway (Entra-asserted)"
+  grant_types                      = ["CLIENT_CREDENTIALS"]
+  client_auth                      = { type = "PRIVATE_KEY_JWT" }
+  jwks_settings                    = { jwks = var.bridge_public_jwks }
+  restrict_scopes                  = false
+  bypass_approval_page             = true
+  persistent_grant_expiration_type = "SERVER_DEFAULT"
+
+  default_access_token_manager_ref         = { id = "attestJwtATM" }
+  restrict_to_default_access_token_manager = true
+
+  extended_parameters = merge({
+    attestation_issuer          = { values = [local.attester_issuer] }
+    attestation_evidence        = { values = ["azure-mi-token"] }
+    attestation_trust_domain    = { values = [var.azure_mi_trust_domain] }
+    attestation_bundle_url      = { values = ["https://login.microsoftonline.com/${var.azure_tenant_id}/discovery/v2.0/keys"] }
+    attestation_evidence_issuer = { values = ["https://login.microsoftonline.com/${var.azure_tenant_id}/v2.0"] }
+    attestation_instances = { values = [jsonencode([{
+      spiffe_id   = "spiffe://${var.azure_mi_trust_domain}/azure/mi/${var.agent_execution_identity_oid}"
+      # The EVIDENCED ceiling — both account_information and payment_initiation. Whether a given request
+      # actually gets payment_initiation depends on the asserted Copilot agent's directory entry
+      # (EntraDirectoryAssertedContextResolver) narrowing it down further; this is the ceiling before that.
+      entitlement = [{ type = "account_information", actions = ["read"] },
+                     { type = "payment_initiation", actions = ["initiate"] }]
+      metadata    = { environment = "azure-container-apps", attestor = "azure-managed-identity" }
+    }])] }
+    attestation_issued_ttl  = { values = ["300"] }
+    attestation_required    = { values = ["true"] }
+    attestation_signing_jwk = { values = [var.attester_signing_jwk] }
+  }, var.enable_entra_asserted_context ? {
+    attestation_asserted_context_resolver = { values = ["entra-directory"] }
+  } : {})
+
+  depends_on = [pingfederate_extended_properties.props]
+}

@@ -20,6 +20,14 @@
             <excludes>
                 <exclude>commons-logging:commons-logging</exclude>
                 <exclude>org.slf4j:slf4j-api</exclude>
+                <!-- Every deployment of this war also drops jose4j-0.9.6.jar directly onto PF's
+                     shared classpath (deploy/pingfederate/Dockerfile). Bundling a second copy here
+                     (it's a transitive compile-scope dep of pf-integration/attestation-issuer/etc,
+                     so marking it `provided` on oidf-war's own direct dependency alone doesn't
+                     suppress it) causes `LinkageError: loader constraint violation` on
+                     org.jose4j.jwk.JsonWebKey the moment a servlet crosses the war's classloader
+                     boundary using a jose4j type also visible on the shared classpath. -->
+                <exclude>org.bitbucket.b_c:jose4j</exclude>
             </excludes>
         </dependencySet>
     </dependencySets>

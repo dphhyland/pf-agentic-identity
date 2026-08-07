@@ -69,7 +69,8 @@ class MultiTypeEntityMetadataTest {
         Map<String, String> responses = new HashMap<>();
         responses.put(AGENT + "/.well-known/openid-federation", agentConfig);
         responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig);
-        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(AGENT, StandardCharsets.UTF_8), subordinate);
+        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(AGENT, StandardCharsets.UTF_8)
+                + "&iss=" + URLEncoder.encode(ANCHOR, StandardCharsets.UTF_8), subordinate);
         HttpGetClient http = (url, accept) -> {
             String jwt = responses.get(url);
             if (jwt == null) {
@@ -120,7 +121,8 @@ class MultiTypeEntityMetadataTest {
         Map<String, String> responses = new HashMap<>();
         responses.put(rp + "/.well-known/openid-federation", rpConfig);
         responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig);
-        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(rp, StandardCharsets.UTF_8), subordinate);
+        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(rp, StandardCharsets.UTF_8)
+                + "&iss=" + URLEncoder.encode(ANCHOR, StandardCharsets.UTF_8), subordinate);
         HttpGetClient http = (url, accept) -> {
             String jwt = responses.get(url);
             if (jwt == null) {

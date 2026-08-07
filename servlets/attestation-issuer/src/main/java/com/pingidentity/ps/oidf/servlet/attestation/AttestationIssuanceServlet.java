@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
+import com.pingidentity.ps.oidf.common.AssertedContext;
+import com.pingidentity.ps.oidf.common.AssertedContextResolver;
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttesterClient;
 import com.pingidentity.ps.oidf.common.AttestationMinter;
@@ -11,6 +13,7 @@ import com.pingidentity.ps.oidf.common.AttesterSigningKey;
 import com.pingidentity.ps.oidf.common.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.common.ClientAttestationException;
+import com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver;
 import com.pingidentity.ps.oidf.common.FederationWalletProviderKeyResolver;
 import com.pingidentity.ps.oidf.common.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.common.InstanceAttestationValidator;
@@ -85,6 +88,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private volatile WorkloadIntrospector workloadIntrospector;
     private volatile AgentRegistry agentRegistry;
+    private volatile Map<String, AssertedContextResolver> assertedContextResolvers;
     private boolean challengeRequired;
 
     @Override
@@ -176,9 +180,33 @@ public class AttestationIssuanceServlet extends HttpServlet {
             workloadAttributes.putAll(introspected);
         }
 
+        // 5a. Optional second-stage resolution of a caller-ASSERTED (unverified) discriminator against the
+        //     already-evidenced instance — e.g. an Entra Agent ID oid Copilot Studio cannot cryptographically
+        //     prove (its agents share one Microsoft-owned blueprint; only the hosting workload has real
+        //     evidence). Off unless the client opts in via P_ASSERTED_CONTEXT_RESOLVER AND the caller actually
+        //     supplies one — every existing evidence-only client is completely unaffected. The produced
+        //     ceiling only ever NARROWS the evidenced ceiling (intersected below, step 6), never extends it.
+        List<Map<String, Object>> assertedCeiling = null;
+        if (config.assertedContextResolverId() != null && request.assertedContext != null) {
+            AssertedContextResolver resolver = assertedContextResolvers().get(config.assertedContextResolverId());
+            if (resolver == null) {
+                throw IssuanceException.invalidClient("unknown "
+                        + AttestationIssuanceConfig.P_ASSERTED_CONTEXT_RESOLVER + ": "
+                        + config.assertedContextResolverId());
+            }
+            AssertedContext asserted = resolver.resolve(instance, request.assertedContext, config);
+            if (!asserted.claims().isEmpty()) {
+                workloadAttributes.put("asserted", asserted.claims());
+            }
+            assertedCeiling = asserted.ceiling();
+        }
+
         // 6. Resolve the granted entitlement against the effective ceiling, then apply any
         //    selector-conditioned downscoping the policy requires.
         List<Map<String, Object>> ceiling = config.effectiveCeiling(binding);
+        if (assertedCeiling != null) {
+            ceiling = intersectCeilings(ceiling, assertedCeiling);
+        }
         List<Map<String, Object>> granted;
         if (!request.requestedDetails.isEmpty()) {
             try {
@@ -363,6 +391,74 @@ public class AttestationIssuanceServlet extends HttpServlet {
         }
         LOGGER.info((Object) ("Wallet instance attestation: statically trusted providers " + byProvider.keySet()));
         return new WalletInstanceAttestationValidator(new StaticAttesterKeyResolver(byProvider));
+    }
+
+    void setAssertedContextResolvers(Map<String, AssertedContextResolver> resolvers) {
+        this.assertedContextResolvers = resolvers;
+    }
+
+    /** The active {@link AssertedContextResolver} registry (by id), lazily built from the environment. */
+    Map<String, AssertedContextResolver> assertedContextResolvers() {
+        Map<String, AssertedContextResolver> local = this.assertedContextResolvers;
+        if (local == null) {
+            synchronized (this) {
+                if (this.assertedContextResolvers == null) {
+                    this.assertedContextResolvers = defaultAssertedContextResolvers();
+                }
+                local = this.assertedContextResolvers;
+            }
+        }
+        return local;
+    }
+
+    /**
+     * The runtime default: an Entra Agent ID directory resolver if {@code OIDF_ENTRA_AGENT_DIRECTORY} is
+     * configured, else an empty registry (no client can opt into a resolver that isn't registered — such a
+     * client's {@code attestation_asserted_context_resolver} then fails closed with {@code invalid_client},
+     * never silently ignored). Overridable so the lazy-init path is testable.
+     */
+    protected Map<String, AssertedContextResolver> defaultAssertedContextResolvers() {
+        Map<String, AssertedContextResolver> out = new LinkedHashMap<>();
+        EntraDirectoryAssertedContextResolver entra = entraDirectoryResolverFromEnv();
+        if (entra != null) {
+            LOGGER.info((Object) ("Asserted-context resolver registered: " + entra.id()));
+            out.put(entra.id(), entra);
+        }
+        return out;
+    }
+
+    /**
+     * Builds the Entra Agent ID directory resolver from {@code OIDF_ENTRA_AGENT_DIRECTORY} (a JSON object
+     * mapping asserted oid → directory entry). Returns null when unset or unparseable — a deployment with
+     * no directory configured simply has no client able to opt into {@link EntraDirectoryAssertedContextResolver#ID}.
+     */
+    static EntraDirectoryAssertedContextResolver entraDirectoryResolverFromEnv() {
+        String json = env("oidf.entra.agent.directory", "OIDF_ENTRA_AGENT_DIRECTORY");
+        return EntraDirectoryAssertedContextResolver.fromJson(json);
+    }
+
+    /**
+     * The intersection of two RFC 9396 ceilings: an entry from {@code base} survives only if it is also
+     * CONTAINED within {@code narrowing} (the same type + subset-field semantics {@link RarEntitlement#authorize}
+     * already enforces one direction). Used to fold an asserted-context ceiling in WITHOUT ever letting it
+     * grant beyond the evidenced instance's own ceiling — a union would defeat the entire point of "asserted
+     * context can only narrow, never extend."
+     */
+    private static List<Map<String, Object>> intersectCeilings(List<Map<String, Object>> base,
+                                                                List<Map<String, Object>> narrowing) {
+        if (base.isEmpty() || narrowing.isEmpty()) {
+            return List.of();
+        }
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Map<String, Object> entry : base) {
+            try {
+                RarEntitlement.authorize(List.of(entry), narrowing);
+                out.add(entry);
+            } catch (ClientAttestationException ignored) {
+                // Not covered by the asserted ceiling — dropped silently; this is narrowing, not an error.
+            }
+        }
+        return out;
     }
 
     /** A system property, falling back to an environment variable; null when neither is set. */
@@ -576,7 +672,22 @@ public class AttestationIssuanceServlet extends HttpServlet {
         request.format = asString(json.get("instance_attestation_format"));
         request.proof = asString(json.get("proof"));
         request.requestedDetails = asObjectList(json.get("authorization_details"));
+        request.assertedContext = assertedContextValue(json.get("asserted_context"));
         return request;
+    }
+
+    /**
+     * Extracts the {@code value} from an optional {@code asserted_context} request field
+     * ({@code {"type": "...", "value": "<discriminator>"}}) — a caller-supplied, UNVERIFIED discriminator
+     * (e.g. an Entra Agent ID {@code oid}) for a client-opted-in {@link AssertedContextResolver}. Absent or
+     * malformed is null, not an error: a client with no resolver configured never looks at this field.
+     */
+    private static String assertedContextValue(Object raw) {
+        if (!(raw instanceof Map)) {
+            return null;
+        }
+        Object value = ((Map<?, ?>) raw).get("value");
+        return value == null ? null : String.valueOf(value);
     }
 
     private static String asString(Object value) {
@@ -647,5 +758,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
         String format;
         String proof;
         List<Map<String, Object>> requestedDetails = List.of();
+        /** Optional caller-supplied, UNVERIFIED discriminator for an opted-in {@link AssertedContextResolver}. */
+        String assertedContext;
     }
 }

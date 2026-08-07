@@ -30,47 +30,93 @@ public final class OIDFederationUtils {
     private static volatile TrustChainValidator validator;
     private static volatile Boolean configuredIgnoreSslErrors;
     private static volatile String configuredTrustControllerHost;
+    private static volatile String configuredTrustControllerBaseUrl;
     private static final Object LOCK = new Object();
 
     private OIDFederationUtils() {
     }
 
-    private static void initialize(boolean ignoreSslErrors, String trustControllerHost) {
-        getGateway(ignoreSslErrors, trustControllerHost);
+    private static void initialize(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        getGateway(ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
     }
 
-    private static TrustControllerGateway getGateway(boolean ignoreSslErrors, String trustControllerHost) {
+    private static TrustControllerGateway getGateway(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        String effectiveBaseUrl = trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank() ? trustControllerHost : trustControllerBaseUrl;
         TrustControllerGateway local = gateway;
         if (local != null) {
-            validateConfiguration(ignoreSslErrors, trustControllerHost);
+            validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             return local;
         }
         synchronized (LOCK) {
             local = gateway;
             if (local == null) {
-                gateway = local = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors), trustControllerHost);
+                // trustControllerHost is the bare identity used for knownTrustAnchor matching;
+                // effectiveBaseUrl is the (possibly different) HTTP base actually needed to reach it —
+                // see HttpTrustControllerGateway's selfIssuer javadoc for why these can diverge.
+                gateway = local = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors), effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
+                configuredTrustControllerBaseUrl = effectiveBaseUrl;
                 validator = new TrustChainValidator(gateway, trustControllerHost);
             } else {
-                validateConfiguration(ignoreSslErrors, trustControllerHost);
+                validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             }
             return local;
         }
     }
 
-    private static void validateConfiguration(boolean ignoreSslErrors, String trustControllerHost) {
-        if (!Objects.equals(configuredIgnoreSslErrors, ignoreSslErrors) || !Objects.equals(configuredTrustControllerHost, trustControllerHost)) {
+    private static void validateConfiguration(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        if (!Objects.equals(configuredIgnoreSslErrors, ignoreSslErrors)
+                || !Objects.equals(configuredTrustControllerHost, trustControllerHost)
+                || !Objects.equals(configuredTrustControllerBaseUrl, trustControllerBaseUrl)) {
             throw new IllegalStateException("TrustControllerGateway already initialized with different configuration");
         }
     }
 
     public static boolean validateTrustChain(Object inObj) {
-        return validateTrustChain(inObj, RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST);
+        // RegistrationConfiguration._TRUST_CONTROLLER_HOST/_BASE_URL are only populated once some
+        // RegistrationConfiguration has been constructed — i.e. after /federation/register has been
+        // hit at least once in this JVM's lifetime (OpenIdRegistrationServlet.init() is lazy). A
+        // token-exchange request (this call site) can easily be the FIRST request PF ever serves, so
+        // don't depend on that ordering: fall back to the same env vars directly — mirrors
+        // ClientAttestationUtils.validateClientAttestation(Object)'s identical fallback.
+        String trustControllerHost = RegistrationConfiguration._TRUST_CONTROLLER_HOST;
+        if (trustControllerHost == null || trustControllerHost.isBlank()) {
+            trustControllerHost = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_HOST");
+        }
+        String trustControllerBaseUrl = RegistrationConfiguration._TRUST_CONTROLLER_BASE_URL;
+        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
+            trustControllerBaseUrl = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL");
+        }
+        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
+            trustControllerBaseUrl = trustControllerHost;
+        }
+        boolean ignoreSslErrors = RegistrationConfiguration._IGNORE_SSL_ERRORS
+                || Boolean.parseBoolean(System.getenv("OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
+        return validateTrustChain(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
     }
 
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
-        initialize(ignoreSslErrors, trustControllerHost);
+        return validateTrustChain(inObj, ignoreSslErrors, trustControllerHost, trustControllerHost);
+    }
+
+    /**
+     * Thin fail-closed shell around {@link #validateTrustChainInner}: an exception thrown before
+     * the inner method's own try/catch (e.g. during lazy gateway initialization) would otherwise
+     * surface at the OGNL boundary as an opaque "Method failed" with no logged detail — this shell
+     * catches and logs it. Mirrors ClientAttestationUtils.validateClientAttestation's identical shell.
+     */
+    public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        try {
+            return validateTrustChainInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
+        } catch (Throwable t) {
+            LOGGER.error("Trust chain validation failed with a non-Exception throwable", t);
+            return false;
+        }
+    }
+
+    private static boolean validateTrustChainInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        initialize(ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
         if (!(inObj instanceof Map)) {
             LOGGER.error("In parameters not instance of Map. " + inObj.getClass().getName());
             return false;

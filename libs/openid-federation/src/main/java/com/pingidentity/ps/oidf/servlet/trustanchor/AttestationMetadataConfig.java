@@ -20,7 +20,7 @@ final class AttestationMetadataConfig {
     private static final List<String> DEFAULT_ATTESTATION_ALGS = List.of("RS256", "PS256", "ES256");
     private static final List<String> DEFAULT_POP_ALGS = List.of("ES256", "RS256", "PS256");
     private static final List<String> DEFAULT_DPOP_ALGS = List.of("ES256", "RS256", "PS256");
-    private static final List<String> DEFAULT_FORMATS = List.of("jwt", "sd-jwt");
+    private static final List<String> DEFAULT_FORMATS = List.of("jwt");
     private static final List<String> DEFAULT_POP_METHODS = List.of("attestation_pop_jwt", "dpop_combined");
 
     private final List<String> tokenEndpointAuthMethodsSupported;

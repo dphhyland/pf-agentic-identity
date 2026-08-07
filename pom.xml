@@ -25,6 +25,8 @@
 
     <modules>
         <module>libs/oidf-jose</module>
+        <module>libs/app-attest</module>
+        <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
         <module>libs/openid-federation</module>
         <module>libs/agent-registry</module>
@@ -33,6 +35,10 @@
         <module>servlets/oidf-war</module>
         <module>servlets/ssf</module>
         <module>plugins/rar-paz-plugin</module>
+        <module>plugins/instance-registry-datasource</module>
+        <module>services/device-enrolment</module>
+        <module>services/demo-rs</module>
         <module>services/gm-api/servlet</module>
+        <module>demo/phone-simulator</module>
     </modules>
 </project>

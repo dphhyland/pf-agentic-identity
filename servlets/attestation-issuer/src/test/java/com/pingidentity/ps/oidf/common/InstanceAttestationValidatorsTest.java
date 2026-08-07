@@ -79,7 +79,9 @@ class InstanceAttestationValidatorsTest {
                         AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN,
                         AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN,
                         AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN,
-                        AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY),
+                        AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY,
+                        AttestationIssuanceConfig.EVIDENCE_AKS_SA_TOKEN,
+                        AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN),
                 registry.idsForFormat("spiffe"));
     }
 

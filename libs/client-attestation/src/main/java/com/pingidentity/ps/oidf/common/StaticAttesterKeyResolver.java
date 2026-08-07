@@ -36,6 +36,15 @@ public final class StaticAttesterKeyResolver implements AttesterKeyResolver {
     }
 
     /**
+     * Whether this file has an entry for the given attester — lets a caller (e.g.
+     * {@code FallbackAttesterKeyResolver}) distinguish "not in the static trust list, try
+     * elsewhere" from an actual verification failure, without relying on exception-message matching.
+     */
+    public boolean isRegistered(String attesterIssuer) {
+        return this.trustedKeysByIssuer.containsKey(attesterIssuer);
+    }
+
+    /**
      * Loads a mock-attester trust file: a JSON object mapping each attester {@code iss} (entity id)
      * to a JWKS object, e.g.
      * <pre>{ "https://attester.example.com": { "keys": [ { "kty":"EC", ... } ] } }</pre>

@@ -72,6 +72,8 @@ public final class InstanceAttestationValidators {
             new GcpSaTokenValidator(),
             new EksTokenValidator(),
             new AwsStsWebIdentityValidator(),
+            new AksWorkloadIdentityValidator(),
+            new AzureManagedIdentityValidator(),
             new WalletInstanceAttestationValidator(InstanceAttestationValidators::unconfiguredWalletTrust)));
 
     /**
