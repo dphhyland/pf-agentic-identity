@@ -35,6 +35,11 @@ import org.postgresql.ds.PGSimpleDataSource;
  *   APPLE_ALLOW_DEVELOPMENT       "true" to accept development App Attest. Off by default, on purpose
  *   UV_MAX_AGE_SECONDS            the server-side time-box (default 300)
  *   REQUIRE_COMPLIANT_DEVICE      "false" to allow minting on an unassessed device (default true)
+ *   OIDF_ATTESTATION_SUB          "client_id" flips the attestation sub to the registered client id
+ *                                 (Phase 2.5; requires OIDF_AGENT_CLIENT_ID). Absent/other → legacy
+ *                                 sub = instance id. agent_id carries the instance id either way
+ *   OIDF_AGENT_CLIENT_ID          the OAuth client the device agents are instances of — required when
+ *                                 OIDF_ATTESTATION_SUB=client_id, ignored otherwise
  * </pre>
  *
  * <p>Two defaults are deliberately strict, because the failure mode of getting them wrong is silent:
@@ -71,7 +76,7 @@ public final class Main {
         InstanceRegistry registry = new JdbcInstanceRegistry(dataSource);
 
         JwsSigner signer = new LocalJwkSigner(parseJwk(required("ENROLMENT_SIGNING_JWK")));
-        DeviceAttestationMinter minter = new DeviceAttestationMinter(issuer);
+        DeviceAttestationMinter minter = new DeviceAttestationMinter(issuer, subjectClientId());
 
         EnrolmentService service = new EnrolmentService(
                 new AppAttestVerifier(appAttestConfig),
@@ -122,6 +127,27 @@ public final class Main {
         LOGGER.info((Object) ("PingOne verifier: issuer=" + issuer
                 + " aal2Policies=" + assuranceByAcr.keySet()));
         return PingOneIdTokenVerifier.forEnvironment(issuer, clientId, assuranceByAcr);
+    }
+
+    /**
+     * The Phase 2.5 {@code sub} flip: returns the registered client id to mint as the attestation
+     * {@code sub} when {@code OIDF_ATTESTATION_SUB=client_id}, or {@code null} for the legacy
+     * instance-id {@code sub}. Fails closed: the flag set without {@code OIDF_AGENT_CLIENT_ID} refuses
+     * to start rather than silently minting legacy attestations an operator believes are flipped.
+     */
+    private static String subjectClientId() {
+        String mode = env("OIDF_ATTESTATION_SUB", "");
+        if (mode.isEmpty()) {
+            return null;
+        }
+        if (!"client_id".equals(mode)) {
+            throw new IllegalStateException(
+                    "OIDF_ATTESTATION_SUB must be unset or 'client_id', got: " + mode);
+        }
+        String clientId = required("OIDF_AGENT_CLIENT_ID");
+        LOGGER.info((Object) ("OIDF_ATTESTATION_SUB=client_id — attestation sub is the registered client "
+                + clientId + "; the instance identity rides as agent_id"));
+        return clientId;
     }
 
     private static DataSource dataSource(String url) {

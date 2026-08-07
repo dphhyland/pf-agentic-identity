@@ -22,8 +22,9 @@ import org.jose4j.jwt.NumericDate;
  * rather than left to the caller:
  *
  * <ul>
- *   <li><strong>The subject is pseudonymous.</strong> {@code sub} is the opaque instance identifier and
- *       nothing else. This artefact is presented on <em>every</em> token request, so any user
+ *   <li><strong>The instance identity is pseudonymous.</strong> The opaque instance identifier is
+ *       carried as {@code agent_id} (and, until the Phase 2.5 {@code sub} flip below, also as
+ *       {@code sub}). This artefact is presented on <em>every</em> token request, so any user
  *       identifier in it would be a permanent cross-resource-server correlation handle. The
  *       instance-to-human mapping exists only in the registry. There is deliberately no way to pass a
  *       user identifier to this minter.</li>
@@ -31,6 +32,15 @@ import org.jose4j.jwt.NumericDate;
  *       Device data is more sensitive than instance data, and an attestation travels further than a
  *       registry row.</li>
  * </ul>
+ *
+ * <p><strong>The Phase 2.5 {@code sub} flip.</strong> Historically {@code sub} was the instance
+ * identifier, which diverges from the ABCA draft ({@code sub} names the OAuth client) and would need
+ * one registered client per device. The target state is {@code sub} = the registered client id, with
+ * the instance identity as the {@code agent_id} claim — the same value the instance id already has, so
+ * audit joins, CAEP revocation keys and live tokens stay valid across the change. The flip is staged
+ * behind configuration ({@code subjectClientId}; wired from {@code OIDF_ATTESTATION_SUB} in the
+ * enrolment service's {@code Main}), default off: with no {@code subjectClientId} this minter behaves
+ * exactly as before, except that {@code agent_id} is now always emitted alongside.</p>
  *
  * <p>The lifetime is short — {@link #DEFAULT_LIFETIME} — because the attestation asserts device posture
  * and the user-verification policy in force, and both go stale. Re-minting costs one round trip and, so
@@ -49,9 +59,24 @@ public final class DeviceAttestationMinter {
     private final Duration lifetime;
     private final KeyStorageLevel keyStorage;
     private final KeyStorageLevel userAuthentication;
+    private final String subjectClientId;
 
     public DeviceAttestationMinter(String platformEntityId) {
-        this(platformEntityId, DEFAULT_LIFETIME, KeyStorageLevel.MODERATE, KeyStorageLevel.MODERATE);
+        this(platformEntityId, DEFAULT_LIFETIME, KeyStorageLevel.MODERATE, KeyStorageLevel.MODERATE, null);
+    }
+
+    /**
+     * @param subjectClientId the registered OAuth client id to mint as {@code sub} (the Phase 2.5 flip —
+     *                        see the class javadoc), or {@code null} for the legacy behaviour where
+     *                        {@code sub} is the instance identifier
+     */
+    public DeviceAttestationMinter(String platformEntityId, String subjectClientId) {
+        this(platformEntityId, DEFAULT_LIFETIME, KeyStorageLevel.MODERATE, KeyStorageLevel.MODERATE, subjectClientId);
+    }
+
+    public DeviceAttestationMinter(String platformEntityId, Duration lifetime,
+                                   KeyStorageLevel keyStorage, KeyStorageLevel userAuthentication) {
+        this(platformEntityId, lifetime, keyStorage, userAuthentication, null);
     }
 
     /**
@@ -59,9 +84,12 @@ public final class DeviceAttestationMinter {
      *                         chain a verifier resolves, since that is how the attester's keys are found
      * @param keyStorage       resistance of the key store. A Secure Enclave is a keystore, not a WSCD, so
      *                         {@link KeyStorageLevel#HIGH} is rejected — see the constructor guard
+     * @param subjectClientId  the registered OAuth client id to mint as {@code sub}, or {@code null} for
+     *                         the legacy instance-id {@code sub} (the Phase 2.5 flip, see class javadoc)
      */
     public DeviceAttestationMinter(String platformEntityId, Duration lifetime,
-                                   KeyStorageLevel keyStorage, KeyStorageLevel userAuthentication) {
+                                   KeyStorageLevel keyStorage, KeyStorageLevel userAuthentication,
+                                   String subjectClientId) {
         this.platformEntityId = requireText(platformEntityId, "platformEntityId");
         this.lifetime = Objects.requireNonNull(lifetime, "lifetime");
         if (lifetime.isNegative() || lifetime.isZero()) {
@@ -69,6 +97,7 @@ public final class DeviceAttestationMinter {
         }
         this.keyStorage = rejectOverclaim(keyStorage, "keyStorage");
         this.userAuthentication = rejectOverclaim(userAuthentication, "userAuthentication");
+        this.subjectClientId = subjectClientId == null || subjectClientId.isBlank() ? null : subjectClientId.trim();
     }
 
     /**
@@ -133,7 +162,12 @@ public final class DeviceAttestationMinter {
         // through the federation trust chain, and the draft puts attester trust establishment out of
         // scope. Recorded as a deliberate divergence in docs/claim-dictionary.md.
         claims.setIssuer(this.platformEntityId);
-        claims.setSubject(instance.id());
+        // Phase 2.5: sub is the registered client id when configured (the ABCA-conformant shape),
+        // else the legacy instance id. Either way agent_id below carries the instance identity.
+        claims.setSubject(this.subjectClientId != null ? this.subjectClientId : instance.id());
+        // The pseudonymous per-instance identity — the value the instance id has always had, renamed
+        // into its own claim so it survives the sub flip with audit joins and CAEP keys intact.
+        claims.setClaim("agent_id", instance.id());
         claims.setIssuedAt(NumericDate.fromSeconds(issuedAt.getEpochSecond()));
         claims.setExpirationTime(NumericDate.fromSeconds(expiresAt.getEpochSecond()));
 

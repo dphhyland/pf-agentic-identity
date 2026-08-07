@@ -16,7 +16,8 @@ acting as Client Attester; verified by PingFederate.
 | Claim | Spec status | Value here |
 |---|---|---|
 | `typ` (header) | REQUIRED | `oauth-client-attestation+jwt` |
-| `sub` | REQUIRED | The **opaque agent instance identifier**. Never the user, never the device. |
+| `sub` | REQUIRED | **In transition** (divergence 5). Legacy: the opaque agent instance identifier. Flipped (`OIDF_ATTESTATION_SUB=client_id`, default off): the **registered OAuth client id**, which is what the draft means by `sub`. Never the user, never the device, in either mode. |
+| `agent_id` | extension | The **opaque agent instance identifier** — the pseudonymous per-instance identity, always emitted. Same value the instance id has always had, so audit joins and CAEP revocation keys survive the `sub` flip. See divergence 5. |
 | `exp` | REQUIRED | `iat + 15 min` — see *Attestation lifetime* below |
 | `cnf.jwk` | REQUIRED (MUST use `jwk`) | The Secure Enclave P-256 public key |
 | `iat` | OPTIONAL | Always set |
@@ -146,8 +147,9 @@ draft-10 permits reuse. We reuse.
 **Why:** the linkability argument does not apply. An ARF wallet presents its WIA to many independent
 PID and attestation providers, so a reused artefact becomes a cross-provider correlation handle. Our
 attestation is presented to exactly one verifier — our own PingFederate — so there is no second party
-to correlate with. The `sub` is pseudonymous regardless (invariant 2), so even that single verifier
-learns no user identity from the attestation.
+to correlate with. The instance identity is pseudonymous regardless — carried as `agent_id`, and as
+`sub` until the divergence-5 flip — and the flipped `sub` is a registered client id; so in either mode
+that single verifier learns no user identity from the attestation.
 
 **Revisit if:** the attestation is ever presented to a second relying party. At that moment this
 divergence becomes a real privacy defect, not a justified simplification.
@@ -178,3 +180,31 @@ Fifteen minutes because re-minting is cheap: it costs one round trip and — whi
 still live — **no user prompt**. So the usual argument for long lifetimes (user friction) does not
 apply. CAEP covers the residual window between mints, and server-side UV recency (5 minutes) is
 checked independently at every issuance.
+
+### 5. `agent_id`: the instance identity as its own claim, and the `sub` flip
+
+Historically this attestation's `sub` was the opaque instance identifier — which diverged from the
+draft (whose `sub` names the OAuth client) and would have needed one registered client per phone to
+authenticate at a token endpoint. The SPIFFE/workload path never had this problem: its attester
+resolves the workload to a client and mints `sub` = client id from the start.
+
+The reconciliation (Phase 2.5) makes the instance identity a claim of its own:
+
+- **`agent_id` is always emitted**, carrying exactly the value the instance id has always had — a
+  rename, not a new identifier, so audit joins, CAEP revocation keys and any live token stay valid.
+  It is 256 random bits minted at enrolment, never derived from the user or device, and unique only
+  within its issuer: the full identity of an acting instance is the pair (`iss`, `agent_id`).
+- **`sub` flips to the registered client id** behind `OIDF_ATTESTATION_SUB=client_id`
+  (with `OIDF_AGENT_CLIENT_ID` naming the client; the flag without the client id refuses to start).
+  Default off: until the flip, `sub` and `agent_id` carry the same value, so nothing that still reads
+  `sub` breaks — and precisely because the two are equal then, a consumer wrongly reading `sub` for
+  the instance identity still passes on the legacy path. The device-path test fixtures therefore run
+  the flip ON and assert the two values **differ** (`DeviceAttestationMinterTest`).
+
+Migration order: mint on both paths (nothing reads it) → switch consumers (a no-op while the values
+are equal) → flip `sub` → delete the flag. Downstream, `agent_id` is what the delegation `act.sub`
+and the PDP's actor attribute carry; `sub`/`client_id` name the agent *type* and are never a
+per-instance identity.
+
+**Revisit if:** the ABCA draft ever defines its own per-instance claim — at which point `agent_id`
+should migrate to the standard name.

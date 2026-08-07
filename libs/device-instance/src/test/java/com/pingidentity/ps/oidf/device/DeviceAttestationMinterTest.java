@@ -65,10 +65,34 @@ class DeviceAttestationMinterTest {
     }
 
     @Test
-    void subjectIsTheOpaqueInstanceIdentifier() throws Exception {
+    void subjectIsTheOpaqueInstanceIdentifierUntilTheFlip() throws Exception {
         JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM));
         assertEquals(instance.id(), claims.getSubject());
         assertEquals(PLATFORM, claims.getIssuer());
+        // Phase 2.5 stage ①: agent_id is minted on the legacy path too, carrying the same value —
+        // consumers can switch to it before the sub flip with nothing observable changing.
+        assertEquals(instance.id(), claims.getClaimValueAsString("agent_id"));
+    }
+
+    /**
+     * The Phase 2.5 flip. Deliberately asserts {@code sub} and {@code agent_id} DIFFER — on the legacy
+     * path the two are equal, so a consumer that wrongly reads {@code sub} for the instance identity
+     * still passes there; only a flipped fixture can catch it (the plan's own stated test hazard).
+     */
+    @Test
+    void flippedSubjectIsTheClientIdAndAgentIdKeepsTheInstanceIdentity() throws Exception {
+        String clientId = "https://rp.example.com";
+        JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM, clientId));
+        assertEquals(clientId, claims.getSubject());
+        assertEquals(instance.id(), claims.getClaimValueAsString("agent_id"));
+        assertFalse(claims.getSubject().equals(claims.getClaimValueAsString("agent_id")),
+                "the flip is only meaningful if sub no longer carries the instance identity");
+    }
+
+    @Test
+    void aBlankSubjectClientIdMeansLegacyNotAnEmptySub() throws Exception {
+        JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM, "   "));
+        assertEquals(instance.id(), claims.getSubject());
     }
 
     /**
