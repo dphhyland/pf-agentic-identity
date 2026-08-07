@@ -1,0 +1,66 @@
+# AKS Workload Identity Federation workload. The projected serviceAccountToken volume mints a token with
+# the ATTESTER as its audience, signed by the cluster's OIDC issuer. The attester validates it against the
+# cluster's public JWKS and maps system:serviceaccount:demo:gateway-agent to a SPIFFE ID.
+#
+# Requires the AKS cluster to have been created with --enable-oidc-issuer --enable-workload-identity (see
+# ../azure/bootstrap.sh) — that is what makes the cluster's OIDC issuer publicly resolvable and lets a pod's
+# projected token carry a custom audience at all; a plain AKS cluster does neither.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway-agent
+  namespace: demo
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway-agent
+  namespace: demo
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: gateway-agent }
+  template:
+    metadata:
+      labels: { app: gateway-agent }
+    spec:
+      serviceAccountName: gateway-agent
+      containers:
+        - name: workload
+          image: IMAGE                       # set to the pushed ACR image at deploy time
+          ports:
+            - { name: http, containerPort: 8080 }
+          env:
+            - name: ATTESTER_BASE_URL
+              value: "http://pingfederate.pf:9080"   # the PF service in-cluster
+            - name: PF_TOKEN_AUD
+              value: "https://localhost:9031"
+            - name: AKS_TOKEN_FILE
+              value: "/var/run/secrets/tokens/attester-token"
+          volumeMounts:
+            - name: attester-token
+              mountPath: /var/run/secrets/tokens
+              readOnly: true
+      volumes:
+        - name: attester-token
+          projected:
+            sources:
+              - serviceAccountToken:
+                  audience: "https://attester.example.com"   # == the attester's evidence_audience
+                  expirationSeconds: 3600
+                  path: attester-token
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway-agent
+  namespace: demo
+spec:
+  selector: { app: gateway-agent }
+  ports:
+    - { port: 80, targetPort: 8080 }

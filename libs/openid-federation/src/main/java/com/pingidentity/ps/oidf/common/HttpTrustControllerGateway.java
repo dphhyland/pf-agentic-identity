@@ -25,15 +25,38 @@ implements TrustControllerGateway {
     private static final String JSON_ACCEPT = "application/json";
     private final HttpGetClient http;
     private final String trustControllerBaseUrl;
+    private final String selfIssuer;
     private final SubordinateStatementCache subordinateStatementCache;
 
     public HttpTrustControllerGateway(HttpGetClient http, String trustControllerBaseUrl) {
-        this(http, trustControllerBaseUrl, new SubordinateStatementCache());
+        this(http, trustControllerBaseUrl, null, new SubordinateStatementCache());
     }
 
     public HttpTrustControllerGateway(HttpGetClient http, String trustControllerBaseUrl, SubordinateStatementCache subordinateStatementCache) {
+        this(http, trustControllerBaseUrl, null, subordinateStatementCache);
+    }
+
+    /**
+     * @param selfIssuer the trust controller's own federation identity (a bare, possibly
+     *     path-less issuer string, e.g. PF's self-computed OAuth issuer) — distinct from
+     *     {@code trustControllerBaseUrl}, which is the HTTP base actually needed to reach it (may
+     *     carry a context path such as {@code /oidf}). When an {@code issuer}/{@code authorityIssuer}
+     *     parameter passed to a fetch method equals this value, the fetch is redirected to
+     *     {@code trustControllerBaseUrl} instead of constructing a URL from the identity string
+     *     directly — otherwise a self-referential fetch (the trust controller resolving a chain that
+     *     bottoms out at itself) would try to reach its own {@code .well-known} at its bare identity
+     *     path, which is frequently not where it's actually served. Pass {@code null} to disable this
+     *     (matches the pre-existing behaviour, appropriate when this gateway never needs to fetch its
+     *     own trust controller's statements).
+     */
+    public HttpTrustControllerGateway(HttpGetClient http, String trustControllerBaseUrl, String selfIssuer) {
+        this(http, trustControllerBaseUrl, selfIssuer, new SubordinateStatementCache());
+    }
+
+    public HttpTrustControllerGateway(HttpGetClient http, String trustControllerBaseUrl, String selfIssuer, SubordinateStatementCache subordinateStatementCache) {
         this.http = Objects.requireNonNull(http, "http");
         this.trustControllerBaseUrl = normalizeBaseUrl(Objects.requireNonNull(trustControllerBaseUrl, "trustControllerBaseUrl"));
+        this.selfIssuer = selfIssuer;
         this.subordinateStatementCache = Objects.requireNonNull(subordinateStatementCache, "subordinateStatementCache");
     }
 
@@ -71,10 +94,20 @@ implements TrustControllerGateway {
             }
             return cached;
         }
+        String pending = pendingWrites != null ? pendingWrites.find(issuer, issuer) : null;
+        if (pending != null) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(String.format("fetchEntityStatement-pending-found: issuer(%s)", issuer));
+            }
+            return pending;
+        }
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchEntityStatement-cache-not-found: issuer(%s)", issuer));
         }
-        String jwt = this.http.get(issuer + "/.well-known/openid-federation", ENTITY_STATEMENT_ACCEPT);
+        // A self-referential fetch (issuer is the trust controller itself) uses the actual reachable
+        // base URL rather than appending .well-known to the bare identity string — see selfIssuer javadoc.
+        String fetchBase = Objects.equals(issuer, this.selfIssuer) ? this.trustControllerBaseUrl : issuer;
+        String jwt = this.http.get(fetchBase + "/.well-known/openid-federation", ENTITY_STATEMENT_ACCEPT);
         this.recordCacheWrite(issuer, issuer, jwt, pendingWrites);
         return jwt;
     }
@@ -109,6 +142,13 @@ implements TrustControllerGateway {
             }
             return cached;
         }
+        String pending = pendingWrites != null ? pendingWrites.find(authorityIssuer, subject) : null;
+        if (pending != null) {
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug(String.format("fetchSubordinateStatement-pending-found: issuer(%s) subject(%s)", authorityIssuer, subject));
+            }
+            return pending;
+        }
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchSubordinateStatement-cache-not-found: issuer(%s) subject(%s)", authorityIssuer, subject));
         }
@@ -116,7 +156,10 @@ implements TrustControllerGateway {
             throw new IllegalStateException("Authority " + authorityIssuer + " does not publish a federation_fetch_endpoint and cannot resolve subordinate statements");
         }
         endpoint = (String)endpointValue;
-        String url = endpoint + (endpoint.contains("?") ? "&" : "?") + "sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8);
+        // Per OpenID Federation 1.0 §8.1, federation_fetch_endpoint requires both iss and sub.
+        String url = endpoint + (endpoint.contains("?") ? "&" : "?")
+                + "sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8)
+                + "&iss=" + URLEncoder.encode(authorityIssuer, StandardCharsets.UTF_8);
         String jwt = this.http.get(url, "application/entity-statement+jwt");
         this.recordCacheWrite(authorityIssuer, subject, jwt, pendingWrites);
         return jwt;

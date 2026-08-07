@@ -482,6 +482,124 @@ class AttestationIssuanceServletTest {
         assertNotNull(body.get("attestation"));
     }
 
+    // ---- asserted-context resolver (Entra Agent ID directory) -------------------------------------
+
+    private static final String ENTRA_OID = "d7c5a2b1-0000-4000-8000-copilot0demo";
+
+    @Test
+    void noResolverConfiguredIsCompletelyUnaffectedByAssertedContext() throws Exception {
+        // A client with NO attestation_asserted_context_resolver set — the default, and every existing
+        // GCP/AWS/wallet client — must be byte-for-byte unaffected even if a caller sends asserted_context.
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.assertedContext = ENTRA_OID; // present, but the client never opted in
+        Map<String, Object> body = servlet.issue(req);
+        String attestation = (String) body.get("attestation");
+        assertRoundTrips(attestation);
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]),
+                StandardCharsets.UTF_8);
+        assertTrue(!payload.contains("\"asserted\""), payload);
+    }
+
+    @Test
+    void assertedContextOmittedSkipsResolutionEvenWhenClientOptsIn() throws Exception {
+        // The client opts in, but the CALLER doesn't supply asserted_context — resolution is skipped
+        // entirely (Track A: a direct call with no Copilot-Studio-style upstream context still works,
+        // unrestricted by a resolver it never invoked).
+        servlet.setClientResolver(fixedResolver(configWithAssertedContext()));
+        servlet.setAssertedContextResolvers(entraResolvers());
+        List<Map<String, Object>> requested = List.of(Map.of("type", "payment_initiation", "actions",
+                List.of("initiate")));
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), requested));
+        assertRoundTrips((String) body.get("attestation"));
+    }
+
+    @Test
+    void assertedContextNarrowsTheCeilingToTheDirectoryEntryGroups() throws Exception {
+        // The evidenced binding is entitled to BOTH account_information and payment_initiation, but the
+        // asserted Copilot agent's directory entry only covers account_information (it's not in the
+        // payments group) — the effective ceiling after intersection excludes payment_initiation.
+        servlet.setClientResolver(fixedResolver(configWithAssertedContext()));
+        servlet.setAssertedContextResolvers(entraResolvers());
+
+        AttestationIssuanceServlet.IssuanceRequest denied =
+                request(SPIFFE_ID, ISSUER, newProof(null),
+                        List.of(Map.of("type", "payment_initiation", "actions", List.of("initiate"))));
+        denied.assertedContext = ENTRA_OID;
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(denied));
+        assertEquals("access_denied", e.error());
+
+        AttestationIssuanceServlet.IssuanceRequest allowed =
+                request(SPIFFE_ID, ISSUER, newProof(null),
+                        List.of(Map.of("type", "account_information", "actions", List.of("read"))));
+        allowed.assertedContext = ENTRA_OID;
+        Map<String, Object> body = servlet.issue(allowed);
+        String attestation = (String) body.get("attestation");
+        assertRoundTrips(attestation);
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]),
+                StandardCharsets.UTF_8);
+        // The asserted claims land under workload.attributes.asserted, labeled distinctly from proven facts.
+        assertTrue(payload.contains("\"asserted\""), payload);
+        assertTrue(payload.contains(ENTRA_OID), payload);
+    }
+
+    @Test
+    void unknownAssertedOidIsAccessDenied() throws Exception {
+        servlet.setClientResolver(fixedResolver(configWithAssertedContext()));
+        servlet.setAssertedContextResolvers(entraResolvers());
+        AttestationIssuanceServlet.IssuanceRequest req =
+                request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.assertedContext = "ffffffff-not-in-directory";
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("access_denied", e.error());
+    }
+
+    @Test
+    void clientOptingIntoAnUnregisteredResolverFailsClosed() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_BUNDLE,
+                new JsonWebKeySet(JsonWebKey.Factory.newJwk(publicParams(bundleKey))).toJson());
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK,
+                org.jose4j.json.JsonUtil.toJson(privateParams(attesterKey)));
+        props.put(AttestationIssuanceConfig.P_INSTANCES, "[{\"spiffe_id\":\"" + SPIFFE_ID + "\"}]");
+        props.put(AttestationIssuanceConfig.P_ASSERTED_CONTEXT_RESOLVER, "no-such-resolver");
+        servlet.setClientResolver(fixedResolver(AttestationIssuanceConfig.fromProperties(props)));
+        // No setAssertedContextResolvers() call — the registry is empty (no OIDF_ENTRA_AGENT_DIRECTORY set).
+        AttestationIssuanceServlet.IssuanceRequest req =
+                request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.assertedContext = ENTRA_OID;
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("invalid_client", e.error());
+    }
+
+    /** A client entitled to accounts AND payments at the evidence layer; the asserted layer narrows it. */
+    private AttestationIssuanceConfig configWithAssertedContext() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_BUNDLE,
+                new JsonWebKeySet(JsonWebKey.Factory.newJwk(publicParams(bundleKey))).toJson());
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK,
+                org.jose4j.json.JsonUtil.toJson(privateParams(attesterKey)));
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"" + SPIFFE_ID + "\","
+                        + "\"entitlement\":[{\"type\":\"account_information\",\"actions\":[\"read\"]},"
+                        + "{\"type\":\"payment_initiation\",\"actions\":[\"initiate\"]}]}]");
+        props.put(AttestationIssuanceConfig.P_ASSERTED_CONTEXT_RESOLVER,
+                com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver.ID);
+        return AttestationIssuanceConfig.fromProperties(props);
+    }
+
+    /** An Entra Agent ID directory with one registered Copilot agent, accounts-only (no payments group). */
+    private Map<String, com.pingidentity.ps.oidf.common.AssertedContextResolver> entraResolvers() {
+        com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver resolver =
+                com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver.fromJson(
+                        "{\"" + ENTRA_OID + "\":{"
+                                + "\"display_name\":\"Northwind Copilot (demo)\","
+                                + "\"groups\":[\"copilot-bridge-users\"],"
+                                + "\"ceiling\":[{\"type\":\"account_information\",\"actions\":[\"read\"]}]}}");
+        return Map.of(resolver.id(), resolver);
+    }
+
     // ---- fixtures ---------------------------------------------------------------------------------
 
     private AttestationIssuanceConfig config() throws Exception {

@@ -1,0 +1,6 @@
+# Provider binaries, saved plans and state are build artefacts, not source.
+# Matches the convention in deploy/gke-spiffe-demo/pf/terraform.
+.terraform/
+*.plan
+terraform.tfstate
+terraform.tfstate.backup

@@ -22,7 +22,10 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * configuration at {@code /.well-known/openid-federation} and the federation entity, fetch, list
  * and resolve endpoints, delegating to {@link FederationService} and applying optional CORS headers.
  */
-@WebServlet(urlPatterns={"/.well-known/openid-federation", "/federation/entity", "/federation/fetch", "/federation/list", "/federation/resolve"})
+// loadOnStartup: init (and the subordinate prewarm it kicks off) must run at war deploy, not
+// lazily on first request — lazy init would put the prewarm INSIDE the first token exchange,
+// which is the exact cold-fetch-on-the-request-path problem it exists to remove.
+@WebServlet(urlPatterns={"/.well-known/openid-federation", "/federation/entity", "/federation/fetch", "/federation/list", "/federation/resolve"}, loadOnStartup=1)
 public class OpenIdFederationServlet
 extends HttpServlet {
     private static final long serialVersionUID = 1L;
@@ -34,9 +37,18 @@ extends HttpServlet {
         super.init(config);
         try {
             this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
+            // The war's context path (e.g. "/oidf") — the entity's identity is PF's path-less OAuth
+            // issuer, but the /federation/* endpoints it advertises live under this prefix. Without
+            // it a peer following federation_fetch_endpoint gets a 404 at the root path.
+            String contextPath = config.getServletContext() == null ? "" : config.getServletContext().getContextPath();
             this.federationService = new FederationService(this.federationConfiguration,
                 new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()),
-                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()));
+                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()),
+                contextPath);
+            // Fetch each configured subordinate's entity configuration off the request path —
+            // a cold cache otherwise puts a live cross-network fetch inside the first token
+            // exchange after every restart (see FederationService#prewarmSubordinatesAsync).
+            this.federationService.prewarmSubordinatesAsync();
         }
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);

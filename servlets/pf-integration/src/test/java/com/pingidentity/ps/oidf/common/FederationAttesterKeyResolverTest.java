@@ -52,7 +52,8 @@ class FederationAttesterKeyResolverTest {
         Map<String, String> responses = new HashMap<>();
         responses.put(ATTESTER + "/.well-known/openid-federation", attesterConfig);
         responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig);
-        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(ATTESTER, StandardCharsets.UTF_8), subordinate);
+        responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(ATTESTER, StandardCharsets.UTF_8)
+                + "&iss=" + URLEncoder.encode(ANCHOR, StandardCharsets.UTF_8), subordinate);
         return (url, accept) -> {
             String jwt = responses.get(url);
             if (jwt == null) {

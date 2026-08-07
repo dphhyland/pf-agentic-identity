@@ -183,6 +183,24 @@ public final class SubordinateStatementCache {
             }
         }
 
+        /**
+         * A statement already fetched and staged EARLIER IN THIS SAME chain walk — checked
+         * before firing another live fetch for the same (authorityIssuer, subject), since
+         * staged writes aren't visible in the shared cache until {@link #commit()} runs at
+         * the end of the walk. Without this, a single {@code validate()} call that needs the
+         * same entity statement more than once (e.g. once while walking authority_hints, again
+         * while verifying a signature against it) fetches it over the network every time.
+         */
+        public String find(String authorityIssuer, String subject) {
+            for (int i = this.writes.size() - 1; i >= 0; i--) {
+                BufferedWrite w = this.writes.get(i);
+                if (w.authorityIssuer.equals(authorityIssuer) && w.subject.equals(subject)) {
+                    return w.jwt;
+                }
+            }
+            return null;
+        }
+
         public void commit() {
             if (this.cache == null || this.writes.isEmpty()) {
                 this.writes.clear();

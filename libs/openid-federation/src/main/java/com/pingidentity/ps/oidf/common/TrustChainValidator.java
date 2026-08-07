@@ -81,6 +81,15 @@ public final class TrustChainValidator {
             break;
         }
         if (orderedChainEntries == null) {
+            StringBuilder dump = new StringBuilder();
+            for (Map.Entry<String, List<ChainEntry>> e : entriesBySubject.entrySet()) {
+                for (ChainEntry ce : e.getValue()) {
+                    dump.append("[sub=").append(ce.subject).append(" iss=").append(ce.issuer).append("] ");
+                }
+            }
+            LOGGER.info(String.format(
+                    "trust-chain-resolution-failed: expectedRpIssuer(%s) knownTrustAnchor(%s) leafAuthorityHints(%s) receivedEntries(%s)",
+                    expectedRpIssuer, this.knownTrustAnchor, authorityHints, dump));
             throw new IllegalArgumentException("No authority_hint from the leaf leads to the configured known trust anchor: " + this.knownTrustAnchor);
         }
         JwtClaims verifiedLeaf = null;
@@ -109,7 +118,22 @@ public final class TrustChainValidator {
             if (entry.jwt != null) {
                 int lastIndex = orderedChainEntries.size() - 1;
                 Map<String, Object> jwks = i < lastIndex ? orderedChainEntries.get(i + 1).jwks : null;
-                JwtClaims verified = jwks != null ? JwtCodec.verifyAgainstInlineJwks(entry.jwt, jwks, entry.issuer, this.acceptedSigningAlgorithms) : this.fetchVerifiedClaims(entry.jwt, pendingWrites);
+                JwtClaims verified;
+                if (jwks != null) {
+                    verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, jwks, entry.issuer, this.acceptedSigningAlgorithms);
+                } else if (Objects.equals(entry.subject, entry.issuer) && entry.jwks != null) {
+                    // Self-signed Entity Configuration with no superior statement after it in the
+                    // route: per OpenID Federation §3.2 an Entity Configuration is verified with
+                    // the Federation Entity Keys it itself carries. Chain-position trust in this
+                    // subject was already established during the walk (the trust anchor's
+                    // subordinate statement for it resolved successfully) — re-fetching the same
+                    // statement from the entity's .well-known just to re-verify it added a live
+                    // cross-cloud HTTP call to every token request, and was the residual
+                    // stall/timeout source after pushed chains eliminated the walk-time fetch.
+                    verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, entry.jwks, entry.issuer, this.acceptedSigningAlgorithms);
+                } else {
+                    verified = this.fetchVerifiedClaims(entry.jwt, pendingWrites);
+                }
                 if (verifiedLeaf == null) {
                     verifiedLeaf = verified;
                 }
@@ -233,11 +257,11 @@ public final class TrustChainValidator {
                 try {
                     jwt = this.gateway.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites);
                     if (jwt != null && !jwt.isBlank()) break block4;
-                    LOGGER.debug("fetchSubordinateStatement returned empty body for sub=" + subject + ", iss=" + authorityIssuer);
+                    LOGGER.info("fetchSubordinateStatement returned empty body for sub=" + subject + ", iss=" + authorityIssuer);
                     return null;
                 }
                 catch (Exception e) {
-                    LOGGER.debug("Failed to fetch subordinate statement for sub=" + subject + ", iss=" + authorityIssuer + ": " + e.getMessage());
+                    LOGGER.info("Failed to fetch subordinate statement for sub=" + subject + ", iss=" + authorityIssuer + ": " + e.getMessage());
                     return null;
                 }
             }
@@ -245,11 +269,11 @@ public final class TrustChainValidator {
                 entry = new ChainEntry(jwt, JwtCodec.parseUnverifiedClaims(jwt));
             }
             catch (Exception parseFailure) {
-                LOGGER.debug("Failed to parse fetched entity statement: " + parseFailure.getMessage());
+                LOGGER.info("Failed to parse fetched entity statement: " + parseFailure.getMessage());
                 return null;
             }
             if (Objects.equals(entry.subject, subject) && Objects.equals(entry.issuer, authorityIssuer)) break block5;
-            LOGGER.debug("Fetched subordinate statement did not match expectations: requested sub=" + subject + ", iss=" + authorityIssuer + " but got sub=" + entry.subject + ", iss=" + entry.issuer);
+            LOGGER.info("Fetched subordinate statement did not match expectations: requested sub=" + subject + ", iss=" + authorityIssuer + " but got sub=" + entry.subject + ", iss=" + entry.issuer);
             return null;
         }
         return entry;
@@ -263,11 +287,11 @@ public final class TrustChainValidator {
                 try {
                     jwt = this.gateway.fetchEntityStatement(subject, maxAgeFromIatSeconds, pendingWrites);
                     if (jwt != null && !jwt.isBlank()) break block4;
-                    LOGGER.debug("fetchEntityStatement returned empty body for subject=" + subject);
+                    LOGGER.info("fetchEntityStatement returned empty body for subject=" + subject);
                     return null;
                 }
                 catch (Exception e) {
-                    LOGGER.debug("Failed to fetch entity configuration for " + subject + ": " + e.getMessage());
+                    LOGGER.info("Failed to fetch entity configuration for " + subject + ": " + e.getMessage());
                     return null;
                 }
             }
@@ -275,11 +299,11 @@ public final class TrustChainValidator {
                 entry = new ChainEntry(jwt, JwtCodec.parseUnverifiedClaims(jwt));
             }
             catch (Exception parseFailure) {
-                LOGGER.debug("Failed to parse fetched entity statement: " + parseFailure.getMessage());
+                LOGGER.info("Failed to parse fetched entity statement: " + parseFailure.getMessage());
                 return null;
             }
             if (Objects.equals(entry.subject, subject) && Objects.equals(entry.issuer, subject)) break block5;
-            LOGGER.debug("Fetched entity configuration was not self-signed for subject=" + subject + ": sub=" + entry.subject + ", iss=" + entry.issuer);
+            LOGGER.info("Fetched entity configuration was not self-signed for subject=" + subject + ": sub=" + entry.subject + ", iss=" + entry.issuer);
             return null;
         }
         return entry;
@@ -287,10 +311,15 @@ public final class TrustChainValidator {
 
     private static ChainEntry findEntry(List<ChainEntry> entries, String issuer) {
         if (entries == null) {
+            LOGGER.info(String.format("findEntry: no entries at all for wanted issuer(%s len=%d)", issuer, issuer == null ? -1 : issuer.length()));
             return null;
         }
         for (ChainEntry entry : entries) {
-            if (!Objects.equals(entry.issuer, issuer)) continue;
+            boolean match = Objects.equals(entry.issuer, issuer);
+            LOGGER.info(String.format("findEntry: candidate iss(%s len=%d) vs wanted(%s len=%d) -> %s",
+                    entry.issuer, entry.issuer == null ? -1 : entry.issuer.length(),
+                    issuer, issuer == null ? -1 : issuer.length(), match));
+            if (!match) continue;
             return entry;
         }
         return null;

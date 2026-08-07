@@ -37,6 +37,8 @@ public final class AttestationIssuanceConfig {
     public static final String P_EVIDENCE = "attestation_evidence";
     public static final String P_BUNDLE_URL = "attestation_bundle_url";
     public static final String P_EVIDENCE_ISSUER = "attestation_evidence_issuer";
+    /** Opts a client into a second-stage {@link AssertedContextResolver}, named by id; absent = feature off. */
+    public static final String P_ASSERTED_CONTEXT_RESOLVER = "attestation_asserted_context_resolver";
 
     /** Evidence type: a SPIFFE JWT-SVID (the default). */
     public static final String EVIDENCE_SPIFFE_JWT = "spiffe-jwt";
@@ -49,6 +51,11 @@ public final class AttestationIssuanceConfig {
     /** Evidence type: an AWS-signed OIDC token from {@code sts:GetWebIdentityToken} (any AWS workload,
      *  including Bedrock AgentCore). */
     public static final String EVIDENCE_AWS_STS_WEB_IDENTITY = "aws-sts-web-identity";
+    /** Evidence type: an AKS-projected Kubernetes service-account token (Azure Workload Identity Federation). */
+    public static final String EVIDENCE_AKS_SA_TOKEN = "aks-sa-token";
+    /** Evidence type: an Entra-signed Azure managed-identity token (Container Apps / VM / Functions), obtained
+     *  from Azure IMDS. */
+    public static final String EVIDENCE_AZURE_MI_TOKEN = "azure-mi-token";
     /** Evidence type: a digital wallet's Wallet Instance Attestation, signed by its Wallet Provider. */
     public static final String EVIDENCE_WALLET_INSTANCE_ATTESTATION = "wallet-instance-attestation";
 
@@ -65,12 +72,13 @@ public final class AttestationIssuanceConfig {
     private final String evidenceType;
     private final String bundleUrl;
     private final String evidenceIssuer;
+    private final String assertedContextResolverId;
 
     private AttestationIssuanceConfig(String issuer, long ttlSeconds, List<JsonWebKey> bundleKeys,
                                       List<Map<String, Object>> clientCeiling, String signingKeyRef,
                                       Map<String, Object> signingJwk, String expectedTrustDomain,
                                       List<SpiffeBinding> bindings, String evidenceType, String bundleUrl,
-                                      String evidenceIssuer) {
+                                      String evidenceIssuer, String assertedContextResolverId) {
         this.issuer = issuer;
         this.ttlSeconds = ttlSeconds;
         this.bundleKeys = bundleKeys;
@@ -82,6 +90,7 @@ public final class AttestationIssuanceConfig {
         this.evidenceType = evidenceType;
         this.bundleUrl = bundleUrl;
         this.evidenceIssuer = evidenceIssuer;
+        this.assertedContextResolverId = assertedContextResolverId;
     }
 
     /**
@@ -149,9 +158,10 @@ public final class AttestationIssuanceConfig {
         }
         String evidenceIssuer = trimmed(props.get(P_EVIDENCE_ISSUER));
         List<SpiffeBinding> bindings = parseInstances(trimmed(props.get(P_INSTANCES)), ceiling);
+        String assertedContextResolverId = trimmed(props.get(P_ASSERTED_CONTEXT_RESOLVER));
 
         return new AttestationIssuanceConfig(issuer, ttl, bundleKeys, ceiling, signingKeyRef, signingJwk,
-                trustDomain, bindings, evidenceType, bundleUrl, evidenceIssuer);
+                trustDomain, bindings, evidenceType, bundleUrl, evidenceIssuer, assertedContextResolverId);
     }
 
     public String issuer() {
@@ -201,6 +211,11 @@ public final class AttestationIssuanceConfig {
     /** The pinned evidence {@code iss} (e.g. the GKE cluster issuer URL), if configured; else null. */
     public String evidenceIssuer() {
         return this.evidenceIssuer;
+    }
+
+    /** The {@link AssertedContextResolver} id this client opts into, if any; null = feature off (default). */
+    public String assertedContextResolverId() {
+        return this.assertedContextResolverId;
     }
 
     /** Finds the binding for a validated SPIFFE ID, or empty if the id is not registered for this client. */
