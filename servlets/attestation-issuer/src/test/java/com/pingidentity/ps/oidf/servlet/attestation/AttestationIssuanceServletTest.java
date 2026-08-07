@@ -392,6 +392,46 @@ class AttestationIssuanceServletTest {
         assertEquals("invalid_instance_proof", e.error());
     }
 
+    // ---- deployment-required custom claims (in the instance-key proof) ----------------------------
+
+    @Test
+    void requiredCustomClaimMissingIsRejected() throws Exception {
+        servlet.setCustomClaimsRequired(List.of("deployment_id"));
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+    }
+
+    @Test
+    void requiredCustomClaimPresentIsAccepted() throws Exception {
+        servlet.setCustomClaimsRequired(List.of("deployment_id"));
+        Map<String, Object> body = servlet.issue(
+                request(SPIFFE_ID, ISSUER, newProofWith("deployment_id", "dep-42"), List.of()));
+        assertNotNull(body.get("attestation"));
+        assertRoundTrips((String) body.get("attestation"));
+    }
+
+    @Test
+    void requiredCustomClaimBlankIsRejected() throws Exception {
+        servlet.setCustomClaimsRequired(List.of("deployment_id"));
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProofWith("deployment_id", " "), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+    }
+
+    @Test
+    void initParsesCustomClaimsRequired() throws Exception {
+        ServletConfig cfg = mock(ServletConfig.class);
+        when(cfg.getInitParameter("customClaimsRequired")).thenReturn("deployment_id, region");
+        AttestationIssuanceServlet s = new AttestationIssuanceServlet();
+        s.init(cfg);
+        s.setClientResolver(fixedResolver(config()));
+        s.setAttesterSigningKey(new AttesterSigningKey(null, null));
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> s.issue(request(SPIFFE_ID, ISSUER, newProofWith("deployment_id", "dep-42"), List.of())));
+        assertEquals("invalid_instance_proof", e.error()); // region still missing
+    }
+
     // ---- doPost (HTTP layer) ----------------------------------------------------------------------
 
     @Test
@@ -859,6 +899,16 @@ class AttestationIssuanceServletTest {
 
     private String newProof(String challenge) throws Exception {
         return proof(instanceKey, ISSUER, UUID.randomUUID().toString(), challenge);
+    }
+
+    /** A fresh proof carrying one additional (custom) claim. */
+    private String newProofWith(String claim, String value) throws Exception {
+        JwtClaims claims = new JwtClaims();
+        claims.setAudience(ISSUER);
+        claims.setJwtId(UUID.randomUUID().toString());
+        claims.setIssuedAtToNow();
+        claims.setClaim(claim, value);
+        return signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, claims);
     }
 
     private void assertRoundTrips(String attestation) throws Exception {

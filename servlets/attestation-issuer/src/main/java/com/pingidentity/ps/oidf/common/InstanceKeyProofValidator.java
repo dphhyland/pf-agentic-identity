@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.common;
 
 import java.security.Key;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jwt.JwtClaims;
@@ -39,8 +40,11 @@ public final class InstanceKeyProofValidator {
         this.allowedClockSkewSeconds = allowedClockSkewSeconds;
     }
 
-    /** The validated proof's replay-relevant fields. */
-    public record Result(String jti, String challenge) {
+    /**
+     * The validated proof's replay-relevant fields, plus the full claim map so the caller can apply
+     * deployment-specific claim requirements (custom claims ride in the proof, signed by the instance key).
+     */
+    public record Result(String jti, String challenge, Map<String, Object> claims) {
     }
 
     /**
@@ -140,6 +144,6 @@ public final class InstanceKeyProofValidator {
         }
 
         String challenge = claims.getClaimValueAsString("challenge");
-        return new Result(jti, challenge);
+        return new Result(jti, challenge, claims.getClaimsMap());
     }
 }

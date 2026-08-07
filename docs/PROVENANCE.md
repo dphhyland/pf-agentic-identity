@@ -56,6 +56,29 @@ the fork's `client_id`-taking `AttestationIssuanceServlet.issue()`, which diverg
 reverse-mapping version, and porting it is a separate three-way merge, not yet attempted. The
 pf-oidf-modules working tree is untouched otherwise.
 
+## 2026-08-04 — CAS metadata endpoint + custom-claims enforcement
+
+The implementation flagged as not-yet-ported in the 2026-08-01 CAS-draft entry above, from
+`pf-oidf-modules@sd-jwt-rar-paz` `41c7dd1` (a WIP safety-net commit on that non-canonical branch).
+It depended on the fork's `client_id`-taking `AttestationIssuanceServlet.issue()`; ported here against
+this repo's reverse-mapping version instead (adjusting the enforcement step's numbering and the
+default-registry wiring to match, not a straight copy):
+
+- `ClientAttestationServiceMetadataServlet` — new, serves the spec's own
+  `GET /.well-known/client-attestation-service` (see `docs/openid-client-attestation-service-1_0.md`
+  §5). Deliberately separate from `AttesterConfigurationServlet`'s `/.well-known/client-attester`,
+  which is this deployment's own richer discovery surface (resolver plugins, per-client config,
+  PoP audience) — the two documents serve different purposes and neither replaces the other.
+- `AttestationIssuanceServlet` — enforces `customClaimsRequired` (init-param /
+  `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) against the instance-key proof's claims; the same
+  configuration drives what the metadata servlet advertises as `custom_claims_required`, so
+  advertisement and enforcement cannot drift apart.
+- `InstanceKeyProofValidator.Result` — carries the proof's full claim map now, so the servlet can
+  read arbitrary custom claims rather than only the fields the record used to name explicitly.
+
+`InstanceAttestationValidators.formats()`, which the fork's WIP commit also added, already existed
+here (from the 2026-07-31 reconciliation) with the same purpose — no change needed.
+
 ## Written here, not absorbed from anywhere
 
 Everything below is net-new to this repo and has no upstream. Recorded so a future provenance
@@ -65,12 +88,13 @@ question has an answer other than silence.
 |---|---|
 | `libs/app-attest` | Apple App Attest verification (attestation + assertion) to Apple's pinned root |
 | `libs/device-instance` | the agent instance registry and the device Client Attestation minter |
+| `libs/agent-registry` | mints/resolves the pseudonymous per-instance `agent_id` (random, never derived) |
 | `services/device-enrolment` | the agent platform backend — the Client Attester for on-device agents |
 | `services/demo-rs` | a resource server validating DPoP sender-constraint and the RFC 8693 `act` chain |
 | `plugins/instance-registry-datasource` | a PF `CustomDataSourceDriver` over the instance registry |
 | `libs/oidf-jose` → `JwsSigner`, `LocalJwkSigner`, `CompactJws` | `JwsSigner`/`LocalJwkSigner` **moved** here from `servlets/attestation-issuer` (a library cannot depend on a servlet module); `CompactJws` is new |
 | `libs/openid-federation` → `MetadataPolicy` | OIDF `metadata_policy` composition and application — did not exist before |
->>>>>>> device-instance-identity
+| `libs/openid-federation` → `com.pingidentity.ps.oidf.authority` | the Domain Authority hosted-entity registry, OpenBao signing, and enrolment surface (Phase 1) |
 
 ## What deliberately did NOT move
 
