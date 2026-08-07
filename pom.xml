@@ -29,6 +29,7 @@
         <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
         <module>libs/openid-federation</module>
+        <module>libs/agent-registry</module>
         <module>servlets/pf-integration</module>
         <module>servlets/attestation-issuer</module>
         <module>servlets/oidf-war</module>

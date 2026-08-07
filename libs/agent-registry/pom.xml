@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>agent-registry</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <name>agent-registry</name>
+    <description>Mints and resolves agent_id: a random-not-derived, per-running-instance identifier,
+        keyed by the natural key (iss, client_id, instance_format, instance_subject). A sibling of, and
+        deliberately not coupled to, the (not-yet-merged) device-instance module's own enrolment-time
+        instance registry — that module pre-registers an instance at enrolment and already has a stable
+        id to rename into agent_id (Phase 2.5); this module is for runtimes that have no enrolment step
+        of their own (e.g. a SPIFFE workload) and need an id lazily minted, then kept stable, on first
+        attestation. No PingFederate types.</description>
+    <url>https://github.com/dphhyland/pf-agentic-identity</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <version.postgresql>42.7.3</version.postgresql>
+        <version.h2>2.2.224</version.h2>
+    </properties>
+
+    <dependencies>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>1.2</version></dependency>
+        <!-- JdbcAgentRegistry is written against java.sql; the driver is provided by the deployment.
+             Tests run the shipped migration against H2 in PostgreSQL mode. -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version><scope>provided</scope></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>5.10.2</version><scope>test</scope></dependency>
+        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${version.h2}</version><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+        </plugins>
+    </build>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+</project>

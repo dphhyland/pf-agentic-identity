@@ -9,20 +9,24 @@ import java.util.Map;
 /**
  * Maps one {@code authorization_details} entry into the AuthZEN evaluation shape:
  * <pre>
- * { "subject":  { "type": "user|agent|client", "id": "&lt;principal&gt;" },
+ * { "subject":  { "type": "user|client", "id": "&lt;principal&gt;" },
  *   "action":   { "name": "&lt;configured action&gt;" },
  *   "resource": { "type": "&lt;detail type&gt;", "id": "&lt;detail identifier | type&gt;",
  *                 "properties": { …the requested detail, minus "type"… } },
  *   "context":  { "client_id": "…",
- *                 "actor": { "type": "agent", "id": "&lt;attestation sub&gt;" },   // when ≠ subject
+ *                 "actor": { "type": "agent", "id": "&lt;agent_id&gt;" },   // when minted and ≠ subject
  *                 "attestation": { "entitlement": […], "workload": {…}, "cnf_thumbprint": "…" } } }
  * </pre>
  *
  * <p>The subject is the <b>principal</b> the decision is about — the authenticated resource owner
- * first, then the attestation subject, then the OAuth client — with {@code subject.type} recording
- * which one won. When the attestation subject is not the principal it is the delegated <b>agent</b>,
- * carried as {@code context.actor} (RFC 8693 delegation: principal in the subject, agent as actor),
- * never masquerading as the subject.
+ * first, then the OAuth client — with {@code subject.type} recording which one won. The attestation
+ * {@code sub} is never itself a subject.type candidate: it always names the registered client/agent
+ * TYPE (equal to {@code client_id}), never a per-instance identity, so treating it as a distinct
+ * "attestation subject" tier — and worse, labelling that tier {@code "agent"} — was a PDP
+ * actor-labelling bug (Phase 2.9 fixed it here). The genuine delegated <b>agent</b> — the specific
+ * running instance, when the attester minted an {@code agent_id} for it (Phase 2.1/2.2) — is carried as
+ * {@code context.actor} (RFC 8693 delegation: principal in the subject, agent as actor), never
+ * masquerading as, or conflated with, the subject.
  *
  * <p>Unlike the governance-engine dialect (whose Trust Framework wants JSON-stringified attribute
  * values), AuthZEN carries structured JSON natively — detail fields, entitlement, and workload go in
@@ -39,16 +43,17 @@ public final class AuthZenRequestBuilder {
     public Map<String, Object> build(String type, Map<String, Object> detail, AttestationSubject subject,
                                      String resourceOwner, String fallbackClientId) {
         AttestationSubject subj = subject == null ? AttestationSubject.empty() : subject;
-        String attestationSub = subj.getSubject();
+        String agentId = subj.getAgentId();
 
+        // Phase 2.9: the attestation 'sub' (subj.getSubject()) is deliberately NOT consulted here — it
+        // always equals client_id (the registered client/agent TYPE), so a prior "attestation subject"
+        // tier labelled "agent" was mislabelling the client as an agent. The only genuine agent identity
+        // is agentId, and it belongs in context.actor below, never in the principal.
         String principal;
         String principalType;
         if (notBlank(resourceOwner)) {
             principal = resourceOwner;
             principalType = "user";
-        } else if (notBlank(attestationSub)) {
-            principal = attestationSub;
-            principalType = "agent";
         } else if (notBlank(subj.getClientId())) {
             principal = subj.getClientId();
             principalType = "client";
@@ -89,10 +94,10 @@ public final class AuthZenRequestBuilder {
         if (notBlank(clientId)) {
             context.put("client_id", clientId);
         }
-        if (notBlank(attestationSub) && !attestationSub.equals(principal)) {
+        if (notBlank(agentId) && !agentId.equals(principal)) {
             Map<String, Object> actor = new LinkedHashMap<>();
             actor.put("type", "agent");
-            actor.put("id", attestationSub);
+            actor.put("id", agentId);
             context.put("actor", actor);
         }
         Map<String, Object> attestation = new LinkedHashMap<>();

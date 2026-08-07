@@ -31,8 +31,17 @@ AUTHZEN_PDP_URL = os.environ.get("AUTHZEN_PDP_URL", "")
 # Only this actor may be the one presenting the token (the last hop). A chain that ends anywhere
 # else is a token being replayed by a party that was not given it.
 REQUIRED_FINAL_ACTOR = os.environ.get("REQUIRED_FINAL_ACTOR", "demo-attest-gke-delivery")
+# Worked example (Phase 2.9): a per-agent_id request budget within a rolling window — expressible only
+# because agent_id names the specific running instance, not just the OAuth client. A dozen instances of
+# the same client_id share one client-wide limit if you rate-limit on client_id; here each instance gets
+# its own.
+AGENT_RATE_LIMIT_MAX_REQUESTS = int(os.environ.get("AGENT_RATE_LIMIT_MAX_REQUESTS", "5"))
+AGENT_RATE_LIMIT_WINDOW_SECONDS = int(os.environ.get("AGENT_RATE_LIMIT_WINDOW_SECONDS", "60"))
 
 _JWKS_CACHE = {"fetched": 0, "keys": {}}
+# agent_id -> [request timestamps within the current window]. In-memory and per-process, like the rest
+# of this mock resource — a real deployment would use a shared store so the limit holds across replicas.
+_AGENT_REQUEST_LOG = {}
 
 
 def b64url_decode(value: str) -> bytes:
@@ -113,15 +122,40 @@ def actor_chain(claims: dict) -> list:
     return chain
 
 
+def check_agent_rate_limit(agent_id: str) -> dict:
+    """Worked example (Phase 2.9): refuse once one agent_id has made too many requests within the
+    window — a limit that has no equivalent expressed on client_id, since every instance of a client
+    would share one bucket instead of getting its own. No-op (never limits) when agent_id is absent:
+    the point is demonstrating what agent_id newly makes possible, not degrading the demo without it.
+    """
+    if not agent_id:
+        return {"limited": False}
+    now = time.time()
+    window_start = now - AGENT_RATE_LIMIT_WINDOW_SECONDS
+    recent = [t for t in _AGENT_REQUEST_LOG.get(agent_id, []) if t >= window_start]
+    if len(recent) >= AGENT_RATE_LIMIT_MAX_REQUESTS:
+        _AGENT_REQUEST_LOG[agent_id] = recent
+        return {"limited": True, "requests_in_window": len(recent), "max_requests": AGENT_RATE_LIMIT_MAX_REQUESTS,
+                "window_seconds": AGENT_RATE_LIMIT_WINDOW_SECONDS}
+    recent.append(now)
+    _AGENT_REQUEST_LOG[agent_id] = recent
+    return {"limited": False, "requests_in_window": len(recent), "max_requests": AGENT_RATE_LIMIT_MAX_REQUESTS,
+            "window_seconds": AGENT_RATE_LIMIT_WINDOW_SECONDS}
+
+
 def decide(claims: dict, chain: list, action: str) -> dict:
     """Authorize, via the AuthZEN PDP when configured, otherwise the built-in rule."""
+    # The attester-minted per-instance identifier (Phase 2.1/2.2), carried on the access token itself
+    # (Phase 2.7) — distinct from claims["sub"], which only ever names the client/agent TYPE.
+    agent_id = claims.get("agent_id")
+
     if AUTHZEN_PDP_URL:
         request = {
             "subject": {"type": "workload", "id": claims.get("sub")},
             "action": {"name": action},
             "resource": {"type": "payment", "id": "mock-settlement"},
             "context": {"actor_chain": chain, "client_id": claims.get("client_id"),
-                        "issuer": claims.get("iss")},
+                        "issuer": claims.get("iss"), "agent_id": agent_id},
         }
         body = json.dumps(request).encode()
         req = urllib.request.Request(AUTHZEN_PDP_URL, data=body, method="POST",
@@ -141,8 +175,17 @@ def decide(claims: dict, chain: list, action: str) -> dict:
         return {"allowed": False, "decided_by": "builtin",
                 "reason": "final actor %r is not the expected delegate %r"
                           % (final_actor, REQUIRED_FINAL_ACTOR)}
+
+    rate_limit = check_agent_rate_limit(agent_id)
+    if rate_limit["limited"]:
+        return {"allowed": False, "decided_by": "builtin",
+                "reason": "agent_id %r exceeded %d requests in %ds"
+                          % (agent_id, rate_limit["max_requests"], rate_limit["window_seconds"]),
+                "rate_limit": rate_limit}
+
     return {"allowed": True, "decided_by": "builtin",
-            "reason": "delegated by %s on behalf of %s" % (final_actor, claims.get("sub"))}
+            "reason": "delegated by %s on behalf of %s" % (final_actor, claims.get("sub")),
+            "rate_limit": rate_limit}
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -179,6 +222,7 @@ class Handler(BaseHTTPRequestHandler):
         response = {
             "on_behalf_of": claims.get("sub"),
             "presented_by": claims.get("client_id"),
+            "acting_agent_id": claims.get("agent_id"),
             "actor_chain": chain,
             "token_issuer": claims.get("iss"),
             "decision": decision,

@@ -122,7 +122,7 @@ public final class ClientAttestationVerifier {
                     RarEntitlement.authorize(RarEntitlement.parseArray(requestedAuthorizationDetailsJson), entitled);
             return new ClientAttestationResult(authenticated.clientId(), authenticated.cnfJwk(),
                     authenticated.mode(), authenticated.attesterIssuer(), authenticated.proofJti(), entitled, granted,
-                    attestation.workload());
+                    attestation.workload(), attestation.agentId());
         } catch (ClientAttestationException e) {
             throw e;
         } catch (Exception e) {
@@ -211,7 +211,7 @@ public final class ClientAttestationVerifier {
         LOGGER.debug((Object) ("attestation PoP verified for client_id=" + attestation.clientId()));
         return new ClientAttestationResult(attestation.clientId(), attestation.cnfJwk(),
                 ClientAttestationResult.Mode.POP_JWT, attestation.attesterIssuer(), jti,
-                java.util.List.of(), java.util.List.of(), attestation.workload());
+                java.util.List.of(), java.util.List.of(), attestation.workload(), attestation.agentId());
     }
 
     private ClientAttestationResult verifyDpopMode(ClientAttestation attestation, String dpopHeader,
@@ -237,7 +237,7 @@ public final class ClientAttestationVerifier {
         LOGGER.debug((Object) ("attestation DPoP (combined) verified for client_id=" + attestation.clientId()));
         return new ClientAttestationResult(attestation.clientId(), attestation.cnfJwk(),
                 ClientAttestationResult.Mode.DPOP, attestation.attesterIssuer(), proof.jti(),
-                java.util.List.of(), java.util.List.of(), attestation.workload());
+                java.util.List.of(), java.util.List.of(), attestation.workload(), attestation.agentId());
     }
 
     private void assertFresh(long iat, long maxAgeSeconds, String label) throws ClientAttestationException {

@@ -14,6 +14,22 @@
 # Images are LAYERED on the existing demo images rather than built from python:slim. A plain
 # `pip install cryptography` for linux/amd64 under emulation on an arm64 laptop timed out at seven
 # minutes; layering makes each build a COPY. Do not "simplify" these Dockerfiles.
+#
+# Hardened 2026-08-02, same principle as ../aws-bedrock-demo/aws/teardown.sh and
+# ../gke-spiffe-demo/gcp/teardown.sh but NOT the same shape: those scripts continue past an
+# independent step's failure and summarize everything at the end, because their steps don't depend on
+# each other. This script's steps DO depend on each other — agent C cannot be configured with a
+# resource URL that does not exist yet — so `set -e` stays, and the hardening here is about *diagnosis*
+# at each failure point rather than continuing through one. Two concrete gaps closed:
+#   1. every python call goes through the same fragile venv this script drives AWS through (ECR login,
+#      the AgentCore control-plane update, the final chain verification) with no upfront check — a
+#      broken venv previously surfaced as a bare traceback wherever it happened to bite, sometimes
+#      after two docker builds had already run. Checked once, up front, before any expensive work.
+#   2. wait_for_lb swallowed kubectl's real stderr entirely (`2>/dev/null || true`), so a genuine
+#      problem — wrong context, RBAC denial, a kubectl apply that silently no-op'd so the Service
+#      never existed — produced 10 minutes of silence and then only a generic "timed out" with no
+#      cause. It now fails immediately if the Service does not exist at all, and dumps the Service's
+#      actual status on a real timeout instead of nothing.
 set -euo pipefail
 
 : "${GKE_CONTEXT:?set GKE_CONTEXT (kubectl context for the GKE cluster)}"
@@ -32,16 +48,86 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 export AWS_REGION="$REGION"
 say() { printf '\n==> %s\n' "$*"; }
 
+# ── preflight: this script cannot do anything useful without a working python/boto3 ────────────────
+# Unlike the teardown scripts, there is no independent path forward if this is broken — ECR login,
+# the AgentCore update and the final verification all need it — so this fails FAST, before any docker
+# build, rather than recording it and continuing.
+say "checking the python/boto3 side ($PY)"
+if [ ! -x "$PY" ]; then
+  echo "!! no python at $PY — the venv is missing. Rebuild it:" >&2
+  echo "     python3 -m venv $VENV && $VENV/bin/pip install -U boto3" >&2
+  exit 1
+fi
+if ! BOTO3_CHECK=$("$PY" -c "import boto3; print(boto3.__version__)" 2>&1); then
+  echo "!! python at $PY cannot import boto3:" >&2
+  echo "$BOTO3_CHECK" | sed 's/^/     /' >&2
+  echo "   Rebuild it: $VENV/bin/pip install -U boto3" >&2
+  exit 1
+fi
+echo "  ok (boto3 $BOTO3_CHECK)"
+
+# `--request-timeout` only bounds a kubectl call once it has CONNECTED; it does nothing for a hung TCP
+# attempt against an unreachable API server (e.g. a cluster that was torn down but the LB IP still
+# exists and just drops packets) — proved by testing wait_for_lb against a real deleted cluster
+# context, where it hung well past a 2-minute wall clock even with --request-timeout=15s set. A wall-
+# clock `timeout` around the whole call is the only thing that actually bounds that. Not on stock
+# macOS (BSD userland); Homebrew coreutils provides it as `timeout` or `gtimeout`.
+if command -v timeout >/dev/null; then
+  TIMEOUT_CMD=timeout
+elif command -v gtimeout >/dev/null; then
+  TIMEOUT_CMD=gtimeout
+else
+  echo "!! no 'timeout' or 'gtimeout' on PATH — required to bound kubectl calls against a possibly" >&2
+  echo "   unreachable cluster. Install: brew install coreutils" >&2
+  exit 1
+fi
+
 # Wait for a Service to be given an external address. GCP hands out an IP, AWS a hostname.
 wait_for_lb() {
-  local ctx="$1" ns="$2" svc="$3" field="$4" addr=""
+  local ctx="$1" ns="$2" svc="$3" field="$4" addr="" err=""
+  # --request-timeout is load-bearing here, not cosmetic: a plain `kubectl get` against an API server
+  # that is unreachable at the network level (not a clean 404 — e.g. a cluster that was torn down, so
+  # the LB IP just drops packets) can hang far longer than any reasonable wait, discovered by testing
+  # this exact check against a real deleted cluster context, where it hung past a 2-minute timeout with
+  # no output at all. 15s bounds every kubectl call in this function so a genuinely unreachable context
+  # fails fast instead of hanging silently — which is the whole point of the fast-fail check below.
+  # 20s wall-clock bound (via $TIMEOUT_CMD) around each call, PLUS --request-timeout for the
+  # server-side portion once connected — see the preflight comment above for why both are needed.
+  # An array, not a string, so context/namespace values are never subject to word-splitting.
+  local -a kctl=("$TIMEOUT_CMD" 20 kubectl --context "$ctx" --request-timeout=15s -n "$ns")
+  # Fail immediately if the Service does not exist at all — a real problem (bad context, RBAC denial,
+  # an apply that silently no-op'd) — rather than waiting the full ~10 minutes below to find out via a
+  # generic timeout with no cause attached.
+  if ! err=$("${kctl[@]}" get svc "$svc" 2>&1 >/dev/null); then
+    echo "!! service $ns/$svc does not exist or is unreachable via context $ctx:" >&2
+    echo "$err" | sed 's/^/   /' >&2
+    return 1
+  fi
   for _ in $(seq 1 40); do
-    addr=$(kubectl --context "$ctx" -n "$ns" get svc "$svc" \
-      -o "jsonpath={.status.loadBalancer.ingress[0].$field}" 2>/dev/null || true)
+    addr=$("${kctl[@]}" get svc "$svc" -o "jsonpath={.status.loadBalancer.ingress[0].$field}" 2>/dev/null)
     [ -n "$addr" ] && { echo "$addr"; return 0; }
     sleep 15
   done
-  echo "timed out waiting for $svc external $field" >&2; return 1
+  echo "!! timed out waiting for $ns/$svc external $field. Current state:" >&2
+  "${kctl[@]}" get svc "$svc" -o wide >&2 || true
+  "${kctl[@]}" describe svc "$svc" 2>&1 | tail -15 >&2 || true
+  return 1
+}
+
+# Runs a python heredoc from stdin, capturing output so a failure is reported with a clear label
+# instead of a bare traceback dropped mid-script with no indication which step it came from.
+run_py() {
+  local label="$1" out status=0
+  # `out=$(...) || status=$?` (not two statements) — under set -e, an assignment statement that fails
+  # aborts the script BEFORE the next line runs, so a bare `out=$(cmd); status=$?` never reaches the
+  # status check at all. Found by testing this function in isolation before trusting it.
+  out=$("$PY" - 2>&1) || status=$?
+  if [ "$status" -ne 0 ]; then
+    echo "!! $label failed:" >&2
+    echo "$out" | sed 's/^/   /' >&2
+    exit 1
+  fi
+  echo "$out"
 }
 
 # ── images ───────────────────────────────────────────────────────────────────────────────────────
@@ -50,11 +136,12 @@ docker build --platform linux/amd64 -q -t "$GKE_REGISTRY/chain-agent:$TAG"  "$HE
 docker build --platform linux/amd64 -q -t "$ECR/mock-resource:$TAG"         "$HERE/resource"  >/dev/null
 docker build --platform linux/arm64 -q -t "$ECR/agentcore-agent:$TAG"       "$HERE/agentcore" >/dev/null
 docker push -q "$GKE_REGISTRY/chain-agent:$TAG" >/dev/null && echo "  pushed chain-agent"
-"$PY" -c "
+run_py "ECR login" <<PYEOF
 import base64,boto3,subprocess
 t=boto3.client('ecr',region_name='$REGION').get_authorization_token()['authorizationData'][0]['authorizationToken']
 pw=base64.b64decode(t).decode().split(':',1)[1]
-subprocess.run(['docker','login','--username','AWS','--password-stdin','$ECR'],input=pw.encode(),check=True)" >/dev/null
+subprocess.run(['docker','login','--username','AWS','--password-stdin','$ECR'],input=pw.encode(),check=True)
+PYEOF
 docker push -q "$ECR/mock-resource:$TAG"   >/dev/null && echo "  pushed mock-resource"
 docker push -q "$ECR/agentcore-agent:$TAG" >/dev/null && echo "  pushed agentcore-agent"
 
@@ -81,7 +168,8 @@ say "agent C: http://$AGENT_C_IP/call"
 # ── 3. agent B: the AgentCore runtime, pointed at agent C ────────────────────────────────────────
 say "updating the AgentCore runtime (agent B)"
 AGENTCORE_ARN="$AGENTCORE_ARN" ECR="$ECR" TAG="$TAG" \
-EKS_PF_URL="$EKS_PF_URL" GKE_PF_URL="$GKE_PF_URL" AGENT_C_IP="$AGENT_C_IP" "$PY" - <<'EOF'
+EKS_PF_URL="$EKS_PF_URL" GKE_PF_URL="$GKE_PF_URL" AGENT_C_IP="$AGENT_C_IP" \
+run_py "AgentCore runtime update" <<'PYEOF'
 import boto3, os, time
 region = os.environ["AWS_REGION"]
 arn = os.environ["AGENTCORE_ARN"]
@@ -108,8 +196,8 @@ for _ in range(40):
         print("  READY"); break
     time.sleep(15)
 else:
-    raise SystemExit("AgentCore runtime did not reach READY")
-EOF
+    raise SystemExit("AgentCore runtime did not reach READY within the timeout")
+PYEOF
 
 # ── 4. agent A, on GKE, pointed at the AgentCore runtime ─────────────────────────────────────────
 say "deploying agent A on GKE"
@@ -130,12 +218,18 @@ kubectl --context "$GKE_CONTEXT" -n demo rollout status deploy/chain-agent-a --t
 AGENT_A_IP=$(wait_for_lb "$GKE_CONTEXT" demo chain-agent-a ip)
 
 # ── verify: run the chain and check the act chain actually nests three deep ───────────────────────
+# This is the real independent verification — it does not trust that the steps above "said" they
+# succeeded, it calls the live system end to end and asserts on the actual response.
 say "verifying the chain end to end"
 sleep 20
 RESULT=$(curl -s -m 200 -X POST "http://$AGENT_A_IP/run")
-echo "$RESULT" | "$PY" - <<'EOF'
+if ! VERIFY_OUT=$(echo "$RESULT" | "$PY" - 2>&1 <<'EOF'
 import json, sys
-d = json.load(sys.stdin)
+try:
+    d = json.load(sys.stdin)
+except json.JSONDecodeError as e:
+    print(f"response was not JSON ({e}) — the chain call itself likely failed, not just an assertion")
+    raise SystemExit(1)
 r = d.get("resource") or {}
 chain = [a.get("sub") for a in r.get("actor_chain", [])]
 print("  ok:            ", d.get("ok"))
@@ -147,10 +241,18 @@ assert len(chain) == 3, f"expected three actors, got {chain}"
 assert (r.get("decision") or {}).get("allowed"), "resource denied the delegated call"
 print("  VERIFIED: sub preserved across two clouds, act chain three deep, resource allowed")
 EOF
+); then
+  echo "!! chain verification failed:" >&2
+  echo "$VERIFY_OUT" | sed 's/^/   /' >&2
+  echo "   raw response was:" >&2
+  echo "$RESULT" | head -c 2000 | sed 's/^/   /' >&2
+  exit 1
+fi
+echo "$VERIFY_OUT"
 
 cat <<SUMMARY
 
-==> chain live.
+==> chain live and independently verified.
 
   demo console   http://$AGENT_A_IP/
   agent C        http://$AGENT_C_IP/call

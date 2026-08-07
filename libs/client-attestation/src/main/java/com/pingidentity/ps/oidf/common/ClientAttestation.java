@@ -14,6 +14,12 @@ import org.jose4j.jwt.MalformedClaimException;
  * ({@code iss}), names the client ({@code sub} = {@code client_id}) and binds the client instance key
  * via the RFC 7800 {@code cnf} claim ({@code cnf.jwk}). It carries {@code exp} (required) and may carry
  * {@code iat}.
+ *
+ * <p>{@code agent_id} (Phase 2.6), when present, is the minting attester's own pseudonymous identifier
+ * for this specific running instance — distinct from, and never a substitute for, {@code sub}. Nothing
+ * in this class or its callers ever compares against it in place of {@code sub}: the
+ * {@code sub == client_id} / PoP-{@code iss == sub} checks in {@link ClientAttestationVerifier} are
+ * untouched by its presence, by design — see that class's own tests for the pinning coverage.
  */
 public final class ClientAttestation {
     private final String attesterIssuer;
@@ -23,9 +29,14 @@ public final class ClientAttestation {
     private final long iatEpochSeconds;
     private final List<Map<String, Object>> authorizationDetails;
     private final Map<String, Object> workload;
+    private final String agentId;
     private final String raw;
 
     public ClientAttestation(String attesterIssuer, String clientId, Map<String, Object> cnfJwk, long expEpochSeconds, long iatEpochSeconds, List<Map<String, Object>> authorizationDetails, Map<String, Object> workload, String raw) {
+        this(attesterIssuer, clientId, cnfJwk, expEpochSeconds, iatEpochSeconds, authorizationDetails, workload, null, raw);
+    }
+
+    public ClientAttestation(String attesterIssuer, String clientId, Map<String, Object> cnfJwk, long expEpochSeconds, long iatEpochSeconds, List<Map<String, Object>> authorizationDetails, Map<String, Object> workload, String agentId, String raw) {
         this.attesterIssuer = attesterIssuer;
         this.clientId = clientId;
         this.cnfJwk = cnfJwk;
@@ -33,6 +44,7 @@ public final class ClientAttestation {
         this.iatEpochSeconds = iatEpochSeconds;
         this.authorizationDetails = authorizationDetails;
         this.workload = workload;
+        this.agentId = agentId;
         this.raw = raw;
     }
 
@@ -51,7 +63,9 @@ public final class ClientAttestation {
         }
         long exp = claims.hasClaim("exp") ? claims.getExpirationTime().getValue() : 0L;
         long iat = claims.hasClaim("iat") ? claims.getIssuedAt().getValue() : 0L;
-        return new ClientAttestation(attester, clientId, jwk, exp, iat, authorizationDetails(claims), workload(claims), raw);
+        Object agentIdClaim = claims.getClaimValue("agent_id");
+        String agentId = agentIdClaim == null ? null : String.valueOf(agentIdClaim);
+        return new ClientAttestation(attester, clientId, jwk, exp, iat, authorizationDetails(claims), workload(claims), agentId, raw);
     }
 
     /** The optional RFC 9396 {@code authorization_details} entitlement asserted by the attester. */
@@ -105,6 +119,11 @@ public final class ClientAttestation {
     /** The attester-asserted {@code workload} attributes actually disclosed to this AS; empty if none/withheld. */
     public Map<String, Object> workload() {
         return this.workload;
+    }
+
+    /** The attester-minted {@code agent_id}, or {@code null} if the attester did not include one. */
+    public String agentId() {
+        return this.agentId;
     }
 
     public String raw() {

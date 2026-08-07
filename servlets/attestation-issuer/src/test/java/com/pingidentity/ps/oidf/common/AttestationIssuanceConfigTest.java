@@ -57,6 +57,39 @@ class AttestationIssuanceConfigTest {
         assertTrue(config.bindingFor("spiffe://banking.demo/nope").isEmpty());
     }
 
+    // ---- archetype (wildcard) matching -------------------------------------------------------------
+
+    @Test
+    void aWildcardArchetypeCoversEveryInstanceUnderItsPrefix() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"spiffe://banking.demo/agents/*\","
+                        + "\"metadata\":{\"archetype\":\"fleet\"}}]");
+        AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(props);
+
+        SpiffeBinding replicaOne = config.bindingFor("spiffe://banking.demo/agents/replica-1").orElseThrow();
+        SpiffeBinding replicaTwo = config.bindingFor("spiffe://banking.demo/agents/replica-2").orElseThrow();
+        assertEquals("fleet", replicaOne.metadata().get("archetype"));
+        assertEquals("fleet", replicaTwo.metadata().get("archetype"));
+        assertTrue(config.bindingFor("spiffe://banking.demo/other/replica-1").isEmpty());
+    }
+
+    @Test
+    void anExactEntryIsPreferredOverAnOverlappingWildcardArchetype() throws Exception {
+        // A fleet-wide archetype and one instance's own, more specific entry can coexist: the specific
+        // entry (e.g. a pinned, elevated ceiling for one particular replica) must win, not the wildcard.
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"spiffe://banking.demo/agents/*\",\"metadata\":{\"tier\":\"standard\"}},"
+                        + "{\"spiffe_id\":\"spiffe://banking.demo/agents/replica-1\",\"metadata\":{\"tier\":\"pinned\"}}]");
+        AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(props);
+
+        assertEquals("pinned", config.bindingFor("spiffe://banking.demo/agents/replica-1").orElseThrow()
+                .metadata().get("tier"));
+        assertEquals("standard", config.bindingFor("spiffe://banking.demo/agents/replica-2").orElseThrow()
+                .metadata().get("tier"));
+    }
+
     @Test
     void missingIssuerIsRejected() throws Exception {
         Map<String, String> props = baseProps();

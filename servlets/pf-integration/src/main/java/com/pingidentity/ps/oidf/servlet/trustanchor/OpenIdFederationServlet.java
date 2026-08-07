@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.common.PfJwksSigningKeyProvider;
 import java.io.IOException;
@@ -44,7 +45,16 @@ extends HttpServlet {
             this.federationService = new FederationService(this.federationConfiguration,
                 new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()),
                 new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()),
-                contextPath);
+                // The war's context path (e.g. "/oidf") prefixes the advertised /federation/* endpoints.
+                contextPath,
+                // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
+                // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
+                // if HostedEntityServlet is never configured, since AuthoritySupport.registry() then
+                // lazily defaults to an empty in-memory registry and every lookup simply returns null.
+                AuthoritySupport::hostedSubordinateClaims,
+                // Likewise for /federation/list — AuthoritySupport.hostedEntityIds already applies the
+                // listable/resolvable/type filtering, so this is unconditionally safe to wire in.
+                AuthoritySupport::hostedEntityIds);
             // Fetch each configured subordinate's entity configuration off the request path —
             // a cold cache otherwise puts a live cross-network fetch inside the first token
             // exchange after every restart (see FederationService#prewarmSubordinatesAsync).
@@ -86,6 +96,9 @@ extends HttpServlet {
                     break;
                 }
             }
+        }
+        catch (FederationEntityNotFoundException e) {
+            writeError(resp, 404, "not_found", e.getMessage(), e);
         }
         catch (IllegalArgumentException e) {
             writeError(resp, 400, "invalid_request", e.getMessage(), e);

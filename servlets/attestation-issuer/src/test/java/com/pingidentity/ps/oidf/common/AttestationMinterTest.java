@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.common;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -65,11 +66,41 @@ class AttestationMinterTest {
         assertEquals("spiffe", workload.get("attested_by"));
         assertEquals(SPIFFE_ID, workload.get("spiffe_id"));
         assertEquals("raw.svid.token", workload.get("svid"));
+        assertEquals(SPIFFE_ID, workload.get("subject"), "the spec's format-neutral workload.subject");
         @SuppressWarnings("unchecked")
         Map<String, Object> attributes = (Map<String, Object>) workload.get("attributes");
         assertEquals("EMEA", attributes.get("region"));
 
         assertNotNull(claims.getClaimValue("authorization_details"));
+        assertNull(claims.getClaimValue("agent_id"), "the 8-arg overload must not emit agent_id at all");
+    }
+
+    // ---- agent_id (Phase 2.1/2.2) ------------------------------------------------------------------
+
+    @Test
+    void agentIdIsEmittedWhenPresent() throws Exception {
+        JwsSigner signer = new LocalJwkSigner(TestJwts.privateParams(attesterKey));
+        String jwt = AttestationMinter.mint(ISSUER, CLIENT_ID, instancePublicJwk,
+                InstanceIdentity.ofSpiffe(svid), Map.of(), List.of(), 300L, signer, "agent-id-1");
+
+        JwtClaims claims = payload(jwt);
+        assertEquals("agent-id-1", claims.getClaimValue("agent_id"));
+    }
+
+    @Test
+    void agentIdIsOmittedRatherThanEmittedBlankOrNull() throws Exception {
+        JwsSigner signer = new LocalJwkSigner(TestJwts.privateParams(attesterKey));
+        for (String blank : new String[]{null, "", "   "}) {
+            String jwt = AttestationMinter.mint(ISSUER, CLIENT_ID, instancePublicJwk,
+                    InstanceIdentity.ofSpiffe(svid), Map.of(), List.of(), 300L, signer, blank);
+            assertNull(payload(jwt).getClaimValue("agent_id"), "blank agentId=" + blank + " must not be emitted");
+        }
+    }
+
+    private static JwtClaims payload(String jwt) throws Exception {
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setCompactSerialization(jwt);
+        return JwtClaims.parse(jws.getUnverifiedPayload());
     }
 
     /** The minted attestation verifies unchanged through the existing verifier (issuance ↔ verify align). */

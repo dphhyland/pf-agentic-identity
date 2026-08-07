@@ -19,7 +19,8 @@ import java.util.Map;
  *   "service": "&lt;service&gt;",
  *   "action":  "&lt;action&gt;",
  *   "attributes": {
- *     "UserID": "&lt;attestation sub | client_id&gt;",
+ *     "UserID": "&lt;resource owner | client_id&gt;",
+ *     "actor":  "&lt;agent_id&gt;",                                    // when minted and ≠ UserID
  *     "client_id": "&lt;client_id&gt;",
  *     "&lt;attrPrefix&gt;.&lt;field&gt;": "&lt;json-stringified value&gt;",   // each requested field
  *     "attestation.entitlement": "&lt;json&gt;",                       // the attested ceiling
@@ -28,9 +29,9 @@ import java.util.Map;
  * </pre>
  *
  * <p>Attribute <em>values</em> are JSON-stringified (matching the reference plugin), which is how the
- * PingAuthorize Trust Framework consumes them. Unlike the reference, the subject is the attestation
- * subject (or the client id) rather than a hardcoded {@code "joe"}, and the attested entitlement is
- * included so policy can enforce {@code requested ⊆ attested}.
+ * PingAuthorize Trust Framework consumes them. Unlike the reference, the subject is the resource owner
+ * (or the client id) rather than a hardcoded {@code "joe"}, and the attested entitlement is included so
+ * policy can enforce {@code requested ⊆ attested}.
  */
 public final class GovernanceEngineRequestBuilder implements DecisionRequestBuilder {
 
@@ -54,16 +55,20 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
 
         Map<String, Object> attributes = new LinkedHashMap<>();
         // UserID is the PRINCIPAL the decision is about: the authenticated resource owner (the human who
-        // consents to the payment) first, then the attestation subject, then the OAuth client. The
-        // attestation subject is the delegated agent — recorded separately as 'actor' (RFC 8693 delegation:
-        // principal in the subject, agent in act) rather than masquerading as the UserID.
-        String attestationSub = subj.getSubject();
-        String userId = firstNonBlank(resourceOwner, attestationSub, subj.getClientId(), fallbackClientId);
-        attributes.put("UserID", userId == null ? "unknown" : userId);
-        if (attestationSub != null && !attestationSub.equals(userId)) {
-            attributes.put("actor", attestationSub);
-        }
+        // consents to the payment) first, then the OAuth client. (Phase 2.9: the attestation 'sub' is NOT
+        // a third tier here — it is always the same value as client_id, the registered client/agent TYPE,
+        // never a per-instance identity; treating it as a distinct "attestation subject" tier was the PDP
+        // actor-labelling bug this phase fixes.) The delegated AGENT — the specific running instance,
+        // when the attester minted one — is the attester-minted agent_id, recorded separately as 'actor'
+        // (RFC 8693 delegation: principal in the subject, agent in act) rather than masquerading as the
+        // UserID or being conflated with the client.
         String clientId = firstNonBlank(subj.getClientId(), fallbackClientId);
+        String userId = firstNonBlank(resourceOwner, clientId);
+        attributes.put("UserID", userId == null ? "unknown" : userId);
+        String agentId = subj.getAgentId();
+        if (agentId != null && !agentId.isBlank() && !agentId.equals(userId)) {
+            attributes.put("actor", agentId);
+        }
         if (clientId != null) {
             attributes.put("client_id", clientId);
         }

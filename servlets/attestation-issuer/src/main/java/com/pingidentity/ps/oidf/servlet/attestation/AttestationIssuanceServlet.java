@@ -35,6 +35,9 @@ import com.pingidentity.ps.oidf.common.SpiffeBinding;
 import com.pingidentity.ps.oidf.common.SpiffeInstanceAttestationValidator;
 import com.pingidentity.ps.oidf.common.SpireSelectorIntrospector;
 import com.pingidentity.ps.oidf.common.WorkloadIntrospector;
+import com.pingidentity.ps.oidf.agent.AgentRegistry;
+import com.pingidentity.ps.oidf.agent.AgentRegistryException;
+import com.pingidentity.ps.oidf.agent.AgentRegistrySupport;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +45,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -84,6 +88,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile InstanceKeyProofValidator proofValidator = new InstanceKeyProofValidator();
     private volatile WorkloadIntrospector workloadIntrospector;
     private volatile Map<String, AssertedContextResolver> assertedContextResolvers;
+    private volatile AgentRegistry agentRegistry;
     private boolean challengeRequired;
 
     @Override
@@ -213,11 +218,18 @@ public class AttestationIssuanceServlet extends HttpServlet {
             granted = ceiling;
         }
 
+        // 6a. Resolve this instance's stable agent_id, if an AgentRegistry is available (Phase 2.1). Keyed
+        //     on the resolved instance subject, not the raw evidence, so it stays stable across restarts
+        //     and across re-attestation with a fresh instance key. No registry at all is back-compatible
+        //     (no claim, issuance proceeds); a registry that IS available but fails is not — see
+        //     resolveAgentId's own javadoc.
+        Optional<String> agentId = resolveAgentId(config.issuer(), clientId, instance);
+
         // 7. Mint + sign with the attester key. The attester assigns the client_id (the attestation sub);
         //    the workload learns it only from the attestation it receives back.
         JwsSigner signer = attesterSigningKey().signerFor(config.signingKeyRef(), config.signingJwk());
         String attestation = AttestationMinter.mint(config.issuer(), clientId, request.instanceKey,
-                instance, workloadAttributes, granted, config.ttlSeconds(), signer);
+                instance, workloadAttributes, granted, config.ttlSeconds(), signer, agentId.orElse(null));
 
         LOGGER.info((Object) ("Issued client attestation: client_id=" + clientId
                 + " format=" + instance.format() + " subject=" + instance.subject()
@@ -248,6 +260,42 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     void setJwksCache(RemoteJwksCache cache) {
         this.jwksCache = cache;
+    }
+
+    /** Test/deployment seam: overrides the shared {@link AgentRegistrySupport} default (see below). */
+    void setAgentRegistry(AgentRegistry registry) {
+        this.agentRegistry = registry;
+    }
+
+    /**
+     * Resolves this instance's stable {@code agent_id}. Prefers an explicitly injected registry (tests);
+     * otherwise falls back to {@link AgentRegistrySupport}, the process-wide holder that keeps agent
+     * identity consistent across classloaders — the same reason {@link AttestationSupport} exists for the
+     * challenge/replay stores.
+     *
+     * <p>Two distinct outcomes, both deliberate: no registry available at all (neither injected nor
+     * configured on the shared holder) is back-compatible — {@link Optional#empty()}, issuance proceeds
+     * with no {@code agent_id} claim, exactly as before this method existed. A registry that IS available
+     * but whose {@code resolveOrMint} itself fails is not back-compatible — once agent identity is opted
+     * into, a broken registry must fail the request rather than silently issue an attestation with no
+     * agent identity.
+     *
+     * @throws IssuanceException {@code server_error} if a registry is available but fails
+     */
+    private Optional<String> resolveAgentId(String iss, String clientId, InstanceIdentity instance)
+            throws IssuanceException {
+        AgentRegistry registry = this.agentRegistry;
+        if (registry == null) {
+            if (!AgentRegistrySupport.isConfigured()) {
+                return Optional.empty();
+            }
+            registry = AgentRegistrySupport.registry();
+        }
+        try {
+            return Optional.of(registry.resolveOrMint(iss, clientId, instance.format(), instance.subject()).agentId());
+        } catch (AgentRegistryException e) {
+            throw IssuanceException.serverError("could not resolve agent_id: " + e.getMessage());
+        }
     }
 
     /** The active instance-attestation registry, lazily built from the environment. */
@@ -607,6 +655,14 @@ public class AttestationIssuanceServlet extends HttpServlet {
         } catch (Exception e) {
             throw IssuanceException.invalidRequest("request body is not valid JSON");
         }
+        // Phase 2.3: agent_id is minted by the attester's own AgentRegistry after evidence validation —
+        // it is never something a caller supplies. Reject a request that tries, rather than silently
+        // ignoring the field: a caller sending it is either an integration bug worth surfacing now, or an
+        // attempt to influence a claim that must only ever come from the attester's own minting.
+        if (json.containsKey("agent_id")) {
+            throw IssuanceException.invalidRequest("agent_id is minted by the attester; it is not an accepted request field");
+        }
+
         IssuanceRequest request = new IssuanceRequest();
         request.clientId = asString(json.get("client_id"));
         request.instanceKey = asObject(json.get("instance_key"));
@@ -656,7 +712,15 @@ public class AttestationIssuanceServlet extends HttpServlet {
             if (!(item instanceof Map)) {
                 throw IssuanceException.invalidRequest("each authorization_details entry must be a JSON object");
             }
-            out.add((Map<String, Object>) item);
+            Map<String, Object> entry = (Map<String, Object>) item;
+            // Phase 2.3: the same firewall as the top-level agent_id field, applied to a caller's
+            // requested authorization_details — a caller must not be able to smuggle an agent_id through
+            // an entitlement entry either.
+            if (entry.containsKey("agent_id")) {
+                throw IssuanceException.invalidRequest(
+                        "agent_id is minted by the attester; it is not an accepted authorization_details field");
+            }
+            out.add(entry);
         }
         return out;
     }

@@ -15,6 +15,14 @@ import org.jose4j.json.JsonUtil;
 import org.jose4j.jws.JsonWebSignature;
 import org.junit.jupiter.api.Test;
 
+/**
+ * {@link OpenBaoTransitSigner} tested in isolation, against an in-process fake of the vault's transit
+ * API. The {@code AttesterSigningKey} resolver that chooses between this and {@link LocalJwkSigner}
+ * per-client is an issuance-specific concern and stays tested in {@code servlets/attestation-issuer}
+ * (its own {@code AttesterSigningKeyTest}, against its own copy of {@link FakeBaoServer} — this
+ * codebase's established pattern for a small, self-contained test double needed by more than one
+ * module, matching how {@code TestJwts} is deliberately duplicated rather than shared).
+ */
 class OpenBaoTransitSignerTest {
 
     private static final String TOKEN = "test-token";
@@ -40,43 +48,6 @@ class OpenBaoTransitSignerTest {
         String url = bao.url();
         bao.close();
         assertThrows(RuntimeException.class, () -> new OpenBaoTransitSigner(url, TOKEN, FakeBaoServer.KEY_NAME));
-    }
-
-    /** The resolver picks the transit signer when a key ref is set. */
-    @Test
-    void resolverSelectsTransitByKeyRef() throws Exception {
-        try (FakeBaoServer bao = new FakeBaoServer(TOKEN)) {
-            AttesterSigningKey resolver = new AttesterSigningKey(bao.url(), TOKEN);
-            JwsSigner signer = resolver.signerFor(FakeBaoServer.KEY_NAME, null);
-            assertTrue(signer instanceof OpenBaoTransitSigner);
-        }
-    }
-
-    /** The resolver picks the local signer when an inline JWK is set. */
-    @Test
-    void resolverSelectsLocalByInlineJwk() throws Exception {
-        PublicJsonWebKey attester = TestJwts.ec("att-1");
-        AttesterSigningKey resolver = new AttesterSigningKey(null, null);
-        JwsSigner signer = resolver.signerFor(null, TestJwts.privateParams(attester));
-        assertTrue(signer instanceof LocalJwkSigner);
-        assertEquals("ES256", signer.algorithm());
-    }
-
-    @Test
-    void resolverRejectsNeitherOrBoth() throws Exception {
-        AttesterSigningKey resolver = new AttesterSigningKey("http://bao", "t");
-        IssuanceException neither = assertThrows(IssuanceException.class, () -> resolver.signerFor(null, null));
-        assertEquals("invalid_client", neither.error());
-        IssuanceException both = assertThrows(IssuanceException.class,
-                () -> resolver.signerFor("k", TestJwts.privateParams(TestJwts.ec("x"))));
-        assertEquals("invalid_client", both.error());
-    }
-
-    @Test
-    void resolverRejectsTransitWithoutVaultConfigured() {
-        AttesterSigningKey resolver = new AttesterSigningKey(null, null);
-        IssuanceException e = assertThrows(IssuanceException.class, () -> resolver.signerFor("some-key", null));
-        assertEquals("server_error", e.error());
     }
 
     // ---- helpers ----

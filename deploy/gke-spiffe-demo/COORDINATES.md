@@ -17,8 +17,11 @@ Rebuilt 2026-07-30 from scratch (full project deletion + rebuild).
 | Mock resource | http://a5d9618937ebc4b8e8b831f99000f5e8-1804855991.ap-southeast-2.elb.amazonaws.com |
 | AgentCore runtime | `attest_demo_agent-Vg5f0w4y4J` |
 
-Images: GKE `pingfederate:rebuild2`, `agent:rebuild`, `chain-agent:rebuild`;
-AWS `pingfederate:rebuild2`, `agentcore-agent:chain-v2`, `mock-resource:v1`.
+Images: GKE `pingfederate:refactor1`, `agent:rebuild`, `chain-agent:rebuild`;
+AWS `pingfederate:refactor1`, `eks-workload:latest`, `agentcore-agent:chain-v2`, `mock-resource:v1`.
+
+`refactor1` carries the pluggable instance-attestation layer (main `5d7c30f`, 187 classes). Rollback
+point if it ever misbehaves: `pingfederate:rebuild2` on both clouds — the last pre-refactor build.
 
 **The published explainers still reference the old project and IPs.** They need updating before
 this is shown.

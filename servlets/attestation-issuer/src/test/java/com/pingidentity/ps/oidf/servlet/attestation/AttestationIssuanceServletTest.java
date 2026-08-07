@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.servlet.attestation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -9,6 +10,9 @@ import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.agent.AgentIdentity;
+import com.pingidentity.ps.oidf.agent.AgentRegistry;
+import com.pingidentity.ps.oidf.agent.AgentRegistryException;
 import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.common.AttestationSupport;
 import com.pingidentity.ps.oidf.common.AttesterKeyResolver;
@@ -27,6 +31,7 @@ import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -161,6 +166,56 @@ class AttestationIssuanceServletTest {
                 List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA")));
         Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), requested));
         assertRoundTrips((String) body.get("attestation"));
+    }
+
+    // ---- agent_id resolution (Phase 2.1) -----------------------------------------------------------
+
+    @Test
+    void noAgentRegistryConfiguredMeansNoAgentIdClaim() throws Exception {
+        // servlet.setAgentRegistry is never called in setUp() — back-compatible default.
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        assertNull(claimsOf((String) body.get("attestation")).getClaimValue("agent_id"));
+    }
+
+    @Test
+    void configuredAgentRegistryEmitsTheResolvedAgentId() throws Exception {
+        servlet.setAgentRegistry(fixedAgentRegistry("agent-id-xyz"));
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        assertEquals("agent-id-xyz", claimsOf((String) body.get("attestation")).getClaimValue("agent_id"));
+    }
+
+    @Test
+    void agentRegistryReceivesTheResolvedInstanceSubjectNotTheRawSvid() throws Exception {
+        List<String[]> calls = new java.util.ArrayList<>();
+        servlet.setAgentRegistry((iss, clientId, instanceFormat, instanceSubject) -> {
+            calls.add(new String[]{iss, clientId, instanceFormat, instanceSubject});
+            return new AgentIdentity("agent-1", iss, clientId, instanceFormat, instanceSubject, Instant.now());
+        });
+        servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+
+        assertEquals(1, calls.size());
+        assertEquals(List.of(ISSUER, CLIENT_ID, "spiffe", SPIFFE_ID), List.of(calls.get(0)));
+    }
+
+    @Test
+    void aFailingAgentRegistryFailsTheRequestRatherThanSilentlyOmittingAgentId() throws Exception {
+        servlet.setAgentRegistry((iss, clientId, instanceFormat, instanceSubject) -> {
+            throw new AgentRegistryException(AgentRegistryException.STORAGE_FAILURE, "db is down");
+        });
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("server_error", e.error());
+    }
+
+    private static AgentRegistry fixedAgentRegistry(String agentId) {
+        return (iss, clientId, instanceFormat, instanceSubject) ->
+                new AgentIdentity(agentId, iss, clientId, instanceFormat, instanceSubject, Instant.now());
+    }
+
+    private JwtClaims claimsOf(String jwt) throws Exception {
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setCompactSerialization(jwt);
+        return JwtClaims.parse(jws.getUnverifiedPayload());
     }
 
     // ---- gke-sa-token evidence --------------------------------------------------------------------
@@ -410,6 +465,61 @@ class AttestationIssuanceServletTest {
         Captured out = doPost(bodyJson(SPIFFE_ID, null));
         assertEquals(500, out.status);
         assertTrue(out.body.contains("server_error"), out.body);
+    }
+
+    // ---- agent_id firewall (Phase 2.3) --------------------------------------------------------------
+
+    @Test
+    void aTopLevelAgentIdInTheRequestBodyIsRejected() throws Exception {
+        Map<String, Object> body = baseBody();
+        body.put("agent_id", "attacker-chosen");
+        Captured out = doPost(JsonUtil.toJson(body));
+        assertEquals(400, out.status);
+        assertTrue(out.body.contains("invalid_request"), out.body);
+    }
+
+    @Test
+    void anAgentIdInsideAnAuthorizationDetailsEntryIsRejected() throws Exception {
+        Map<String, Object> body = baseBody();
+        body.put("authorization_details",
+                List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"), "agent_id", "attacker-chosen")));
+        Captured out = doPost(JsonUtil.toJson(body));
+        assertEquals(400, out.status);
+        assertTrue(out.body.contains("invalid_request"), out.body);
+    }
+
+    @Test
+    void anAgentIdInBindingMetadataIsRejectedAtConfigParseTime() {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK, "{}");
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"" + SPIFFE_ID + "\",\"metadata\":{\"agent_id\":\"operator-typo\"}}]");
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props));
+        assertEquals("invalid_client", e.error());
+    }
+
+    @Test
+    void anAgentIdClaimInsideTheInstanceKeyProofDoesNotInfluenceTheMintedOne() throws Exception {
+        // The proof JWT is fully parsed by InstanceKeyProofValidator, but only jti/challenge are ever
+        // read out of it — a claim named agent_id inside the proof's own payload must have no effect.
+        servlet.setAgentRegistry(fixedAgentRegistry("real-minted-agent-id"));
+        JwtClaims proofClaims = new JwtClaims();
+        proofClaims.setIssuer(CLIENT_ID);
+        proofClaims.setAudience(ISSUER);
+        proofClaims.setJwtId(UUID.randomUUID().toString());
+        proofClaims.setIssuedAtToNow();
+        proofClaims.setClaim("agent_id", "attacker-chosen-via-proof");
+        String proof = signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, proofClaims);
+
+        Map<String, Object> body = baseBody();
+        body.put("proof", proof);
+        Captured out = doPost(JsonUtil.toJson(body));
+
+        assertEquals(200, out.status);
+        Map<String, Object> parsed = JsonUtil.parseJson(out.body);
+        assertEquals("real-minted-agent-id", claimsOf((String) parsed.get("attestation")).getClaimValue("agent_id"));
     }
 
     @Test

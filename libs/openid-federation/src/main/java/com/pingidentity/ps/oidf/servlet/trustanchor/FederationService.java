@@ -5,11 +5,13 @@ import com.pingidentity.ps.oidf.common.JwtCodec;
 import com.pingidentity.ps.oidf.common.SigningKeyProvider;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Function;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
@@ -29,6 +31,15 @@ import org.jose4j.lang.JoseException;
  * {@code <subject>/.well-known/openid-federation} (cached briefly). This is what makes the anchor's
  * vouching meaningful: a validator verifies the subordinate's self-statement against the keys the
  * anchor asserts, so those keys must be the subordinate's, not the anchor's.
+ *
+ * <p>A subordinate that is instead <em>hosted</em> by this same authority (see
+ * {@code com.pingidentity.ps.oidf.authority} — an ephemeral entity with no HTTPS endpoint of its own to
+ * fetch) is resolved by {@code hostedSubordinateLookup} first, ahead of and bypassing
+ * {@link #subordinateConfigCache} entirely: a revoked hosted entity must stop resolving on the very next
+ * call, not after a cache TTL. The lookup returns a claims fragment — {@code "jwks"} and, when this
+ * authority declares one for the entity, {@code "metadata_policy"} — rather than a direct dependency on
+ * the {@code authority} package's types, so this class and its existing tests stay unaware of, and
+ * unaffected by, that package's own (static, process-wide) state.
  */
 final class FederationService {
     private static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
@@ -41,6 +52,8 @@ final class FederationService {
     private final SigningKeyProvider signingKeyProvider;
     private final HttpGetClient subordinateFetcher;
     private final String federationBasePath;
+    private final Function<String, Map<String, Object>> hostedSubordinateLookup;
+    private final Function<String, List<String>> hostedSubordinateIds;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -60,10 +73,41 @@ final class FederationService {
      *   {@code /pf/JWKS}) are NOT prefixed — they really are at the root.
      */
     FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider, HttpGetClient subordinateFetcher, String federationBasePath) {
+        this(configuration, signingKeyProvider, subordinateFetcher, federationBasePath, null, null);
+    }
+
+    /** Root-deployed convenience: hosted-subordinate lookup with no context-path prefix. */
+    FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
+                       HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedSubordinateLookup) {
+        this(configuration, signingKeyProvider, subordinateFetcher, "", hostedSubordinateLookup, null);
+    }
+
+    /** Root-deployed convenience: hosted-subordinate lookup + list ids with no context-path prefix. */
+    FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
+                       HttpGetClient subordinateFetcher, Function<String, Map<String, Object>> hostedSubordinateLookup,
+                       Function<String, List<String>> hostedSubordinateIds) {
+        this(configuration, signingKeyProvider, subordinateFetcher, "", hostedSubordinateLookup, hostedSubordinateIds);
+    }
+
+    /**
+     * @param hostedSubordinateLookup subject -> a {@code Map} with a {@code "jwks"} entry and, optionally,
+     *                                a {@code "metadata_policy"} entry, or {@code null} if the subject is
+     *                                not (or no longer) hosted by this authority
+     * @param hostedSubordinateIds entity_type (possibly {@code null}) -> the hosted entity ids
+     *                             {@code /federation/list} should include for that filter — already
+     *                             restricted by the caller to listable, resolvable entities; see
+     *                             {@code AuthoritySupport.hostedEntityIds}
+     */
+    FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider,
+                       HttpGetClient subordinateFetcher, String federationBasePath,
+                       Function<String, Map<String, Object>> hostedSubordinateLookup,
+                       Function<String, List<String>> hostedSubordinateIds) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.signingKeyProvider = Objects.requireNonNull(signingKeyProvider, "signingKeyProvider");
         this.subordinateFetcher = subordinateFetcher;
         this.federationBasePath = federationBasePath == null || "/".equals(federationBasePath) ? "" : federationBasePath;
+        this.hostedSubordinateLookup = hostedSubordinateLookup;
+        this.hostedSubordinateIds = hostedSubordinateIds;
     }
 
     /** Base URL for this entity's own war-hosted {@code /federation/*} endpoints. */
@@ -79,7 +123,29 @@ final class FederationService {
     String createEntityConfigurationJwt(String oidcIssuer) throws JoseException {
         JwtClaims claims = baseClaims(oidcIssuer, oidcIssuer);
         claims.setClaim("jwks", this.buildInlineJwks());
-        LinkedHashMap<String, Map<String, Object>> metadata = new LinkedHashMap<String, Map<String, Object>>();
+        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
+        List<String> authorityHints = this.configuration.authorityHints();
+        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
+            claims.setClaim("authority_hints", authorityHints);
+        }
+        return this.signClaims(claims);
+    }
+
+    /**
+     * The metadata blocks this authority publishes about itself — {@code federation_entity},
+     * {@code openid_provider}, {@code oauth_authorization_server} and (when an attester is co-hosted)
+     * {@code oauth_client_attester}. Shared by {@link #createEntityConfigurationJwt} and the self-subject
+     * branch of {@link #createEntityStatement} (Phase 1.8) so the two can no longer drift apart: before
+     * this, the self-statement branch published only {@code openid_provider}, omitting
+     * {@code federation_entity} — so a trust chain resolved down to an Intermediate via
+     * {@code createEntityStatement} never learned that Intermediate's
+     * {@code federation_fetch_endpoint}, and subordinate resolution had nowhere to go.
+     *
+     * <p>War-hosted {@code /federation/*} endpoints carry {@link #federationBase(String)} (the servlet
+     * context path); the PF-native {@code /as/*} and {@code /pf/JWKS} endpoints stay path-less.
+     */
+    private LinkedHashMap<String, Object> selfMetadata(String oidcIssuer) throws JoseException {
+        LinkedHashMap<String, Object> metadata = new LinkedHashMap<String, Object>();
         String fedBase = this.federationBase(oidcIssuer);
         metadata.put("federation_entity", Map.of("federation_fetch_endpoint", fedBase + "/federation/fetch", "federation_list_endpoint", fedBase + "/federation/list", "federation_resolve_endpoint", fedBase + "/federation/resolve"));
         AttestationMetadataConfig attestationMetadata = this.configuration.attestationMetadata();
@@ -111,27 +177,39 @@ final class FederationService {
             // prefers metadata.oauth_client_attester.jwks over the entity's federation jwks).
             metadata.put("oauth_client_attester", Map.of("jwks", JsonUtil.parseJson(attesterJwks)));
         }
-        claims.setClaim("metadata", metadata);
-        List<String> authorityHints = this.configuration.authorityHints();
-        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
-            claims.setClaim("authority_hints", authorityHints);
-        }
-        return this.signClaims(claims);
+        return metadata;
     }
 
     String createEntityStatement(String subject, String requestedIssuer, String oidcIssuer) throws JoseException {
         String actualIssuer = requestedIssuer == null || requestedIssuer.isBlank() ? oidcIssuer : requestedIssuer;
         JwtClaims claims = baseClaims(actualIssuer, subject);
         if (!subject.equals(oidcIssuer)) {
+            // A subordinate hosted by this same authority (see com.pingidentity.ps.oidf.authority) is
+            // checked first, ahead of and bypassing subordinateConfigCache entirely: a revoked hosted
+            // entity must stop resolving on the very next call, not after a 300s cache TTL. Its claims
+            // may carry "jwks" and, when this authority declares one, "metadata_policy" — the only two
+            // claims a subordinate statement ever needs (metadata and authority_hints stay on the
+            // subordinate's own leaf statement).
+            if (this.hostedSubordinateLookup != null) {
+                Map<String, Object> hosted = this.hostedSubordinateLookup.apply(subject);
+                if (hosted != null) {
+                    claims.setClaim("jwks", hosted.get("jwks"));
+                    Object metadataPolicy = hosted.get("metadata_policy");
+                    if (metadataPolicy != null) {
+                        claims.setClaim("metadata_policy", metadataPolicy);
+                    }
+                    return this.signClaims(claims);
+                }
+                // null means "not a hosted entity" (or no longer resolvable) — fall through below.
+            }
             // Subordinate statement about a foreign entity: vouch for ITS keys, learned from its own
             // entity configuration. Metadata and authority_hints stay on the subordinate's leaf
             // statement — a subordinate statement only needs iss/sub/jwks for chain verification.
             claims.setClaim("jwks", this.fetchSubordinateJwks(subject));
             return this.signClaims(claims);
         }
-        Map<String, Map<String, Object>> metadata = Map.of("openid_provider", Map.of("issuer", oidcIssuer, "jwks_uri", oidcIssuer + "/pf/JWKS", "authorization_endpoint", oidcIssuer + "/as/authorization.oauth2", "token_endpoint", oidcIssuer + "/as/token.oauth2", "pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2"));
         claims.setClaim("jwks", this.buildInlineJwks());
-        claims.setClaim("metadata", metadata);
+        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
         claims.setClaim("authority_hints", this.configuration.authorityHints());
         return this.signClaims(claims);
     }
@@ -180,7 +258,8 @@ final class FederationService {
 
     private Map<String, Object> fetchSubordinateJwks(String subject) {
         if (!this.configuration.subordinates().contains(subject)) {
-            throw new IllegalArgumentException("Unknown subordinate: " + subject);
+            // The subject itself doesn't exist here — not_found (404), not a malformed request.
+            throw new FederationEntityNotFoundException("Unknown subordinate: " + subject);
         }
         CachedSubordinateConfig cached = this.subordinateConfigCache.get(subject);
         if (cached != null) {
@@ -246,7 +325,16 @@ final class FederationService {
     }
 
     List<String> listSubordinates(String entityType) {
-        return this.configuration.subordinates();
+        List<String> subordinates = new ArrayList<String>();
+        if (entityType == null || entityType.isBlank()) {
+            // The statically configured subordinates carry no verified type — including them under a
+            // typed filter would be a guess, not a fact, so they only ever appear on the untyped list.
+            subordinates.addAll(this.configuration.subordinates());
+        }
+        if (this.hostedSubordinateIds != null) {
+            subordinates.addAll(this.hostedSubordinateIds.apply(entityType));
+        }
+        return List.copyOf(subordinates);
     }
 
     Map<String, Object> resolveTrustChain(String subject, String trustAnchorIssuer, String oidcIssuer) throws JoseException {
