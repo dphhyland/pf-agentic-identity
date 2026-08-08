@@ -2,10 +2,10 @@
 # point DemoServerMain — not the production Dockerfile/Main), with the schema applied on first start.
 #
 #   docker compose -f deploy/device-enrolment/docker-compose.yml up --build
-#   java -cp demo/phone-simulator/target/phone-simulator-0.1.0.jar:demo/phone-simulator/target/dependency/* \
+#   java -cp phone-simulator/target/phone-simulator-0.1.0.jar:phone-simulator/target/dependency/* \
 #     com.pingidentity.ps.oidf.demo.phonesim.PhoneSimulatorCli --id-token <a real PingOne ID token>
 #
-# See demo/phone-simulator/README.md for what the demo server substitutes (a synthetic, bundled App
+# See phone-simulator/README.md in pf-agentic-identity-domain-authority for what the demo server substitutes (a synthetic, bundled App
 # Attest trust root — the one thing that cannot come from anywhere but a physical iPhone) and how to
 # obtain a real PingOne ID token to drive the green path. PingOne is wired for real here, matching
 # staging (deploy/device-enrolment/vars.staging.env) — user_authentication is verified for real,
@@ -58,7 +58,7 @@ services:
          "d":"jpsQnnGQmL-YBIffH1136cspYG6-0iY7X1fCE9-E9LI"}
       # PingOne — environment fe8ab8dc-0dbb-4da4-8ee5-004cb3a6f21d ("P1AS", region AP), matching
       # deploy/device-enrolment/vars.staging.env exactly. See that file for why this specific app,
-      # and demo/phone-simulator/README.md for how to obtain a real ID token to authenticate against it.
+      # and pf-agentic-identity-domain-authority's phone-simulator/README.md for how to obtain a real ID token to authenticate against it.
       PINGONE_ISSUER: https://auth.pingone.asia/fe8ab8dc-0dbb-4da4-8ee5-004cb3a6f21d/as
       PINGONE_CLIENT_ID: fad0652e-61bd-4531-ba1a-ff7074f1939b
       PINGONE_ACR_AAL2: Bank_Signup_Passkey

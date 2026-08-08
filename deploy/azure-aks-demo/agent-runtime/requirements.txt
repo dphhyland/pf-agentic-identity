@@ -1,2 +1,0 @@
-cryptography>=42.0
-client-attestation-sdk @ git+https://github.com/dphhyland/client-attestation-sdk-polyglot.git#subdirectory=python

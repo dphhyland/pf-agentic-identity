@@ -1,7 +1,0 @@
-# Filled secrets and terraform state never leave the machine.
-pf/secret.yaml
-pf/terraform/.terraform/
-pf/terraform/*.tfstate*
-pf/terraform/*.plan
-pf/terraform/generated.tf
-agent/__pycache__/

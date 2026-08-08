@@ -86,7 +86,7 @@ RFC 8693.
 
 Two rules that are easy to get wrong and are both enforced here:
 
-- **`act` is a JSON object, not a string.** `deploy/gke-spiffe-demo/pf/terraform/token-exchange.tf`
+- **`act` is a JSON object, not a string.** `gke-spiffe-demo/pf/terraform/token-exchange.tf` (in pf-agentic-identity-domain-authority)
   currently emits it as a JSON *string* for consumers to decode. That is a deviation from RFC 8693 and
   is being corrected, not carried forward.
 - **Nested prior actors are informational only** and MUST NOT feed access-control decisions. Only the

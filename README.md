@@ -52,7 +52,9 @@ RAR plugin shades its jackson). Pure **libs** know nothing about PF at all.
 `deploy/` is the environment-as-code tree (Railway; per-service Dockerfile + `vars.<env>.env` +
 path-filtered workflows). Push to `main` deploys **staging**; production is an explicit
 `workflow_dispatch`. The demo UI / harness lives in
-[pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules).
+[pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules); the cross-platform demo rigs — the
+GKE/EKS/Azure legs, the cross-cloud chain, the phone simulator — live in
+**pf-agentic-identity-domain-authority** (extracted 2026-08-08 with history).
 
 ## Building
 

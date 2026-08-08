@@ -166,3 +166,20 @@ Both are tracked as part of retiring the fork. Until the check exists, rule 1 is
 services from different definitions.** Nothing fires accidentally today (path-filtered or
 `workflow_dispatch`), but the two keep drifting, and the failure mode is a deploy that silently
 undoes the other repo's.
+
+## 2026-08-08 — the demo split
+
+The cross-platform demo rigs moved out, **with their history**, to
+**pf-agentic-identity-domain-authority** — a `git filter-repo` extraction at `0011036`, landing in
+the folder that had until then been this repo's stale worktree of `main` (the "duplication" that
+prompted the split was that worktree, not copied code). What moved: `deploy/aws-bedrock-demo`,
+`deploy/azure-aks-demo`, `deploy/gke-spiffe-demo`, `deploy/cross-cloud-chain`, `deploy/REBUILD.md`,
+`demo/phone-simulator` — flattened to the demo repo's top level, removed here in the same operation.
+One copy, two repos, no drift surface.
+
+What deliberately did **not** move: `deploy/pingfederate` and the Railway service definitions
+(`device-enrolment`, `fedhost`, `lighthouse`) — the standing-hazard rule above is about two repos
+holding deployable definitions for the same services, and every deployable definition stays here.
+The demo repo consumes this repo through a sibling checkout (`../pf-agentic-identity`), documented
+in its README; `phone-simulator` builds against locally installed monorepo artifacts
+(`mvn -DskipTests install` here first).

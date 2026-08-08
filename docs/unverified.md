@@ -117,7 +117,7 @@ meaningful difference in effort and must be settled before milestone 6 is estima
 **Assumed:** nothing. The resource server accepts both forms and reports which one arrived.
 
 RFC 8693 §4.1 defines `act` as a claim whose value is a **JSON object**.
-`deploy/gke-spiffe-demo/pf/terraform/token-exchange.tf` emits it as a JSON *string* for consumers to
+`gke-spiffe-demo/pf/terraform/token-exchange.tf` (in pf-agentic-identity-domain-authority) emits it as a JSON *string* for consumers to
 decode, with a comment noting PF 13.x rejects OGNL referencing an attribute literally named `act`
 (`ognl_expression_invalid_attribute`, worked around with a second contract name `prior_act`).
 

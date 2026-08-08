@@ -1,3 +1,0 @@
-cryptography>=42.0
-# SPIRE Workload API client (Phase 1 only; Phase 2 reads a projected token file instead).
-spiffe>=0.1.4
