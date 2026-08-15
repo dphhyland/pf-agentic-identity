@@ -12,15 +12,18 @@
 #
 # Inputs (all provided by the CI job — see .github/workflows/deploy-pingfederate.yml):
 #   $1  STOCK_WAR   path to the stock pf-runtime.war extracted from the pingidentity/pingfederate image
-#   $2  MODULE_JAR  path to the built module jar (pf-integration → target/oidf.jar)
+#   $2  MODULES     the built module jar(s): either a single jar (the legacy monolith
+#                   pf-oidf-modules.jar), or a DIRECTORY of jars (the monorepo's modular output —
+#                   oidf.jar + attestation-issuer/ssf/oidf-jose/client-attestation/openid-federation);
+#                   every *.jar in the directory is injected into WEB-INF/lib under its own name.
 #   $3  JOSE4J_JAR  path to jose4j jar, or "-" to skip. SKIP for pf-runtime.war merging: PF already
 #                   ships jose4j on its server classpath, and bundling a second copy in WEB-INF/lib
 #                   causes a LinkageError (loader constraint violation) when PF-loaded jose4j types
 #                   (JwksEndpointKeyAccessor results) cross into module code.
 #   $4  OUT_WAR     path to write the assembled pf-runtime.war
 set -euo pipefail
-STOCK_WAR="$1"; MODULE_JAR="$2"; JOSE4J_JAR="$3"; OUT_WAR="$4"
-MODULE_NAME="pf-oidf-modules-0.0.1-SNAPSHOT.jar"   # keep the WEB-INF/lib entry name stable
+STOCK_WAR="$1"; MODULES="$2"; JOSE4J_JAR="$3"; OUT_WAR="$4"
+MODULE_NAME="pf-oidf-modules-0.0.1-SNAPSHOT.jar"   # single-jar mode: keep the WEB-INF/lib entry name stable
 
 work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
 cp "$STOCK_WAR" "$OUT_WAR"
@@ -28,13 +31,15 @@ cp "$STOCK_WAR" "$OUT_WAR"
 # OUT_WAR would land in the temp dir instead of the intended output.
 OUT_WAR="$(cd "$(dirname "$OUT_WAR")" && pwd)/$(basename "$OUT_WAR")"
 mkdir -p "$work/WEB-INF/lib"
-cp "$MODULE_JAR" "$work/WEB-INF/lib/$MODULE_NAME"
+if [[ -d "$MODULES" ]]; then
+  cp "$MODULES"/*.jar "$work/WEB-INF/lib/"
+else
+  cp "$MODULES" "$work/WEB-INF/lib/$MODULE_NAME"
+fi
 if [[ "$JOSE4J_JAR" != "-" ]]; then
   cp "$JOSE4J_JAR" "$work/WEB-INF/lib/$(basename "$JOSE4J_JAR")"
-  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/"$MODULE_NAME" WEB-INF/lib/"$(basename "$JOSE4J_JAR")" )
-else
-  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/"$MODULE_NAME" )
 fi
+( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/*.jar )
 
 # --- web.xml surgery: register the SSF logout filter (idempotent) ---
 unzip -oq "$OUT_WAR" WEB-INF/web.xml -d "$work"
@@ -90,10 +95,46 @@ else
   echo "web.xml: registered ClientAttestationAuth over /as/token.oauth2"
 fi
 
+# OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 — OpenID
+# Federation §12.1 automatic registration: an unknown federation client presenting its trust chain in
+# its client_assertion is just-in-time materialised in PF's client store so the same request then
+# authenticates normally. Fail-open; idempotent for known clients. Trust controller comes from the
+# OIDF_FEDERATION_TRUST_CONTROLLER_HOST env var at runtime (same fallback pattern as the servlets).
+if grep -q "OidfAutoRegistration" "$WEBXML"; then
+  echo "web.xml: OidfAutoRegistration already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>OidfAutoRegistration</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>OidfAutoRegistration</filter-name>"
+      print "    <url-pattern>/as/token.oauth2</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered OidfAutoRegistration over /as/token.oauth2"
+fi
+
 echo "assembled $OUT_WAR:"
-unzip -l "$OUT_WAR" | grep -E "pf-oidf-modules" || { echo "ERROR: module jar not present in war"; exit 1; }
+if [[ -d "$MODULES" ]]; then
+  for j in "$MODULES"/*.jar; do
+    unzip -l "$OUT_WAR" | grep -qF "WEB-INF/lib/$(basename "$j")" \
+      || { echo "ERROR: module jar $(basename "$j") not present in war"; exit 1; }
+  done
+  unzip -l "$OUT_WAR" | grep -E "WEB-INF/lib/.*\.jar" | tail -n +1
+else
+  unzip -l "$OUT_WAR" | grep -E "pf-oidf-modules" || { echo "ERROR: module jar not present in war"; exit 1; }
+fi
 unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "SsfLogoutSignal" \
   || { echo "ERROR: SsfLogoutSignal filter mapping not present in assembled war" >&2; exit 1; }
 unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "ClientAttestationAuth" \
   || { echo "ERROR: ClientAttestationAuth filter mapping not present in assembled war" >&2; exit 1; }
-echo "verified: SsfLogoutSignal + ClientAttestationAuth filters mapped in $OUT_WAR"
+unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "OidfAutoRegistration" \
+  || { echo "ERROR: OidfAutoRegistration filter mapping not present in assembled war" >&2; exit 1; }
+echo "verified: SsfLogoutSignal + ClientAttestationAuth + OidfAutoRegistration filters mapped in $OUT_WAR"

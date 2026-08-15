@@ -45,28 +45,32 @@ COPY --chown=9031:0 overlay/pingfederate-system-keys.xml /opt/in/instance/server
 COPY --chown=9031:0 overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml /opt/in/instance/server/default/data/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
 # NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
 
-# Merge the OIDF attestation/federation/SSF module into pf-runtime.war (root context, single classloader),
+# Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, single classloader),
 # and register the SSF logout filter in its web.xml — via the same assemble script the build-in-CI path uses.
+# modules/ holds the monorepo reactor's modular jars (oidf.jar + attestation-issuer/ssf +
+# oidf-jose/client-attestation/openid-federation) — staged by build/stage-modules.sh.
 # (No pf-rar-paz-plugin — that's agentic.)
 COPY build/assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
-COPY pf-oidf-modules.jar /tmp/pf-oidf-modules.jar
+COPY modules/ /tmp/modules/
 RUN mkdir -p /opt/in/instance/server/default/deploy \
  && apk add --no-cache bash zip unzip \
  && STOCK="$(find /opt -name pf-runtime.war 2>/dev/null | grep -v '/opt/in/' | head -1)" \
  && { [ -n "$STOCK" ] || { echo 'stock pf-runtime.war not found in base image'; exit 1; }; } \
- && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/pf-oidf-modules.jar - \
+ && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/modules - \
       /opt/in/instance/server/default/deploy/pf-runtime.war \
  && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
- && rm -f /tmp/assemble-pf-runtime-war.sh /tmp/pf-oidf-modules.jar
+ && rm -f /tmp/assemble-pf-runtime-war.sh
 COPY --chown=9031:0 oidf-mock-attesters.json /opt/in/instance/server/default/conf/oidf-mock-attesters.json
 
-# ALSO place the module jar on the ENGINE classpath (server/default/deploy): the token-endpoint OGNL
+# ALSO place the module jars on the ENGINE classpath (server/default/deploy): the token-endpoint OGNL
 # issuance criteria evaluate on the engine classloader, which does NOT search pf-runtime.war's
 # WEB-INF/lib — without this, @ClientAttestationUtils@validateClientAttestation fails as an opaque
 # OGNL "Method failed" (ClassNotFoundException). The webapp and engine copies communicate only via
 # request attributes with string keys, so the dual-classloader split is by design. jose4j is already
 # in server/default/lib.
-COPY --chown=9031:0 pf-oidf-modules.jar /opt/in/instance/server/default/deploy/pf-oidf-modules.jar
+RUN cp /tmp/modules/*.jar /opt/in/instance/server/default/deploy/ \
+ && chown 9031:0 /opt/in/instance/server/default/deploy/*.jar \
+ && rm -rf /tmp/modules
 
 # Railway terminates TLS at its edge and forwards plain HTTP to the target port; PF's 9031 is HTTPS-only,
 # so expose an HTTP runtime listener on 9080 for the service's HTTP domain.

@@ -16,6 +16,11 @@ implements ClientStore {
     }
 
     @Override
+    public void update(Client client) {
+        MgmtFactory.getClientManager().updateClient(client);
+    }
+
+    @Override
     public Client get(String clientId) {
         return MgmtFactory.getClientManager().getClient(clientId);
     }

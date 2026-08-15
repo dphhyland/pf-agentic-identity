@@ -75,8 +75,14 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
         if (this.service != null) {
             return;
         }
+        // Same init-param → env fallback as FederationConfiguration.setting: an image-baked PF is
+        // configured through deployment env, not a per-deployment web.xml rebuild.
         String trustControllerHost = orBlank(config.getInitParameter("trustControllerHost"));
-        boolean ignoreSslErrors = Boolean.parseBoolean(config.getInitParameter("ignoreSslErrors"));
+        if (trustControllerHost.isBlank()) {
+            trustControllerHost = orBlank(System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_HOST"));
+        }
+        boolean ignoreSslErrors = Boolean.parseBoolean(config.getInitParameter("ignoreSslErrors"))
+                || Boolean.parseBoolean(System.getenv("OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
         int cacheMaxEntries = parseInt(config.getInitParameter("subordinateStatementCacheMaxEntries"), 256);
         long trustChainEntryMaxAge = parseLong(config.getInitParameter("trustChainEntryMaxAgeSeconds"), 60L);
         Set<String> acceptedSigningAlgorithms = parseCsv(config.getInitParameter("acceptedSigningAlgorithms"));

@@ -1,9 +1,11 @@
 # Secrets — NEVER commit. Stage locally before `railway up`.
-overlay/
+# (Only the two key files are secret; overlay/config-store/ is plain ForceImport config and IS tracked.)
+overlay/pf.jwk
+overlay/pingfederate-system-keys.xml
 *.lic
 
 # Build outputs / config artifact — staged into the context, not versioned here.
-#   *.war, *.jar         <- `mvn -q package` outputs of this repo
+#   *.war, *.jar         <- `mvn -q package` outputs of this repo (modules/ via build/stage-modules.sh)
 #   data.zip             <- terraform/ Phase-2 configArchive export (encrypted, but large)
 *.war
 *.jar

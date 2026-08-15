@@ -10,6 +10,9 @@ import org.sourceid.oauth20.domain.Client;
 public interface ClientStore {
     public void add(Client client);
 
+    /** Replace an existing client record (same client id) with a freshly derived one. */
+    public void update(Client client);
+
     public void disable(Client client);
 
     public Client get(String clientId);

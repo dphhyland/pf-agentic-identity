@@ -65,16 +65,10 @@ jobs:
       - name: build the platform (reactor → oidf.jar/oidf.war + plugin jars)
         run: mvn -q -DskipTests package
 
-      - name: assemble pf-runtime.war (stock + module jar + jose4j)
-        run: |
-          mvn -q dependency:get -Dartifact="$JOSE4J"
-          JOSE4J_JAR=$(find ~/.m2 -name 'jose4j-0.9.6.jar' | head -1)
-          bash deploy/pingfederate/build/assemble-pf-runtime-war.sh \
-            stock-pf-runtime.war servlets/pf-integration/target/oidf.jar "$JOSE4J_JAR" \
-            deploy/pingfederate/pf-runtime.war
-          cp servlets/pf-integration/target/oidf.war deploy/pingfederate/oidf.war
-          cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar deploy/pingfederate/
-          cp "$JOSE4J_JAR" deploy/pingfederate/jose4j-0.9.6.jar
+      - name: stage module jars for the Docker build
+        # The Dockerfile assembles pf-runtime.war itself (stock war from the base image + these
+        # modular jars merged into WEB-INF/lib + the engine deploy dir) — no CI-side war assembly.
+        run: bash deploy/pingfederate/build/stage-modules.sh
 
       - name: materialise secrets + per-env config (never committed)
         working-directory: deploy/pingfederate
@@ -90,4 +84,7 @@ jobs:
           RAILWAY_TOKEN: ${{ inputs.environment == 'production' && secrets.RAILWAY_TOKEN_PROD || secrets.RAILWAY_TOKEN_STAGING }}
         run: |
           npm i -g @railway/cli
-          railway up --ci --service pingfederate-runtime
+          # --no-gitignore: the staged build artifacts (modules/, data.zip, overlay/ secrets) are
+          # gitignored on purpose; without this flag `railway up` silently drops them from the
+          # upload and the Docker build fails on its COPYs. .railwayignore governs exclusions.
+          railway up --ci --no-gitignore --service pingfederate-runtime

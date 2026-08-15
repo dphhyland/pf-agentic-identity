@@ -91,11 +91,18 @@ final class RegistrationService {
         if (trustChain == null || trustChain.isEmpty()) {
             throw new IllegalArgumentException("trust_chain is required for automatic registration");
         }
-        if (this.clientStore.get(clientId) != null) {
+        Client existing = this.clientStore.get(clientId);
+        if (existing != null && !"auto_registered".equals(extendedParamValue(existing, "status"))) {
+            // Manually-registered clients are never touched by automatic registration.
             return null;
         }
         TrustChainValidationResult validation = this.trustChainValidator.validate(trustChain, clientId, opIssuer, -1L, -1L, this.configuration.trustChainEntryMaxAgeSeconds());
-        Map<String, Object> leafMetadata = validation.leafMetadata();
+        // A federation client leaf carries its client metadata as oauth_client (agents) or
+        // openid_relying_party (OIDC RPs) — the deprecated leafMetadata() only saw the latter.
+        Map<String, Object> leafMetadata = validation.metadataFor("oauth_client");
+        if (leafMetadata == null || leafMetadata.isEmpty()) {
+            leafMetadata = validation.metadataFor("openid_relying_party");
+        }
         if (leafMetadata == null || leafMetadata.isEmpty()) {
             throw new IllegalStateException("resolved leaf has no oauth_client/openid_relying_party metadata; cannot automatically register " + clientId);
         }
@@ -105,8 +112,17 @@ final class RegistrationService {
         }
         JwtClaims leafEntityStatement = validation.leafEntityStatement();
         Map jwks = leafEntityStatement.getClaimValue("jwks", Map.class);
-        this.clientStore.add(buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "auto_registered"));
-        LOGGER.info((Object)("Automatically registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
+        Client client = buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "auto_registered");
+        if (existing != null) {
+            // An auto-registered client is wholly derived from its (just re-validated) trust chain, so a
+            // chain presenting new keys/metadata refreshes the record — this is how §12.1 key rotation
+            // works: the federation, not the stored copy, is the authority.
+            this.clientStore.update(client);
+            LOGGER.info((Object)("Refreshed auto-registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
+        } else {
+            this.clientStore.add(client);
+            LOGGER.info((Object)("Automatically registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
+        }
         return new RegisteredClient(clientId, validation.leafSubject(), validation.trustAnchorIssuer(), validation.trustChain(), leafMetadata, "auto_registered", null);
     }
 
@@ -156,9 +172,14 @@ final class RegistrationService {
         client.setClientAuthnType(attestationAuth ? ClientAuthenticationType.NONE : ClientAuthenticationType.PRIVATE_KEY_JWT);
         client.setJwks(OBJECT_MAPPER.writeValueAsString(jwks));
         client.setName(String.valueOf(oidcRPMetadata.get("client_name")));
-        client.setRedirectUris((List)oidcRPMetadata.get("redirect_uris"));
-        client.setRestrictedResponseTypes((List)oidcRPMetadata.get("response_types"));
-        client.setGrantTypes(new HashSet((List)oidcRPMetadata.get("grant_types")));
+        // An oauth_client doing client_credentials legitimately has no redirect_uris / response_types,
+        // but PF's XML client store iterates these lists unguarded at save time — never pass null.
+        List redirectUris = (List)oidcRPMetadata.get("redirect_uris");
+        client.setRedirectUris(redirectUris != null ? redirectUris : new ArrayList<>());
+        List responseTypes = (List)oidcRPMetadata.get("response_types");
+        client.setRestrictedResponseTypes(responseTypes != null ? responseTypes : new ArrayList<>());
+        List grantTypes = (List)oidcRPMetadata.get("grant_types");
+        client.setGrantTypes(grantTypes != null ? new HashSet(grantTypes) : new HashSet());
         client.setTokenEndpointAuthSigningAlgorithm(String.valueOf(oidcRPMetadata.get("token_endpoint_auth_signing_alg")));
         client.setIdTokenSigningAlgorithm(String.valueOf(oidcRPMetadata.get("id_token_signed_response_alg")));
         client.setRequestObjectSigningAlgorithm(String.valueOf(oidcRPMetadata.get("request_object_signing_alg")));
@@ -211,6 +232,14 @@ final class RegistrationService {
         elements.add(paramValue);
         paramValues.setElements(elements);
         extendedParams.put(paramName, paramValues);
+    }
+
+    /** First value of a client's extended param, or null when absent — the read twin of addParamValue. */
+    private static String extendedParamValue(Client client, String paramName) {
+        Map<String, ParamValues> params = client.getExtendedParams();
+        ParamValues values = params != null ? params.get(paramName) : null;
+        List<String> elements = values != null ? values.getElements() : null;
+        return elements != null && !elements.isEmpty() ? elements.get(0) : null;
     }
 
     private static void addParamValues(Map<String, ParamValues> extendedParams, String paramName, List<String> paramValues1) {

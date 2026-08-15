@@ -21,8 +21,7 @@ The Dockerfile `COPY`s these — place them here first (git-ignored; `.railwayig
 
 | Artifact | Source |
 |---|---|
-| `pf-oidf-modules.jar` | `mvn -q package` in this repo (merged into `pf-runtime.war` at build) |
-| `jose4j-0.9.6.jar` | module runtime dep (merged into `pf-runtime.war`) |
+| `modules/` (six jars) | `mvn -q -DskipTests package` at the repo root, then `build/stage-modules.sh` — the reactor's modular jars (oidf.jar + attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation), merged into `pf-runtime.war` AND the engine deploy dir at image build. Replaces the old monolith `pf-oidf-modules.jar` (same packages, superset of its classes). jose4j is NOT staged — PF ships it on the server classpath. |
 | `oidf-mock-attesters.json` | DEV attester trust (issuer → public JWK) |
 | `overlay/` | **secret** — master key from `idp-paz-authzen-adapter/demo/pingfederate/` (git-ignored) |
 | `data.zip` | `terraform/` Phase-2 export (OIDF-only configArchive) |
@@ -35,7 +34,8 @@ The Dockerfile `COPY`s these — place them here first (git-ignored; `.railwayig
 > (~7 days) and re-fetched only at container start.
 
 ```sh
-# from repo root, after staging the artifacts above and running terraform Phase 2:
+# from repo root, after running terraform Phase 2:
+mvn -q -DskipTests package && deploy/pingfederate/build/stage-modules.sh
 ( cd deploy/pingfederate && railway up --detach -p e02a8e2f-ff38-4043-836f-25d9e1c0f26b -s pingfederate-runtime -e staging )
 ```
 
