@@ -21,7 +21,7 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * JSON body ({@code application/trust-chain+json}) at {@code /federation/register}
  * and returns a signed explicit-registration response.
  */
-@WebServlet
+@WebServlet(urlPatterns = {"/federation/register"})
 public class OpenIdRegistrationServlet
 extends HttpServlet {
     private static final long serialVersionUID = 1L;

@@ -1,7 +1,7 @@
 /*
  * Attestation challenge endpoint (draft-ietf-oauth-attestation-based-client-auth Section 6.1).
  */
-package com.pingidentity.ps.oidf.clientattestation;
+package com.pingidentity.ps.oidf.clientattestation.servlet;
 
 import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
