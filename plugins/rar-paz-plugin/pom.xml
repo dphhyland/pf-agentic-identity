@@ -63,6 +63,13 @@
             <artifactId>mockito-core</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- The SDK's AuthorizationDetail holds a static commons-logging Log, so the class fails to
+             initialise without it on the test classpath. PF supplies it at runtime. -->
+        <dependency>
+            <groupId>commons-logging</groupId>
+            <artifactId>commons-logging</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -81,6 +81,18 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private GovernanceEngineConfig config;
     private PdpClient client;
 
+    public AttestationAwareRarProcessor() {
+    }
+
+    /**
+     * Test seam: inject the collaborators {@link #configure} would otherwise build, so
+     * {@link #enrich} can be exercised without a live PDP or a PingFederate {@code Configuration}.
+     */
+    AttestationAwareRarProcessor(PdpClient client, GovernanceEngineConfig config) {
+        this.client = client;
+        this.config = config;
+    }
+
     @Override
     public void configure(Configuration configuration) {
         this.config = GovernanceEngineConfig.builder()
@@ -179,6 +191,9 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         } catch (Exception e) {
             if (config.isFailOpenOnError()) {
                 log.log(Level.WARNING, "governance engine call failed; failing open for type '" + authDetail.getType() + "'", e);
+                // Grant the cleaned copy, not the original: the principal marker must be stripped on this
+                // path too, or failing open leaks it into the consent page and the issued token.
+                authDetail.setDetail(detail);
                 return authDetail;
             }
             throw new AuthorizationDetailProcessingException(
