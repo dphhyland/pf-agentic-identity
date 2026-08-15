@@ -3,8 +3,8 @@
  */
 package com.pingidentity.ps.oidf.authority;
 
-import com.pingidentity.ps.oidf.common.JwsSigner;
-import com.pingidentity.ps.oidf.common.MetadataPolicy;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.federation.MetadataPolicy;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -71,7 +71,7 @@ public final class AuthoritySupport {
                 return;
             }
             signer = Objects.requireNonNull(hostedEntitySigner, "hostedEntitySigner");
-            authorityEntityId = com.pingidentity.ps.oidf.common.Claims.requireNonBlank(
+            authorityEntityId = com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(
                     configuredAuthorityEntityId, "authorityEntityId");
             configurationBuilder = new HostedEntityConfigurationBuilder(signer, authorityEntityId);
         }

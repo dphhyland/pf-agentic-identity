@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.pingidentity.ps.oidf.common.Jwks;
+import com.pingidentity.ps.oidf.jose.Jwks;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

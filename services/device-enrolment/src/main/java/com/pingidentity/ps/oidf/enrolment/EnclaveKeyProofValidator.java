@@ -3,7 +3,7 @@
  */
 package com.pingidentity.ps.oidf.enrolment;
 
-import com.pingidentity.ps.oidf.common.Jwks;
+import com.pingidentity.ps.oidf.jose.Jwks;
 import java.security.Key;
 import java.util.Map;
 import java.util.Set;

@@ -4,16 +4,16 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.agent.AgentRegistrySupport;
-import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
-import com.pingidentity.ps.oidf.common.AttestationMinter;
-import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
-import com.pingidentity.ps.oidf.common.ClientResolverPlugins;
-import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
-import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
-import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
-import com.pingidentity.ps.oidf.common.IssuanceException;
-import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
-import com.pingidentity.ps.oidf.common.SpiffeBinding;
+import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.issuer.AttestationMinter;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.issuer.ClientResolverPlugins;
+import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
+import com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator;
+import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
+import com.pingidentity.ps.oidf.issuer.IssuanceException;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
+import com.pingidentity.ps.oidf.issuer.SpiffeBinding;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -280,7 +280,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
     private String deploymentEvidenceAudience() {
         try {
             String common = null;
-            for (com.pingidentity.ps.oidf.common.AttesterClient c : clientResolver().attestationClients()) {
+            for (com.pingidentity.ps.oidf.issuer.AttesterClient c : clientResolver().attestationClients()) {
                 String issuer = c.config().issuer();
                 if (issuer == null) {
                     continue;

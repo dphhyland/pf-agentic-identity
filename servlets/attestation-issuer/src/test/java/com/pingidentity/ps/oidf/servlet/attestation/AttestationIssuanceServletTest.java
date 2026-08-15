@@ -13,20 +13,20 @@ import static org.mockito.Mockito.when;
 import com.pingidentity.ps.oidf.agent.AgentIdentity;
 import com.pingidentity.ps.oidf.agent.AgentRegistry;
 import com.pingidentity.ps.oidf.agent.AgentRegistryException;
-import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
-import com.pingidentity.ps.oidf.common.AttestationSupport;
-import com.pingidentity.ps.oidf.common.AttesterKeyResolver;
-import com.pingidentity.ps.oidf.common.AttesterSigningKey;
-import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
-import com.pingidentity.ps.oidf.common.ClientAttestationResult;
-import com.pingidentity.ps.oidf.common.ClientAttestationVerifier;
-import com.pingidentity.ps.oidf.common.InMemoryAttestationChallengeService;
-import com.pingidentity.ps.oidf.common.InMemoryAttestationReplayCache;
-import com.pingidentity.ps.oidf.common.InstanceKeyProofValidator;
-import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
-import com.pingidentity.ps.oidf.common.IssuanceException;
-import com.pingidentity.ps.oidf.common.RemoteJwksCache;
-import com.pingidentity.ps.oidf.common.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
+import com.pingidentity.ps.oidf.issuer.AttesterSigningKey;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier;
+import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService;
+import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache;
+import com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator;
+import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
+import com.pingidentity.ps.oidf.issuer.IssuanceException;
+import com.pingidentity.ps.oidf.issuer.RemoteJwksCache;
+import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
 import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -284,7 +284,7 @@ class AttestationIssuanceServletTest {
         servlet.setClientResolver(fixedResolver(walletConfig(null)));
         // No setInstanceValidators: the default registry holds the unconfigured-trust placeholder.
         servlet.setInstanceValidators(
-                com.pingidentity.ps.oidf.common.InstanceAttestationValidators.defaults());
+                com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.defaults());
         AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
         req.instanceKey = publicParams(instanceKey);
         req.svid = wia(WALLET_INSTANCE_ID, publicParams(instanceKey), 600L);
@@ -584,7 +584,7 @@ class AttestationIssuanceServletTest {
         AttestationIssuanceConfig cfg = config();
         AttestationIssuanceServlet s = new AttestationIssuanceServlet() {
             @Override
-            protected com.pingidentity.ps.oidf.common.IssuanceClientResolver defaultClientResolver() {
+            protected com.pingidentity.ps.oidf.issuer.IssuanceClientResolver defaultClientResolver() {
                 return fixedResolver(cfg);
             }
         };
@@ -735,14 +735,14 @@ class AttestationIssuanceServletTest {
                         + "\"entitlement\":[{\"type\":\"account_information\",\"actions\":[\"read\"]},"
                         + "{\"type\":\"payment_initiation\",\"actions\":[\"initiate\"]}]}]");
         props.put(AttestationIssuanceConfig.P_ASSERTED_CONTEXT_RESOLVER,
-                com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver.ID);
+                com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver.ID);
         return AttestationIssuanceConfig.fromProperties(props);
     }
 
     /** An Entra Agent ID directory with one registered Copilot agent, accounts-only (no payments group). */
-    private Map<String, com.pingidentity.ps.oidf.common.AssertedContextResolver> entraResolvers() {
-        com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver resolver =
-                com.pingidentity.ps.oidf.common.EntraDirectoryAssertedContextResolver.fromJson(
+    private Map<String, com.pingidentity.ps.oidf.issuer.AssertedContextResolver> entraResolvers() {
+        com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver resolver =
+                com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver.fromJson(
                         "{\"" + ENTRA_OID + "\":{"
                                 + "\"display_name\":\"Northwind Copilot (demo)\","
                                 + "\"groups\":[\"copilot-bridge-users\"],"
@@ -786,11 +786,11 @@ class AttestationIssuanceServletTest {
     }
 
     /** The default registry with the placeholder wallet validator replaced by one trusting our test provider. */
-    private com.pingidentity.ps.oidf.common.InstanceAttestationValidators walletRegistry() throws Exception {
+    private com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators walletRegistry() throws Exception {
         AttesterKeyResolver providerKeys = new StaticAttesterKeyResolver(Map.of(
                 WALLET_PROVIDER, List.of(JsonWebKey.Factory.newJwk(publicParams(walletProviderKey)))));
-        return com.pingidentity.ps.oidf.common.InstanceAttestationValidators.defaults()
-                .with(new com.pingidentity.ps.oidf.common.WalletInstanceAttestationValidator(providerKeys));
+        return com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.defaults()
+                .with(new com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator(providerKeys));
     }
 
     /** A Wallet Instance Attestation signed by the test wallet provider, binding {@code cnfJwk}. */
@@ -865,8 +865,8 @@ class AttestationIssuanceServletTest {
             }
 
             @Override
-            public List<com.pingidentity.ps.oidf.common.AttesterClient> attestationClients() {
-                return List.of(new com.pingidentity.ps.oidf.common.AttesterClient(CLIENT_ID, config));
+            public List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
+                return List.of(new com.pingidentity.ps.oidf.issuer.AttesterClient(CLIENT_ID, config));
             }
         };
     }
@@ -880,7 +880,7 @@ class AttestationIssuanceServletTest {
             }
 
             @Override
-            public List<com.pingidentity.ps.oidf.common.AttesterClient> attestationClients() {
+            public List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
                 return List.of();
             }
         };

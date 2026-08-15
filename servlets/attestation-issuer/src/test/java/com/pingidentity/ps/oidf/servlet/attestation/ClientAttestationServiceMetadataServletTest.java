@@ -10,10 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
-import com.pingidentity.ps.oidf.common.SpiffeInstanceAttestationValidator;
-import com.pingidentity.ps.oidf.common.StaticAttesterKeyResolver;
-import com.pingidentity.ps.oidf.common.WalletInstanceAttestationValidator;
+import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
+import com.pingidentity.ps.oidf.issuer.SpiffeInstanceAttestationValidator;
+import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator;
 import java.util.List;
 import java.util.Map;
 import javax.servlet.ServletConfig;

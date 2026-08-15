@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * Set-containment over the common RFC 9396 fields, used by the processor's {@code isEqualOrSubset} to decide
  * whether a (refresh) request stays within a previously-granted detail. Mirrors the semantics of
- * {@code com.pingidentity.ps.oidf.common.RarEntitlement} in {@code pf-oidf-modules}; kept local so this plugin
+ * {@code com.pingidentity.ps.oidf.clientattestation.RarEntitlement} in {@code pf-oidf-modules}; kept local so this plugin
  * builds standalone. TODO: consolidate the two into a shared library.
  */
 public final class RarContainment {

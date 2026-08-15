@@ -3,7 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
-import com.pingidentity.ps.oidf.common.SigningKeyProvider;
+import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import java.security.interfaces.RSAPrivateKey;
 import java.security.interfaces.RSAPublicKey;
 import org.jose4j.jwk.RsaJsonWebKey;

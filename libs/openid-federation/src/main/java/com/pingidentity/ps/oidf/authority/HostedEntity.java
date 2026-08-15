@@ -13,14 +13,15 @@ import java.util.Map;
  *
  * <p>{@code metadata} is the entity's full {@code metadata} claim exactly as it will be published —
  * one block per entity type, keyed by type name (e.g. {@code oauth_client}, {@code oauth_resource},
- * {@code oauth_client_attestation}), the same shape {@link com.pingidentity.ps.oidf.common
- * .TrustChainValidationResult#resolvedMetadata()} surfaces on the resolving side. An entity holding more
+ * {@code oauth_client_attestation}), the same shape
+ * {@link com.pingidentity.ps.oidf.federation.TrustChainValidationResult#resolvedMetadata()} surfaces
+ * on the resolving side. An entity holding more
  * than one type at once (an agent is typically both {@code oauth_client} and {@code oauth_resource}) is
  * exactly the case Phase 0.1 made resolvable — this hosts it, rather than merely resolving it.
  *
  * <p>{@code metadataPolicy} is this specific entity's {@code metadata_policy}, narrowed against the
  * domain-wide default at statement-issuance time and emitted on the subordinate statement the authority
- * issues about this entity (composed via {@link com.pingidentity.ps.oidf.common.MetadataPolicy}, the
+ * issues about this entity (composed via {@link com.pingidentity.ps.oidf.federation.MetadataPolicy}, the
  * same fail-closed composition Phase 0.2 wired into chain validation). Independent of, and not applied
  * to, this entity's own {@code metadata} — it constrains what a relying party may trust the entity for,
  * it is not a filter on what is stored here.

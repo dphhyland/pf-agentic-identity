@@ -1,8 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pingidentity.ps.oidf.common.ClientStore;
-import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;

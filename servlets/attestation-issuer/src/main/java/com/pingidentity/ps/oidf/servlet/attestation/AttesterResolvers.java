@@ -3,11 +3,11 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
-import com.pingidentity.ps.oidf.common.ChainClientResolver;
-import com.pingidentity.ps.oidf.common.CimdClientResolver;
-import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
-import com.pingidentity.ps.oidf.common.OpenIdFederationClientResolver;
-import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
+import com.pingidentity.ps.oidf.issuer.ChainClientResolver;
+import com.pingidentity.ps.oidf.issuer.CimdClientResolver;
+import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
+import com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import java.util.ArrayList;
 import java.util.List;
 import org.apache.commons.logging.Log;

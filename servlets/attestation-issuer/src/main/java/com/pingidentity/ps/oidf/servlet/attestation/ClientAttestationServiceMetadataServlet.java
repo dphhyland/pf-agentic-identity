@@ -3,9 +3,9 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
-import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
-import com.pingidentity.ps.oidf.common.InstanceAttestationValidator;
-import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
+import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;

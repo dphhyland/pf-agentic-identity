@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>pf-agentic-identity-bom</artifactId>
+    <version>0.1.0</version>
+    <packaging>pom</packaging>
+
+    <name>pf-agentic-identity BOM</name>
+    <description>
+        The one place a shared dependency version is written down. Every module pom imports this BOM
+        (scope=import) and declares its dependencies version-less; the poms stay standalone otherwise —
+        no parent inheritance, keeping the absorbed modules' provenance property intact. Bump a version
+        here and the whole reactor moves together. services/gm-api is deliberately not a consumer: it is
+        a vendored tree with its own coordinate convention (au.com.idpartners + local.pingfederate:*).
+    </description>
+
+    <licenses>
+        <license>
+            <name>Apache-2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0</url>
+        </license>
+    </licenses>
+
+    <properties>
+        <!-- internal reactor artifacts -->
+        <version.internal>0.1.0</version.internal>
+        <!-- the two provided PingFederate jars, extracted from the public image (see .github/workflows/build.yml) -->
+        <version.pingfederate>13.0.0.3</version.pingfederate>
+        <!-- third-party -->
+        <version.jose4j>0.9.6</version.jose4j>
+        <version.jackson>2.17.1</version.jackson>
+        <version.servlet-api>4.0.0</version.servlet-api>
+        <version.commons-logging>1.2</version.commons-logging>
+        <version.postgresql>42.7.3</version.postgresql>
+        <version.h2>2.2.224</version.h2>
+        <version.bouncycastle>1.78.1</version.bouncycastle>
+        <version.log4j>2.20.0</version.log4j>
+        <version.junit.jupiter>5.10.2</version.junit.jupiter>
+        <version.mockito>5.12.0</version.mockito>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- internal modules that other modules depend on -->
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>agent-registry</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId><version>${version.internal}</version></dependency>
+
+            <!-- PingFederate provided jars -->
+            <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><version>${version.pingfederate}</version></dependency>
+            <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><version>${version.pingfederate}</version></dependency>
+
+            <!-- third-party -->
+            <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.jose4j}</version></dependency>
+            <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
+            <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId><version>${version.jackson}</version></dependency>
+            <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><version>${version.servlet-api}</version></dependency>
+            <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
+            <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version></dependency>
+            <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${version.h2}</version></dependency>
+            <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>${version.bouncycastle}</version></dependency>
+            <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><version>${version.log4j}</version></dependency>
+            <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><version>${version.log4j}</version></dependency>
+            <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version></dependency>
+            <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>${version.mockito}</version></dependency>
+            <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><version>${version.mockito}</version></dependency>
+        </dependencies>
+    </dependencyManagement>
+</project>

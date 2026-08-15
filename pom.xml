@@ -24,6 +24,7 @@
     </licenses>
 
     <modules>
+        <module>bom</module>
         <module>libs/oidf-jose</module>
         <module>libs/app-attest</module>
         <module>libs/device-instance</module>

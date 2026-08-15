@@ -3,9 +3,9 @@
  */
 package com.pingidentity.ps.oidf.rs;
 
-import com.pingidentity.ps.oidf.common.DpopProof;
-import com.pingidentity.ps.oidf.common.DpopProofValidator;
-import com.pingidentity.ps.oidf.common.Jwks;
+import com.pingidentity.ps.oidf.clientattestation.DpopProof;
+import com.pingidentity.ps.oidf.clientattestation.DpopProofValidator;
+import com.pingidentity.ps.oidf.jose.Jwks;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;

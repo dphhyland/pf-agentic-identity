@@ -3,11 +3,11 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
-import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
-import com.pingidentity.ps.oidf.common.AttesterClient;
-import com.pingidentity.ps.oidf.common.ClientStore;
-import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
-import com.pingidentity.ps.oidf.common.IssuanceException;
+import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.issuer.AttesterClient;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
+import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashMap;
@@ -51,7 +51,7 @@ public final class PfIssuanceClientResolver implements IssuanceClientResolver {
 
     @Override
     public String pluginId() {
-        return com.pingidentity.ps.oidf.common.ClientResolverPlugins.PF_CLIENT_METADATA;
+        return com.pingidentity.ps.oidf.issuer.ClientResolverPlugins.PF_CLIENT_METADATA;
     }
 
     @Override

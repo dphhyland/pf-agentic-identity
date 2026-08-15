@@ -3,7 +3,7 @@
  */
 package com.pingidentity.ps.oidf.authority;
 
-import com.pingidentity.ps.oidf.common.JwsSigner;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
 
 /**
  * Turns a {@link HostedEntity}'s {@code hostingKeyRef} into the {@link JwsSigner} that actually holds

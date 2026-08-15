@@ -10,11 +10,11 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.pingidentity.ps.oidf.common.AttestationIssuanceConfig;
-import com.pingidentity.ps.oidf.common.AttesterClient;
-import com.pingidentity.ps.oidf.common.InstanceAttestationValidators;
-import com.pingidentity.ps.oidf.common.IssuanceClientResolver;
-import com.pingidentity.ps.oidf.common.IssuanceException;
+import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
+import com.pingidentity.ps.oidf.issuer.AttesterClient;
+import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
+import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
+import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.HashMap;
@@ -154,7 +154,7 @@ class AttesterConfigurationServletTest {
             }
 
             @Override
-            public java.util.List<com.pingidentity.ps.oidf.common.AttesterClient> attestationClients() {
+            public java.util.List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
                 return java.util.List.of();
             }
         });

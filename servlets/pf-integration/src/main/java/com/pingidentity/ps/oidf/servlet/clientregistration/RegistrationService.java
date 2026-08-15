@@ -1,15 +1,15 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pingidentity.ps.oidf.common.ClientStore;
-import com.pingidentity.ps.oidf.common.HttpTrustControllerGateway;
-import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
-import com.pingidentity.ps.oidf.common.PfJwksSigningKeyProvider;
-import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
-import com.pingidentity.ps.oidf.common.SigningKeyProvider;
-import com.pingidentity.ps.oidf.common.SubordinateStatementCache;
-import com.pingidentity.ps.oidf.common.TrustChainValidationResult;
-import com.pingidentity.ps.oidf.common.TrustChainValidator;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
+import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
+import com.pingidentity.ps.oidf.federation.SubordinateStatementCache;
+import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
+import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
 import java.util.ArrayList;

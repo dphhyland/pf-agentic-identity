@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.pingidentity.ps.oidf.common.InMemoryAttestationReplayCache;
+import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache;
 import com.pingidentity.ps.oidf.device.AgentInstance;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.pingidentity.ps.oidf.device.Device;

@@ -1,6 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
-import com.pingidentity.ps.oidf.common.JwtCodec;
+import com.pingidentity.ps.oidf.jose.JwtCodec;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;

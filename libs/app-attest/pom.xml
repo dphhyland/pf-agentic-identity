@@ -26,27 +26,30 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
-        <version.jose4j>0.9.6</version.jose4j>
-        <version.jackson>2.17.1</version.jackson>
-        <version.commons-logging>1.2</version.commons-logging>
-        <version.junit.jupiter>5.10.2</version.junit.jupiter>
-        <version.bouncycastle>1.78.1</version.bouncycastle>
     </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.1.0</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <dependencies>
         <!-- CBOR is the attestation object's wire format. Jackson's CBOR dataformat keeps us on the
              one JSON/binary stack the rest of the repo already uses. -->
-        <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId><version>${version.jackson}</version></dependency>
-        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
+        <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <!-- jose4j only for JWK shaping of the attested key, matching PF's own JOSE library exactly. -->
-        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.jose4j}</version></dependency>
-        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
-        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version><scope>test</scope></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <!-- Test only: the JDK has no public API for issuing an X.509 certificate with a custom
              extension, and App Attest's whole trust story hangs on one (the nonce, OID
              1.2.840.113635.100.8.2). BouncyCastle mints a synthetic Apple-shaped chain so the
              verifier can be tested without a physical device. Never on the runtime classpath. -->
-        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>${version.bouncycastle}</version><scope>test</scope></dependency>
+        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>

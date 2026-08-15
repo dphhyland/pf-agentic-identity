@@ -3,8 +3,8 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
-import com.pingidentity.ps.oidf.common.PfJwksSigningKeyProvider;
-import com.pingidentity.ps.oidf.common.SigningKeyProvider;
+import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
+import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import java.security.Key;
 import java.security.SecureRandom;
 import java.util.Base64;

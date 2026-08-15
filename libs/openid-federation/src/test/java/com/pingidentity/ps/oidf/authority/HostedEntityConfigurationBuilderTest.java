@@ -38,7 +38,7 @@ class HostedEntityConfigurationBuilderTest {
 
             String compact = builder.buildEntityConfiguration(entity);
 
-            JwtClaims claims = com.pingidentity.ps.oidf.common.JwtCodec.parseUnverifiedClaims(compact);
+            JwtClaims claims = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(compact);
             assertEquals(entityId, claims.getIssuer());
             assertEquals(entityId, claims.getSubject());
             assertTrue(claims.hasClaim("jwks"));

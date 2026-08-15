@@ -3,9 +3,9 @@
  */
 package com.pingidentity.ps.oidf.authority;
 
-import com.pingidentity.ps.oidf.common.Claims;
-import com.pingidentity.ps.oidf.common.CompactJws;
-import com.pingidentity.ps.oidf.common.JwsSigner;
+import com.pingidentity.ps.oidf.jose.Claims;
+import com.pingidentity.ps.oidf.jose.CompactJws;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;

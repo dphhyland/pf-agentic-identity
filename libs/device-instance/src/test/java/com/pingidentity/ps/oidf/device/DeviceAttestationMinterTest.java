@@ -7,9 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import com.pingidentity.ps.oidf.common.JwsSigner;
-import com.pingidentity.ps.oidf.common.Jwks;
-import com.pingidentity.ps.oidf.common.LocalJwkSigner;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.jose.Jwks;
+import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;

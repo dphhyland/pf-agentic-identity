@@ -5,7 +5,7 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pingidentity.ps.oidf.common.AttestationReplayCache;
+import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
 import com.pingidentity.ps.oidf.device.AgentInstance;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.pingidentity.ps.oidf.device.Device;

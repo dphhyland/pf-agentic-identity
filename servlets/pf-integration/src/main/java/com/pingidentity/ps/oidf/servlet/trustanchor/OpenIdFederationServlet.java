@@ -1,8 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
-import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
-import com.pingidentity.ps.oidf.common.PfJwksSigningKeyProvider;
+import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
@@ -17,6 +17,9 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
+import com.pingidentity.ps.oidf.federation.FederationService;
+import com.pingidentity.ps.oidf.federation.FederationConfiguration;
+import com.pingidentity.ps.oidf.federation.FederationEntityNotFoundException;
 
 /**
  * OpenID Federation entity servlet acting as a trust anchor / intermediate. Serves the entity

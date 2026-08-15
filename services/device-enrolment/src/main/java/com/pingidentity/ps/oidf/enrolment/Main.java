@@ -5,10 +5,10 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.pingidentity.ps.oidf.appattest.AppAttestConfig;
 import com.pingidentity.ps.oidf.appattest.AppAttestVerifier;
-import com.pingidentity.ps.oidf.common.InMemoryAttestationChallengeService;
-import com.pingidentity.ps.oidf.common.InMemoryAttestationReplayCache;
-import com.pingidentity.ps.oidf.common.JwsSigner;
-import com.pingidentity.ps.oidf.common.LocalJwkSigner;
+import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService;
+import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
 import com.pingidentity.ps.oidf.device.JdbcInstanceRegistry;

@@ -5,7 +5,7 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pingidentity.ps.oidf.common.JwsSigner;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;

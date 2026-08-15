@@ -3,9 +3,9 @@
  */
 package com.pingidentity.ps.oidf.device;
 
-import com.pingidentity.ps.oidf.common.CompactJws;
-import com.pingidentity.ps.oidf.common.JwsSigner;
-import com.pingidentity.ps.oidf.common.Jwks;
+import com.pingidentity.ps.oidf.jose.CompactJws;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.jose.Jwks;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;

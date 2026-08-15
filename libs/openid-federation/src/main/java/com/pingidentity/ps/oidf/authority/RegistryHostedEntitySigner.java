@@ -3,8 +3,8 @@
  */
 package com.pingidentity.ps.oidf.authority;
 
-import com.pingidentity.ps.oidf.common.JwsSigner;
-import com.pingidentity.ps.oidf.common.OpenBaoTransitSigner;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.jose.OpenBaoTransitSigner;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**

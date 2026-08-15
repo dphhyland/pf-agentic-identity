@@ -4,10 +4,10 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
-import com.pingidentity.ps.oidf.common.AttestationSupport;
-import com.pingidentity.ps.oidf.common.ClientAttestationException;
-import com.pingidentity.ps.oidf.common.ClientAttestationResult;
-import com.pingidentity.ps.oidf.common.ClientAttestationVerifier;
+import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import java.io.IOException;
 import java.util.Collections;

@@ -25,32 +25,34 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
-        <version.jose4j>0.9.6</version.jose4j>
-        <version.jackson>2.17.1</version.jackson>
-        <version.commons-logging>1.2</version.commons-logging>
-        <version.junit.jupiter>5.10.2</version.junit.jupiter>
-        <version.postgresql>42.7.3</version.postgresql>
-        <version.h2>2.2.224</version.h2>
     </properties>
 
-    <dependencies>
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>0.1.0</version></dependency>
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>0.1.0</version></dependency>
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId><version>0.1.0</version></dependency>
-        <!-- Challenge issue/consume and jti replay already exist here; no reason to write them twice. -->
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>0.1.0</version></dependency>
-        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.jose4j}</version></dependency>
-        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
-        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
-        <!-- Runtime only: the service ships the driver, the library does not. -->
-        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version></dependency>
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.1.0</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
 
-        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version><scope>test</scope></dependency>
-        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${version.h2}</version><scope>test</scope></dependency>
+    <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId></dependency>
+        <!-- Challenge issue/consume and jti replay already exist here; no reason to write them twice. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
+        <!-- Runtime only: the service ships the driver, the library does not. -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
         <!-- The synthetic Apple-shaped chain builder, reused rather than reimplemented. It mints
              certificates, so BouncyCastle comes with it — test scope, never at runtime. -->
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>0.1.0</version><type>test-jar</type><scope>test</scope></dependency>
-        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>1.78.1</version><scope>test</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><type>test-jar</type><scope>test</scope></dependency>
+        <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>

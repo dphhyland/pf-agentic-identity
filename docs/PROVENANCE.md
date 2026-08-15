@@ -183,3 +183,36 @@ holding deployable definitions for the same services, and every deployable defin
 The demo repo consumes this repo through a sibling checkout (`../pf-agentic-identity`), documented
 in its README; `phone-simulator` builds against locally installed monorepo artifacts
 (`mvn -DskipTests install` here first).
+
+## 2026-08-15 — split-package unwind + repo BOM
+
+An absorption scar removed: `com.pingidentity.ps.oidf.common` was declared by **five** modules
+(a leftover of the standalone-repo era, where every repo used the same package), which meant no
+module boundary was real — package-private members were visible across jars, and the shape invited
+exactly the classloader `LinkageError`s the oidf-war assembly guards against. Each module now owns
+its packages:
+
+| Module | Was | Now |
+|---|---|---|
+| `libs/oidf-jose` | `…oidf.common` | `…oidf.jose` |
+| `libs/client-attestation` | `…oidf.common` + a stray `…servlet.attestation` servlet | `…oidf.clientattestation` (+ `.servlet`) |
+| `libs/openid-federation` | `…oidf.common` + `…servlet.trustanchor` | `…oidf.federation` (`authority` unchanged) |
+| `servlets/pf-integration` | `…oidf.common` | `…oidf.pf` (`servlet.clientregistration` / `servlet.trustanchor` unchanged — their FQCNs are config-facing: OGNL criteria in Terraform, filter classes in `assemble-pf-runtime-war.sh`) |
+| `servlets/attestation-issuer` | `…oidf.common` | `…oidf.issuer` (`servlet.attestation` unchanged) |
+
+The compiler then said out loud what the split package had been hiding: `FederationService`,
+`FederationConfiguration` and `FederationEntityNotFoundException` were **package-private** yet
+consumed from pf-integration across the jar boundary. They (and the members pf-integration uses)
+are now explicitly `public` — the de-facto API made a declared one.
+
+Two consequences for the rules above. Backports to the absorbed repos now require **package
+translation** (their copies still say `…oidf.common`); and drift-rule 3's mixing hazard is
+smaller — old-repo artifacts and monorepo artifacts no longer collide on the renamed FQCNs, so a
+mixed classpath fails loudly instead of shadowing silently (pf-integration's unchanged
+`servlet.*` packages are the remaining overlap).
+
+Same date, the version sprawl went: `bom/pom.xml` is now the one place a shared dependency version
+is written down (internal 0.1.0, jose4j, jackson, junit, the two provided PF jars, …). Every module
+pom imports it (`scope=import`) and declares dependencies version-less — still no parent, so the
+absorbed poms stay standalone. `services/gm-api` is deliberately not a consumer (vendored tree, own
+`au.com.idpartners` + `local.pingfederate:*` conventions).

@@ -2,11 +2,11 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pingidentity.ps.oidf.common.Claims;
-import com.pingidentity.ps.oidf.common.ClientStore;
-import com.pingidentity.ps.oidf.common.JwtCodec;
-import com.pingidentity.ps.oidf.common.PfMgmtClientStore;
-import com.pingidentity.ps.oidf.common.TrustChainValidator;
+import com.pingidentity.ps.oidf.jose.Claims;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
+import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.jwt.JwtClaims;

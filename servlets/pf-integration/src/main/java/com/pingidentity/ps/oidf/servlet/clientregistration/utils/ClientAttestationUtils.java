@@ -3,20 +3,20 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
-import com.pingidentity.ps.oidf.common.AttestationSupport;
-import com.pingidentity.ps.oidf.common.AttesterKeyResolver;
-import com.pingidentity.ps.oidf.common.ClientAttestationConfig;
-import com.pingidentity.ps.oidf.common.ClientAttestationException;
-import com.pingidentity.ps.oidf.common.ClientAttestationResult;
-import com.pingidentity.ps.oidf.common.ClientAttestationVerifier;
-import com.pingidentity.ps.oidf.common.FallbackAttesterKeyResolver;
-import com.pingidentity.ps.oidf.common.FederationAttesterKeyResolver;
-import com.pingidentity.ps.oidf.common.HttpTrustControllerGateway;
-import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
-import com.pingidentity.ps.oidf.common.Jwks;
-import com.pingidentity.ps.oidf.common.StaticAttesterKeyResolver;
-import com.pingidentity.ps.oidf.common.TrustChainValidator;
-import com.pingidentity.ps.oidf.common.TrustControllerGateway;
+import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier;
+import com.pingidentity.ps.oidf.pf.FallbackAttesterKeyResolver;
+import com.pingidentity.ps.oidf.pf.FederationAttesterKeyResolver;
+import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.jose.Jwks;
+import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.Enumeration;
 import java.util.LinkedHashSet;

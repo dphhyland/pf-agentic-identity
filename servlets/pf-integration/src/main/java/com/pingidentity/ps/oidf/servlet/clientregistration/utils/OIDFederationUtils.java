@@ -1,10 +1,10 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
-import com.pingidentity.ps.oidf.common.HttpTrustControllerGateway;
-import com.pingidentity.ps.oidf.common.JdkHttpGetClient;
-import com.pingidentity.ps.oidf.common.JwtCodec;
-import com.pingidentity.ps.oidf.common.TrustChainValidator;
-import com.pingidentity.ps.oidf.common.TrustControllerGateway;
+import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.ArrayList;
 import java.util.Collections;
