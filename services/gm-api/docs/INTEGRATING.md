@@ -3,7 +3,7 @@
 How another project calls this to ask **"does this consent still permit this, right now?"**
 
 Runnable examples: [`examples/`](../examples). Start with
-[`examples/curl/walkthrough.sh`](../examples/curl/walkthrough.sh).
+`examples/curl/walkthrough.sh` (in the **grant-evaluation-api** repo since the Go extraction).
 
 ---
 
@@ -278,7 +278,7 @@ curl -X POST https://demo-production-0792.up.railway.app/api/grants/grant-alice-
 # → "You no longer have access to this account."
 ```
 
-Locally, against a real PingFederate: [`examples/curl/walkthrough.sh`](../examples/curl/walkthrough.sh).
+Locally, against a real PingFederate: `examples/curl/walkthrough.sh` (in the **grant-evaluation-api** repo since the Go extraction).
 
 ---
 
@@ -286,9 +286,9 @@ Locally, against a real PingFederate: [`examples/curl/walkthrough.sh`](../exampl
 
 | | |
 |---|---|
-| [`examples/go/`](../examples/go) | A `Client` you can copy into a Go project |
+| `examples/go/` (grant-evaluation-api repo) | A `Client` you can copy into a Go project |
 | [`examples/java/`](../examples/java) | The same, no dependencies beyond the JDK |
-| [`examples/curl/`](../examples/curl) | Every operation as a shell script |
+| `examples/curl/` (grant-evaluation-api repo) | Every operation as a shell script |
 
 Each covers all three token shapes and shows the retry/no-retry split on reason ids.
 

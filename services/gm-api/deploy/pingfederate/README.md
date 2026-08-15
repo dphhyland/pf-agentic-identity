@@ -75,7 +75,7 @@ the persistent grant contract, which the grant client reads as a fallback (see
 not something a user chose.**
 
 The fix already exists and is already deployed to this PF:
-[`pf-rar-paz-plugin`](../../../pf-rar-paz-plugin) registers as *"Attestation-aware RAR
+[`pf-rar-paz-plugin`](../../../../plugins/rar-paz-plugin) registers as *"Attestation-aware RAR
 to PingAuthorize"* and supports `account_information`, `payment_initiation` and
 `sales_agent`. It governs each requested consent against PingAuthorize policy —
 enforcing `requested ⊆ attested` — rather than hardcoding a vocabulary.

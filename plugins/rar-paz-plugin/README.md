@@ -1,143 +1,116 @@
 # pf-rar-paz-plugin
 
-> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly a standalone local repo, absorbed with history. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
-
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly a standalone local repo, absorbed with history 2026-07-21; see [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
 A PingFederate **`AuthorizationDetailProcessor`** (RFC 9396 Rich Authorization Requests) that acts as a
-**Policy Enforcement Point**: it forwards each requested `authorization_details` entry — together with the
-**client attestation's** vouched subject / entitlement / workload — to a **PingAuthorize governance-engine**
-decision, denies unless the decision is `PERMIT`, and applies any returned statements (downscoping /
-obligations).
+Policy Enforcement Point at token issuance: it forwards each requested `authorization_details` entry —
+together with the client attestation's vouched subject / entitlement / workload — to a PDP decision,
+**denies unless the decision is PERMIT**, and applies any returned statements (downscoping / obligations).
+Two PDP dialects: PingAuthorize's native governance engine, or an OpenID AuthZEN 1.0 PDP.
 
-It is modelled on the reference `RARAuthDetailsProcessor` but closes that demo's gaps: it **honours the
-decision** (the reference read only `statements` and could never deny), maps a **real subject** (not a
-hardcoded `"joe"`), passes the **attested entitlement** so policy can enforce `requested ⊆ attested`, uses a
-scoped **insecure-TLS dev flag** instead of an always-on trust-all manager, and implements a real
-`isEqualOrSubset` for refresh-time narrowing.
+Modelled on Ping's reference `RARAuthDetailsProcessor` but closes its gaps: it honours the decision (the
+reference read only `statements` and could never deny), maps a real principal rather than a hardcoded
+`"joe"`, passes the attested entitlement so policy can enforce `requested ⊆ attested`, scopes the
+insecure-TLS switch to a dev flag, and implements a real `isEqualOrSubset` for refresh-time narrowing.
 
-Status: **built, unit-tested (23 tests), and verified live** — governs RFC 9396 payment
-consent end-to-end (PERMIT ≤ limit / DENY over-limit), attributes the decision to the
-authenticated principal (`UserID`) with the agent as `actor`, and renders an
-attribute-focused consent page.
+Status: unit-tested (38 tests) and verified live against PingAuthorize — governs payment consent
+end-to-end (PERMIT ≤ limit / DENY over-limit), attributes the decision to the authenticated principal
+(`UserID` / AuthZEN `subject`) with the agent instance as `actor`, and renders an attribute-focused
+consent page.
 
-## Repository layout
+## Layout
 
 | Path | What |
-|------|------|
-| [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (Java) + 23 unit tests; `PF-INF` marker; shaded Jackson |
-| [`integration/`](integration) | **PingFederate integration** — `Dockerfile.fragment`, the TLS JVM flag, `config-as-code/` (create processor instance + enable on client), `consent-template/` |
-| [`paz/`](paz) | **PingAuthorize** Trust Framework + policy-authoring scripts (PAP REST API) |
-| [`.claude/skills/pf-rar-paz-plugin/`](.claude/skills/pf-rar-paz-plugin) | reusable **skill** — build/deploy/configure knowledge for future projects |
+|---|---|
+| [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (`com.pingidentity.ps.oidf.rar`) + tests; `PF-INF` marker; shaded jackson |
+| [`integration/`](integration) | PingFederate integration — `Dockerfile.fragment`, the TLS JVM flag, `config-as-code/` (create processor instance + enable on client), `consent-template/` |
+| [`paz/`](paz) | PingAuthorize Trust Framework + policy-authoring scripts (PAP REST API) — **author-local** compose, see its README |
+| [`probe-decision.sh`](probe-decision.sh) | POSTs the plugin's exact governance-engine request shape to a PDP |
+| [`.claude/skills/pf-rar-paz-plugin/`](.claude/skills/pf-rar-paz-plugin) | build/deploy/configure knowledge as a reusable skill |
 
-Quick start: [`integration/README.md`](integration/README.md).
+## How it loads
 
-**Attestation context (optional):** the plugin can bound the decision by a client
-attestation's vouched subject/entitlement/workload if an upstream hook publishes them as a
-request attribute (`com.pingidentity.ps.oidf.rar.attestation_context`, a plain `Map`). This
-is a decoupled string-key contract — no code dependency — so it works with or without an
-attester. See "Attestation-context bridge" below.
+A PF SDK plugin: `src/main/resources/PF-INF/authorization-detail-processors` names the class, the jar is
+`pf.plugins.pf-rar-paz-plugin.jar` (PF only picks up `pf.plugins.*` in `server/default/deploy`), and PF
+loads it on a per-plugin **isolated** classloader. That is why jackson is shaded and relocated into
+`com.pingidentity.ps.oidf.rar.shaded.jackson` — a bare jackson jar beside the plugin would fail to link.
+The PF SDK and servlet API are `provided`; HTTP is the JDK's `java.net.http`. The package name is in the
+descriptor, so it was left alone by the split-package unwind that renamed the libraries.
 
 ## Architecture
 
 ```
 authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
-                                 ├─ read AttestationSubject from HttpServletRequest attribute
-                                 ├─ GovernanceEngineRequestBuilder → DecisionRequest
-                                 ├─ GovernanceEngineClient ─POST─▶ PingAuthorize /governance-engine
-                                 ├─ deny unless decision.isPermit()
-                                 └─ StatementApplier: merge obligations into the granted detail
+   ├─ AttestationSubject   ← request attribute com.pingidentity.ps.oidf.rar.attestation_context
+   ├─ principal            ← resource_owner_sub attribute | login_hint | the _principal_sub detail
+   │                          marker the BFF folds in (the only channel that survives PAR); stripped
+   ├─ GovernanceEngineRequestBuilder | AuthZenRequestBuilder   (PDP Dialect field)
+   ├─ GovernanceEngineClient | AuthZenPdpClient  ─POST─▶ PDP    (PdpClient seam, JdkHttpTransport)
+   ├─ deny unless decision.isPermit()   (fail-open only if configured)
+   └─ StatementApplier: merge statements/obligations into the granted detail (dot-path)
 ```
-All I/O and mapping live in framework-agnostic collaborators (`GovernanceEngine*`, `Decision*`,
-`StatementApplier`, `RarContainment`), unit-tested without the PF SDK. Only
-[`AttestationAwareRarProcessor`](src/main/java/com/pingidentity/ps/oidf/rar/AttestationAwareRarProcessor.java)
-touches the SDK.
 
-## Wire contract (native governance-engine "JSON API")
+Only `AttestationAwareRarProcessor` touches the SDK; the builders, clients, `DecisionResponse`,
+`StatementApplier` and `RarContainment` are plain code, tested without PF. `AuthorizationDetailContext`
+exposes no resource owner (verified through SDK 13.0.0.3), hence the out-of-band principal lookup above.
 
-```
-POST <PDP URL>                         <secret-header>: <secret>
-{ "domain":  "<domainPrefix>.<type>",
-  "service": "Authorization",
-  "action":  "authorize",
-  "attributes": {
-    "UserID": "<attestation sub | client_id>",
-    "client_id": "<client_id>",
-    "<attrPrefix>.<type>.<field>": "<json-stringified value>",   // each requested field
-    "attestation.entitlement": "<json>",                         // the attested ceiling
-    "attestation.workload":    "<json>",
-    "attestation.cnf_thumbprint": "<thumbprint>" } }
-   ↓
-{ "decision":"PERMIT|DENY|NOT_APPLICABLE|INDETERMINATE", "authorised":true|false,
-  "statements":[ {"name":"a.b","payload":…} ] }
-```
-The request builder is pluggable (`DecisionRequestBuilder`) so an AuthZEN `/access/v1/evaluation` shape can be
-added later without changing the client or processor.
+**`RarContainment`** duplicates the containment semantics of `RarEntitlement` in
+[`libs/client-attestation`](../../libs/client-attestation) on purpose — kept local so the plugin builds
+and loads standalone on its isolated classloader rather than shading the library in — and its javadoc
+carries the TODO to consolidate the two. Same set-valued fields (`actions`, `locations`, `datatypes`,
+`privileges`, `sales_regions`); if one changes, change both.
 
-## Attestation-context bridge (Phase 1b contract)
+## Attestation-context bridge
 
-The processor reads attestation context via `AuthorizationDetailContext.getRequest().getAttribute(key)`. On
-successful attestation authentication the hook (`ClientAttestationUtils` in `pf-oidf-modules`) sets:
+`servlets/pf-integration`'s `ClientAttestationUtils` publishes the verified attestation as a request
+attribute after `attest_jwt_client_auth` succeeds; this plugin reads it via
+`AuthorizationDetailContext.getRequest()`. A string-keyed plain `Map`, so neither module depends on the
+other across classloaders:
 
 - **key:** `com.pingidentity.ps.oidf.rar.attestation_context` (`AttestationSubject.REQUEST_ATTRIBUTE`)
-- **value:** a `Map` with `sub`, `client_id`, `entitlement` (the attested `authorization_details` array, i.e.
-  `ClientAttestationResult.entitledAuthorizationDetails()`), and `cnf_thumbprint`.
-  *(`workload` is not yet surfaced — it is not parsed into `ClientAttestation`/the result; a small follow-up.)*
+- **value:** `sub` and `client_id` (both the registered client / agent *type*), `agent_id` (the
+  attester-minted instance identifier, when one was minted), `entitlement` (the attested
+  `authorization_details` ceiling), `workload` (SPIFFE id / attestor / selectors, plus flat `spiffe_id`
+  and `attested_by`), `cnf_thumbprint`.
 
-When the context is absent (e.g. a non-attestation client), the processor falls back to `context.getClientId()`
-as the subject and sends no attested entitlement (policy then decides on the request alone).
+Absent context (a non-attestation client) falls back to `context.getClientId()` and sends no
+entitlement — policy decides on the request alone.
 
-## Build
+## PDP dialects
 
-```bash
-# PF SDK 13.0.0.3 must be in ~/.m2 (pf-protocolengine, pingfederate-sdk) — see integration/README.md
-mvn -o -B package            # offline; jackson pinned to 2.17.1 (all jars present in ~/.m2)
-# → target/pf.plugins.pf-rar-paz-plugin.jar
-```
+Selected by the **PDP Dialect** field (`governance-engine`, default, or `authzen`). Enforcement,
+fail-open, timeout and the shared-secret header are dialect-independent.
 
-## Deploy
-
-Full recipe in [`integration/`](integration): bake the jar with
-[`integration/Dockerfile.fragment`](integration/Dockerfile.fragment) (the jar is a shaded
-uber-jar — no separate Jackson jars to copy), then create the processor instance + enable it
-on the client with [`integration/config-as-code/`](integration/config-as-code). The
-processor already declares its RAR types (`sales_agent`, `payment_initiation`,
-`account_information`) in code, so you only enable them per client.
-
-### GUI config fields (same fields the config-as-code sets)
-
-| Field | Default | Notes |
-|-------|---------|-------|
-| Governance engine decision URL | — (**required**) | e.g. `https://<paz>:1443/governance-engine` |
-| PDP domain prefix | `idpartners.authorization_details` | `domain` = prefix + `.` + type |
-| PDP service / action | `Authorization` / `authorize` | policy target |
-| Attribute prefix | `idp` | request-field attribute prefix |
-| Prefix attributes with detail type | on | `idp.<type>.<field>` vs `idp.<field>` |
-| Shared-secret header / value | `CLIENT-TOKEN` / — | governance-engine auth |
-| Deny unless the decision is PERMIT | on | the enforcement switch the reference lacked |
-| Fail open if the engine is unreachable | off | on = allow when the PDP errors |
-| Skip TLS verification (dev only) | off | for self-signed test PDPs |
-| Request timeout (ms) | 10000 | |
-
-## Test
-
-```bash
-mvn -o test    # 23 tests: request building (incl. principal→UserID / agent→actor),
-               # decision parsing (permit/deny/obligations), client transport + auth header,
-               # statement application, containment
-```
-
-## PDP dialects — PingAuthorize governance engine or OpenID AuthZEN
-
-The processor speaks two PDP wire dialects, selected by the **PDP Dialect** config field
-(`governance-engine`, the default, or `authzen`). Enforcement (`Deny unless PERMIT`,
-fail-open, timeouts, shared-secret header) and statement application are dialect-independent
-behind the `PdpClient` seam.
-
-| | `governance-engine` (default) | `authzen` |
+| | `governance-engine` | `authzen` |
 |---|---|---|
-| Wire shape | `{domain, service, action, attributes}` — Trust-Framework attributes, values JSON-stringified | AuthZEN 1.0 evaluation: `{subject, action, resource, context}` — structured JSON, point **PDP URL** at `/access/v1/evaluation` |
-| Principal / agent | `UserID` = resource owner (else attestation sub, else client); attestation sub as `actor` attribute when distinct | `subject` = `{type: user\|agent\|client, id}` by the same precedence; attestation sub as `context.actor` when distinct (RFC 8693 delegation) |
-| Requested detail | flattened, type-prefixed attributes + `req_*` scalar mirrors | `resource = {type, id, properties}` carrying the detail natively |
-| Attested ceiling | `attestation.entitlement / workload / cnf_thumbprint` attributes | `context.attestation.{entitlement, workload, cnf_thumbprint}` |
-| Decision | `decision: PERMIT/DENY…` + `authorised` | boolean `decision` (required; anything else is an error) |
-| Obligations / enrichment | `statements: [{name, payload}]` | **response `context` is mapped into the same statement pipeline**: `context.statements` is taken verbatim; every other context member becomes one statement (`context.access.limits` → `detail.access.limits`); `id` / `reason_admin` / `reason_user` are metadata, never merged |
+| Wire | `{domain: <prefix>.<type>, service, action, attributes}` — values JSON-stringified for the Trust Framework, plus flat `req_<field>` / `att_<field>` mirrors (attribute names cannot contain `.`) | AuthZEN 1.0 `{subject, action, resource, context}`; point **PDP URL** at `/access/v1/evaluation` |
+| Principal / agent | `UserID` = resource owner, else client id; `actor` = `agent_id` when minted and distinct | `subject = {type: user\|client, id}` by the same precedence; `context.actor = {type: agent, id: agent_id}` (RFC 8693 delegation) |
+| Attested ceiling | `attestation.entitlement / workload / cnf_thumbprint` | `context.attestation.{entitlement, workload, cnf_thumbprint}` |
+| Decision | `decision: PERMIT\|DENY\|…` + `authorised` | boolean `decision`, required |
+| Obligations | `statements: [{name, payload}]` | response `context` mapped into the same statement pipeline: `context.statements` verbatim, every other member one statement; `id` / `reason_*` never merged |
+
+## Configuration (PF admin fields — same names the config-as-code sets)
+
+| Field | Default |
+|---|---|
+| PDP Dialect | `governance-engine` |
+| PDP URL | required |
+| PDP Domain Prefix / PDP Service / PDP Action | `idpartners.authorization_details` / `Authorization` / `authorize` |
+| Attribute Prefix / Prefix Attributes with Type | `idp` / on |
+| Shared Secret Header / Shared Secret | `CLIENT-TOKEN` / — |
+| Deny unless PERMIT / Fail open on engine error | on / off |
+| Skip TLS verification (dev only) / Request timeout (ms) | off / 10000 |
+
+Supported RAR types are declared in code (`sales_agent`, `payment_initiation`, `account_information`);
+you only enable them per client.
+
+## Build, test, deploy
+
+```bash
+mvn -pl plugins/rar-paz-plugin -am package     # → target/pf.plugins.pf-rar-paz-plugin.jar (38 tests)
+```
+
+Versions come from the repo BOM (`bom/pom.xml`); the two `provided` PF jars must be in `~/.m2` — the
+`install:install-file` lines in `.github/workflows/build.yml`. Deploy recipe in
+[`integration/README.md`](integration/README.md). Note the monorepo's own `deploy/pingfederate/` image is
+the OIDF-only AS and deliberately does **not** bake this plugin.

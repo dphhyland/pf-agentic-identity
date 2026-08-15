@@ -1,50 +1,81 @@
 # client-attestation
 
-> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly the standalone repo [`dphhyland/client-attestation`](https://github.com/dphhyland/client-attestation) — still live for existing consumers, **backports only**. Absorbed with history 2026-07-21; see [docs/PROVENANCE.md](https://github.com/dphhyland/pf-agentic-identity/blob/main/docs/PROVENANCE.md).
-
-
-> **📦 Canonical home: [dphhyland/pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity)** — this code now lives (with history) at `libs/client-attestation` in the pf-agentic-identity monorepo. This repo stays live for existing links and consumers but receives **backports only** — please open issues and PRs against the monorepo.
-
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Absorbed with history from [`dphhyland/client-attestation`](https://github.com/dphhyland/client-attestation) on 2026-07-21; that repo is backports-only and its copy still uses the pre-split `.common` package. See [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
 AS-side **OAuth Attestation-Based Client Authentication**
 ([draft-ietf-oauth-attestation-based-client-auth](https://datatracker.ietf.org/doc/draft-ietf-oauth-attestation-based-client-auth/)):
-the verifier and supporting machinery an Authorization Server uses to authenticate a client presenting a
-Client Attestation plus a proof of possession. Depends only on
-[`oidf-jose`](https://github.com/dphhyland/oidf-jose) and the servlet API — **no PingFederate**.
-
-The client/attester side that *builds* these artifacts is
-[`client-attestation-sdk`](https://github.com/dphhyland/client-attestation-sdk), which is round-trip tested
-against this verifier.
+the verifier and supporting machinery an Authorization Server uses to authenticate a client that
+presents a Client Attestation plus a proof of possession. Package
+`com.pingidentity.ps.oidf.clientattestation`. Depends on `oidf-jose` and the servlet API (provided) —
+no PingFederate. The issuing side lives in `servlets/attestation-issuer` and `libs/device-instance`;
+PingFederate's token-endpoint hook and the federation-backed key resolver live in `servlets/pf-integration`.
 
 ## What's here
 
-- **`ClientAttestationVerifier`** — verifies the attestation + proof of possession end to end, for both
-  `attest_jwt_client_auth` with both draft-10 PoP methods: `attestation_pop_jwt` (dedicated PoP JWT) and `dpop_combined` (DPoP combined mode).
-- **`ClientAttestationConfig`** — the verification policy: accepted algorithms, clock skew / freshness
-  windows, expected PoP audiences and DPoP `htm`/`htu`, and whether a challenge is required.
-- **`DpopProofValidator`** — RFC 9449 proof validation for combined mode.
-- **`AttesterKeyResolver`** — how the attester's signing keys are trusted:
-  `FederationAttesterKeyResolver` (OpenID Federation trust-chain resolved) for production, or
-  `StaticAttesterKeyResolver` (pre-registered keys) for dev/test.
-- **`AttestationReplayCache` / `AttestationChallengeService`** — `jti` replay protection and one-time
-  challenges.
-- **`RarEntitlement`** — RFC 9396 `authorization_details` containment: authorize requested access against
-  the entitlement the attestation asserts.
-- **SD-JWT attestation** — accepts `oauth-client-attestation+sd-jwt` presentations (selective disclosure +
-  key binding), with AS-declared required-disclosure enforcement.
+- **`ClientAttestationVerifier`** — verifies attestation + proof of possession end to end for
+  `attest_jwt_client_auth` in both draft-10 PoP methods: `attestation_pop_jwt` (headers
+  `OAuth-Client-Attestation` + `OAuth-Client-Attestation-PoP`) and `dpop_combined`
+  (`OAuth-Client-Attestation` + `DPoP`, where the DPoP key must equal the attestation `cnf` key).
+  Authenticates first, then authorises the request's RFC 9396 `authorization_details` against the
+  attested entitlement. Failures are a `ClientAttestationException` carrying the draft's OAuth error
+  code: `invalid_client`, `use_attestation_challenge`, `use_fresh_attestation`,
+  `invalid_authorization_details`, `access_denied`, `insufficient_disclosure`.
+- **`ClientAttestationConfig`** — the verification policy: accepted algorithms per JWT (attestation /
+  PoP / DPoP), clock skew (60 s) and max-age windows (300 s), expected PoP audiences, DPoP `htm`/`htu`,
+  whether a challenge is mandatory, and `requiredDisclosedClaims` (`workload`, `authorization_details`)
+  this AS insists an attestation carry.
+- **`ClientAttestation` / `ClientAttestationResult`** — the parsed attestation (`iss`, `sub` =
+  `client_id`, `cnf.jwk`, `authorization_details`, `workload`, `agent_id`) and the authenticated outcome
+  (client id, confirmed key, PoP mode, attester, entitled vs granted details).
+- **`DpopProofValidator` / `DpopProof`** — RFC 9449 proof validation for combined mode: `dpop+jwt`,
+  self-signature under the `jwk` header, algorithm allowlist, `htm`/`htu`, `iat` freshness, `jti`
+  required. Replay and challenge binding are the caller's.
+- **`AttesterKeyResolver`** — how an attester's signing keys are trusted; must throw, never return
+  empty. `StaticAttesterKeyResolver` (pre-registered keys, dev/test only) is here; the production
+  `FederationAttesterKeyResolver` (trust-chain resolved) is in `servlets/pf-integration`.
+- **`AttestationChallengeService` / `AttestationReplayCache`** — one-time challenges and `jti` replay
+  detection. `InMemory*` per node; `RedisAttestationStore` for a cluster (one instance implements both).
+  `AttestationSupport` holds the process-wide singletons so the challenge endpoint and the token-endpoint
+  hook share state even when loaded by different classloaders.
+- **`RedisAttestationStore` / `MiniRedisClient`** — the shared store over a dependency-free RESP client
+  (`redis://` and `rediss://`, small bounded pool). Issue is `SET … EX`, consume is `DEL`, first-seen is
+  `SET … NX EX`; unreachable Redis fails closed.
+- **`RarEntitlement`** — RFC 9396 containment: each requested detail must sit within an attested detail
+  of the same `type`, with the set-valued fields (`actions`, `locations`, `datatypes`, `privileges`,
+  `sales_regions`) compared as subsets.
+- **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — `POST /federation/attestation-challenge`
+  returns `{"attestation_challenge", "expires_in"}` (draft §6.1); advertised as `challenge_endpoint`.
 
-## Install
+## Configuration
 
-```xml
-<dependency>
-  <groupId>com.pingidentity.ps.oidf</groupId>
-  <artifactId>client-attestation</artifactId>
-  <version>0.1.0</version>
-</dependency>
-```
+| Setting | Read by | Effect |
+|---|---|---|
+| `oidf.redis.url` (system property), then `OIDF_REDIS_URL`, then `REDIS_URL` (env) | `AttestationSupport` | Set: challenge + replay state lives in Redis, cluster-wide. Unset: per-node in-memory |
+| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (servlet init-params) | `ClientAttestationChallengeServlet` | Sizing/TTL of the stores (defaults 8192 entries / 300 s). With Redis, only the TTL applies |
+
+Everything else is a `ClientAttestationConfig.builder()` call by the host.
+
+## Security posture
+
+- `typ` is enforced: `oauth-client-attestation+jwt`, `oauth-client-attestation-pop+jwt`, `dpop+jwt`.
+  Asymmetric algorithms only by default (no `none`, no MACs).
+- `cnf.jwk` must be public-only; a `client_id` parameter must equal the attestation `sub`; PoP `iss`,
+  when present, must equal `sub`.
+- Both proof headers at once, or neither, is `invalid_client`. SD-JWT (`~`) presentations are refused —
+  that encoding was retired; only plain attestation JWTs are accepted.
+- Replay is keyed on `(client_id, jti)` with TTL = max-age + skew. A required-but-missing or unknown
+  challenge is `use_attestation_challenge`; an expired attestation is `use_fresh_attestation`.
+- Store failures fail closed — availability is never traded for a replayable credential.
 
 ## Build
 
-```bash
-mvn -o clean install     # offline; requires oidf-jose 0.1.0 in ~/.m2
+```sh
+mvn -pl libs/client-attestation -am package     # or `mvn package` at the repo root; tests run with the build
 ```
+
+Versions come from `bom/pom.xml`. Consumers, by pom: `servlets/pf-integration`,
+`servlets/attestation-issuer`, `services/device-enrolment` (reuses the challenge/replay stores),
+`services/demo-rs` (DPoP validation). Ships into PingFederate via
+`deploy/pingfederate/build/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
+(`servlets/oidf-war`). The client/builder side is the separate client-attestation-sdk-polyglot repo,
+paired by wire protocol rather than source.
