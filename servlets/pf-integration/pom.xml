@@ -48,6 +48,10 @@
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- PF's Client domain class uses commons-lang internally; provided by PF at runtime, needed here to test client building -->
+        <dependency><groupId>commons-lang</groupId><artifactId>commons-lang</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
