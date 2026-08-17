@@ -6,9 +6,10 @@ AS-side **OAuth Attestation-Based Client Authentication**
 ([draft-ietf-oauth-attestation-based-client-auth](https://datatracker.ietf.org/doc/draft-ietf-oauth-attestation-based-client-auth/)):
 the verifier and supporting machinery an Authorization Server uses to authenticate a client that
 presents a Client Attestation plus a proof of possession. Package
-`com.pingidentity.ps.oidf.clientattestation`. Depends on `oidf-jose` and the servlet API (provided) —
-no PingFederate. The issuing side lives in `servlets/attestation-issuer` and `libs/device-instance`;
-PingFederate's token-endpoint hook and the federation-backed key resolver live in `servlets/pf-integration`.
+`com.pingidentity.ps.oidf.clientattestation` (the challenge servlet in its `.servlet` subpackage).
+Depends on `oidf-jose` and the servlet API (provided) — no PingFederate. The issuing side lives in
+`servlets/attestation-issuer` and `libs/device-instance`; PingFederate's token-endpoint hook and the
+federation-backed key resolver live in `servlets/pf-integration`.
 
 ## What's here
 
