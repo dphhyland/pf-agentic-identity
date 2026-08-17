@@ -108,6 +108,26 @@ class AttestationIssuanceConfigTest {
         assertEquals("invalid_client", e.error());
     }
 
+    // Ported from pf-oidf-modules (2026-08-15): fromProperties() already guards these, but this repo
+    // had no assertion of it before now.
+    @Test
+    void ttlNotANumberIsRejected() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_TTL, "abc");
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props));
+        assertEquals("invalid_client", e.error());
+    }
+
+    @Test
+    void nonPositiveTtlIsRejected() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_TTL, "-5");
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props));
+        assertEquals("invalid_client", e.error());
+    }
+
     @Test
     void bundleUrlAloneIsAnAcceptedBundleSource() throws Exception {
         Map<String, String> props = baseProps();
