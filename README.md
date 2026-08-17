@@ -64,7 +64,10 @@ shared dependency version is written down, imported by every module pom except t
 deploys **staging**; production is an explicit `workflow_dispatch`. `deploy/pingfederate` builds the
 AS image from the reactor's **modular jars** (`build/stage-modules.sh` → `modules/`, merged into
 `pf-runtime.war` at root context and onto the engine classpath — the `pf-oidf-modules.jar` monolith
-is gone); `deploy/device-enrolment` has config but no workflow yet (manual). **Demos:**
+is gone); `deploy/device-enrolment` has config but no workflow yet (manual). **Client attestation
+end to end** — how issuance, verification, the PF token-endpoint filter and the RAR consumer fit
+together, what is implemented, standards alignment, test coverage and the open gaps:
+[docs/client-attestation-architecture.md](docs/client-attestation-architecture.md). **Demos:**
 [docs/DEMOS.md](docs/DEMOS.md) indexes every demo and how to bring it up. The demo UI / harness lives
 in [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules); the cross-platform rigs — the
 GKE/EKS/Azure legs, the cross-cloud chain, the phone simulator — in

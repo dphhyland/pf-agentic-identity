@@ -10,6 +10,8 @@ presents a Client Attestation plus a proof of possession. Package
 Depends on `oidf-jose` and the servlet API (provided) — no PingFederate. The issuing side lives in
 `servlets/attestation-issuer` and `libs/device-instance`; PingFederate's token-endpoint hook and the
 federation-backed key resolver live in `servlets/pf-integration`.
+The whole pipeline end to end — plus standards alignment, test coverage and the open gaps — is
+[docs/client-attestation-architecture.md](../../docs/client-attestation-architecture.md).
 
 ## What's here
 

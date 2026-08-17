@@ -8,7 +8,9 @@ walks away with a short-lived Client Attestation bound to its own instance key, 
 at the AS token endpoint. Verification lives in [`client-attestation`](../../libs/client-attestation);
 the AS-side wiring in [`pf-integration`](../pf-integration), on which this module depends (client store,
 wallet-provider trust, PF signing key). Written up as a spec draft in
-[docs/openid-client-attestation-service-1_0.md](../../docs/openid-client-attestation-service-1_0.md).
+[docs/openid-client-attestation-service-1_0.md](../../docs/openid-client-attestation-service-1_0.md);
+the pipeline end to end, with standards alignment, test coverage and the open gaps, is
+[docs/client-attestation-architecture.md](../../docs/client-attestation-architecture.md).
 
 Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the jar goes into a war's
 `WEB-INF/lib` and PF's Jetty scans it. Package `com.pingidentity.ps.oidf.issuer` holds the logic

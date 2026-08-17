@@ -6,7 +6,10 @@ The PingFederate glue for [`client-attestation`](../../libs/client-attestation) 
 [`openid-federation`](../../libs/openid-federation): the federation entity servlet, OpenID Federation
 §12.1 automatic + §12.2 explicit registration into PF's client store, the OGNL issuance-criteria hooks,
 and the token-endpoint filters that give PF `attest_jwt_client_auth`. Compiles against the PF SDK
-(`provided`) - it builds only where `pf-protocolengine` + `pingfederate-sdk` are in `~/.m2`.
+(`provided`) - it builds only where `pf-protocolengine` + `pingfederate-sdk` are in `~/.m2`. How the
+filter and the OGNL hooks sit in the wider attestation pipeline - with standards alignment, test
+coverage and the open gaps - is
+[docs/client-attestation-architecture.md](../../docs/client-attestation-architecture.md).
 
 Everything here is a plain `@WebServlet` / `javax.servlet.Filter`, not a PF-INF plugin: the jar sits in
 a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp classloader. The
