@@ -59,6 +59,7 @@
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>agent-registry</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>ssf</artifactId><version>${version.internal}</version></dependency>
 
             <!-- PingFederate provided jars -->
             <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><version>${version.pingfederate}</version></dependency>

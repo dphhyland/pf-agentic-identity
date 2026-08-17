@@ -40,5 +40,6 @@
         <module>services/device-enrolment</module>
         <module>services/demo-rs</module>
         <module>services/gm-api/servlet</module>
+        <module>services/harness</module>
     </modules>
 </project>

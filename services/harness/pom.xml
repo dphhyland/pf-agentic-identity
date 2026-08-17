@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>harness</artifactId>
+    <version>0.1.0</version>
+    <packaging>jar</packaging>
+
+    <name>harness</name>
+    <description>In-process verification CLIs run by hand, not by surefire: AttestationFlowHarness
+        (client-attestation PoP/DPoP accept + reject, RFC 9396 entitlement grant/deny, and a `live` mode
+        against a deployed PingFederate), AttestationIssuanceHarness (the issuance servlet's flow via its
+        public building blocks — SPIFFE SVID to minted attestation, round-tripped through the real
+        verifier), and SsfSelfVerify (mint + verify a CAEP SET with the real SetMinter). Ported from
+        pf-oidf-modules (2026-08-18) when that repo was reduced to the demo UI + shell probes; these
+        exercise the real classes end-to-end in a way unit tests alone don't.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.1.0</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>ssf</artifactId></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <!-- `mvn -pl services/harness exec:java -Dexec.mainClass=... -Dexec.args=...` — see README.md.
+                 No default execution bound: this is a manual-run module, not part of the build. -->
+            <plugin><groupId>org.codehaus.mojo</groupId><artifactId>exec-maven-plugin</artifactId><version>3.2.0</version></plugin>
+        </plugins>
+    </build>
+</project>
