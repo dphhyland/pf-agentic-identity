@@ -35,7 +35,8 @@ Railway: project `e02a8e2f-ff38-4043-836f-25d9e1c0f26b`, env `staging`, services
 - `TF_VAR_pf_admin_password` — the `pingfederate-runtime` admin password (baked in `data.zip`; team secret store).
 - `PINGFEDERATE_PROVIDER_PRODUCT_VERSION=13.0` (provider 1.8.1 requires it).
 - `deploy/pingfederate/overlay/` staged — the **master-key** secret (git-ignored; from the shared demo context).
-- Confirm the **current** staging proxies (history drifts): admin `hayabusa.proxy.rlwy.net:39267`,
+- The admin console has NO public proxy (both were deleted 2026-08-20) — tunnel to it with `railway ssh`.
+- Confirm the **current** staging runtime proxy (history drifts):
   runtime — check with `railway domain -s pingfederate-runtime` / `list_tcp_proxies`. The demo's
   `PF_BASE` (a `pf-demo-ui` service var) must point at the runtime proxy **root** (no `/oidf`).
 
@@ -124,7 +125,9 @@ Config-as-code flow: apply to the running PF, then export `data.zip` (the deploy
 cd deploy/pingfederate/terraform
 export TF_VAR_pf_admin_password='<staging admin password>'   # out-of-band; never commit
 export PINGFEDERATE_PROVIDER_PRODUCT_VERSION=13.0
-export TF_VAR_pf_admin_host='https://hayabusa.proxy.rlwy.net:39267'   # confirm current
+railway ssh config -p e02a8e2f-ff38-4043-836f-25d9e1c0f26b -s pingfederate-runtime -e staging --alias pf-staging-admin
+ssh -N -L 19999:127.0.0.1:9999 pf-staging-admin      # production: 29999, -e production
+export TF_VAR_pf_admin_host='https://localhost:19999'
 
 terraform init -input=false
 

@@ -18,6 +18,13 @@ provider "pingfederate" {
   username                            = var.pf_admin_username
   password                            = var.pf_admin_password
   product_version                     = var.pf_version
-  insecure_trust_all_tls              = true # the demo PF serves a self-signed cert
+  insecure_trust_all_tls              = var.pf_insecure_tls # the demo PF serves a self-signed cert
   x_bypass_external_validation_header = true # don't run PF's connection-validation probes on apply
+}
+
+# The local docker rig serves a self-signed admin cert; anything else should not be trusted blindly.
+variable "pf_insecure_tls" {
+  description = "Trust any TLS cert on the PF admin API. Only for the local docker rig this module documents."
+  type        = bool
+  default     = false
 }

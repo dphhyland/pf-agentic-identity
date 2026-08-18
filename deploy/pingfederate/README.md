@@ -40,7 +40,8 @@ mvn -q -DskipTests package && deploy/pingfederate/build/stage-modules.sh
 ```
 
 Then verify: the demo ⚡ flow still issues a token (enrol → resolve → 200), and the admin console
-(`https://hayabusa.proxy.rlwy.net:39267/pingfederate/app`) shows only OIDF clients — no `urn:agent:*`.
+(via a `railway ssh` tunnel — the admin console is not internet-facing; see `terraform/variables.tf`)
+shows only OIDF clients — no `urn:agent:*`.
 
 > Until you cut over, `pingfederate-runtime` keeps building from the shared context. This context becomes
 > authoritative the first time you `railway up` from here (Step 6 of `terraform/README.md`).

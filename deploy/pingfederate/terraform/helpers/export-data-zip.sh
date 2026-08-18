@@ -18,7 +18,14 @@
 set -euo pipefail
 HOST="${TF_VAR_pf_admin_host:?set TF_VAR_pf_admin_host}"
 PW="${TF_VAR_pf_admin_password:?set TF_VAR_pf_admin_password}"
-USER="${TF_VAR_pf_admin_username:-administrator}"
+case "${TF_VAR_pf_admin_host:-}" in
+  https://localhost:*|https://127.0.0.1:*|https://localhost|https://127.0.0.1) ;;
+  *) echo "TF_VAR_pf_admin_host must be a local tunnel endpoint (https://localhost:PORT); the PF admin" >&2
+     echo "console is deliberately not internet-facing. Open a tunnel with 'railway ssh' - see" >&2
+     echo "terraform/variables.tf. Got: '${TF_VAR_pf_admin_host:-<unset>}'" >&2
+     exit 1 ;;
+esac
+USER="${TF_VAR_pf_admin_username:?set TF_VAR_pf_admin_username (no default - name the admin account)}"
 ENVIRONMENT="${TF_VAR_environment:-staging}"
 case "$ENVIRONMENT" in staging|production) ;; *) echo "TF_VAR_environment must be staging|production (got '$ENVIRONMENT')"; exit 2;; esac
 DIR="$(cd "$(dirname "$0")/../.." && pwd)"

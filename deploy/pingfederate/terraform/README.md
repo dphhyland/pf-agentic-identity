@@ -68,7 +68,16 @@ export TF_VAR_environment=staging     # or production — picks the base URL + n
 export TF_VAR_pf_admin_password='…'   # THAT environment's PF admin pwd (Railway env var; NEVER commit)
 export TF_VAR_pf_admin_host='https://<that environment's pingfederate-runtime admin :9999 TCP-proxy host:port>'
 ```
-Staging's admin proxy is the `pf_admin_host` default (`hayabusa.proxy.rlwy.net:39267`); for production
+`pf_admin_host` has NO default and must be a local tunnel endpoint (terraform rejects anything else —
+the old default was a public admin proxy, now deleted). Open one per environment:
+
+```sh
+railway ssh config -p e02a8e2f-ff38-4043-836f-25d9e1c0f26b -s pingfederate-runtime -e staging --alias pf-staging-admin
+ssh -N -L 19999:127.0.0.1:9999 pf-staging-admin      # production: 29999, -e production
+export TF_VAR_pf_admin_host='https://localhost:19999'
+```
+
+For production
 set it explicitly. Applying a staging `environment` against production's admin (or vice versa) writes the
 wrong base URL into the wrong PF — check all three vars agree before Step 3.
 Terraform ≥ 1.5 (for `import {}`). The assistant is blocked from handling the admin password, so every
