@@ -11,6 +11,14 @@ on:
 env:
   PF_IMAGE: pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
 
+permissions:
+  contents: read
+
+# One build per ref; a newer push supersedes an in-flight one.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Mechanical enforcement of the one rule prose kept getting wrong: a PF config archive is a plain
   # zip that CONTAINS pf.jwk, so no archive and no key material may ever be tracked. data.staging.zip

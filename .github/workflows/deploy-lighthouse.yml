@@ -21,14 +21,27 @@ on:
         required: true
         default: production
 
+permissions:
+  contents: read
+
+# Never let two deploys of the same service+environment race: `railway up` is last-write-wins, and
+# two in-flight uploads can land in either order, so the service can end up running the older one.
+# Not cancel-in-progress - a half-finished deploy is worse than a queued one.
+concurrency:
+  group: deploy-lighthouse-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
 jobs:
   staging:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    # A real GitHub Environment, not the dispatch input of the same name: this is what scopes
+    # RAILWAY_TOKEN_* to the environment and what protection rules attach to.
+    environment: staging
     defaults: { run: { working-directory: deploy/lighthouse } }
     steps:
-      - uses: actions/checkout@v4
-      - run: npm i -g @railway/cli
+      - uses: actions/checkout@v7
+      - run: npm i -g @railway/cli@5.41.2
       - name: apply config + deploy → lighthouse (staging)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_STAGING }}
@@ -42,10 +55,13 @@ jobs:
   production:
     if: github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
     runs-on: ubuntu-latest
+    # Attach required reviewers to this environment in repo settings and production deploys stop
+    # being one dispatch click by anyone with write access.
+    environment: production
     defaults: { run: { working-directory: deploy/lighthouse } }
     steps:
-      - uses: actions/checkout@v4
-      - run: npm i -g @railway/cli
+      - uses: actions/checkout@v7
+      - run: npm i -g @railway/cli@5.41.2
       - name: apply config + deploy → lighthouse-prod (production)
         env:
           RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN_PROD }}

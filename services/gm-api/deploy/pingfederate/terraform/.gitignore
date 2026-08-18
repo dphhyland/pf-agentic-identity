@@ -1,0 +1,8 @@
+# State and variable files hold the PF admin password and every client secret this module creates,
+# in plaintext. The root .gitignore covers these too; kept here so the rule travels with the module.
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/
+generated.tf

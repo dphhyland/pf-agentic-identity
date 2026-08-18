@@ -6,3 +6,27 @@ logs/
 node_modules/
 __pycache__/
 *.pyc
+
+# Terraform state carries every value it managed, in plaintext - including admin passwords and
+# client secrets. Never versioned. (deploy/pingfederate/terraform had its own ignore file; the
+# gm-api tree had none, which is the shape of leak this repo has already had once.)
+*.tfstate
+*.tfstate.*
+*.tfvars
+*.tfvars.json
+.terraform/
+.terraform.lock.hcl
+
+# Key material of any kind. Belt and braces: build.yml fails the build if one is ever tracked.
+*.jwk
+*.jks
+*.p12
+*.pfx
+*.lic
+
+# Editor / tool droppings
+.idea/
+*.iml
+.vscode/
+.claude/worktrees/
+dependency-reduced-pom.xml

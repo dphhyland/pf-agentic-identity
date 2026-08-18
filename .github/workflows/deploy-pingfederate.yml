@@ -30,12 +30,25 @@ env:
   PF_IMAGE: pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
   JOSE4J: org.bitbucket.b_c:jose4j:0.9.6
 
+permissions:
+  contents: read
+
+# Never let two deploys of the same service+environment race: `railway up` is last-write-wins, and
+# two in-flight uploads can land in either order, so the service can end up running the older one.
+# Not cancel-in-progress - a half-finished deploy is worse than a queued one.
+concurrency:
+  group: deploy-pingfederate-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
 jobs:
   build-and-deploy:
     runs-on: ubuntu-latest
+    # A real GitHub Environment (scoped secrets + protection rules), resolved from the dispatch input.
+    # Previously `environment:` here named only the input, which gated nothing.
+    environment: ${{ inputs.environment }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17', cache: maven }
 
       - name: extract licensed artifacts from the PF image (provided jars + stock war)
@@ -96,7 +109,7 @@ jobs:
         env:
           RAILWAY_TOKEN: ${{ inputs.environment == 'production' && secrets.RAILWAY_TOKEN_PROD || secrets.RAILWAY_TOKEN_STAGING }}
         run: |
-          npm i -g @railway/cli
+          npm i -g @railway/cli@5.41.2
           # --no-gitignore: the staged build artifacts (modules/, data.zip, overlay/ secrets) are
           # gitignored on purpose; without this flag `railway up` silently drops them from the
           # upload and the Docker build fails on its COPYs. .railwayignore governs exclusions.
