@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.BridgeKey;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.pf.ClientStore;
@@ -209,15 +211,47 @@ final class RegistrationService {
         return JsonUtil.parseJson(jwksJson);
     }
 
+    /**
+     * The leaf's own JWKS plus the deployment's bridge public key(s), so PF will accept the assertion
+     * ClientAttestationAuthFilter mints on this client's behalf. A previous bridge key is included
+     * during a rotation overlap; clients pick the new one up on their next chain-driven refresh.
+     */
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> withBridgeKeys(Map<String, Object> leafJwks, String clientId) {
+        List<Map<String, Object>> bridge = BridgeKey.publicJwksForClients();
+        if (bridge.isEmpty()) {
+            throw new IllegalStateException("cannot register " + clientId + " for attest_jwt_client_auth: "
+                    + FederationRuntimeConfig.BRIDGE_KEY_ENV + " is not set, so the client would be "
+                    + "registered with no usable credential. Set it, or register the client with a "
+                    + "different token_endpoint_auth_method.");
+        }
+        List<Object> keys = new ArrayList<Object>();
+        Object existing = leafJwks == null ? null : leafJwks.get("keys");
+        if (existing instanceof List) {
+            keys.addAll((List<Object>) existing);
+        }
+        keys.addAll(bridge);
+        LinkedHashMap<String, Object> merged = new LinkedHashMap<String, Object>();
+        merged.put("keys", keys);
+        return merged;
+    }
+
     private static Client buildClient(String clientId, Map<String, Object> metadata, String opIssuer, Map<String, Object> jwks, List<String> trustChain, RegistrationConfiguration configuration, String status) throws Exception {
         Client client = new Client();
         Map<String, Object> oidcRPMetadata = metadata;
         String tokenEndpointAuthMethod = metadataString(oidcRPMetadata, "token_endpoint_auth_method");
         boolean attestationAuth = "attest_jwt_client_auth".equals(tokenEndpointAuthMethod) || "attest_jwt_client_auth_dpop".equals(tokenEndpointAuthMethod);
-        // PingFederate has no native attest_jwt_client_auth type; attestation clients are registered as
-        // public clients (NONE) and authenticated at runtime by ClientAttestationUtils via issuance criteria.
-        client.setClientAuthnType(attestationAuth ? ClientAuthenticationType.NONE : ClientAuthenticationType.PRIVATE_KEY_JWT);
-        client.setJwks(OBJECT_MAPPER.writeValueAsString(jwks));
+        // PingFederate has no native attest_jwt_client_auth type. It used to be mapped to NONE - a
+        // PUBLIC client - on the theory that ClientAttestationAuthFilter and the OGNL issuance
+        // criterion would authenticate it instead. But the filter passes through when no bridge key is
+        // configured, and no environment in this repo sets one, so that composition produced
+        // JIT-registered clients PF would accept with no credential at all. Attestation clients are
+        // now PRIVATE_KEY_JWT, carrying the bridge public key alongside their own federation keys:
+        // the filter mints an assertion under that key, so PF's native authenticator makes the
+        // decision, and without the bridge key the client simply cannot authenticate (fail closed)
+        // rather than authenticating trivially.
+        client.setClientAuthnType(ClientAuthenticationType.PRIVATE_KEY_JWT);
+        client.setJwks(OBJECT_MAPPER.writeValueAsString(attestationAuth ? withBridgeKeys(jwks, clientId) : jwks));
         client.setName(String.valueOf(oidcRPMetadata.get("client_name")));
         // An oauth_client doing client_credentials legitimately has no redirect_uris / response_types,
         // but PF's XML client store iterates these lists unguarded at save time — never pass null.

@@ -4,6 +4,8 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.BridgeKey;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
@@ -54,9 +56,12 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * classloader), so each sees a given PoP {@code jti} exactly once per request and genuine replays fail
  * in both.
  *
- * <p>The bridge key is read once from the {@code OIDF_BRIDGE_PRIVATE_JWK} environment variable (or the
- * {@code oidf.bridge.private.jwk} system property) as an EC private JWK. If unset, the filter passes
- * every request through unchanged and logs a warning when attestation headers appear.
+ * <p>The bridge key comes from {@link BridgeKey}. It is now resolved at {@code init} and, by default,
+ * required: a deployment that registers clients for attestation authentication but has no bridge key
+ * is one where this filter passes everything through and those clients are authenticated by nothing.
+ * That used to degrade silently to pass-through; it now refuses to deploy, and
+ * {@code OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false} is the explicit opt-out for an environment that
+ * deliberately runs without attestation-based client authentication.
  */
 public final class ClientAttestationAuthFilter implements Filter {
     private static final Log LOGGER = LogFactory.getLog(ClientAttestationAuthFilter.class);
@@ -66,11 +71,31 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final long ASSERTION_TTL_SECONDS = 60L;
 
     private volatile PublicJsonWebKey bridgeKey;
-    private volatile boolean bridgeKeyLoaded;
 
     @Override
-    public void init(FilterConfig filterConfig) {
-        // Bridge key is loaded lazily so a bad JWK degrades to pass-through (visible, never a boot failure).
+    public void init(FilterConfig filterConfig) throws ServletException {
+        // Resolve at init, not per request: a missing or malformed bridge key is a deployment error,
+        // and the failure mode it used to produce - pass-through - is indistinguishable from "no
+        // attestation clients configured" until a workload is silently let through unauthenticated.
+        try {
+            this.bridgeKey = BridgeKey.load().orElse(null);
+        }
+        catch (IllegalStateException e) {
+            throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
+        }
+        if (this.bridgeKey == null) {
+            if (BridgeKey.isRequired()) {
+                throw new ServletException("attest_jwt_client_auth: no bridge key configured. Set "
+                        + FederationRuntimeConfig.BRIDGE_KEY_ENV + ", or set "
+                        + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV
+                        + "=false to deploy without attestation-based client authentication.");
+            }
+            LOGGER.warn((Object) ("attest_jwt_client_auth: no bridge key and "
+                    + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV + "=false - attestation headers will "
+                    + "pass through and PF will enforce each client's configured authentication."));
+        } else {
+            LOGGER.info((Object) ("attest_jwt_client_auth bridge key loaded (kid=" + this.bridgeKey.getKeyId() + ")"));
+        }
     }
 
     @Override
@@ -99,7 +124,7 @@ public final class ClientAttestationAuthFilter implements Filter {
             return;
         }
 
-        PublicJsonWebKey signer = this.loadBridgeKey();
+        PublicJsonWebKey signer = this.bridgeKey;
         if (signer == null) {
             LOGGER.warn((Object) ("Request carries " + ATTESTATION_HEADER + " but no bridge key is configured "
                     + "(OIDF_BRIDGE_PRIVATE_JWK); passing through — PF will enforce the client's configured "
@@ -161,31 +186,6 @@ public final class ClientAttestationAuthFilter implements Filter {
         return jws.getCompactSerialization();
     }
 
-    private PublicJsonWebKey loadBridgeKey() {
-        if (this.bridgeKeyLoaded) {
-            return this.bridgeKey;
-        }
-        synchronized (this) {
-            if (!this.bridgeKeyLoaded) {
-                String jwkJson = System.getenv("OIDF_BRIDGE_PRIVATE_JWK");
-                if (jwkJson == null || jwkJson.isBlank()) {
-                    jwkJson = System.getProperty("oidf.bridge.private.jwk");
-                }
-                if (jwkJson != null && !jwkJson.isBlank()) {
-                    try {
-                        this.bridgeKey = PublicJsonWebKey.Factory.newPublicJwk(jwkJson);
-                        LOGGER.info((Object) ("attest_jwt_client_auth bridge key loaded (kid="
-                                + this.bridgeKey.getKeyId() + ")"));
-                    } catch (Exception e) {
-                        LOGGER.error((Object) "OIDF_BRIDGE_PRIVATE_JWK is not a usable EC private JWK; "
-                                + "attestation-authenticated requests will pass through unbridged", e);
-                    }
-                }
-                this.bridgeKeyLoaded = true;
-            }
-        }
-        return this.bridgeKey;
-    }
 
     private static void reject(HttpServletResponse response, int status, String error, String description)
             throws IOException {
