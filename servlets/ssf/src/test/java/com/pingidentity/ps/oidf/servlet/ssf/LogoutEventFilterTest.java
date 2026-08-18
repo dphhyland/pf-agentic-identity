@@ -47,7 +47,12 @@ class LogoutEventFilterTest {
         ServletResponse resp = mock(ServletResponse.class);
 
         List<SubjectId> revoked = new ArrayList<>();
-        new LogoutEventFilter(LogoutEventFilter::extractSubject, (s, r) -> revoked.add(s)).doFilter(req, resp, chain);
+        // The subject now comes from a VERIFIED token, so this stubs the verifier rather than relying
+        // on an unverified parse. What this test is about is the signal path, not provenance -
+        // provenance is LogoutSubjectVerificationTest.
+        LogoutEventFilter.IdTokenVerifier verifier = jwt -> SubjectId.issSub("https://op.example.com", "user-1");
+        new LogoutEventFilter(req2 -> LogoutEventFilter.extractSubject(req2, verifier),
+                (s, r) -> revoked.add(s)).doFilter(req, resp, chain);
 
         verify(chain, times(1)).doFilter(req, resp);
         assertEquals(1, revoked.size());
@@ -94,17 +99,26 @@ class LogoutEventFilterTest {
     }
 
     @Test
-    void extractSubjectPrefersTokenThenSubParam() throws Exception {
+    void extractSubjectTakesTheTokenAndIgnoresABareSubParameter() throws Exception {
+        // This used to assert "prefers token, THEN falls back to the sub parameter". That fallback was
+        // the spoofing path - on an unauthenticated endpoint it let any caller name any subject - and
+        // is now off unless explicitly enabled. Signature verification itself is covered in depth by
+        // LogoutSubjectVerificationTest; here the verifier is stubbed to keep this test about routing.
+        LogoutEventFilter.IdTokenVerifier accepts = jwt -> SubjectId.issSub("https://op.example.com", "u1");
+        LogoutEventFilter.IdTokenVerifier rejects = jwt -> null;
+
         HttpServletRequest tokenReq = mock(HttpServletRequest.class);
         when(tokenReq.getParameter("id_token_hint")).thenReturn(idToken("https://op.example.com", "u1"));
-        assertEquals(SubjectId.issSub("https://op.example.com", "u1"), LogoutEventFilter.extractSubject(tokenReq));
+        assertEquals(SubjectId.issSub("https://op.example.com", "u1"),
+                LogoutEventFilter.extractSubject(tokenReq, accepts));
 
         HttpServletRequest subReq = mock(HttpServletRequest.class);
         when(subReq.getParameter("sub")).thenReturn("opaque-1");
-        assertEquals(SubjectId.opaque("opaque-1"), LogoutEventFilter.extractSubject(subReq));
+        assertNull(LogoutEventFilter.extractSubject(subReq, rejects),
+                "a bare sub parameter must not name a subject by default");
 
         HttpServletRequest garbage = mock(HttpServletRequest.class);
         when(garbage.getParameter("id_token_hint")).thenReturn("not-a-jwt");
-        assertNull(LogoutEventFilter.extractSubject(garbage), "unparseable token + no sub -> no subject");
+        assertNull(LogoutEventFilter.extractSubject(garbage, rejects), "unverifiable token -> no subject");
     }
 }

@@ -180,7 +180,10 @@ public class GrantManagementClient {
             System.exit(2);
         }
 
-        HttpClient http = a.containsKey("secure") ? HttpClient.newHttpClient() : trustAll();
+        // Secure by default. This is example code people copy, and it used to disable certificate
+        // verification unless you opted IN to security - the wrong way round for something whose next
+        // line sends a client secret.
+        HttpClient http = a.containsKey("insecure") ? trustAll() : HttpClient.newHttpClient();
 
         // A client_credentials token has no subject, and needs none: the subject comes
         // off the grant. This is the Open Banking shape -- no user present.
@@ -242,7 +245,7 @@ public class GrantManagementClient {
         return token;
     }
 
-    /** The demo PingFederate serves a self-signed cert. For the demo, not for you. */
+    /** Opt-in only (--insecure), for a demo PF with a self-signed cert. Never against a real deployment. */
     private static HttpClient trustAll() throws Exception {
         TrustManager[] trustAll = {new X509TrustManager() {
             public X509Certificate[] getAcceptedIssuers() {

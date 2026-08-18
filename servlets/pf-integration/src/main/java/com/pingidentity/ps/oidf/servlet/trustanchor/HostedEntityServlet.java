@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.AdminBearer;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
@@ -245,15 +246,7 @@ public class HostedEntityServlet extends HttpServlet {
      * exists to prevent.
      */
     static boolean isAuthorized(String configuredAdminToken, String authorizationHeader) {
-        if (configuredAdminToken == null) {
-            return false;
-        }
-        if (authorizationHeader == null || !authorizationHeader.regionMatches(true, 0, "Bearer ", 0, 7)) {
-            return false;
-        }
-        String presented = authorizationHeader.substring(7).trim();
-        return MessageDigest.isEqual(
-                presented.getBytes(StandardCharsets.UTF_8), configuredAdminToken.getBytes(StandardCharsets.UTF_8));
+        return AdminBearer.isAuthorized(configuredAdminToken, authorizationHeader);
     }
 
     private static String readBody(HttpServletRequest req) throws IOException {

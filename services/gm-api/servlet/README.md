@@ -102,7 +102,7 @@ docker restart gm-pingfederate
 | Param | Env | Meaning |
 |---|---|---|
 | `pdpUrl` | `AUTHZEN_BASE_URL` | AuthZEN PDP base URL; `/access/v1/evaluation` is appended. **Required** |
-| `audience` | `GM_AUDIENCE` | the `aud` this API answers to (the token manager's audience claim). **Unset accepts any token this server signed** |
+| `audience` | `GM_AUDIENCE` | the `aud` this API answers to (the token manager's audience claim). **REQUIRED** — the servlet refuses to start without it, because unset would accept any token this server signed, including one minted for a different API |
 | `pdpToken` | `AUTHZEN_BEARER_TOKEN` | credential for a protected PDP |
 | `pdpTimeoutMs` | — | default 10000 |
 | `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants` |

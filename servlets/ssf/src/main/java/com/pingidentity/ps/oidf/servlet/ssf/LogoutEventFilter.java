@@ -107,21 +107,61 @@ public final class LogoutEventFilter implements Filter {
     }
 
     /**
-     * Best-effort subject extraction: prefer the {@code id_token_hint} / {@code logout_token} JWT's {@code sub}
-     * (+{@code iss} → an {@code iss_sub} identifier), else an explicit {@code sub} request parameter (opaque).
-     * The token is parsed WITHOUT signature verification — it only identifies whose session ended; the SET the
-     * receiver ultimately trusts is the signed one this transmitter mints.
+     * Whose session ended, from a source the caller cannot choose freely.
+     *
+     * <p>The subject is taken from an {@code id_token_hint} / {@code logout_token} whose signature is
+     * VERIFIED against this PF's own signing keys. The old behaviour trusted the token unverified and,
+     * failing that, accepted a bare {@code sub} request parameter — on an endpoint reachable without
+     * authentication. The emitted SET is signed by this transmitter, so a receiver has no way to tell
+     * that the transmitter was told who to name: anyone could cause a
+     * {@code caep.session-revoked} to be broadcast about any subject. That is signal spoofing, and it
+     * is worse than useless — a security signal an attacker can aim is a denial-of-service primitive.
+     *
+     * <p>An expired {@code id_token_hint} is normal at logout, so expiry is not enforced; the signature
+     * and the issuer are. The raw {@code sub} parameter is accepted only when a deployment explicitly
+     * opts in ({@code OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM=true}), which exists for a dev rig with no real
+     * id tokens to hand and warns on every use.
      */
     static SubjectId extractSubject(HttpServletRequest request) {
+        return extractSubject(request, PfIdTokenVerifier.forThisDeployment());
+    }
+
+    /** Test seam: the same logic against a supplied verifier. */
+    static SubjectId extractSubject(HttpServletRequest request, IdTokenVerifier verifier) {
         String token = firstNonBlank(request.getParameter("id_token_hint"), request.getParameter("logout_token"));
         if (token != null) {
-            SubjectId fromToken = subjectFromJwt(token);
+            SubjectId fromToken = verifier.verifiedSubject(token);
             if (fromToken != null) {
                 return fromToken;
             }
+            LOGGER.info((Object) "logout: id_token_hint/logout_token did not verify against this PF's keys; "
+                    + "no session-revoked signal will be emitted for it");
         }
-        String sub = request.getParameter("sub");
-        return sub != null && !sub.isBlank() ? SubjectId.opaque(sub) : null;
+        if (allowSubParameter()) {
+            String sub = request.getParameter("sub");
+            if (sub != null && !sub.isBlank()) {
+                LOGGER.warn((Object) ("logout: taking the subject from an UNVERIFIED sub parameter because "
+                        + ALLOW_SUB_PARAM_ENV + "=true - any caller can aim a session-revoked signal at any "
+                        + "subject while this is set"));
+                return SubjectId.opaque(sub);
+            }
+        }
+        return null;
+    }
+
+    static final String ALLOW_SUB_PARAM_ENV = "OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM";
+
+    private static boolean allowSubParameter() {
+        String value = System.getProperty("oidf.ssf.logout.allow.sub.param");
+        if (value == null || value.isBlank()) {
+            value = System.getenv(ALLOW_SUB_PARAM_ENV);
+        }
+        return Boolean.parseBoolean(value);
+    }
+
+    /** How a logout token is turned into a subject. Separated so it can be tested without PF. */
+    interface IdTokenVerifier {
+        SubjectId verifiedSubject(String jwt);
     }
 
     private static SubjectId subjectFromJwt(String jwt) {

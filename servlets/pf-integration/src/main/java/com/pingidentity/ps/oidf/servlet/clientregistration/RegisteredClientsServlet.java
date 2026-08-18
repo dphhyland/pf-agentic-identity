@@ -1,5 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.pf.AdminBearer;
+import javax.servlet.ServletException;
+import javax.servlet.ServletConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
@@ -16,7 +19,6 @@ import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.domain.Client;
-import org.sourceid.oauth20.domain.ClientAuthenticationType;
 import org.sourceid.oauth20.domain.ParamValues;
 
 /**
@@ -26,8 +28,16 @@ import org.sourceid.oauth20.domain.ParamValues;
  * access or credentials. Only clients carrying our {@code status} extended parameter are listed, so
  * PingFederate's own/system clients are never disclosed.
  *
- * <p>Security note: this reveals client identifiers and their granted scopes. It is intended for a trusted
- * demo/operator surface; in a hardened deployment it should be access-controlled (or disabled).
+ * <p>This reveals client identifiers and their granted scopes, so it is off unless a deployment turns
+ * it on ({@code OIDF_REGISTERED_CLIENTS_ENABLED}) and is gated by the same operator bearer token as
+ * the hosted-entity admin surface ({@code OIDF_AUTHORITY_ADMIN_TOKEN}) - no token configured means no
+ * access, which is the safe direction to fail. It used to be neither: unauthenticated, always on, and
+ * it also returned a count of EVERY client in the instance, disclosing more than the list itself.
+ *
+ * <p>The {@code status}-shaped fallback is gone too. It listed any PRIVATE_KEY_JWT client with a URL
+ * id and an inline JWKS as "federation", which swept in clients Terraform or the console had created -
+ * the opposite of the "only clients carrying our marker are disclosed" intent. With `status` now
+ * declared in extended-properties.tf the marker is reliable, so the guess is unnecessary.
  */
 @WebServlet(urlPatterns={"/federation/registered-clients"})
 public final class RegisteredClientsServlet extends HttpServlet {
@@ -35,6 +45,8 @@ public final class RegisteredClientsServlet extends HttpServlet {
     private static final Log LOGGER = LogFactory.getLog(RegisteredClientsServlet.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final transient ClientStore clientStore;
+    private transient String adminToken;
+    private boolean enabled;
 
     public RegisteredClientsServlet() {
         this(new PfMgmtClientStore());
@@ -44,19 +56,44 @@ public final class RegisteredClientsServlet extends HttpServlet {
         this.clientStore = clientStore;
     }
 
+    /** Test seam: the servlet with an explicit token and enabled state, no container required. */
+    RegisteredClientsServlet(ClientStore clientStore, String adminToken, boolean enabled) {
+        this.clientStore = clientStore;
+        this.adminToken = adminToken;
+        this.enabled = enabled;
+    }
+
+    @Override
+    public void init(ServletConfig config) throws ServletException {
+        super.init(config);
+        this.adminToken = AdminBearer.resolveToken(config, "adminToken",
+                "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+        String enabledSetting = AdminBearer.resolveToken(config, "registeredClientsEnabled",
+                "oidf.registered.clients.enabled", "OIDF_REGISTERED_CLIENTS_ENABLED");
+        this.enabled = Boolean.parseBoolean(enabledSetting);
+        if (this.enabled && this.adminToken == null) {
+            LOGGER.warn((Object) "/federation/registered-clients is enabled but no admin token is configured; "
+                    + "every request will be refused (OIDF_AUTHORITY_ADMIN_TOKEN)");
+        }
+    }
+
     @Override
     protected void doGet(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        if (!this.enabled) {
+            // Not "forbidden": a disabled operator surface should not confirm it exists.
+            response.sendError(404);
+            return;
+        }
+        if (!AdminBearer.isAuthorized(this.adminToken, request.getHeader("Authorization"))) {
+            response.setHeader("WWW-Authenticate", "Bearer");
+            response.sendError(401);
+            return;
+        }
         Collection<Client> all = this.clientStore.getAll();
         ArrayList<Map<String, Object>> clients = new ArrayList<Map<String, Object>>();
         for (Client client : all) {
             String status = RegisteredClientsServlet.firstExtendedParam(client, "status");
             String registration = RegisteredClientsServlet.registrationType(status);
-            // Fallback: PingFederate may not persist our custom `status` extended param across reloads, so
-            // also recognise a federation client by shape — a private_key_jwt client whose id is an entity
-            // URL and which carries an inline jwks. (The demo's own client is a secret client, so excluded.)
-            if (registration == null && RegisteredClientsServlet.isFederationShaped(client)) {
-                registration = "federation";
-            }
             if (registration == null) {
                 continue;
             }
@@ -74,20 +111,12 @@ public final class RegisteredClientsServlet extends HttpServlet {
         response.setContentType("application/json");
         response.setCharacterEncoding("UTF-8");
         LinkedHashMap<String, Object> body = new LinkedHashMap<String, Object>();
-        body.put("total_clients", all.size());
         body.put("count", clients.size());
         body.put("clients", clients);
         MAPPER.writeValue(response.getWriter(), body);
     }
 
     /** A federation client by shape: private_key_jwt auth, an http(s) entity-id, and an inline jwks. */
-    private static boolean isFederationShaped(Client client) {
-        String id = client.getClientId();
-        String jwks = client.getJwks();
-        return client.getClientAuthnType() == ClientAuthenticationType.PRIVATE_KEY_JWT
-                && id != null && id.startsWith("http")
-                && jwks != null && !jwks.isBlank();
-    }
 
     private static String registrationType(String status) {
         if ("auto_registered".equals(status)) {

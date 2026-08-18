@@ -45,12 +45,17 @@ public final class PfTokenVerifier {
 
     PfTokenVerifier(JwksEndpointKeyAccessor keys, String expectedAudience) {
         this.keys = keys;
-        this.expectedAudience = expectedAudience;
         if (expectedAudience == null || expectedAudience.isBlank()) {
-            LOG.warning("No expected audience configured: any token this server signed will "
-                    + "be accepted, including one minted for a different API. Set the "
-                    + "audience init-param to the access token manager's Audience Claim Value.");
+            // Was a warning, which meant the permissive posture survived every deploy that did not
+            // read the logs: with no audience, ANY token this PF signed was accepted, including one
+            // minted for an entirely different API. Failing at construction means a misconfigured
+            // deployment does not start rather than starting wide open.
+            throw new IllegalArgumentException("No expected audience configured for the Grant Management API. "
+                    + "Set the `audience` init-param (or GM_AUDIENCE) to the access token manager's Audience "
+                    + "Claim Value; without it any token this PingFederate signed would be accepted, "
+                    + "including one minted for a different API.");
         }
+        this.expectedAudience = expectedAudience;
     }
 
     /** Thrown when a token is absent, malformed, expired, or not signed by this server. */
@@ -91,11 +96,8 @@ public final class PfTokenVerifier {
 
         // jose4j will not silently ignore an aud it was given no opinion about, which
         // is the right default: it forces the choice to be made here, explicitly.
-        if (expectedAudience != null && !expectedAudience.isBlank()) {
-            builder.setExpectedAudience(expectedAudience);
-        } else {
-            builder.setSkipDefaultAudienceValidation();
-        }
+        // Always set: the constructor refuses to build a verifier without one.
+        builder.setExpectedAudience(expectedAudience);
 
         JwtConsumer consumer = builder
                 .setJwsAlgorithmConstraints(
