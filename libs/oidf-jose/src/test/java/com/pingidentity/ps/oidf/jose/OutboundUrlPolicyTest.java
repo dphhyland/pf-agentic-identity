@@ -88,12 +88,11 @@ class OutboundUrlPolicyTest {
     }
 
     @Test
-    void honoursAHostAllowlistWhenConfigured() {
-        OutboundUrlPolicy p = policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, "example.com, partner.example"), Map.of());
+    void allowlistSuffixMatchingIsOnALabelBoundary() {
+        OutboundUrlPolicy p = policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, "example.com"),
+                Map.of("host.example.com", "10.0.0.1", "notexample.com", "10.0.0.2"));
 
-        assertDoesNotThrow(() -> p.check("https://anchor.example.com/x"));   // suffix match
-        assertDoesNotThrow(() -> p.check("https://partner.example/x"));      // exact match
-        assertThrows(IllegalArgumentException.class, () -> p.check("https://elsewhere.example/x"));
+        assertDoesNotThrow(() -> p.check("https://host.example.com/x"));
         assertThrows(IllegalArgumentException.class, () -> p.check("https://notexample.com/x"),
                 "suffix matching must be on a label boundary, not a substring");
     }
@@ -108,6 +107,51 @@ class OutboundUrlPolicyTest {
                 "an operator-configured private endpoint is configuration, not attacker input");
         assertThrows(IllegalArgumentException.class, () -> p.check("https://attacker.example/x"),
                 "the exemption must not generalise to other private hosts");
+    }
+
+    @Test
+    void trustingDoesNotExemptOtherPortsOrSchemesOnTheSameHost() {
+        // The bypass an adversarial review found: the exemption used to match the bare HOST, and the
+        // same policy screens wholly caller-supplied identifiers. So a caller could name a different
+        // PORT on the operator's own trust controller and have scheme, port and address checks all
+        // waved through - an internal port scan pivoting off the operator's configuration.
+        OutboundUrlPolicy p = policy(Map.of(), Map.of("controller.internal", "10.0.0.7"))
+                .trusting("https://controller.internal/oidf");
+
+        assertDoesNotThrow(() -> p.check("https://controller.internal/oidf/.well-known/openid-federation"));
+        assertThrows(IllegalArgumentException.class, () -> p.check("http://controller.internal:6379/x?q="),
+                "a different port and scheme on an exempt host must NOT be exempt");
+        assertThrows(IllegalArgumentException.class, () -> p.check("https://controller.internal:8443/x"),
+                "a different port on an exempt host must NOT be exempt");
+        assertThrows(IllegalArgumentException.class, () -> p.check("https://controller.internal/elsewhere"),
+                "a path outside the configured prefix must NOT be exempt");
+    }
+
+    @Test
+    void anExemptionWithNoPathCoversThatOriginOnly() {
+        OutboundUrlPolicy p = policy(Map.of(), Map.of("controller.internal", "10.0.0.7"))
+                .trusting("https://controller.internal");
+
+        assertDoesNotThrow(() -> p.check("https://controller.internal/.well-known/openid-federation"));
+        assertThrows(IllegalArgumentException.class, () -> p.check("http://controller.internal/x"));
+    }
+
+    @Test
+    void theAllowlistExemptsFromTheAddressRuleRatherThanRestrictingEveryOtherHost() {
+        // It used to be AND-ed with the address check, so naming a private host achieved nothing -
+        // while the refusal message told operators to do exactly that. And being exclusive, one entry
+        // refused every public federation fetch process-wide.
+        OutboundUrlPolicy p = policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, "spire.internal"),
+                Map.of("spire.internal", "10.0.0.9"));
+
+        assertDoesNotThrow(() -> p.check("https://spire.internal/entries"),
+                "naming a private host in the allowlist must actually permit it");
+        assertDoesNotThrow(() -> p.check("https://anchor.example/x"),
+                "an allowlist entry must not refuse every other (public) host");
+        assertThrows(IllegalArgumentException.class,
+                () -> policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, "spire.internal"),
+                        Map.of("other.internal", "10.0.0.10")).check("https://other.internal/x"),
+                "a private host NOT named must still be refused");
     }
 
     @Test

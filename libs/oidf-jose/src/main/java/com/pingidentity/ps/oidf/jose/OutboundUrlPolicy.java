@@ -27,7 +27,12 @@ import java.util.function.Function;
  *
  * <p>Operator-configured endpoints are exempt via {@link #trusting}: a trust controller on
  * {@code *.railway.internal}, a SPIRE agent on loopback, a bundle URL an administrator typed. Those
- * are configuration, not attacker input, and the distinction this class draws is exactly that.
+ * are configuration, not attacker input, and the distinction this class draws is exactly that. The
+ * exemption is pinned to the configured <em>origin and path prefix</em>, not merely its host: the
+ * same policy instance screens wholly caller-supplied identifiers (a trust chain names its own leaf),
+ * so a host-only exemption would let a caller name {@code http://<that-host>:6379/...} and have the
+ * scheme, port and address rules all waved through - an internal port scan with the operator's own
+ * controller as the pivot. Residual: within an exempt origin and prefix the path is not constrained.
  *
  * <p>Residual: a name that resolves publicly here and privately when the connection is made (DNS
  * rebinding) is not addressed - that needs the check at socket level.
@@ -44,17 +49,17 @@ public final class OutboundUrlPolicy {
 
     private final boolean allowHttp;
     private final boolean allowPrivateNetworks;
-    private final List<String> hostAllowlist;
-    private final List<String> exemptHosts;
+    private final List<String> addressExemptHosts;
+    private final List<ExemptEndpoint> exemptEndpoints;
     private final long maxBodyBytes;
     private final Function<String, InetAddress[]> resolver;
 
-    private OutboundUrlPolicy(boolean allowHttp, boolean allowPrivateNetworks, List<String> hostAllowlist,
-            List<String> exemptHosts, long maxBodyBytes, Function<String, InetAddress[]> resolver) {
+    private OutboundUrlPolicy(boolean allowHttp, boolean allowPrivateNetworks, List<String> addressExemptHosts,
+            List<ExemptEndpoint> exemptEndpoints, long maxBodyBytes, Function<String, InetAddress[]> resolver) {
         this.allowHttp = allowHttp;
         this.allowPrivateNetworks = allowPrivateNetworks;
-        this.hostAllowlist = List.copyOf(hostAllowlist);
-        this.exemptHosts = List.copyOf(exemptHosts);
+        this.addressExemptHosts = List.copyOf(addressExemptHosts);
+        this.exemptEndpoints = List.copyOf(exemptEndpoints);
         this.maxBodyBytes = maxBodyBytes;
         this.resolver = resolver;
     }
@@ -70,7 +75,7 @@ public final class OutboundUrlPolicy {
                 Boolean.parseBoolean(env.apply(ALLOW_HTTP_ENV)),
                 Boolean.parseBoolean(env.apply(ALLOW_PRIVATE_ENV)),
                 csv(env.apply(HOST_ALLOWLIST_ENV)),
-                List.of(),
+                List.<ExemptEndpoint>of(),
                 parseLong(env.apply(MAX_BODY_ENV), DEFAULT_MAX_BODY_BYTES),
                 OutboundUrlPolicy::resolveAll);
     }
@@ -80,13 +85,13 @@ public final class OutboundUrlPolicy {
      * operator-supplied; prefer {@link #trusting} so the exemption is scoped to specific hosts.
      */
     public static OutboundUrlPolicy permissive() {
-        return new OutboundUrlPolicy(true, true, List.of(), List.of(), Long.MAX_VALUE, OutboundUrlPolicy::resolveAll);
+        return new OutboundUrlPolicy(true, true, List.of(), List.<ExemptEndpoint>of(), Long.MAX_VALUE, OutboundUrlPolicy::resolveAll);
     }
 
     /** Test seam: same policy, but with host resolution stubbed. */
     public OutboundUrlPolicy withResolver(Function<String, InetAddress[]> stub) {
-        return new OutboundUrlPolicy(this.allowHttp, this.allowPrivateNetworks, this.hostAllowlist,
-                this.exemptHosts, this.maxBodyBytes, Objects.requireNonNull(stub, "stub"));
+        return new OutboundUrlPolicy(this.allowHttp, this.allowPrivateNetworks, this.addressExemptHosts,
+                this.exemptEndpoints, this.maxBodyBytes, Objects.requireNonNull(stub, "stub"));
     }
 
     /**
@@ -95,14 +100,14 @@ public final class OutboundUrlPolicy {
      * configuration straight through.
      */
     public OutboundUrlPolicy trusting(String... operatorConfiguredUrls) {
-        List<String> exempt = new ArrayList<>(this.exemptHosts);
+        List<ExemptEndpoint> exempt = new ArrayList<>(this.exemptEndpoints);
         for (String url : operatorConfiguredUrls) {
-            String host = hostOf(url);
-            if (host != null && !exempt.contains(host)) {
-                exempt.add(host);
+            ExemptEndpoint endpoint = ExemptEndpoint.of(url);
+            if (endpoint != null && !exempt.contains(endpoint)) {
+                exempt.add(endpoint);
             }
         }
-        return new OutboundUrlPolicy(this.allowHttp, this.allowPrivateNetworks, this.hostAllowlist,
+        return new OutboundUrlPolicy(this.allowHttp, this.allowPrivateNetworks, this.addressExemptHosts,
                 exempt, this.maxBodyBytes, this.resolver);
     }
 
@@ -132,25 +137,35 @@ public final class OutboundUrlPolicy {
             // Credentials in a federation identifier are never legitimate and would be sent onward.
             throw new IllegalArgumentException("refusing to fetch a URL carrying credentials: " + host);
         }
-        boolean exempt = this.exemptHosts.contains(host.toLowerCase(Locale.ROOT));
-        if (!exempt) {
-            if (!scheme.equals("https") && !(scheme.equals("http") && this.allowHttp)) {
-                throw new IllegalArgumentException("refusing to fetch over " + (scheme.isEmpty() ? "(no scheme)" : scheme)
-                        + " (https required; set " + ALLOW_HTTP_ENV + "=true for a plaintext dev endpoint): " + url);
-            }
-            if (!this.hostAllowlist.isEmpty() && !allowlisted(host)) {
-                throw new IllegalArgumentException("refusing to fetch " + host + ": not in " + HOST_ALLOWLIST_ENV);
-            }
-            if (!this.allowPrivateNetworks) {
-                requirePublicAddresses(host);
-            }
+        if (isExemptEndpoint(uri)) {
+            return uri;
+        }
+        if (!scheme.equals("https") && !(scheme.equals("http") && this.allowHttp)) {
+            throw new IllegalArgumentException("refusing to fetch over " + (scheme.isEmpty() ? "(no scheme)" : scheme)
+                    + " (https required; set " + ALLOW_HTTP_ENV + "=true for a plaintext dev endpoint): " + url);
+        }
+        // The allowlist EXEMPTS its hosts from the address rule; it is not an additional restriction.
+        // Making it exclusive would mean naming one private SPIRE endpoint refused every public leaf
+        // entity-configuration fetch, killing federation resolution process-wide.
+        if (!this.allowPrivateNetworks && !addressExempt(host)) {
+            requirePublicAddresses(host);
         }
         return uri;
     }
 
-    private boolean allowlisted(String host) {
+    private boolean isExemptEndpoint(URI uri) {
+        for (ExemptEndpoint endpoint : this.exemptEndpoints) {
+            if (endpoint.matches(uri)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** Hosts an operator has declared may resolve to a non-public address. Suffix match on a label boundary. */
+    private boolean addressExempt(String host) {
         String lower = host.toLowerCase(Locale.ROOT);
-        for (String suffix : this.hostAllowlist) {
+        for (String suffix : this.addressExemptHosts) {
             if (lower.equals(suffix) || lower.endsWith("." + suffix)) {
                 return true;
             }
@@ -173,8 +188,9 @@ public final class OutboundUrlPolicy {
         for (InetAddress address : addresses) {
             if (!isPublic(address)) {
                 throw new IllegalArgumentException("refusing to fetch " + host + ": resolves to the non-public address "
-                        + address.getHostAddress() + " (set " + ALLOW_PRIVATE_ENV
-                        + "=true, or name the host in " + HOST_ALLOWLIST_ENV + ", if that is intended)");
+                        + address.getHostAddress() + " (name the host in " + HOST_ALLOWLIST_ENV
+                        + " if it is a legitimate internal endpoint, or set " + ALLOW_PRIVATE_ENV
+                        + "=true to disable this check entirely)");
             }
         }
     }
@@ -214,6 +230,77 @@ public final class OutboundUrlPolicy {
         }
         catch (UnknownHostException e) {
             throw new IllegalArgumentException("cannot resolve " + host, e);
+        }
+    }
+
+    /** An operator-configured endpoint: scheme, host, port and path prefix must all match. */
+    private static final class ExemptEndpoint {
+        private final String scheme;
+        private final String host;
+        private final int port;
+        private final String pathPrefix;
+
+        private ExemptEndpoint(String scheme, String host, int port, String pathPrefix) {
+            this.scheme = scheme;
+            this.host = host;
+            this.port = port;
+            this.pathPrefix = pathPrefix;
+        }
+
+        static ExemptEndpoint of(String url) {
+            if (url == null || url.isBlank()) {
+                return null;
+            }
+            try {
+                URI uri = new URI(url.trim());
+                String host = uri.getHost();
+                String scheme = uri.getScheme();
+                if (host == null || host.isBlank() || scheme == null) {
+                    return null;
+                }
+                String path = uri.getPath() == null ? "" : uri.getPath();
+                if (path.endsWith("/")) {
+                    path = path.substring(0, path.length() - 1);
+                }
+                return new ExemptEndpoint(scheme.toLowerCase(Locale.ROOT), host.toLowerCase(Locale.ROOT),
+                        defaultedPort(scheme, uri.getPort()), path);
+            }
+            catch (Exception e) {
+                return null;
+            }
+        }
+
+        boolean matches(URI uri) {
+            String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
+            String host = uri.getHost() == null ? "" : uri.getHost().toLowerCase(Locale.ROOT);
+            if (!this.scheme.equals(scheme) || !this.host.equals(host)
+                    || this.port != defaultedPort(scheme, uri.getPort())) {
+                return false;
+            }
+            String path = uri.getPath() == null ? "" : uri.getPath();
+            return this.pathPrefix.isEmpty() || path.equals(this.pathPrefix) || path.startsWith(this.pathPrefix + "/");
+        }
+
+        private static int defaultedPort(String scheme, int port) {
+            if (port != -1) {
+                return port;
+            }
+            return "https".equalsIgnoreCase(scheme) ? 443 : "http".equalsIgnoreCase(scheme) ? 80 : -1;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (!(o instanceof ExemptEndpoint)) {
+                return false;
+            }
+            ExemptEndpoint other = (ExemptEndpoint) o;
+            return this.port == other.port && this.scheme.equals(other.scheme)
+                    && this.host.equals(other.host) && this.pathPrefix.equals(other.pathPrefix);
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(this.scheme, this.host, this.port, this.pathPrefix);
         }
     }
 

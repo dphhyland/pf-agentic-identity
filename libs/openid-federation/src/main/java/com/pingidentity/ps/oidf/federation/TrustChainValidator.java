@@ -57,6 +57,7 @@ public final class TrustChainValidator {
         Claims.requireNonBlank(expectedOpIssuer, "expectedOpIssuer");
         trustChain = filterStaleChainEntries(trustChain, maxTrustChainEntryAgeSeconds);
         SubordinateStatementCache.PendingWrites pendingWrites = this.gateway.newPendingWrites();
+        FetchBudget budget = new FetchBudget(DEFAULT_MAX_FETCHES_PER_VALIDATION);
         LinkedHashMap<String, List<ChainEntry>> entriesBySubject = new LinkedHashMap<String, List<ChainEntry>>();
         for (String jwt : trustChain) {
             ChainEntry entry = new ChainEntry(jwt, JwtCodec.parseUnverifiedClaims(jwt));
@@ -69,7 +70,7 @@ public final class TrustChainValidator {
             // "file:///..." or "http://169.254.169.254/..." is rejected before a socket is opened,
             // rather than relying solely on the outbound policy further down.
             requireFetchableEntityId(expectedRpIssuer);
-            leafEntry = this.tryFetchSelfSignedEntry(expectedRpIssuer, maxLeafNodeTime, pendingWrites);
+            leafEntry = this.tryFetchSelfSignedEntry(expectedRpIssuer, maxLeafNodeTime, pendingWrites, budget);
             if (leafEntry == null) {
                 throw new IllegalArgumentException("Leaf JWT not found in trust_chain and could not be fetched from " + expectedRpIssuer + "/.well-known/openid-federation (expected self-statement with sub=iss=" + expectedRpIssuer + ")");
             }
@@ -85,7 +86,7 @@ public final class TrustChainValidator {
         // this validator would fetch on the way to failing. Ordering costs nothing and means the
         // common case never touches the others.
         for (String hint : anchorFirst(authorityHints)) {
-            List<ChainEntry> route = this.tryRoute(entriesBySubject, leafEntry, hint, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
+            List<ChainEntry> route = this.tryRoute(entriesBySubject, leafEntry, hint, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
             if (route == null) continue;
             orderedChainEntries = route;
             trustAnchorIssuer = this.knownTrustAnchor;
@@ -265,28 +266,28 @@ public final class TrustChainValidator {
         return found;
     }
 
-    private List<ChainEntry> tryRoute(Map<String, List<ChainEntry>> entriesBySubject, ChainEntry leafEntry, String firstHopIssuer, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime, SubordinateStatementCache.PendingWrites pendingWrites) {
+    private List<ChainEntry> tryRoute(Map<String, List<ChainEntry>> entriesBySubject, ChainEntry leafEntry, String firstHopIssuer, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime, SubordinateStatementCache.PendingWrites pendingWrites, FetchBudget budget) {
         ArrayList<ChainEntry> route = new ArrayList<ChainEntry>();
         route.add(leafEntry);
         HashSet<String> visitedSubjects = new HashSet<String>();
         visitedSubjects.add(leafEntry.subject);
-        return this.extendRoute(entriesBySubject, route, leafEntry, firstHopIssuer, visitedSubjects, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
+        return this.extendRoute(entriesBySubject, route, leafEntry, firstHopIssuer, visitedSubjects, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
     }
 
-    private List<ChainEntry> extendRoute(Map<String, List<ChainEntry>> entriesBySubject, List<ChainEntry> route, ChainEntry current, String hintIssuer, Set<String> visitedSubjects, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime, SubordinateStatementCache.PendingWrites pendingWrites) {
+    private List<ChainEntry> extendRoute(Map<String, List<ChainEntry>> entriesBySubject, List<ChainEntry> route, ChainEntry current, String hintIssuer, Set<String> visitedSubjects, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime, SubordinateStatementCache.PendingWrites pendingWrites, FetchBudget budget) {
         ChainEntry nextHop = findEntry(entriesBySubject.get(current.subject), hintIssuer);
         if (nextHop == null) {
-            nextHop = this.tryFetchSubordinateEntry(hintIssuer, current.subject, this.applicableMaxAge(current.subject, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime), pendingWrites);
+            nextHop = this.tryFetchSubordinateEntry(hintIssuer, current.subject, this.applicableMaxAge(current.subject, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime), pendingWrites, budget);
             if (nextHop == null) {
                 return null;
             }
             entriesBySubject.computeIfAbsent(nextHop.subject, ignored -> new ArrayList()).add(nextHop);
         }
         route.add(nextHop);
-        return this.walkRoute(entriesBySubject, route, nextHop, visitedSubjects, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
+        return this.walkRoute(entriesBySubject, route, nextHop, visitedSubjects, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
     }
 
-    private List<ChainEntry> walkRoute(Map<String, List<ChainEntry>> entriesBySubject, List<ChainEntry> route, ChainEntry current, Set<String> visitedSubjects, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime, SubordinateStatementCache.PendingWrites pendingWrites) {
+    private List<ChainEntry> walkRoute(Map<String, List<ChainEntry>> entriesBySubject, List<ChainEntry> route, ChainEntry current, Set<String> visitedSubjects, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime, SubordinateStatementCache.PendingWrites pendingWrites, FetchBudget budget) {
         while (!Objects.equals(current.issuer, this.knownTrustAnchor)) {
             ChainEntry next;
             if (Objects.equals(current.subject, current.issuer)) {
@@ -301,7 +302,7 @@ public final class TrustChainValidator {
                 for (String hint : anchorFirst(intermediateHints)) {
                     ArrayList<ChainEntry> branchRoute = new ArrayList<ChainEntry>(route);
                     HashSet<String> branchVisited = new HashSet<String>(visitedSubjects);
-                    List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
+                    List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
                     if (completed != null) {
                         return Objects.equals(hint, this.knownTrustAnchor) ? route : completed;
                     }
@@ -315,7 +316,7 @@ public final class TrustChainValidator {
             List<ChainEntry> candidates = entriesBySubject.get(nextSubject);
             ChainEntry chainEntry = next = candidates == null || candidates.isEmpty() ? null : pickNext(candidates);
             if (next == null) {
-                next = this.tryFetchSelfSignedEntry(nextSubject, this.applicableMaxAge(nextSubject, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime), pendingWrites);
+                next = this.tryFetchSelfSignedEntry(nextSubject, this.applicableMaxAge(nextSubject, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime), pendingWrites, budget);
                 if (next == null) {
                     return null;
                 }
@@ -328,19 +329,23 @@ public final class TrustChainValidator {
     }
 
     private ChainEntry refreshEntry(ChainEntry stale, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) {
-        ChainEntry refreshed = Objects.equals(stale.subject, stale.issuer) ? this.tryFetchSelfSignedEntry(stale.subject, maxAgeFromIatSeconds, pendingWrites) : this.tryFetchSubordinateEntry(stale.issuer, stale.subject, maxAgeFromIatSeconds, pendingWrites);
+        // Refreshing an expiring entry is a small, bounded errand of its own - one or two fetches, not
+        // a walk - so it gets its own budget rather than drawing on the validation's.
+        FetchBudget budget = new FetchBudget(2);
+        ChainEntry refreshed = Objects.equals(stale.subject, stale.issuer) ? this.tryFetchSelfSignedEntry(stale.subject, maxAgeFromIatSeconds, pendingWrites, budget) : this.tryFetchSubordinateEntry(stale.issuer, stale.subject, maxAgeFromIatSeconds, pendingWrites, budget);
         if (refreshed == null) {
             LOGGER.debug("Could not refresh expiring entity statement for sub=" + stale.subject + ", iss=" + stale.issuer + "; verification will proceed against the stale entry");
         }
         return refreshed;
     }
 
-    private ChainEntry tryFetchSubordinateEntry(String authorityIssuer, String subject, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) {
+    private ChainEntry tryFetchSubordinateEntry(String authorityIssuer, String subject, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites, FetchBudget budget) {
         ChainEntry entry;
         block5: {
             String jwt;
             block4: {
                 try {
+                    budget.spend("subordinate statement " + authorityIssuer + " -> " + subject);
                     jwt = this.gateway.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites);
                     if (jwt != null && !jwt.isBlank()) break block4;
                     LOGGER.debug("fetchSubordinateStatement returned empty body for sub=" + subject + ", iss=" + authorityIssuer);
@@ -365,12 +370,13 @@ public final class TrustChainValidator {
         return entry;
     }
 
-    private ChainEntry tryFetchSelfSignedEntry(String subject, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites) {
+    private ChainEntry tryFetchSelfSignedEntry(String subject, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites, FetchBudget budget) {
         ChainEntry entry;
         block5: {
             String jwt;
             block4: {
                 try {
+                    budget.spend("entity configuration of " + subject);
                     jwt = this.gateway.fetchEntityStatement(subject, maxAgeFromIatSeconds, pendingWrites);
                     if (jwt != null && !jwt.isBlank()) break block4;
                     LOGGER.debug("fetchEntityStatement returned empty body for subject=" + subject);
@@ -493,6 +499,33 @@ public final class TrustChainValidator {
             }
         }
         return ordered;
+    }
+
+    /**
+     * How many live fetches one validation may make. A chain is caller-supplied: its leaf names hints,
+     * each hint can name more, and since every intermediate hint is now tried (rather than only the
+     * first) the walk is a branching search over attacker-chosen URLs. Without a ceiling one
+     * unauthenticated request can become dozens of outbound GETs, each holding a synchronous PF
+     * request thread for up to the fetch timeout. Cached entries cost budget too - the point is to
+     * bound the work, not just the network.
+     */
+    static final int DEFAULT_MAX_FETCHES_PER_VALIDATION = 24;
+
+    /** Mutable per-validation counter. Never shared between validations. */
+    private static final class FetchBudget {
+        private final int max;
+        private int used;
+
+        FetchBudget(int max) {
+            this.max = max;
+        }
+
+        void spend(String what) {
+            if (++this.used > this.max) {
+                throw new IllegalArgumentException("trust chain resolution exceeded its fetch budget of "
+                        + this.max + " (last: " + what + "); refusing to keep resolving");
+            }
+        }
     }
 
     private static ChainEntry selectSelfSignedEntry(List<ChainEntry> entries, String subject, String description) {
