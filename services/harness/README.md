@@ -34,7 +34,12 @@ mvn -pl services/harness exec:java -Dexec.mainClass=com.pingidentity.ps.oidf.har
   -Dexec.args="live https://pingfederate-runtime-staging.up.railway.app"
 ```
 
-`live` mode env overrides: `OIDF_ATTESTER_JWK` (a private JWK JSON matching an entry in the target's
-mock-attesters trust file — without it a random key is used, which any real deployment correctly
-rejects with `attestation_validation_failed`), `OIDF_CLIENT_SECRET`, `OIDF_SALES_REGION`,
-`OIDF_NO_CHALLENGE=1`.
+`live` mode env: `OIDF_CLIENT_SECRET` (**required** - it goes on the wire, so there is no default);
+`OIDF_ATTESTER_JWK` (a private JWK JSON matching an entry in the target's mock-attesters trust file —
+without it a random key is used, which any real deployment correctly rejects with
+`attestation_validation_failed`); `OIDF_SALES_REGION`; `OIDF_NO_CHALLENGE=1`;
+`OIDF_HARNESS_INSECURE_TLS=true` to accept a self-signed local PF (verification is on by default and
+the flag warns loudly - never set it against a real deployment).
+
+`selfverify` also runs under surefire (`AttestationFlowHarnessSmokeTest`) - the harness reaches the
+verifier by reflection on class names, so a rename now fails the build rather than a demo.

@@ -68,7 +68,7 @@ public final class AttestationFlowHarness {
         String mode = args.length > 0 ? args[0] : "selfverify";
         switch (mode) {
             case "live" -> live(args);
-            case "selfverify" -> selfVerify();
+            case "selfverify" -> { if (selfVerify() > 0) System.exit(1); }
             default -> {
                 System.err.println("usage: AttestationFlowHarness <live|selfverify> [baseUrl] [tokenEndpoint] [clientId]");
                 System.exit(2);
@@ -81,7 +81,8 @@ public final class AttestationFlowHarness {
     private static void live(String[] args) throws Exception {
         if (args.length < 2) {
             System.err.println("usage: AttestationFlowHarness live <baseUrl> [tokenEndpoint] [clientId]");
-            System.err.println("  e.g. AttestationFlowHarness live https://reseau.proxy.rlwy.net:17055/oidf");
+            System.err.println("  e.g. AttestationFlowHarness live https://<pf-host>            (modules merged into pf-runtime.war)");
+            System.err.println("       AttestationFlowHarness live https://<pf-host>/oidf       (loose oidf.war under /oidf)");
             System.exit(2);
         }
         String baseUrl = stripTrailingSlash(args[1]);
@@ -102,7 +103,7 @@ public final class AttestationFlowHarness {
         System.out.println();
 
         // 1) fetch a real challenge from the deployed servlet
-        HttpClient http = trustAllClient();
+        HttpClient http = httpClient();
         HttpResponse<String> chResp = http.send(
                 HttpRequest.newBuilder(URI.create(challengeUrl)).POST(HttpRequest.BodyPublishers.noBody()).build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -152,7 +153,10 @@ public final class AttestationFlowHarness {
     /** POSTs the PoP-mode token request (with authorization_details) and prints PF's response. */
     private static void executeToken(HttpClient http, String tokenEndpoint, String clientId,
                                      String attestation, String pop, String authorizationDetailsJson) throws Exception {
-        String secret = envOr("OIDF_CLIENT_SECRET", "demo-secret-123");
+        String secret = System.getenv("OIDF_CLIENT_SECRET");
+        if (secret == null || secret.isBlank()) {
+            throw new IllegalStateException("OIDF_CLIENT_SECRET is not set - live mode sends it on the wire, so there is no default");
+        }
         String form = "grant_type=client_credentials"
                 + "&client_id=" + url(clientId)
                 + "&client_secret=" + url(secret)
@@ -180,7 +184,7 @@ public final class AttestationFlowHarness {
      * compiles even when client-attestation is absent (live mode only); selfverify
      * requires it on the classpath.
      */
-    private static void selfVerify() throws Exception {
+    static int selfVerify() throws Exception {
         final String ATTESTER = "https://attester.example.com";
         final String CLIENT_ID = "https://rp.example.com";
         final String OP_ISSUER = "https://op.example.com";
@@ -274,7 +278,7 @@ public final class AttestationFlowHarness {
 
         System.out.println();
         System.out.println("selfverify: " + pass + " passed, " + fail + " failed");
-        if (fail > 0) System.exit(1);
+        return fail;
     }
 
     // ----------------------------------------------------------------- builders
@@ -460,7 +464,16 @@ public final class AttestationFlowHarness {
         return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
     }
 
-    static HttpClient trustAllClient() throws Exception {
+    /**
+     * Verifying client by default. {@code OIDF_HARNESS_INSECURE_TLS=true} opts into a trust-all context for
+     * a self-signed local PF - loudly, and never by default: live mode's documented use is a real
+     * deployment, where a silent MITM would hand an attacker the client secret and the attestation.
+     */
+    static HttpClient httpClient() throws Exception {
+        if (!Boolean.parseBoolean(System.getenv("OIDF_HARNESS_INSECURE_TLS"))) {
+            return HttpClient.newHttpClient();
+        }
+        System.err.println("WARN: OIDF_HARNESS_INSECURE_TLS=true - TLS certificate verification is OFF for this run");
         TrustManager[] trustAll = {new X509TrustManager() {
             public void checkClientTrusted(X509Certificate[] c, String a) {}
             public void checkServerTrusted(X509Certificate[] c, String a) {}
