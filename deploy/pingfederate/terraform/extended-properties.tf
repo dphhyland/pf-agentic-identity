@@ -14,6 +14,22 @@
 
 resource "pingfederate_extended_properties" "props" {
   items = [
+    # ── OpenID Federation registration bookkeeping (§12.1 automatic / §12.2 explicit) ──
+    # RegistrationService.buildClient writes these on every federation-registered client. PF rejects
+    # an extended_parameters entry whose name is not declared here, so their absence made federation
+    # registration fail outright - or, if PF merely dropped them, silently permanent: `status` is the
+    # ONLY thing distinguishing a client this module registered from a console/Terraform one, so
+    # without it explicitRegister 409s forever and automaticRegister refuses to refresh a rotated key,
+    # which inverts the whole "the federation, not the stored copy, is the authority" design. The
+    # names are mirrored by FederationClientParams.EXTENDED_PARAM_NAMES, and a test asserts the two
+    # lists agree.
+    { name = "status", description = "How this client was registered: registered (§12.2 explicit) or auto_registered (§12.1)" },
+    { name = "trust_chain", description = "The trust chain (JWTs) this client's registration was validated against" },
+    { name = "application_type", description = "OIDC application_type from the resolved federation metadata" },
+    { name = "subject_type", description = "OIDC subject_type from the resolved federation metadata" },
+    { name = "contacts", description = "Contacts from the resolved federation metadata" },
+    { name = "token_endpoint_auth_method", description = "Federation-advertised auth method (e.g. attest_jwt_client_auth)" },
+
     # ── attestation-based client auth (verification side) ──
     { name = "attestation_required", description = "Marks the client as requiring attestation" },
     { name = "attestation_pop_max_age", description = "Max age (s) of the PoP JWT iat" },

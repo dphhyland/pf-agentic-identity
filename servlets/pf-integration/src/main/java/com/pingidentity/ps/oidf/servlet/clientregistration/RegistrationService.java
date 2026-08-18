@@ -132,7 +132,7 @@ final class RegistrationService {
 
     /** True when this module registered the client (explicitly or automatically); false for console/Terraform clients. */
     private static boolean isFederationRegistered(Client client) {
-        String status = extendedParamValue(client, "status");
+        String status = extendedParamValue(client, FederationClientParams.STATUS);
         return "registered".equals(status) || "auto_registered".equals(status);
     }
 
@@ -147,7 +147,7 @@ final class RegistrationService {
             throw new IllegalArgumentException("trust_chain is required for automatic registration");
         }
         Client existing = this.clientStore.get(clientId);
-        if (existing != null && !"auto_registered".equals(extendedParamValue(existing, "status"))) {
+        if (existing != null && !"auto_registered".equals(extendedParamValue(existing, FederationClientParams.STATUS))) {
             // Manually-registered clients are never touched by automatic registration.
             return null;
         }
@@ -234,7 +234,9 @@ final class RegistrationService {
         client.setRestrictedScopes(scopes);
         client.setBypassApprovalPage(true);
         HashMap<String, ParamValues> extendedParams = new HashMap<String, ParamValues>();
-        addParamValue(extendedParams, "status", status);
+        // Every name written here must be declared in extended-properties.tf or PF rejects/drops it -
+        // see FederationClientParams, which both this and that file are checked against.
+        addParamValue(extendedParams, FederationClientParams.STATUS, status);
         addParamValue(extendedParams, oidcRPMetadata, "application_type");
         addParamValue(extendedParams, oidcRPMetadata, "subject_type");
         addParamValue(extendedParams, oidcRPMetadata, "contacts");
