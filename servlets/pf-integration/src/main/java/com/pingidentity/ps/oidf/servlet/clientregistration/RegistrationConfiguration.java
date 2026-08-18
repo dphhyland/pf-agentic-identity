@@ -2,18 +2,21 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import java.util.ArrayList;
 import java.util.Set;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import javax.servlet.ServletConfig;
 
 /**
- * Immutable configuration for the client-registration servlet, sourced from servlet init
- * parameters: trust-controller host, SSL error tolerance, subordinate-statement cache size,
- * trust-chain entry max age, and the signing algorithm plus accepted signing algorithms.
- * The legacy static fields mirror the trust-controller host / SSL flag for OGNL access.
+ * Immutable per-component configuration for the client-registration servlet and filters: the
+ * trust-controller coordinates plus cache sizing, chain freshness and signing algorithms.
+ *
+ * <p>The deployment-wide half (trust-controller host / base URL / SSL tolerance) comes from
+ * {@link FederationRuntimeConfig}, not from this object's constructor. It used to be mirrored into
+ * three {@code public static} fields here, written as a constructor side effect — so the last
+ * component to initialise silently redefined the trust anchor for every other one, and nothing at
+ * all had initialised until the first request arrived. That is now a single immutable process-wide
+ * value; this class only carries the settings that legitimately vary per component.
  */
 public final class RegistrationConfiguration {
-    public static boolean _IGNORE_SSL_ERRORS = false;
-    public static String _TRUST_CONTROLLER_HOST = "";
-    public static String _TRUST_CONTROLLER_BASE_URL = "";
     static final String SUBORDINATE_CACHE_MAX_ENTRIES_PARAM = "subordinateStatementCacheMaxEntries";
     static final String TRUST_CHAIN_ENTRY_MAX_AGE_PARAM = "trustChainEntryMaxAgeSeconds";
     private static final String DEFAULT_SIGNING_ALGORITHM = "RS256";
@@ -67,32 +70,31 @@ public final class RegistrationConfiguration {
         this.trustChainEntryMaxAgeSeconds = trustChainEntryMaxAgeSeconds;
         this.signingAlgorithm = signingAlgorithm;
         this.acceptedSigningAlgorithms = acceptedSigningAlgorithms != null ? Set.copyOf(acceptedSigningAlgorithms) : Set.of();
-        _IGNORE_SSL_ERRORS = ignoreSslErrors;
-        _TRUST_CONTROLLER_HOST = trustControllerHost;
-        _TRUST_CONTROLLER_BASE_URL = this.trustControllerBaseUrl;
     }
 
     /**
-     * Reads a setting from the servlet {@code init-param}, falling back to an environment variable —
-     * same pattern as {@code FederationConfiguration.setting}. Without this, {@code _TRUST_CONTROLLER_HOST}
-     * stays {@code ""} (and {@link ClientAttestationUtils#validateClientAttestation(Object)} fails
-     * every attestation with an empty {@code knownTrustAnchor}) until {@code /federation/register} has
-     * been hit at least once in this JVM's lifetime to trigger {@link OpenIdRegistrationServlet#init}
-     * — a fragile, request-order-dependent way to configure a value that's really deployment-wide.
+     * The deployment-wide trust-controller settings come from {@link FederationRuntimeConfig}. An
+     * {@code init-param} may still name them, but only to agree: a value that differs from the
+     * process-wide one is a configuration error, because two components would then be validating
+     * chains against two different anchors. Fail at init rather than at some later request.
      */
-    private static String setting(ServletConfig config, String initParam, String envVar) {
-        String value = config.getInitParameter(initParam);
-        if (value == null || value.isBlank()) {
-            value = System.getenv(envVar);
+    private static void requireAgreement(ServletConfig config, String initParam, String actual) {
+        String declared = config.getInitParameter(initParam);
+        if (declared != null && !declared.isBlank() && !declared.trim().equals(actual)) {
+            throw new IllegalArgumentException("init-param " + initParam + "=\"" + declared.trim()
+                    + "\" conflicts with the deployment-wide value \"" + actual
+                    + "\"; configure it once, in the environment");
         }
-        return value;
     }
 
     static RegistrationConfiguration fromServletConfig(ServletConfig config) {
         try {
-            String trustControllerHost = setting(config, "trustControllerHost", "OIDF_FEDERATION_TRUST_CONTROLLER_HOST");
-            String trustControllerBaseUrl = setting(config, "trustControllerBaseUrl", "OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL");
-            boolean ignoreSslErrors = Boolean.parseBoolean(setting(config, "ignoreSslErrors", "OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
+            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+            requireAgreement(config, "trustControllerHost", runtime.trustControllerHost());
+            requireAgreement(config, "trustControllerBaseUrl", runtime.trustControllerBaseUrl());
+            String trustControllerHost = runtime.trustControllerHost();
+            String trustControllerBaseUrl = runtime.trustControllerBaseUrl();
+            boolean ignoreSslErrors = runtime.ignoreSslErrors();
             int cacheMaxEntries = parseCacheMaxEntries(config.getInitParameter(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM));
             long trustChainEntryMaxAge = parseTrustChainEntryMaxAge(config.getInitParameter(TRUST_CHAIN_ENTRY_MAX_AGE_PARAM));
             String signingAlgorithm = parseSigningAlgorithm(config.getInitParameter("signingAlgorithm"));

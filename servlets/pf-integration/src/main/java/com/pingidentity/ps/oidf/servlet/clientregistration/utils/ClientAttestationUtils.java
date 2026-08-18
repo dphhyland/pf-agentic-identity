@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
@@ -53,25 +54,13 @@ public final class ClientAttestationUtils {
     }
 
     public static boolean validateClientAttestation(Object inObj) {
-        // RegistrationConfiguration._TRUST_CONTROLLER_HOST is only populated once some
-        // RegistrationConfiguration has been constructed — i.e. after /federation/register has been
-        // hit at least once in this JVM's lifetime (OpenIdRegistrationServlet.init() is lazy). A
-        // token-exchange request (this call site) can easily be the FIRST request PF ever serves, so
-        // don't depend on that ordering: fall back to the same env var directly.
-        String trustControllerHost = RegistrationConfiguration._TRUST_CONTROLLER_HOST;
-        if (trustControllerHost == null || trustControllerHost.isBlank()) {
-            trustControllerHost = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_HOST");
-        }
-        String trustControllerBaseUrl = RegistrationConfiguration._TRUST_CONTROLLER_BASE_URL;
-        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
-            trustControllerBaseUrl = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL");
-        }
-        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
-            trustControllerBaseUrl = trustControllerHost;
-        }
-        boolean ignoreSslErrors = RegistrationConfiguration._IGNORE_SSL_ERRORS
-                || Boolean.parseBoolean(System.getenv("OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
-        return ClientAttestationUtils.validateClientAttestation(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
+        // Deployment-wide settings, resolved once and identical for every reader. These used to be
+        // statics on RegistrationConfiguration, mirrored from its constructor, so this call site
+        // needed its own env fallback for the case where nothing had constructed one yet -- see
+        // FederationRuntimeConfig.
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        return ClientAttestationUtils.validateClientAttestation(inObj, runtime.ignoreSslErrors(), runtime.trustControllerHost(),
+                runtime.trustControllerBaseUrl());
     }
 
     /**
@@ -208,9 +197,9 @@ public final class ClientAttestationUtils {
      * the same instance caching. Kept here so the filter and the issuance criterion cannot drift.
      */
     public static AttesterKeyResolver attesterResolver(String opIssuer) {
-        return ClientAttestationUtils.resolveAttesterTrust(
-                RegistrationConfiguration._IGNORE_SSL_ERRORS, RegistrationConfiguration._TRUST_CONTROLLER_HOST,
-                RegistrationConfiguration._TRUST_CONTROLLER_BASE_URL, opIssuer, -1L);
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        return ClientAttestationUtils.resolveAttesterTrust(runtime.ignoreSslErrors(),
+                runtime.trustControllerHost(), runtime.trustControllerBaseUrl(), opIssuer, -1L);
     }
 
     /**

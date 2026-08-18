@@ -69,11 +69,43 @@ else
   echo "web.xml: registered SsfLogoutSignal over /idp/init_logout.openid"
 fi
 
+# OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 — OpenID
+# Federation §12.1 automatic registration: an unknown federation client presenting its trust chain in
+# its client_assertion is just-in-time materialised in PF's client store so the same request then
+# authenticates normally. Fail-open; idempotent for known clients. Trust controller comes from
+# OIDF_FEDERATION_TRUST_CONTROLLER_HOST at runtime (FederationRuntimeConfig).
+#
+# MUST be mapped BEFORE ClientAttestationAuth. Filters run in <filter-mapping> document order, and
+# ClientAttestationAuth REPLACES client_assertion with a bridge assertion that carries no trust_chain
+# header - so if it ran first, this filter would find nothing to register from and §12.1 could never
+# fire for exactly the attestation clients it exists to serve. The reverse dependency does not hold:
+# this filter re-validates the chain itself and reads no attestation state. The check after both
+# blocks enforces the order.
+if grep -q "OidfAutoRegistration" "$WEBXML"; then
+  echo "web.xml: OidfAutoRegistration already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>OidfAutoRegistration</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>OidfAutoRegistration</filter-name>"
+      print "    <url-pattern>/as/token.oauth2</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered OidfAutoRegistration over /as/token.oauth2"
+fi
 # ClientAttestationAuth (ClientAttestationAuthFilter) over /as/token.oauth2 — implements
 # attest_jwt_client_auth (draft-ietf-oauth-attestation-based-client-auth): verifies the
 # OAuth-Client-Attestation(+PoP) headers and forwards the request authenticated to PF via a bridge
 # private_key_jwt. Requires the OIDF_BRIDGE_PRIVATE_JWK env var at runtime; without it the filter
-# passes through untouched. Registered after SsfLogoutSignal, immediately before PF's own servlet.
+# passes through untouched. Mapped AFTER OidfAutoRegistration - see the ordering note there.
 if grep -q "ClientAttestationAuth" "$WEBXML"; then
   echo "web.xml: ClientAttestationAuth already registered — leaving as is"
 else
@@ -95,31 +127,6 @@ else
   echo "web.xml: registered ClientAttestationAuth over /as/token.oauth2"
 fi
 
-# OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 — OpenID
-# Federation §12.1 automatic registration: an unknown federation client presenting its trust chain in
-# its client_assertion is just-in-time materialised in PF's client store so the same request then
-# authenticates normally. Fail-open; idempotent for known clients. Trust controller comes from the
-# OIDF_FEDERATION_TRUST_CONTROLLER_HOST env var at runtime (same fallback pattern as the servlets).
-if grep -q "OidfAutoRegistration" "$WEBXML"; then
-  echo "web.xml: OidfAutoRegistration already registered — leaving as is"
-else
-  awk '
-    /<\/web-app>/ && !ins {
-      print "  <filter>"
-      print "    <filter-name>OidfAutoRegistration</filter-name>"
-      print "    <filter-class>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter</filter-class>"
-      print "  </filter>"
-      print "  <filter-mapping>"
-      print "    <filter-name>OidfAutoRegistration</filter-name>"
-      print "    <url-pattern>/as/token.oauth2</url-pattern>"
-      print "  </filter-mapping>"
-      ins=1
-    }
-    { print }
-  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
-  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
-  echo "web.xml: registered OidfAutoRegistration over /as/token.oauth2"
-fi
 
 echo "assembled $OUT_WAR:"
 if [[ -d "$MODULES" ]]; then
@@ -137,4 +144,14 @@ unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "ClientAttestationAuth" \
   || { echo "ERROR: ClientAttestationAuth filter mapping not present in assembled war" >&2; exit 1; }
 unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "OidfAutoRegistration" \
   || { echo "ERROR: OidfAutoRegistration filter mapping not present in assembled war" >&2; exit 1; }
-echo "verified: SsfLogoutSignal + ClientAttestationAuth + OidfAutoRegistration filters mapped in $OUT_WAR"
+# Order is load-bearing, not cosmetic (see the OidfAutoRegistration block): the LAST occurrence of each
+# name is its <filter-mapping>, and auto-registration's must come first. This also catches a bad order
+# baked into a stock web.xml, which the "already registered — leaving as is" branches would skip over.
+_mapping_line() { unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -n "<filter-name>$1</filter-name>" | tail -1 | cut -d: -f1; }
+_autoreg_at="$(_mapping_line OidfAutoRegistration)"; _attest_at="$(_mapping_line ClientAttestationAuth)"
+[ -n "$_autoreg_at" ] && [ -n "$_attest_at" ] && [ "$_autoreg_at" -lt "$_attest_at" ] || {
+  echo "ERROR: filter order wrong in $OUT_WAR - OidfAutoRegistration (line ${_autoreg_at:-?}) must be" >&2
+  echo "       mapped before ClientAttestationAuth (line ${_attest_at:-?}); the attestation filter" >&2
+  echo "       rewrites client_assertion and would hide the trust_chain from auto-registration." >&2
+  exit 1; }
+echo "verified: SsfLogoutSignal + OidfAutoRegistration + ClientAttestationAuth mapped in $OUT_WAR (order checked)"

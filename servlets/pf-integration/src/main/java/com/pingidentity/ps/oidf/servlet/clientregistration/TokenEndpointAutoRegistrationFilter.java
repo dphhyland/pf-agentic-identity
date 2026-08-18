@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import java.io.IOException;
 import java.util.ArrayList;
@@ -75,21 +76,28 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
         if (this.service != null) {
             return;
         }
-        // Same init-param → env fallback as FederationConfiguration.setting: an image-baked PF is
-        // configured through deployment env, not a per-deployment web.xml rebuild.
-        String trustControllerHost = orBlank(config.getInitParameter("trustControllerHost"));
-        if (trustControllerHost.isBlank()) {
-            trustControllerHost = orBlank(System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_HOST"));
-        }
-        boolean ignoreSslErrors = Boolean.parseBoolean(config.getInitParameter("ignoreSslErrors"))
-                || Boolean.parseBoolean(System.getenv("OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
+        // The trust controller is deployment-wide (FederationRuntimeConfig), not per-filter. This used
+        // to read the env itself and then pass the bare host as BOTH host and base URL, which - via
+        // the statics the constructor wrote - silently replaced any context-path base URL the
+        // registration servlet had established. Only the per-component sizing knobs come from
+        // init-params now.
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
         int cacheMaxEntries = parseInt(config.getInitParameter("subordinateStatementCacheMaxEntries"), 256);
         long trustChainEntryMaxAge = parseLong(config.getInitParameter("trustChainEntryMaxAgeSeconds"), 60L);
         Set<String> acceptedSigningAlgorithms = parseCsv(config.getInitParameter("acceptedSigningAlgorithms"));
-        RegistrationConfiguration configuration = new RegistrationConfiguration(trustControllerHost, ignoreSslErrors,
-                cacheMaxEntries, trustChainEntryMaxAge, "RS256", acceptedSigningAlgorithms);
+        RegistrationConfiguration configuration = new RegistrationConfiguration(runtime.trustControllerHost(),
+                runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(), cacheMaxEntries, trustChainEntryMaxAge,
+                "RS256", acceptedSigningAlgorithms);
         this.service = new RegistrationService(configuration);
-        LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller " + trustControllerHost + ")"));
+        if (!runtime.isTrustControllerConfigured()) {
+            // Fail-closed, but say so once at init: with no anchor every chain validation is refused,
+            // and §12.1 would look like "auto-registration silently does nothing".
+            LOGGER.warn((Object)("TokenEndpointAutoRegistrationFilter initialised with NO trust controller ("
+                    + FederationRuntimeConfig.HOST_ENV + " unset) - automatic registration will refuse every request"));
+        } else {
+            LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller "
+                    + runtime.trustControllerHost() + ")"));
+        }
     }
 
     @Override
@@ -150,9 +158,6 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     public void destroy() {
     }
 
-    private static String orBlank(String value) {
-        return value == null ? "" : value;
-    }
 
     private static int parseInt(String value, int fallback) {
         if (value == null || value.isBlank()) {

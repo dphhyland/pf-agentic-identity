@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
@@ -74,26 +75,13 @@ public final class OIDFederationUtils {
     }
 
     public static boolean validateTrustChain(Object inObj) {
-        // RegistrationConfiguration._TRUST_CONTROLLER_HOST/_BASE_URL are only populated once some
-        // RegistrationConfiguration has been constructed — i.e. after /federation/register has been
-        // hit at least once in this JVM's lifetime (OpenIdRegistrationServlet.init() is lazy). A
-        // token-exchange request (this call site) can easily be the FIRST request PF ever serves, so
-        // don't depend on that ordering: fall back to the same env vars directly — mirrors
-        // ClientAttestationUtils.validateClientAttestation(Object)'s identical fallback.
-        String trustControllerHost = RegistrationConfiguration._TRUST_CONTROLLER_HOST;
-        if (trustControllerHost == null || trustControllerHost.isBlank()) {
-            trustControllerHost = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_HOST");
-        }
-        String trustControllerBaseUrl = RegistrationConfiguration._TRUST_CONTROLLER_BASE_URL;
-        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
-            trustControllerBaseUrl = System.getenv("OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL");
-        }
-        if (trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank()) {
-            trustControllerBaseUrl = trustControllerHost;
-        }
-        boolean ignoreSslErrors = RegistrationConfiguration._IGNORE_SSL_ERRORS
-                || Boolean.parseBoolean(System.getenv("OIDF_FEDERATION_IGNORE_SSL_ERRORS"));
-        return validateTrustChain(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
+        // Deployment-wide settings, resolved once and identical for every reader. These used to be
+        // statics on RegistrationConfiguration, mirrored from its constructor, so this call site
+        // needed its own env fallback for the case where nothing had constructed one yet -- see
+        // FederationRuntimeConfig.
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        return validateTrustChain(inObj, runtime.ignoreSslErrors(), runtime.trustControllerHost(),
+                runtime.trustControllerBaseUrl());
     }
 
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost) {
