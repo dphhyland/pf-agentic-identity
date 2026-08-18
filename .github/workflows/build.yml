@@ -12,6 +12,28 @@ env:
   PF_IMAGE: pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
 
 jobs:
+  # Mechanical enforcement of the one rule prose kept getting wrong: a PF config archive is a plain
+  # zip that CONTAINS pf.jwk, so no archive and no key material may ever be tracked. data.staging.zip
+  # was committed under the belief that "encrypted with pf.jwk" made it safe; it did not, and the
+  # narrow `data.zip` ignore pattern let it through. This job is the check that cannot be argued with.
+  secrets-guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: no config archive or key material may be tracked
+        run: |
+          tracked="$(git ls-files \
+            'deploy/pingfederate/*.zip' \
+            'deploy/pingfederate/overlay/pf.jwk' \
+            'deploy/pingfederate/overlay/pingfederate-system-keys.xml' \
+            '*.jwk' '*.jks' '*.p12' '*.lic')"
+          if [ -n "$tracked" ]; then
+            echo "::error::These must never be tracked - a PF configArchive contains pf.jwk itself:"
+            printf '%s\n' "$tracked"
+            exit 1
+          fi
+          echo "clean: no PF config archive or key material is tracked"
+
   java:
     runs-on: ubuntu-latest
     steps:

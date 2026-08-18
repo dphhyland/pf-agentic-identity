@@ -51,16 +51,19 @@ the modular jars (`build/stage-modules.sh` → `modules/`, seven today), and let
 assemble `pf-runtime.war`. Nothing licensed is baked: the runtime is DevOps-licensed at boot
 (`PING_IDENTITY_DEVOPS_*` service vars). What's yours to provision before the first dispatch:
 
-- **Repo Actions secrets:** `PF_JWK` (the `pf.jwk` master key that decrypts `data.zip`),
+- **Repo Actions secrets:** `PF_JWK` (the `pf.jwk` master key),
   `PF_SYSTEM_KEYS` (`pingfederate-system-keys.xml`), `RAILWAY_TOKEN_STAGING` / `RAILWAY_TOKEN_PROD`.
   These four are the only secrets any workflow here reads.
-- **The per-env config archives — a known gate.** The workflow copies `data.staging.zip` or
-  `data.production.zip` (by `inputs.environment`) to `data.zip` before `railway up`. **Neither file
-  is in the repo yet.** What exists is the gitignored `deploy/pingfederate/data.zip` — the
-  `terraform/` Phase-2 `configArchive` export, the local build input for the by-hand `railway up`.
-  `terraform/helpers/export-data-zip.sh` writes `data.<env>.zip` (and refreshes `data.zip`);
-  encrypted with `pf.jwk` it is safe to version, so the fix is one Phase-2 export per environment,
-  committed under those names. Until then the workflow's `cp` step fails on first run.
+- **The per-env config archive — currently a hard stop.** A PF `configArchive` is a plain zip that
+  **contains `pf.jwk` itself**, along with `pingfederate-system-keys.xml`, both keystores, the admin
+  password hash and master-key-reversible client secrets. PF obfuscates individual *values* with the
+  master key and then ships the key in the same archive, so the old reading here — "encrypted with
+  `pf.jwk`, therefore safe to version" — was wrong. `data.staging.zip` was committed on that premise
+  and reached the public remote; that key is treated as compromised and is being rotated.
+  Everything matching `data*.zip` is now git-ignored, `build.yml` fails if such a file is ever
+  tracked, and the deploy workflow refuses to run rather than deploy from a committed archive. The
+  replacement — an `age`-encrypted archive in git, decrypted at boot from a sealed Railway variable,
+  so the key sits in neither git nor an image layer — lands with the rotation.
 - **Confirm two image paths** on the first run (marked `CONFIRM` in the workflow): where
   `pf-protocolengine*.jar` and the stock `pf-runtime.war` live inside the PF image.
 - **Note:** unlike lighthouse/fedhost, this workflow does not apply `vars.<env>.env` — the

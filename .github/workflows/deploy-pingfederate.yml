@@ -6,11 +6,16 @@
 # vars) — nothing licensed is baked here.
 #
 # Still to provision before first run (repo → Settings → Secrets and variables → Actions):
-#   PF_JWK                 the PF master key (pf.jwk) contents        — decrypts data.zip
+#   PF_JWK                 the PF master key (pf.jwk) contents
 #   PF_SYSTEM_KEYS         pingfederate-system-keys.xml contents
 #   RAILWAY_TOKEN_STAGING / RAILWAY_TOKEN_PROD
-# And commit data.staging.zip / data.production.zip (encrypted with pf.jwk → safe) into
-# deploy/pingfederate/. Two image paths marked CONFIRM below on first run.
+# The per-env config archive is NOT committed and must never be: a PF configArchive is a plain zip
+# that contains pf.jwk itself, so "encrypted with pf.jwk → safe to commit" (what this comment used to
+# say) is false — an export always ships the key that would decrypt it, plus the admin password hash
+# and reversible client secrets. deploy/pingfederate/data.staging.zip was committed on that false
+# premise; its key is treated as compromised. The replacement mechanism (an age-encrypted archive
+# decrypted at boot) lands with the key rotation — until then this workflow refuses to deploy.
+# Two image paths marked CONFIRM below on first run.
 name: Deploy PingFederate (build-in-CI)
 
 on:
@@ -73,10 +78,18 @@ jobs:
       - name: materialise secrets + per-env config (never committed)
         working-directory: deploy/pingfederate
         run: |
-          mkdir -p overlay
-          printf '%s' "${{ secrets.PF_JWK }}"        > overlay/pf.jwk
-          printf '%s' "${{ secrets.PF_SYSTEM_KEYS }}" > overlay/pingfederate-system-keys.xml
-          if [ "${{ inputs.environment }}" = "production" ]; then cp data.production.zip data.zip; else cp data.staging.zip data.zip; fi
+          # Gate FIRST: no config archive is available (it is deliberately absent from git — see the
+          # header), so fail before any key material is written to the runner's disk. Never fall back
+          # to a committed archive.
+          echo "::error::No config archive available for ${{ inputs.environment }}."
+          echo "A PF configArchive contains pf.jwk and must not be committed; the previously" >&2
+          echo "committed data.staging.zip is treated as compromised. Deploys resume once the" >&2
+          echo "master key is rotated and the age-encrypted archive mechanism is in place." >&2
+          exit 1
+          # Restored with that mechanism:
+          #   mkdir -p overlay
+          #   printf '%s' "${{ secrets.PF_JWK }}"         > overlay/pf.jwk
+          #   printf '%s' "${{ secrets.PF_SYSTEM_KEYS }}" > overlay/pingfederate-system-keys.xml
 
       - name: railway up → pingfederate-runtime
         working-directory: deploy/pingfederate

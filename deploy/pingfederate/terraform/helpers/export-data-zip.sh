@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 # Export the running PF's config archive into the per-environment deploy artifact
-# ../data.<environment>.zip (data.staging.zip / data.production.zip — encrypted with pf.jwk, so safe to
-# commit; deploy-pingfederate.yml copies the right one to data.zip at build time). Also refreshes the
-# git-ignored ../data.zip so a local `railway up` from deploy/pingfederate bakes the same thing.
+# ../data.<environment>.zip. NEVER COMMIT THE RESULT. A PF configArchive is a plain zip that contains
+# pf.jwk (the master key), pingfederate-system-keys.xml, both keystores, the admin password hash and
+# master-key-reversible client secrets — PF obfuscates individual VALUES with the master key and then
+# ships the key alongside them, so "encrypted, therefore safe to commit" (what this header used to
+# claim) is false. Everything data*.zip is git-ignored and CI fails if one is ever tracked.
+# Also refreshes ../data.zip so a local `railway up` from deploy/pingfederate bakes the same thing.
 # Run AFTER `terraform apply`, so the archive reflects the Terraform-authored config — including the
 # server-settings base URL for THIS environment. Credentialed (your password).
 #
