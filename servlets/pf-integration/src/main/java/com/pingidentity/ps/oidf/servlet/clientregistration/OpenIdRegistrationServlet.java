@@ -4,6 +4,8 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Function;
 import javax.servlet.ServletConfig;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -26,10 +28,24 @@ public class OpenIdRegistrationServlet
 extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private RegistrationService RegistrationService;
+    private final Function<HttpServletRequest, String> issuerResolver;
     private static final Log log = LogFactory.getLog(OpenIdRegistrationServlet.class);
+
+    public OpenIdRegistrationServlet() {
+        this(null, req -> OAuthIssuerUtils.getInstance().getIssuerValue(req));
+    }
+
+    /** Test seam: a pre-built service and an issuer resolver, so the servlet runs without PF's runtime. */
+    OpenIdRegistrationServlet(RegistrationService service, Function<HttpServletRequest, String> issuerResolver) {
+        this.RegistrationService = service;
+        this.issuerResolver = Objects.requireNonNull(issuerResolver, "issuerResolver");
+    }
 
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        if (this.RegistrationService != null) {
+            return;
+        }
         try {
             RegistrationConfiguration registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
             this.RegistrationService = new RegistrationService(registrationConfiguration);
@@ -53,6 +69,9 @@ extends HttpServlet {
                 }
             }
         }
+        catch (RegistrationRejectedException e) {
+            writeError(resp, e.status(), e.error(), e.getMessage(), e);
+        }
         catch (IllegalArgumentException e) {
             writeError(resp, 400, "invalid_request", e.getMessage(), e);
         }
@@ -65,7 +84,7 @@ extends HttpServlet {
         ExplicitRegistrationRequest registrationRequest;
         String contentType = req.getContentType();
         String mediaType = baseMediaType(contentType);
-        String oidcIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        String oidcIssuer = this.issuerResolver.apply(req);
         if ("application/entity-statement+jwt".equalsIgnoreCase(mediaType)) {
             String requestJwt = readRequestBody(req);
             registrationRequest = ExplicitRegistrationRequest.fromJwt(requestJwt, oidcIssuer);

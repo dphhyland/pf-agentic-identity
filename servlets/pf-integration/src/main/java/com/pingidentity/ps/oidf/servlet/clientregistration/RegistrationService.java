@@ -63,22 +63,75 @@ final class RegistrationService {
         this.signingKeyProvider = signingKeyProvider;
     }
 
+    /**
+     * OIDF §12.2 explicit registration. Order matters and is the whole point: the trust chain is
+     * validated to the configured anchor <em>first</em>; only then is the client store consulted.
+     * A client this module did not register (no {@code status} extended param — a console or
+     * Terraform client) is never modified: 409, no side effect. A client this module did register
+     * (explicitly or automatically) is refreshed from the re-validated chain — the federation, not the
+     * stored copy, is the authority. Nothing is ever disabled: a repeat registration is not evidence
+     * of compromise, and a request that fails verification must leave no trace.
+     */
     RegisteredClient explicitRegister(ExplicitRegistrationRequest request, String opIssuer) throws Exception {
         Objects.requireNonNull(request, "request");
         TrustChainValidationResult validation = this.trustChainValidator.validate(request.trustChain(), request.issuer(), opIssuer, -1L, -1L, this.configuration.trustChainEntryMaxAgeSeconds());
         String clientId = request.sub();
         String trustAnchorIssuer = validation.trustAnchorIssuer();
         String rpSubject = validation.leafSubject();
-        Map<String, Object> leafMetadata = validation.metadataFor("openid_relying_party");
+        Map<String, Object> leafMetadata = federationClientMetadata(validation, clientId);
+        requireRegistrationType(leafMetadata, clientId, "explicit");
+
+        Client existing = this.clientStore.get(clientId);
+        if (existing != null && !isFederationRegistered(existing)) {
+            throw new RegistrationRejectedException(409, "invalid_client_metadata",
+                    "client_id " + clientId + " is administered outside OpenID Federation and cannot be registered through it");
+        }
+
         JwtClaims leafEntityStatement = validation.leafEntityStatement();
         Map jwks = leafEntityStatement.getClaimValue("jwks", Map.class);
-        LinkedHashMap<String, Object> responseRpMetadata = new LinkedHashMap<String, Object>(leafMetadata != null ? leafMetadata : Map.of());
+        LinkedHashMap<String, Object> responseRpMetadata = new LinkedHashMap<String, Object>(leafMetadata);
         responseRpMetadata.put("client_id", clientId);
         responseRpMetadata.put("client_id_issued_at", Instant.now().getEpochSecond());
         String signedJwt = this.buildSignedRegistrationResponse(opIssuer, rpSubject, trustAnchorIssuer, responseRpMetadata);
-        RegisteredClient registeredClient = new RegisteredClient(clientId, rpSubject, trustAnchorIssuer, request.trustChain(), responseRpMetadata, "registered", signedJwt);
-        this.clientStore.add(buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "registered"));
-        return registeredClient;
+        Client client = buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "registered");
+        if (existing != null) {
+            this.clientStore.update(client);
+            LOGGER.info((Object)("Refreshed federation client " + clientId + " via explicit registration (trust anchor " + trustAnchorIssuer + ")"));
+        } else {
+            this.clientStore.add(client);
+            LOGGER.info((Object)("Explicitly registered federation client " + clientId + " (trust anchor " + trustAnchorIssuer + ")"));
+        }
+        return new RegisteredClient(clientId, rpSubject, trustAnchorIssuer, request.trustChain(), responseRpMetadata, "registered", signedJwt);
+    }
+
+    /**
+     * The leaf's client metadata: {@code oauth_client} (agents) or {@code openid_relying_party} (OIDC
+     * RPs) — a federation leaf carries one or the other, and the deprecated single-block view only saw
+     * the latter.
+     */
+    private static Map<String, Object> federationClientMetadata(TrustChainValidationResult validation, String clientId) {
+        Map<String, Object> leafMetadata = validation.metadataFor("oauth_client");
+        if (leafMetadata == null || leafMetadata.isEmpty()) {
+            leafMetadata = validation.metadataFor("openid_relying_party");
+        }
+        if (leafMetadata == null || leafMetadata.isEmpty()) {
+            throw new IllegalStateException("resolved leaf has no oauth_client/openid_relying_party metadata; cannot register " + clientId);
+        }
+        return leafMetadata;
+    }
+
+    private static void requireRegistrationType(Map<String, Object> leafMetadata, String clientId, String type) throws RegistrationRejectedException {
+        Object regTypes = leafMetadata.get("client_registration_types");
+        if (!(regTypes instanceof List) || !((List<?>) regTypes).contains(type)) {
+            throw new RegistrationRejectedException(400, "invalid_client_metadata",
+                    "client " + clientId + " does not advertise client_registration_types=" + type + "; refusing " + type + " registration");
+        }
+    }
+
+    /** True when this module registered the client (explicitly or automatically); false for console/Terraform clients. */
+    private static boolean isFederationRegistered(Client client) {
+        String status = extendedParamValue(client, "status");
+        return "registered".equals(status) || "auto_registered".equals(status);
     }
 
     /**
@@ -97,15 +150,7 @@ final class RegistrationService {
             return null;
         }
         TrustChainValidationResult validation = this.trustChainValidator.validate(trustChain, clientId, opIssuer, -1L, -1L, this.configuration.trustChainEntryMaxAgeSeconds());
-        // A federation client leaf carries its client metadata as oauth_client (agents) or
-        // openid_relying_party (OIDC RPs) — the deprecated leafMetadata() only saw the latter.
-        Map<String, Object> leafMetadata = validation.metadataFor("oauth_client");
-        if (leafMetadata == null || leafMetadata.isEmpty()) {
-            leafMetadata = validation.metadataFor("openid_relying_party");
-        }
-        if (leafMetadata == null || leafMetadata.isEmpty()) {
-            throw new IllegalStateException("resolved leaf has no oauth_client/openid_relying_party metadata; cannot automatically register " + clientId);
-        }
+        Map<String, Object> leafMetadata = federationClientMetadata(validation, clientId);
         Object regTypes = leafMetadata.get("client_registration_types");
         if (!(regTypes instanceof List) || !((List)regTypes).contains("automatic")) {
             throw new IllegalStateException("client " + clientId + " does not advertise client_registration_types=automatic; refusing automatic registration");
