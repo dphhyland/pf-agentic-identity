@@ -4,9 +4,12 @@
 # equivalent of the old monolith pf-oidf-modules.jar (same packages, superset of its classes):
 # their external deps (jose4j, jackson, commons-logging) are already on PF's server classpath.
 # agent-registry rides along because attestation-issuer's servlets import it (agent_id minting) —
-# without it the issuance servlet fails at first use with NoClassDefFoundError. The device-bound
-# libs (device-instance, app-attest) are NOT staged — App Attest verification lives in
-# services/device-enrolment, not in the AS.
+# without it the issuance servlet fails at first use with NoClassDefFoundError. device-instance rides
+# along too: servlets/ssf's InstanceRegistryReceiverHandler imports it to turn inbound CAEP signals
+# into agent-instance registry changes (CaepSignalApplier, IomInstanceRegistry) — without it the SSF
+# servlets fail at first use the same way, even when receiverInstanceRegistry is off. It is a pure
+# library (no App Attest, no HTTP, no PingFederate SDK), unlike app-attest, which stays out: App Attest
+# verification lives in services/device-enrolment, not in the AS.
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
 DEST="$ROOT/deploy/pingfederate/modules"
@@ -19,6 +22,7 @@ JARS=(
   libs/client-attestation/target/client-attestation-0.1.0.jar
   libs/openid-federation/target/openid-federation-0.1.0.jar
   libs/agent-registry/target/agent-registry-0.1.0.jar
+  libs/device-instance/target/device-instance-0.1.0.jar
 )
 
 mkdir -p "$DEST"

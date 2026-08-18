@@ -74,6 +74,7 @@ public final class SsfConfiguration {
     private final String receiverPollToken;
     private final long receiverPollIntervalSeconds;
     private final boolean receiverActionsEnabled;
+    private final boolean receiverInstanceRegistry;
     private final boolean auditEventsEnabled;
     private final String auditEventMap;
 
@@ -118,6 +119,7 @@ public final class SsfConfiguration {
         this.receiverPollToken = b.receiverPollToken;
         this.receiverPollIntervalSeconds = b.receiverPollIntervalSeconds;
         this.receiverActionsEnabled = b.receiverActionsEnabled;
+        this.receiverInstanceRegistry = b.receiverInstanceRegistry;
         this.auditEventsEnabled = b.auditEventsEnabled;
         this.auditEventMap = b.auditEventMap;
         if (this.kafkaEnabled && (this.kafkaBootstrapServers == null || this.kafkaBootstrapServers.isBlank())) {
@@ -164,6 +166,7 @@ public final class SsfConfiguration {
                     .receiverPollToken(trimOrNull(param(config,"receiverPollToken")))
                     .receiverPollIntervalSeconds(parseLong(param(config,"receiverPollIntervalSeconds"), 10L))
                     .receiverActionsEnabled(parseBoolean(param(config,"receiverActionsEnabled"), true))
+                    .receiverInstanceRegistry(parseBoolean(param(config,"receiverInstanceRegistry"), false))
                     .auditEventsEnabled(parseBoolean(param(config,"auditEventsEnabled"), true))
                     .auditEventMap(trimOrNull(param(config,"auditEventMap")));
             return b.build();
@@ -363,6 +366,17 @@ public final class SsfConfiguration {
         return this.receiverActionsEnabled;
     }
 
+    /**
+     * Whether inbound CAEP signals ({@code device-compliance-change}, {@code session-revoked},
+     * {@code credential-change}) act on the agent instance registry. Default false — opt-in because it
+     * additionally requires {@code storeDialect=ldm} (the registry lives in the same Identity Object
+     * Model database as the {@code ldm} SSF store; on any other dialect this is refused at configure
+     * time with a warning, not silently skipped).
+     */
+    public boolean receiverInstanceRegistry() {
+        return this.receiverInstanceRegistry;
+    }
+
     // ---- endpoint URLs advertised in ssf-configuration (issuer + fixed module paths) ----
 
     public String configurationEndpoint() {
@@ -536,6 +550,7 @@ public final class SsfConfiguration {
         private String receiverPollToken;
         private long receiverPollIntervalSeconds = 10L;
         private boolean receiverActionsEnabled = true;
+        private boolean receiverInstanceRegistry;
         private boolean auditEventsEnabled = true;
         private String auditEventMap;
 
@@ -726,6 +741,11 @@ public final class SsfConfiguration {
 
         public Builder receiverActionsEnabled(boolean v) {
             this.receiverActionsEnabled = v;
+            return this;
+        }
+
+        public Builder receiverInstanceRegistry(boolean v) {
+            this.receiverInstanceRegistry = v;
             return this;
         }
 

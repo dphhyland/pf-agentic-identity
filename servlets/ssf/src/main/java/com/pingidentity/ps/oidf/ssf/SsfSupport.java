@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.device.CaepSignalApplier;
+import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import java.util.Objects;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -76,6 +78,9 @@ public final class SsfSupport {
                                 config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
                 LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
                         + " (jwks " + config.receiverJwksUrl() + ")"));
+                if (config.receiverInstanceRegistry()) {
+                    installInstanceRegistryHandler(receiverService, store, config);
+                }
                 if (config.receiverPollUrl() != null) {
                     pollReceiverClient = new PollReceiverClient(receiverService,
                             PollReceiverClient.httpTransport(config.receiverPollUrl(),
@@ -123,6 +128,25 @@ public final class SsfSupport {
         synchronized (LOCK) {
             receiverAuthenticator = authenticator;
         }
+    }
+
+    /**
+     * Wires the agent instance registry into the receiver pipeline, reusing the {@code ldm} store's own
+     * {@link javax.sql.DataSource} — the registry lives in the same Identity Object Model database, so
+     * this opens no second connection pool. Refuses (with a warning, not a startup failure) on any other
+     * {@code storeDialect}: an in-memory or {@code tables} store has no IOM connection to share, and
+     * opening a bespoke one here would reintroduce the very database this registry replaced.
+     */
+    private static void installInstanceRegistryHandler(SsfReceiverService receiver, SsfStore store,
+            SsfConfiguration config) {
+        if (!(store instanceof LdmSsfStore ldmStore)) {
+            LOGGER.warn((Object) ("SSF receiverInstanceRegistry=true requires storeDialect=ldm; got '"
+                    + config.storeDialect() + "' — instance registry CAEP handler NOT installed"));
+            return;
+        }
+        receiver.addHandler(new InstanceRegistryReceiverHandler(
+                new CaepSignalApplier(new IomInstanceRegistry(ldmStore.dataSource()))));
+        LOGGER.info((Object) "SSF receiver: instance registry CAEP handler installed (ldm store)");
     }
 
     private static SsfStore selectStore(SsfConfiguration config) {

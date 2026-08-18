@@ -49,6 +49,15 @@ public final class LdmSsfStore implements SsfStore {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
+    /**
+     * The Identity Object Model connection this store writes to. Exposed so a second consumer of the
+     * same database — {@code InstanceRegistryReceiverHandler}'s {@code IomInstanceRegistry} — can share
+     * this pool instead of opening a second one to the same Postgres instance.
+     */
+    public DataSource dataSource() {
+        return this.dataSource;
+    }
+
     // ─────────────────────────────── streams ───────────────────────────────
 
     @Override

@@ -39,6 +39,10 @@
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId></dependency>
+        <!-- The agent instance registry: CAEP inbound signals suspend/revoke instances there. Dependency
+             direction is one-way (servlets/ssf -> libs/device-instance) — device-instance and
+             services/device-enrolment never depend back on this module or its provided PF SDK jars. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>

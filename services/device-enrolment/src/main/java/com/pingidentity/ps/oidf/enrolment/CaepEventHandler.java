@@ -6,13 +6,9 @@ package com.pingidentity.ps.oidf.enrolment;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
-import com.pingidentity.ps.oidf.device.AgentInstance;
-import com.pingidentity.ps.oidf.device.ComplianceState;
-import com.pingidentity.ps.oidf.device.Device;
+import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
-import com.pingidentity.ps.oidf.device.InstanceStatus;
 import com.pingidentity.ps.oidf.device.RegistryException;
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -42,6 +38,10 @@ import org.apache.commons.logging.LogFactory;
  * genuine. Signature, issuer, audience and freshness belong at the transport edge, and passing an
  * unverified SET here would let anyone suspend anyone. The one thing it does own is replay: SETs are
  * redelivered by design in SSF, so {@code jti} is checked here where the registry side effects are.
+ *
+ * <p>The event-type dispatch and JSON decoding are this class's own; the actual registry mutation for
+ * each event is {@link CaepSignalApplier}, shared with {@code servlets/ssf}'s SSF receiver so the two
+ * transports (this endpoint's direct SET POST, and an SSF push/poll delivery) apply CAEP identically.
  */
 public final class CaepEventHandler {
 
@@ -52,11 +52,11 @@ public final class CaepEventHandler {
     /** Redelivery is normal in SSF; this bounds how long a repeat is recognised as one. */
     private static final long JTI_TTL_SECONDS = 3600L;
 
-    private final InstanceRegistry registry;
+    private final CaepSignalApplier applier;
     private final AttestationReplayCache seenEvents;
 
     public CaepEventHandler(InstanceRegistry registry, AttestationReplayCache seenEvents) {
-        this.registry = Objects.requireNonNull(registry, "registry");
+        this.applier = new CaepSignalApplier(Objects.requireNonNull(registry, "registry"));
         this.seenEvents = Objects.requireNonNull(seenEvents, "seenEvents");
     }
 
@@ -126,26 +126,7 @@ public final class CaepEventHandler {
             throw EnrolmentException.invalidRequest(
                     "device-compliance-change has no current_status");
         }
-        ComplianceState state = ComplianceState.fromCaepValue(current);
-        this.registry.updateCompliance(deviceId, state, Instant.now());
-
-        List<String> changed = new ArrayList<>();
-        for (AgentInstance instance : this.registry.instancesOnDevice(deviceId)) {
-            if (state == ComplianceState.COMPLIANT) {
-                // Deliberately not auto-resuming: a device coming back into compliance does not by
-                // itself re-establish that the owner is present, and the UV window may well have
-                // lapsed meanwhile. Resumption is an explicit act.
-                continue;
-            }
-            if (instance.status() == InstanceStatus.ACTIVE) {
-                this.registry.setStatus(instance.id(), InstanceStatus.SUSPENDED,
-                        "device compliance became " + state);
-                changed.add(instance.id());
-            }
-        }
-        LOGGER.info((Object) ("CAEP device-compliance-change: device=" + deviceId + " state=" + state
-                + " suspended=" + changed.size()));
-        return changed;
+        return this.applier.deviceComplianceChange(deviceId, current);
     }
 
     /** A revoked session takes the agent instances with it — they act for that session's human. */
@@ -154,12 +135,7 @@ public final class CaepEventHandler {
         if (deviceId == null) {
             throw EnrolmentException.invalidRequest("session-revoked has no usable subject");
         }
-        List<String> revoked = new ArrayList<>();
-        for (AgentInstance instance : this.registry.instancesOnDevice(deviceId)) {
-            this.registry.revoke(instance.id(), "session revoked by CAEP signal");
-            revoked.add(instance.id());
-        }
-        return revoked;
+        return this.applier.sessionRevokedForDevice(deviceId);
     }
 
     /**
@@ -167,25 +143,11 @@ public final class CaepEventHandler {
      * {@code delete} act — a {@code create} is somebody adding a second authenticator, not losing one.
      */
     private List<String> credentialChange(JsonNode event) throws EnrolmentException, RegistryException {
-        String changeType = text(event, "change_type");
-        String credentialType = text(event, "credential_type");
-        if (!"revoke".equals(changeType) && !"delete".equals(changeType)) {
-            return List.of();
-        }
-        if (credentialType != null && !credentialType.startsWith("fido2")) {
-            return List.of();
-        }
         String deviceId = subjectIdentifier(event);
         if (deviceId == null) {
             return List.of();
         }
-        List<String> revoked = new ArrayList<>();
-        for (AgentInstance instance : this.registry.instancesOnDevice(deviceId)) {
-            this.registry.revoke(instance.id(),
-                    "the passkey that authorised this binding was " + changeType + "d");
-            revoked.add(instance.id());
-        }
-        return revoked;
+        return this.applier.credentialChange(deviceId, text(event, "change_type"), text(event, "credential_type"));
     }
 
     /**
