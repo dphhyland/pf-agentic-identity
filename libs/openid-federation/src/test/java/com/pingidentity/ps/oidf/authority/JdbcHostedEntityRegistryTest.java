@@ -20,8 +20,9 @@ import org.junit.jupiter.api.Test;
  * The JDBC registry, held to the same contract as the in-memory one. Runs against H2 in PostgreSQL
  * compatibility mode, executing the <em>real</em> migration from
  * {@code db/migration/V100__hosted_entity.sql} rather than a hand-written test schema — the point is
- * verifying the shipped DDL parses and the queries work against it, mirroring
- * {@code JdbcInstanceRegistryTest}'s own rationale for the equivalent instance registry.
+ * verifying the shipped DDL parses and the queries work against it. (The instance registry made the
+ * opposite call — it moved into the Identity Object Model, whose invariants are Postgres-only, so
+ * {@code IomInstanceRegistryTest} needs a real Postgres rather than H2.)
  */
 class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
 

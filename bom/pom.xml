@@ -45,6 +45,9 @@
         <version.log4j>2.20.0</version.log4j>
         <version.junit.jupiter>5.10.2</version.junit.jupiter>
         <version.mockito>5.12.0</version.mockito>
+        <!-- A real Postgres for the tests whose subject IS Postgres behaviour (JSONB, partial unique
+             indexes on expressions, plpgsql triggers, compare-and-set under READ COMMITTED). -->
+        <version.testcontainers>1.19.8</version.testcontainers>
     </properties>
 
     <dependencyManagement>
@@ -80,6 +83,8 @@
             <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version></dependency>
             <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>${version.mockito}</version></dependency>
             <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><version>${version.mockito}</version></dependency>
+            <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><version>${version.testcontainers}</version></dependency>
+            <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><version>${version.testcontainers}</version></dependency>
         </dependencies>
     </dependencyManagement>
 </project>

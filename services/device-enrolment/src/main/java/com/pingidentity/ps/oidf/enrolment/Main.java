@@ -11,11 +11,18 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
-import com.pingidentity.ps.oidf.device.JdbcInstanceRegistry;
+import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.sql.DataSource;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URLDecoder;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
@@ -30,7 +37,10 @@ import org.postgresql.ds.PGSimpleDataSource;
  *   ENROLMENT_ISSUER              this service's entity id — the attestation iss, and the proof aud
  *   ENROLMENT_SIGNING_JWK         the attester's private JWK (dev). Production should use a vault-backed
  *                                 JwsSigner instead; the seam already exists
- *   DATABASE_URL                  Postgres JDBC URL. Absent → refuses to start
+ *   IDM_DATABASE_URL              the Identity Object Model directory (Postgres) this service records
+ *                                 instances in — the SAME directory the SCIM users live in, so an agent
+ *                                 sits beside its owner. Accepts a JDBC URL or a postgresql:// DSN
+ *                                 (Railway's reference-variable form). Absent → refuses to start
  *   APPLE_TEAM_ID / APPLE_BUNDLE_ID   the App ID an attestation must be bound to
  *   APPLE_ALLOW_DEVELOPMENT       "true" to accept development App Attest. Off by default, on purpose
  *   UV_MAX_AGE_SECONDS            the server-side time-box (default 300)
@@ -72,8 +82,8 @@ public final class Main {
                     + "be set in production.");
         }
 
-        DataSource dataSource = dataSource(required("DATABASE_URL"));
-        InstanceRegistry registry = new JdbcInstanceRegistry(dataSource);
+        DataSource dataSource = dataSource(requireIdmUrl());
+        InstanceRegistry registry = new IomInstanceRegistry(dataSource);
 
         JwsSigner signer = new LocalJwkSigner(parseJwk(required("ENROLMENT_SIGNING_JWK")));
         DeviceAttestationMinter minter = new DeviceAttestationMinter(issuer, subjectClientId());
@@ -150,10 +160,78 @@ public final class Main {
         return clientId;
     }
 
+    /**
+     * The directory URL, naming the rename if the old variable is the one that is set. The registry
+     * moved from five private tables to the Identity Object Model, so a service still pointed at
+     * {@code DATABASE_URL} would be reading a schema that no longer holds instances — a silent
+     * "unknown instance" on every lookup rather than a startup failure.
+     */
+    private static String requireIdmUrl() {
+        String url = System.getenv("IDM_DATABASE_URL");
+        if (url != null && !url.isBlank()) {
+            return url;
+        }
+        String legacy = System.getenv("DATABASE_URL");
+        if (legacy != null && !legacy.isBlank()) {
+            throw new IllegalStateException("IDM_DATABASE_URL is required (DATABASE_URL is set, but the "
+                    + "registry now lives in the Identity Object Model directory — point IDM_DATABASE_URL "
+                    + "at the directory that holds the SCIM users, and apply the model repo's "
+                    + "006-add-agent-instance-registry migration to it)");
+        }
+        throw new IllegalStateException("IDM_DATABASE_URL is required");
+    }
+
+    /**
+     * Accepts either a JDBC URL or a {@code postgresql://user:pass@host:port/db} DSN — the shape a
+     * Railway reference variable ({@code ${{Postgres.DATABASE_URL}}}) expands to, which the PG driver
+     * does not take directly.
+     */
     private static DataSource dataSource(String url) {
         PGSimpleDataSource source = new PGSimpleDataSource();
-        source.setUrl(url);
+        source.setUrl(toJdbcUrl(url));
         return source;
+    }
+
+    static String toJdbcUrl(String url) {
+        String trimmed = url.trim();
+        if (trimmed.startsWith("jdbc:")) {
+            return trimmed;
+        }
+        if (!trimmed.startsWith("postgresql://") && !trimmed.startsWith("postgres://")) {
+            throw new IllegalArgumentException("not a Postgres URL: " + trimmed);
+        }
+        try {
+            URI uri = new URI(trimmed);
+            StringBuilder jdbc = new StringBuilder("jdbc:postgresql://")
+                    .append(uri.getHost())
+                    .append(uri.getPort() < 0 ? "" : ":" + uri.getPort())
+                    .append(uri.getPath() == null || uri.getPath().isEmpty() ? "/" : uri.getPath());
+            String userInfo = uri.getUserInfo();
+            String query = uri.getQuery();
+            List<String> params = new ArrayList<>();
+            if (userInfo != null && !userInfo.isBlank()) {
+                int colon = userInfo.indexOf(':');
+                String user = colon < 0 ? userInfo : userInfo.substring(0, colon);
+                params.add("user=" + URLEncoder.encode(decode(user), StandardCharsets.UTF_8));
+                if (colon >= 0) {
+                    params.add("password="
+                            + URLEncoder.encode(decode(userInfo.substring(colon + 1)), StandardCharsets.UTF_8));
+                }
+            }
+            if (query != null && !query.isBlank()) {
+                params.add(query);
+            }
+            if (!params.isEmpty()) {
+                jdbc.append('?').append(String.join("&", params));
+            }
+            return jdbc.toString();
+        } catch (URISyntaxException e) {
+            throw new IllegalArgumentException("malformed Postgres URL: " + trimmed, e);
+        }
+    }
+
+    private static String decode(String value) {
+        return URLDecoder.decode(value, StandardCharsets.UTF_8);
     }
 
     private static Map<String, Object> parseJwk(String json) {

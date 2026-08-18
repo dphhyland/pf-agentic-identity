@@ -95,10 +95,10 @@ and the agent stops until the human is back in front of the phone.
 ## Deploy
 
 [`deploy/device-enrolment/`](../../deploy/device-enrolment): two-stage `Dockerfile` (reactor built from
-the repo root with `-pl services/device-enrolment -am`, runtime image carries `app.jar` + `lib/` + the
-schema under `db/migration/` for the operator to apply), `railway.json` (healthcheck `/health`),
-`vars.staging.env` / `vars.production.env` (non-secret config; `DATABASE_URL` and
-`ENROLMENT_SIGNING_JWK` are set on the Railway service). **There is no GitHub workflow for this service**
+the repo root with `-pl services/device-enrolment -am`, runtime image carries `app.jar` + `lib/`; the
+schema is owned by the model repo's migration workflow, not shipped here), `railway.json`
+(healthcheck `/health`), `vars.staging.env` / `vars.production.env` (non-secret config;
+`IDM_DATABASE_URL` and `ENROLMENT_SIGNING_JWK` are set on the Railway service). **There is no GitHub workflow for this service**
 — unlike fedhost / lighthouse / pingfederate it is deployed by hand (`railway up` from that context).
 
 ## Running locally, and the phone simulator

@@ -17,10 +17,13 @@ services:
       POSTGRES_USER: enrolment
       POSTGRES_PASSWORD: enrolment
       POSTGRES_DB: enrolment
-    # The migration is mounted into the image's init directory, so a fresh volume is schema-ready.
-    # Postgres runs these only when the data directory is empty; drop the volume to re-apply.
+    # A local stand-in for the Identity Object Model directory. The model's migrations are mounted into
+    # the image's init directory and run in filename order (0000 < 002 < 006), so a fresh volume comes
+    # up with the agent-instance classes registered. Postgres runs these only when the data directory
+    # is empty; drop the volume to re-apply. These files are the vendored copies the registry's tests
+    # use — refresh them from ~/Source/idp-scim-service/migrations when the model changes.
     volumes:
-      - ../../libs/device-instance/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro
+      - ../../libs/device-instance/src/test/resources/idm:/docker-entrypoint-initdb.d:ro
       - enrolment-data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U enrolment -d enrolment"]
@@ -40,7 +43,7 @@ services:
       - "8180:8080"
     environment:
       ENROLMENT_ISSUER: http://localhost:8180
-      DATABASE_URL: jdbc:postgresql://postgres:5432/enrolment?user=enrolment&password=enrolment
+      IDM_DATABASE_URL: jdbc:postgresql://postgres:5432/enrolment?user=enrolment&password=enrolment
       # No APPLE_TEAM_ID / APPLE_BUNDLE_ID here: the demo server's App ID is fixed to
       # AppAttestFixtures.TEAM_ID/BUNDLE_ID so it can never drift from what phone-simulator builds.
       APPLE_ALLOW_DEVELOPMENT: "true"

@@ -4,7 +4,7 @@
 package com.pingidentity.ps.oidf.registry;
 
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
-import com.pingidentity.ps.oidf.device.JdbcInstanceRegistry;
+import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import com.pingidentity.sources.CustomDataSourceDriver;
 import com.pingidentity.sources.CustomDataSourceDriverDescriptor;
 import com.pingidentity.sources.CustomDataSourceDriverException;
@@ -68,7 +68,10 @@ public class InstanceRegistryDataSource implements CustomDataSourceDriver {
                         + "pseudonymous instance identifier to its owner, status, device compliance and "
                         + "user-verification recency at the moment of issuance.");
         gui.addField(new TextFieldDescriptor(CONFIG_JDBC_URL,
-                "JDBC URL of the instance registry, e.g. jdbc:postgresql://host:5432/enrolment"));
+                "JDBC URL of the Identity Object Model directory holding the registry — the SAME database "
+                        + "the enrolment service writes to (its IDM_DATABASE_URL), e.g. "
+                        + "jdbc:postgresql://host:5432/railway. Point this at a different database and "
+                        + "every lookup returns 'unknown instance'."));
         TextFieldDescriptor uvMaxAge = new TextFieldDescriptor(CONFIG_UV_MAX_AGE,
                 "How recent user verification must be for uv_fresh to be true. Must match the enrolment "
                         + "service's UV_MAX_AGE_SECONDS, or the two disagree about when an agent stops.");
@@ -162,11 +165,11 @@ public class InstanceRegistryDataSource implements CustomDataSourceDriver {
         return current;
     }
 
-    /** Overridable so tests can supply an in-memory or H2-backed registry. */
+    /** Overridable so tests can supply an in-memory registry. */
     protected InstanceRegistry registry(String url) {
         PGSimpleDataSource source = new PGSimpleDataSource();
         source.setUrl(url);
-        return new JdbcInstanceRegistry((DataSource) source);
+        return new IomInstanceRegistry((DataSource) source);
     }
 
     /** Test seam: install a prepared lookup without going through PF configuration. */

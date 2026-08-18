@@ -45,7 +45,8 @@
         <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><scope>provided</scope></dependency>
         <!-- JdbcHostedEntityRegistry is written against java.sql; the driver is provided by the
              deployment. Tests run the shipped migration against H2 in PostgreSQL mode, matching the
-             pattern the (not-yet-merged) device-instance module's JdbcInstanceRegistry uses. -->
+             pattern this module's own registry uses. (device-instance took a different route: its
+             registry lives in the Identity Object Model and is tested against a real Postgres.) -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>

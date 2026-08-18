@@ -41,11 +41,15 @@
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
         <!-- The JDBC driver is provided: the registry is written against java.sql, and the deployment
-             supplies the driver. Tests run the same SQL against H2 in PostgreSQL mode. -->
+             supplies the driver. Tests need it at runtime to reach the Testcontainers Postgres. -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
 
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
+        <!-- A real Postgres, not H2: the registry's invariants live in JSONB operators, partial unique
+             indexes on expressions, ANY(text[]) and plpgsql triggers — none of which H2 has. The
+             contract suite is meaningless against a database that cannot enforce the rules. -->
+        <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>

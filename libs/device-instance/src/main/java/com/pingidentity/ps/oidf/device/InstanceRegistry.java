@@ -45,6 +45,13 @@ public interface InstanceRegistry {
     List<AgentInstance> instancesOnDevice(String deviceId) throws RegistryException;
 
     /**
+     * Every device owned by a PingOne subject. A CAEP signal names its subject in one of two ways —
+     * a device ({@code opaque.id}) or the human ({@code iss_sub}/{@code email}) — and a
+     * {@code session-revoked} for the human must reach every device they enrolled, not just one.
+     */
+    List<Device> devicesOwnedBy(String pingOneSubject) throws RegistryException;
+
+    /**
      * Bars an instance permanently and writes an audit entry. Idempotent: revoking an already-revoked
      * instance succeeds without a second audit entry, so a retried CAEP event cannot inflate the log.
      */

@@ -95,6 +95,22 @@ public final class InMemoryInstanceRegistry implements InstanceRegistry {
     }
 
     @Override
+    public List<Device> devicesOwnedBy(String pingOneSubject) {
+        OwnerUser owner = this.ownersBySubject.get(pingOneSubject);
+        if (owner == null) {
+            return List.of();
+        }
+        List<Device> found = new ArrayList<>();
+        for (Device device : this.devices.values()) {
+            if (owner.id().equals(device.ownerUserId())) {
+                found.add(device);
+            }
+        }
+        found.sort(Comparator.comparing(Device::id));
+        return found;
+    }
+
+    @Override
     public void revoke(String instanceId, String reason) throws RegistryException {
         AgentInstance instance = require(instanceId);
         if (instance.status() == InstanceStatus.REVOKED) {

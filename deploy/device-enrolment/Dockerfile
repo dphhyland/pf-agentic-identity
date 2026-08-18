@@ -18,8 +18,6 @@ FROM eclipse-temurin:17-jre-alpine
 WORKDIR /app
 COPY --from=build /src/services/device-enrolment/target/device-enrolment-0.1.0.jar app.jar
 COPY --from=build /src/services/device-enrolment/target/dependency ./lib
-# The instance registry schema, applied by the operator (or by an init job) before first start.
-COPY --from=build /src/libs/device-instance/src/main/resources/db/migration ./db/migration
 
 EXPOSE 8080
 # APPLE_ALLOW_DEVELOPMENT is deliberately absent: development App Attest must be opted into per

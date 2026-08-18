@@ -20,11 +20,21 @@ user-verification time-box actually bite).
 - **`InMemoryInstanceRegistry`** — tests and single-node development. State dies with the process, so a
   revocation on one node would leave every other node issuing; it exists so the registry's semantics can
   be tested exhaustively and the JDBC implementation held to the same suite (`InstanceRegistryContract`).
-- **`JdbcInstanceRegistry`** — production, over `javax.sql.DataSource` and plain JDBC (PF's data-source
-  driver has no ORM available, and the revocation write on the issuance path is the query that matters).
-  Schema in `db/migration/V1__instance_registry.sql`: `owner_user` (the only table naming a person),
-  `device`, `agent_instance`, `bound_authenticator`, `audit_log` (no UPDATE or DELETE path). Runs on
-  Postgres and on H2 in PostgreSQL mode.
+- **`IomInstanceRegistry`** — production, over `javax.sql.DataSource` and plain JDBC against the
+  **Identity Object Model** directory (`idm.entry`), so an agent instance is an entry beside the human
+  it acts for rather than a row in a private schema of ours. Classes are registered by the model repo's
+  `006-add-agent-instance-registry` migration: `agentInstance` (+`cryptoBinding`) whose
+  {@link InstanceStatus} IS `record_status`, `agentDevice` (+`cryptoBinding`), `authenticatorBinding`
+  (SUP `authorisationRecord`), `agentLifecycleEvent` (the append-only ledger); the owner is the existing
+  `involvedParty` keyed by `pingoneUserId` — the same row the SCIM user store writes. **Postgres only**:
+  every invariant is a JSONB operator, a partial unique index on an expression, or a plpgsql trigger.
+
+  It replaced a `JdbcInstanceRegistry` over five private tables that read, decided in Java, then wrote,
+  on autocommit — so two callers could both pass the same check. Here each rule is one statement the
+  database evaluates atomically: status changes are `UPDATE … WHERE record_status <> 'revoked'` with the
+  ledger row written by the same CTE (a losing caller writes nothing AND logs nothing), the App Attest
+  counter is a compare-and-set, duplicates are unique indexes. The migration adds a backstop trigger for
+  anything that bypasses the registry.
 - **`AgentInstance`, `Device`, `OwnerUser`, `BoundAuthenticator`, `AuditEntry`** — records. `Device`
   data (model, OS, App Attest key id, counter, compliance) never reaches a token or a resource server;
   `BoundAuthenticator` is a reference to the passkey that proved the human, kept as a first-class record
@@ -68,7 +78,24 @@ Nothing is read from the environment here. Data source, platform entity id, life
 mvn -pl libs/device-instance -am package     # or `mvn package` at the repo root; tests run with the build
 ```
 
-JDBC tests run the shipped migration against H2 in PostgreSQL mode. Versions come from `bom/pom.xml`.
+`IomInstanceRegistryTest` runs the full `InstanceRegistryContract` against a **real Postgres**, plus the
+cases only a real one can prove: an 8-thread race where exactly one App Attest assertion may advance the
+counter, the trigger refusing a revoked→active update and a ledger DELETE, and the `v_agent_instance`
+resolution. It takes its database from `IDM_TEST_JDBC_URL` (+ `IDM_TEST_JDBC_USER` / `_PASSWORD`) when
+set — any throwaway Postgres, for environments where the Docker API is not reachable from the build —
+and otherwise starts one with Testcontainers. Skipped, not failed, when neither is available. **It drops
+and rebuilds the `idm` schema**, so never point it at a database you care about.
+
+```sh
+# against a throwaway you already have
+docker run -d --rm --name idm-test -e POSTGRES_PASSWORD=t -e POSTGRES_DB=idm -p 55432:5432 postgres:16-alpine
+IDM_TEST_JDBC_URL=jdbc:postgresql://localhost:55432/idm IDM_TEST_JDBC_USER=postgres IDM_TEST_JDBC_PASSWORD=t \
+  mvn -pl libs/device-instance test
+```
+
+The three migrations under `src/test/resources/idm/` are **copies** from
+`~/Source/idp-scim-service/migrations` — refresh them when the model changes; each carries an
+`ldm-checksum` header that must match its source. Versions come from `bom/pom.xml`.
 Not staged into PingFederate by `deploy/pingfederate/build/stage-modules.sh` — the enrolment service and
 the data-source plugin are its consumers. A sibling of, and deliberately not coupled to,
 `openid-federation`'s hosted-entity registry (a publishing concern) and `agent-registry` (lazy minting
