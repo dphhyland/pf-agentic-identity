@@ -27,6 +27,12 @@ public final class RemoteJwksCache {
     private final long ttlSeconds;
     private final Map<String, Entry> cache = new ConcurrentHashMap<>();
 
+    /**
+     * Deliberately NOT given an operator exemption: the URLs this cache fetches come from attestation
+     * and metadata content, i.e. from the caller, so they are exactly the input OutboundUrlPolicy
+     * exists to screen. An administrator with a genuinely private JWKS host names it in
+     * OIDF_FETCH_HOST_ALLOWLIST rather than having the exemption applied here for everyone.
+     */
     public RemoteJwksCache() {
         this(new JdkHttpGetClient(false), DEFAULT_TTL_SECONDS);
     }

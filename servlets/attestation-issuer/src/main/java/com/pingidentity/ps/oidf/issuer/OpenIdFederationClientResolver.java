@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -41,7 +42,8 @@ public final class OpenIdFederationClientResolver implements IssuanceClientResol
     private volatile long cachedAtEpochSeconds;
 
     public OpenIdFederationClientResolver(String entityUrl, String defaultSigningJwk) {
-        this(entityUrl, new JdkHttpGetClient(false), DEFAULT_TTL_SECONDS, defaultSigningJwk);
+        this(entityUrl, new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment().trusting(entityUrl)),
+                DEFAULT_TTL_SECONDS, defaultSigningJwk);
     }
 
     public OpenIdFederationClientResolver(String entityUrl, HttpGetClient http, long ttlSeconds,

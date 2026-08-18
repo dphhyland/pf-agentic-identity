@@ -3,7 +3,6 @@ package com.pingidentity.ps.oidf.federation;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -65,6 +64,11 @@ public final class TrustChainValidator {
         }
         ChainEntry leafEntry = selectSelfSignedEntry(entriesBySubject.get(expectedRpIssuer), expectedRpIssuer, "Leaf JWT");
         if (leafEntry == null) {
+            // Only now would we fetch a caller-named identifier. OpenID Federation entity identifiers
+            // are https URLs (§1.2); refusing anything else here means a chain naming
+            // "file:///..." or "http://169.254.169.254/..." is rejected before a socket is opened,
+            // rather than relying solely on the outbound policy further down.
+            requireFetchableEntityId(expectedRpIssuer);
             leafEntry = this.tryFetchSelfSignedEntry(expectedRpIssuer, maxLeafNodeTime, pendingWrites);
             if (leafEntry == null) {
                 throw new IllegalArgumentException("Leaf JWT not found in trust_chain and could not be fetched from " + expectedRpIssuer + "/.well-known/openid-federation (expected self-statement with sub=iss=" + expectedRpIssuer + ")");
@@ -76,7 +80,11 @@ public final class TrustChainValidator {
         }
         List<ChainEntry> orderedChainEntries = null;
         String trustAnchorIssuer = null;
-        for (String hint : authorityHints) {
+        // Try the configured anchor's own hint first. Only a route that reaches knownTrustAnchor can
+        // ever succeed, so any other hint is at best wasted work and at worst an attacker-chosen URL
+        // this validator would fetch on the way to failing. Ordering costs nothing and means the
+        // common case never touches the others.
+        for (String hint : anchorFirst(authorityHints)) {
             List<ChainEntry> route = this.tryRoute(entriesBySubject, leafEntry, hint, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
             if (route == null) continue;
             orderedChainEntries = route;
@@ -286,19 +294,17 @@ public final class TrustChainValidator {
                 if (intermediateHints == null || intermediateHints.isEmpty()) {
                     return null;
                 }
-                Iterator<String> iterator = intermediateHints.iterator();
-                if (iterator.hasNext()) {
-                    HashSet<String> branchVisited;
+                // Every hint, not just the first: an intermediate with more than one authority used to
+                // resolve only via hint[0] and otherwise report "no route to anchor", even when a
+                // later hint reached the configured anchor. The leaf level (see validate) always
+                // iterated; this level did not. Anchor-first for the same reason as there.
+                for (String hint : anchorFirst(intermediateHints)) {
                     ArrayList<ChainEntry> branchRoute = new ArrayList<ChainEntry>(route);
-                    String hint = iterator.next();
-                    List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited = new HashSet<String>(visitedSubjects), expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
+                    HashSet<String> branchVisited = new HashSet<String>(visitedSubjects);
+                    List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites);
                     if (completed != null) {
-                        if (Objects.equals(hint, this.knownTrustAnchor)) {
-                            return route;
-                        }
-                        return completed;
+                        return Objects.equals(hint, this.knownTrustAnchor) ? route : completed;
                     }
-                    return null;
                 }
                 return null;
             }
@@ -456,6 +462,37 @@ public final class TrustChainValidator {
         JwtClaims fetchIssuerMetadata = this.gateway.fetchEntityConfigurationOf(issuer, pendingWrites);
         Map<String, Object> jwks = Claims.requiredMap(fetchIssuerMetadata, "jwks");
         return JwtCodec.verifyAgainstInlineJwks(jwt, jwks, issuer, this.acceptedSigningAlgorithms);
+    }
+
+    /**
+     * An entity identifier this validator is willing to dereference. OpenID Federation identifiers are
+     * https URLs; anything else in a caller-supplied chain is a request-forgery attempt, not a
+     * federation entity. (The outbound policy screens addresses too - this is the cheap early check
+     * that also keeps the error message about federation rather than about networking.)
+     */
+    private static void requireFetchableEntityId(String entityId) {
+        String lower = entityId == null ? "" : entityId.toLowerCase(java.util.Locale.ROOT);
+        if (!lower.startsWith("https://") && !lower.startsWith("http://")) {
+            throw new IllegalArgumentException("Not a fetchable entity identifier (federation identifiers are https URLs): " + entityId);
+        }
+    }
+
+    /** The configured anchor's hint first; the rest keep their order. */
+    private List<String> anchorFirst(List<String> hints) {
+        if (hints == null || hints.size() < 2 || this.knownTrustAnchor == null) {
+            return hints;
+        }
+        if (!hints.contains(this.knownTrustAnchor)) {
+            return hints;
+        }
+        ArrayList<String> ordered = new ArrayList<String>(hints.size());
+        ordered.add(this.knownTrustAnchor);
+        for (String hint : hints) {
+            if (!Objects.equals(hint, this.knownTrustAnchor)) {
+                ordered.add(hint);
+            }
+        }
+        return ordered;
     }
 
     private static ChainEntry selectSelfSignedEntry(List<ChainEntry> entries, String subject, String description) {

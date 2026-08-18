@@ -4,6 +4,7 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -51,11 +52,13 @@ public final class CimdClientResolver implements IssuanceClientResolver {
     private volatile long cachedAtEpochSeconds;
 
     public CimdClientResolver(String cimdUrl) {
-        this(cimdUrl, new JdkHttpGetClient(false), DEFAULT_TTL_SECONDS, null);
+        this(cimdUrl, new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment().trusting(cimdUrl)),
+                DEFAULT_TTL_SECONDS, null);
     }
 
     public CimdClientResolver(String cimdUrl, String defaultSigningJwk) {
-        this(cimdUrl, new JdkHttpGetClient(false), DEFAULT_TTL_SECONDS, defaultSigningJwk);
+        this(cimdUrl, new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment().trusting(cimdUrl)),
+                DEFAULT_TTL_SECONDS, defaultSigningJwk);
     }
 
     public CimdClientResolver(String cimdUrl, HttpGetClient http, long ttlSeconds) {

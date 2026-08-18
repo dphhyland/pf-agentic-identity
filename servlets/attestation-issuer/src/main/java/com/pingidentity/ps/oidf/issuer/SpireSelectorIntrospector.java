@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -33,7 +34,8 @@ public final class SpireSelectorIntrospector implements WorkloadIntrospector {
     private final HttpGetClient http;
 
     public SpireSelectorIntrospector(String entriesBaseUrl) {
-        this(entriesBaseUrl, new JdkHttpGetClient(false));
+        // SPIRE's registration API is a loopback/agent endpoint by nature - operator-configured, exempt.
+        this(entriesBaseUrl, new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment().trusting(entriesBaseUrl)));
     }
 
     public SpireSelectorIntrospector(String entriesBaseUrl, HttpGetClient http) {

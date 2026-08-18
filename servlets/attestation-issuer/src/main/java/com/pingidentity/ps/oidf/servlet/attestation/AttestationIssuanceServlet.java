@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.issuer.AssertedContext;
 import com.pingidentity.ps.oidf.issuer.AssertedContextResolver;
 import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
@@ -369,7 +370,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
         boolean ignoreSsl = Boolean.parseBoolean(
                 String.valueOf(env("oidf.trust.controller.ignore.ssl", "OIDF_TRUST_CONTROLLER_IGNORE_SSL")));
         TrustChainValidator chainValidator = new TrustChainValidator(
-                new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSsl), trustControllerHost),
+                new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSsl,
+                        OutboundUrlPolicy.fromEnvironment().trusting(trustControllerHost)), trustControllerHost),
                 trustControllerHost);
         AttesterKeyResolver resolver = new FederationWalletProviderKeyResolver(chainValidator, opIssuer);
         LOGGER.info((Object) ("Wallet instance attestation: federation-backed provider trust via "

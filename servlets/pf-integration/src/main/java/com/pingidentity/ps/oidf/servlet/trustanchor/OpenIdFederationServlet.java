@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
@@ -47,7 +49,13 @@ extends HttpServlet {
             String contextPath = config.getServletContext() == null ? "" : config.getServletContext().getContextPath();
             this.federationService = new FederationService(this.federationConfiguration,
                 new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()),
-                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors()),
+                // The trust controller is operator configuration, so it is exempt from the outbound
+                // policy's address rules (it may legitimately be a private/internal host). Taken from
+                // FederationRuntimeConfig, the same OIDF_FEDERATION_TRUST_CONTROLLER_HOST this
+                // servlet's own FederationConfiguration reads - one source, per deployment.
+                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
+                        .trusting(FederationRuntimeConfig.get().trustControllerHost(),
+                                  FederationRuntimeConfig.get().trustControllerBaseUrl())),
                 // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
                 // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
                 // if HostedEntityServlet is never configured, since AuthoritySupport.registry() then

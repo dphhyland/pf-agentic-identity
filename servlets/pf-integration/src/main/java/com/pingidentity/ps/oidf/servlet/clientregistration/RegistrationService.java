@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
@@ -49,7 +50,8 @@ final class RegistrationService {
     static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
 
     RegistrationService(RegistrationConfiguration configuration) {
-        this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors()), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), configuration.trustControllerHost(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
+        this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
+                        .trusting(configuration.trustControllerBaseUrl(), configuration.trustControllerHost())), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), configuration.trustControllerHost(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
     }
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore) {

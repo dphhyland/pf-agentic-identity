@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
@@ -273,7 +274,8 @@ public final class ClientAttestationUtils {
                 // trustControllerHost is the bare identity used for knownTrustAnchor matching;
                 // effectiveBaseUrl is the (possibly different) HTTP base actually needed to reach it —
                 // see HttpTrustControllerGateway's selfIssuer javadoc for why these can diverge.
-                gateway = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors), effectiveBaseUrl, trustControllerHost);
+                gateway = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors, OutboundUrlPolicy.fromEnvironment()
+                        .trusting(effectiveBaseUrl, trustControllerHost)), effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
                 configuredTrustControllerBaseUrl = effectiveBaseUrl;
