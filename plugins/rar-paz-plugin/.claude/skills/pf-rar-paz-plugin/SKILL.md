@@ -29,15 +29,26 @@ authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
   │    · resourceOwner arrives via an authorization_details "_principal_sub" marker
   │      (the only channel that survives PAR — PF does NOT surface login_hint/params
   │       to the processor); the plugin strips it before the decision/consent/token.
-  ├─ GovernanceEngineRequestBuilder → DecisionRequest (domain/service/action/attributes)
-  ├─ GovernanceEngineClient ─POST─▶ PingAuthorize /governance-engine
+  ├─ PdpClient — the dialect seam, chosen at configure() time:
+  │    · governance-engine (default) → GovernanceEngineRequestBuilder + GovernanceEngineClient
+  │    · authzen                     → AuthZenRequestBuilder + AuthZenPdpClient
   ├─ deny unless decision.isPermit()
   └─ StatementApplier: merge obligations into the granted detail
 ```
-All I/O + mapping live in framework-agnostic collaborators (`GovernanceEngine*`, `Decision*`,
-`StatementApplier`, `RarContainment`), unit-tested without the SDK. Only
-`AttestationAwareRarProcessor` touches the PF SDK. The request builder is pluggable
-(`DecisionRequestBuilder`) so an AuthZEN `/access/v1/evaluation` shape can be added later.
+All I/O + mapping live in framework-agnostic collaborators (`GovernanceEngine*`, `AuthZen*`,
+`Decision*`, `PdpClient`/`HttpTransport`, `StatementApplier`, `RarContainment`), unit-tested
+without the SDK. Only `AttestationAwareRarProcessor` touches the PF SDK; its tests use the
+package-private `(PdpClient, GovernanceEngineConfig)` constructor as the seam, because
+`configure()` otherwise hard-wires `JdkHttpTransport`.
+
+**Two PDP dialects, one enforcement path.** The `PDP Dialect` config field selects
+`governance-engine` (default) or `authzen`; `Deny unless PERMIT`, fail-open, timeouts and the
+shared-secret header behave identically either way, because the split is behind `PdpClient`.
+Note `AuthZenRequestBuilder` does NOT implement `DecisionRequestBuilder` — that interface is
+the governance-engine builder only. For `authzen`, point `PDP URL` at
+`/access/v1/evaluation`; the AuthZEN response `context` is mapped into the same statement
+pipeline (`context.statements` verbatim, every other member becoming one statement, with
+`id`/`reason_admin`/`reason_user` treated as metadata).
 
 ## Key facts that bite
 1. **PF exposes no resource owner to the processor.** `AuthorizationDetailContext` (through
@@ -54,11 +65,19 @@ All I/O + mapping live in framework-agnostic collaborators (`GovernanceEngine*`,
    JAVA_OPTS`). Or give the PDP cert a matching SAN.
 4. **`purpose`/`actionName`-style cross-plane attrs** should carry a `""` defaultValue in the
    PingAuthorize Trust Framework, else absent attrs go INDETERMINATE and DenyOverrides bites.
+5. **Secret header spelling.** The plugin defaults to `CLIENT-TOKEN` (hyphen); the `paz/`
+   compose stack and every script there use `CLIENT_TOKEN` (underscore, the PDP's
+   `JSON_API_HEADER_NAME`). Mixing the two defaults gives auth failures that look like policy
+   failures.
+6. **`isPermit()` trusts `authorised` over `decision`.** `{"authorised":true,"decision":"DENY"}`
+   is a PERMIT. Non-2xx/malformed responses count as engine errors (fail-open applies); a 2xx
+   DENY does not.
 
 ## How to build
 ```bash
-mvn -q package                 # → target/pf.plugins.pf-rar-paz-plugin.jar  (+ 23 unit tests)
+mvn -q package                 # → target/pf.plugins.pf-rar-paz-plugin.jar  (+ 42 unit tests)
 ```
+JDK 17+ (the pom targets release 17). No coverage tooling is configured.
 The PF SDK is not on Maven Central — resolve `pf-protocolengine` + `pingfederate-sdk`
 (version = `<version.server-sdk>` in the pom) into `~/.m2` from a PF install. See
 `integration/README.md`.
