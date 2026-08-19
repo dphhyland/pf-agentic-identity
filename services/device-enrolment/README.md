@@ -52,12 +52,17 @@ GET  /health
 Errors are the OAuth shape (`error`, `error_description`) with stable codes, so a client can branch on
 `user_verification_required` — the one it can actually recover from.
 
-**CAEP.** `CaepEventHandler` turns a *verified* CAEP SET into registry changes: `device-compliance-change`
-suspends every instance on the device; `session-revoked` revokes the instances acting for that human; a
-revoked or deleted `fido2*` `credential-change` revokes the bindings that passkey authorised. `jti` replay
-is checked there because SSF redelivers by design. Signature, issuer, audience and freshness are the
-caller's job — and today nothing in this service wires the handler to a transport; `/compliance` takes
-the plain JSON above. Putting it behind a verified SSF receiver is open.
+**CAEP.** `CaepEventHandler` decodes a verified CAEP SET, checks `jti` replay (SSF redelivers by
+design), and dispatches each event to [`CaepSignalApplier`](../../libs/device-instance) — the actual
+registry mutation, shared with `servlets/ssf`'s `InstanceRegistryReceiverHandler` so both transports
+apply CAEP identically: `device-compliance-change` suspends every instance on the device;
+`session-revoked` revokes the instances acting for that human; a revoked or deleted `fido2*`
+`credential-change` revokes the bindings that passkey authorised. Signature, issuer, audience and
+freshness are the caller's job. Two transports reach it: `/compliance` here takes the plain JSON above
+(no verification of its own — it's the direct/demo path); PF's SSF receiver is the verified one,
+gated behind `receiverInstanceRegistry=true` + `storeDialect=ldm` on the `ssf` module (see
+[servlets/ssf](../../servlets/ssf)), which shares the `ldm` store's own `DataSource` rather than
+opening a second connection to the IOM.
 
 ## The time-box, and why it lives here
 
@@ -135,6 +140,7 @@ the enclave and the `app-attest` test-jar's synthetic Apple chain.
 
 - **A real device.** The harness cannot prove Apple's real attestation objects parse; only hardware can.
 - **A wired notification channel.** `BindingNotifier` is a seam; its default logs on every binding.
-- **A verified CAEP transport** in front of `CaepEventHandler` (above).
-- **Concurrency against real Postgres.** The registry contract is tested on H2 in PostgreSQL mode.
+- **This service provisioned on Railway.** Config-as-code is ready (`deploy/device-enrolment/`); it has
+  never actually been deployed, so `/compliance` here isn't reachable in staging yet even though the
+  verified path (PF's SSF receiver, see above) already is.
 - **The compose stack**, until `Dockerfile.demo` is repointed at the domain-authority checkout.

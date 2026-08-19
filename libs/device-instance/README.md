@@ -47,6 +47,11 @@ user-verification time-box actually bite).
 - **`InstanceIdentifiers`** — 256 bits of `SecureRandom`, base64url, for instance, device and owner ids.
   Random, not derived: an HMAC over user and device would become retroactively linkable the day its key
   leaked.
+- **`CaepSignalApplier`** — the CAEP 1.0 event → registry mapping (`device-compliance-change`,
+  `session-revoked`, `credential-change`), shared by the two receivers that verify their own transport
+  and resolve a subject their own way before calling in: `services/device-enrolment`'s direct
+  `/compliance` endpoint, and `servlets/ssf`'s SSF receiver (`InstanceRegistryReceiverHandler`). One
+  mapping, so both apply an inbound signal identically.
 - **`DeviceAttestationMinter`** — mints the Client Attestation
   (`typ: oauth-client-attestation+jwt`, draft-ietf-oauth-attestation-based-client-auth) a device-resident
   agent presents at the token endpoint: `iss` = the platform's federation entity id, `agent_id` = the

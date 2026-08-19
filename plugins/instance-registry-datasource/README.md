@@ -36,7 +36,7 @@ Data Stores → Custom → **Agent Instance Registry**. Two fields:
 
 | Field | Meaning |
 |---|---|
-| `JDBC URL` | the instance registry, e.g. `jdbc:postgresql://host:5432/enrolment` |
+| `JDBC URL` | the Identity Object Model directory holding the registry — the **same** database `services/device-enrolment`'s `IDM_DATABASE_URL` and `proofing-directory` point at, e.g. `jdbc:postgresql://host:5432/railway`. A different database resolves every lookup to "unknown instance". |
 | `User verification max age (seconds)` | the window for `uv_fresh`; default 300. **Must match the enrolment service's `UV_MAX_AGE_SECONDS`**, or the two disagree about when an agent stops |
 
 Filter field: `instance_id` — the instance identifier. That is the attestation's `agent_id` (pf-integration's

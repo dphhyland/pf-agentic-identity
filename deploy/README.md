@@ -70,6 +70,12 @@ assemble `pf-runtime.war`. Nothing licensed is baked: the runtime is DevOps-lice
   `pingfederate-runtime` service vars (`OIDF_FEDERATION_TRUST_ANCHORS`,
   `OIDF_FEDERATION_TRUST_CONTROLLER_HOST`, `OIDF_SSF_ISSUER`, EULA) have to be on the service
   already; the files are the record of what should be there, not yet the mechanism.
+- **Not yet set: the SSF receiver's instance-registry wiring.** `servlets/ssf` can turn inbound CAEP
+  signals into agent-instance registry changes (`InstanceRegistryReceiverHandler`), but it's gated
+  behind `OIDF_SSF_RECEIVERINSTANCEREGISTRY=true` **and** `OIDF_SSF_STOREDIALECT=ldm` on
+  `pingfederate-runtime` — neither is set on staging yet, so today the handler is built but not
+  installed. `libs/device-instance/device-instance-0.1.0.jar` also needs to be in `modules/` (added
+  to `stage-modules.sh`); the next `deploy-pingfederate.yml` dispatch picks it up automatically.
 
 ## Known cleanups (tracked here so they aren't lost)
 - **Service-name skew:** staging is `lighthouse`, production is `lighthouse-prod` (the CLI couldn't add

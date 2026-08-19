@@ -192,19 +192,22 @@ re-mint on the hot path → the server-side user-verification time-box → a CAE
 `device-compliance-change` suspending the instance mid-session. `phone-simulator` (domain-authority
 repo) plays the phone: `DemoServerMain` is `Main`'s wiring with one substitution — a bundled
 synthetic App Attest root, because nothing but a physical iPhone can chain to Apple's real one — and
-`PhoneSimulatorCli` builds synthetic attestations against it. Deployed service: `device-enrolment`
-(`https://device-enrolment-staging.up.railway.app`), config in `deploy/device-enrolment/`, **no
-workflow — deployed by hand** (`railway up`; the Dockerfile builds the reactor from the repo root, so
-the upload root is the repo root).
+`PhoneSimulatorCli` builds synthetic attestations against it. Target service: `device-enrolment`
+(`https://device-enrolment-staging.up.railway.app`), config in `deploy/device-enrolment/`, **not yet
+provisioned on Railway** — the URL 404s; no service exists in any project. No workflow either way:
+when it is created, it deploys by hand (`railway up`; the Dockerfile builds the reactor from the repo
+root, so the upload root is the repo root).
 
 **The documented path, and why it does not work today.**
-`deploy/device-enrolment/docker-compose.yml` brings up Postgres (schema applied from
-`libs/device-instance/.../db/migration`) plus `Dockerfile.demo` on host port `8180`, wired to the real
-PingOne tenant. `Dockerfile.demo` does `COPY demo demo` and `mvn -pl demo/phone-simulator` — **that
-path left this repo on 2026-08-08**, so `docker compose up --build` fails at the build stage. It ran
-end to end on 2026-08-01 (the compose commit messages record it); it has not run since the split. The
-same compose command is what `phone-simulator/README.md` in the domain-authority repo still tells you
-to run.
+`deploy/device-enrolment/docker-compose.yml` brings up Postgres (schema applied from the vendored
+Identity Object Model migrations in `libs/device-instance/src/test/resources/idm/` — the registry is
+`IomInstanceRegistry` now, an entry store in the same directory `proofing-directory` uses, not a
+private schema of its own) plus `Dockerfile.demo` on host port `8180`, wired to the real PingOne
+tenant. `Dockerfile.demo` does `COPY demo demo` and `mvn -pl demo/phone-simulator` — **that path left
+this repo on 2026-08-08**, so `docker compose up --build` fails at the build stage. It ran end to end
+on 2026-08-01 (the compose commit messages record it); it has not run since the split. The same
+compose command is what `phone-simulator/README.md` in the domain-authority repo still tells you to
+run.
 
 **Closest working path today** (two gates, both real):
 
@@ -212,8 +215,11 @@ to run.
    a `ports: ["5432:5432"]` line locally or run it directly (from this repo's root):
    ```sh
    docker run -d --name enrolment-pg -p 5432:5432 -e POSTGRES_USER=enrolment -e POSTGRES_PASSWORD=enrolment -e POSTGRES_DB=enrolment \
-     -v "$PWD/libs/device-instance/src/main/resources/db/migration:/docker-entrypoint-initdb.d:ro" postgres:16-alpine
+     -v "$PWD/libs/device-instance/src/test/resources/idm:/docker-entrypoint-initdb.d:ro" postgres:16-alpine
    ```
+   The three files there apply in filename order (`0000-base-schema`, `002-backfill-may-attrs`,
+   `006-add-agent-instance-registry`) — refresh them from `~/Source/idp-scim-service/migrations` if
+   they drift.
 2. **Build the simulator** (domain-authority repo) against locally installed monorepo artifacts:
    ```sh
    ( cd ../pf-agentic-identity && mvn -q -DskipTests -pl services/device-enrolment,libs/app-attest -am install )
@@ -225,7 +231,7 @@ to run.
    from this repo the simulator **does not compile** until those five imports are translated (a
    backport-direction fix in the domain-authority repo). Against a pre-unwind `~/.m2` it still builds.
 3. **Run `DemoServerMain`** with the environment `docker-compose.yml` sets (`ENROLMENT_ISSUER=http://localhost:8180`,
-   `PORT=8180`, `DATABASE_URL=jdbc:postgresql://localhost:5432/enrolment?user=enrolment&password=enrolment`,
+   `PORT=8180`, `IDM_DATABASE_URL=jdbc:postgresql://localhost:5432/enrolment?user=enrolment&password=enrolment`,
    `APPLE_ALLOW_DEVELOPMENT=true`, `REQUIRE_COMPLIANT_DEVICE=false`, `UV_MAX_AGE_SECONDS=300`,
    the RFC 7515 example `ENROLMENT_SIGNING_JWK`, and the three `PINGONE_*` values), then the CLI —
    these two commands are verbatim from `phone-simulator/README.md`, run from that repo's root:
