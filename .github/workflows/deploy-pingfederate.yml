@@ -15,7 +15,8 @@
 # and reversible client secrets. deploy/pingfederate/data.staging.zip was committed on that false
 # premise; its key is treated as compromised. The replacement mechanism (an age-encrypted archive
 # decrypted at boot) lands with the key rotation — until then this workflow refuses to deploy.
-# Two image paths marked CONFIRM below on first run.
+# Two image paths marked CONFIRM below on first run. vars.<env>.env IS applied (as for the other
+# services); anything secret stays a Railway service variable and is never in that file.
 name: Deploy PingFederate (build-in-CI)
 
 on:
@@ -103,6 +104,26 @@ jobs:
           #   mkdir -p overlay
           #   printf '%s' "${{ secrets.PF_JWK }}"         > overlay/pf.jwk
           #   printf '%s' "${{ secrets.PF_SYSTEM_KEYS }}" > overlay/pingfederate-system-keys.xml
+
+      - name: apply vars.<env>.env → pingfederate-runtime
+        working-directory: deploy/pingfederate
+        env:
+          RAILWAY_TOKEN: ${{ inputs.environment == 'production' && secrets.RAILWAY_TOKEN_PROD || secrets.RAILWAY_TOKEN_STAGING }}
+          VARS: vars.${{ inputs.environment }}.env
+        # Same shape as deploy-lighthouse/fedhost, which this workflow alone was missing. Without it
+        # vars.<env>.env was documentation: it recorded what a service SHOULD have while the service
+        # drifted freely, which is how five coordinates in this project came to point at hosts torn
+        # down weeks earlier - and why OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY sat in the file while the
+        # running service never saw it. `railway variables --set` is additive, so secrets held only on
+        # the service (PING_IDENTITY_DEVOPS_KEY, OIDF_BRIDGE_PRIVATE_JWK) are untouched.
+        #
+        # Deliberately AFTER the config-archive gate: a run that cannot deploy should change nothing
+        # at all, rather than leaving a service with new variables and its old image.
+        run: |
+          npm i -g @railway/cli@5.41.2
+          setargs=(); while IFS= read -r l; do [[ "$l" =~ ^[[:space:]]*# || -z "${l// }" ]] && continue; setargs+=(--set "$l"); done < "$VARS"
+          echo "applying ${#setargs[@]} variables from $VARS"
+          railway variables --service pingfederate-runtime "${setargs[@]}"
 
       - name: railway up → pingfederate-runtime
         working-directory: deploy/pingfederate
