@@ -32,6 +32,35 @@ cp "$STOCK_WAR" "$OUT_WAR"
 OUT_WAR="$(cd "$(dirname "$OUT_WAR")" && pwd)/$(basename "$OUT_WAR")"
 mkdir -p "$work/WEB-INF/lib"
 if [[ -d "$MODULES" ]]; then
+  # Refuse an incomplete or hand-populated stage. stage-modules.sh writes MANIFEST naming exactly what
+  # it staged; if that is missing, or the directory does not match it, the war would assemble happily
+  # and then NoClassDefFoundError at the first request touching the absent module — which is how both
+  # the agent-registry and device-instance omissions reached a running staging PF.
+  manifest="$MODULES/MANIFEST"
+  if [[ ! -f "$manifest" ]]; then
+    echo "ERROR: $MODULES has no MANIFEST — it was not produced by build/stage-modules.sh." >&2
+    echo "       Run 'mvn -q -DskipTests package && deploy/pingfederate/build/stage-modules.sh'." >&2
+    echo "       Hand-copying jars here is how modules have gone missing before." >&2
+    exit 1
+  fi
+  missing=""
+  while IFS= read -r want; do
+    [[ -z "$want" ]] && continue
+    [[ -f "$MODULES/$want" ]] || missing="$missing $want"
+  done < "$manifest"
+  if [[ -n "$missing" ]]; then
+    echo "ERROR: staged modules/ is incomplete — MANIFEST names jars that are not present:$missing" >&2
+    echo "       Re-run build/stage-modules.sh after 'mvn package'." >&2
+    exit 1
+  fi
+  for present in "$MODULES"/*.jar; do
+    base="$(basename "$present")"
+    grep -qxF "$base" "$manifest" || {
+      echo "ERROR: $base is in modules/ but not in MANIFEST — a stale or hand-added jar." >&2
+      echo "       Re-run build/stage-modules.sh so the directory matches the build." >&2
+      exit 1; }
+  done
+  echo "modules/: $(wc -l < "$manifest" | tr -d ' ') jars, matching MANIFEST"
   cp "$MODULES"/*.jar "$work/WEB-INF/lib/"
 else
   cp "$MODULES" "$work/WEB-INF/lib/$MODULE_NAME"

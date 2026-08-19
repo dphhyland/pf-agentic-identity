@@ -31,5 +31,14 @@ for j in "${JARS[@]}"; do
   [[ -f "$ROOT/$j" ]] || { echo "ERROR: $j not built — run 'mvn -q -DskipTests package' first" >&2; exit 1; }
   cp "$ROOT/$j" "$DEST/"
 done
-echo "staged $(ls "$DEST" | wc -l | tr -d ' ') jars into deploy/pingfederate/modules/:"
+# A manifest of exactly what this run staged. assemble-pf-runtime-war.sh refuses to build from a
+# modules/ directory that does not match it — because the failure mode otherwise is silent and
+# expensive: a hand-populated or stale modules/ assembles a war that boots fine and then throws
+# NoClassDefFoundError at the first request that touches the missing module. That has now happened
+# twice (agent-registry, then device-instance), each time discovered from a 500 in staging rather
+# than from the build.
+: > "$DEST/MANIFEST"
+for j in "${JARS[@]}"; do basename "$j" >> "$DEST/MANIFEST"; done
+
+echo "staged $(ls "$DEST"/*.jar | wc -l | tr -d ' ') jars into deploy/pingfederate/modules/:"
 ls -la "$DEST"
