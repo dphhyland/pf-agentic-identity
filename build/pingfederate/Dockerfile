@@ -48,9 +48,9 @@ COPY --chown=9031:0 overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.Da
 # Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, single classloader),
 # and register the SSF logout filter in its web.xml — via the same assemble script the build-in-CI path uses.
 # modules/ holds the monorepo reactor's modular jars (oidf.jar + attestation-issuer/ssf +
-# oidf-jose/client-attestation/openid-federation) — staged by build/stage-modules.sh.
+# oidf-jose/client-attestation/openid-federation) — staged by stage-modules.sh.
 # (No pf-rar-paz-plugin — that's agentic.)
-COPY build/assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
+COPY assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
 COPY modules/ /tmp/modules/
 RUN mkdir -p /opt/in/instance/server/default/deploy \
  && apk add --no-cache bash zip unzip \

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Stage the monorepo's module jars into deploy/pingfederate/modules/ for the Docker build.
+# Stage the reactor's module jars into build/pingfederate/modules/ for the Docker build.
 # Run after `mvn -q -DskipTests package` at the repo root. These seven jars are the modular
 # equivalent of the old monolith pf-oidf-modules.jar (same packages, superset of its classes):
 # their external deps (jose4j, jackson, commons-logging) are already on PF's server classpath.
@@ -11,8 +11,11 @@
 # library (no App Attest, no HTTP, no PingFederate SDK), unlike app-attest, which stays out: App Attest
 # verification lives in services/device-enrolment, not in the AS.
 set -euo pipefail
-ROOT="$(cd "$(dirname "$0")/../../.." && pwd)"
-DEST="$ROOT/deploy/pingfederate/modules"
+# The reactor root is two levels up (build/pingfederate/ -> repo root). PF_AGENTIC_IDENTITY_HOME
+# lets a consuming repo run this script from its own checkout against a sibling clone of this one.
+ROOT="${PF_AGENTIC_IDENTITY_HOME:-$(cd "$(dirname "$0")/../.." && pwd)}"
+[[ -f "$ROOT/pom.xml" ]] || { echo "ERROR: $ROOT is not a pf-agentic-identity checkout (no pom.xml) - set PF_AGENTIC_IDENTITY_HOME" >&2; exit 1; }
+DEST="${STAGE_DEST:-$ROOT/build/pingfederate/modules}"
 
 JARS=(
   servlets/pf-integration/target/oidf.jar
@@ -40,5 +43,5 @@ done
 : > "$DEST/MANIFEST"
 for j in "${JARS[@]}"; do basename "$j" >> "$DEST/MANIFEST"; done
 
-echo "staged $(ls "$DEST"/*.jar | wc -l | tr -d ' ') jars into deploy/pingfederate/modules/:"
+echo "staged $(ls "$DEST"/*.jar | wc -l | tr -d ' ') jars into $DEST:"
 ls -la "$DEST"
