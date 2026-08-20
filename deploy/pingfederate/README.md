@@ -24,7 +24,7 @@ The Dockerfile `COPY`s these — place them here first (git-ignored; `.railwayig
 | `modules/` (seven jars) | `mvn -q -DskipTests package` at the repo root, then `build/stage-modules.sh` — the reactor's modular jars (oidf.jar + attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry), merged into `pf-runtime.war` AND the engine deploy dir at image build. Replaces the old monolith `pf-oidf-modules.jar` (same packages, superset of its classes). jose4j is NOT staged — PF ships it on the server classpath. |
 | `oidf-mock-attesters.json` | DEV attester trust (issuer → public JWK) |
 | `overlay/` | **secret** — master key from `idp-paz-authzen-adapter/demo/pingfederate/` (git-ignored) |
-| `data.zip` | `terraform/` Phase-2 export (OIDF-only configArchive) — the committed per-env artifact is `data.staging.zip` / `data.production.zip`; `terraform/helpers/export-data-zip.sh` writes both, CI copies the env's one to `data.zip` |
+| `data.zip` | **secret** — `terraform/` Phase-2 export (OIDF-only configArchive). The per-env artifacts are `data.staging.zip` / `data.production.zip`, written by `terraform/helpers/export-data-zip.sh`; the deploy copies the env's one to `data.zip`. **Never committed** — a configArchive is a plain zip that contains `pf.jwk`, so every `data*.zip` is git-ignored and `build.yml` fails the build if one is ever tracked. It reaches the deploy out-of-band (on disk today; an age-encrypted `data.zip.age` once the rotation lands). |
 
 > **Licensing is DevOps-fetched — no `pingfederate.lic` is baked or staged.** The image sets
 > `PING_IDENTITY_ACCEPT_EULA=YES`; the base image's boot hook pulls a fresh evaluation license when

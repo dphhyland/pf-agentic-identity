@@ -142,8 +142,14 @@ The helper refuses an archive whose base URL is still the ELB.
 ## Step 5 — commit + redeploy
 
 ```sh
-git add deploy/pingfederate/terraform/*.tf deploy/pingfederate/data.staging.zip   # or data.production.zip
-# (generated.tf is gitignored — fold what you keep into the per-type .tf files first; ../data.zip is gitignored too)
+git add deploy/pingfederate/terraform/*.tf        # the .tf files ONLY - never an archive
+# NEVER `git add` data.staging.zip, data.production.zip or ../data.zip. A PF configArchive is a
+# plain zip that CONTAINS pf.jwk, next to the system keys, both keystores, the admin password hash
+# and the master-key-reversible client secrets - so committing one publishes the master key that
+# decrypts every secret in it. That is exactly how kid GsG6aqYBaO reached a public remote. Every
+# data*.zip is gitignored and build.yml fails the build if such a file is ever tracked; the archive
+# reaches the deploy out-of-band (on disk today; an age-encrypted data.zip.age once the rotation lands).
+# (generated.tf is gitignored — fold what you keep into the per-type .tf files first)
 # then rebuild+redeploy the image — CI (Actions → Deploy PingFederate → environment), or locally
 # (--no-gitignore is what the workflow passes: without it railway up drops the gitignored modules/,
 #  data.zip and overlay/ from the upload and the Docker build fails on its COPYs):

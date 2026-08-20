@@ -142,7 +142,10 @@ terraform apply           # the ONLY acceptable verbs are create (the 2 clients)
 curl -sk -u "administrator:$TF_VAR_pf_admin_password" -H 'X-XSRF-Header: PingFederate' \
   -o ../data.zip "$TF_VAR_pf_admin_host/pf-admin-api/v1/configArchive/export"
 cd ../../..
-git add deploy/pingfederate/terraform/*.tf deploy/pingfederate/data.zip   # commit .tf + artifact
+git add deploy/pingfederate/terraform/*.tf   # the .tf files ONLY
+# NEVER `git add` ../data.zip or any data*.zip. A PF configArchive is a plain zip that CONTAINS
+# pf.jwk itself, so committing one publishes the master key that decrypts every secret in it.
+# It is gitignored, and build.yml fails the build if such a file is ever tracked.
 ```
 
 > A plan that shows **destroy+create** on any existing object means a wrong import id — stop and fix.
