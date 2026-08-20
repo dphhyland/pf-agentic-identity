@@ -16,14 +16,32 @@ import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 
 /**
- * Fix B loop-closer: our real {@link TrustChainValidator} validates the LIVE re-minted federation —
- * every entity statement was fetched over HTTP from Lighthouse (the anchor) and fedhost (the entities)
- * and dropped into /tmp/live-chain. Anchored at the live Lighthouse trust anchor, no re-signing.
+ * Loop-closer: the real {@link TrustChainValidator} validating a LIVE federation — every entity
+ * statement fetched over HTTP from a trust anchor and an entity host, dropped into a directory, and
+ * validated here with no re-signing.
+ *
+ * <p>Opt-in, and deliberately not pinned to any particular deployment. This module is capability: it
+ * must build with no network dependency on a host someone else operates, and the two anchors it used
+ * to name belong to a demo environment this repo no longer deploys. Supply them, along with the
+ * fetched statements, to run it:
+ *
+ * <pre>
+ *   mvn test -Doidf.live.dir=/tmp/live-chain \
+ *            -Doidf.live.trustAnchor=https://anchor.example \
+ *            -Doidf.live.entityHost=https://entities.example
+ * </pre>
+ *
+ * <p>With any of the three unset the test skips rather than failing, and skips loudly enough to say
+ * why — an unset live rig is not a defect.
  */
 class LiveChainValidationTest {
-    private static final Path DIR = Path.of("/tmp/live-chain");
-    private static final String TA = "https://lighthouse-staging-e017.up.railway.app";
-    private static final String FH = "https://fedhost-staging.up.railway.app";
+    private static final String DIR_PROP = "oidf.live.dir";
+    private static final String TA_PROP = "oidf.live.trustAnchor";
+    private static final String FH_PROP = "oidf.live.entityHost";
+
+    private static final Path DIR = Path.of(System.getProperty(DIR_PROP, "/tmp/live-chain"));
+    private static final String TA = System.getProperty(TA_PROP, "");
+    private static final String FH = System.getProperty(FH_PROP, "");
 
     private final Map<String, String> entityConfigs = new HashMap<>();
     private final Map<String, String> subStatements = new HashMap<>();
@@ -31,7 +49,12 @@ class LiveChainValidationTest {
 
     @BeforeEach
     void loadLiveStatements() throws Exception {
-        Assumptions.assumeTrue(Files.isDirectory(DIR), "live chain not present at " + DIR);
+        Assumptions.assumeTrue(Files.isDirectory(DIR),
+                "no live chain at " + DIR + " - set -D" + DIR_PROP + " to a directory of fetched statements");
+        Assumptions.assumeFalse(TA.isBlank(),
+                "no trust anchor - set -D" + TA_PROP + " to the anchor the statements are anchored at");
+        Assumptions.assumeFalse(FH.isBlank(),
+                "no entity host - set -D" + FH_PROP + " to the host the entity statements came from");
         try (Stream<Path> s = Files.list(DIR)) {
             for (Path p : s.filter(x -> x.toString().endsWith(".jwt")).toList()) {
                 String jwt = Files.readString(p).trim();

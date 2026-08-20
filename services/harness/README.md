@@ -29,9 +29,10 @@ mvn -pl services/harness exec:java -Dexec.mainClass=com.pingidentity.ps.oidf.har
 mvn -pl services/harness exec:java -Dexec.mainClass=com.pingidentity.ps.oidf.harness.AttestationFlowHarness \
   -Dexec.args=selfverify
 
-# against a deployed PingFederate — note the module now serves at ROOT context, no /oidf prefix
+# against a deployed PingFederate — the host is yours to supply; this repo deploys nothing and
+# deliberately names no environment. Note the module serves at ROOT context, no /oidf prefix.
 mvn -pl services/harness exec:java -Dexec.mainClass=com.pingidentity.ps.oidf.harness.AttestationFlowHarness \
-  -Dexec.args="live https://pingfederate-runtime-staging.up.railway.app"
+  -Dexec.args="live https://<your-pf-host>"
 ```
 
 `live` mode env: `OIDF_CLIENT_SECRET` (**required** - it goes on the wire, so there is no default);
