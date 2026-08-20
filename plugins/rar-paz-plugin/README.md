@@ -112,5 +112,5 @@ mvn -pl plugins/rar-paz-plugin -am package     # → target/pf.plugins.pf-rar-pa
 
 Versions come from the repo BOM (`bom/pom.xml`); the two `provided` PF jars must be in `~/.m2` — the
 `install:install-file` lines in `.github/workflows/build.yml`. Deploy recipe in
-[`integration/README.md`](integration/README.md). Note the monorepo's own `deploy/pingfederate/` image is
+[`integration/README.md`](integration/README.md). Note the monorepo's own `build/pingfederate/` image is
 the OIDF-only AS and deliberately does **not** bake this plugin.

@@ -79,6 +79,6 @@ mvn -pl libs/client-attestation -am package     # or `mvn package` at the repo r
 Versions come from `bom/pom.xml`. Consumers, by pom: `servlets/pf-integration`,
 `servlets/attestation-issuer`, `services/device-enrolment` (reuses the challenge/replay stores),
 `services/demo-rs` (DPoP validation). Ships into PingFederate via
-`deploy/pingfederate/build/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
+`build/pingfederate/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
 (`servlets/oidf-war`). The client/builder side is the separate client-attestation-sdk-polyglot repo,
 paired by wire protocol rather than source.

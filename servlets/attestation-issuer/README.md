@@ -70,6 +70,6 @@ mvn -pl servlets/attestation-issuer -am package     # → target/attestation-iss
 ```
 
 Versions from `bom/pom.xml`. Ships two ways: bundled into `oidf.war` by [`oidf-war`](../oidf-war),
-and staged by `deploy/pingfederate/build/stage-modules.sh` into the `pf-runtime.war` merge (root
+and staged by `build/pingfederate/stage-modules.sh` into the `pf-runtime.war` merge (root
 context, so `/federation/attestation` serves without an `/oidf` prefix). `agent-registry` travels with
 it in both - the issuance servlet imports it and fails at first use without it on the classpath.

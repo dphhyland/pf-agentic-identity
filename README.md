@@ -39,7 +39,7 @@ shared dependency version is written down, imported by every module pom except t
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store, and the `/as/token.oauth2` filters — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential) and **`TokenEndpointAutoRegistrationFilter`** — registered by the deploy image's `web.xml` surgery (`deploy/pingfederate/build/assemble-pf-runtime-war.sh`) | `oidf.jar` |
+| `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store, and the `/as/token.oauth2` filters — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential) and **`TokenEndpointAutoRegistrationFilter`** — registered by the deploy image's `web.xml` surgery (`build/pingfederate/assemble-pf-runtime-war.sh`) | `oidf.jar` |
 | `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (platform evidence — SPIFFE SVID, GKE/EKS/AKS, AWS, Azure — → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer-0.1.0.jar` |
 | `servlets/oidf-war` | The **`oidf.war` assembly**: pf-integration + attestation-issuer with their libraries in `WEB-INF/lib` (jose4j excluded — PF ships it; a second copy is a `LinkageError`). Its own module so it can depend on every servlet module without a reactor cycle | `oidf.war` |
 | `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf-0.1.0.jar` |
@@ -59,12 +59,13 @@ shared dependency version is written down, imported by every module pom except t
 | `services/device-enrolment` | The **agent platform backend** — Client Attester for device-resident agents: enrolment ceremony (App Attest + PingOne passkey + Secure Enclave key), owns the instance registry, mints Client Attestations, enforces the user-verification time-box server-side. Not a PF extension | `device-enrolment-0.1.0.jar` |
 | `services/demo-rs` | **Resource-server validation** that closes the loop: AS signature, DPoP proof, `cnf.jkt` equals the proof key's thumbprint (the check people skip), then the RFC 8693 `act` chain. A library, no HTTP surface | `demo-rs-0.1.0.jar` |
 
-`deploy/` is the environment-as-code tree (Railway; per-service Dockerfile + `railway.json` +
-`vars.<env>.env` + path-filtered workflows — [deploy/README.md](deploy/README.md)). Push to `main`
-deploys **staging**; production is an explicit `workflow_dispatch`. `deploy/pingfederate` builds the
-AS image from the reactor's **modular jars** (`build/stage-modules.sh` → `modules/`, merged into
-`pf-runtime.war` at root context and onto the engine classpath — the `pf-oidf-modules.jar` monolith
-is gone); `deploy/device-enrolment` has config but no workflow yet (manual). **Client attestation
+`build/pingfederate/` builds the AS image from the reactor's **modular jars**
+(`stage-modules.sh` → `modules/`, merged into `pf-runtime.war` at root context and onto the engine
+classpath — the `pf-oidf-modules.jar` monolith is gone). That is as far as this repo goes: **it
+deploys nothing.** The image build lives here because three repos consume it and one of them pushes
+the result to ECR, but every Railway project, `railway.json` and `vars.<env>.env` belongs to the repo
+that owns that environment — see [build/pingfederate/README.md](build/pingfederate/README.md) for what
+a consumer supplies. **Client attestation
 end to end** — how issuance, verification, the PF token-endpoint filter and the RAR consumer fit
 together, what is implemented, standards alignment, test coverage and the open gaps:
 [docs/client-attestation-architecture.md](docs/client-attestation-architecture.md). **Demos:**

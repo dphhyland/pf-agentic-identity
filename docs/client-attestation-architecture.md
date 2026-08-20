@@ -52,9 +52,9 @@ repo wrote the missing half up as its own spec draft, published in
 
 Three of these load into PingFederate and the classloader they land on matters. `oidf.jar`,
 `attestation-issuer` and their libraries are merged into `pf-runtime.war` at root context by
-[`assemble-pf-runtime-war.sh`](../deploy/pingfederate/build/assemble-pf-runtime-war.sh) — that is why
+[`assemble-pf-runtime-war.sh`](../build/pingfederate/assemble-pf-runtime-war.sh) — that is why
 `/federation/attestation` serves with no `/oidf` prefix. The same jars are *also* copied into
-`server/default/deploy/` by the [Dockerfile](../deploy/pingfederate/Dockerfile), because the OGNL
+`server/default/deploy/` by the [Dockerfile](../build/pingfederate/Dockerfile), because the OGNL
 hooks run on PF's engine classloader, which cannot see `pf-runtime.war/WEB-INF/lib`.
 
 ### 2.2 Issuance flow
@@ -122,7 +122,7 @@ sequenceDiagram
 `attest_jwt_client_auth` and no SDK extension point for client authentication. The filter is
 registered by web.xml surgery in the deploy image, and the assemble script asserts the mapping is
 present or fails the build
-([`assemble-pf-runtime-war.sh:136-140`](../deploy/pingfederate/build/assemble-pf-runtime-war.sh#L136)).
+([`assemble-pf-runtime-war.sh:136-140`](../build/pingfederate/assemble-pf-runtime-war.sh#L136)).
 
 **Why it is verified twice.** The filter runs on the webapp classloader; the OGNL criterion runs on
 the engine classloader. They cannot share a replay cache unless Redis is configured, so each sees a
@@ -318,7 +318,7 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 
 | Setting | Effect | Set in the checked-in deploy config? |
 |---|---|---|
-| `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` | Cluster-wide challenge + replay store. Unset = per-node in-memory | No — referenced in `deploy/README.md` and `DEMO-MINT-DEPLOY.md` as a Railway resource, so set outside the repo |
+| `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` | Cluster-wide challenge + replay store. Unset = per-node in-memory | No — a resource of whichever environment deploys this, so set outside this repo |
 | `OIDF_BRIDGE_PRIVATE_JWK` / `oidf.bridge.private.jwk` | The filter's bridge signing key. Unset = every attestation request passes through unbridged | **No** — named only in a comment in the assemble script |
 | `oidf.mock.attesters` | Static attester trust, bypassing federation trust chains | **Yes** — written into `run.properties.subst.default` by the Dockerfile |
 | `oidf.attestation.required.claims` | Global required-disclosure default | Yes — `workload`, via the Dockerfile |
@@ -511,15 +511,15 @@ does the right thing and is the pattern to copy. *Closes when:* the chain is val
 `OIDF_FEDERATION_TRUST_ANCHORS`, bindings are read from the validated leaf, and stale-on-error is
 limited to transport failures — never a failed chain. Slice 1 in §8.
 
-**The shipped image trusts static attester keys.** `deploy/pingfederate/Dockerfile:78-79` writes
+**The shipped image trusts static attester keys.** `build/pingfederate/Dockerfile:78-79` writes
 `oidf.mock.attesters` into `run.properties.subst.default`, pointing at
-`deploy/pingfederate/oidf-mock-attesters.json` — hardcoded EC public keys for `urn:agent:northwind-*`.
+`build/pingfederate/ (supplied per deployment)` — hardcoded EC public keys for `urn:agent:northwind-*`.
 `ClientAttestationUtils` logs "DEV MODE … OpenID Federation trust-chain validation is DISABLED" when it
 uses them. Anyone holding the matching private key can mint an attestation those issuers will accept,
 with no federation chain. *Closes when:* the property is moved out of the base Dockerfile into a
 dev-only overlay, and staging/production run federation-only.
 
-**A private attester key is committed.** `deploy/pingfederate/terraform/attestation-demo-clients.tf`
+**A private attester key is committed.** The deploying repo's [`attestation-demo-clients.tf`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform/attestation-demo-clients.tf)
 carries an inline EC **private** JWK (`kid = "mock-attester-1"`), a hardcoded issuer
 `https://attester.example.com`, and a "throwaway" client secret. *Closes when:* the demo clients move
 to transit-backed signing, or the file moves to a demo-only tree that is never applied to a real
@@ -542,7 +542,7 @@ start rather than degrading silently.
 javadoc comment and nowhere else.
 
 **The issuance criterion is bound to an unverified ATM id.**
-`deploy/pingfederate/terraform/access-token-mappings.tf:15-26` says `attestATM` is "almost certainly
+The deploying repo's [`access-token-mappings.tf`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform/access-token-mappings.tf) says `attestATM` is "almost certainly
 the mapping — CONFIRM via GET /oauth/accessTokenMappings". If it is wrong, the gate silently applies to
 nothing. *Closes when:* the id is confirmed against a live server and the comment is deleted.
 
@@ -650,7 +650,7 @@ containment rule will drift, and the drift is a privilege-escalation shape.
 | [servlets/attestation-issuer/README.md](../servlets/attestation-issuer/README.md) | The issuer module in detail |
 | [servlets/pf-integration/README.md](../servlets/pf-integration/README.md) | The PF glue: filters, OGNL hooks, key resolvers |
 | [services/device-enrolment/README.md](../services/device-enrolment/README.md) | The device path and its enrolment ceremony |
-| [deploy/pingfederate/README.md](../deploy/pingfederate/README.md) | How the AS image is built and what it bakes in |
+| [build/pingfederate/README.md](../build/pingfederate/README.md) | How the AS image is built, and what each consumer supplies |
 | [DEMOS.md](DEMOS.md) | Which demos exercise this pipeline and how to bring them up |
 
 ---

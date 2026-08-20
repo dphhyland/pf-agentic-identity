@@ -26,7 +26,8 @@ a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp
   Renamed from `.common` on 2026-08-15 (split-package unwind).
 - `com.pingidentity.ps.oidf.servlet.clientregistration` (+ `.utils`) and
   `com.pingidentity.ps.oidf.servlet.trustanchor` - **unchanged FQCNs**: they are config-facing (OGNL
-  criteria in `deploy/pingfederate/terraform`, filter classes in `assemble-pf-runtime-war.sh`).
+  criteria in the deploying repo's Terraform ([pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform)), filter
+  classes in `build/pingfederate/assemble-pf-runtime-war.sh`).
 
 ## Endpoints
 
@@ -38,7 +39,7 @@ a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp
 | `GET /federation/registered-clients` | `RegisteredClientsServlet` | Clients this module put into PF (`status=registered` / `auto_registered`). Unauthenticated - a demo/operator surface. |
 
 Filters - not annotated (an annotation would bind them to the module's own context, not PF's), so
-`deploy/pingfederate/build/assemble-pf-runtime-war.sh` writes them into `pf-runtime.war`'s `web.xml`:
+`build/pingfederate/assemble-pf-runtime-war.sh` writes them into `pf-runtime.war`'s `web.xml`:
 
 | Filter name | Class | Over | Does |
 |---|---|---|---|
@@ -49,7 +50,7 @@ Filters - not annotated (an annotation would bind them to the module's own conte
 ## OGNL hooks (engine classloader)
 
 `ClientAttestationUtils.validateClientAttestation(#this)` and `OIDFederationUtils.validateTrustChain(#this, …)`
-are the token-endpoint issuance criteria (`deploy/pingfederate/terraform/access-token-mappings.tf`);
+are the token-endpoint issuance criteria ([`access-token-mappings.tf`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform/access-token-mappings.tf), in the deploying repo);
 `attestationClaim(#this, name)` and `delegationActChain(#this)` feed access-token attribute mappings.
 Both hooks read `context.HttpRequest` / `context.ClientId` from the criteria map. Attester trust:
 `oidf.mock.attesters` (static JWKS file, dev) first, federation trust chain otherwise; the AS-side
@@ -80,6 +81,6 @@ mvn -pl servlets/pf-integration -am package     # → target/oidf.jar (tests on)
 ```
 
 Versions come from `bom/pom.xml` (no parent pom). Consumers: `attestation-issuer` and `ssf` depend on
-this jar; `oidf-war` bundles it into `oidf.war`; `deploy/pingfederate/build/stage-modules.sh` stages it
+this jar; `oidf-war` bundles it into `oidf.war`; `build/pingfederate/stage-modules.sh` stages it
 into the `pf-runtime.war` merge (root context - endpoints serve without an `/oidf` prefix) and the
 engine deploy dir.

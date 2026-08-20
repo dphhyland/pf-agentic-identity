@@ -82,5 +82,5 @@ mvn -pl libs/openid-federation -am package     # or `mvn package` at the repo ro
 JDBC tests run the shipped migration against H2 in PostgreSQL mode. `LiveChainValidationTest` is
 skipped unless a captured chain is present at `/tmp/live-chain`. Versions come from `bom/pom.xml`.
 Consumers, by pom: `servlets/pf-integration`, `servlets/attestation-issuer`. Ships into PingFederate via
-`deploy/pingfederate/build/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
+`build/pingfederate/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
 (`servlets/oidf-war`).

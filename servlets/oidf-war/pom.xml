@@ -44,7 +44,7 @@
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId></dependency>
         <!-- jackson is bundled into WEB-INF/lib (no separate copy on PF's shared classpath). jose4j
              stays PROVIDED: every deployment of this war also drops jose4j-0.9.6.jar directly onto
-             PF's shared classpath (see deploy/pingfederate/Dockerfile), and bundling it a second
+             PF's shared classpath (see build/pingfederate/Dockerfile), and bundling it a second
              time here caused a `LinkageError: loader constraint violation` on org.jose4j.jwk.JsonWebKey
              the moment a servlet touching jose4j types crossed the war's own classloader boundary
              (found via OpenIdFederationServlet, which the old static-mock-attester path never

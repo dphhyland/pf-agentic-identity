@@ -50,9 +50,9 @@ Two packagings of the same jars exist; this module is one of them.
 
 - **`oidf.war`** (this module) - own webapp classloader, `/oidf` context. Built by `mvn package` and
   uploaded as a CI artifact (`.github/workflows/build.yml`).
-- **`pf-runtime.war` merge** - what `deploy/pingfederate/` actually ships. `build/stage-modules.sh`
+- **`pf-runtime.war` merge** - what `build/pingfederate/` actually ships. `build/stage-modules.sh`
   stages seven reactor jars (`oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`,
-  `openid-federation`, `agent-registry`) into `deploy/pingfederate/modules/`; the Dockerfile runs
+  `openid-federation`, `agent-registry`) into `build/pingfederate/modules/`; the Dockerfile runs
   `build/assemble-pf-runtime-war.sh` to inject them into the stock `pf-runtime.war` (root context, no
   `/oidf` prefix, one classloader) and register the three filters over PF's own endpoints, then also
   copies the jars to `server/default/deploy/` so the engine classloader can resolve the OGNL hook classes.

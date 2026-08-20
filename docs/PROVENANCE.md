@@ -158,14 +158,13 @@ So it is being made mechanical rather than restated more firmly:
 
 Both are tracked as part of retiring the fork. Until the check exists, rule 1 is still only prose.
 
-### A standing hazard while both repos have deploy trees
+### A standing hazard while both repos had deploy trees — closed 2026-08-21
 
-`pf-oidf-modules` still carries `deploy/{fedhost,lighthouse,pingfederate}` and its own
-`deploy-{fedhost,lighthouse,pingfederate}.yml`, already diverged from this repo's — 
-`deploy-pingfederate.yml` by 109 lines. **Both repos can therefore deploy to the same Railway
-services from different definitions.** Nothing fires accidentally today (path-filtered or
-`workflow_dispatch`), but the two keep drifting, and the failure mode is a deploy that silently
-undoes the other repo's.
+For a week both repos carried `deploy/{fedhost,lighthouse,pingfederate}` and their workflows,
+already diverged, so **either could deploy the same Railway services from a different definition**.
+It was closed the wrong way round first (2026-08-15, everything here) and then correctly
+(2026-08-21, everything back to `pf-oidf-modules`). This repo now has no `deploy/` at all, so the
+hazard cannot recur from this side. See the 2026-08-21 section below.
 
 ## 2026-08-08 — the demo split
 
@@ -177,9 +176,11 @@ prompted the split was that worktree, not copied code). What moved: `deploy/aws-
 `demo/phone-simulator` — flattened to the demo repo's top level, removed here in the same operation.
 One copy, two repos, no drift surface.
 
-What deliberately did **not** move: `deploy/pingfederate` and the Railway service definitions
-(`device-enrolment`, `fedhost`, `lighthouse`) — the standing-hazard rule above is about two repos
-holding deployable definitions for the same services, and every deployable definition stays here.
+What deliberately did **not** move at the time: `deploy/pingfederate` and the Railway service
+definitions (`device-enrolment`, `fedhost`, `lighthouse`), on the reasoning that every deployable
+definition should live in one place and that place was here. The first half of that was right and
+the second was wrong — they left on 2026-08-21, and `device-enrolment` turned out to define a
+service that had never existed.
 The demo repo consumes this repo through a sibling checkout (`../pf-agentic-identity`), documented
 in its README; `phone-simulator` builds against locally installed monorepo artifacts
 (`mvn -DskipTests install` here first).
@@ -216,3 +217,40 @@ is written down (internal 0.1.0, jose4j, jackson, junit, the two provided PF jar
 pom imports it (`scope=import`) and declares dependencies version-less — still no parent, so the
 absorbed poms stay standalone. `services/gm-api` is deliberately not a consumer (vendored tree, own
 `au.com.idpartners` + `local.pingfederate:*` conventions).
+
+## 2026-08-21 — the capability/demo boundary, restored
+
+This repo is the **capability**: the Java modules, plugins and servlets, plus the PF image build in
+`build/pingfederate/` that packages them. It deploys nothing and owns no Railway project. Three repos
+consume it — `pf-oidf-modules` (OIDF/attestation demo, project `e02a8e2f`), `idp-agentic-demo`
+(agentic banking, project `ac9af096`) and `pf-agentic-identity-domain-authority` (cross-cloud rigs,
+project `gke-spiffe-demo` plus GKE/EKS/AKS) — and each owns its own deployments.
+
+**What moved out.** `deploy/{lighthouse,fedhost,pingfederate}` and the three `deploy-*.yml` workflows
+went back to `pf-oidf-modules`, restored from `8bdefd6^` there rather than grafted, so they keep the
+history they already had. `deploy/device-enrolment/` was deleted, not moved: no such service exists in
+any of the 29 Railway projects and its `Dockerfile.demo` had been unbuildable since the 2026-08-08
+split.
+
+**What stayed, and why the 2026-08-15 move was not simply reverted.** `deploy/pingfederate/` held two
+different things. The Railway deployment left; the image build — `Dockerfile`, `stage-modules.sh`,
+`assemble-pf-runtime-war.sh`, the config-store overlay — became `build/pingfederate/`. It is consumed
+by all three repos and the domain-authority rigs push the resulting image to **ECR**, so it was never
+a Railway artefact. `railway up` still needs one directory, so `pf-oidf-modules` composes a context
+from both repos (`compose-context.sh`).
+
+**Why the direction changed.** The 2026-08-15 move was argued from this repo's own documentation. The
+Actions history of the other repo said the opposite: there, `deploy-fedhost` and `deploy-lighthouse`
+ran green on 2026-07-22 with tokens provisioned since 2026-07-09; here, with no Actions secrets, the
+workflows died at the first CLI call and `deploy-pingfederate` was never dispatched once. **The move
+took a working pipeline and made it theatre.** Check what a system does, not what it says about
+itself.
+
+**Two couplings the split would otherwise have broken silently.**
+`FederationClientParamsTest` read the Terraform behind `assumeTrue(Files.exists(...))`; once the tree
+left, it would have skipped every run and passed forever without asserting anything. The contract is
+inverted — `docs/extended-properties.json` publishes the Java constant, and consumers diff their own
+Terraform against it. And `.gitignore`'s `data*.zip` lived only in `deploy/pingfederate/`, so moving
+that directory un-ignored the archives beside it and the next `git add -A` staged the leaked
+`data.staging.zip` again. Caught before it was committed. Both the ignore rule and the CI guard are
+now filename-based and path-independent.

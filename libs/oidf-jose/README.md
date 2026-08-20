@@ -38,6 +38,6 @@ mvn -pl libs/oidf-jose -am package     # or `mvn package` at the repo root; test
 Shared dependency versions come from the repo BOM (`bom/pom.xml`, imported with `scope=import`; there
 is no parent pom). Consumers, by pom: `client-attestation`, `openid-federation`, `device-instance`,
 `servlets/pf-integration`, `servlets/attestation-issuer`, `servlets/ssf`, `services/device-enrolment`,
-`services/demo-rs`. Ships into PingFederate both ways: `deploy/pingfederate/build/stage-modules.sh`
-stages the jar into `deploy/pingfederate/modules/` for the pf-runtime.war merge, and `servlets/oidf-war`
+`services/demo-rs`. Ships into PingFederate both ways: `build/pingfederate/stage-modules.sh`
+stages the jar into `build/pingfederate/modules/` for the pf-runtime.war merge, and `servlets/oidf-war`
 bundles it into `oidf.war`'s `WEB-INF/lib`.

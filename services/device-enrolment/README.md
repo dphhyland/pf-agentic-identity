@@ -99,16 +99,22 @@ and the agent stops until the human is back in front of the phone.
 
 ## Deploy
 
-[`deploy/device-enrolment/`](../../deploy/device-enrolment): two-stage `Dockerfile` (reactor built from
-the repo root with `-pl services/device-enrolment -am`, runtime image carries `app.jar` + `lib/`; the
-schema is owned by the model repo's migration workflow, not shipped here), `railway.json`
-(healthcheck `/health`), `vars.staging.env` / `vars.production.env` (non-secret config;
-`IDM_DATABASE_URL` and `ENROLMENT_SIGNING_JWK` are set on the Railway service). **There is no GitHub workflow for this service**
-— unlike fedhost / lighthouse / pingfederate it is deployed by hand (`railway up` from that context).
+**There is no deploy definition for this service, deliberately.** One existed here until 2026-08-21 —
+a two-stage `Dockerfile`, `railway.json` and per-env vars — and was deleted rather than moved with the
+rest of the deploy tree, because no `device-enrolment` service has ever existed in any Railway
+project: the config described a deployment that had never happened, and half of it (`Dockerfile.demo`)
+had been unbuildable since the 2026-08-08 split.
+
+This repo is the capability and deploys nothing. When the service is actually provisioned, write the
+definition then, in whichever repo owns that environment, against what it actually needs — it will be
+a better definition than the stale one. Git history has the old files if they are worth starting from.
+
+The service needs `IDM_DATABASE_URL` and `ENROLMENT_SIGNING_JWK` supplied as secrets, and the schema
+is owned by the model repo's migration workflow, not shipped here.
 
 ## Running locally, and the phone simulator
 
-`deploy/device-enrolment/docker-compose.yml` was the local demo stack: Postgres with the schema applied
+A `docker-compose.yml` alongside that deploy definition was the local demo stack: Postgres with the schema applied
 plus `Dockerfile.demo`, whose entry point is `DemoServerMain` — `Main`'s wiring with a bundled synthetic
 App Attest root, because only a physical iPhone can produce a chain to Apple's real one. **That
 Dockerfile still builds `demo/phone-simulator` inside this repo, and that path moved out on 2026-08-08**
@@ -140,7 +146,8 @@ the enclave and the `app-attest` test-jar's synthetic Apple chain.
 
 - **A real device.** The harness cannot prove Apple's real attestation objects parse; only hardware can.
 - **A wired notification channel.** `BindingNotifier` is a seam; its default logs on every binding.
-- **This service provisioned on Railway.** Config-as-code is ready (`deploy/device-enrolment/`); it has
-  never actually been deployed, so `/compliance` here isn't reachable in staging yet even though the
-  verified path (PF's SSF receiver, see above) already is.
+- **This service deployed anywhere.** It has never been provisioned in any Railway project, so
+  `/compliance` here is not reachable in any environment, even though the verified path (PF's SSF
+  receiver, see above) already is. The stale config-as-code that claimed otherwise was deleted on
+  2026-08-21.
 - **The compose stack**, until `Dockerfile.demo` is repointed at the domain-authority checkout.

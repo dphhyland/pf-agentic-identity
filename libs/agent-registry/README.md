@@ -59,5 +59,5 @@ mvn -pl libs/agent-registry -am package     # or `mvn package` at the repo root;
 
 Both registries are held to the same `AgentRegistryContract` suite; the JDBC tests run the shipped
 migration against H2 in PostgreSQL mode. Versions come from `bom/pom.xml`. Not staged into PingFederate
-by `deploy/pingfederate/build/stage-modules.sh`; it reaches `oidf.war`'s `WEB-INF/lib` only as a
+by `build/pingfederate/stage-modules.sh`; it reaches `oidf.war`'s `WEB-INF/lib` only as a
 transitive dependency of `attestation-issuer`.

@@ -115,7 +115,7 @@ OpenID Federation 1.0 Final (17 February 2026); a Final 1.1 (5 May 2026) also ex
 | Item | Value |
 |---|---|
 | Entity statement `typ` | `entity-statement+jwt` |
-| `authority_hints` | REQUIRED for any entity with ≥1 superior; MUST NOT appear for trust anchors **with no superiors**. PingFederate is an intermediate here, so it carries them, pointing at `deploy/lighthouse`. |
+| `authority_hints` | REQUIRED for any entity with ≥1 superior; MUST NOT appear for trust anchors **with no superiors**. PingFederate is an intermediate here, so it carries them, pointing at the trust anchor the deployment configures ([`lighthouse`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/lighthouse), in the deploying repo). |
 | `metadata_policy` | Narrow-only. §6.1.1: a policy "cannot be repealed or made more permissive by Intermediate Entities that are subordinate in the Trust Chain." Composition fails closed. |
 
 Note an anchor acting as an intermediate in a nested federation *does* carry `authority_hints` — the

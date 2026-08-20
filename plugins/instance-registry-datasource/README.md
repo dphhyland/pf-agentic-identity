@@ -68,5 +68,5 @@ mvn -pl plugins/instance-registry-datasource -am package     # → target/pf.plu
 
 Versions come from the repo BOM (`bom/pom.xml`). The two `provided` PF jars (`pf-protocolengine`,
 `pingfederate-sdk` 13.0.0.3) must be in `~/.m2` — see the `install:install-file` lines in
-`.github/workflows/build.yml`. Not baked into `deploy/pingfederate/` (that image is the OIDF-only AS);
+`.github/workflows/build.yml`. Not baked into `build/pingfederate/` (that image is the OIDF-only AS);
 drop the jar into `server/default/deploy/` yourself.

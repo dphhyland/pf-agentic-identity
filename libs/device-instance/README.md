@@ -101,7 +101,7 @@ IDM_TEST_JDBC_URL=jdbc:postgresql://localhost:55432/idm IDM_TEST_JDBC_USER=postg
 The three migrations under `src/test/resources/idm/` are **copies** from
 `~/Source/idp-scim-service/migrations` — refresh them when the model changes; each carries an
 `ldm-checksum` header that must match its source. Versions come from `bom/pom.xml`.
-Not staged into PingFederate by `deploy/pingfederate/build/stage-modules.sh` — the enrolment service and
+Not staged into PingFederate by `build/pingfederate/stage-modules.sh` — the enrolment service and
 the data-source plugin are its consumers. A sibling of, and deliberately not coupled to,
 `openid-federation`'s hosted-entity registry (a publishing concern) and `agent-registry` (lazy minting
 for runtimes with no enrolment step).
