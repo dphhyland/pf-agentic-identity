@@ -17,15 +17,21 @@ ROOT="${PF_AGENTIC_IDENTITY_HOME:-$(cd "$(dirname "$0")/../.." && pwd)}"
 [[ -f "$ROOT/pom.xml" ]] || { echo "ERROR: $ROOT is not a pf-agentic-identity checkout (no pom.xml) - set PF_AGENTIC_IDENTITY_HOME" >&2; exit 1; }
 DEST="${STAGE_DEST:-$ROOT/build/pingfederate/modules}"
 
+# The version comes from the BOM, not from eight hardcoded filenames. Those filenames pinned 0.1.0,
+# so the first version bump broke staging with "attestation-issuer-0.1.0.jar not built" - the jars were
+# fine, the list was stale. Read it once and let every entry follow.
+VERSION="$(sed -n 's|.*<version.internal>\(.*\)</version.internal>.*|\1|p' "$ROOT/bom/pom.xml" | head -1)"
+[[ -n "$VERSION" ]] || { echo "ERROR: could not read version.internal from $ROOT/bom/pom.xml" >&2; exit 1; }
+
 JARS=(
   servlets/pf-integration/target/oidf.jar
-  servlets/attestation-issuer/target/attestation-issuer-0.1.0.jar
-  servlets/ssf/target/ssf-0.1.0.jar
-  libs/oidf-jose/target/oidf-jose-0.1.0.jar
-  libs/client-attestation/target/client-attestation-0.1.0.jar
-  libs/openid-federation/target/openid-federation-0.1.0.jar
-  libs/agent-registry/target/agent-registry-0.1.0.jar
-  libs/device-instance/target/device-instance-0.1.0.jar
+  "servlets/attestation-issuer/target/attestation-issuer-$VERSION.jar"
+  "servlets/ssf/target/ssf-$VERSION.jar"
+  "libs/oidf-jose/target/oidf-jose-$VERSION.jar"
+  "libs/client-attestation/target/client-attestation-$VERSION.jar"
+  "libs/openid-federation/target/openid-federation-$VERSION.jar"
+  "libs/agent-registry/target/agent-registry-$VERSION.jar"
+  "libs/device-instance/target/device-instance-$VERSION.jar"
 )
 
 mkdir -p "$DEST"
