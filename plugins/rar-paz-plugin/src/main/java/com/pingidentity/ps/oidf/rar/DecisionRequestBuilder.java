@@ -24,5 +24,5 @@ public interface DecisionRequestBuilder {
      *                         attestation subject is available
      */
     DecisionRequest build(String type, Map<String, Object> detail, AttestationSubject subject,
-                          String resourceOwner, String fallbackClientId);
+                          String resourceOwner, String fallbackClientId, String principalSource);
 }

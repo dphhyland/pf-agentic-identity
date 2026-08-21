@@ -34,7 +34,7 @@ class GovernanceEngineRequestBuilderTest {
         AttestationSubject subject = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 entitlement, Map.of("environment", "demo"), "thumb-xyz", "agent-123");
 
-        DecisionRequest req = builder.build("payment_initiation", detail, subject, null, "fallback-client");
+        DecisionRequest req = builder.build("payment_initiation", detail, subject, null, "fallback-client", "authenticated");
 
         assertEquals("idpartners.authorization_details.payment_initiation", req.getDomain());
         assertEquals("Authorization", req.getService());
@@ -64,7 +64,7 @@ class GovernanceEngineRequestBuilderTest {
         AttestationSubject subject = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 List.of(), Map.of(), null);
         DecisionRequest req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                subject, null, "fallback-client");
+                subject, null, "fallback-client", "authenticated");
         Map<String, Object> attrs = req.getAttributes();
         assertEquals("https://rp.example.com", attrs.get("UserID"));
         assertFalse(attrs.containsKey("actor"));
@@ -73,7 +73,7 @@ class GovernanceEngineRequestBuilderTest {
     @Test
     void fallsBackToClientIdForSubjectWhenAttestationEmpty() {
         DecisionRequest req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                AttestationSubject.empty(), null, "fallback-client");
+                AttestationSubject.empty(), null, "fallback-client", "authenticated");
         assertEquals("fallback-client", req.getAttributes().get("UserID"));
     }
 
@@ -85,7 +85,7 @@ class GovernanceEngineRequestBuilderTest {
         AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 List.of(), Map.of(), null, "payments-agent");
         DecisionRequest req = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
-                agent, "alice", "northwind-webapp");
+                agent, "alice", "northwind-webapp", "authenticated");
         Map<String, Object> attrs = req.getAttributes();
         assertEquals("alice", attrs.get("UserID"));
         assertEquals("payments-agent", attrs.get("actor"));
@@ -97,7 +97,7 @@ class GovernanceEngineRequestBuilderTest {
         // Browser payment-consent flow: no attestation present, so without the fix UserID would degrade to
         // the OAuth client id. With the resource owner threaded through, UserID is correctly the principal.
         DecisionRequest req = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
-                AttestationSubject.empty(), "alice", "northwind-webapp");
+                AttestationSubject.empty(), "alice", "northwind-webapp", "authenticated");
         Map<String, Object> attrs = req.getAttributes();
         assertEquals("alice", attrs.get("UserID"));
         assertFalse(attrs.containsKey("actor"));

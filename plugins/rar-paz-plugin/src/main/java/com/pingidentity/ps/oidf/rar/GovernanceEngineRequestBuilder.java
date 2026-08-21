@@ -48,7 +48,7 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
 
     @Override
     public DecisionRequest build(String type, Map<String, Object> detail, AttestationSubject subject,
-                                 String resourceOwner, String fallbackClientId) {
+                                 String resourceOwner, String fallbackClientId, String principalSource) {
         AttestationSubject subj = subject == null ? AttestationSubject.empty() : subject;
         String domain = join(config.getDomainPrefix(), type);
         String attrPrefix = config.isPrefixAttributesWithType() ? join(config.getAttributePrefix(), type) : config.getAttributePrefix();
@@ -65,6 +65,11 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
         String clientId = firstNonBlank(subj.getClientId(), fallbackClientId);
         String userId = firstNonBlank(resourceOwner, clientId);
         attributes.put("UserID", userId == null ? "unknown" : userId);
+        // How that UserID was established. Without it the engine cannot tell an authenticated principal
+        // from one the caller simply named, and a rule about "the user" silently covers both.
+        if (principalSource != null && !principalSource.isBlank()) {
+            attributes.put("principal_source", principalSource);
+        }
         String agentId = subj.getAgentId();
         if (agentId != null && !agentId.isBlank() && !agentId.equals(userId)) {
             attributes.put("actor", agentId);

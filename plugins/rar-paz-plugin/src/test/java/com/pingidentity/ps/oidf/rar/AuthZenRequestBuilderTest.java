@@ -29,7 +29,7 @@ class AuthZenRequestBuilderTest {
         AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 List.of(), Map.of(), null, "payments-agent");
         Map<String, Object> req = builder.build("payment_initiation",
-                Map.of("type", "payment_initiation", "amount", "50.00"), agent, "alice", "northwind-webapp");
+                Map.of("type", "payment_initiation", "amount", "50.00"), agent, "alice", "northwind-webapp", "authenticated");
 
         assertEquals(Map.of("type", "user", "id", "alice"), node(req, "subject"));
         Map<String, Object> context = node(req, "context");
@@ -45,7 +45,7 @@ class AuthZenRequestBuilderTest {
         AttestationSubject noAgent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 List.of(), Map.of(), null);
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                noAgent, null, "fallback-client");
+                noAgent, null, "fallback-client", "authenticated");
 
         assertEquals(Map.of("type", "client", "id", "https://rp.example.com"), node(req, "subject"));
         assertFalse(node(req, "context").containsKey("actor"));
@@ -59,7 +59,7 @@ class AuthZenRequestBuilderTest {
         AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 List.of(), Map.of(), null, "agent-123");
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                agent, null, "fallback-client");
+                agent, null, "fallback-client", "authenticated");
 
         assertEquals(Map.of("type", "client", "id", "https://rp.example.com"), node(req, "subject"));
         Map<String, Object> context = node(req, "context");
@@ -69,7 +69,7 @@ class AuthZenRequestBuilderTest {
     @Test
     void fallsBackToClientSubjectWhenAttestationEmpty() {
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                AttestationSubject.empty(), null, "fallback-client");
+                AttestationSubject.empty(), null, "fallback-client", "authenticated");
         assertEquals(Map.of("type", "client", "id", "fallback-client"), node(req, "subject"));
     }
 
@@ -81,7 +81,7 @@ class AuthZenRequestBuilderTest {
                 "amount", "50.00",
                 "actions", List.of("initiate"));
         Map<String, Object> req = builder.build("payment_initiation", detail,
-                AttestationSubject.empty(), "alice", "client-1");
+                AttestationSubject.empty(), "alice", "client-1", "authenticated");
 
         Map<String, Object> resource = node(req, "resource");
         assertEquals("payment_initiation", resource.get("type"));
@@ -100,7 +100,7 @@ class AuthZenRequestBuilderTest {
         AttestationSubject subject = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
                 entitlement, Map.of("environment", "demo"), "thumb-xyz", "agent-123");
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
-                subject, "alice", null);
+                subject, "alice", null, "authenticated");
 
         @SuppressWarnings("unchecked")
         Map<String, Object> attestation = (Map<String, Object>) node(req, "context").get("attestation");

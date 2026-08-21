@@ -56,6 +56,11 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      *  Consumed here and stripped so it never reaches the governance engine, the consent page, or the token. */
     private static final String PRINCIPAL_DETAIL_KEY = "_principal_sub";
 
+    /** How the decision subject was established; emitted to the PDP so policy can tell them apart. */
+    private static final String PRINCIPAL_AUTHENTICATED = "authenticated";
+    private static final String PRINCIPAL_CLIENT_ASSERTED = "client_asserted";
+    private static final String PRINCIPAL_NONE = "none";
+
     private static final String PDP_DIALECT = "PDP Dialect";
     private static final String DIALECT_GOVERNANCE = "governance-engine";
     private static final String DIALECT_AUTHZEN = "authzen";
@@ -69,6 +74,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String PDP_SECRET = "Shared Secret";
     private static final String DENY_ON_NON_PERMIT = "Deny unless PERMIT";
     private static final String FAIL_OPEN = "Fail open on engine error";
+    private static final String ALLOW_CLIENT_ASSERTED_PRINCIPAL = "Trust a client-asserted principal";
     private static final String INSECURE_TLS = "Skip TLS verification (dev only)";
     private static final String TIMEOUT_MS = "Request timeout (ms)";
 
@@ -106,6 +112,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 .secret(configuration.getFieldValue(PDP_SECRET))
                 .denyOnNonPermit(configuration.getBooleanFieldValue(DENY_ON_NON_PERMIT))
                 .failOpenOnError(configuration.getBooleanFieldValue(FAIL_OPEN))
+                .allowClientAssertedPrincipal(configuration.getBooleanFieldValue(ALLOW_CLIENT_ASSERTED_PRINCIPAL))
                 .insecureTls(configuration.getBooleanFieldValue(INSECURE_TLS))
                 .timeoutMillis(parseInt(configuration.getFieldValue(TIMEOUT_MS), 10_000))
                 .build();
@@ -136,6 +143,10 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         addText(gui, PDP_SECRET, "Shared-secret value", "", true);
         addCheck(gui, DENY_ON_NON_PERMIT, "Deny unless the decision is PERMIT", true);
         addCheck(gui, FAIL_OPEN, "Fail open if the governance engine is unreachable", false);
+        addCheck(gui, ALLOW_CLIENT_ASSERTED_PRINCIPAL,
+                "Use login_hint / _principal_sub as the decision subject when no authenticated principal is present "
+                        + "(the caller chooses who the decision is about - leave off unless a trusted BFF is the only caller)",
+                false);
         addCheck(gui, INSECURE_TLS, "Skip TLS verification (dev only)", false);
         addText(gui, TIMEOUT_MS, "Request timeout (ms)", "10000", false);
 
@@ -165,18 +176,41 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         Map<String, Object> base = authDetail.getDetail();
         Map<String, Object> detail = base == null ? new HashMap<>() : new HashMap<>(base);
         Object principalInDetail = detail.remove(PRINCIPAL_DETAIL_KEY);
-        // Resolve the principal: request attribute / login_hint first, then the marker the BFF folds into the
-        // authorization_details (the only BFF->plugin channel that survives PAR, since PF does not merge
-        // PAR-pushed request params back into the servlet request).
-        String resourceOwner = firstNonBlank(readResourceOwner(context), asString(principalInDetail));
+
+        // Two sources, only one of them trustworthy. The request attribute is set server-side by an authn
+        // hook; login_hint and _principal_sub are simply what the caller sent. Treating them alike let a
+        // client name any principal and have the PDP decide about that person - the decision was sound,
+        // it was just about the wrong human.
+        String authenticated = readAuthenticatedPrincipal(context);
+        String clientAsserted = firstNonBlank(readLoginHint(context), asString(principalInDetail));
+        String resourceOwner;
+        String principalSource;
+        if (notBlank(authenticated)) {
+            resourceOwner = authenticated;
+            principalSource = PRINCIPAL_AUTHENTICATED;
+        } else if (notBlank(clientAsserted) && config.isAllowClientAssertedPrincipal()) {
+            resourceOwner = clientAsserted;
+            principalSource = PRINCIPAL_CLIENT_ASSERTED;
+        } else {
+            resourceOwner = null;
+            principalSource = PRINCIPAL_NONE;
+            if (notBlank(clientAsserted)) {
+                log.warning("RAR governance: ignoring client-asserted principal for type '" + authDetail.getType()
+                        + "' - no authenticated principal is available and the '"
+                        + ALLOW_CLIENT_ASSERTED_PRINCIPAL
+                        + "' option is off. The decision subject falls back to the client, not the named user.");
+            }
+        }
+
         String clientId = context == null ? null : context.getClientId();
         if (log.isLoggable(Level.INFO)) {
             log.info("RAR governance: type=" + authDetail.getType() + " resourceOwner=" + resourceOwner
+                    + " principalSource=" + principalSource
                     + " attestationSub=" + subject.getSubject() + " clientId=" + clientId
                     + " -> UserID=" + firstNonBlank(resourceOwner, subject.getSubject(), subject.getClientId(), clientId));
         }
         try {
-            DecisionResponse decision = client.decide(authDetail.getType(), detail, subject, resourceOwner, clientId);
+            DecisionResponse decision = client.decide(authDetail.getType(), detail, subject, resourceOwner, clientId, principalSource);
             if (config.isDenyOnNonPermit() && !decision.isPermit()) {
                 throw new AuthorizationDetailProcessingException(
                         "governance engine denied authorization_details of type '" + authDetail.getType()
@@ -260,7 +294,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      * the front-end BFF asserts for its interactively-authenticated user. Returns {@code null} if neither is
      * present, in which case the builder falls back to the attestation subject / client id.
      */
-    private String readResourceOwner(AuthorizationDetailContext context) {
+    private String readAuthenticatedPrincipal(AuthorizationDetailContext context) {
         try {
             if (context != null) {
                 HttpServletRequest request = context.getRequest();
@@ -269,6 +303,24 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                     if (attr != null && !String.valueOf(attr).isBlank()) {
                         return String.valueOf(attr);
                     }
+                }
+            }
+        } catch (Exception e) {
+            log.log(Level.WARNING, "could not read the authenticated principal from the request", e);
+        }
+        return null;
+    }
+
+    /**
+     * The {@code login_hint} request parameter. A hint, as the name says: whatever the caller put in the
+     * query string. Deliberately separate from {@link #readAuthenticatedPrincipal} so the two can never
+     * be confused at the call site.
+     */
+    private String readLoginHint(AuthorizationDetailContext context) {
+        try {
+            if (context != null) {
+                HttpServletRequest request = context.getRequest();
+                if (request != null) {
                     String hint = request.getParameter("login_hint");
                     if (hint != null && !hint.isBlank()) {
                         return hint;
@@ -276,9 +328,13 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 }
             }
         } catch (Exception e) {
-            log.log(Level.WARNING, "could not read resource owner from request", e);
+            log.log(Level.WARNING, "could not read login_hint from request", e);
         }
         return null;
+    }
+
+    private static boolean notBlank(String v) {
+        return v != null && !v.isBlank();
     }
 
     private static void addText(GuiConfigDescriptor gui, String name, String label, String defaultValue, boolean required) {

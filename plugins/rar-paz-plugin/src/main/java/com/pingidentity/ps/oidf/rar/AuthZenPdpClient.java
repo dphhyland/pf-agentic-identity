@@ -53,8 +53,8 @@ public final class AuthZenPdpClient implements PdpClient {
 
     @Override
     public DecisionResponse decide(String type, Map<String, Object> detail, AttestationSubject subject,
-                                   String resourceOwner, String fallbackClientId) throws IOException {
-        Map<String, Object> request = requestBuilder.build(type, detail, subject, resourceOwner, fallbackClientId);
+                                   String resourceOwner, String fallbackClientId, String principalSource) throws IOException {
+        Map<String, Object> request = requestBuilder.build(type, detail, subject, resourceOwner, fallbackClientId, principalSource);
         String body = mapper.writeValueAsString(request);
         Map<String, String> headers = new LinkedHashMap<>();
         headers.put("Content-Type", "application/json");

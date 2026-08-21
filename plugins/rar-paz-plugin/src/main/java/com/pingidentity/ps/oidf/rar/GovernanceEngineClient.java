@@ -31,8 +31,8 @@ public final class GovernanceEngineClient implements PdpClient {
 
     @Override
     public DecisionResponse decide(String type, Map<String, Object> detail, AttestationSubject subject,
-                                   String resourceOwner, String fallbackClientId) throws IOException {
-        return decide(requestBuilder.build(type, detail, subject, resourceOwner, fallbackClientId));
+                                   String resourceOwner, String fallbackClientId, String principalSource) throws IOException {
+        return decide(requestBuilder.build(type, detail, subject, resourceOwner, fallbackClientId, principalSource));
     }
 
     public DecisionResponse decide(DecisionRequest request) throws IOException {

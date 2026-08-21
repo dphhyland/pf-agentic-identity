@@ -48,7 +48,7 @@ class AuthZenPdpClientTest {
 
     private DecisionResponse decide(StubTransport t) throws IOException {
         return client(t).decide("sales_agent", Map.of("type", "sales_agent"),
-                AttestationSubject.empty(), "alice", "client-1");
+                AttestationSubject.empty(), "alice", "client-1", "authenticated");
     }
 
     @Test

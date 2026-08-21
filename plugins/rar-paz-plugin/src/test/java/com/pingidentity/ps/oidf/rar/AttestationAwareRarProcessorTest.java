@@ -57,7 +57,7 @@ class AttestationAwareRarProcessorTest {
 
     @Test
     void failOpenStripsThePrincipalMarker() throws Exception {
-        when(client.decide(anyString(), any(), any(), any(), any())).thenThrow(new IOException("pdp unreachable"));
+        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenThrow(new IOException("pdp unreachable"));
         AttestationAwareRarProcessor processor =
                 new AttestationAwareRarProcessor(client, config(true, true));
 
@@ -70,7 +70,7 @@ class AttestationAwareRarProcessorTest {
 
     @Test
     void permitMergesStatementsAndStripsThePrincipalMarker() throws Exception {
-        when(client.decide(anyString(), any(), any(), any(), any())).thenReturn(new DecisionResponse(
+        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse(
                 "PERMIT", true,
                 List.of(new DecisionResponse.Statement("access.limit", "100.00")),
                 "{}"));
@@ -87,13 +87,13 @@ class AttestationAwareRarProcessorTest {
         // The marker is consumed as the principal, not forwarded to the PDP as a payload field.
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> sent = ArgumentCaptor.forClass(Map.class);
-        verify(client).decide(anyString(), sent.capture(), any(), any(), any());
+        verify(client).decide(anyString(), sent.capture(), any(), any(), any(), any());
         assertFalse(sent.getValue().containsKey(PRINCIPAL_KEY));
     }
 
     @Test
     void denyThrowsWhenConfiguredToDenyOnNonPermit() throws Exception {
-        when(client.decide(anyString(), any(), any(), any(), any()))
+        when(client.decide(anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new DecisionResponse("DENY", false, List.of(), "{}"));
         AttestationAwareRarProcessor processor =
                 new AttestationAwareRarProcessor(client, config(true, false));
@@ -106,7 +106,7 @@ class AttestationAwareRarProcessorTest {
     @Test
     void engineErrorThrowsWithTheCauseWhenNotFailingOpen() throws Exception {
         IOException boom = new IOException("pdp unreachable");
-        when(client.decide(anyString(), any(), any(), any(), any())).thenThrow(boom);
+        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenThrow(boom);
         AttestationAwareRarProcessor processor =
                 new AttestationAwareRarProcessor(client, config(true, false));
 

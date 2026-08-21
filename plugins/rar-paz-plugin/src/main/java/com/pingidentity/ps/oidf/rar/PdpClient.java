@@ -13,11 +13,15 @@ import java.util.Map;
  * 1.0 evaluation API ({@code /access/v1/evaluation}). Both return the same parsed
  * {@link DecisionResponse}, so enforcement and statement application are dialect-independent.
  *
- * @param resourceOwner the authenticated principal's {@code sub} (may be {@code null}); the
- *                      attestation subject is the delegated agent, never the principal
+ * @param resourceOwner  the principal's {@code sub} (may be {@code null}); the attestation subject is
+ *                       the delegated agent, never the principal
+ * @param principalSource how that principal was established - {@code authenticated} (a server-side
+ *                       authn hook), {@code client_asserted} (the caller said so), or {@code none}.
+ *                       Policy that treats those alike is trusting the caller; this is what lets it
+ *                       require an authenticated principal for the operations that warrant one.
  */
 public interface PdpClient {
 
     DecisionResponse decide(String type, Map<String, Object> detail, AttestationSubject subject,
-                            String resourceOwner, String fallbackClientId) throws IOException;
+                            String resourceOwner, String fallbackClientId, String principalSource) throws IOException;
 }

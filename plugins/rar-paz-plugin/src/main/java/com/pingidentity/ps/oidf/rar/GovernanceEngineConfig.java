@@ -22,6 +22,7 @@ public final class GovernanceEngineConfig {
     private final String secret;
     private final boolean denyOnNonPermit;
     private final boolean failOpenOnError;
+    private final boolean allowClientAssertedPrincipal;
     private final boolean insecureTls;
     private final int timeoutMillis;
 
@@ -36,6 +37,7 @@ public final class GovernanceEngineConfig {
         this.secret = b.secret;
         this.denyOnNonPermit = b.denyOnNonPermit;
         this.failOpenOnError = b.failOpenOnError;
+        this.allowClientAssertedPrincipal = b.allowClientAssertedPrincipal;
         this.insecureTls = b.insecureTls;
         this.timeoutMillis = b.timeoutMillis;
     }
@@ -50,6 +52,18 @@ public final class GovernanceEngineConfig {
     public String getSecret() { return secret; }
     public boolean isDenyOnNonPermit() { return denyOnNonPermit; }
     public boolean isFailOpenOnError() { return failOpenOnError; }
+
+    /**
+     * Whether a principal the CALLER asserted may be used as the decision subject. Default false.
+     *
+     * <p>PingFederate's {@code AuthorizationDetailContext} exposes no authenticated resource owner, so
+     * the principal is read out-of-band. One source is trustworthy - a request attribute an authn hook
+     * set server-side - and two are not: the {@code login_hint} request parameter and the
+     * {@code _principal_sub} marker inside {@code authorization_details}. Both are simply what the
+     * caller sent. Treating them as the principal lets a client name whoever it likes and have the PDP
+     * decide about that person.
+     */
+    public boolean isAllowClientAssertedPrincipal() { return allowClientAssertedPrincipal; }
     public boolean isInsecureTls() { return insecureTls; }
     public int getTimeoutMillis() { return timeoutMillis; }
 
@@ -67,6 +81,7 @@ public final class GovernanceEngineConfig {
         private String secret;
         private boolean denyOnNonPermit = true;
         private boolean failOpenOnError = false;
+        private boolean allowClientAssertedPrincipal = false;
         private boolean insecureTls = false;
         private int timeoutMillis = 10_000;
 
@@ -80,6 +95,7 @@ public final class GovernanceEngineConfig {
         public Builder secret(String v) { this.secret = v; return this; }
         public Builder denyOnNonPermit(boolean v) { this.denyOnNonPermit = v; return this; }
         public Builder failOpenOnError(boolean v) { this.failOpenOnError = v; return this; }
+        public Builder allowClientAssertedPrincipal(boolean v) { this.allowClientAssertedPrincipal = v; return this; }
         public Builder insecureTls(boolean v) { this.insecureTls = v; return this; }
         public Builder timeoutMillis(int v) { if (v > 0) this.timeoutMillis = v; return this; }
 

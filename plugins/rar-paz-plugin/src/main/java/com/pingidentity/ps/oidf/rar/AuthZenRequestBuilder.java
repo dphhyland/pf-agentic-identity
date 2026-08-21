@@ -41,7 +41,7 @@ public final class AuthZenRequestBuilder {
     }
 
     public Map<String, Object> build(String type, Map<String, Object> detail, AttestationSubject subject,
-                                     String resourceOwner, String fallbackClientId) {
+                                     String resourceOwner, String fallbackClientId, String principalSource) {
         AttestationSubject subj = subject == null ? AttestationSubject.empty() : subject;
         String agentId = subj.getAgentId();
 
@@ -90,6 +90,11 @@ public final class AuthZenRequestBuilder {
         }
 
         Map<String, Object> context = new LinkedHashMap<>();
+        // How the subject above was established. A policy that does not look at this is trusting whatever
+        // the caller asserted, which is precisely the distinction it needs in order to matter.
+        if (notBlank(principalSource)) {
+            context.put("principal_source", principalSource);
+        }
         String clientId = notBlank(subj.getClientId()) ? subj.getClientId() : fallbackClientId;
         if (notBlank(clientId)) {
             context.put("client_id", clientId);
