@@ -47,6 +47,20 @@ jobs:
           fi
           echo "clean: no PF config archive or key material is tracked"
 
+      - name: no age identity or private key may be tracked (content scan)
+        # Filename globs cannot catch an age identity, which may be called anything at all. The archive
+        # is encrypted to a public recipient (committed on purpose); the identity that decrypts it is
+        # the secret, and it belongs in a password manager and a sealed runtime variable - never here.
+        run: |
+          hits="$(git grep -l -E 'AGE-SECRET-KEY-1|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' -- . \
+                  ':!.github/workflows/build.yml' ':!build/pingfederate/README.md' || true)"
+          if [ -n "$hits" ]; then
+            echo "::error::These contain an age identity or a private key:"
+            printf '%s\n' "$hits"
+            exit 1
+          fi
+          echo "clean: no age identity or private key is tracked"
+
   java:
     runs-on: ubuntu-latest
     steps:

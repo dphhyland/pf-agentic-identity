@@ -36,13 +36,38 @@ USER root
 # actually authenticate the fetch are supplied as runtime secrets, never baked).
 ENV PING_IDENTITY_ACCEPT_EULA=YES
 
+# age, for the encrypted config archive (see pf-entrypoint.sh). Verified available from the community
+# repo this base image already enables: alpine 3.23.4, age 1.2.1. No static-binary fallback needed.
+RUN apk add --no-cache age
+
 # Config restore via PF's native drop-in-deployer: the DataDeployer timer imports data.zip on boot
 # (no admin API, no license-acceptance gate). ForceImport is set in the overlay below; the master-key
 # overlay lets the archive's encrypted secrets decrypt natively (running master key == archive key).
-COPY --chown=9031:0 data.zip /opt/in/instance/server/default/data/drop-in-deployer/data.zip
-COPY --chown=9031:0 overlay/pf.jwk /opt/in/instance/server/default/data/pf.jwk
-COPY --chown=9031:0 overlay/pingfederate-system-keys.xml /opt/in/instance/server/default/data/pingfederate-system-keys.xml
-COPY --chown=9031:0 overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml /opt/in/instance/server/default/data/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
+# data.zip.age (encrypted, preferred) or data.zip (plaintext, transitional); the glob takes whichever
+# is staged. It does NOT enforce that one is: a COPY glob matching nothing succeeds silently under
+# BuildKit, which would produce an image that boots with no configuration and looks like it worked.
+# Hence the assertion below - verified to fail when neither file is present.
+COPY --chown=9031:0 data.zip* /opt/in/instance/server/default/data/drop-in-deployer/
+RUN D=/opt/in/instance/server/default/data/drop-in-deployer; \
+    if [ ! -f "$D/data.zip" ] && [ ! -f "$D/data.zip.age" ]; then \
+      echo "ERROR: no config archive staged. Put data.zip.age (preferred) or data.zip in the build" >&2; \
+      echo "       context. An image with neither imports nothing and starts an empty PF." >&2; \
+      exit 1; \
+    fi
+
+# overlay/ as a directory, because under the encrypted scheme pf.jwk and the system keys are NOT staged
+# at all - pf-entrypoint.sh extracts them from inside the archive at boot, so the running key is by
+# construction the one the archive was encrypted under. config-store/ is plain config and always present.
+COPY --chown=9031:0 overlay/ /opt/in/overlay-staged/
+RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
+    cp /opt/in/overlay-staged/config-store/*.xml "$D/config-store/"; \
+    for f in pf.jwk pingfederate-system-keys.xml; do \
+      if [ -f "/opt/in/overlay-staged/$f" ]; then \
+        echo "WARNING: staging plaintext $f into an image layer - ship data.zip.age instead"; \
+        cp "/opt/in/overlay-staged/$f" "$D/$f"; \
+      fi; \
+    done; \
+    rm -rf /opt/in/overlay-staged; chown -R 9031:0 "$D"
 # NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
 
 # Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, single classloader),
@@ -89,5 +114,10 @@ RUN CONF="$(find /opt -path '*server/default/conf/log4j2.xml' 2>/dev/null | head
     sed -i 's#</Loggers>#    <Logger name="com.pingidentity.ps.oidf" level="DEBUG" />\n    </Loggers>#' "$CONF" \
     && grep -c 'com.pingidentity.ps.oidf' "$CONF"
 
+# Decrypt the archive at boot, then hand over to the base image's own bootstrap.
+COPY --chown=9031:0 pf-entrypoint.sh /opt/pf-entrypoint.sh
+RUN chmod 755 /opt/pf-entrypoint.sh
+
 USER 9031:0
+ENTRYPOINT ["/opt/pf-entrypoint.sh"]
 # Stock entrypoint: the drop-in-deployer imports data.zip during boot.

@@ -29,8 +29,9 @@ You supply, per deployment (all git-ignored - see `.gitignore`):
 | Path | What it is |
 |---|---|
 | `modules/` | output of `stage-modules.sh`; do not hand-populate it |
-| `data.zip` | the PF configArchive for **your** environment. **A configArchive is a plain zip that contains `pf.jwk`** - the master key that decrypts every secret in it, next to the system keys, both keystores and the admin password hash. It is a secret. Never commit one. |
-| `overlay/pf.jwk`, `overlay/pingfederate-system-keys.xml` | the master key and system keys matching that archive |
+| `data.zip.age` | the PF configArchive for **your** environment, **age-encrypted**. A configArchive is a plain zip that *contains* `pf.jwk` - the master key that decrypts every secret in it, next to the system keys, both keystores and the admin password hash. Encrypted, it is safe in git and safe in an image layer. |
+| `data.zip` | the same thing **unencrypted**. Transitional only - see below. |
+| `overlay/pf.jwk`, `overlay/pingfederate-system-keys.xml` | needed **only** on the plaintext path. The encrypted path takes them from inside the archive. |
 | `oidf-mock-attesters.json` | DEV attester trust (issuer → public JWK). Demo trust, not capability - which is why it is supplied rather than baked here, so no consumer inherits another's attesters. |
 
 ## Building
@@ -49,6 +50,42 @@ PF_AGENTIC_IDENTITY_HOME=../pf-agentic-identity ../pf-agentic-identity/build/pin
 ```
 
 `STAGE_DEST` redirects where the jars land, if you are composing a context elsewhere.
+
+## The encrypted archive
+
+`pf-entrypoint.sh` decrypts `data.zip.age` at boot, using an identity supplied as a runtime variable,
+then extracts `pf.jwk` and the system keys **from inside the archive** and hands over to the base
+image's own `bootstrap.sh`. So the master key is in neither git nor an image layer - it exists only in
+the running container.
+
+```sh
+# once per environment, by whoever owns the deployment:
+age-keygen -o identity.txt          # keep the identity in a password manager + a sealed Railway var
+age -r "$(grep -o 'age1[a-z0-9]*' identity.txt)" -o data.zip.age data.zip
+shred -u data.zip                   # the plaintext has no further use
+
+# then, on the service:
+PF_ARCHIVE_AGE_KEY=<the identity>   # or PF_ARCHIVE_AGE_KEY_FILE=<a mounted path>
+```
+
+**Only one secret.** `pf.jwk` is deliberately *not* supplied separately: it comes out of the archive
+after decryption, so the running key is by construction the one the archive was encrypted under.
+Supplying them separately is how an archive and a key drift apart, and a PF whose key does not match
+its archive fails in a way that reads like data corruption.
+
+**Verified**, not assumed: alpine 3.23.4 in the base image has the community repo enabled and installs
+`age` 1.2.1 (no static-binary fallback needed); the entrypoint fails closed with a missing identity and
+with a wrong one; and a `docker save` layer scan of an image built this way finds **no** key material,
+against a plaintext-built control that finds four files. That control matters — an earlier version of
+the same scan reported "clean" for both images and was simply broken.
+
+**The layer trap.** Staging the key and deleting it in a later `RUN` does *not* remove it: the earlier
+layer still carries it and `docker save` yields it. The plaintext path demonstrably does this. Only
+never putting it in a layer works.
+
+> **Transitional.** A plaintext `data.zip` still builds and boots, with a loud warning, so the build is
+> not broken between now and the master-key rotation. Once every environment ships `data.zip.age`, drop
+> that branch from `pf-entrypoint.sh` and the `overlay/` key handling from the Dockerfile.
 
 ## The MANIFEST guard
 
