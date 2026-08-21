@@ -80,13 +80,13 @@ mvn -q package                 # → target/pf.plugins.pf-rar-paz-plugin.jar  (+
 JDK 17+ (the pom targets release 17). No coverage tooling is configured.
 The PF SDK is not on Maven Central — resolve `pf-protocolengine` + `pingfederate-sdk`
 (version = `<version.server-sdk>` in the pom) into `~/.m2` from a PF install. See
-`integration/README.md`.
+`idp-agentic-demo/pingfederate/rar-paz/README.md` (moved there 2026-08-21).
 
 ## How to deploy + configure
 - Bake the jar with `integration/Dockerfile.fragment` (jar → `deploy/`, optional consent
   template, the TLS JVM flag).
 - Create the processor instance + enable it on the client:
-  `integration/config-as-code/{create-processor-instance,enable-on-client}.sh`.
+  `idp-agentic-demo/pingfederate/rar-paz/config-as-code/{create-processor-instance,enable-on-client}.sh`.
 - Author the PDP policy in `paz/` (PAP REST API). Wire contract: top-level `README.md`.
 
 ## Railway deploy command (if applicable)

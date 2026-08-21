@@ -33,7 +33,7 @@ grant store, not the spec.
 
 > A caution for anyone reading a PF discovery document in this repo: the
 > `grant_management_*` **scopes are there because we created them** in
-> `deploy/pingfederate/terraform`. They are strings. PF attaches no meaning to them, and
+> the deploying repo's Terraform ([`idp-agentic-demo/gm-api/terraform`](https://github.com/dphhyland/idp-agentic-demo/blob/main/gm-api/terraform)). They are strings. PF attaches no meaning to them, and
 > their presence is not evidence of support.
 
 ## What we added, and how

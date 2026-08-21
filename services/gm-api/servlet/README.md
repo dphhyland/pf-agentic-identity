@@ -124,7 +124,7 @@ Confirm it started: `Started ContextHandler{Grant Evaluation API,/gm-api,...,a=A
 
 The demo PDP and the grant-creation script ship with the Go reference; run them from a checkout of
 **grant-evaluation-api** (sibling checkout) against the PF in
-[`../deploy/pingfederate/`](../deploy/pingfederate/README.md).
+[`idp-agentic-demo/gm-api/pingfederate/`](https://github.com/dphhyland/idp-agentic-demo/blob/main/gm-api/pingfederate).
 
 ```bash
 go run ./cmd/pdp -addr :9099 -expose-entitlements &   # AuthZEN PDP the servlet calls
@@ -154,7 +154,7 @@ whether an agent flow was expected. The actor is taken **only** from the signed 
 `context.actor` is overwritten (`DelegationTest`).
 
 **Not wired here:** PingFederate must actually *mint* the delegated token — a token-exchange processor
-policy that nests `act`. The PF in `../deploy/pingfederate/` is not configured for it, so the live path
+policy that nests `act`. The PF configured by [`idp-agentic-demo/gm-api/`](https://github.com/dphhyland/idp-agentic-demo/blob/main/gm-api) does not enable it, so the live path
 there only exercises `delegated: false`; act-chain reading, nesting, cycle-safety and propagation are
 covered by `DelegationTest`. `may_act` — who may delegate — is enforced at token exchange, upstream of
 this API.
@@ -165,4 +165,4 @@ Both exist on purpose. This is the PingFederate artifact; `cmd/gm-api` is the AS
 the spec proposal, and the only one that demonstrates the extension is not Ping-specific. They agree on
 the AuthZEN request shape and on the §8.4.2 gates, which is what makes them the same API rather than
 two. The consent path mirrors too: native `getAuthorizationDetails()` wins, and the
-`authorization_details` grant attribute is the fallback (see `../deploy/pingfederate/README.md`).
+`authorization_details` grant attribute is the fallback (see [`idp-agentic-demo/gm-api/pingfederate/README.md`](https://github.com/dphhyland/idp-agentic-demo/blob/main/gm-api/pingfederate/README.md)).

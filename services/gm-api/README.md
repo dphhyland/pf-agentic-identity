@@ -17,7 +17,7 @@ what a token introspection cannot see.
 | Path | What |
 |---|---|
 | [`servlet/`](servlet) | The API as a PF war: query / revoke / evaluate / metadata + the `/mcp` JSON-RPC add-on. Reads grants in-process via the PF SDK (`AccessGrantManagerAccessor`), verifies tokens against PF's own keys (`JwksEndpointKeyAccessor`). **Start at [`servlet/README.md`](servlet/README.md).** |
-| [`deploy/`](deploy) | The PF this was verified against: a DevOps container, Terraform for the token manager / scopes / clients / PCV, and the PingDirectory grant-store LDIFs — [`deploy/pingfederate/README.md`](deploy/pingfederate/README.md) |
+| PF + PingDirectory config | Not here — this repo configures no PingFederate. The Terraform (token manager, scopes, clients, PCV) and the grant-store LDIFs moved to [`idp-agentic-demo/gm-api/`](https://github.com/dphhyland/idp-agentic-demo/blob/main/gm-api) on 2026-08-21, beside `gm-pdp` and the agents that exercise them. |
 | [`docs/`](docs) | see below |
 | [`examples/`](examples) | `java/GrantManagementClient.java`, a single-file JDK-only client; curl and Go examples live with the Go reference |
 
