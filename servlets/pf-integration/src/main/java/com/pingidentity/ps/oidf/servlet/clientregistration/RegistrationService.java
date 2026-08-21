@@ -295,7 +295,11 @@ final class RegistrationService {
         // rather than authenticating trivially.
         client.setClientAuthnType(ClientAuthenticationType.PRIVATE_KEY_JWT);
         client.setJwks(OBJECT_MAPPER.writeValueAsString(attestationAuth ? withBridgeKeys(jwks, clientId) : jwks));
-        client.setName(String.valueOf(oidcRPMetadata.get("client_name")));
+        // String.valueOf(null) is the string "null", not null. Every one of these used to write that
+        // literal into PF whenever the leaf omitted the field - a client actually named "null", signing
+        // algorithms of "null", and (worst) a client restricted to a scope called "null", which is a
+        // scope no token will ever carry. metadataString is the null-safe reader; use it.
+        client.setName(metadataString(oidcRPMetadata, "client_name"));
         // An oauth_client doing client_credentials legitimately has no redirect_uris / response_types,
         // but PF's XML client store iterates these lists unguarded at save time — never pass null.
         List redirectUris = (List)oidcRPMetadata.get("redirect_uris");
@@ -304,12 +308,14 @@ final class RegistrationService {
         client.setRestrictedResponseTypes(responseTypes != null ? responseTypes : new ArrayList<>());
         List grantTypes = (List)oidcRPMetadata.get("grant_types");
         client.setGrantTypes(grantTypes != null ? new HashSet(grantTypes) : new HashSet());
-        client.setTokenEndpointAuthSigningAlgorithm(String.valueOf(oidcRPMetadata.get("token_endpoint_auth_signing_alg")));
-        client.setIdTokenSigningAlgorithm(String.valueOf(oidcRPMetadata.get("id_token_signed_response_alg")));
-        client.setRequestObjectSigningAlgorithm(String.valueOf(oidcRPMetadata.get("request_object_signing_alg")));
-        List<String> scopes = Arrays.stream(String.valueOf(oidcRPMetadata.get("scope")).trim().split(" +")).filter(s -> !s.isBlank()).toList();
+        client.setTokenEndpointAuthSigningAlgorithm(metadataString(oidcRPMetadata, "token_endpoint_auth_signing_alg"));
+        client.setIdTokenSigningAlgorithm(metadataString(oidcRPMetadata, "id_token_signed_response_alg"));
+        client.setRequestObjectSigningAlgorithm(metadataString(oidcRPMetadata, "request_object_signing_alg"));
+        String scope = metadataString(oidcRPMetadata, "scope");
+        List<String> scopes = scope == null ? List.of()
+                : Arrays.stream(scope.trim().split(" +")).filter(s -> !s.isBlank()).toList();
         client.setRestrictedScopes(scopes);
-        client.setBypassApprovalPage(true);
+        client.setBypassApprovalPage(bypassApprovalPage(grantTypes));
         HashMap<String, ParamValues> extendedParams = new HashMap<String, ParamValues>();
         // Every name written here must be declared in extended-properties.tf or PF rejects/drops it -
         // see FederationClientParams, which both this and that file are checked against.
@@ -327,6 +333,32 @@ final class RegistrationService {
             client.setClientId(clientId);
         }
         return client;
+    }
+
+    /**
+     * Whether to skip the approval page. Previously always true, which silently suppressed consent for
+     * every federation-registered client - including one running authorization_code with a real user in
+     * front of it.
+     *
+     * <p>The honest rule is whether there is anyone to ask. A client whose only grant is
+     * {@code client_credentials} acts with no resource owner present, so an approval page has no one to
+     * show and bypassing is correct. Any user-facing grant gets the page.
+     *
+     * <p>This is a behaviour change, in the safer direction: some clients that skipped consent will now
+     * ask for it. A deployment that genuinely wants consent suppressed for a user-facing client should
+     * configure that on the client in PF, where it is visible, rather than inherit it from a default
+     * that applied to everything.
+     */
+    private static boolean bypassApprovalPage(List<?> grantTypes) {
+        if (grantTypes == null || grantTypes.isEmpty()) {
+            return false;
+        }
+        for (Object g : grantTypes) {
+            if (!"client_credentials".equals(String.valueOf(g))) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String metadataString(Map<String, Object> oidcRPMetadata, String key) {
