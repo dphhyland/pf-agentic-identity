@@ -17,6 +17,9 @@
   </description>
 
   <properties>
+        <!-- A vendored tree with its own groupId (au.com.idpartners) and local.pingfederate:* conventions; it
+         is deliberately not a BOM consumer either. Its war ships as a release asset, not a Maven artifact. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <pingfederate.version>13.0.3</pingfederate.version>

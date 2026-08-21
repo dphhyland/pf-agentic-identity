@@ -51,11 +51,15 @@
 
     <!-- Published as a versioned artifact; downstream repos (client-attestation, openid-federation) depend on it.
          Registry defaults to GitHub Packages; `mvn deploy` needs a settings.xml server 'github' with a token. -->
+    <!-- Published to the monorepo's own package registry. These used to point at the abandoned
+         standalone repos (dphhyland/oidf-jose, /client-attestation, /pf-integration) that this repo
+         absorbed - so `mvn deploy` would have pushed artifacts to three repositories that are
+         backport-only, and skipped every module that had no block at all. -->
     <distributionManagement>
         <repository>
             <id>github</id>
             <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/dphhyland/oidf-jose</url>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
         </repository>
     </distributionManagement>
 </project>

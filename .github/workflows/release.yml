@@ -1,0 +1,166 @@
+# Publish a versioned, checksummed build of the capability.
+#
+# WHY THIS EXISTS. Three repos consume this one, and until now every one of them did it by copying
+# jars: idp-agentic-demo commits four built artifacts into its tree, pf-oidf-modules stages them from a
+# sibling checkout, domain-authority builds them locally. Nothing recorded which build a copy came from,
+# so nothing could tell you a copy was stale — and one was, by nearly two weeks and an entire
+# split-package unwind, with none of the Tier 1/2 security work in it. That is the failure this closes:
+# not tidiness, but the absence of any way to notice.
+#
+# TWO PUBLICATION CHANNELS, deliberately, because the consumers are not alike:
+#   Maven / GitHub Packages   for anything resolving dependencies (domain-authority's phone-simulator
+#                             builds against device-enrolment + app-attest). NOTE: GitHub Packages
+#                             requires authentication even for PUBLIC reads, so this alone would not
+#                             serve the jar-copying consumers.
+#   Release assets            the staged module set + wars + plugin jars + SHA256SUMS + PROVENANCE.
+#                             Publicly downloadable, no auth, and pinnable by tag and checksum. This is
+#                             what a consumer's vendor script should pull.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to publish; must equal the version in bom/pom.xml"
+        required: true
+
+env:
+  PF_IMAGE: pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
+
+permissions:
+  contents: write     # create the release
+  packages: write     # publish to GitHub Packages
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false     # never cancel a half-published release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: github          # matches <distributionManagement><id>github</id>
+          server-username: MAVEN_USERNAME
+          server-password: MAVEN_TOKEN
+
+      # The tag is the claim; the poms are the fact. Assert rather than rewrite: `versions:set` across a
+      # reactor with no parent is fiddly and silently partial, and a release whose coordinates disagree
+      # with its tag is worse than a failed one.
+      - name: the tag must match the declared version
+        run: |
+          TAG="${{ github.event.inputs.version || github.ref_name }}"
+          TAG="${TAG#v}"
+          POM="$(sed -n 's|.*<version>\(.*\)</version>.*|\1|p' bom/pom.xml | head -1)"
+          echo "tag=$TAG  bom/pom.xml=$POM"
+          if [ "$TAG" != "$POM" ]; then
+            echo "::error::tag $TAG does not match bom/pom.xml $POM. Bump the poms, or tag the version that exists."
+            exit 1
+          fi
+          echo "VERSION=$TAG" >> "$GITHUB_ENV"
+
+      - name: no archive or key material may be released
+        # The same invariant build.yml enforces, at the one moment artifacts leave the repo.
+        run: |
+          tracked="$(git ls-files '*.zip' '*pf.jwk' '*pingfederate-system-keys.xml' '*.jwk' '*.jks' '*.p12' '*.pfx' '*.lic')"
+          [ -n "$tracked" ] && { echo "::error::refusing to release with key material tracked:"; printf '%s\n' "$tracked"; exit 1; }
+          echo "clean"
+
+      - name: extract the provided PF jars from the image
+        run: |
+          docker create --name pf "$PF_IMAGE"
+          docker cp pf:/opt/out/instance/server/default/lib/. pf-lib/ 2>/dev/null || \
+            docker cp pf:/opt/server/server/default/lib/. pf-lib/
+          docker rm pf
+          mvn -q install:install-file -Dfile="$(ls pf-lib/pf-protocolengine*.jar | head -1)" \
+            -DgroupId=pingfederate -DartifactId=pf-protocolengine -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
+          docker create --name pfsdk "$PF_IMAGE" && { docker cp pfsdk:/opt/out/instance/sdk/lib/. pf-sdk-lib/ 2>/dev/null || docker cp pfsdk:/opt/server/sdk/lib/. pf-sdk-lib/ || true; }; docker rm pfsdk
+          SDK_JAR=""; for j in pf-sdk-lib/*.jar pf-lib/*.jar; do unzip -l "$j" 2>/dev/null | grep -q "com/pingidentity/access/JwksEndpointKeyAccessor.class" && SDK_JAR="$j" && break; done
+          test -n "$SDK_JAR"
+          mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.0.3 -Dpackaging=jar -DgeneratePom=true
+          mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.3 -Dpackaging=jar -DgeneratePom=true
+          mvn -q dependency:get -Dartifact=org.eclipse.jetty.toolchain:jetty-servlet-api:4.0.9
+          SAPI=$(find ~/.m2 -name 'jetty-servlet-api-4.0.9.jar' | head -1)
+          mvn -q install:install-file -Dfile="$SAPI" -DgroupId=local.pingfederate -DartifactId=servlet-api -Dversion=4.0.9 -Dpackaging=jar -DgeneratePom=true
+          for spec in jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
+            a="${spec%%:*}"; v="${spec##*:}"
+            J=$(ls pf-lib/${a}-[0-9]*.jar 2>/dev/null | head -1); [ -z "$J" ] && J=$(ls pf-lib/*${a}*.jar 2>/dev/null | head -1)
+            test -n "$J"
+            mvn -q install:install-file -Dfile="$J" -DgroupId=local.pingfederate -DartifactId="$a" -Dversion="$v" -Dpackaging=jar -DgeneratePom=true
+          done
+
+      # Tests ON. A release is the one build where "it compiled" is not the bar.
+      - name: build the reactor with tests
+        run: mvn -B package
+
+      - name: stage the module set
+        # Writes modules/ + MANIFEST. assemble-pf-runtime-war.sh refuses a directory that does not match
+        # its MANIFEST, so a partial stage fails the release rather than shipping a war that 500s.
+        run: bash build/pingfederate/stage-modules.sh
+
+      - name: assemble the release artifacts
+        run: |
+          mkdir -p dist
+          cp build/pingfederate/modules/*.jar build/pingfederate/modules/MANIFEST dist/
+          cp servlets/oidf-war/target/oidf.war dist/
+          cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar dist/
+          cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/ 2>/dev/null || true
+          cp services/gm-api/servlet/target/gm-api.war dist/ 2>/dev/null || true
+
+          # Provenance: what a consumer needs to answer "which build is this, and am I behind?"
+          {
+            echo "pf-agentic-identity $VERSION"
+            echo "commit:    ${{ github.sha }}"
+            echo "tag:       ${{ github.event.inputs.version || github.ref_name }}"
+            echo "built:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "run:       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo
+            echo "The module set below is what PF loads. It is EIGHT SEPARATE JARS staged into modules/,"
+            echo "merged into pf-runtime.war at image build. It is NOT the legacy single"
+            echo "pf-oidf-modules.jar, which this build has not produced since the 2026-08-15"
+            echo "split-package unwind - if you are copying a file by that name, you are running code"
+            echo "older than that unwind."
+            echo
+            cat build/pingfederate/modules/MANIFEST
+          } > dist/PROVENANCE.txt
+
+          ( cd dist && sha256sum * > SHA256SUMS )
+          echo "--- release contents"; ls -la dist | sed 's/^/  /'
+
+      - name: publish Maven artifacts to GitHub Packages
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Tests already ran above; re-running them here would double a slow build for no new signal.
+        run: mvn -B -DskipTests deploy
+
+      - name: create the GitHub release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.event.inputs.version || github.ref_name }}" dist/* \
+            --title "pf-agentic-identity $VERSION" \
+            --notes "$(cat <<'NOTES'
+          The PF module set, wars and plugin jars for this version, with `SHA256SUMS` and
+          `PROVENANCE.txt` recording the commit that produced them.
+
+          **Consuming this.** Pull the assets and check them against `SHA256SUMS`; record the tag you
+          pulled. Do not copy jars from a sibling checkout without recording which build they came from —
+          that is how a consumer ended up running module code from before the split-package unwind, with
+          none of the security work in it, and no way to notice.
+
+          `modules/` is **eight separate jars**, not the legacy single `pf-oidf-modules.jar`. Anything
+          still copying a file by that name is running pre-2026-08-15 code.
+
+          Maven artifacts are also published to GitHub Packages under
+          `com.pingidentity.ps.oidf`. Note that GitHub Packages requires authentication even for public
+          reads, so the assets here are the auth-free path.
+          NOTES
+          )"

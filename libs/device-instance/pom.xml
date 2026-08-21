@@ -58,4 +58,17 @@
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
         </plugins>
     </build>
+
+    <!-- Published to the monorepo's own package registry. These used to point at the abandoned
+         standalone repos (dphhyland/oidf-jose, /client-attestation, /pf-integration) that this repo
+         absorbed - so `mvn deploy` would have pushed artifacts to three repositories that are
+         backport-only, and skipped every module that had no block at all. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
 </project>

@@ -34,6 +34,26 @@ You supply, per deployment (all git-ignored - see `.gitignore`):
 | `overlay/pf.jwk`, `overlay/pingfederate-system-keys.xml` | needed **only** on the plaintext path. The encrypted path takes them from inside the archive. |
 | `oidf-mock-attesters.json` | DEV attester trust (issuer → public JWK). Demo trust, not capability - which is why it is supplied rather than baked here, so no consumer inherits another's attesters. |
 
+## Consuming a release, rather than copying jars
+
+Tagging `v<version>` publishes a checksummed set of these artifacts as a GitHub Release — the module
+set, `oidf.war`, the plugin jars, `SHA256SUMS`, and a `PROVENANCE.txt` naming the commit that built
+them. Maven artifacts also go to GitHub Packages under `com.pingidentity.ps.oidf`, though that requires
+authentication even for public reads, so the release assets are the auth-free path.
+
+**Pull a release and record what you pulled.** The alternative — copying jars out of a sibling checkout
+— is how a consumer came to be running module code from before the 2026-08-15 split-package unwind,
+with none of the security work in it, and nothing anywhere recording that it was behind.
+
+```sh
+gh release download v0.1.0 -R dphhyland/pf-agentic-identity -D vendor/
+( cd vendor && sha256sum -c SHA256SUMS )      # verify before use
+grep -E '^(commit|tag):' vendor/PROVENANCE.txt >> VENDORED.txt   # record it
+```
+
+`modules/` is **eight separate jars**. If you are copying a single `pf-oidf-modules.jar`, you are on
+the pre-unwind artifact shape that this build no longer produces.
+
 ## Building
 
 ```sh

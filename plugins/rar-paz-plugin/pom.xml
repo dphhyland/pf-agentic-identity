@@ -6,7 +6,10 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>pf-rar-paz-plugin</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
+    <!-- 0.1.0 with the rest of the reactor. Was 0.0.1-SNAPSHOT, a leftover of its standalone-repo
+         life: nothing references its version, a SNAPSHOT cannot be part of a release, and the jar name
+         is finalName-fixed (pf.plugins.pf-rar-paz-plugin.jar) so consumers see no change. -->
+    <version>0.1.0</version>
     <packaging>jar</packaging>
 
     <name>pf-rar-paz-plugin</name>
@@ -144,4 +147,17 @@
             </plugin>
         </plugins>
     </build>
+
+    <!-- Published to the monorepo's own package registry. These used to point at the abandoned
+         standalone repos (dphhyland/oidf-jose, /client-attestation, /pf-integration) that this repo
+         absorbed - so `mvn deploy` would have pushed artifacts to three repositories that are
+         backport-only, and skipped every module that had no block at all. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
 </project>

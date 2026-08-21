@@ -27,6 +27,8 @@
     </licenses>
 
     <properties>
+        <!-- A local verification CLI, not a component anyone consumes. Nothing to publish. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
     </properties>
