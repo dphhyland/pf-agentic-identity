@@ -153,10 +153,11 @@ public final class TrustChainValidator {
         // typically both openid_relying_party and oauth_client at once) — not narrowed to a single
         // assumed type, so a caller that needs a type other than openid_relying_party (e.g.
         // ClientEntityAuthorizer, which reads oauth_client) actually receives it.
+        Set<String> policedEntityTypes = new LinkedHashSet<String>();
         Map<String, Object> resolvedMetadata = applyMetadataPolicy(
-                Claims.optionalMap(verifiedLeaf, "metadata"), verifiedByIndex);
+                Claims.optionalMap(verifiedLeaf, "metadata"), verifiedByIndex, policedEntityTypes);
         pendingWrites.commit();
-        return new TrustChainValidationResult(trustAnchorIssuer, verifiedLeaf.getSubject(), resolvedMetadata, trustChain, verifiedLeaf);
+        return new TrustChainValidationResult(trustAnchorIssuer, verifiedLeaf.getSubject(), resolvedMetadata, trustChain, verifiedLeaf, policedEntityTypes);
     }
 
     /**
@@ -179,12 +180,19 @@ public final class TrustChainValidator {
      * either published rendering, are the same "no more permissive than any plausible reading" posture
      * documented on {@link MetadataPolicy}'s class javadoc.
      *
+     * <p>A chain may legally declare no policy at all, in which case the leaf's self-published metadata
+     * is returned untouched. That is indistinguishable, in the returned map, from a policy that happened
+     * to change nothing — so {@code policedEntityTypes} collects the types a superior actually
+     * constrained, letting a caller tell "the anchor allowed this" from "nobody said anything".
+     *
+     * @param policedEntityTypes out-parameter: receives each entity type for which a non-empty composed
+     *                           policy was applied. Types absent from it passed through verbatim.
      * @throws MetadataPolicy.PolicyException on any policy conflict, or metadata that does not satisfy
      *                                         the composed policy — always fails closed, never falls
      *                                         through with an unenforced policy
      */
-    private static Map<String, Object> applyMetadataPolicy(Map<String, Object> leafMetadata, JwtClaims[] verifiedByIndex)
-            throws MetadataPolicy.PolicyException {
+    private static Map<String, Object> applyMetadataPolicy(Map<String, Object> leafMetadata, JwtClaims[] verifiedByIndex,
+            Set<String> policedEntityTypes) throws MetadataPolicy.PolicyException {
         Set<String> entityTypes = new LinkedHashSet<String>(leafMetadata.keySet());
         for (int idx = 1; idx < verifiedByIndex.length; idx++) {
             if (verifiedByIndex[idx] != null) {
@@ -206,6 +214,7 @@ public final class TrustChainValidator {
             if (composed.isEmpty()) {
                 continue;
             }
+            policedEntityTypes.add(entityType);
             Map<String, Object> current = Claims.optionalNestedMap(leafMetadata, entityType);
             Map<String, Object> applied = composed.apply(current);
             if (!applied.isEmpty()) {

@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.federation;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.Claims;
 
@@ -24,6 +25,7 @@ public final class TrustChainValidationResult {
     private final Map<String, Object> resolvedMetadata;
     private final List<String> trustChain;
     private final JwtClaims leafEntityStatement;
+    private final Set<String> policedEntityTypes;
 
     /**
      * @param resolvedMetadata the leaf's full {@code metadata} claim, exactly as verified — one block
@@ -36,6 +38,17 @@ public final class TrustChainValidationResult {
      *                         without a type conversion.
      */
     public TrustChainValidationResult(String trustAnchorIssuer, String leafSubject, Map<String, Object> resolvedMetadata, List<String> trustChain, JwtClaims leafEntityStatement) {
+        this(trustAnchorIssuer, leafSubject, resolvedMetadata, trustChain, leafEntityStatement, Set.of());
+    }
+
+    /**
+     * @param policedEntityTypes the entity types for which a superior in the chain actually declared a
+     *                           non-empty {@code metadata_policy} that was composed and applied. An
+     *                           entity type ABSENT here was resolved from the leaf's own self-published
+     *                           metadata with nothing constraining it — see {@link #policedEntityTypes()}.
+     */
+    public TrustChainValidationResult(String trustAnchorIssuer, String leafSubject, Map<String, Object> resolvedMetadata, List<String> trustChain, JwtClaims leafEntityStatement, Set<String> policedEntityTypes) {
+        this.policedEntityTypes = policedEntityTypes != null ? Set.copyOf(policedEntityTypes) : Set.of();
         this.trustAnchorIssuer = trustAnchorIssuer;
         this.leafSubject = leafSubject;
         this.resolvedMetadata = resolvedMetadata != null ? Map.copyOf(resolvedMetadata) : Map.of();
@@ -77,6 +90,26 @@ public final class TrustChainValidationResult {
 
     public JwtClaims leafEntityStatement() {
         return this.leafEntityStatement;
+    }
+
+    /**
+     * The entity types a superior actually constrained: those for which some statement above the leaf
+     * declared a non-empty {@code metadata_policy}, composed down the chain and applied here.
+     *
+     * <p>A type <em>not</em> in this set passed through <em>verbatim</em> from the leaf's own Entity
+     * Configuration. That is legal OpenID Federation — a chain need declare no policy at all — but it
+     * means nothing above the leaf limited what it asked for: an entity can self-publish any
+     * {@code scope}, {@code grant_types} or {@code response_types} it likes and be resolved with them
+     * intact. A caller that turns resolved metadata into a client should decide deliberately whether
+     * an unconstrained type is acceptable, rather than discovering later that it was.
+     */
+    public Set<String> policedEntityTypes() {
+        return this.policedEntityTypes;
+    }
+
+    /** True when a superior in the chain constrained {@code entityType}. See {@link #policedEntityTypes()}. */
+    public boolean isPoliced(String entityType) {
+        return this.policedEntityTypes.contains(entityType);
     }
 }
 

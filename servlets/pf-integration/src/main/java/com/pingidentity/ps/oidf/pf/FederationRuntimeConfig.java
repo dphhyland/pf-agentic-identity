@@ -33,6 +33,12 @@ public final class FederationRuntimeConfig {
     public static final String BRIDGE_PREVIOUS_PUBLIC_KEY_ENV = "OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK";
     /** Default true: without the bridge key, attestation authentication silently does nothing. */
     public static final String REQUIRE_BRIDGE_KEY_ENV = "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY";
+    /**
+     * Default true: refuse to register a federation client whose metadata no superior constrained.
+     * A trust chain may legally carry no {@code metadata_policy}, in which case the leaf's own
+     * self-published {@code scope}, {@code grant_types} and {@code response_types} are what it gets.
+     */
+    public static final String REQUIRE_METADATA_POLICY_ENV = "OIDF_REQUIRE_METADATA_POLICY";
 
     private static final String HOST_PROP = "oidf.federation.trust.controller.host";
     private static final String BASE_URL_PROP = "oidf.federation.trust.controller.base.url";
@@ -40,6 +46,7 @@ public final class FederationRuntimeConfig {
     private static final String BRIDGE_KEY_PROP = "oidf.bridge.private.jwk";
     private static final String BRIDGE_PREVIOUS_PUBLIC_KEY_PROP = "oidf.bridge.previous.public.jwk";
     private static final String REQUIRE_BRIDGE_KEY_PROP = "oidf.attestation.require.bridge.key";
+    private static final String REQUIRE_METADATA_POLICY_PROP = "oidf.require.metadata.policy";
 
     private static volatile FederationRuntimeConfig instance;
 
@@ -49,12 +56,15 @@ public final class FederationRuntimeConfig {
     private final String bridgePrivateJwk;
     private final String bridgePreviousPublicJwk;
     private final boolean requireBridgeKey;
+    private final boolean requireMetadataPolicy;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, boolean ignoreSslErrors,
-            String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey) {
+            String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
+            boolean requireMetadataPolicy) {
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
         this.requireBridgeKey = requireBridgeKey;
+        this.requireMetadataPolicy = requireMetadataPolicy;
         this.trustControllerHost = trustControllerHost == null ? "" : trustControllerHost.trim();
         String base = trustControllerBaseUrl == null ? "" : trustControllerBaseUrl.trim();
         // The identity and its reachable location are the same thing in most deployments; only a PF
@@ -83,6 +93,7 @@ public final class FederationRuntimeConfig {
         Objects.requireNonNull(env, "env");
         Objects.requireNonNull(props, "props");
         String requireBridge = setting(env, props, REQUIRE_BRIDGE_KEY_PROP, REQUIRE_BRIDGE_KEY_ENV);
+        String requirePolicy = setting(env, props, REQUIRE_METADATA_POLICY_PROP, REQUIRE_METADATA_POLICY_ENV);
         return new FederationRuntimeConfig(
                 setting(env, props, HOST_PROP, HOST_ENV),
                 setting(env, props, BASE_URL_PROP, BASE_URL_ENV),
@@ -91,7 +102,10 @@ public final class FederationRuntimeConfig {
                 setting(env, props, BRIDGE_PREVIOUS_PUBLIC_KEY_PROP, BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
                 // Default TRUE: an absent bridge key makes attestation authentication a no-op, which
                 // is exactly the failure that should be loud rather than silent.
-                requireBridge == null || requireBridge.isBlank() || Boolean.parseBoolean(requireBridge));
+                requireBridge == null || requireBridge.isBlank() || Boolean.parseBoolean(requireBridge),
+                // Default TRUE for the same reason: a chain with no metadata_policy constrains nothing,
+                // so the leaf's self-published scope and grant_types are simply granted. Silently.
+                requirePolicy == null || requirePolicy.isBlank() || Boolean.parseBoolean(requirePolicy));
     }
 
     private static String blankToNull(String value) {
@@ -130,6 +144,19 @@ public final class FederationRuntimeConfig {
 
     public boolean requireBridgeKey() {
         return this.requireBridgeKey;
+    }
+
+    /**
+     * True (the default) when federation registration must refuse a client whose entity type no
+     * superior in the trust chain constrained with a {@code metadata_policy}.
+     *
+     * <p>Set {@code OIDF_REQUIRE_METADATA_POLICY=false} to accept unconstrained leaf metadata — an
+     * interop or bootstrap posture, not one to run a real AS on: without a policy the leaf decides its
+     * own {@code scope}, {@code grant_types} and {@code response_types}, and the anchor is reduced to
+     * asserting that the entity exists.
+     */
+    public boolean requireMetadataPolicy() {
+        return this.requireMetadataPolicy;
     }
 
     /**

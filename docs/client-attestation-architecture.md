@@ -320,6 +320,7 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 |---|---|---|
 | `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` | Cluster-wide challenge + replay store. Unset = per-node in-memory | No — a resource of whichever environment deploys this, so set outside this repo |
 | `OIDF_BRIDGE_PRIVATE_JWK` / `oidf.bridge.private.jwk` | The filter's bridge signing key. Unset = every attestation request passes through unbridged | **No** — named only in a comment in the assemble script |
+| `OIDF_REQUIRE_METADATA_POLICY` / `oidf.require.metadata.policy` | **Default true.** Refuses federation registration when no superior in the trust chain declares a `metadata_policy` for the entity type being registered — without one the leaf's self-published `scope`, `grant_types` and `response_types` are granted verbatim | No — the default is the safe one, so a deployment only sets this to relax it |
 | `oidf.mock.attesters` | Static attester trust, bypassing federation trust chains | **Yes** — written into `run.properties.subst.default` by the Dockerfile |
 | `oidf.attestation.required.claims` | Global required-disclosure default | Yes — `workload`, via the Dockerfile |
 | `OIDF_FEDERATION_TRUST_CONTROLLER_HOST` | Attester trust chain resolution (AS side). Required even in mock mode, or token-endpoint attestation auth NPEs | Yes — staging and production |

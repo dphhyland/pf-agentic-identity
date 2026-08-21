@@ -90,6 +90,9 @@ final class RegistrationService {
             throw new RegistrationRejectedException(409, "invalid_client_metadata",
                     "client_id " + clientId + " is administered outside OpenID Federation and cannot be registered through it");
         }
+        // Deliberately after the 409: a client that is not ours to touch should be told so, rather than
+        // told its chain lacks a policy - the first is the actionable answer and the more specific one.
+        requireConstrainedByPolicy(validation, clientEntityType(validation), clientId);
 
         JwtClaims leafEntityStatement = validation.leafEntityStatement();
         Map jwks = leafEntityStatement.getClaimValue("jwks", Map.class);
@@ -114,14 +117,53 @@ final class RegistrationService {
      * the latter.
      */
     private static Map<String, Object> federationClientMetadata(TrustChainValidationResult validation, String clientId) {
-        Map<String, Object> leafMetadata = validation.metadataFor("oauth_client");
-        if (leafMetadata == null || leafMetadata.isEmpty()) {
-            leafMetadata = validation.metadataFor("openid_relying_party");
-        }
+        Map<String, Object> leafMetadata = validation.metadataFor(clientEntityType(validation));
         if (leafMetadata == null || leafMetadata.isEmpty()) {
             throw new IllegalStateException("resolved leaf has no oauth_client/openid_relying_party metadata; cannot register " + clientId);
         }
         return leafMetadata;
+    }
+
+    /**
+     * Which entity type this registration actually consumes: {@code oauth_client} when the leaf carries
+     * it, otherwise {@code openid_relying_party}. Kept next to {@link #federationClientMetadata} because
+     * the two must agree — the policy check is only meaningful against the block being used.
+     */
+    private static String clientEntityType(TrustChainValidationResult validation) {
+        Map<String, Object> oauthClient = validation.metadataFor("oauth_client");
+        return oauthClient != null && !oauthClient.isEmpty() ? "oauth_client" : "openid_relying_party";
+    }
+
+    /**
+     * Refuses a client whose metadata no superior in the trust chain constrained.
+     *
+     * <p>{@link com.pingidentity.ps.oidf.federation.MetadataPolicy} applies a {@code metadata_policy}
+     * faithfully — but a chain is under no obligation to declare one, and when none does, the leaf's
+     * self-published metadata is resolved verbatim. Everything this method's caller then writes onto a
+     * PF client — {@code scope}, {@code grant_types}, {@code response_types} — is whatever the entity
+     * asked for. The trust chain still proves the entity is who it says and that the anchor vouches for
+     * its existence; it does not, on its own, say what the entity may do.
+     *
+     * <p>So this fails closed by default: an anchor that has not published a policy for the entity type
+     * being registered gets a rejection rather than a client with unbounded scope. The policy itself is
+     * anchor configuration and lives with whoever deploys the federation; the DEFAULT belongs here,
+     * because a permissive default is invisible in exactly the deployments least likely to notice.
+     *
+     * <p>Note the type checked is the one actually consumed: {@code federationClientMetadata} prefers
+     * {@code oauth_client}, so an anchor that publishes only an {@code openid_relying_party} policy has
+     * constrained nothing for an agent, and is treated as such.
+     */
+    private static void requireConstrainedByPolicy(TrustChainValidationResult validation, String entityType, String clientId)
+            throws RegistrationRejectedException {
+        if (validation.isPoliced(entityType) || !FederationRuntimeConfig.get().requireMetadataPolicy()) {
+            return;
+        }
+        throw new RegistrationRejectedException(400, "invalid_client_metadata",
+                "no superior in the trust chain declares a metadata_policy for " + entityType + ", so "
+                        + clientId + " would be registered with the scope, grant_types and response_types "
+                        + "it published about itself. Publish a metadata_policy at the trust anchor (or an "
+                        + "intermediate), or set " + FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV
+                        + "=false to accept unconstrained federation metadata.");
     }
 
     private static void requireRegistrationType(Map<String, Object> leafMetadata, String clientId, String type) throws RegistrationRejectedException {
@@ -159,6 +201,7 @@ final class RegistrationService {
         if (!(regTypes instanceof List) || !((List)regTypes).contains("automatic")) {
             throw new IllegalStateException("client " + clientId + " does not advertise client_registration_types=automatic; refusing automatic registration");
         }
+        requireConstrainedByPolicy(validation, clientEntityType(validation), clientId);
         JwtClaims leafEntityStatement = validation.leafEntityStatement();
         Map jwks = leafEntityStatement.getClaimValue("jwks", Map.class);
         Client client = buildClient(clientId, leafMetadata, opIssuer, jwks, validation.trustChain(), this.configuration, "auto_registered");

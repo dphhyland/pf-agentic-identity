@@ -19,6 +19,7 @@ import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.jose4j.jwt.JwtClaims;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -47,8 +48,19 @@ class RegistrationServiceAutomaticRegisterTest {
         JwtClaims leaf = new JwtClaims();
         leaf.setClaim("jwks", Map.of("keys", List.of(
                 Map.of("kty", "EC", "crv", "P-256", "x", "abc", "y", "def", "kid", "k1"))));
+        // Policed: a superior declared a metadata_policy for this entity type. That is the normal case
+        // and the one registration requires by default - see requireConstrainedByPolicy.
         return new TrustChainValidationResult(
-                "https://tc.example", CLIENT_ID, Map.of(entityType, metadata), TRUST_CHAIN, leaf);
+                "https://tc.example", CLIENT_ID, Map.of(entityType, metadata), TRUST_CHAIN, leaf, Set.of(entityType));
+    }
+
+    /** As {@link #resultWith} but with NO superior policy for the type - a chain that constrains nothing. */
+    private TrustChainValidationResult unpolicedResultWith(String entityType, Map<String, Object> metadata) {
+        JwtClaims leaf = new JwtClaims();
+        leaf.setClaim("jwks", Map.of("keys", List.of(
+                Map.of("kty", "EC", "crv", "P-256", "x", "abc", "y", "def", "kid", "k1"))));
+        return new TrustChainValidationResult(
+                "https://tc.example", CLIENT_ID, Map.of(entityType, metadata), TRUST_CHAIN, leaf, Set.of());
     }
 
     private static Client clientWithStatus(String status) {
