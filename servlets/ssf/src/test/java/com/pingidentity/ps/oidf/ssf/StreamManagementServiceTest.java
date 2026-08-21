@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;
@@ -27,7 +29,25 @@ class StreamManagementServiceTest {
     void setUp() {
         store = new InMemorySsfStore();
         cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").build();
-        svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg);
+        svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg, SetPublisher.NOOP, testPolicy());
+    }
+
+    /**
+     * Push endpoints are screened by {@link OutboundUrlPolicy} before they are stored, and the policy
+     * resolves the host. A stubbed resolver keeps these tests hermetic: without it every case using
+     * {@code receiver.example.com} depends on DNS, and the suite fails offline (as it did the moment
+     * the screening went in — "cannot resolve it"). Everything resolves public except the hosts named.
+     */
+    private static OutboundUrlPolicy testPolicy() {
+        return OutboundUrlPolicy.from(Map.<String, String>of()::get).withResolver(host -> {
+            try {
+                String ip = "metadata.internal".equals(host) ? "169.254.169.254" : "93.184.216.34";
+                return new InetAddress[] { InetAddress.getByName(ip) };
+            }
+            catch (Exception e) {
+                throw new IllegalArgumentException(e);
+            }
+        });
     }
 
     private Map<String, Object> pollBody() {

@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,16 +32,48 @@ public final class StreamManagementService {
     private final SetMinter minter;
     private final SsfConfiguration config;
     private final SetPublisher publisher;
+    private final OutboundUrlPolicy outboundPolicy;
 
     public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config) {
         this(store, minter, config, SetPublisher.NOOP);
     }
 
     public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config, SetPublisher publisher) {
+        this(store, minter, config, publisher, OutboundUrlPolicy.fromEnvironment());
+    }
+
+    /** Test seam: a stubbed-resolver policy, so endpoint screening is exercised without real DNS. */
+    public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config, SetPublisher publisher,
+            OutboundUrlPolicy outboundPolicy) {
         this.store = store;
         this.minter = minter;
         this.config = config;
         this.publisher = publisher != null ? publisher : SetPublisher.NOOP;
+        this.outboundPolicy = outboundPolicy != null ? outboundPolicy : OutboundUrlPolicy.fromEnvironment();
+    }
+
+    /**
+     * Screens a receiver-supplied push {@code endpoint_url} before it is ever stored.
+     *
+     * <p>A push stream is a standing instruction to POST signed events at a URL the <em>receiver</em>
+     * chose. Without this, {@code http://169.254.169.254/latest/meta-data/} or
+     * {@code http://redis.railway.internal:6379/} is an accepted stream configuration, and the
+     * transmitter becomes a request forwarder into its own network — authenticated, but authentication
+     * is not authorisation to reach an arbitrary address.
+     *
+     * <p>Refused at CREATE and PATCH rather than only at delivery: a rejection the caller sees on the
+     * API call it just made is actionable, whereas one surfacing later in a background delivery tick is
+     * a log line nobody reads. {@code PushDeliveryService} screens again at send time regardless — a
+     * stream may have been stored before this existed, or written straight into the store.
+     */
+    private void requireDeliverableEndpoint(String endpointUrl) {
+        try {
+            this.outboundPolicy.check(endpointUrl);
+        }
+        catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("delivery.endpoint_url is not an acceptable push destination: "
+                    + e.getMessage(), e);
+        }
     }
 
     // ─────────────────────────────── stream CRUD ───────────────────────────────
@@ -64,7 +97,9 @@ public final class StreamManagementService {
                 .updatedAt(now);
         if (method == DeliveryMethod.PUSH) {
             Map<String, Object> delivery = asMap(body.get("delivery"));
-            b.pushEndpointUrl(requireString(delivery, "endpoint_url"));
+            String pushUrl = requireString(delivery, "endpoint_url");
+            requireDeliverableEndpoint(pushUrl);
+            b.pushEndpointUrl(pushUrl);
             b.pushAuthorizationHeader(optString(delivery, "authorization_header"));
         }
         Stream stream = this.store.createStream(b.build());
@@ -95,6 +130,7 @@ public final class StreamManagementService {
             Map<String, Object> delivery = asMap(body.get("delivery"));
             String url = optString(delivery, "endpoint_url");
             if (url != null) {
+                requireDeliverableEndpoint(url);
                 b.pushEndpointUrl(url);
             }
             String auth = optString(delivery, "authorization_header");

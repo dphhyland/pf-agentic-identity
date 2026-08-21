@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -172,8 +173,32 @@ public final class PushDeliveryService {
 
     /** A JDK-HttpClient delivery client implementing the RFC 8935 POST + response classification. */
     public static SetDeliveryClient httpClient() {
+        return httpClient(OutboundUrlPolicy.fromEnvironment());
+    }
+
+    /**
+     * As {@link #httpClient()} but with an explicit outbound policy — the test seam, and the way an
+     * operator-configured internal receiver is exempted ({@code policy.trusting(url)}).
+     *
+     * <p>The endpoint is screened on every attempt, not only when the stream was configured. A stream
+     * may predate the screening in {@code StreamManagementService}, or have been written straight into
+     * the store; and a hostname that resolved publicly at configuration time can resolve to a private
+     * address later. This is the check that is actually adjacent to the request.
+     */
+    public static SetDeliveryClient httpClient(OutboundUrlPolicy policy) {
+        OutboundUrlPolicy outbound = policy != null ? policy : OutboundUrlPolicy.fromEnvironment();
         HttpClient http = HttpClient.newHttpClient();
         return (url, authHeader, jws) -> {
+            try {
+                outbound.check(url);
+            } catch (IllegalArgumentException e) {
+                // PERMANENT, deliberately. The generic catch below classifies everything as retryable,
+                // which for a refused destination would mean re-attempting an SSRF every backoff tick
+                // until the stream dead-letters. A destination the policy refuses will never become
+                // acceptable by trying again.
+                LOGGER.warn((Object) ("refusing push delivery to " + url + ": " + e.getMessage()));
+                return DeliveryResult.permanent(0, "endpoint refused by outbound policy: " + e.getMessage());
+            }
             try {
                 HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                         .header("Content-Type", "application/secevent+jwt")
