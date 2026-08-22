@@ -133,8 +133,12 @@ fi
 # ClientAttestationAuth (ClientAttestationAuthFilter) over /as/token.oauth2 — implements
 # attest_jwt_client_auth (draft-ietf-oauth-attestation-based-client-auth): verifies the
 # OAuth-Client-Attestation(+PoP) headers and forwards the request authenticated to PF via a bridge
-# private_key_jwt. Requires the OIDF_BRIDGE_PRIVATE_JWK env var at runtime; without it the filter
-# passes through untouched. Mapped AFTER OidfAutoRegistration - see the ordering note there.
+# private_key_jwt signed with THAT CLIENT'S key (OIDF_BRIDGE_SIGNER_BACKING + OIDF_BRIDGE_SIGNING_KEYS;
+# the superseded single-key OIDF_BRIDGE_PRIVATE_JWK is now refused at startup rather than ignored).
+# With no bridge signing configured the filter refuses to start, unless
+# OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false says the operator meant to run without it - in which case
+# attestation headers pass through and PF enforces each client's own configured authentication.
+# Mapped AFTER OidfAutoRegistration - see the ordering note there.
 if grep -q "ClientAttestationAuth" "$WEBXML"; then
   echo "web.xml: ClientAttestationAuth already registered — leaving as is"
 else
