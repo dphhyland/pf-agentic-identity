@@ -132,7 +132,11 @@ public final class FederationRuntimeConfig {
         return this.ignoreSslErrors;
     }
 
-    /** Raw bridge private JWK JSON, or null. Parsing (and caching) is {@code BridgeKey}'s job. */
+    /**
+     * Raw superseded bridge private JWK JSON, or null. Retained ONLY so {@code BridgeSigners} can
+     * refuse to start when it is still set - bridge signing is per client now, and a key here signs
+     * nothing.
+     */
     public String bridgePrivateJwk() {
         return this.bridgePrivateJwk;
     }

@@ -18,7 +18,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * translated into a credential PF understands: a {@code private_key_jwt} client assertion for the
  * client the attestation names. This resolves the key that assertion is signed with.
  *
- * <p><b>Per client, deliberately.</b> This replaces {@link BridgeKey}, which held ONE deployment key
+ * <p><b>Per client, deliberately.</b> This replaces {@code BridgeKey}, which held ONE deployment key
  * whose public half was injected into every attestation client's JWKS at registration. That key could
  * mint an assertion for any of them — its own javadoc called it "the highest-value secret in the
  * system" — and it created an ordering trap, because a client registered before the key existed never
@@ -93,6 +93,19 @@ public final class BridgeSigners {
                     + KEYS_ENV + " under the client it belongs to (as \"jwk\", with " + BACKING_ENV
                     + "=config), or to a vault transit key (as \"key_ref\", with " + BACKING_ENV
                     + "=vault), then unset " + FederationRuntimeConfig.BRIDGE_KEY_ENV + ".");
+        }
+        // Its sibling, and the same trap. This existed so a rotation could keep the OUTGOING public key
+        // in every client's JWKS while clients picked up the new one - a manoeuvre that only made sense
+        // when one key served everyone and registration injected it. withBridgeKeys is deleted, so
+        // nothing reads this now. An operator mid-rotation would otherwise set it and believe the
+        // overlap was in place.
+        if (FederationRuntimeConfig.get().bridgePreviousPublicJwk() != null) {
+            throw new IllegalStateException(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV
+                    + " is set but is no longer used: it kept a superseded DEPLOYMENT-WIDE bridge key in "
+                    + "every client's JWKS during a rotation overlap, and there is no longer a "
+                    + "deployment-wide key to rotate. Rotating one client now means changing that "
+                    + "client's own registered JWKS and its entry in " + KEYS_ENV + ". Unset "
+                    + FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV + ".");
         }
     }
 

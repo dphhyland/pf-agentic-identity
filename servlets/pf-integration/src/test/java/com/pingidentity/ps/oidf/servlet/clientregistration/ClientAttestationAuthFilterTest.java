@@ -41,6 +41,7 @@ class ClientAttestationAuthFilterTest {
     private static final String BACKING_PROP = "oidf.bridge.signer.backing";
     private static final String KEYS_PROP = "oidf.bridge.signing.keys";
     private static final String LEGACY_KEY_PROP = "oidf.bridge.private.jwk";
+    private static final String LEGACY_PREV_KEY_PROP = "oidf.bridge.previous.public.jwk";
     private static final String REQUIRE_PROP = "oidf.attestation.require.bridge.key";
 
     @AfterEach
@@ -48,6 +49,7 @@ class ClientAttestationAuthFilterTest {
         System.clearProperty(BACKING_PROP);
         System.clearProperty(KEYS_PROP);
         System.clearProperty(LEGACY_KEY_PROP);
+        System.clearProperty(LEGACY_PREV_KEY_PROP);
         System.clearProperty(REQUIRE_PROP);
         resetSingletons();
     }
@@ -136,6 +138,29 @@ class ClientAttestationAuthFilterTest {
                 "must name the variable that is now inert: " + e.getMessage());
         assertTrue(e.getMessage().contains(BridgeSigners.KEYS_ENV),
                 "must say where the key should move to: " + e.getMessage());
+    }
+
+    /**
+     * The rotation-overlap variable is superseded too, and was easier to miss than its sibling: it kept
+     * a SUPERSEDED deployment-wide public key in every client's JWKS while clients picked up the new
+     * one. There is no deployment-wide key any more, and {@code withBridgeKeys} - the only thing that
+     * ever read it - is deleted. An operator part-way through a rotation would otherwise set it and
+     * believe an overlap was in place while nothing read it at all.
+     */
+    @Test
+    void refusesToStartWhenTheSupersededRotationOverlapKeyIsStillSet(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
+        System.setProperty(LEGACY_PREV_KEY_PROP, privateJwkJson("outgoing-deployment-key"));
+        resetSingletons();
+
+        ServletException e = assertThrows(ServletException.class,
+                () -> new ClientAttestationAuthFilter().init(null));
+
+        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
+                "must name the variable that is now inert: " + e.getMessage());
+        assertTrue(e.getMessage().contains(KEYS_PROP.replace("oidf.bridge.signing.keys", BridgeSigners.KEYS_ENV))
+                        || e.getMessage().contains(BridgeSigners.KEYS_ENV),
+                "must say what rotating a client looks like now: " + e.getMessage());
     }
 
     // ---- per-client resolution ---------------------------------------------------------------------
