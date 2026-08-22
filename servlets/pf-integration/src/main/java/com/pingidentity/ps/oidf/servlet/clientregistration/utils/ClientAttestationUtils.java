@@ -43,6 +43,16 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
  * Optional per-client tuning is read from {@code extproperties.*} (see {@link #buildConfig}).
  */
 public final class ClientAttestationUtils {
+    /**
+     * Request attribute carrying an attestation this request has ALREADY verified, as plain types.
+     *
+     * <p>Written by whichever of the two enforcement points verifies first - the token-endpoint filter on
+     * the webapp classloader, or this issuance criterion on the engine classloader - and read by the
+     * other. A string key and a plain Map are the only things that cross that split.
+     */
+    public static final String VERIFIED_ATTESTATION_ATTRIBUTE =
+            "com.pingidentity.ps.oidf.attestation.verified";
+
     private static final Log LOGGER = LogFactory.getLog(ClientAttestationUtils.class);
     private static final Object LOCK = new Object();
     private static volatile TrustControllerGateway gateway;
@@ -100,6 +110,29 @@ public final class ClientAttestationUtils {
             Map inParameters = (Map) inObj;
             HttpServletRequest request = (HttpServletRequest) ((AttributeValue) inParameters.get("context.HttpRequest")).getObjectValue();
             String requestedClientId = ClientAttestationUtils.attributeValue(inParameters, "context.ClientId");
+            // If the token-endpoint filter already verified this request, reuse its result rather than
+            // verifying again. Both paths call ClientAttestationVerifier.verify(), and verify() CONSUMES
+            // the challenge and burns the PoP jti - so two verifications of one request destroy each
+            // other. Latent today only because challenges default off and the two classloaders get
+            // separate in-memory stores; point them at one Redis and the second verify reports "Replay
+            // detected" and nobody gets a token. Verifying once removes the conflict, and is what makes
+            // challenges usable at all.
+            //
+            // The attribute is server-side and plain-typed - a client cannot set it, and a Map of strings
+            // is what crosses the servlet/engine classloader split. Absent means the filter did not
+            // verify (a deliberately filter-less deployment), so fall through and verify here.
+            Object alreadyVerified = request.getAttribute(VERIFIED_ATTESTATION_ATTRIBUTE);
+            if (alreadyVerified instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> verified = (Map<String, Object>) alreadyVerified;
+                request.setAttribute("com.pingidentity.ps.oidf.rar.attestation_context", verified);
+                if (LOGGER.isInfoEnabled()) {
+                    LOGGER.info((Object) ("Attestation-based client authentication satisfied by the "
+                            + "token-endpoint filter's verification for client_id=" + verified.get("client_id")));
+                }
+                return true;
+            }
+
             String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(request);
 
             String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
@@ -130,8 +163,9 @@ public final class ClientAttestationUtils {
             // Publish the verified attestation context for the RAR -> PingAuthorize AuthorizationDetailProcessor
             // (pf-rar-paz-plugin: AttestationSubject.REQUEST_ATTRIBUTE). Decoupled by a shared string key and a
             // plain Map, so neither module depends on the other.
-            request.setAttribute("com.pingidentity.ps.oidf.rar.attestation_context",
-                    ClientAttestationUtils.attestationContext(result));
+            Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
+            request.setAttribute("com.pingidentity.ps.oidf.rar.attestation_context", context);
+            request.setAttribute(VERIFIED_ATTESTATION_ATTRIBUTE, context);
             if (LOGGER.isInfoEnabled()) {
                 LOGGER.info((Object) ("Attestation-based client authentication succeeded for client_id=" + result.clientId()
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
@@ -159,7 +193,7 @@ public final class ClientAttestationUtils {
      * ceiling, and the confirmed instance-key thumbprint. Consumed via a request attribute so the RAR
      * decision can be bounded by what the attester actually vouched.
      */
-    private static Map<String, Object> attestationContext(ClientAttestationResult result) {
+    public static Map<String, Object> attestationContext(ClientAttestationResult result) {
         Map<String, Object> ctx = new java.util.LinkedHashMap<>();
         ctx.put("sub", result.clientId());
         ctx.put("client_id", result.clientId());

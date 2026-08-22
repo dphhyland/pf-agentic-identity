@@ -154,6 +154,13 @@ public final class ClientAttestationAuthFilter implements Filter {
                     requestUri, httpRequest.getParameter("client_id"), authorizationDetails);
 
             String clientId = result.clientId();
+            // Publish what we just verified, so the issuance criterion does not verify the same request a
+            // second time. verify() consumes the challenge and burns the PoP jti; doing it twice destroys
+            // the first result. BridgeAuthRequest wraps this request and HttpServletRequestWrapper
+            // delegates attributes, so the criterion sees it on the engine classloader.
+            httpRequest.setAttribute(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE,
+                    ClientAttestationUtils.attestationContext(result));
+
             // The signing key belongs to THIS client, resolved now rather than held for all of them.
             // A client with no key configured cannot authenticate; that is a 401 for it alone.
             JwsSigner signer = BridgeSigners.forClient(clientId).orElse(null);

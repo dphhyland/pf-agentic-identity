@@ -3,7 +3,10 @@
 How a verified Client Attestation becomes a credential PingFederate accepts, why the current shape has
 two defects, and what replaces it.
 
-Status: **design agreed 2026-08-22, not yet implemented.**
+Status: **implemented 2026-08-22** — per-client signing in `a27e711`, verify-once below. The one thing
+deliberately left as-is: `attestationClaim`/`delegationActChain` still decode the header rather than
+reading the published context, because the filter now guarantees a present-but-invalid attestation is
+rejected before they run. Worth doing anyway; not load-bearing once the filter is mandatory.
 
 ## The constraint everything follows from
 
