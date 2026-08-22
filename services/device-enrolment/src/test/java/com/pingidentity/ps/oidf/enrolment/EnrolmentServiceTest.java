@@ -14,6 +14,7 @@ import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
+import com.pingidentity.ps.oidf.device.AuditEntry;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry;
@@ -301,6 +302,23 @@ class EnrolmentServiceTest {
                 assertThrows(EnrolmentException.class, () -> service.reissue(
                         new EnrolmentService.ReissueRequest(enrolled.instanceId(),
                                 keyProof(service.issueChallenge().challenge())))).error());
+    }
+
+    /**
+     * {@link InstanceRegistry#revoke} already writes the {@code instance_revoked} audit entry as part
+     * of its atomic status change; {@link EnrolmentService#revoke} must not write a second one, or the
+     * append-only log — the dispute record — carries two rows for one event.
+     */
+    @Test
+    void revocationWritesExactlyOneAuditEntry() throws Exception {
+        EnrolmentService.Enrolled enrolled = enrol();
+        makeCompliant(enrolled.instanceId());
+        service.revoke(enrolled.instanceId(), "owner reported the phone stolen");
+
+        long revocations = registry.auditTrail(enrolled.instanceId()).stream()
+                .filter(e -> AuditEntry.INSTANCE_REVOKED.equals(e.eventCode()))
+                .count();
+        assertEquals(1L, revocations, "a single revoke() call must not double-audit");
     }
 
     @Test

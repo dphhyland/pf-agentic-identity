@@ -317,11 +317,16 @@ public final class EnrolmentService {
         }
     }
 
-    /** Revokes an instance. The next issuance fails; nothing has to reach the device. */
+    /**
+     * Revokes an instance. The next issuance fails; nothing has to reach the device.
+     *
+     * <p>{@link InstanceRegistry#revoke} already writes the {@code INSTANCE_REVOKED} audit entry as
+     * part of its atomic status change — this method must not audit a second time, or every revocation
+     * leaves two rows in what is meant to be the dispute record.
+     */
     public void revoke(String instanceId, String reason) throws EnrolmentException {
         try {
             this.registry.revoke(instanceId, reason);
-            this.registry.audit(instanceId, AuditEntry.INSTANCE_REVOKED, reason);
         } catch (RegistryException e) {
             throw EnrolmentException.serverError("could not revoke the instance", e);
         }

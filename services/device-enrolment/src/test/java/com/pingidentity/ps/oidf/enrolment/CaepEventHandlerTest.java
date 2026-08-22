@@ -141,6 +141,49 @@ class CaepEventHandlerTest {
     }
 
     @Test
+    void anOpaqueFormatSubjectIsDeviceScoped() throws Exception {
+        apply(set("evt-1", "session-revoked",
+                "{\"subject\":{\"format\":\"opaque\",\"id\":\"" + deviceId + "\"}}"));
+        assertEquals(InstanceStatus.REVOKED, registry.findInstance(instanceA).orElseThrow().status());
+    }
+
+    /**
+     * A `session-revoked` SET naming the human, not a device, must revoke every instance on every
+     * device they own — not silently no-op because the subject isn't opaque.
+     */
+    @Test
+    void anIssSubFormatSubjectRevokesEveryInstanceTheOwnerHas() throws Exception {
+        apply(set("evt-1", "session-revoked",
+                "{\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https://pingone.example\","
+                        + "\"sub\":\"pingone|alice\"}}"));
+        assertEquals(InstanceStatus.REVOKED, registry.findInstance(instanceA).orElseThrow().status());
+        assertEquals(InstanceStatus.REVOKED, registry.findInstance(instanceB).orElseThrow().status());
+    }
+
+    @Test
+    void anEmailFormatSubjectRevokesEveryInstanceTheOwnerHas() throws Exception {
+        registry.upsertOwner("alice@example.com");
+        registry.registerDevice(new Device(InstanceIdentifiers.newDeviceId(), "ios", "iPhone16,2",
+                "18.5", "keyid2", "appattest", 0L, ComplianceState.COMPLIANT, Instant.now(),
+                "alice@example.com"));
+
+        apply(set("evt-1", "session-revoked",
+                "{\"subject\":{\"format\":\"email\",\"email\":\"alice@example.com\"}}"));
+
+        assertEquals(InstanceStatus.ACTIVE, registry.findInstance(instanceA).orElseThrow().status(),
+                "a different owner's instances must not be touched");
+    }
+
+    @Test
+    void anUnrecognisedSubjectFormatIsIgnoredRatherThanTreatedAsADevice() throws Exception {
+        CaepEventHandler.Outcome outcome = apply(set("evt-1", "session-revoked",
+                "{\"subject\":{\"format\":\"did\",\"id\":\"" + deviceId + "\"}}"));
+        assertTrue(outcome.affectedInstances().isEmpty());
+        assertEquals(InstanceStatus.ACTIVE, registry.findInstance(instanceA).orElseThrow().status(),
+                "an unrecognised format must not fall back to reading 'id' as a device");
+    }
+
+    @Test
     void aRevokedPasskeyRevokesTheBindingItAuthorised() throws Exception {
         apply(set("evt-1", "credential-change",
                 "{\"subject\":{\"id\":\"" + deviceId + "\"},\"credential_type\":\"fido2-platform\","

@@ -129,13 +129,49 @@ public final class CaepEventHandler {
         return this.applier.deviceComplianceChange(deviceId, current);
     }
 
-    /** A revoked session takes the agent instances with it — they act for that session's human. */
+    /**
+     * A revoked session takes the agent instances with it. The subject may name a device directly, or —
+     * unlike {@code device-compliance-change} and {@code credential-change}, which are only ever
+     * device-scoped — the human whose session it was, in which case every instance on every device they
+     * own is revoked. Mirrors {@code servlets/ssf}'s {@code ReceiverActionHandler.userKeyOf} so both
+     * CAEP transports resolve a human subject the same way.
+     */
     private List<String> sessionRevoked(JsonNode event) throws EnrolmentException, RegistryException {
-        String deviceId = subjectIdentifier(event);
-        if (deviceId == null) {
-            throw EnrolmentException.invalidRequest("session-revoked has no usable subject");
+        JsonNode subject = event.get("subject");
+        String format = subject != null && subject.isObject() ? text(subject, "format") : null;
+        // opaque (or no format at all, the shape every existing device-scoped test and caller uses) is
+        // device-scoped; anything else that names a human falls through to the owner-scoped path below.
+        if (subject != null && (subject.isTextual() || format == null || "opaque".equals(format))) {
+            String deviceId = subjectIdentifier(event);
+            if (deviceId != null) {
+                return this.applier.sessionRevokedForDevice(deviceId);
+            }
         }
-        return this.applier.sessionRevokedForDevice(deviceId);
+        String ownerKey = ownerSubjectIdentifier(subject, format);
+        if (ownerKey != null) {
+            return this.applier.sessionRevokedForOwner(ownerKey);
+        }
+        throw EnrolmentException.invalidRequest("session-revoked has no usable subject");
+    }
+
+    /**
+     * RFC 9493 owner-identifying subject formats: {@code iss_sub} → {@code sub}, {@code email} → the
+     * address, {@code phone_number} → the number, {@code account} → {@code uri}. Mirrors
+     * {@code servlets/ssf}'s {@code ReceiverActionHandler.userKeyOf} so both CAEP transports resolve a
+     * human subject identically. Device-scoped formats ({@code opaque}, or no format at all) are
+     * handled by {@link #subjectIdentifier} instead — this only resolves formats that name a human.
+     */
+    private static String ownerSubjectIdentifier(JsonNode subject, String format) {
+        if (subject == null || format == null) {
+            return null;
+        }
+        return switch (format) {
+            case "iss_sub" -> text(subject, "sub");
+            case "email" -> text(subject, "email");
+            case "phone_number" -> text(subject, "phone_number");
+            case "account" -> text(subject, "uri");
+            default -> null;
+        };
     }
 
     /**
