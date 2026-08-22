@@ -13,7 +13,8 @@
 #   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
 #   pf-oidf-modules.jar              <- `mvn -q package` output of this repo (merged into pf-runtime.war)
 #   jose4j-0.9.6.jar                 <- runtime dep of the module (merged into pf-runtime.war)
-#   oidf-mock-attesters.json         <- DEV attester trust (issuer -> public JWK)
+#   oidf-mock-attesters.json         <- OPTIONAL, consumer-supplied: DEV attester trust
+#                                       (issuer -> public JWK), bypassing federation trust chains
 #
 # The module is MERGED INTO pf-runtime.war (not deployed as a loose oidf.war + jar). This puts its
 # @WebServlet servlets in the ROOT context — so `/.well-known/ssf-configuration`, `/ssf/*`, the challenge
@@ -85,7 +86,13 @@ RUN mkdir -p /opt/in/instance/server/default/deploy \
       /opt/in/instance/server/default/deploy/pf-runtime.war \
  && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
  && rm -f /tmp/assemble-pf-runtime-war.sh
-COPY --chown=9031:0 oidf-mock-attesters.json /opt/in/instance/server/default/conf/oidf-mock-attesters.json
+# DEV attester trust, OPTIONAL — supplied by the consumer, never baked here. This file is a static
+# issuer -> public JWK map that BYPASSES OpenID Federation trust-chain resolution, so whoever ships it
+# decides which attesters this AS believes. That is a demo's decision about its own trust, not a
+# capability this image should carry: baking one in would hand every consumer another consumer's
+# attesters and silently pre-trust a key they never chose. The bracket glob makes it a no-op when the
+# build context does not supply the file.
+COPY --chown=9031:0 oidf-mock-attesters.jso[n] /opt/in/instance/server/default/conf/
 
 # ALSO place the module jars on the ENGINE classpath (server/default/deploy): the token-endpoint OGNL
 # issuance criteria evaluate on the engine classloader, which does NOT search pf-runtime.war's
@@ -100,8 +107,18 @@ RUN cp /tmp/modules/*.jar /opt/in/instance/server/default/deploy/ \
 # Railway terminates TLS at its edge and forwards plain HTTP to the target port; PF's 9031 is HTTPS-only,
 # so expose an HTTP runtime listener on 9080 for the service's HTTP domain.
 RUN sed -i 's/^pf.http.port=-1/pf.http.port=9080/' /opt/staging/instance/bin/run.properties.subst.default
-# Activate the static mock-attester resolver (DEV) — PF loads run.properties entries as sys props.
-RUN printf '\noidf.mock.attesters=/opt/out/instance/server/default/conf/oidf-mock-attesters.json\n' >> /opt/staging/instance/bin/run.properties.subst.default
+# Activate the static mock-attester resolver ONLY if the consumer supplied one — PF loads
+# run.properties entries as sys props. Unconditional activation would mean the image always resolves
+# attester trust from a file it chose; absent the file, attester trust resolves the real way, through
+# federation trust chains. Both branches announce themselves: which resolver is live decides what this
+# AS will believe about who vouched for a client, and that should never be a silent build detail.
+RUN if [ -f /opt/in/instance/server/default/conf/oidf-mock-attesters.json ]; then \
+      printf '\noidf.mock.attesters=/opt/out/instance/server/default/conf/oidf-mock-attesters.json\n' \
+        >> /opt/staging/instance/bin/run.properties.subst.default; \
+      echo 'oidf.mock.attesters: ACTIVE - static attester trust supplied by the build context (DEV/DEMO)'; \
+    else \
+      echo 'oidf.mock.attesters: not supplied - attester trust resolves via OpenID Federation trust chains'; \
+    fi
 # Federation-gated disclosure (AS side): this AS REQUIRES the workload attributes disclosed, so a
 # presentation that withholds them (external / unknown profile) is rejected (insufficient_disclosure).
 RUN printf '\noidf.attestation.required.claims=workload\n' >> /opt/staging/instance/bin/run.properties.subst.default

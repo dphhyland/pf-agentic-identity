@@ -134,9 +134,12 @@ documented at
 draft's error codes and never reaches PF; an internal error returns 500 rather than falling through
 credential-less. A request with *no* attestation header passes through untouched, so the filter can
 never widen access — PF still enforces whatever that client is configured for. The exception is the
-bridge key: if `OIDF_BRIDGE_PRIVATE_JWK` is unset, an attestation-bearing request also passes through
-unbridged, with a warning. That is not a security hole (PF then rejects it for want of a credential),
-but it does mean the whole method is silently inert on a deployment that forgot the variable. See §6.
+bridge signing keys: with none configured, an attestation-bearing request also passes through
+unbridged. That is not a security hole (PF then rejects it for want of a credential), but it would mean
+the whole method is silently inert on a deployment that forgot to configure it — so the filter now
+refuses to start instead, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` says the operator meant
+it. A single client with no key is the narrower case: that client cannot authenticate, and every other
+client is unaffected.
 
 ### 2.4 The three key hierarchies
 
@@ -146,7 +149,7 @@ Easy to conflate, so stated separately.
 |---|---|---|---|
 | **Attester signing** — signs the minted attestation | The attester, per client | `attestation_signing_key_ref` (OpenBao transit, key never leaves the vault) **or** `attestation_signing_jwk` (inline, dev). Exactly one | `AttesterSigningKey` |
 | **Instance key** — signs the PoP/DPoP, and the issuance-time proof | The instance itself; generated locally, public half carried as `cnf.jwk` | nothing — presented per request | `InstanceKeyProofValidator`, `DpopProofValidator` |
-| **Bridge key** — signs the `client_assertion` the filter hands PF | The PF deployment, one key | `OIDF_BRIDGE_PRIVATE_JWK` / `oidf.bridge.private.jwk` (EC private JWK), public half registered in **every** attestation client's JWKS | `ClientAttestationAuthFilter:164-188` |
+| **Bridge signing** — signs the `client_assertion` the filter hands PF | **Per client**, like attester signing | `OIDF_BRIDGE_SIGNING_KEYS` maps client id → `key_ref` (OpenBao transit) or `jwk` (inline, dev); `OIDF_BRIDGE_SIGNER_BACKING` declares which, and is enforced. The public half is the client's **own registered JWKS** — from its entity statement or from an administrator — so nothing is injected at registration | `BridgeSigners` |
 
 Attester *trust* on the AS side is a fourth, separate thing: `FederationAttesterKeyResolver` walks an
 OpenID Federation trust chain from the attester to the anchor; `StaticAttesterKeyResolver` is a
@@ -319,9 +322,10 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 | Setting | Effect | Set in the checked-in deploy config? |
 |---|---|---|
 | `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` | Cluster-wide challenge + replay store. Unset = per-node in-memory | No — a resource of whichever environment deploys this, so set outside this repo |
-| `OIDF_BRIDGE_PRIVATE_JWK` / `oidf.bridge.private.jwk` | The filter's bridge signing key. Unset = every attestation request passes through unbridged | **No** — named only in a comment in the assemble script |
+| `OIDF_BRIDGE_SIGNER_BACKING` + `OIDF_BRIDGE_SIGNING_KEYS` (+ `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault`) | Per-client bridge signing. Unconfigured = the filter refuses to start unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` | No — deployment secrets, set per environment |
+| ~~`OIDF_BRIDGE_PRIVATE_JWK`~~ | **Superseded and refused.** Setting it now fails startup with a message naming where the key should move to, because a security setting that silently does nothing is worse than one that is absent | Must be unset |
 | `OIDF_REQUIRE_METADATA_POLICY` / `oidf.require.metadata.policy` | **Default true.** Refuses federation registration when no superior in the trust chain declares a `metadata_policy` for the entity type being registered — without one the leaf's self-published `scope`, `grant_types` and `response_types` are granted verbatim | No — the default is the safe one, so a deployment only sets this to relax it |
-| `oidf.mock.attesters` | Static attester trust, bypassing federation trust chains | **Yes** — written into `run.properties.subst.default` by the Dockerfile |
+| `oidf.mock.attesters` | Static attester trust, bypassing federation trust chains | **Only if the consumer supplies `oidf-mock-attesters.json` in the build context.** The capability image no longer carries one or activates the property unconditionally — which attesters an AS believes is a demo's decision about its own trust |
 | `oidf.attestation.required.claims` | Global required-disclosure default | Yes — `workload`, via the Dockerfile |
 | `OIDF_FEDERATION_TRUST_CONTROLLER_HOST` | Attester trust chain resolution (AS side). Required even in mock mode, or token-endpoint attestation auth NPEs | Yes — staging and production |
 | `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` | Federation-backed **wallet-provider** trust (note: a different variable from the line above) | No |
@@ -512,32 +516,37 @@ does the right thing and is the pattern to copy. *Closes when:* the chain is val
 `OIDF_FEDERATION_TRUST_ANCHORS`, bindings are read from the validated leaf, and stale-on-error is
 limited to transport failures — never a failed chain. Slice 1 in §8.
 
-**The shipped image trusts static attester keys.** `build/pingfederate/Dockerfile:78-79` writes
-`oidf.mock.attesters` into `run.properties.subst.default`, pointing at
-`build/pingfederate/ (supplied per deployment)` — hardcoded EC public keys for `urn:agent:northwind-*`.
-`ClientAttestationUtils` logs "DEV MODE … OpenID Federation trust-chain validation is DISABLED" when it
-uses them. Anyone holding the matching private key can mint an attestation those issuers will accept,
-with no federation chain. *Closes when:* the property is moved out of the base Dockerfile into a
-dev-only overlay, and staging/production run federation-only.
+**~~The shipped image trusts static attester keys.~~ CLOSED.** The Dockerfile used to ship
+`oidf-mock-attesters.json` and write `oidf.mock.attesters` into `run.properties.subst.default`
+unconditionally, so every image built here pre-trusted `mock-attester-1` — and anyone holding its
+private half could mint attestations that AS accepted with no federation chain. The file is no longer
+in this repo and the property is activated only when a consumer supplies one in the build context
+(`COPY oidf-mock-attesters.jso[n]`, then a guarded `RUN`). Absent it, attester trust resolves through
+federation trust chains, and the build says which resolver is live. A demo that wants static trust
+supplies its own; no consumer inherits another's attesters.
 
-**A private attester key is committed.** The deploying repo's [`attestation-demo-clients.tf`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform/attestation-demo-clients.tf)
-carries an inline EC **private** JWK (`kid = "mock-attester-1"`), a hardcoded issuer
-`https://attester.example.com`, and a "throwaway" client secret. *Closes when:* the demo clients move
-to transit-backed signing, or the file moves to a demo-only tree that is never applied to a real
-environment.
+**A private attester key is committed — in the demo repo.** This repo's copy is gone: the
+`mock-attester-1` private JWK that sat in `CimdClientResolverTest` is now generated per run. What
+remains is the deploying repo's [`attestation-demo-clients.tf`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform/attestation-demo-clients.tf),
+which carries the same inline EC **private** JWK, the hardcoded issuer `https://attester.example.com`,
+and a "throwaway" client secret — plus two more copies in its harness. That key is public, so it is
+rotate-or-accept, and it is `pf-oidf-modules`' call now that nothing built here trusts it. *Closes
+when:* the demo clients move to transit-backed signing, or the file moves to a demo-only tree that is
+never applied to a real environment.
 
-**The bridge key is a single key that authenticates as any attestation client.**
-`OIDF_BRIDGE_PRIVATE_JWK` signs a `private_key_jwt` whose `iss`/`sub` is whichever client the filter
-just verified, and its public half sits in every attestation client's JWKS. There is no rotation
-story, no per-client separation, and no threat-model note anywhere in the repo. *Closes when:* the
+**~~The bridge key is a single key that authenticates as any attestation client.~~ CLOSED.**
+`OIDF_BRIDGE_PRIVATE_JWK` was one deployment-held key whose public half was injected into every
+attestation client's JWKS, so it could mint an assertion for any of them — and a client registered
+before the key existed never carried it. Signing is now per client, against the key the client is
+already registered with, which removes both the shared credential and the ordering trap. See
+[the design](attestation-client-auth-design.md). *Superseded text — closed when:* the
 threat model is written down and either the key is scoped per client or the risk is explicitly
 accepted in writing.
 
-**The token-endpoint method is inert in the checked-in deploy config.** No `vars.*.env` sets
-`OIDF_BRIDGE_PRIVATE_JWK`, so on those settings alone the filter passes every attestation-bearing
-request straight through with a warning. Only the OGNL criterion path is live. *Closes when:* the
-variable is set as a deploy secret and the deploy docs say so — or, better, when the filter refuses to
-start rather than degrading silently.
+**~~The token-endpoint method is inert in the checked-in deploy config.~~ CLOSED** by the second half
+of its own closing condition: the filter refuses to start rather than degrading silently. A deployment
+that wants to run without attestation-based client authentication has to say so
+(`OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`), and gets a warning naming what it has turned off.
 
 **`ClientAttestationAuthFilter` is untested.** See §5.2. The fail-closed behaviour is asserted in a
 javadoc comment and nowhere else.
@@ -739,12 +748,12 @@ rule 4 is a MAY) — but it is the one that delivers the stage the design always
 
 *Blocking items from §6 that are configuration, not code.*
 
-- `oidf.mock.attesters` out of the base Dockerfile into a dev-only overlay.
+- ~~`oidf.mock.attesters` out of the base Dockerfile into a dev-only overlay.~~ **Done** — the file is consumer-supplied and the property is conditional on it.
 - `extended-properties.tf`: add `attestation_evidence`, `attestation_bundle_url`,
   `attestation_evidence_issuer`, `attestation_asserted_context_resolver`; drop the unread
   `attestation_required` or wire it.
-- `OIDF_BRIDGE_PRIVATE_JWK` as a documented deploy secret; consider making the filter refuse to start
-  without it rather than degrading silently.
+- ~~`OIDF_BRIDGE_PRIVATE_JWK` as a documented deploy secret; consider making the filter refuse to start
+  without it rather than degrading silently.~~ **Done** — per-client keys, and it does refuse.
 - Confirm the `attestATM` mapping id against a live server and delete the "CONFIRM" comment.
 - The demo private attester JWK out of `attestation-demo-clients.tf`.
 

@@ -16,12 +16,6 @@ import com.pingidentity.ps.oidf.jose.HttpGetClient;
 
 class CimdClientResolverTest {
 
-    // The attester's signing key is deployment config (a throwaway demo key here), NOT in the public CIMD.
-    private static final String SIGNING_JWK = "{\"kty\":\"EC\",\"kid\":\"mock-attester-1\",\"crv\":\"P-256\","
-            + "\"x\":\"c2pTtxD_E2ZGIMam9QGsiDvlY57axE9Q9LKSnidQUag\","
-            + "\"y\":\"ZI_wiUp0BUd_Gmi9412cAet7vBMhi4fkwclL_ujlTSI\","
-            + "\"d\":\"9TAjv9_QP_mzZOn0NIWeERR_gtXjcqqj8KDp-XX-C84\"}";
-
     private static String cimdDoc() throws Exception {
         JsonWebKey pub = JsonWebKey.Factory.newJwk(TestJwts.publicParams(TestJwts.ec("td-1")));
         String bundle = new JsonWebKeySet(pub).toJson();
@@ -36,8 +30,12 @@ class CimdClientResolverTest {
                 + "}]}";
     }
 
-    private static CimdClientResolver resolverFor(String doc) {
-        return new CimdClientResolver("https://cimd.example/doc", (url, accept) -> doc, 300, SIGNING_JWK);
+    private static CimdClientResolver resolverFor(String doc) throws Exception {
+        // Generated per run. The attester's signing key is deployment config, not part of the public
+        // CIMD - and a real private key committed to a test file is a real private key, wherever the
+        // file ends up. This one used to be mock-attester-1, whose public half a demo image trusted.
+        String signingJwk = TestJwts.ec("test-attester").toJson(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE);
+        return new CimdClientResolver("https://cimd.example/doc", (url, accept) -> doc, 300, signingJwk);
     }
 
     @Test
