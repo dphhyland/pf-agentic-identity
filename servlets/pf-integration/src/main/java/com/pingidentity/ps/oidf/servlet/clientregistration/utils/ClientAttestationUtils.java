@@ -203,6 +203,13 @@ public final class ClientAttestationUtils {
         if (result.agentId() != null && !result.agentId().isBlank()) {
             ctx.put("agent_id", result.agentId());
         }
+        // The attester's own issuer. agent_id and client_id are unique only WITHIN an issuing
+        // authority, so the acting party's full identity is the pair - which is why delegationActChain
+        // emits both. Published here because the OGNL contract names "iss", and reading it from the
+        // header instead would mean trusting an unverified issuer to say who vouched for the client.
+        if (result.attesterIssuer() != null && !result.attesterIssuer().isBlank()) {
+            ctx.put("iss", result.attesterIssuer());
+        }
         ctx.put("entitlement", result.entitledAuthorizationDetails());
         // The workload behind the client — SPIFFE ID, attestor and any introspected selectors. Surfaced
         // flat as well so an access-token attribute mapping (OGNL) can name the workload in the token.
@@ -408,19 +415,30 @@ public final class ClientAttestationUtils {
     }
 
     /**
-     * OGNL helper for access-token attribute mapping: reads one claim out of the presented Client
-     * Attestation so an issued JWT access token can name the attested workload — {@code spiffe_id},
-     * {@code attested_by}, {@code client_id} (the attestation {@code sub}), {@code agent_id} (the
-     * attester-minted per-instance identifier, Phase 2.6; empty string if the attestation carried none),
-     * {@code iss} (the attester's own issuer), or {@code trust_domain}.
+     * OGNL helper for access-token attribute mapping: reads one claim out of the <em>verified</em>
+     * Client Attestation so an issued JWT access token can name the attested workload —
+     * {@code spiffe_id}, {@code attested_by}, {@code client_id}, {@code agent_id} (the attester-minted
+     * per-instance identifier, Phase 2.6), {@code iss} (the attester's own issuer), or
+     * {@code trust_domain}.
      *
-     * <p>PingFederate fulfils the attribute contract <em>before</em> it evaluates issuance criteria, so the
-     * verified context {@link #validateClientAttestation} publishes on the request is not yet available
-     * here. This therefore reads the claim straight from the attestation's payload without re-verifying
-     * it. That is safe because issuance is separately gated by {@code validateClientAttestation} as an
-     * issuance criterion on the same mapping: if the attestation does not verify, no token is issued at
-     * all, so an unverified read can never produce a token carrying attacker-chosen claims. Returns an
-     * empty string when the header or claim is absent, which OGNL maps to an omitted attribute.
+     * <p>The value comes from the context the token-endpoint filter published after verifying
+     * ({@link #VERIFIED_ATTESTATION_ATTRIBUTE}) — never from decoding the presented header. Those are
+     * not the same thing: the header is attacker-supplied bytes until something checks the attester's
+     * signature over them.
+     *
+     * <p>This used to base64-decode the header directly, justified by the sibling
+     * {@code validateClientAttestation} issuance criterion rejecting a bad attestation before any token
+     * issued. That reasoning is sound only where the criterion is actually on the mapping, and only for
+     * mappings PF gates that way — it is a property of a deployment's configuration, not of this code.
+     * Reading the verified context makes it a property of the code: unverified input has no path into a
+     * token, whatever the configuration.
+     *
+     * <p><b>No fallback, deliberately.</b> Absent context ⇒ empty string ⇒ omitted attribute. Verifying
+     * here instead would re-consume the challenge and burn the PoP {@code jti} — the exact
+     * double-verification removed in {@link #validateClientAttestation}. A deployment running without
+     * the filter therefore issues tokens without these claims rather than with unverified ones, which is
+     * the safe direction of that trade; the log line below says so, because silently empty claims are
+     * otherwise an unpleasant thing to diagnose.
      */
     public static String attestationClaim(Object inObj, String claimName) {
         try {
@@ -429,37 +447,47 @@ public final class ClientAttestationUtils {
             }
             HttpServletRequest request =
                     (HttpServletRequest) ((AttributeValue) ((Map) inObj).get("context.HttpRequest")).getObjectValue();
-            String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
-            if (attestation == null || attestation.isBlank()) {
+            Object verified = request.getAttribute(VERIFIED_ATTESTATION_ATTRIBUTE);
+            if (!(verified instanceof Map)) {
+                if (LOGGER.isInfoEnabled()) {
+                    LOGGER.info((Object) ("no verified attestation published on this request, so '" + claimName
+                            + "' is omitted from the token. The token-endpoint filter publishes it once it "
+                            + "has verified; a deployment running without that filter cannot map "
+                            + "attestation claims, and unverified header content is not a substitute."));
+                }
                 return "";
             }
-            String[] parts = attestation.split("\\.");
-            if (parts.length < 2) {
-                return "";
+            @SuppressWarnings("unchecked")
+            Map<String, Object> context = (Map<String, Object>) verified;
+            // Flat first (sub/client_id/agent_id/iss, and the workload values surfaced flat by
+            // attestationContext), then the nested workload map for anything else it carries.
+            Object value = context.get(claimName);
+            if (value == null) {
+                Object workloadRaw = context.get("workload");
+                if (workloadRaw instanceof Map) {
+                    value = ((Map) workloadRaw).get(claimName);
+                }
             }
-            String json = new String(java.util.Base64.getUrlDecoder().decode(parts[1]),
-                    java.nio.charset.StandardCharsets.UTF_8);
-            Map<String, Object> claims = org.jose4j.json.JsonUtil.parseJson(json);
-            if ("client_id".equals(claimName)) {
-                Object sub = claims.get("sub");
-                return sub == null ? "" : String.valueOf(sub);
-            }
-            if ("agent_id".equals(claimName) || "iss".equals(claimName)) {
-                // Top-level, like sub — not nested under workload, so these need their own case rather
-                // than falling through to the workload.<claimName> lookup below.
-                Object value = claims.get(claimName);
-                return value == null ? "" : String.valueOf(value);
-            }
-            Object workloadRaw = claims.get("workload");
-            if (!(workloadRaw instanceof Map)) {
-                return "";
-            }
-            Object value = ((Map) workloadRaw).get(claimName);
-            return value == null ? "" : String.valueOf(value);
+            return scalarClaim(value);
         } catch (Exception e) {
             LOGGER.info((Object) ("could not read attestation claim '" + claimName + "' for token mapping"), e);
             return "";
         }
+    }
+
+    /**
+     * A claim value fit for a token attribute: strings, numbers and booleans only. The verified context
+     * also carries structured entries — the entitlement list, the workload map itself — whose Java
+     * {@code toString} would be meaningless in a token, so those map to nothing rather than to junk.
+     */
+    private static String scalarClaim(Object value) {
+        if (value instanceof String) {
+            return (String) value;
+        }
+        if (value instanceof Number || value instanceof Boolean) {
+            return String.valueOf(value);
+        }
+        return "";
     }
 
     /**
@@ -485,7 +513,15 @@ public final class ClientAttestationUtils {
      * {@code delegationActChain(#this)} invocation unchanged by this addition). {@code iss} is the
      * attester's own issuer, included because {@code agent_id}/{@code client_id} are only unique within
      * their issuing authority — the full identity of the acting party is the pair. Both reads go through
-     * {@link #attestationClaim}, so they share its exact same "unverified but safe" reasoning.
+     * {@link #attestationClaim} and therefore come from the VERIFIED attestation context, not from
+     * decoding the presented header.
+     *
+     * <p>The {@code act} chain below is the one unverified read left here, and it is a different claim
+     * with a different justification: it is the caller's own {@code subject_token}, which the
+     * token-exchange processor validates before any token is issued, so a rejected subject token cannot
+     * produce a token carrying its chain. That is a property of the grant type rather than of a
+     * configurable issuance criterion — which is what made the old reasoning for {@code attestationClaim}
+     * weaker than it looked.
      */
     @SuppressWarnings("unchecked")
     public static String delegationActChain(Object inObj) {

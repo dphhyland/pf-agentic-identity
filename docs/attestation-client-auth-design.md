@@ -3,10 +3,11 @@
 How a verified Client Attestation becomes a credential PingFederate accepts, why the current shape has
 two defects, and what replaces it.
 
-Status: **implemented 2026-08-22** — per-client signing in `a27e711`, verify-once below. The one thing
-deliberately left as-is: `attestationClaim`/`delegationActChain` still decode the header rather than
-reading the published context, because the filter now guarantees a present-but-invalid attestation is
-rejected before they run. Worth doing anyway; not load-bearing once the filter is mandatory.
+Status: **implemented 2026-08-22** — per-client signing in `a27e711`, verify-once below, and
+`attestationClaim`/`delegationActChain` now read the published context rather than decoding the header.
+That last one was going to be left as-is, on the grounds that the filter rejects a present-but-invalid
+attestation before they run. It got done because that is a property of how a deployment is configured,
+not of the code: see "Claims come from the verified context" below.
 
 ## The constraint everything follows from
 
@@ -110,9 +111,39 @@ Consequences, all wanted:
 - Challenges become usable — enable `challengeRequired` without breaking the flow.
 - A shared Redis store becomes correct rather than fatal, so replay protection can be cluster-wide.
 - `attestationClaim` and `delegationActChain` read the *verified* context instead of base64-decoding an
-  unverified header (`ClientAttestationUtils.java:398`, `:479`). Their javadoc currently justifies
-  reading unverified input by pointing at a sibling criterion on the same mapping — a promise the code
-  cannot enforce.
+  unverified header. See below.
+
+### Change 3 — claims come from the verified context
+
+`attestationClaim` base64-decoded the `OAuth-Client-Attestation` header and put the result into the
+issued access token. Its javadoc justified that: a sibling `validateClientAttestation` issuance
+criterion rejects a bad attestation, so no token is issued, so an unverified read is harmless.
+
+The reasoning is sound and the conclusion still doesn't hold, because it is a claim about a
+deployment's PingFederate configuration made in Java that Java cannot check. It is true only for
+mappings that carry the criterion, and only where the filter is active — and
+`OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` with nothing configured is a supported way to run without
+it. Same shape as the rest of this document: a security property that holds because of how something
+is configured rather than because the code makes it hold.
+
+So the value now comes from `VERIFIED_ATTESTATION_ATTRIBUTE`, published by the filter after verifying.
+Restoring the old behaviour makes the test suite fail with the attacker's values in the token
+(`spiffe://banking.demo/workload/treasury-admin`, and an act chain naming
+`iss=https://attester.attacker.example`), which is what the defect actually looked like.
+
+Three details worth keeping:
+
+- **No fallback to the header.** Verifying on demand would re-consume the challenge and burn the PoP
+  `jti` — the exact double-verification Change 2 removed. A filter-less deployment therefore issues
+  tokens *without* these claims rather than with unverified ones, and logs why.
+- **`iss` had to be added to the context**, which previously carried it only in a log line. `agent_id`
+  and `client_id` are unique only within an issuing authority, so the acting party is the pair.
+- **Only scalars map.** The context also holds the entitlement list and the workload map; a Java
+  `toString` of those in a token would be meaningless, so they resolve to nothing.
+
+The one unverified read left is `delegationActChain`'s `act` claim from the caller's `subject_token`.
+That has a different justification — the token-exchange processor validates the subject token before
+issuance, which is a property of the grant type rather than of a configurable criterion.
 
 ## Pre-registered clients
 
