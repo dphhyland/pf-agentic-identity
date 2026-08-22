@@ -15,8 +15,6 @@ import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.jose4j.jwt.consumer.JwtConsumer;
-import org.jose4j.jwt.consumer.JwtConsumerBuilder;
 
 /**
  * Emits a CAEP {@code session-revoked} SET whenever PingFederate processes an OIDC logout. Map this filter over
@@ -162,26 +160,6 @@ public final class LogoutEventFilter implements Filter {
     /** How a logout token is turned into a subject. Separated so it can be tested without PF. */
     interface IdTokenVerifier {
         SubjectId verifiedSubject(String jwt);
-    }
-
-    private static SubjectId subjectFromJwt(String jwt) {
-        try {
-            JwtConsumer consumer = new JwtConsumerBuilder()
-                    .setSkipAllValidators()
-                    .setDisableRequireSignature()
-                    .setSkipSignatureVerification()
-                    .build();
-            org.jose4j.jwt.JwtClaims claims = consumer.processToClaims(jwt);
-            String sub = claims.getClaimValueAsString("sub");
-            if (sub == null || sub.isBlank()) {
-                return null;
-            }
-            String iss = claims.getClaimValueAsString("iss");
-            return iss != null && !iss.isBlank() ? SubjectId.issSub(iss, sub) : SubjectId.opaque(sub);
-        } catch (Exception e) {
-            LOGGER.debug((Object) ("SSF logout signal: unparseable logout token: " + e.getMessage()));
-            return null;
-        }
     }
 
     private static String firstNonBlank(String a, String b) {

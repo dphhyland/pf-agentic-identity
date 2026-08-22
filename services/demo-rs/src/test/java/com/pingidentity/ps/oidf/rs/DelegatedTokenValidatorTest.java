@@ -13,10 +13,12 @@ import java.util.UUID;
 import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.PublicJsonWebKey;
+import org.jose4j.jws.AlgorithmIdentifiers;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
+import org.jose4j.keys.HmacKey;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -188,6 +190,78 @@ class DelegatedTokenValidatorTest {
                 () -> validator.validate(forged, dpopProof(enclaveKey, forged, "GET", RESOURCE_URL),
                         "GET", RESOURCE_URL));
         assertEquals("invalid_token", e.error());
+    }
+
+    /**
+     * The classic RS256/HS256 confusion attack: sign with the AS's own public key material used as an
+     * HMAC secret. This must fail before signature verification is even attempted, because {@code HS256}
+     * is not in the permitted algorithm set — if it were reached, jose4j would happily "verify" against
+     * whatever key object is supplied.
+     */
+    @Test
+    void anAlgorithmConfusionAttackIsRejected() throws Exception {
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer(ISSUER);
+        claims.setAudience(AUDIENCE);
+        claims.setSubject(HUMAN);
+        claims.setIssuedAtToNow();
+        claims.setExpirationTimeMinutesInTheFuture(5);
+        Map<String, Object> cnf = new LinkedHashMap<>();
+        cnf.put("jkt", Jwks.thumbprint(enclaveKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY)));
+        claims.setClaim("cnf", cnf);
+
+        JsonWebSignature forged = new JsonWebSignature();
+        forged.setPayload(claims.toJson());
+        forged.setAlgorithmHeaderValue(AlgorithmIdentifiers.HMAC_SHA256);
+        forged.setKeyIdHeaderValue(asKey.getKeyId());
+        forged.setKey(new HmacKey(asKey.getPublicKey().getEncoded()));
+        String forgedToken = forged.getCompactSerialization();
+
+        DelegatedTokenValidator.RsException e = assertThrows(DelegatedTokenValidator.RsException.class,
+                () -> validator.validate(forgedToken, dpopProof(enclaveKey, forgedToken, "GET", RESOURCE_URL),
+                        "GET", RESOURCE_URL));
+        assertEquals("invalid_token", e.error());
+        assertTrue(e.getMessage().contains("not permitted"), e.getMessage());
+    }
+
+    @Test
+    void aTokenWithAnUnrecognisedKidIsRejected() throws Exception {
+        PublicJsonWebKey unknown = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        unknown.setKeyId("not-in-the-jwks");
+        String token = accessToken(unknown, enclaveKey, Map.of("sub", INSTANCE), ISSUER, AUDIENCE, 300);
+
+        DelegatedTokenValidator.RsException e = assertThrows(DelegatedTokenValidator.RsException.class,
+                () -> validator.validate(token, dpopProof(enclaveKey, token, "GET", RESOURCE_URL),
+                        "GET", RESOURCE_URL));
+        assertEquals("invalid_token", e.error());
+        assertTrue(e.getMessage().contains("no authorisation server key matches"), e.getMessage());
+    }
+
+    @Test
+    void aTokenWithTheNoneAlgorithmIsRejected() throws Exception {
+        // jose4j refuses to *sign* with "none" (it is a blocked algorithm), so the classic unsecured-JWT
+        // token is built by hand here, the way an attacker would.
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer(ISSUER);
+        claims.setAudience(AUDIENCE);
+        claims.setSubject(HUMAN);
+        claims.setIssuedAtToNow();
+        claims.setExpirationTimeMinutesInTheFuture(5);
+        Map<String, Object> cnf = new LinkedHashMap<>();
+        cnf.put("jkt", Jwks.thumbprint(enclaveKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY)));
+        claims.setClaim("cnf", cnf);
+
+        String header = "{\"alg\":\"none\"}";
+        java.util.Base64.Encoder b64 = java.util.Base64.getUrlEncoder().withoutPadding();
+        String noneToken = b64.encodeToString(header.getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                + "." + b64.encodeToString(claims.toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                + ".";
+
+        DelegatedTokenValidator.RsException e = assertThrows(DelegatedTokenValidator.RsException.class,
+                () -> validator.validate(noneToken, dpopProof(enclaveKey, noneToken, "GET", RESOURCE_URL),
+                        "GET", RESOURCE_URL));
+        assertEquals("invalid_token", e.error());
+        assertTrue(e.getMessage().contains("not permitted"), e.getMessage());
     }
 
     // ---- delegation ----------------------------------------------------------------------------------

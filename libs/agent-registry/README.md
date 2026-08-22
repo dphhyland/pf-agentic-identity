@@ -29,8 +29,10 @@ and already holds a stable id to carry as `agent_id`.
 - **`JdbcAgentRegistry`** — production. `INSERT … ON CONFLICT DO NOTHING` then `SELECT` on the natural
   key, so however many callers race, one row is inserted and every caller reads back the same one.
   Schema in `db/migration/V200__agent_identity.sql`: a single `agent_identity` table with a UNIQUE
-  constraint on the natural key. Numbered V200 so it never collides with `device-instance`'s V1 or
-  `openid-federation`'s V100 in a shared Flyway history.
+  constraint on the natural key. Numbered V200 so it never collides with `openid-federation`'s V100 in
+  this repo's own Postgres schema. (`device-instance`'s registry lives in a separate, external IDM/SCIM
+  schema with its own non-Flyway numbering — see that module's README — so there is no shared history to
+  collide with there in the first place.)
 - **`InMemoryAgentRegistry`** — development and tests; `ConcurrentHashMap.computeIfAbsent` gives the
   race-safety. State does not survive a restart, and a restart would silently re-mint every `agent_id`
   in the fleet — breaking any audit trail, rate limit or revocation keyed on the old value.

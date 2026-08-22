@@ -39,7 +39,14 @@ consent flows for one they cannot.
 | Tool | Does | Scope on the agent's token |
 |---|---|---|
 | `evaluate_grant` | may I do this, on this resource, right now? | `grant_management_evaluate` |
+| `list_entitlements` | which resources of this type may I act on AT ALL? (AuthZEN resource search) | `grant_management_evaluate` |
 | `describe_grant` | what did the user consent to? | `grant_management_query` |
+
+`list_entitlements` exists so a model never has to remember or guess a resource id from earlier
+in the conversation — it asks for the permitted set directly, then confirms the specific action with
+`evaluate_grant`. Same guards as `evaluate_grant`: the same scope check, the same expiry refusal, and
+the same subject-off-the-grant inference (`GrantEvaluator.buildSearchRequest`, exercised by
+`SearchRequestTest`) — a search is not a looser question than an evaluation.
 
 **Revoke is deliberately not exposed.** Ending a user's consent is irreversible, and is
 not a decision an agent should reach through a tool call. The REST surface has it, for
@@ -81,7 +88,7 @@ point it at `/gm-api/mcp` and supply the agent's access token.
 {"jsonrpc":"2.0","id":1,"method":"initialize",
  "params":{"protocolVersion":"2025-06-18","capabilities":{}}}
 
-// tools/list  → evaluate_grant, describe_grant
+// tools/list  → evaluate_grant, list_entitlements, describe_grant
 
 // tools/call
 {"jsonrpc":"2.0","id":3,"method":"tools/call",

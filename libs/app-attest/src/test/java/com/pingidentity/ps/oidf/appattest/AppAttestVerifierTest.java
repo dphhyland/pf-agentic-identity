@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
 import org.junit.jupiter.api.BeforeEach;
@@ -176,6 +179,47 @@ class AppAttestVerifierTest {
         assertEquals(AppAttestException.MALFORMED,
                 assertThrows(AppAttestException.class,
                         () -> productionVerifier().verifyAttestation(built.cbor(), null, null)).reason());
+    }
+
+    // ---- malformed attStmt -----------------------------------------------------------------------
+
+    private static final ObjectMapper CBOR = new ObjectMapper(new CBORFactory());
+
+    @Test
+    void anAttStmtWithNoX5cIsRejectedAsMalformed() throws Exception {
+        ObjectNode root = CBOR.createObjectNode();
+        root.put("fmt", "apple-appattest");
+        root.putObject("attStmt"); // no x5c at all
+        root.put("authData", new byte[64]);
+
+        AppAttestException e = assertThrows(AppAttestException.class, () -> productionVerifier()
+                .verifyAttestation(CBOR.writeValueAsBytes(root), clientDataHash, null));
+        assertEquals(AppAttestException.MALFORMED, e.reason());
+    }
+
+    @Test
+    void anAttStmtWithAnEmptyX5cIsRejectedAsMalformed() throws Exception {
+        ObjectNode root = CBOR.createObjectNode();
+        root.put("fmt", "apple-appattest");
+        ObjectNode attStmt = root.putObject("attStmt");
+        attStmt.putArray("x5c"); // present, but empty
+        root.put("authData", new byte[64]);
+
+        AppAttestException e = assertThrows(AppAttestException.class, () -> productionVerifier()
+                .verifyAttestation(CBOR.writeValueAsBytes(root), clientDataHash, null));
+        assertEquals(AppAttestException.MALFORMED, e.reason());
+    }
+
+    @Test
+    void anUnsupportedFormatIsRejected() throws Exception {
+        ObjectNode root = CBOR.createObjectNode();
+        root.put("fmt", "packed"); // a real WebAuthn format, not App Attest's
+        root.putObject("attStmt");
+        root.put("authData", new byte[64]);
+
+        AppAttestException e = assertThrows(AppAttestException.class, () -> productionVerifier()
+                .verifyAttestation(CBOR.writeValueAsBytes(root), clientDataHash, null));
+        assertEquals(AppAttestException.UNSUPPORTED_FORMAT, e.reason());
     }
 
     // ---- assertions -----------------------------------------------------------------------------

@@ -33,7 +33,9 @@ thumbprint into `clientDataHash` — and the binding is only as strong as that c
 - **`AppAttestEnvironment`** — `PRODUCTION` (`appattest`) / `DEVELOPMENT` (`appattestdevelop`), read
   from the 16-byte `aaguid`. A security control, not a label.
 - **`AuthenticatorData`** — parser for the packed (not CBOR) authenticator-data struct: `rpIdHash`,
-  flags, `signCount`, and for attestations the `aaguid`, credential id and COSE public key.
+  flags, `signCount`, and for attestations the `aaguid` and credential id. Stops there — it does not
+  decode the trailing CBOR `credentialPublicKey`; the verifier gets the attested key from the credCert
+  (`x5c[0]`'s public key) instead, since that is what the nonce and the rest of the chain vouch for.
 - **`AppAttestException`** — every failure carries a stable `reason`: `malformed_attestation`,
   `unsupported_format`, `untrusted_certificate_chain`, `nonce_mismatch`, `key_id_mismatch`,
   `app_id_mismatch`, `environment_not_accepted`, `bad_counter`, `bad_signature`,

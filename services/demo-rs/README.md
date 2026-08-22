@@ -46,7 +46,7 @@ with the OAuth error code a `WWW-Authenticate` header should carry (`invalid_tok
 ## Build and test
 
 ```bash
-mvn -pl services/demo-rs -am test      # 26 tests
+mvn -pl services/demo-rs -am test      # 29 tests
 ```
 
 Versions come from the repo BOM (`bom/pom.xml`); depends on `oidf-jose`, `client-attestation`, jose4j,

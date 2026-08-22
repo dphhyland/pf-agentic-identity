@@ -303,6 +303,20 @@ public final class ClientAttestationUtils {
         return mockResolver;
     }
 
+    /**
+     * Test-only: clears the memoised {@code oidf.mock.attesters} resolution. {@link #mockAttesterResolver}
+     * caches for the life of the JVM, which is right for a running deployment but means a test that sets
+     * the property after another test has already forced the cache (with the property unset, or set to a
+     * different file) would otherwise see a stale answer regardless of test order. Accessed via
+     * reflection, the same convention as {@code BridgeSigners.resetForTest}.
+     */
+    private static void resetMockAttesterResolverForTest() {
+        synchronized (LOCK) {
+            mockResolver = null;
+            mockResolverLoaded = false;
+        }
+    }
+
     private static TrustChainValidator getValidator(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
         String effectiveBaseUrl = trustControllerBaseUrl == null || trustControllerBaseUrl.isBlank() ? trustControllerHost : trustControllerBaseUrl;
         TrustChainValidator local = validator;

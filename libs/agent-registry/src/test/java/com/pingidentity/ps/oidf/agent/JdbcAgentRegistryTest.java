@@ -1,11 +1,14 @@
 package com.pingidentity.ps.oidf.agent;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
@@ -54,6 +57,49 @@ class JdbcAgentRegistryTest extends AgentRegistryContract {
         applyMigration(h2);
         try (Connection c = h2.getConnection(); Statement s = c.createStatement()) {
             assertTrue(s.execute("SELECT count(*) FROM agent_identity"));
+        }
+    }
+
+    /**
+     * A genuine storage fault (here: the DataSource cannot hand out a connection at all) must surface
+     * as {@link AgentRegistryException} with {@link AgentRegistryException#STORAGE_FAILURE}, not an
+     * unchecked {@link SQLException} escaping past the interface's declared contract.
+     */
+    @Test
+    void aStorageFaultSurfacesAsAStorageFailureAgentRegistryException() {
+        JdbcAgentRegistry registry = new JdbcAgentRegistry(new UnreachableDataSource());
+
+        AgentRegistryException e = assertThrows(AgentRegistryException.class, () -> registry.resolveOrMint(
+                "https://as.example.com", "client-1", "spiffe_id", "spiffe://example.org/agent-1"));
+        assertEquals(AgentRegistryException.STORAGE_FAILURE, e.code());
+    }
+
+    /** A minimal DataSource whose every connection attempt fails, standing in for a database outage. */
+    private static final class UnreachableDataSource implements DataSource {
+        @Override public Connection getConnection() throws SQLException {
+            throw new SQLException("simulated connection failure");
+        }
+        @Override public Connection getConnection(String username, String password) throws SQLException {
+            throw new SQLException("simulated connection failure");
+        }
+        @Override public java.io.PrintWriter getLogWriter() {
+            return null;
+        }
+        @Override public void setLogWriter(java.io.PrintWriter out) {
+        }
+        @Override public void setLoginTimeout(int seconds) {
+        }
+        @Override public int getLoginTimeout() {
+            return 0;
+        }
+        @Override public java.util.logging.Logger getParentLogger() {
+            return null;
+        }
+        @Override public <T> T unwrap(Class<T> iface) {
+            throw new UnsupportedOperationException();
+        }
+        @Override public boolean isWrapperFor(Class<?> iface) {
+            return false;
         }
     }
 }

@@ -48,6 +48,11 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `sales_regions`) compared as subsets.
 - **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — `POST /federation/attestation-challenge`
   returns `{"attestation_challenge", "expires_in"}` (draft §6.1); advertised as `challenge_endpoint`.
+- **`ChallengeRateLimiter`** — per-caller fixed-window cap on the (necessarily unauthenticated) challenge
+  endpoint. The endpoint itself can't be resource-exhausted (it only ever writes into a bounded cache);
+  the attack this stops is a flood evicting legitimate clients' challenges before they're redeemed, which
+  presents as intermittent attestation failures rather than as an outage. Default 60 requests/caller/60s;
+  the limiter's own caller map is itself bounded.
 
 ## Configuration
 
@@ -78,7 +83,7 @@ mvn -pl libs/client-attestation -am package     # or `mvn package` at the repo r
 
 Versions come from `bom/pom.xml`. Consumers, by pom: `servlets/pf-integration`,
 `servlets/attestation-issuer`, `services/device-enrolment` (reuses the challenge/replay stores),
-`services/demo-rs` (DPoP validation). Ships into PingFederate via
-`build/pingfederate/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
+`services/demo-rs` (DPoP validation), `services/harness` (attestation issuance/flow harnesses). Ships
+into PingFederate via `build/pingfederate/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
 (`servlets/oidf-war`). The client/builder side is the separate client-attestation-sdk-polyglot repo,
 paired by wire protocol rather than source.

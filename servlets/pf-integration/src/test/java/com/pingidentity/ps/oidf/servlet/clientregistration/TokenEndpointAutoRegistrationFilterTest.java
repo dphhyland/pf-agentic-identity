@@ -96,4 +96,47 @@ class TokenEndpointAutoRegistrationFilterTest {
         verify(chain).doFilter(request, response);
         verifyNoInteractions(service);
     }
+
+    /**
+     * A {@code client_assertion} with no {@code trust_chain} header is an ordinary
+     * {@code private_key_jwt} assertion from an already-registered client, not a §12.1 candidate. This
+     * must not attempt registration - a client with no chain to validate has nothing this filter can
+     * provision.
+     */
+    @Test
+    void proceedsUntouchedWhenClientAssertionCarriesNoTrustChain() throws Exception {
+        RegistrationService service = mock(RegistrationService.class);
+        TokenEndpointAutoRegistrationFilter filter = new TokenEndpointAutoRegistrationFilter(service, FIXED_ISSUER);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        // clientAssertion(...) with an empty list omits the trust_chain header entirely (see
+        // extractTrustChain: only a non-empty List survives to become a candidate).
+        when(request.getParameter("client_assertion")).thenReturn(clientAssertion(List.of(), CLIENT_ID));
+        FilterChain chain = mock(FilterChain.class);
+        ServletResponse response = mock(ServletResponse.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(service);
+    }
+
+    /**
+     * A trust_chain header with no parseable subject (a malformed or empty-sub assertion) must not reach
+     * the registration service with a blank/null client id - {@code automaticRegister} requires a
+     * non-null clientId and this is the guard that keeps a bad assertion from ever calling it.
+     */
+    @Test
+    void proceedsUntouchedWhenTheAssertionHasNoSubject() throws Exception {
+        RegistrationService service = mock(RegistrationService.class);
+        TokenEndpointAutoRegistrationFilter filter = new TokenEndpointAutoRegistrationFilter(service, FIXED_ISSUER);
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getParameter("client_assertion")).thenReturn(clientAssertion(TRUST_CHAIN, ""));
+        FilterChain chain = mock(FilterChain.class);
+        ServletResponse response = mock(ServletResponse.class);
+
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(service);
+    }
 }

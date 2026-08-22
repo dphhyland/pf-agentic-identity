@@ -48,8 +48,9 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`HostedEntityRegistry`** — `InMemoryHostedEntityRegistry` (tests, single node) or
   **`JdbcHostedEntityRegistry`** over `db/migration/V100__hosted_entity.sql`: `hosted_entity` plus an
   append-only `hosted_entity_audit_log`, JSON stored as text so Postgres and H2 run identical SQL.
-  Numbered V100 so it never collides with `device-instance`'s V1 or `agent-registry`'s V200 in a shared
-  Flyway history.
+  Numbered V100 so it never collides with `agent-registry`'s V200 on the shared classpath (both land on
+  `servlets/attestation-issuer`); `device-instance` uses a separate, non-Flyway IDM/SCIM migration
+  scheme, so it isn't part of this numbering at all.
 - **`HostedEntitySigner` / `RegistryHostedEntitySigner`** — resolves an entity's `hostingKeyRef` to an
   `OpenBaoTransitSigner` on one deployment-wide vault; **`HostedEntityConfigurationBuilder`** signs the
   entity configuration with it (60 min lifetime). **`AuthoritySupport`** holds the process-wide registry,

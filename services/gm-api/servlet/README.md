@@ -13,7 +13,8 @@ POST   https://localhost:9131/gm-api/mcp                          MCP tools for 
 ```
 
 The MCP add-on lets an AI agent ask "may I do this?" before acting, authenticated with the agent's own
-delegated token; read-only (`evaluate_grant`, `describe_grant` — revoke is deliberately not exposed).
+delegated token; read-only (`evaluate_grant`, `list_entitlements`, `describe_grant` — revoke is
+deliberately not exposed).
 See [`../docs/MCP.md`](../docs/MCP.md).
 
 **PingFederate implements none of the Grant Management API itself** — no §7.1 metadata, no §6
@@ -61,8 +62,12 @@ audiences and one meant for a different API must not be accepted here.
 
 `GrantView` exists because PF's `AccessGrant` is **not** a value object: constructing one reaches into the
 server's service locator and throws `No Impl found for AccessGrantService` outside a running PF.
-Isolating it keeps the decision logic ordinary and testable (53 tests; jacoco gates
-`GrantEvaluator.build*` / `authorise` at 100% line + branch).
+Isolating it keeps the decision logic ordinary and testable (79 tests; jacoco gates
+`GrantEvaluator.build*` / `authorise` at 100% line + branch). `PdpClient`, `GrantOperations.evaluate`/
+`.search` (against a real loopback `HttpServer` standing in for the PDP), and the audience guard on
+`PfTokenVerifier`'s constructor are also unit tested. What still needs a live PF and is not —
+`GrantView.from`, `PfTokenVerifier.verify`, both servlets' HTTP layer, and `GrantOperations`' grant-store
+calls (`lookup`/`describe`/`revoke`) — is for the same reason `GrantView` exists in the first place.
 
 ## Build
 

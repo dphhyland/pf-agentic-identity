@@ -23,10 +23,14 @@ copy risks a `LinkageError`.
 
 ## Classes
 
-- **`InstanceRegistryDataSource`** — the SDK shell only: GUI descriptor, the filter field, `testConnection`
+- **`InstanceRegistryDataSource`** — the SDK shell: GUI descriptor, the filter field, `testConnection`
   (looks up an identifier that cannot exist, so it exercises connection + schema without depending on a
-  row), and `retrieveValues`. A registry failure throws `CustomDataSourceDriverException` rather than
-  returning partial values — a criterion must not pass on a missing field while the registry is down.
+  row), and `retrieveValues`. A registry failure — or `retrieveValues` called before `configure` ran —
+  throws `CustomDataSourceDriverException` rather than returning partial values, so a criterion never
+  passes on a missing field while the registry is down. Unit tested (6 tests, a `setLookup` test seam and
+  a fake `InstanceRegistry`) against `local.pingfederate:commons-lang3` — `pingfederate-sdk`'s descriptor
+  classes need it at construction time, and it is `provided`-scope on the SDK's own POM, so this module
+  declares it too rather than relying on transitive resolution that Maven does not perform for `provided`.
 - **`InstanceLookup`** — the lookup itself, no PF dependency, unit tested (12 tests, in-memory registry).
   Joins instance → device → owner through `InstanceRegistry` and computes the derived booleans.
 

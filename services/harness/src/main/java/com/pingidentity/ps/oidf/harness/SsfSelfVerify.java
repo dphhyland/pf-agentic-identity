@@ -29,6 +29,15 @@ import com.pingidentity.ps.oidf.ssf.SubjectId;
 public final class SsfSelfVerify {
 
     public static void main(String[] args) throws Exception {
+        if (selfVerify() > 0) System.exit(1);
+    }
+
+    /**
+     * Mints and verifies the SET, returning the number of failed checks (0 on success) rather than
+     * exiting the JVM, so this can also run in-process under surefire — see
+     * {@code SsfSelfVerifySmokeTest}.
+     */
+    static int selfVerify() throws Exception {
         RsaJsonWebKey jwk = RsaJwkGenerator.generateJwk(2048);
         jwk.setKeyId("ssf-selfverify");
         SigningKeyProvider keys = new SigningKeyProvider() {
@@ -59,21 +68,28 @@ public final class SsfSelfVerify {
 
         JsonWebSignature v = new JsonWebSignature();
         v.setCompactSerialization(jws);
-        require("secevent+jwt".equals(v.getHeader("typ")), "typ header is secevent+jwt");
+        int fail = 0;
+        fail += require("secevent+jwt".equals(v.getHeader("typ")), "typ header is secevent+jwt");
         v.setKey(keys.publicKey());
-        require(v.verifySignature(), "signature verifies against the transmitter public key");
+        fail += require(v.verifySignature(), "signature verifies against the transmitter public key");
 
         Map<String, Object> claims = JsonUtil.parseJson(v.getPayload());
-        require("https://op.example.com".equals(claims.get("iss")), "iss");
-        require(((Map<?, ?>) claims.get("events")).containsKey(SsfEventTypes.CAEP_SESSION_REVOKED), "events keyed by URI");
-        require(claims.containsKey("sub_id"), "sub_id present");
-        System.out.println("[PASS] SSF selfverify: minted + verified a CAEP session-revoked SET");
+        fail += require("https://op.example.com".equals(claims.get("iss")), "iss");
+        fail += require(((Map<?, ?>) claims.get("events")).containsKey(SsfEventTypes.CAEP_SESSION_REVOKED),
+                "events keyed by URI");
+        fail += require(claims.containsKey("sub_id"), "sub_id present");
+        if (fail == 0) {
+            System.out.println("[PASS] SSF selfverify: minted + verified a CAEP session-revoked SET");
+        }
+        return fail;
     }
 
-    static void require(boolean cond, String what) {
+    /** Returns 1 and prints a failure line when {@code cond} is false, else 0. */
+    static int require(boolean cond, String what) {
         if (!cond) {
             System.out.println("[FAIL] " + what);
-            System.exit(1);
+            return 1;
         }
+        return 0;
     }
 }

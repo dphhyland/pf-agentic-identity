@@ -52,17 +52,21 @@ GET  /health
 Errors are the OAuth shape (`error`, `error_description`) with stable codes, so a client can branch on
 `user_verification_required` — the one it can actually recover from.
 
-**CAEP.** `CaepEventHandler` decodes a verified CAEP SET, checks `jti` replay (SSF redelivers by
-design), and dispatches each event to [`CaepSignalApplier`](../../libs/device-instance) — the actual
-registry mutation, shared with `servlets/ssf`'s `InstanceRegistryReceiverHandler` so both transports
-apply CAEP identically: `device-compliance-change` suspends every instance on the device;
-`session-revoked` revokes the instances acting for that human; a revoked or deleted `fido2*`
-`credential-change` revokes the bindings that passkey authorised. Signature, issuer, audience and
-freshness are the caller's job. Two transports reach it: `/compliance` here takes the plain JSON above
-(no verification of its own — it's the direct/demo path); PF's SSF receiver is the verified one,
-gated behind `receiverInstanceRegistry=true` + `storeDialect=ldm` on the `ssf` module (see
-[servlets/ssf](../../servlets/ssf)), which shares the `ldm` store's own `DataSource` rather than
-opening a second connection to the IOM.
+**CAEP.** `/compliance` above is the only CAEP-shaped path actually wired to this service, and it is
+narrow: plain JSON (no SET, no signature, no `jti` replay check), device-compliance-change only, handled
+inline by `EnrolmentService.applyComplianceChange` — suspends every `ACTIVE` instance on the device when
+the new state is not `compliant`. `CaepEventHandler` — which decodes a verified CAEP SET, checks `jti`
+replay (SSF redelivers by design), and dispatches `device-compliance-change`, `session-revoked` and
+`credential-change` to [`CaepSignalApplier`](../../libs/device-instance) — exists in this module and is
+exercised by its own test, but **is not wired to any route**: nothing in `Main` or
+`EnrolmentHttpServer` constructs it. The one live, verified path that reaches `CaepSignalApplier` today
+is PF's SSF receiver (`servlets/ssf`'s `InstanceRegistryReceiverHandler`), gated behind
+`receiverInstanceRegistry=true` + `storeDialect=ldm` on the `ssf` module (see
+[servlets/ssf](../../servlets/ssf)), which shares the `ldm` store's own `DataSource` rather than opening
+a second connection to the IOM. Note also that `CaepEventHandler`'s `session-revoked` handling only
+resolves a device-scoped subject (`sessionRevokedForDevice`) — unlike the SSF receiver, it never falls
+back to `CaepSignalApplier.sessionRevokedForOwner` for a human-scoped subject, so wiring it up as-is
+would silently no-op on a `session-revoked` naming the user rather than the device.
 
 ## The time-box, and why it lives here
 
@@ -135,7 +139,7 @@ passkey is blocked, so a first enrolment needs the passkey to already exist. Ful
 ## Build and test
 
 ```bash
-mvn -pl services/device-enrolment -am test      # 55 tests
+mvn -pl services/device-enrolment -am test      # 77 tests
 ```
 
 `EnrolmentHttpEndToEndTest` drives the real HTTP surface — challenge, App Attest with the enclave-key

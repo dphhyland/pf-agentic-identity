@@ -1,9 +1,11 @@
 # harness
 
-In-process verification CLIs — run by hand, not by `mvn test` — that exercise the real classes end to
-end in a way surefire alone doesn't. Ported from `pf-oidf-modules` (2026-08-18) when that repo was
-reduced to the demo UI + shell probes; import paths were updated for this repo's package layout and
-every call verified against the current class signatures before porting.
+In-process verification CLIs — meant to be run by hand — that exercise the real classes end to end in a
+way surefire alone doesn't. Each self-verify walk (everything except `AttestationFlowHarness`'s `live`
+mode, which needs a deployed PingFederate) is also pinned under `mvn test` via a thin smoke test; see
+"Run" below. Ported from `pf-oidf-modules` (2026-08-18) when that repo was reduced to the demo UI +
+shell probes; import paths were updated for this repo's package layout and every call verified against
+the current class signatures before porting.
 
 | Class | What it proves |
 |---|---|
@@ -42,5 +44,8 @@ without it a random key is used, which any real deployment correctly rejects wit
 `OIDF_HARNESS_INSECURE_TLS=true` to accept a self-signed local PF (verification is on by default and
 the flag warns loudly - never set it against a real deployment).
 
-`selfverify` also runs under surefire (`AttestationFlowHarnessSmokeTest`) - the harness reaches the
-verifier by reflection on class names, so a rename now fails the build rather than a demo.
+All three self-verify walks also run under surefire (`AttestationFlowHarnessSmokeTest`,
+`AttestationIssuanceHarnessSmokeTest`, `SsfSelfVerifySmokeTest`) - each calls the harness's
+`selfVerify()`/`run()` method directly rather than shelling out, so a signature change, a package move,
+or (for `AttestationFlowHarness`, which reaches the verifier by reflection on class names) a rename now
+fails the build rather than surfacing only when someone runs the CLI by hand.

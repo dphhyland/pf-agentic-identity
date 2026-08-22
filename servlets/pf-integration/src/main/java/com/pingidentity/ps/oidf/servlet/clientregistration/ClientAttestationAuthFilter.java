@@ -19,6 +19,7 @@ import java.util.Enumeration;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Function;
 import javax.servlet.Filter;
 import javax.servlet.FilterChain;
 import javax.servlet.FilterConfig;
@@ -73,6 +74,25 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final long ASSERTION_TTL_SECONDS = 60L;
 
     private volatile boolean bridgeConfigured;
+    private final Function<HttpServletRequest, String> issuerResolver;
+
+    public ClientAttestationAuthFilter() {
+        this.issuerResolver = ClientAttestationAuthFilter::defaultIssuer;
+    }
+
+    /**
+     * Test seam: inject the OP-issuer resolver so tests can exercise {@link #doFilter} without
+     * PingFederate's {@code OAuthIssuerUtils} singleton, whose static initializer reaches into PF's
+     * HiveMind registry and cannot run outside a booted server (mirrors the same seam on
+     * {@link TokenEndpointAutoRegistrationFilter}).
+     */
+    ClientAttestationAuthFilter(Function<HttpServletRequest, String> issuerResolver) {
+        this.issuerResolver = issuerResolver;
+    }
+
+    private static String defaultIssuer(HttpServletRequest request) {
+        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+    }
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
@@ -140,7 +160,7 @@ public final class ClientAttestationAuthFilter implements Filter {
 
         try {
             String requestUri = httpRequest.getRequestURL() == null ? null : httpRequest.getRequestURL().toString();
-            String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(httpRequest);
+            String opIssuer = this.issuerResolver.apply(httpRequest);
             ClientAttestationVerifier verifier = new ClientAttestationVerifier(
                     ClientAttestationUtils.attesterResolver(opIssuer),
                     ClientAttestationUtils.defaultConfig(opIssuer, requestUri),

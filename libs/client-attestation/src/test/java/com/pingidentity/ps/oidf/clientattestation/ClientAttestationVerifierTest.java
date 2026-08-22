@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jwt.JwtClaims;
@@ -35,11 +36,16 @@ class ClientAttestationVerifierTest {
     }
 
     private ClientAttestationVerifier newVerifier(boolean challengeRequired) {
+        return newVerifier(challengeRequired, Set.of());
+    }
+
+    private ClientAttestationVerifier newVerifier(boolean challengeRequired, Set<String> requiredDisclosedClaims) {
         ClientAttestationConfig config = ClientAttestationConfig.builder()
                 .addAcceptedAudience(OP_ISSUER)
                 .addAcceptedAudience(TOKEN_ENDPOINT)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .challengeRequired(challengeRequired)
+                .requiredDisclosedClaims(requiredDisclosedClaims)
                 .build();
         return new ClientAttestationVerifier(resolver, config, new InMemoryAttestationReplayCache(), challengeService);
     }
@@ -63,6 +69,20 @@ class ClientAttestationVerifierTest {
 
     private String validAttestation() throws Exception {
         return attestation(TestJwts.publicParams(instanceKey), 600L);
+    }
+
+    /** Like {@link #attestation(Map, long)} but with arbitrary extra top-level claims (e.g. {@code workload},
+     *  {@code authorization_details}) merged in. */
+    private String attestationWithClaims(Map<String, Object> cnfJwk, long expSecondsFromNow,
+                                         Map<String, Object> extraClaims) throws Exception {
+        JwtClaims att = new JwtClaims();
+        att.setIssuer(ATTESTER);
+        att.setSubject(CLIENT_ID);
+        att.setIssuedAtToNow();
+        att.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + expSecondsFromNow));
+        att.setClaim("cnf", Map.of("jwk", cnfJwk));
+        extraClaims.forEach(att::setClaim);
+        return TestJwts.sign(attesterKey, "ES256", "oauth-client-attestation+jwt", att);
     }
 
     private String pop(String audience, String jti, String challenge) throws Exception {
@@ -239,5 +259,171 @@ class ClientAttestationVerifierTest {
         ClientAttestationException ex = assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(att, popJwt, null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
         assertEquals(ClientAttestationException.INVALID_CLIENT, ex.error());
+    }
+
+    // ---- RFC 9396 authorization_details containment, through the full verify() overload -----------------
+
+    @Test
+    void rarContainmentGrantsRequestWithinAttestedEntitlement() throws Exception {
+        List<Map<String, Object>> entitlement = List.of(Map.of(
+                "type", "sales_agent",
+                "actions", List.of("read_accounts", "create_opportunity"),
+                "sales_regions", List.of("EMEA")));
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L,
+                Map.of("authorization_details", entitlement));
+        String requested = "[{\"type\":\"sales_agent\",\"actions\":[\"create_opportunity\"],\"sales_regions\":[\"EMEA\"]}]";
+
+        ClientAttestationResult result = verifier.verify(att, pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID, requested);
+
+        assertEquals(1, result.grantedAuthorizationDetails().size());
+        assertEquals(entitlement, result.entitledAuthorizationDetails());
+    }
+
+    @Test
+    void rarContainmentDeniesRequestExceedingAttestedEntitlement() throws Exception {
+        List<Map<String, Object>> entitlement = List.of(Map.of(
+                "type", "sales_agent",
+                "sales_regions", List.of("EMEA")));
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L,
+                Map.of("authorization_details", entitlement));
+        String requested = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"AMER\"]}]";
+
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(att, pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
+        assertEquals(ClientAttestationException.ACCESS_DENIED, ex.error());
+    }
+
+    @Test
+    void rarContainmentDeniesWhenAttestationAssertsNoEntitlementAtAll() throws Exception {
+        String requested = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]";
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
+        assertEquals(ClientAttestationException.ACCESS_DENIED, ex.error());
+    }
+
+    // ---- required-disclosed-claims policy ------------------------------------------------------------
+
+    @Test
+    void requiredWorkloadClaimMissingIsRejected() throws Exception {
+        ClientAttestationVerifier strict = newVerifier(false, Set.of("workload"));
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> strict.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INSUFFICIENT_DISCLOSURE, ex.error());
+    }
+
+    @Test
+    void requiredAuthorizationDetailsClaimMissingIsRejected() throws Exception {
+        ClientAttestationVerifier strict = newVerifier(false, Set.of("authorization_details"));
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> strict.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INSUFFICIENT_DISCLOSURE, ex.error());
+    }
+
+    @Test
+    void requiredWorkloadClaimPresentIsAccepted() throws Exception {
+        ClientAttestationVerifier strict = newVerifier(false, Set.of("workload"));
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L,
+                Map.of("workload", Map.of("spiffe_id", "spiffe://example.org/agent")));
+
+        ClientAttestationResult result = strict.verify(att, pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals(CLIENT_ID, result.clientId());
+        assertEquals("spiffe://example.org/agent", result.workload().get("spiffe_id"));
+    }
+
+    // ---- SD-JWT presentation is retired -----------------------------------------------------------
+
+    @Test
+    void sdJwtEncodedAttestationIsRejected() throws Exception {
+        String sdJwtStyle = validAttestation() + "~disclosure1~disclosure2";
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(sdJwtStyle, pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INVALID_CLIENT, ex.error());
+    }
+
+    // ---- attester trust is enforced, not merely a well-formed signature ----------------------------
+
+    @Test
+    void attestationSignedByAnUntrustedKeyIsRejected() throws Exception {
+        PublicJsonWebKey imposterKey = TestJwts.ec("imposter-1");
+        JwtClaims att = new JwtClaims();
+        att.setIssuer(ATTESTER);
+        att.setSubject(CLIENT_ID);
+        att.setIssuedAtToNow();
+        att.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600L));
+        att.setClaim("cnf", Map.of("jwk", TestJwts.publicParams(instanceKey)));
+        // Signed by a key the resolver never returns for this attester issuer.
+        String forged = TestJwts.sign(imposterKey, "ES256", "oauth-client-attestation+jwt", att);
+
+        assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(forged, pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+    }
+
+    @Test
+    void attestationMissingCnfClaimIsRejected() throws Exception {
+        JwtClaims att = new JwtClaims();
+        att.setIssuer(ATTESTER);
+        att.setSubject(CLIENT_ID);
+        att.setIssuedAtToNow();
+        att.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600L));
+        String noCnf = TestJwts.sign(attesterKey, "ES256", "oauth-client-attestation+jwt", att);
+
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(noCnf, pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INVALID_CLIENT, ex.error());
+    }
+
+    // ---- DPoP combined mode: replay and challenge enforcement parity with PoP mode -------------------
+
+    @Test
+    void replayedDpopRejected() throws Exception {
+        String att = validAttestation();
+        String dpopJwt = dpop(instanceKey, "d1", null);
+        verifier.verify(att, null, dpopJwt, "POST", TOKEN_ENDPOINT, CLIENT_ID);
+
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(att, null, dpopJwt, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INVALID_CLIENT, ex.error());
+    }
+
+    @Test
+    void dpopChallengeRequiredButMissingYieldsUseChallenge() throws Exception {
+        ClientAttestationVerifier strict = newVerifier(true);
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> strict.verify(validAttestation(), null, dpop(instanceKey, "d1", null),
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.USE_ATTESTATION_CHALLENGE, ex.error());
+    }
+
+    @Test
+    void dpopValidChallengeAccepted() throws Exception {
+        ClientAttestationVerifier strict = newVerifier(true);
+        String challenge = challengeService.issue();
+        ClientAttestationResult result = strict.verify(validAttestation(), null,
+                dpop(instanceKey, "d1", challenge), "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals(CLIENT_ID, result.clientId());
+    }
+
+    // ---- server misconfiguration fails closed rather than skipping the audience check ----------------
+
+    @Test
+    void popModeWithNoConfiguredAudienceIsRejectedAsMisconfigured() throws Exception {
+        ClientAttestationConfig config = ClientAttestationConfig.builder()
+                .expectedHtu(TOKEN_ENDPOINT)
+                .build(); // deliberately no accepted audiences configured
+        ClientAttestationVerifier misconfigured =
+                new ClientAttestationVerifier(resolver, config, new InMemoryAttestationReplayCache(), challengeService);
+
+        assertThrows(ClientAttestationException.class,
+                () -> misconfigured.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
     }
 }

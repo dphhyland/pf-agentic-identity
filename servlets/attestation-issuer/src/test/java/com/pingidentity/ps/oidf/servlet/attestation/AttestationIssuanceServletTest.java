@@ -149,6 +149,79 @@ class AttestationIssuanceServletTest {
         assertEquals("invalid_client", e.error());
     }
 
+    /**
+     * The README states "a {@code client_id} is accepted but ignored" — the client is resolved from the
+     * evidence (which of every configured attestation client's trust bundle verifies it, and whose
+     * bindings contain the resulting identity), never from this caller-supplied field. Pin it: a request
+     * asserting someone else's client_id must still be minted for the client the evidence actually
+     * matches, not the asserted one — otherwise a caller could name any client_id it likes and get an
+     * attestation issued under that identity without the evidence to back it.
+     */
+    @Test
+    void aCallerAssertedClientIdIsIgnoredInFavourOfTheEvidenceResolvedClient() throws Exception {
+        String forgedClientId = "https://attacker.example.com/not-the-real-client";
+        String realClientId = "https://real-client.example.com/agent";
+        AttestationIssuanceConfig cfg = config();
+        servlet.setClientResolver(new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                return cfg;
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
+                return List.of(new com.pingidentity.ps.oidf.issuer.AttesterClient(realClientId, cfg));
+            }
+        });
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.clientId = forgedClientId; // the field the README says is "accepted but ignored"
+
+        Map<String, Object> body = servlet.issue(req);
+
+        String sub = attestationSubject((String) body.get("attestation"));
+        assertEquals(realClientId, sub, "must be minted for the evidence-matched client");
+        assertTrue(!forgedClientId.equals(sub), "a caller-asserted client_id must never decide the attestation subject");
+    }
+
+    /** The attestation's {@code sub} claim, read without verification (the signature is already covered elsewhere). */
+    private static String attestationSubject(String attestation) throws Exception {
+        String[] parts = attestation.split("\\.");
+        String json = new String(java.util.Base64.getUrlDecoder().decode(parts[1]), StandardCharsets.UTF_8);
+        return (String) JsonUtil.parseJson(json).get("sub");
+    }
+
+    /**
+     * Two independently configured attestation clients both binding the same SPIFFE ID is a
+     * configuration error — an operator mistake, not a legitimate multi-tenant setup. Resolving it
+     * arbitrarily (e.g. "first match wins") would let whichever client happens to be misconfigured
+     * second silently steal issuance for an identity that was already claimed; this must be rejected
+     * instead. {@code resolveByEvidence} throws as soon as a second candidate also validates the
+     * evidence AND has a binding for the resolved subject.
+     */
+    @Test
+    void anIdentityBoundToMoreThanOneClientIsRejected() throws Exception {
+        AttestationIssuanceConfig first = config();
+        AttestationIssuanceConfig second = config(); // separately built, same SPIFFE_ID binding
+        servlet.setClientResolver(new IssuanceClientResolver() {
+            @Override
+            public AttestationIssuanceConfig resolve(String clientId) {
+                return "https://client-a.example.com".equals(clientId) ? first : second;
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.issuer.AttesterClient> attestationClients() {
+                return List.of(
+                        new com.pingidentity.ps.oidf.issuer.AttesterClient("https://client-a.example.com", first),
+                        new com.pingidentity.ps.oidf.issuer.AttesterClient("https://client-b.example.com", second));
+            }
+        });
+
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+
+        assertEquals("invalid_client", e.error());
+    }
+
     @Test
     void missingRequiredFieldsAreRejected() throws Exception {
         // client_id is deliberately NOT required — the workload names no client.

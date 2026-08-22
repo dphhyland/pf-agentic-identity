@@ -1,8 +1,9 @@
 # Client Attestation — architecture, state, and gaps
 
 What the client attestation pipeline is, what it does today, which standards it meets, what proves
-that, and what is still missing. Written from the source on 2026-08-17, not recalled: every claim
-below was read at the file it describes, and every test count came from a surefire run, not a grep.
+that, and what is still missing. Written from the source on 2026-08-17, refreshed 2026-08-22 (§5, §6
+and §8's test-coverage claims), not recalled: every claim below was read at the file it describes, and
+every test count came from a surefire run, not a grep.
 
 This is the map. It does not restate the specs (see
 [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md)), the claim
@@ -432,8 +433,8 @@ Does the implementation match the text it published?
 
 ## 5. Test coverage
 
-All figures below are from a surefire run on 2026-08-17 (`mvn test` over the six modules), not from
-counting annotations. Everything green: 57 / 179 / 20 / 42 / 104 / 49 tests across
+All figures below are from a surefire run on 2026-08-22 (`mvn test` over the six modules), not from
+counting annotations. Everything green: 80 / 195 / 102 / 49 / 111 / 44 tests across
 `client-attestation`, `attestation-issuer`, `pf-integration`, `rar-paz-plugin`, `openid-federation`
 and `device-instance`.
 
@@ -467,14 +468,14 @@ are the thin part.
 
 | Not covered | Why it matters |
 |---|---|
-| **`ClientAttestationAuthFilter` — no tests at all** | This is the class that implements `attest_jwt_client_auth`. Untested: the bridge assertion (claims, TTL, alg), `Authorization` suppression, the `client_secret` drop, pass-through when no attestation header, the multi-header 400, the fail-closed 500, and the unbridged pass-through when the key is missing |
-| `TokenEndpointAutoRegistrationFilter` — no tests | The other `/as/token.oauth2` filter, same deal |
-| `ClientAttestationUtils` — 3 tests, all on actor preference | `validateClientAttestation` (the OGNL issuance criterion), `attestationClaim` and `delegationActChain` are otherwise unexercised. These are what actually gate token issuance |
+| ~~`ClientAttestationAuthFilter` — no tests at all~~ **CLOSED** | `ClientAttestationAuthFilterTest` now covers `doFilter` end to end (15 tests): a valid attestation minted into the bridge assertion (`client_secret` dropped, `Authorization` suppressed, assertion `iss`/`sub` correct), an attestation signed by an untrusted key rejected (401 `invalid_client`), multiple `OAuth-Client-Attestation` headers rejected (400 `invalid_request`), and a client with no bridge key configured rejected rather than passed through (401) |
+| ~~`TokenEndpointAutoRegistrationFilter` — no tests~~ **CLOSED** | 5 tests now, including a `client_assertion` with no `trust_chain` header and one with a blank subject — neither reaches `RegistrationService` |
+| ~~`ClientAttestationUtils` — 3 tests, all on actor preference~~ **Stale, not a gap.** `validateClientAttestation` is covered by `VerifyOnceTest` (the single-verify contract); `attestationClaim`/`delegationActChain` by `AttestationClaimSourceTest` (omission with no verified context, flat and workload-nested reads, the attacker-controlled-header case rejected). `ClientAttestationAuthFilterTest`'s `doFilter` tests exercise the same path again, end to end | These are what actually gate token issuance, and they are exercised — this row was simply out of date |
 | No end-to-end test spanning issuance → token endpoint | Every test is unit-level. `AttestationMinterTest` does verify a minted attestation through `ClientAttestationVerifier`, which is the closest thing to a seam test, but nothing exercises the HTTP path |
 | `MiniRedisClient` `rediss://` (TLS) | The plain path is well covered by `FakeRedisServer`; the TLS path is not |
-| Signature verification in the OGNL claim hooks | By design they base64-decode without verifying — safe only because `validateClientAttestation` gates the same mapping. Nothing tests that coupling |
-| **`OpenIdFederationClientResolver` — no tests at all** | The federation metadata source. Entity-statement fetch, self-signature verification and `spiffe_client_bindings` parsing are all unexercised. `ChainClientResolverTest` uses fake plugins, not this class |
-| `PfIssuanceClientResolver` — no test class | The default, always-on metadata source. No test asserts a disabled client is excluded, or that a client without `attestation_issuer` is skipped |
+| ~~Signature verification in the OGNL claim hooks~~ **Half-closed.** `attestationClaim` no longer base64-decodes the header — it reads `VERIFIED_ATTESTATION_ATTRIBUTE`, published only once the filter has verified (see [the design doc](attestation-client-auth-design.md), Change 3). `delegationActChain`'s `act` claim is still an unverified read of the caller's `subject_token`, by design: the token-exchange processor validates that token separately, before any issuance | The one remaining unverified read is deliberate and documented, not an oversight |
+| **`OpenIdFederationClientResolver` — no tests at all** | The federation metadata source. Entity-statement fetch, self-signature verification and `spiffe_client_bindings` parsing are all unexercised. `ChainClientResolverTest` uses fake plugins, not this class. `AttesterResolvers` — the env-driven resolver chain — is in the same state |
+| ~~`PfIssuanceClientResolver` — no test class~~ **CLOSED** | `PfIssuanceClientResolverTest` (8 tests): unknown/disabled clients excluded, a client missing `attestation_issuer` skipped, one misconfigured client doesn't take the rest of the store down with it |
 | Selector-conditioned downscoping | `spireSelectorsAreIntrospectedIntoWorkloadAttributes` asserts the selectors appear in the payload; nothing asserts the granted ceiling changes — because it does not (§3.3) |
 | Issuance driven through CIMD or federation | `AttestationIssuanceServletTest` injects prebuilt configs via `setClientResolver`; no test runs `issue()` behind a real external resolver |
 
@@ -548,8 +549,9 @@ of its own closing condition: the filter refuses to start rather than degrading 
 that wants to run without attestation-based client authentication has to say so
 (`OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`), and gets a warning naming what it has turned off.
 
-**`ClientAttestationAuthFilter` is untested.** See §5.2. The fail-closed behaviour is asserted in a
-javadoc comment and nowhere else.
+**~~`ClientAttestationAuthFilter` is untested.~~ CLOSED.** See §5.2 — `ClientAttestationAuthFilterTest`
+now asserts the fail-closed behaviour directly (untrusted key, multi-header, no bridge key configured),
+not just in a javadoc comment.
 
 **The issuance criterion is bound to an unverified ATM id.**
 The deploying repo's [`access-token-mappings.tf`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform/access-token-mappings.tf) says `attestATM` is "almost certainly
@@ -735,14 +737,19 @@ rule 4 is a MAY) — but it is the one that delivers the stage the design always
 
 ### Slice 4 — Test the enforcement points
 
-*Hardening. Parallelisable with 1–3.*
+*Hardening. Parallelisable with 1–3.* **Mostly done** as of 2026-08-22.
 
-- `ClientAttestationAuthFilterTest` (none today): bridge assertion claims, TTL, alg; `Authorization`
+- ~~`ClientAttestationAuthFilterTest` (none today): bridge assertion claims, TTL, alg; `Authorization`
   suppressed; `client_secret` dropped; pass-through with no header; multi-header 400; fail-closed 500;
-  unbridged pass-through when the key is missing.
-- `PfIssuanceClientResolverTest` (none today): disabled client excluded from `attestationClients()`;
-  client without `attestation_issuer` excluded.
-- `ClientAttestationUtils`: `validateClientAttestation` happy and deny paths via a stubbed request.
+  unbridged pass-through when the key is missing.~~ **Done** — 15 tests, `doFilter` covered end to end.
+- ~~`PfIssuanceClientResolverTest` (none today): disabled client excluded from `attestationClients()`;
+  client without `attestation_issuer` excluded.~~ **Done** — 8 tests, plus a misconfigured client not
+  taking the rest of the store down with it.
+- ~~`ClientAttestationUtils`: `validateClientAttestation` happy and deny paths via a stubbed
+  request.~~ **Already covered** — `VerifyOnceTest` predates this slice.
+- Still open: `OpenIdFederationClientResolver` and `AttesterResolvers` have no test files at all (see
+  §5.2 and slice 1, which needs `OpenIdFederationClientResolverTest` anyway); `MiniRedisClient`'s
+  `rediss://` path is untested; no test spans issuance → token endpoint end to end.
 
 ### Slice 5 — Deploy hygiene
 

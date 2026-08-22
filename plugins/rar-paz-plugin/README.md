@@ -13,7 +13,7 @@ reference read only `statements` and could never deny), maps a real principal ra
 `"joe"`, passes the attested entitlement so policy can enforce `requested ⊆ attested`, scopes the
 insecure-TLS switch to a dev flag, and implements a real `isEqualOrSubset` for refresh-time narrowing.
 
-Status: unit-tested (38 tests) and verified live against PingAuthorize — governs payment consent
+Status: unit-tested (49 tests) and verified live against PingAuthorize — governs payment consent
 end-to-end (PERMIT ≤ limit / DENY over-limit), attributes the decision to the authenticated principal
 (`UserID` / AuthZEN `subject`) with the agent instance as `actor`, and renders an attribute-focused
 consent page.
@@ -42,8 +42,12 @@ descriptor, so it was left alone by the split-package unwind that renamed the li
 ```
 authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
    ├─ AttestationSubject   ← request attribute com.pingidentity.ps.oidf.rar.attestation_context
-   ├─ principal            ← resource_owner_sub attribute | login_hint | the _principal_sub detail
-   │                          marker the BFF folds in (the only channel that survives PAR); stripped
+   ├─ principal            ← resource_owner_sub attribute (trusted, an authn hook sets it server-side)
+   │                          else login_hint / the _principal_sub detail marker the BFF folds in - but
+   │                          ONLY when "Trust a client-asserted principal" is on; off by default, since
+   │                          both are simply what the caller sent. _principal_sub is always stripped.
+   ├─ principal_source     ← "authenticated" | "client_asserted" | "none", sent to the PDP alongside
+   │                          UserID/subject so policy can tell an authn-hook principal from a caller's word
    ├─ GovernanceEngineRequestBuilder | AuthZenRequestBuilder   (PDP Dialect field)
    ├─ GovernanceEngineClient | AuthZenPdpClient  ─POST─▶ PDP    (PdpClient seam, JdkHttpTransport)
    ├─ deny unless decision.isPermit()   (fail-open only if configured)
@@ -53,6 +57,8 @@ authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
 Only `AttestationAwareRarProcessor` touches the SDK; the builders, clients, `DecisionResponse`,
 `StatementApplier` and `RarContainment` are plain code, tested without PF. `AuthorizationDetailContext`
 exposes no resource owner (verified through SDK 13.0.0.3), hence the out-of-band principal lookup above.
+An authenticated principal always wins over a client-asserted one when both are present - a caller cannot
+override the authn hook by also sending a hint.
 
 **`RarContainment`** duplicates the containment semantics of `RarEntitlement` in
 [`libs/client-attestation`](../../libs/client-attestation) on purpose — kept local so the plugin builds
@@ -99,6 +105,7 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Attribute Prefix / Prefix Attributes with Type | `idp` / on |
 | Shared Secret Header / Shared Secret | `CLIENT-TOKEN` / — |
 | Deny unless PERMIT / Fail open on engine error | on / off |
+| Trust a client-asserted principal | off — use `login_hint` / `_principal_sub` as the decision subject when no authenticated principal is present; leave off unless a trusted BFF is the only caller (see below) |
 | Skip TLS verification (dev only) / Request timeout (ms) | off / 10000 |
 
 Supported RAR types are declared in code (`sales_agent`, `payment_initiation`, `account_information`);
@@ -107,7 +114,7 @@ you only enable them per client.
 ## Build, test, deploy
 
 ```bash
-mvn -pl plugins/rar-paz-plugin -am package     # → target/pf.plugins.pf-rar-paz-plugin.jar (38 tests)
+mvn -pl plugins/rar-paz-plugin -am package     # → target/pf.plugins.pf-rar-paz-plugin.jar (49 tests)
 ```
 
 Versions come from the repo BOM (`bom/pom.xml`); the two `provided` PF jars must be in `~/.m2` — the

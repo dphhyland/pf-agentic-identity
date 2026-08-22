@@ -65,6 +65,15 @@ public final class AttestationIssuanceHarness {
     private static int checks;
 
     public static void main(String[] args) throws Exception {
+        run();
+    }
+
+    /**
+     * Runs every check, throwing {@link AssertionError} on the first failure — callable directly from
+     * a JUnit test, the same way {@code AttestationFlowHarness.selfVerify()} is; see
+     * {@code AttestationIssuanceHarnessSmokeTest}.
+     */
+    static void run() throws Exception {
         bundleKey = ec("svid-key-1");
         attesterKey = ec("attester-1");
         instanceKey = ec("instance-1");

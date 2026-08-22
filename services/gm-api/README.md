@@ -27,7 +27,7 @@ what a token introspection cannot see.
 - [`docs/GMAPI-Extension.md`](docs/GMAPI-Extension.md) — the proposed spec text: §3.8 use case, §6.7 Grant Evaluation endpoint and its scopes, §7.1 metadata, §8.4 implementation considerations, privacy and security.
 - [`docs/authzen-oauth-profile.md`](docs/authzen-oauth-profile.md) — AuthZEN profile for OAuth 2.0 / OIDC: how scopes, claims and RAR map onto the AuthZEN information model.
 - [`docs/pingfederate-gm-api-gaps.md`](docs/pingfederate-gm-api-gaps.md) — the implementer's report against PF 13.0.3: §6 and §7.1 can be added from outside the product, §5 cannot; what PF supports natively (nothing, verified).
-- [`docs/MCP.md`](docs/MCP.md) — the MCP server: tools (`evaluate_grant`, `describe_grant`), transport, why it holds no credential of its own.
+- [`docs/MCP.md`](docs/MCP.md) — the MCP server: tools (`evaluate_grant`, `list_entitlements`, `describe_grant`), transport, why it holds no credential of its own.
 
 ## Build — this module is different
 

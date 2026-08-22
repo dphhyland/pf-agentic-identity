@@ -40,9 +40,11 @@ Default stream event types: session-revoked, credential-change, account-disabled
 | `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. |
 | filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF processes an OIDC logout. Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
 
-Caveat: `LogoutEventFilter` takes the subject from an unverified `id_token_hint`/`logout_token`, or a bare
-`sub` request parameter - unauthenticated input, so anyone who can reach the logout endpoint can trigger a
-session-revoked SET for an arbitrary subject. Known finding, not yet closed.
+`LogoutEventFilter` takes the subject from an `id_token_hint`/`logout_token`, verified (`PfIdTokenVerifier`)
+against this PF's own signing keys (asymmetric algorithms only; expiry is deliberately not enforced - a hint
+presented at logout is routinely expired, and its age says nothing about who it names). A bare `sub` request
+parameter is accepted only when a deployment opts in (`OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM=true`, for a dev rig
+with no real id tokens to hand); it is refused by default, closing the earlier unauthenticated-subject finding.
 
 Every servlet calls `SsfHttp.bootstrap` in `init()`: fail-soft. No issuer means the SSF endpoints stay
 disabled and PF boots regardless - SSF must never take the runtime web application down.

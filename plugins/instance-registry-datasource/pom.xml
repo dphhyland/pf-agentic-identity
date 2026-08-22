@@ -40,6 +40,11 @@
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
+        <!-- pingfederate-sdk's own POM declares commons-lang3 provided (PluginDescriptor uses StringUtils
+             at construction time), but provided-scope transitive dependencies are never inherited - PF
+             supplies it on the server classpath at runtime, so this module must declare it too to build
+             and test standalone. Same local install services/gm-api/servlet already uses. -->
+        <dependency><groupId>local.pingfederate</groupId><artifactId>commons-lang3</artifactId><version>3.x</version><scope>provided</scope></dependency>
         <!-- PF supplies a driver on its own classpath; bundling a second copy risks a LinkageError,
              the same trap the jose4j exclusion in assemble-pf-runtime-war.sh documents. -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
