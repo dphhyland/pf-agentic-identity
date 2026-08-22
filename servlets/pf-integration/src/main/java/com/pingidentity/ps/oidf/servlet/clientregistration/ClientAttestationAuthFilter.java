@@ -5,7 +5,9 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
-import com.pingidentity.ps.oidf.pf.BridgeKey;
+import com.pingidentity.ps.oidf.jose.CompactJws;
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
@@ -56,7 +58,7 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * classloader), so each sees a given PoP {@code jti} exactly once per request and genuine replays fail
  * in both.
  *
- * <p>The bridge key comes from {@link BridgeKey}. It is now resolved at {@code init} and, by default,
+ * <p>Signing keys come from {@link BridgeSigners}, one PER CLIENT. What is checked at {@code init} is
  * required: a deployment that registers clients for attestation authentication but has no bridge key
  * is one where this filter passes everything through and those clients are authenticated by nothing.
  * That used to degrade silently to pass-through; it now refuses to deploy, and
@@ -70,31 +72,35 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final String ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
     private static final long ASSERTION_TTL_SECONDS = 60L;
 
-    private volatile PublicJsonWebKey bridgeKey;
+    private volatile boolean bridgeConfigured;
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        // Resolve at init, not per request: a missing or malformed bridge key is a deployment error,
-        // and the failure mode it used to produce - pass-through - is indistinguishable from "no
-        // attestation clients configured" until a workload is silently let through unauthenticated.
+        // Signing keys are per client and resolved per request, so what is checked here is whether bridge
+        // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
+        // signing configured is one where this filter passes everything through and those clients are
+        // authenticated by nothing - the failure that must not be silent. Per-client absence is a
+        // different thing and is a 401 for that client, not a boot failure for everyone.
         try {
-            this.bridgeKey = BridgeKey.load().orElse(null);
+            this.bridgeConfigured = BridgeSigners.isConfigured();
         }
         catch (IllegalStateException e) {
+            // A broken or superseded configuration is a deployment error, and the container contract for
+            // that is ServletException - an IllegalStateException out of init is not reliably surfaced.
             throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
         }
-        if (this.bridgeKey == null) {
-            if (BridgeKey.isRequired()) {
-                throw new ServletException("attest_jwt_client_auth: no bridge key configured. Set "
-                        + FederationRuntimeConfig.BRIDGE_KEY_ENV + ", or set "
+        if (!this.bridgeConfigured) {
+            if (BridgeSigners.isRequired()) {
+                throw new ServletException("attest_jwt_client_auth: no bridge signing configured. Set "
+                        + BridgeSigners.BACKING_ENV + " and " + BridgeSigners.KEYS_ENV + ", or set "
                         + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV
                         + "=false to deploy without attestation-based client authentication.");
             }
-            LOGGER.warn((Object) ("attest_jwt_client_auth: no bridge key and "
+            LOGGER.warn((Object) ("attest_jwt_client_auth: no bridge signing and "
                     + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV + "=false - attestation headers will "
                     + "pass through and PF will enforce each client's configured authentication."));
         } else {
-            LOGGER.info((Object) ("attest_jwt_client_auth bridge key loaded (kid=" + this.bridgeKey.getKeyId() + ")"));
+            LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
         }
     }
 
@@ -124,11 +130,10 @@ public final class ClientAttestationAuthFilter implements Filter {
             return;
         }
 
-        PublicJsonWebKey signer = this.bridgeKey;
-        if (signer == null) {
-            LOGGER.warn((Object) ("Request carries " + ATTESTATION_HEADER + " but no bridge key is configured "
-                    + "(OIDF_BRIDGE_PRIVATE_JWK); passing through — PF will enforce the client's configured "
-                    + "authentication method."));
+        if (!this.bridgeConfigured) {
+            LOGGER.warn((Object) ("Request carries " + ATTESTATION_HEADER + " but no bridge signing is "
+                    + "configured (" + BridgeSigners.BACKING_ENV + "/" + BridgeSigners.KEYS_ENV
+                    + "); passing through — PF will enforce the client's configured authentication method."));
             chain.doFilter(request, response);
             return;
         }
@@ -149,6 +154,17 @@ public final class ClientAttestationAuthFilter implements Filter {
                     requestUri, httpRequest.getParameter("client_id"), authorizationDetails);
 
             String clientId = result.clientId();
+            // The signing key belongs to THIS client, resolved now rather than held for all of them.
+            // A client with no key configured cannot authenticate; that is a 401 for it alone.
+            JwsSigner signer = BridgeSigners.forClient(clientId).orElse(null);
+            if (signer == null) {
+                LOGGER.warn((Object) ("attest_jwt_client_auth: attestation verified for client_id=" + clientId
+                        + " but no bridge signing key is configured for it - refusing rather than passing "
+                        + "an unauthenticated request through. Add it to " + BridgeSigners.KEYS_ENV + "."));
+                ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client",
+                        "no bridge signing key is configured for this client");
+                return;
+            }
             String bridgeAssertion = this.mintBridgeAssertion(signer, clientId, opIssuer, requestUri);
             if (LOGGER.isInfoEnabled()) {
                 LOGGER.info((Object) ("attest_jwt_client_auth: verified attestation for client_id=" + clientId
@@ -169,7 +185,15 @@ public final class ClientAttestationAuthFilter implements Filter {
         }
     }
 
-    private String mintBridgeAssertion(PublicJsonWebKey signer, String clientId, String opIssuer,
+    /**
+     * A {@code private_key_jwt} client assertion for {@code clientId}, signed with that client's own key.
+     *
+     * <p>Built through {@link JwsSigner} rather than jose4j directly, so the private half can stay in a
+     * vault: {@code OpenBaoTransitSigner} returns signature bytes without ever exposing the key, and
+     * {@code CompactJws} assembles them. That is the same seam the attestation minter uses on the
+     * issuing side.
+     */
+    private String mintBridgeAssertion(JwsSigner signer, String clientId, String opIssuer,
                                        String requestUri) throws Exception {
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(clientId);
@@ -178,12 +202,13 @@ public final class ClientAttestationAuthFilter implements Filter {
         claims.setJwtId(UUID.randomUUID().toString());
         claims.setIssuedAtToNow();
         claims.setExpirationTimeMinutesInTheFuture(ASSERTION_TTL_SECONDS / 60.0f);
-        JsonWebSignature jws = new JsonWebSignature();
-        jws.setPayload(claims.toJson());
-        jws.setKey(signer.getPrivateKey());
-        jws.setKeyIdHeaderValue(signer.getKeyId());
-        jws.setAlgorithmHeaderValue("ES256");
-        return jws.getCompactSerialization();
+        Map<String, Object> header = new LinkedHashMap<>();
+        header.put("alg", signer.algorithm());
+        header.put("typ", "JWT");
+        if (signer.keyId() != null) {
+            header.put("kid", signer.keyId());
+        }
+        return CompactJws.sign(header, claims.toJson(), signer);
     }
 
 

@@ -2,46 +2,52 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.pf.BridgeSigners;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import javax.servlet.FilterChain;
 import javax.servlet.ServletException;
-import javax.servlet.ServletRequest;
 import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
 import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.EllipticCurveJsonWebKey;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.keys.EllipticCurves;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.ArgumentCaptor;
+import org.junit.jupiter.api.io.TempDir;
 
 /**
- * The token-endpoint filter that turns a verified Client Attestation into the credential PF
- * understands. Its fail-closed behaviour used to be asserted in a javadoc comment and nowhere else.
+ * The token-endpoint filter that turns a verified Client Attestation into the credential PF understands.
  *
- * <p>The load-bearing case is the LAST one: with no bridge key the filter used to pass every request
- * through, and clients registered for attestation authentication were registered as public - so the
- * composition authenticated nobody. It must now refuse to start instead.
+ * <p>Signing keys are PER CLIENT. What {@code init} checks is whether bridge signing is configured at
+ * all: a deployment that registers clients for attestation authentication with none configured is one
+ * where this filter passes everything through and those clients are authenticated by nothing. That is
+ * the load-bearing case, and it must refuse to start rather than degrade quietly.
+ *
+ * <p>A single client missing a key is a different thing — a 401 for that client, not a boot failure for
+ * everyone — and is asserted separately.
  */
 class ClientAttestationAuthFilterTest {
 
-    private static final String BRIDGE_KEY_PROP = "oidf.bridge.private.jwk";
+    private static final String BACKING_PROP = "oidf.bridge.signer.backing";
+    private static final String KEYS_PROP = "oidf.bridge.signing.keys";
+    private static final String LEGACY_KEY_PROP = "oidf.bridge.private.jwk";
     private static final String REQUIRE_PROP = "oidf.attestation.require.bridge.key";
 
     @AfterEach
     void clearProps() throws Exception {
-        System.clearProperty(BRIDGE_KEY_PROP);
+        System.clearProperty(BACKING_PROP);
+        System.clearProperty(KEYS_PROP);
+        System.clearProperty(LEGACY_KEY_PROP);
         System.clearProperty(REQUIRE_PROP);
         resetSingletons();
     }
@@ -51,16 +57,31 @@ class ClientAttestationAuthFilterTest {
         java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
         instance.setAccessible(true);
         instance.set(null, null);
-        java.lang.reflect.Method reset = Class.forName("com.pingidentity.ps.oidf.pf.BridgeKey")
-                .getDeclaredMethod("resetForTest");
+        java.lang.reflect.Method reset = BridgeSigners.class.getDeclaredMethod("resetForTest");
         reset.setAccessible(true);
         reset.invoke(null);
     }
 
-    private static String privateJwk() throws Exception {
+    private static String privateJwkJson(String kid) throws Exception {
         EllipticCurveJsonWebKey key = EcJwkGenerator.generateJwk(EllipticCurves.P256);
-        key.setKeyId("bridge-test");
+        key.setKeyId(kid);
         return key.toJson(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE);
+    }
+
+    /** A config-backed key map naming exactly the clients given. */
+    private static void configureKeysFor(Path dir, String... clientIds) throws Exception {
+        StringBuilder json = new StringBuilder("{");
+        for (int i = 0; i < clientIds.length; i++) {
+            json.append(i > 0 ? "," : "")
+                .append('"').append(clientIds[i]).append("\":{\"jwk\":")
+                .append(privateJwkJson("k" + i)).append('}');
+        }
+        json.append('}');
+        Path file = dir.resolve("bridge-keys.json");
+        Files.writeString(file, json.toString());
+        System.setProperty(BACKING_PROP, "config");
+        System.setProperty(KEYS_PROP, file.toString());
+        resetSingletons();
     }
 
     private static HttpServletRequest requestWithoutAttestation() {
@@ -69,29 +90,22 @@ class ClientAttestationAuthFilterTest {
         return req;
     }
 
+    // ---- init: is bridge signing configured at all? ------------------------------------------------
+
     @Test
-    void refusesToStartWhenTheBridgeKeyIsMissingAndRequired() throws Exception {
+    void refusesToStartWhenNoBridgeSigningIsConfiguredAndItIsRequired() throws Exception {
         resetSingletons();
 
         ServletException e = assertThrows(ServletException.class,
                 () -> new ClientAttestationAuthFilter().init(null));
 
-        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_KEY_ENV), e.getMessage());
+        assertTrue(e.getMessage().contains(BridgeSigners.BACKING_ENV), e.getMessage());
         assertTrue(e.getMessage().contains(FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV),
                 "the failure must name the opt-out, or an operator cannot act on it: " + e.getMessage());
     }
 
     @Test
-    void refusesToStartWhenTheBridgeKeyIsMalformed() throws Exception {
-        System.setProperty(BRIDGE_KEY_PROP, "{\"kty\":\"EC\",\"crv\":\"nonsense\"}");
-        resetSingletons();
-
-        assertThrows(ServletException.class, () -> new ClientAttestationAuthFilter().init(null),
-                "a malformed key must fail loudly, not degrade to pass-through");
-    }
-
-    @Test
-    void startsWithoutABridgeKeyOnlyWhenExplicitlyOptedOut() throws Exception {
+    void startsWithoutBridgeSigningOnlyWhenExplicitlyOptedOut() throws Exception {
         System.setProperty(REQUIRE_PROP, "false");
         resetSingletons();
 
@@ -99,52 +113,105 @@ class ClientAttestationAuthFilterTest {
     }
 
     @Test
-    void startsWhenAValidBridgeKeyIsConfigured() throws Exception {
-        System.setProperty(BRIDGE_KEY_PROP, privateJwk());
-        resetSingletons();
+    void startsWhenBridgeSigningIsConfigured(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
 
         assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
     }
 
+    /**
+     * The superseded single-key variable must not be silently ignored. A security setting that looks
+     * configured and does nothing is worse than one that is absent.
+     */
     @Test
-    void aRequestWithNoAttestationHeaderIsForwardedUntouched() throws Exception {
-        System.setProperty(BRIDGE_KEY_PROP, privateJwk());
+    void refusesToStartWhenTheSupersededSingleKeyVariableIsStillSet(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
+        System.setProperty(LEGACY_KEY_PROP, privateJwkJson("old-deployment-key"));
         resetSingletons();
-        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter();
-        filter.init(null);
-        HttpServletRequest req = requestWithoutAttestation();
-        HttpServletResponse resp = mock(HttpServletResponse.class);
-        FilterChain chain = mock(FilterChain.class);
 
-        filter.doFilter(req, resp, chain);
+        ServletException e = assertThrows(ServletException.class,
+                () -> new ClientAttestationAuthFilter().init(null));
 
-        ArgumentCaptor<ServletRequest> forwarded = ArgumentCaptor.forClass(ServletRequest.class);
-        verify(chain).doFilter(forwarded.capture(), any());
-        assertSame(req, forwarded.getValue(),
-                "with no attestation the request must pass through unwrapped - the filter only ever "
-                        + "translates a verified attestation, it never adds a credential of its own");
-        verify(resp, never()).setStatus(any(Integer.class));
+        assertTrue(e.getMessage().contains(FederationRuntimeConfig.BRIDGE_KEY_ENV),
+                "must name the variable that is now inert: " + e.getMessage());
+        assertTrue(e.getMessage().contains(BridgeSigners.KEYS_ENV),
+                "must say where the key should move to: " + e.getMessage());
+    }
+
+    // ---- per-client resolution ---------------------------------------------------------------------
+
+    @Test
+    void eachClientGetsItsOwnSigner(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1", "https://rp.example.com/agent-2");
+
+        JwsSigner one = BridgeSigners.forClient("https://rp.example.com/agent-1").orElseThrow();
+        JwsSigner two = BridgeSigners.forClient("https://rp.example.com/agent-2").orElseThrow();
+
+        assertTrue(!one.keyId().equals(two.keyId()),
+                "distinct clients must not share a signing key - that was the whole defect");
     }
 
     @Test
-    void bothAttestationHeadersAreRequiredTogether() throws Exception {
-        System.setProperty(BRIDGE_KEY_PROP, privateJwk());
+    void aClientWithNoKeyResolvesToNothingRatherThanBorrowingAnothers(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
+
+        assertTrue(BridgeSigners.forClient("https://rp.example.com/agent-unknown").isEmpty());
+    }
+
+    /** The backing is an assertion about the deployment, enforced so a demo key cannot ride into prod. */
+    @Test
+    void aVaultDeploymentRefusesAnInlineKey(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("keys.json");
+        Files.writeString(file, "{\"https://rp.example.com/a\":{\"jwk\":" + privateJwkJson("inline") + "}}");
+        System.setProperty(BACKING_PROP, "vault");
+        System.setProperty(KEYS_PROP, file.toString());
         resetSingletons();
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> BridgeSigners.forClient("https://rp.example.com/a"));
+        assertTrue(e.getMessage().contains("vault"), e.getMessage());
+    }
+
+    @Test
+    void aKeyWithBothFormsIsRefused(@TempDir Path dir) throws Exception {
+        Path file = dir.resolve("keys.json");
+        Files.writeString(file, "{\"https://rp.example.com/a\":{\"key_ref\":\"k\",\"jwk\":"
+                + privateJwkJson("inline") + "}}");
+        System.setProperty(BACKING_PROP, "config");
+        System.setProperty(KEYS_PROP, file.toString());
+        resetSingletons();
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> BridgeSigners.forClient("https://rp.example.com/a"));
+        assertTrue(e.getMessage().contains("exactly one"), e.getMessage());
+    }
+
+    @Test
+    void anUnreadableKeyMapIsADeploymentErrorNotAnEmptyResult() throws Exception {
+        System.setProperty(BACKING_PROP, "config");
+        System.setProperty(KEYS_PROP, "/nonexistent/bridge-keys.json");
+        resetSingletons();
+
+        assertThrows(IllegalStateException.class,
+                () -> BridgeSigners.forClient("https://rp.example.com/a"),
+                "falling through to 'no key' would silently disable attestation auth");
+    }
+
+    // ---- pass-through -------------------------------------------------------------------------------
+
+    @Test
+    void aRequestWithNoAttestationHeaderIsForwardedUntouched(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
         ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter();
         filter.init(null);
-        HttpServletRequest req = mock(HttpServletRequest.class);
-        when(req.getHeader("OAuth-Client-Attestation")).thenReturn("a.b.c");
-        when(req.getHeaders("OAuth-Client-Attestation"))
-                .thenReturn(java.util.Collections.enumeration(java.util.List.of("a.b.c", "d.e.f")));
-        HttpServletResponse resp = mock(HttpServletResponse.class);
-        java.io.StringWriter body = new java.io.StringWriter();
-        when(resp.getWriter()).thenReturn(new java.io.PrintWriter(body));
+        HttpServletRequest req = requestWithoutAttestation();
+        javax.servlet.http.HttpServletResponse resp = mock(javax.servlet.http.HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
 
         filter.doFilter(req, resp, chain);
 
-        verify(resp).setStatus(400);
-        verify(chain, never()).doFilter(any(), any());
-        assertNotNull(body.toString());
+        // The ORIGINAL request, not a BridgeAuthRequest wrapper: with no attestation the filter must not
+        // substitute a credential, or it would widen access rather than translate one.
+        verify(chain).doFilter(req, resp);
     }
 }
