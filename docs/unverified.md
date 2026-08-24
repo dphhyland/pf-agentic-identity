@@ -7,7 +7,8 @@ The rule that produced this file: anything from a published spec is verified by 
 anything about the PingFederate SDK is verified by enumerating the SDK jar on disk. Where neither was
 possible, it lands here rather than being quietly assumed.
 
-Last reviewed: 2026-07-31, against PingFederate 13.0.3.
+Last reviewed: 2026-07-31, against PingFederate 13.0.3. Item 13 added 2026-08-24, against
+draft-ietf-oauth-spiffe-client-auth-02.
 
 ---
 
@@ -185,6 +186,52 @@ PingOne transmits these natively, and with which subject identifier format. The 
 `opaque`/`id`, a bare `sub`, and a plain string subject, which covers the likely shapes — but the
 mapping from PingOne's device identifier to this registry's `device.id` is **not** established, and
 without it the loop does not close on real signals.
+
+## 13. Whether SPIFFE-native client authentication is worth implementing
+
+**Assumed:** no, for now. The attestation-issuance API is treated as the decoupling layer instead, and
+`draft-ietf-oauth-spiffe-client-auth` §3.3 (WIT-SVID client authentication) is not implemented.
+
+Assessed 2026-08-24 against draft -02. The verification result: neither this repo nor
+`client-attestation-sdk-polyglot` implements it, though the transport already matches — §3.3 reuses
+ABCA's two headers and PoP `typ` exactly, so only the attestation half would change
+(`ClientAttestationVerifier` pins a single `typ`; a WIT's `sub` is a SPIFFE ID rather than a client id;
+and keys would come from the trust domain's bundle endpoint rather than from the attester resolved by
+the token's `iss`).
+
+That last difference is smaller than it first appears, and the distinction is worth recording because
+it is easy to overstate. `draft-ietf-oauth-spiffe-client-auth` §6.2 does **not** prohibit `iss`-based
+discovery: it says implementations "SHOULD use the mechanisms defined in this specification when
+available" and "MAY use `iss`-based discovery ... as a compatibility mechanism, subject to local policy,
+appropriate trust configuration and risk mitigations described in Section 8.1". The only `MUST NOT`
+in that section concerns the system trust store, and only for X509-SVIDs. So the existing
+`FederationAttesterKeyResolver` — which resolves by `iss` but validates a trust chain to a *configured*
+anchor rather than trusting the token's `iss` on its own — is nearer that allowance than a first reading
+suggests. The decision below therefore rests on findings 1 and 2; there is no hard trust-model barrier.
+
+Three findings decided it, and any of them changing is grounds to revisit:
+
+1. **It serves one evidence format of eight.** §3.3 needs a real SPIFFE trust domain with a bundle
+   endpoint. The cloud validators synthesize SPIFFE IDs for uniform internal handling but nothing
+   publishes keys for those domains; wallet and device-platform evidence have no trust domain at all.
+2. **The interoperability is authentication-only.** `agent_id`, `authorization_details` and `workload`
+   have no WIT equivalent. A third-party SPIFFE-native AS would authenticate an instance and then
+   ignore the claims the authorization model runs on.
+3. **Nothing can mint a WIT.** A SPIRE Agent holds no trust-domain signing key, and `FetchJWTSVID`
+   returns a bearer JWT-SVID with no `cnf`, which a WIT requires.
+   [spiffe/spire#6326](https://github.com/spiffe/spire/issues/6326) — "WIT-SVID support in SPIRE" —
+   was opened 2025-09-18 to gauge appetite and carries no design, no implementation and no timeline.
+   The SPIFFE spec side is further along: WIT-SVID landed as an Incubating sub-profile (2026-01-21),
+   staying experimental until the IETF document is an RFC.
+
+**Revisit if:** a requirement appears to authenticate to an authorization server this project does not
+control; or to accept SPIFFE workloads from an organisation whose attester will not be trusted; or a
+conformance claim is required externally; or SPIRE ships WIT issuance, at which point the cheap move is
+a `WitInstanceAttestationValidator` accepting a WIT as *evidence* into the existing validator registry —
+which is not §3.3 conformance and must not be described as such.
+
+The reasoning is recorded in [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md)
+§1.1 and [ai-agent-attestation-profile-1_0.md](ai-agent-attestation-profile-1_0.md) §1.1.
 
 ---
 

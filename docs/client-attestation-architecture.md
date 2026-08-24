@@ -656,8 +656,9 @@ containment rule will drift, and the drift is a privilege-escalation shape.
 | Document | What it is for |
 |---|---|
 | [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md) | The CAS 1.0 draft-00 spec — normative text for the issuance side |
+| [ai-agent-attestation-profile-1_0.md](ai-agent-attestation-profile-1_0.md) | The AI Agent Profile of ABCA-10 draft-00 — pins down what ABCA leaves open (algorithms, lifetime, `sub`/`agent_id`) for AI agent fleets specifically; attester trust establishment is deliberately out of scope |
 | [claim-dictionary.md](claim-dictionary.md) | Every claim, its spec status, and the five numbered deliberate divergences |
-| [unverified.md](unverified.md) | The twelve assumptions that could not be confirmed against an authoritative source |
+| [unverified.md](unverified.md) | The thirteen assumptions that could not be confirmed against an authoritative source |
 | [libs/client-attestation/README.md](../libs/client-attestation/README.md) | The verifier module in detail |
 | [servlets/attestation-issuer/README.md](../servlets/attestation-issuer/README.md) | The issuer module in detail |
 | [servlets/pf-integration/README.md](../servlets/pf-integration/README.md) | The PF glue: filters, OGNL hooks, key resolvers |

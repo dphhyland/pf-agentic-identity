@@ -81,6 +81,26 @@ artifacts (a WIA, a SPIFFE SVID) as Instance Attestations and is agnostic to whi
 standardizes the layer neither addresses — exchanging a runtime-scoped instance identity for an
 ecosystem-scoped OAuth client credential, under registered bindings and policy.
 
+**Contrast with [SPIFFE-CLIENT-AUTH].** That specification takes the opposite approach for SPIFFE
+deployments: an SVID is presented **directly** at the token endpoint as the client credential — a
+JWT-SVID as a `client_assertion` (§3.1), an X.509-SVID over mutual TLS (§3.2), or a WIMSE Workload
+Identity Token in [ABCA]'s attestation header (§3.3, `typ` `wit+jwt`) — with the authorization server
+verifying it against the trust domain's own signing keys, and no attester in between. Both are
+legitimate bindings of the same idea, and the difference is where platform-specific credential handling
+lives. Under [SPIFFE-CLIENT-AUTH] the authorization server learns each platform's credential format,
+trust model and key distribution; under this specification the CAS absorbs that variance and the
+authorization server sees one uniform credential.
+
+The trade is generality against directness. A CAS accepts evidence formats that have no SPIFFE trust
+domain to verify against and therefore cannot use [SPIFFE-CLIENT-AUTH] at all — wallet WIAs, device
+platform attestation, and cloud workload-identity tokens (GKE, EKS, AKS, AWS STS, Azure managed
+identity) whose SPIFFE IDs, where an implementation synthesizes them for uniform internal handling, are
+not backed by a bundle endpoint. A deployment that is wholly SPIFFE-native, and whose authorization
+decisions rely only on claims the SVID itself carries, gains little from the indirection and may prefer
+the direct binding. One that spans runtimes, or that relies on attester-asserted claims such as an
+entitlement ceiling (Section 7), needs the exchange this specification defines: those claims are added
+by the attester under policy and have no equivalent in an SVID.
+
 ### 1.2 Requirements Notation and Conventions
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT",
@@ -708,7 +728,11 @@ Nothing owned by [ABCA] is re-registered: `oauth-client-attestation+jwt`, the Po
 - **[HAIP]** — OpenID4VC High Assurance Interoperability Profile (Wallet Instance Attestation).
 - **[AUTHZEN]** — OpenID AuthZEN Authorization API.
 - **[WebAuthn]** — W3C Web Authentication.
-- **[WIMSE]** — IETF Workload Identity in Multi System Environments (WG documents).
+- **[WIMSE]** — IETF Workload Identity in Multi System Environments (WG documents), including
+  draft-ietf-wimse-workload-creds (the Workload Identity Token, `typ` `wit+jwt`).
+- **[SPIFFE-CLIENT-AUTH]** — SPIFFE Client Authentication for OAuth 2.0,
+  draft-ietf-oauth-spiffe-client-auth. Presents an SVID directly at the token endpoint; see Section 1.1
+  for how that differs from the exchange this document defines.
 - **[RFC8705]** — OAuth 2.0 Mutual-TLS Client Authentication and Certificate-Bound Access Tokens.
 - **[RFC9449]** — OAuth 2.0 Demonstrating Proof of Possession (DPoP).
 
