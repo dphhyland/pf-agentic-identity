@@ -208,3 +208,31 @@ per-instance identity.
 
 **Revisit if:** the ABCA draft ever defines its own per-instance claim — at which point `agent_id`
 should migrate to the standard name.
+
+---
+
+## Profile conformance status
+
+A separate axis from the divergences above. Those record where this implementation departs from
+[ABCA]; this records where it departs from **our own**
+[ai-agent-attestation-profile-1_0.md](ai-agent-attestation-profile-1_0.md), which fixes what ABCA
+leaves open. The profile is an opt-in posture, not the shipped default: narrowing the defaults to meet
+it would break any deployment currently signing with an RS-family algorithm, and flipping `sub` by
+default is the migration divergence 5 already governs. So the code is built to *permit* conformance
+and a test pins that it does, rather than imposing it on everyone.
+
+| Profile requirement | Shipped default | How a deployment conforms |
+|---|---|---|
+| §3 — `PS256`/`ES256` only | `DEFAULT_ASYMMETRIC_ALGORITHMS`, ten algorithms wide, including the RS family and `EdDSA`. Excludes `none` and all MACs. | `attestationAlgorithms`/`popAlgorithms`/`dpopAlgorithms` set to `{PS256, ES256}` |
+| §5 — `exp` ≤ `iat` + 18h | No ceiling. `exp` itself is always enforced, and issuance already mints 15-minute attestations by default (divergence 4), but nothing bounded `exp - iat` at the verifier until now. | `maxAttestationLifetimeSeconds(64800)`. When set, an attestation with no `iat` is rejected rather than exempted |
+| §6 — `agent_id` always present (a duty the profile puts on the *attester*; an AS enforcing it too is defence-in-depth, not required for conformance) | Not required at the AS. `agent_id` is always *minted*, but the verifier did not require it — and naming it in `requiredDisclosedClaims` was silently a no-op before this, because unrecognised claim names are treated as satisfied. That arm is still permissive — rejecting would fail a client's authentication at runtime, since the config is built per request from per-client `extproperties` — but it now logs a WARN once per distinct unrecognised name, so a typo is visible rather than silent. | `requiredDisclosedClaims(Set.of("agent_id"))` |
+| §6 — `sub` = agent type | Device path puts the instance id in `sub` unless `OIDF_ATTESTATION_SUB=client_id`. SPIFFE/workload path already mints `sub` = client id. | Set the flag; see divergence 5 for the migration |
+
+`ProfileConformanceTest` (in `libs/client-attestation`) asserts each of these against a config built to
+satisfy the profile, and deliberately pins the *gap* too: if someone later narrows the shipped
+defaults, `theShippedDefaultsAreBroaderThanTheProfile` and `theCeilingIsOffUnlessTheDeploymentSetsIt`
+fail and this table gets revisited. Each rejection test has a control proving it rejects for the
+profiled reason rather than incidentally.
+
+**Revisit if:** an external conformance claim is made against the profile, at which point the defaults
+should move and these tests invert.

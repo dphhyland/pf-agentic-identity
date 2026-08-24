@@ -20,6 +20,8 @@ public final class ClientAttestationConfig {
     public static final long DEFAULT_POP_MAX_AGE_SECONDS = 300L;
     public static final long DEFAULT_DPOP_MAX_AGE_SECONDS = 300L;
     public static final String DEFAULT_HTTP_METHOD = "POST";
+    /** Sentinel for {@link #maxAttestationLifetimeSeconds()}: no ceiling on {@code exp - iat}. */
+    public static final long NO_MAX_ATTESTATION_LIFETIME = 0L;
 
     private final Set<String> attestationAlgorithms;
     private final Set<String> popAlgorithms;
@@ -32,6 +34,7 @@ public final class ClientAttestationConfig {
     private final String expectedHtm;
     private final boolean challengeRequired;
     private final Set<String> requiredDisclosedClaims;
+    private final long maxAttestationLifetimeSeconds;
 
     private ClientAttestationConfig(Builder b) {
         this.attestationAlgorithms = Set.copyOf(b.attestationAlgorithms);
@@ -45,6 +48,7 @@ public final class ClientAttestationConfig {
         this.expectedHtm = b.expectedHtm;
         this.challengeRequired = b.challengeRequired;
         this.requiredDisclosedClaims = Set.copyOf(b.requiredDisclosedClaims);
+        this.maxAttestationLifetimeSeconds = b.maxAttestationLifetimeSeconds;
     }
 
     public static Builder builder() {
@@ -100,6 +104,20 @@ public final class ClientAttestationConfig {
         return this.requiredDisclosedClaims;
     }
 
+    /**
+     * Ceiling on an attestation's own lifetime ({@code exp - iat}), in seconds, or
+     * {@link #NO_MAX_ATTESTATION_LIFETIME} to accept whatever the attester minted (the default).
+     * Distinct from {@code exp}, which is always enforced: this bounds how long a *stale posture* may
+     * be presented as current, which an unexpired long-lived attestation otherwise does not.
+     *
+     * <p>When set, an attestation carrying no {@code iat} is rejected rather than exempted - the
+     * ceiling cannot be evaluated without one, and skipping it would let an attester opt out of the
+     * policy by omitting a claim.
+     */
+    public long maxAttestationLifetimeSeconds() {
+        return this.maxAttestationLifetimeSeconds;
+    }
+
     public static final class Builder {
         private Set<String> attestationAlgorithms = new LinkedHashSet<>(DEFAULT_ASYMMETRIC_ALGORITHMS);
         private Set<String> popAlgorithms = new LinkedHashSet<>(DEFAULT_ASYMMETRIC_ALGORITHMS);
@@ -112,6 +130,7 @@ public final class ClientAttestationConfig {
         private String expectedHtm = DEFAULT_HTTP_METHOD;
         private boolean challengeRequired;
         private Set<String> requiredDisclosedClaims = new LinkedHashSet<>();
+        private long maxAttestationLifetimeSeconds = NO_MAX_ATTESTATION_LIFETIME;
 
         private Builder() {
         }
@@ -187,6 +206,14 @@ public final class ClientAttestationConfig {
             if (claims != null) {
                 this.requiredDisclosedClaims = new LinkedHashSet<>(claims);
             }
+            return this;
+        }
+
+        /**
+         * Sets the {@code exp - iat} ceiling in seconds; {@code 0} or less disables it (the default).
+         */
+        public Builder maxAttestationLifetimeSeconds(long seconds) {
+            this.maxAttestationLifetimeSeconds = Math.max(NO_MAX_ATTESTATION_LIFETIME, seconds);
             return this;
         }
 

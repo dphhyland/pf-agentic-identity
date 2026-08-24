@@ -9,6 +9,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwk.JsonWebKey;
@@ -35,6 +37,10 @@ import com.pingidentity.ps.oidf.jose.Claims;
  */
 public final class ClientAttestationVerifier {
     private static final Log LOGGER = LogFactory.getLog(ClientAttestationVerifier.class);
+    /** Required-claim names already warned about. Static because the verifier is built per request. */
+    private static final Set<String> WARNED_UNKNOWN_REQUIRED_CLAIMS = ConcurrentHashMap.newKeySet();
+    /** Bound on the above so a misconfigured deployment cannot grow it without limit. */
+    private static final int MAX_WARNED_UNKNOWN_REQUIRED_CLAIMS = 64;
     private static final String ATTESTATION_TYP = "oauth-client-attestation+jwt";
     private static final String POP_TYP = "oauth-client-attestation-pop+jwt";
 
@@ -138,8 +144,10 @@ public final class ClientAttestationVerifier {
      * Enforces the AS's required-claims policy: every claim named in
      * {@link ClientAttestationConfig#requiredDisclosedClaims()} must be present and non-empty in the
      * attestation. Lets an AS declare, per its position in the federation, which claims it needs and
-     * reject an attestation minted without them. Known groups: {@code workload} and
-     * {@code authorization_details}; an unrecognised name is treated as satisfied.
+     * reject an attestation minted without them. Known groups: {@code workload},
+     * {@code authorization_details} and {@code agent_id}; an unrecognised name is treated as
+     * satisfied and warned about once - see {@link #warnUnknownRequiredClaim(String)} for why it is
+     * not rejected.
      */
     private void enforceRequiredDisclosures(ClientAttestation attestation) throws ClientAttestationException {
         for (String claim : this.config.requiredDisclosedClaims()) {
@@ -151,14 +159,42 @@ public final class ClientAttestationVerifier {
                 case "authorization_details":
                     present = attestation.authorizationDetails() != null && !attestation.authorizationDetails().isEmpty();
                     break;
+                case "agent_id":
+                    present = attestation.agentId() != null && !attestation.agentId().isBlank();
+                    break;
                 default:
+                    // Unrecognised names are treated as satisfied, so a typo in a client's
+                    // extproperties.attestation_required_claims silently disables the requirement
+                    // rather than enforcing it. Kept permissive deliberately - this config is built
+                    // per authentication request from per-client properties, so rejecting here would
+                    // fail that client's authentication in production rather than at startup - but
+                    // warned so the misconfiguration is visible instead of silent.
                     present = true;
+                    ClientAttestationVerifier.warnUnknownRequiredClaim(claim);
             }
             if (!present) {
                 throw ClientAttestationException.insufficientDisclosure(
                         "attestation does not disclose the AS-required claim '" + claim + "'");
             }
         }
+    }
+
+    /**
+     * Warns, once per distinct name, that a required-claim name is not recognised and so is not being
+     * enforced. Deduplicated through a static set because a new verifier is constructed for every
+     * authentication request; bounded by {@link #MAX_WARNED_UNKNOWN_REQUIRED_CLAIMS}, past which
+     * further distinct names go unwarned rather than growing the set without limit.
+     */
+    private static void warnUnknownRequiredClaim(String claim) {
+        if (WARNED_UNKNOWN_REQUIRED_CLAIMS.size() >= MAX_WARNED_UNKNOWN_REQUIRED_CLAIMS
+                || !WARNED_UNKNOWN_REQUIRED_CLAIMS.add(claim)) {
+            return;
+        }
+        LOGGER.warn((Object) ("required-claims policy names '" + claim + "', which is not a recognised "
+                + "claim name and is therefore treated as satisfied - the requirement is NOT being "
+                + "enforced. Recognised names: workload, authorization_details, agent_id. Check "
+                + "extproperties.attestation_required_claims and the oidf.attestation.required.claims "
+                + "system property for a typo."));
     }
 
     private ClientAttestation verifyAttestation(String attestationHeader) throws Exception {
@@ -179,7 +215,37 @@ public final class ClientAttestationVerifier {
             }
             throw ClientAttestationException.invalidClient("Client Attestation verification failed: " + e.getMessage(), e);
         }
-        return ClientAttestation.fromVerifiedClaims(verified, attestationHeader);
+        ClientAttestation attestation = ClientAttestation.fromVerifiedClaims(verified, attestationHeader);
+        this.enforceLifetimeCeiling(attestation);
+        return attestation;
+    }
+
+    /**
+     * Rejects an attestation the attester minted with a longer life than this AS accepts. {@code exp}
+     * itself is already enforced during signature verification; this bounds {@code exp - iat}, which is
+     * how long a stale posture may be presented as current. Disabled unless
+     * {@link ClientAttestationConfig#maxAttestationLifetimeSeconds()} is set.
+     *
+     * <p>A missing {@code iat} is rejected rather than exempted: the ceiling cannot be evaluated
+     * without one, so skipping the check would let an attester escape the policy by omitting a claim.
+     */
+    private void enforceLifetimeCeiling(ClientAttestation attestation) throws ClientAttestationException {
+        long ceiling = this.config.maxAttestationLifetimeSeconds();
+        if (ceiling <= ClientAttestationConfig.NO_MAX_ATTESTATION_LIFETIME) {
+            return;
+        }
+        long iat = attestation.iatEpochSeconds();
+        if (iat <= 0L) {
+            throw ClientAttestationException.invalidClient(
+                    "Client Attestation has no 'iat'; its lifetime cannot be checked against the "
+                            + ceiling + "s ceiling this AS enforces");
+        }
+        long lifetime = attestation.expEpochSeconds() - iat;
+        if (lifetime > ceiling) {
+            throw ClientAttestationException.invalidClient(
+                    "Client Attestation lifetime " + lifetime + "s exceeds the " + ceiling
+                            + "s ceiling this AS enforces");
+        }
     }
 
     private ClientAttestationResult verifyPopMode(ClientAttestation attestation, String popHeader) throws Exception {

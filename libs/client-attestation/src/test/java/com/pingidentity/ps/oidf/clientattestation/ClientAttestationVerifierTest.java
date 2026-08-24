@@ -336,6 +336,38 @@ class ClientAttestationVerifierTest {
         assertEquals("spiffe://example.org/agent", result.workload().get("spiffe_id"));
     }
 
+    @Test
+    void requiredAgentIdClaimMissingIsRejected() throws Exception {
+        ClientAttestationVerifier strict = newVerifier(false, Set.of("agent_id"));
+        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
+                () -> strict.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.INSUFFICIENT_DISCLOSURE, ex.error());
+    }
+
+    /**
+     * Pins a known fail-open gap rather than asserting desired behaviour: the switch in
+     * {@code enforceRequiredDisclosures} satisfies any claim name it does not recognise, so a typo
+     * ({@code agentid}, {@code agent-id}) silently disables the requirement instead of enforcing it.
+     * Every recognised name is covered above; this is the arm that made the {@code agent_id} case
+     * invisible until it was added.
+     *
+     * <p>Left permissive deliberately. The config is built per authentication request from per-client
+     * {@code extproperties} (see {@code ClientAttestationUtils.buildConfig}), so rejecting an unknown
+     * name would fail that client's authentication at runtime, not fail fast at startup. The verifier
+     * now logs a WARN once per distinct unrecognised name so the misconfiguration is visible rather
+     * than silent, but the request is still allowed through. If that is ever made fail-closed, this
+     * test should invert.
+     */
+    @Test
+    void anUnrecognisedRequiredClaimNameIsCurrentlySatisfiedRatherThanEnforced() throws Exception {
+        ClientAttestationVerifier typo = newVerifier(false, Set.of("agentid"));
+        ClientAttestationResult result = typo.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals(CLIENT_ID, result.clientId(),
+                "an unknown required-claim name is silently satisfied; see the javadoc above");
+    }
+
     // ---- SD-JWT presentation is retired -----------------------------------------------------------
 
     @Test
