@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>pf-agentic-identity-bom</artifactId>
-    <version>0.1.2</version>
+    <version>0.1.3</version>
     <packaging>pom</packaging>
 
     <name>pf-agentic-identity BOM</name>
@@ -27,7 +27,7 @@
 
     <properties>
         <!-- internal reactor artifacts -->
-        <version.internal>0.1.2</version.internal>
+        <version.internal>0.1.3</version.internal>
         <!-- the two provided PingFederate jars, extracted from the public image (see .github/workflows/build.yml) -->
         <version.pingfederate>13.0.0.3</version.pingfederate>
         <!-- third-party -->

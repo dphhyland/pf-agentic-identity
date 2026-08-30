@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>ssf</artifactId>
-    <version>0.1.2</version>
+    <version>0.1.3</version>
     <packaging>jar</packaging>
 
     <name>ssf</name>
@@ -32,7 +32,7 @@
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.1.2</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.1.3</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
