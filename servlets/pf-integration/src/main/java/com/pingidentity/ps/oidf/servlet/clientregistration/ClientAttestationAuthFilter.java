@@ -178,8 +178,17 @@ public final class ClientAttestationAuthFilter implements Filter {
             // second time. verify() consumes the challenge and burns the PoP jti; doing it twice destroys
             // the first result. BridgeAuthRequest wraps this request and HttpServletRequestWrapper
             // delegates attributes, so the criterion sees it on the engine classloader.
-            httpRequest.setAttribute(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE,
-                    ClientAttestationUtils.attestationContext(result));
+            Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
+            httpRequest.setAttribute(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE, context);
+            // ...and under the RAR key as well, because the two are not the same deployment decision.
+            // The issuance criterion publishes both (ClientAttestationUtils:167-168); this filter used to
+            // publish only the first. A deployment that runs the filter WITHOUT putting the criterion on
+            // the access-token mapping - which OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false explicitly
+            // supports - therefore left AttestationSubject.fromAttribute(null) -> empty(), and the RAR
+            // processor fell back to the client as its own subject with the attested entitlement silently
+            // gone. Same already-verified Map, second key: it costs nothing and removes a way for the
+            // ceiling to disappear based on how a mapping happens to be configured.
+            httpRequest.setAttribute(ClientAttestationUtils.RAR_ATTESTATION_CONTEXT_ATTRIBUTE, context);
 
             // The signing key belongs to THIS client, resolved now rather than held for all of them.
             // A client with no key configured cannot authenticate; that is a 401 for it alone.

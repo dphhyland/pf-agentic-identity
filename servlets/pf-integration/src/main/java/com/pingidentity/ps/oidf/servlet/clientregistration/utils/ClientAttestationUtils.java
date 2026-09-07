@@ -53,6 +53,19 @@ public final class ClientAttestationUtils {
     public static final String VERIFIED_ATTESTATION_ATTRIBUTE =
             "com.pingidentity.ps.oidf.attestation.verified";
 
+    /**
+     * Request attribute carrying the same verified context to the RAR → PingAuthorize
+     * {@code AuthorizationDetailProcessor}.
+     *
+     * <p>This value is a contract with {@code plugins/rar-paz-plugin}, which reads it as
+     * {@code AttestationSubject.REQUEST_ATTRIBUTE}. The two modules deliberately do not depend on each
+     * other — the plugin loads on a per-plugin isolated classloader and shades its own jackson — so the
+     * key is a string literal on both sides and cannot be a shared constant. {@code RarContextKeyTest}
+     * pins the two literals equal; if you change this, that test tells you what else to change.
+     */
+    public static final String RAR_ATTESTATION_CONTEXT_ATTRIBUTE =
+            "com.pingidentity.ps.oidf.rar.attestation_context";
+
     private static final Log LOGGER = LogFactory.getLog(ClientAttestationUtils.class);
     private static final Object LOCK = new Object();
     private static volatile TrustControllerGateway gateway;
@@ -125,7 +138,7 @@ public final class ClientAttestationUtils {
             if (alreadyVerified instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> verified = (Map<String, Object>) alreadyVerified;
-                request.setAttribute("com.pingidentity.ps.oidf.rar.attestation_context", verified);
+                request.setAttribute(RAR_ATTESTATION_CONTEXT_ATTRIBUTE, verified);
                 if (LOGGER.isInfoEnabled()) {
                     LOGGER.info((Object) ("Attestation-based client authentication satisfied by the "
                             + "token-endpoint filter's verification for client_id=" + verified.get("client_id")));
@@ -164,7 +177,7 @@ public final class ClientAttestationUtils {
             // (pf-rar-paz-plugin: AttestationSubject.REQUEST_ATTRIBUTE). Decoupled by a shared string key and a
             // plain Map, so neither module depends on the other.
             Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
-            request.setAttribute("com.pingidentity.ps.oidf.rar.attestation_context", context);
+            request.setAttribute(RAR_ATTESTATION_CONTEXT_ATTRIBUTE, context);
             request.setAttribute(VERIFIED_ATTESTATION_ATTRIBUTE, context);
             if (LOGGER.isInfoEnabled()) {
                 LOGGER.info((Object) ("Attestation-based client authentication succeeded for client_id=" + result.clientId()

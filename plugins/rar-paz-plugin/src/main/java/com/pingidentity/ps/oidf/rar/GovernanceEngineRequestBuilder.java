@@ -38,8 +38,14 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
     private final GovernanceEngineConfig config;
     private final ObjectMapper mapper;
 
-    /** RFC 9396 set-valued fields mirrored as flat, dot-free scalars for PingAuthorize policy. */
-    private static final String[] SET_FIELDS = {"actions", "locations", "datatypes", "privileges", "sales_regions"};
+    /**
+     * RFC 9396 set-valued fields mirrored as flat, dot-free scalars for PingAuthorize policy.
+     *
+     * <p>The same list containment uses, not a copy of it. These two travel together by construction:
+     * the {@code att_*}/{@code req_*} attributes below are what a policy compares, so a field the
+     * builder mirrors but containment ignores (or the reverse) is a rule that looks enforced and is not.
+     */
+    private static final String[] SET_FIELDS = RarContainment.SET_FIELDS;
 
     public GovernanceEngineRequestBuilder(GovernanceEngineConfig config, ObjectMapper mapper) {
         this.config = config;

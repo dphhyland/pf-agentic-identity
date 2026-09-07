@@ -81,6 +81,64 @@ class DelegationTest {
         assertEquals("agent-2", t.getActor(), "the outermost act is the current actor");
     }
 
+    /**
+     * The shape this platform actually mints.
+     *
+     * <p>{@code ClientAttestationUtils.delegationActChain} in {@code servlets/pf-integration} emits
+     * {@code act} as a JSON <em>string</em>, not an object — a deviation from RFC 8693 §4.1 recorded in
+     * {@code docs/claim-dictionary.md} and gated on the open question in {@code docs/unverified.md}
+     * item 8. Until that resolves it is the only form this API sees in production.
+     *
+     * <p>Before this test existed the suite built only the object form, so it never saw the shape its
+     * own platform emits: the walk skipped a string outright, the chain came back empty, and every
+     * delegated call reached the grant API looking like the principal acting alone — the exact failure
+     * {@code TokenClaims.actorChain}'s contract forbids.
+     */
+    @Test
+    void readsTheLegacyStringFormThisPlatformActuallyMints() {
+        TokenClaims t = tokenWithAct("{\"sub\":\"" + AGENT + "\"}");
+
+        assertTrue(t.isDelegated(), "a string-form act is still a delegated call");
+        assertEquals(AGENT, t.getActor());
+        assertEquals(List.of(AGENT), t.getActorChain());
+        assertEquals(ALICE, t.getSubject(), "the principal is still the subject");
+    }
+
+    @Test
+    void readsANestedChainFromTheLegacyStringForm() {
+        TokenClaims t = tokenWithAct("{\"sub\":\"agent-2\",\"act\":{\"sub\":\"agent-1\"}}");
+
+        assertEquals(List.of("agent-2", "agent-1"), t.getActorChain());
+        assertEquals("agent-2", t.getActor(), "the outermost act is the current actor");
+    }
+
+    @Test
+    void anUnparseableStringActIsNotReadAsAnAgentlessToken() {
+        // Unparseable is not "no agent" -- but there is nothing to walk, so the chain is empty and the
+        // caller sees a token it cannot attribute rather than one it wrongly attributes to the principal.
+        assertTrue(TokenClaims.actorChain("not json at all").isEmpty());
+        assertTrue(TokenClaims.actorChain("[\"an\",\"array\"]").isEmpty());
+        assertTrue(TokenClaims.actorChain("").isEmpty());
+        assertTrue(TokenClaims.actorChain("   ").isEmpty());
+    }
+
+    @Test
+    void aCyclicChainInTheStringFormAlsoTerminates() {
+        StringBuilder deep = new StringBuilder();
+        for (int i = 0; i < 40; i++) {
+            deep.append("{\"sub\":\"agent-").append(i).append("\",\"act\":");
+        }
+        deep.append("null");
+        for (int i = 0; i < 40; i++) {
+            deep.append('}');
+        }
+
+        List<String> chain = TokenClaims.actorChain(deep.toString());
+
+        assertEquals(TokenClaims.MAX_ACTOR_CHAIN, chain.size(),
+                "the depth cap bounds the string form exactly as it bounds the object form");
+    }
+
     @Test
     void aDirectTokenHasNoActor() {
         TokenClaims t = tokenWithAct(null);

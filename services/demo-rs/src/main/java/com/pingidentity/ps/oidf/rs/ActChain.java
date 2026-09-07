@@ -70,12 +70,25 @@ public final class ActChain {
         return new Parsed(List.of(), false, true);
     }
 
+    /**
+     * How deep an act chain may nest before flattening stops.
+     *
+     * <p>Bounded because a hostile token could otherwise nest until the parser runs out of stack, and
+     * no legitimate delegation chain is anywhere near this long. Only the outermost actor is ever
+     * authorisable (see this class's contract), so the cap bounds how much *informational* prior-actor
+     * detail is reported and nothing else.
+     *
+     * <p>Kept equal to {@code TokenClaims.MAX_ACTOR_CHAIN} in {@code services/gm-api} — two independent
+     * resource servers reading one RFC 8693 claim should not disagree about where a chain stops. These
+     * modules share no dependency, so the constants cannot be shared; if you change one, change both.
+     */
+    private static final int MAX_CHAIN_DEPTH = 10;
+
     /** Flattens nested {@code act} objects, outermost (most recent) first. */
     private static List<Actor> flatten(JsonNode node) {
         List<Actor> actors = new ArrayList<>();
         JsonNode current = node;
-        // Bounded: a hostile token could otherwise nest until the parser runs out of stack.
-        for (int depth = 0; current != null && current.isObject() && depth < 16; depth++) {
+        for (int depth = 0; current != null && current.isObject() && depth < MAX_CHAIN_DEPTH; depth++) {
             String subject = current.path("sub").asText(null);
             String issuer = current.path("iss").asText(null);
             if (subject != null || issuer != null) {

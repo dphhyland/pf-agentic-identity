@@ -15,6 +15,7 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import java.util.Map;
 import java.util.UUID;
 import javax.servlet.FilterChain;
@@ -453,6 +454,56 @@ class ClientAttestationAuthFilterTest {
         verify(resp).setStatus(400);
         org.mockito.Mockito.verifyNoInteractions(chain);
         assertTrue(body.toString().contains("invalid_request"), body.toString());
+    }
+
+    /**
+     * The filter must publish the verified context under BOTH keys, because they are read by two
+     * consumers with different deployment conditions.
+     *
+     * <p>{@code VERIFIED_ATTESTATION_ATTRIBUTE} is read by the OGNL issuance criterion, so that the same
+     * request is not verified twice (verify() consumes the challenge and burns the PoP jti).
+     * {@code RAR_ATTESTATION_CONTEXT_ATTRIBUTE} is read by the RAR → PingAuthorize processor, which turns
+     * it into the ceiling policy evaluates against.
+     *
+     * <p>The filter previously published only the first. The criterion publishes both — so a deployment
+     * that ran the filter and did NOT put the criterion on its access-token mapping (which
+     * {@code OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false} explicitly supports) authenticated the client
+     * correctly and then lost the attested entitlement on the way to the PDP, which fell back to
+     * treating the client as its own subject. Nothing failed; the ceiling simply was not there.
+     */
+    @Test
+    void theVerifiedContextIsPublishedForBothTheCriterionAndTheRarProcessor(@TempDir Path dir)
+            throws Exception {
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        HttpServletRequest req = attestedRequest(
+                attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER),
+                new HashMap<>());
+        java.io.StringWriter body = new java.io.StringWriter();
+
+        filter.doFilter(req, responseCapturingBody(body), mock(FilterChain.class));
+        assertTrue(body.toString().isEmpty(), "expected a clean verification, got: " + body);
+
+        ArgumentCaptor<Object> verified = ArgumentCaptor.forClass(Object.class);
+        verify(req).setAttribute(
+                org.mockito.ArgumentMatchers.eq(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE),
+                verified.capture());
+        ArgumentCaptor<Object> rar = ArgumentCaptor.forClass(Object.class);
+        verify(req).setAttribute(
+                org.mockito.ArgumentMatchers.eq(ClientAttestationUtils.RAR_ATTESTATION_CONTEXT_ATTRIBUTE),
+                rar.capture());
+
+        assertEquals(verified.getValue(), rar.getValue(),
+                "both keys must carry the same already-verified context - the second is not a second "
+                        + "verification, it is the same Map reachable by the other consumer");
+        assertTrue(rar.getValue() instanceof Map,
+                "a plain Map is the only thing that crosses the servlet/engine classloader split");
+        assertEquals(DOFILTER_CLIENT_ID, ((Map<?, ?>) rar.getValue()).get("client_id"));
     }
 
     @Test

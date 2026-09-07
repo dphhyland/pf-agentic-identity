@@ -18,23 +18,41 @@ public final class RarContainment {
 
     private RarContainment() { }
 
-    private static final String[] SET_FIELDS = {"actions", "locations", "datatypes", "privileges", "sales_regions"};
+    /**
+     * The RFC 9396 set-valued fields containment compares, plus this deployment's {@code sales_regions}.
+     *
+     * <p>Must stay identical to {@code RarEntitlement.SET_FIELDS} in {@code libs/client-attestation};
+     * {@code RarContainmentContractTest} reads that file and fails if they diverge. Add a field to one
+     * and not the other and the PDP sees a constraint containment does not enforce, or the reverse.
+     */
+    static final String[] SET_FIELDS = {"actions", "locations", "datatypes", "privileges", "sales_regions"};
 
     /**
-     * @return {@code true} when {@code requested} is equal to or a subset of {@code accepted}: same {@code type}
-     *         (when both present) and, for every set-valued field the {@code accepted} detail constrains, the
+     * @return {@code true} when {@code requested} is equal to or a subset of {@code accepted}: the same
+     *         {@code type}, and for every set-valued field the {@code accepted} detail constrains, the
      *         requested values are a subset. Fields {@code accepted} omits are unconstrained.
+     *
+     * <p>Type handling matches {@code RarEntitlement} in {@code libs/client-attestation} deliberately.
+     * This method previously skipped the type comparison whenever <em>either</em> side lacked a type,
+     * which made a typeless requested detail a subset of any accepted one — while the same detail was
+     * refused outright at the token endpoint as {@code invalid_authorization_details}. Two answers to
+     * one question, and the permissive one was on the refresh path. A detail with no type is not
+     * containable here either.
      */
     public static boolean isSubset(Map<String, Object> requested, Map<String, Object> accepted) {
         if (requested == null) {
+            // Nothing requested is within anything. RarEntitlement.authorize says the same by returning
+            // an empty grant rather than denying.
             return true;
         }
         if (accepted == null) {
             return false;
         }
-        Object reqType = requested.get("type");
-        Object accType = accepted.get("type");
-        if (reqType != null && accType != null && !reqType.equals(accType)) {
+        String reqType = str(requested.get("type"));
+        if (reqType == null) {
+            return false;
+        }
+        if (!reqType.equals(str(accepted.get("type")))) {
             return false;
         }
         for (String field : SET_FIELDS) {
@@ -43,6 +61,20 @@ public final class RarContainment {
             }
         }
         return true;
+    }
+
+    /**
+     * "Absent" the way {@code RarEntitlement} decides it: its {@code str} is
+     * {@code o == null ? null : String.valueOf(o)}, and {@code authorize} then refuses a type that is
+     * null or blank. Both halves are folded in here so a non-String type stringifies identically on
+     * both sides rather than one being stricter than the other.
+     */
+    private static String str(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String s = String.valueOf(value);
+        return s.isBlank() ? null : s;
     }
 
     private static List<String> asStrings(Object value) {

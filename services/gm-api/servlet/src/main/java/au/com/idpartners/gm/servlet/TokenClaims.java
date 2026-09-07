@@ -1,5 +1,7 @@
 package au.com.idpartners.gm.servlet;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -32,8 +34,18 @@ public final class TokenClaims {
      * <p>The chain comes off an attacker-influenced token. A cyclic or absurdly deep
      * structure must not become an infinite loop inside a request, and no legitimate
      * delegation chain is anywhere near this long.
+     *
+     * <p>Kept equal to {@code ActChain.MAX_CHAIN_DEPTH} in {@code services/demo-rs} — two independent
+     * resource servers reading one RFC 8693 claim should not disagree about where a chain stops. These
+     * modules share no dependency, so the constants cannot be shared; if you change one, change both.
      */
     static final int MAX_ACTOR_CHAIN = 10;
+
+    /**
+     * Reader for the legacy string-form {@code act} claim — see {@link #normaliseAct}. Shared and
+     * stateless; Jackson's {@code ObjectMapper} is thread-safe once configured.
+     */
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final String subject;
     private final String clientId;
@@ -131,15 +143,49 @@ public final class TokenClaims {
      */
     static List<String> actorChain(Object act) {
         List<String> chain = new ArrayList<>();
-        Object node = act;
+        Object node = normaliseAct(act);
         for (int depth = 0; depth < MAX_ACTOR_CHAIN && node instanceof Map<?, ?> map; depth++) {
             Object sub = map.get("sub");
             if (sub != null && !sub.toString().isBlank()) {
                 chain.add(sub.toString());
             }
-            node = map.get("act");
+            node = normaliseAct(map.get("act"));
         }
         return chain;
+    }
+
+    /**
+     * Accepts {@code act} in either shape it actually arrives in.
+     *
+     * <p>RFC 8693 §4.1 defines {@code act} as a JSON object, and that is the shape to prefer. But this
+     * platform's own token-exchange mapping emits it as a JSON <em>string</em>: see
+     * {@code docs/claim-dictionary.md}, which records the string form as a deviation being corrected
+     * rather than carried forward, and {@code docs/unverified.md} item 8, which is the still-open
+     * question of whether PingFederate can emit a genuinely nested object at all.
+     *
+     * <p>Until that resolves, a string-form {@code act} is real traffic. Refusing to read it is how a
+     * delegated call silently becomes "the principal acting alone" — precisely the outcome
+     * {@link #actorChain}'s contract exists to prevent, and what this API would have done to every
+     * delegated token this platform mints today.
+     *
+     * <p>{@code services/demo-rs}'s {@code ActChain} makes the same accommodation and additionally
+     * reports which form arrived. Nothing here branches on that distinction, so it is not surfaced; if
+     * something ever needs it, take the reporting from there rather than re-deriving it.
+     */
+    private static Object normaliseAct(Object act) {
+        if (!(act instanceof String text)) {
+            return act;
+        }
+        if (text.isBlank()) {
+            return null;
+        }
+        try {
+            return JSON.readValue(text, new TypeReference<Map<String, Object>>() { });
+        } catch (Exception e) {
+            // Unparseable is not "no agent" either, but there is nothing left to walk. The caller's
+            // contract is that whatever was read so far is handed on, so end the walk here.
+            return null;
+        }
     }
 
     /** OAuth renders scope as one space-separated string; tolerate a list too. */
