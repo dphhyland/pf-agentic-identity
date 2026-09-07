@@ -56,6 +56,70 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on the decisions this module makes about identity: who an opaque
+              instance id belongs to, what an attestation is allowed to claim, and what a CAEP
+              signal is allowed to revoke. 100% line + branch, enforced — a missed branch here
+              is a revocation that does not fire or a key level accepted on a caller's word,
+              not a cosmetic gap.
+
+              Gated per METHOD, not per class, so the paths that need infrastructure stay
+              honestly out of scope: every IomInstanceRegistry member talks to a real Postgres
+              through Testcontainers and is skipped wherever Docker is absent, and the
+              InMemory registry's duplicate/unknown-id rejections and the minter's malformed-JWK
+              path have no test yet. Those are named in the coverage backlog rather than
+              gated at a limit nobody meets.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.device.DeviceAttestationMinter.rejectOverclaim(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.AgentInstance.userVerificationFreshAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.CaepSignalApplier.deviceComplianceChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.CaepSignalApplier.credentialChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.CaepSignalApplier.sessionRevokedForOwner(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.CaepSignalApplier.sessionRevokedForDevice(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.CaepSignalApplier.revokeAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry.devicesOwnedBy(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry.require(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.InstanceStatus.canObtainTokens(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.ComplianceState.fromCaepValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.Device.isDevelopmentEnrolment(*</include>
+                                        <include>com.pingidentity.ps.oidf.device.InstanceIdentifiers.random(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

@@ -103,15 +103,23 @@
       </plugin>
 
       <!--
-        Coverage gate on the request-building logic: what the PDP is asked, and which
-        requests are refused before it is asked at all. 100% line + branch, enforced — a
-        missed branch here is a question asked on the wrong subject or a guard that does
-        not fire, not a cosmetic gap.
+        Coverage gate on the security-critical decision points: what the PDP is asked,
+        which requests are refused before it is asked at all, and how the answer is read
+        back. 100% line + branch, enforced — a missed branch here is a question asked on
+        the wrong subject, a guard that does not fire, or a deny read as a permit, not a
+        cosmetic gap.
 
         Gated per METHOD, not per class, so the socket-bound and servlet-plumbing members
         stay honestly out of scope: PdpClient.post/readAll open real connections, and the
         McpServlet/GrantsServlet HTTP paths need a running PingFederate. Those are covered
         by the deployed probes instead.
+
+        Include patterns are jacoco's rendered METHOD names, not VM signatures: nested
+        classes join with '.' (not '$'), a constructor repeats the simple class name, and
+        parameters are fully-qualified type names. A pattern that matches nothing passes
+        silently, so every include below was verified to bind to the method it names.
+        Only the PfTokenVerifier constructor needs its parameter list spelled out — it is
+        overloaded, and the String-only sibling is not covered.
       -->
       <plugin>
         <groupId>org.jacoco</groupId>
@@ -123,6 +131,11 @@
             <goals><goal>prepare-agent</goal></goals>
           </execution>
           <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+          <execution>
             <id>coverage-gate</id>
             <phase>verify</phase>
             <goals><goal>check</goal></goals>
@@ -131,10 +144,21 @@
                 <rule>
                   <element>METHOD</element>
                   <includes>
+                    <!-- What the PDP is asked, and who it is asked about. -->
                     <include>au.com.idpartners.gm.servlet.GrantEvaluator.build(*</include>
                     <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildSearchRequest(*</include>
                     <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildDecisionRequest(*</include>
+                    <!-- The refusals that stop a request before the PDP ever sees it. -->
                     <include>au.com.idpartners.gm.servlet.GrantEvaluator.authorise(*</include>
+                    <include>au.com.idpartners.gm.servlet.GrantView.isExpired(*</include>
+                    <!-- How the PDP's answer is turned into a permit, a deny, or a retry. -->
+                    <include>au.com.idpartners.gm.servlet.GrantOperations.evaluate(*</include>
+                    <include>au.com.idpartners.gm.servlet.GrantOperations.Decision.retryable(*</include>
+                    <!-- The subject the whole decision is about, parsed off the token. -->
+                    <include>au.com.idpartners.gm.servlet.TokenClaims.from(*</include>
+                    <include>au.com.idpartners.gm.servlet.PfTokenVerifier.PfTokenVerifier(com.pingidentity.access.JwksEndpointKeyAccessor*</include>
+                    <!-- The path parse that decides which grant a caller is acting on. -->
+                    <include>au.com.idpartners.gm.servlet.GrantsServlet.evaluateGrantIdFrom(*</include>
                   </includes>
                   <limits>
                     <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

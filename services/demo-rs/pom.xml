@@ -49,6 +49,65 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on the act-chain decisions: who the token says is acting, and what a
+              caller is allowed to authorise on. 100% line + branch, enforced - a missed branch here
+              is an actor read out of the wrong position in the chain, which is a party being granted
+              authority it already handed on, not a cosmetic gap.
+
+              Gated per METHOD, not per class, so the parts that still have honest holes stay
+              honestly out of scope rather than being papered over by a class-level average. Left out
+              deliberately, each with a measured gap: DelegatedTokenValidator.verifyAccessToken /
+              confirmationThumbprint / selectKey / scopes and ActChain.flatten - their uncovered
+              branches are the malformed-token and depth-cap paths no test drives yet. Adding them
+              here is the next piece of work, not a reason to loosen the limits.
+
+              Note on the include syntax: jacoco renders a nested class with a DOT, not a '$'
+              (ActChain.Parsed, not ActChain$Parsed). A '$' pattern matches nothing and the rule then
+              passes vacuously, which is worse than no gate. If you add an include, prove it matches
+              before trusting a green build.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.currentActor(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.priorActors(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.isDelegated(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.actingInstance(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.describe(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

@@ -91,6 +91,57 @@
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.2.5</version>
             </plugin>
+            <!--
+                Coverage gate on the two answers this plugin gives that cannot be re-asked: whether a
+                refresh request stays inside what was already granted, and whether the PDP actually said
+                permit. 100% line + branch, enforced. RarContainment.isSubset once skipped the type
+                comparison when either side was typeless, making a typeless detail a subset of anything
+                while the token endpoint refused the same detail outright - a missed branch here is that
+                class of bug, not a cosmetic gap. DecisionResponse.isPermit is the fail-closed reading of
+                the verdict: every branch that could turn a non-permit into a permit is covered.
+
+                Gated per METHOD, not per class, so the rest stays honestly out of scope rather than
+                behind a lowered number. The request builders, the PDP clients' transport paths and the
+                processor's PF-SDK entry points (configure/validate/getUserConsentDescription) still carry
+                missed branches; they are the next work queue, and each is added here only once a test
+                closes it. JdkHttpTransport opens real sockets and is covered by the deployed probes.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.rar.RarContainment.isSubset(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionResponse.isPermit(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>

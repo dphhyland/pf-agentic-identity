@@ -52,6 +52,63 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <!--
+                        Coverage gate on the decisions that decide whether a client's attestation is
+                        believed: what the attestation JWT must survive to become a ClientAttestation,
+                        the ceilings and single-use guarantees applied to it, and the RAR containment
+                        test that decides which requested entitlements are inside the attested set.
+                        100% line + branch, enforced - a missed branch here is an unattested client
+                        let through or a replay accepted, not a cosmetic gap.
+
+                        Gated per METHOD, not per class, so the members whose remaining branches are
+                        genuinely untested stay honestly out of scope rather than being hidden behind
+                        a class-level average. MiniRedisClient's socket paths, StaticAttesterKeyResolver's
+                        file and trust-chain paths, and DpopProofValidator.normalizeHtu's URL edge cases
+                        are the next work queue; adding a method here is how that work gets banked.
+                    -->
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyAttestation(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceLifetimeCeiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceNoReplay(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestation.workload(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RarEntitlement.within(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.issue(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.consume(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter.allow(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
     <!-- Published to the monorepo's own package registry. These used to point at the abandoned

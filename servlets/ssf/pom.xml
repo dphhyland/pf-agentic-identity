@@ -60,6 +60,87 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <!--
+                      Coverage gate on the SSF trust decisions: who may call a stream endpoint, which
+                      subject an inbound signal actually names, what leaves as a signed SET, and which
+                      deliveries are retried rather than dropped. 100% line + branch, enforced - a missed
+                      branch here is a signal acted on for the wrong subject, or a caller let past a scope
+                      check, not a cosmetic gap.
+
+                      Gated per METHOD, not per class, so the container-bound and PF-bound members stay
+                      honestly out of scope: the servlet doGet/doPost entry points, the JDBC and LDM stores,
+                      and SsfSupport's bootstrap need a running PingFederate with a datasource behind it.
+                      The methods listed here are the ones reachable from a plain unit test, and every one
+                      of them measured clean before it was added - the gate went in green, not aspirational.
+
+                      LogoutEventFilter.extractSubject is absent on a technicality worth knowing: its
+                      one-arg overload is clean, its two-arg overload is not, and an include pattern cannot
+                      tell them apart. Every other omission is a real coverage gap - a queue of tests to
+                      write, not a reason to lower the limit. Add a method here only after measuring it
+                      clean; a gate that lands red is a gate someone switches off.
+                    -->
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- Endpoint authorisation: bearer/scope admission to the stream API. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfHttp.authorize(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.AuthContext.hasScope(*</include>
+
+                                        <!-- Stream management: what a receiver is allowed to register and be sent. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireDeliverableEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.createStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.setStatus(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.narrowToDeliverable(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.InMemorySsfStore.addSubject(*</include>
+
+                                        <!-- Delivery: retry/backoff, so a failed push is neither lost nor hammered. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.handleRetry(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.backoffSeconds(*</include>
+
+                                        <!-- Inbound signals: which subject a received SET acts on. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>
+
+                                        <!-- Outbound signals: which PF audit events become SETs, and their signing. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.map(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SetMinter.sign(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.attachTo(*</include>
+
+                                        <!-- SCIM subject lifecycle: which stream a subject is added to or removed from. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.assign(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deprovision(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

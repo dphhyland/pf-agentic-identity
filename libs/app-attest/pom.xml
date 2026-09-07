@@ -66,6 +66,71 @@
                     <execution><goals><goal>test-jar</goal></goals></execution>
                 </executions>
             </plugin>
+
+            <!--
+              Coverage gate on the decisions that decide whether an attestation is believed: what this
+              verifier is configured to accept, which environment an aaguid names, how the packed
+              authenticator-data struct is read, and the chain and key bytes the trust decision rests
+              on. 100% line + branch, enforced - a missed branch here is a development attestation
+              accepted in production, or a truncated struct read past its end, not a cosmetic gap.
+
+              Gated per METHOD, not per class, so the paths still short of 100% stay honestly out of
+              scope rather than dragging the limit down with them: verifyAttestation, verifyAssertion,
+              nonceFromCertificate, readCbor/binary/readChain and DerReader.readValue each have failure
+              branches no test drives yet - a non-EC credCert key, long-form DER lengths, an x5c entry
+              that is not a certificate. Those are the queue, not a reason to weaken this rule.
+
+              Pattern notes, all confirmed empirically against jacoco 0.8.12 rather than assumed: a
+              constructor is named Class.Class(, a nested class is Outer.Inner. and not Outer$Inner.,
+              and a BRANCH limit on a branch-free method (validateChain, uncompressedPoint) passes
+              vacuously instead of erroring.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- Policy: what this verifier will accept at all. -->
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestConfig.AppAttestConfig(*</include>
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestConfig.requireNonBlank(*</include>
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestConfig.accepts(*</include>
+                                        <!-- Which environment produced an attestation: the development/production line. -->
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestEnvironment.fromAaguid(*</include>
+                                        <include>com.pingidentity.ps.oidf.appattest.AuthenticatorData.environment(*</include>
+                                        <!-- The packed struct every later check reads its facts out of. -->
+                                        <include>com.pingidentity.ps.oidf.appattest.AuthenticatorData.parse(*</include>
+                                        <!-- Chain to the pinned Apple root, and the key bytes the key id is hashed from. -->
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestVerifier.validateChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestVerifier.uncompressedPoint(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 

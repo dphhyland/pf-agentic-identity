@@ -57,6 +57,57 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <!--
+              Coverage gate on the two fail-closed decisions this driver makes off its own bat: the
+              value map an unknown instance yields, and the refusal to answer at all before PF has
+              configured the driver. 100% line + branch, enforced - a missed branch in notFound() is a
+              field that stops being false-by-default, and an issuance criterion reading it would pass
+              on a missing value instead of refusing.
+
+              Gated per METHOD, not per class, so the members that need a real PingFederate or a real
+              Postgres stay honestly out of scope: configure() takes an SDK Configuration, registry()
+              opens a PGSimpleDataSource, and getSourceDescriptor()/getAvailableFields() are SDK
+              plumbing. lookup(), retrieveValues() and testConnection() are gate-worthy but not yet
+              gate-clean - each still has a branch or a line no test reaches, listed in the coverage
+              backlog rather than gated at a limit below 1.00. A gate that lands red is a gate someone
+              disables.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.registry.InstanceLookup.notFound(*</include>
+                                        <include>com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource.requireLookup(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-jar-plugin</artifactId>

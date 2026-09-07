@@ -56,6 +56,67 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on the trust decisions this module makes: which staged statement a
+              chain walk reuses instead of refetching, whose signature a chain entry is verified
+              against, how far a fetch budget lets a walk go, how two metadata policies compose,
+              and whether a hosted entity is allowed to resolve at all. 100% line + branch,
+              enforced - a missed branch here is a chain accepted on the wrong key or a suspended
+              entity still resolving, not a cosmetic gap.
+
+              Gated per METHOD, not per class, so the network-bound and configuration-plumbing
+              members stay honestly out of scope: the TrustChainValidator route walk and the
+              HttpTrustControllerGateway fetches need a live federation to exercise their error
+              paths, and FederationConfiguration/AttestationMetadataConfig read a real
+              ServletConfig. Those are covered by the deployed probes instead.
+
+              Nested classes are named with a DOT here, not a '$' - jacoco's check goal matches
+              METHOD elements on the readable name (TrustChainValidator.FetchBudget.spend), and a
+              '$' spelling silently matches nothing, which is a gate that looks green because it
+              gates nothing. The list grows as tests close a method, never by lowering a limit.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.composeWith(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.fetchVerifiedClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.FetchBudget.spend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.find(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.EntityStatus.canResolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.setStatus(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.HostedEntityConfigurationBuilder.buildEntityConfiguration(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
     <!-- Published to the monorepo's own package registry. These used to point at the abandoned

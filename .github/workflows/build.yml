@@ -95,8 +95,15 @@ jobs:
             echo "local.pingfederate:$a:$v <- $J"; test -n "$J"
             mvn -q install:install-file -Dfile="$J" -DgroupId=local.pingfederate -DartifactId="$a" -Dversion="$v" -Dpackaging=jar -DgeneratePom=true
           done
-      - name: reactor build (tests on)
-        run: mvn package
+      - name: reactor build (tests on, coverage gates enforced)
+        # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
+        # stopping at package builds the artifacts and silently skips every gate.
+        run: mvn verify
+      - name: coverage dashboard is current
+        # The dashboard is generated from the jacoco reports the step above just produced. Checking
+        # it here is what stops it drifting from the code the way a hand-maintained status table
+        # does - which is the failure this repo has already had to correct once.
+        run: python3 tools/coverage-report.py --check
       - uses: actions/upload-artifact@v7
         with:
           name: pf-artifacts

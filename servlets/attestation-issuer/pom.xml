@@ -60,6 +60,68 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+                Coverage gate on the issuance decisions: who is allowed to be issued an attestation,
+                what is put in it, and which requests are refused before a key is ever touched. 100%
+                line + branch, enforced - a missed branch here is a workload bound to the wrong client
+                or a ceiling that quietly widens, not a cosmetic gap.
+
+                Gated per METHOD, not per class, so the parts that need a live world stay honestly out
+                of scope: OpenIdFederationClientResolver fetches and validates a trust chain over the
+                network, AttesterConfigurationServlet.deploymentEvidenceAudience reads the deployment
+                environment, and the evidence validators (SpiffeSvidValidator, InstanceKeyProofValidator,
+                WalletInstanceAttestationValidator) still have unexercised rejection paths. Those are the
+                next tests to write, not a reason to lower this limit - every method listed here measured
+                1.00 on both counters before it was added.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.parseRequest(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.asObjectList(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.mapEntitlementError(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.federationWalletValidatorFromEnv(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.effectiveCeiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.require(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.requiresTrustBundle(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.with(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.RemoteJwksCache.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver.fromJson(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
         </plugins>
     </build>
 
