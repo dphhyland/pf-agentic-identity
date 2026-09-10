@@ -1,5 +1,6 @@
 package au.com.idpartners.gm.servlet;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -174,6 +175,7 @@ class GrantOperationsTest {
     // ---- search: the permitted set -------------------------------------------------------------
 
     @Test
+    @Requirement("AUTHZEN-1.0 §8.3")
     void searchReturnsThePermittedIdsInOrder() throws Exception {
         String body = "{\"results\":[{\"type\":\"account\",\"id\":\"111\"},"
                 + "{\"type\":\"account\",\"id\":\"444\"}]}";

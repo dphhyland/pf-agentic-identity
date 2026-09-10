@@ -80,6 +80,14 @@
       <scope>provided</scope>
     </dependency>
 
+    <!-- The @Requirement annotation only. Test-scoped and SOURCE-retention, so it never reaches
+         the war; this vendored tree imports no BOM, hence the explicit version. -->
+    <dependency>
+      <groupId>com.pingidentity.ps.oidf</groupId>
+      <artifactId>conformance</artifactId>
+      <version>0.1.3</version>
+      <scope>test</scope>
+    </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>

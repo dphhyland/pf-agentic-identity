@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -90,6 +91,7 @@ class DelegatedTokenValidatorTest {
      * {@code cnf.jkt} accepts a proof from anyone.
      */
     @Test
+    @Requirement("RFC9449 §6.1")
     void aProofFromADifferentKeyIsRejected() throws Exception {
         PublicJsonWebKey attackerKey = EcJwkGenerator.generateJwk(EllipticCurves.P256);
         attackerKey.setKeyId("attacker");
@@ -105,6 +107,7 @@ class DelegatedTokenValidatorTest {
 
     /** RFC 9449 §4.3: without ath, a proof captured for one token replays against another. */
     @Test
+    @Requirement("RFC9449 §4.3")
     void aProofCapturedForAnotherTokenIsRejected() throws Exception {
         String tokenA = accessToken(enclaveKey, Map.of("sub", INSTANCE));
         String tokenB = accessToken(enclaveKey, Map.of("sub", INSTANCE));
@@ -117,6 +120,7 @@ class DelegatedTokenValidatorTest {
     }
 
     @Test
+    @Requirement("RFC9449 §4.3")
     void aProofWithoutAthIsRejected() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE));
         String proofWithoutAth = dpopProof(enclaveKey, null, "GET", RESOURCE_URL);
@@ -145,6 +149,7 @@ class DelegatedTokenValidatorTest {
     }
 
     @Test
+    @Requirement("RFC9449 §4.3")
     void aProofForAnotherMethodOrUrlIsRejected() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE));
         String proof = dpopProof(enclaveKey, token, "GET", RESOURCE_URL);
@@ -158,6 +163,7 @@ class DelegatedTokenValidatorTest {
     // ---- the token itself --------------------------------------------------------------------------
 
     @Test
+    @Requirement("RFC8725 §3.8")
     void aTokenFromAnotherIssuerIsRejected() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE), "https://evil.example.com",
                 AUDIENCE, 300);
@@ -166,6 +172,7 @@ class DelegatedTokenValidatorTest {
     }
 
     @Test
+    @Requirement("RFC8725 §3.9")
     void aTokenForAnotherResourceIsRejected() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE), ISSUER,
                 "https://other-rs.example.com", 300);
@@ -199,6 +206,7 @@ class DelegatedTokenValidatorTest {
      * whatever key object is supplied.
      */
     @Test
+    @Requirement("RFC8725 §3.1")
     void anAlgorithmConfusionAttackIsRejected() throws Exception {
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(ISSUER);
@@ -238,6 +246,7 @@ class DelegatedTokenValidatorTest {
     }
 
     @Test
+    @Requirement("RFC8725 §3.1")
     void aTokenWithTheNoneAlgorithmIsRejected() throws Exception {
         // jose4j refuses to *sign* with "none" (it is a blocked algorithm), so the classic unsecured-JWT
         // token is built by hand here, the way an attacker would.
@@ -278,6 +287,7 @@ class DelegatedTokenValidatorTest {
     }
 
     @Test
+    @Requirement("UNVERIFIED item 8")
     void theLegacyStringActIsSurfacedSoTheDeviationIsVisible() throws Exception {
         String token = accessToken(enclaveKey, null, ISSUER, AUDIENCE, 300,
                 Map.of("act", "{\"sub\":\"" + INSTANCE + "\"}"));

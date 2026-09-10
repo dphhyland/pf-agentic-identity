@@ -3,6 +3,7 @@ package com.pingidentity.ps.oidf.enrolment;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ class NotifierTest {
     }
 
     @Test
+    @Requirement("NIST-800-63B §6.1.2.1")
     void aWiredNotifierReceivesTheOwnerDeviceAndInstance() {
         List<String> sent = new ArrayList<>();
         BindingNotifier notifier = (subject, device, instanceId) ->

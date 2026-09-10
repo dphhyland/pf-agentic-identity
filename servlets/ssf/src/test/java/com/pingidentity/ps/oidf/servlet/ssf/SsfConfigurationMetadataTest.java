@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import org.junit.jupiter.api.Test;
 class SsfConfigurationMetadataTest {
 
     @Test
+    @Requirement({"SSF §7.1", "SSF §6.1.1", "SSF §6.1.2"})
     void metadataAdvertisesEndpointsDeliveryMethodsAndJwks() {
         SsfConfiguration cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").build();
         Map<String, Object> m = SsfConfigurationServlet.metadata(cfg);

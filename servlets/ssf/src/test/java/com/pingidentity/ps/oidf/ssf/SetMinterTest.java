@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jws.JsonWebSignature;
@@ -18,6 +19,7 @@ class SetMinterTest {
     private final SetMinter minter = new SetMinter("RS256", keys);
 
     @Test
+    @Requirement({"RFC8417 §2.2", "RFC8417 §2.3"})
     void mintsSignedSetWithRequiredClaimsAndTyp() throws Exception {
         SecurityEventToken set = SecurityEventToken.builder()
                 .issuer("https://op.example.com")
@@ -59,6 +61,7 @@ class SetMinterTest {
     }
 
     @Test
+    @Requirement({"RFC8417 §2.2", "RFC9493 §3.2.2"})
     void carriesEmailSubjectAndTxnWhenSet() throws Exception {
         SecurityEventToken set = SecurityEventToken.builder()
                 .issuer("https://op.example.com")

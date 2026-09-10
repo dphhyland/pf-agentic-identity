@@ -11,6 +11,7 @@ import com.pingidentity.ps.oidf.appattest.AppAttestEnvironment;
 import com.pingidentity.ps.oidf.appattest.AppAttestVerifier;
 import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService;
 import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
@@ -164,6 +165,7 @@ class EnrolmentServiceTest {
     // ---- assurance --------------------------------------------------------------------------------
 
     @Test
+    @Requirement("NIST-800-63B §6.1.2.1")
     void bindingRequiresAtLeastAal2() throws Exception {
         idp.assuranceLevel = UserAuthentication.AssuranceLevel.AAL1;
         String challenge = service.issueChallenge().challenge();

@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.rar;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.HashMap;
@@ -16,6 +17,7 @@ class StatementApplierTest {
 
     @Test
     @SuppressWarnings("unchecked")
+    @Requirement("RFC9396 §7.1")
     void appliesNestedObjectPayloadByDotPath() {
         Map<String, Object> detail = new HashMap<>();
         detail.put("type", "payment_initiation");

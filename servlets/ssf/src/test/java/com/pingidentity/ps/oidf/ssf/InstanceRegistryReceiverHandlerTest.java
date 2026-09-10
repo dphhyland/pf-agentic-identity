@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.ssf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.device.AgentInstance;
 import com.pingidentity.ps.oidf.device.AuditEntry;
 import com.pingidentity.ps.oidf.device.BoundAuthenticator;
@@ -64,6 +65,7 @@ class InstanceRegistryReceiverHandlerTest {
     }
 
     @Test
+    @Requirement("CAEP §3.5")
     void deviceComplianceChangeSuspendsActiveInstancesOnTheDevice() throws Exception {
         handler.onSet(set(SsfEventTypes.CAEP_DEVICE_COMPLIANCE_CHANGE, SubjectId.opaque(deviceId),
                 Map.of("current_status", "not-compliant")));
@@ -81,6 +83,7 @@ class InstanceRegistryReceiverHandlerTest {
     }
 
     @Test
+    @Requirement("CAEP §3.5")
     void deviceComplianceChangeWithNoCurrentStatusIsIgnored() throws Exception {
         handler.onSet(set(SsfEventTypes.CAEP_DEVICE_COMPLIANCE_CHANGE, SubjectId.opaque(deviceId), Map.of()));
         assertEquals(InstanceStatus.ACTIVE, statusOf(instanceA));

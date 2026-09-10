@@ -14,6 +14,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.keys.EllipticCurves;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -25,16 +26,19 @@ import org.junit.jupiter.api.Test;
 class LocalJwkSignerTest {
 
     @Test
+    @Requirement("RFC7518 §3.4")
     void p256SignsAsEs256WithA64ByteConcatenatedSignature() throws Exception {
         assertSignsAndVerifies(EllipticCurves.P256, "ES256", 64);
     }
 
     @Test
+    @Requirement("RFC7518 §3.4")
     void p384SignsAsEs384WithA96ByteConcatenatedSignature() throws Exception {
         assertSignsAndVerifies(EllipticCurves.P384, "ES384", 96);
     }
 
     @Test
+    @Requirement("RFC7518 §3.4")
     void p521SignsAsEs512WithA132ByteConcatenatedSignature() throws Exception {
         assertSignsAndVerifies(EllipticCurves.P521, "ES512", 132);
     }

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -41,6 +42,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("UNVERIFIED item 11")
     void aSubordinateCannotWidenASupersetOfItsSuperior() throws Exception {
         MetadataPolicy superior = policy(Map.of("grant_types", Map.of(
                 "subset_of", List.of("authorization_code"))));
@@ -68,6 +70,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("UNVERIFIED item 11")
     void aSubordinateAddThatIntroducesNewValuesIsRefused() throws Exception {
         MetadataPolicy superior = policy(Map.of("grant_types", Map.of("add", List.of("refresh_token"))));
         MetadataPolicy subordinate = policy(Map.of("grant_types", Map.of(
@@ -80,6 +83,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("UNVERIFIED item 11")
     void anEssentialParameterCannotBeMadeOptionalBySubordinate() throws Exception {
         MetadataPolicy superior = policy(Map.of("contacts", Map.of("essential", true)));
         MetadataPolicy subordinate = policy(Map.of("contacts", Map.of("essential", false)));
@@ -90,6 +94,7 @@ class MetadataPolicyTest {
     // ---- failing closed ----------------------------------------------------------------------------
 
     @Test
+    @Requirement("UNVERIFIED item 11")
     void disjointRestrictionsAreRefusedRatherThanResolvingToNothing() throws Exception {
         MetadataPolicy superior = policy(Map.of("token_endpoint_auth_method", Map.of(
                 "one_of", List.of("private_key_jwt"))));
@@ -103,6 +108,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("UNVERIFIED item 11")
     void conflictingFixedValuesAreRefused() throws Exception {
         MetadataPolicy superior = policy(Map.of("issuer", Map.of("value", "https://a.example")));
         MetadataPolicy subordinate = policy(Map.of("issuer", Map.of("value", "https://b.example")));
@@ -110,6 +116,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.1.3.1")
     void metadataViolatingOneOfIsRefusedRatherThanPassedThrough() throws Exception {
         MetadataPolicy p = policy(Map.of("token_endpoint_auth_method", Map.of(
                 "one_of", List.of("private_key_jwt", "attest_jwt_client_auth"))));
@@ -120,6 +127,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.1.3.1")
     void metadataMissingASupersetRequirementIsRefused() throws Exception {
         MetadataPolicy p = policy(Map.of("grant_types", Map.of(
                 "superset_of", List.of("authorization_code", "refresh_token"))));
@@ -128,6 +136,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.1.3.1")
     void anEssentialParameterMissingFromMetadataIsRefused() throws Exception {
         MetadataPolicy p = policy(Map.of("jwks_uri", Map.of("essential", true)));
         assertThrows(MetadataPolicy.PolicyException.class, () -> p.apply(Map.of()));
@@ -144,6 +153,7 @@ class MetadataPolicyTest {
     // ---- application semantics ----------------------------------------------------------------------
 
     @Test
+    @Requirement("OIDFED §6.1.3.1")
     void valueOverridesWhateverTheSubordinateDeclared() throws Exception {
         MetadataPolicy p = policy(Map.of("token_endpoint_auth_method", Map.of(
                 "value", "attest_jwt_client_auth")));
@@ -153,6 +163,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.1.3.1")
     void defaultOnlyFillsAnAbsentParameter() throws Exception {
         MetadataPolicy p = policy(Map.of("scope", Map.of("default", "openid")));
         assertEquals("openid", p.apply(Map.of()).get("scope"));
@@ -160,6 +171,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.1.3.1")
     void subsetOfKeepsOnlyThePermittedValues() throws Exception {
         MetadataPolicy p = policy(Map.of("grant_types", Map.of(
                 "subset_of", List.of("authorization_code", "refresh_token"))));
@@ -173,6 +185,7 @@ class MetadataPolicyTest {
      * check — or, worse in a different ordering, let one escape it.
      */
     @Test
+    @Requirement("OIDFED §6.1.4.1")
     void addIsAppliedAfterSubsetOfPerTheSpecifiedOrder() throws Exception {
         MetadataPolicy p = policy(Map.of("grant_types", Map.of(
                 "subset_of", List.of("authorization_code"),
@@ -186,6 +199,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.1.4.1")
     void theApplicationOrderMatchesTheSpecification() {
         assertEquals(List.of("value", "default", "one_of", "subset_of", "superset_of", "add", "essential"),
                 MetadataPolicy.APPLICATION_ORDER);
@@ -203,6 +217,7 @@ class MetadataPolicyTest {
 
     /** §3.1.3: an unrecognised critical operator makes the subordinate statement invalid. */
     @Test
+    @Requirement("OIDFED §3.1.3")
     void anUnknownCriticalOperatorInvalidatesTheStatement() {
         MetadataPolicy.PolicyException e = assertThrows(MetadataPolicy.PolicyException.class,
                 () -> MetadataPolicy.parse(Map.of("grant_types", Map.of("regexp", ".*")),
@@ -211,6 +226,7 @@ class MetadataPolicyTest {
     }
 
     @Test
+    @Requirement("OIDFED §3.1.3")
     void aKnownOperatorListedAsCriticalIsAccepted() throws Exception {
         MetadataPolicy p = MetadataPolicy.parse(
                 Map.of("grant_types", Map.of("subset_of", List.of("authorization_code"))),

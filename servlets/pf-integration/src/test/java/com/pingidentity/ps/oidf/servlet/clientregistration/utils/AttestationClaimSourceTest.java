@@ -14,6 +14,7 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;
 
@@ -161,6 +162,7 @@ class AttestationClaimSourceTest {
     // ---- the delegation chain inherits the same source ----------------------------------------------
 
     @Test
+    @Requirement("UNVERIFIED item 8")
     void theDelegationChainNamesTheVerifiedInstanceAndAttester() {
         Map<String, Object> in = inParams(request(verifiedContext(), null), "https://rp.example.com/agent-1");
 

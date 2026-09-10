@@ -19,7 +19,7 @@ import org.jose4j.lang.JoseException;
  * production deployments should prefer the vault-backed signer.
  *
  * <p>Supports EC keys ({@code P-256/384/521} → {@code ES256/384/512}) and RSA keys ({@code RS256/384/512},
- * default {@code RS256}). Emits the raw JWS signature bytes RFC 7515 §3.4 requires: fixed-width
+ * default {@code RS256}). Emits the raw JWS signature bytes RFC 7518 §3.4 requires: fixed-width
  * {@code r||s} for ECDSA, the raw signature for RSA.
  */
 public final class LocalJwkSigner implements JwsSigner {

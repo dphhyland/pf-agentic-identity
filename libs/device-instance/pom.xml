@@ -44,6 +44,7 @@
              supplies the driver. Tests need it at runtime to reach the Testcontainers Postgres. -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
 
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <!-- A real Postgres, not H2: the registry's invariants live in JSONB operators, partial unique
              indexes on expressions, ANY(text[]) and plpgsql triggers — none of which H2 has. The

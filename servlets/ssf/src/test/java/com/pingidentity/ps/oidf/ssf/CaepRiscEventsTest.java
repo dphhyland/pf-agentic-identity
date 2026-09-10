@@ -6,12 +6,14 @@ package com.pingidentity.ps.oidf.ssf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class CaepRiscEventsTest {
 
     @Test
+    @Requirement("CAEP §3.1")
     void sessionRevokedCarriesTimestampAndOptionalReason() {
         Map<String, Object> p = CaepRiscEvents.sessionRevoked(1000L, "admin revoke");
         assertEquals(1000L, p.get("event_timestamp"));
@@ -20,6 +22,7 @@ class CaepRiscEventsTest {
     }
 
     @Test
+    @Requirement("CAEP §3.3")
     void credentialChangeCarriesTypeAndChange() {
         Map<String, Object> p = CaepRiscEvents.credentialChange(1000L, "password", "update");
         assertEquals("password", p.get("credential_type"));
@@ -34,6 +37,7 @@ class CaepRiscEventsTest {
     }
 
     @Test
+    @Requirement("CAEP §3.4")
     void assuranceChangeDirection() {
         assertEquals("increase", CaepRiscEvents.assuranceLevelChange(1000L, "nist-aal1", "nist-aal2").get("change_direction"));
         assertEquals("decrease", CaepRiscEvents.assuranceLevelChange(1000L, "nist-aal2", "nist-aal1").get("change_direction"));

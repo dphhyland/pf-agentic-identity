@@ -47,6 +47,16 @@ PRIMITIVES = {"B": "byte", "C": "char", "D": "double", "F": "float",
               "I": "int", "J": "long", "S": "short", "Z": "boolean"}
 REQUIREMENT_RE = re.compile(r'@Requirement\s*\(\s*(?:\{)?\s*((?:"[^"]*"\s*,?\s*)+)', re.S)
 TEST_METHOD_RE = re.compile(r"\bvoid\s+(\w+)\s*\(")
+TYPE_DECL_RE = re.compile(r"\b(?:class|interface|enum|record)\s+\w+")
+ANNOTATION = ROOT / ("libs/conformance/src/main/java/com/pingidentity/ps/oidf/"
+                     "conformance/Requirement.java")
+CODE_TAG_RE = re.compile(r"\{@code ([^}]+)\}")
+# Dots are legal in a prefix: AUTHZEN-1.0 carries its version. Lowercase is not, which is what
+# keeps SdJwt.java and the other file and method names in that javadoc out of the vocabulary.
+PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9.-]*$")
+# Both appear in the javadoc as prose, not as prefixes: "SPEC §clause" is the id template and
+# RUNTIME names a RetentionPolicy. Everything else uppercase in a {@code} tag is a real prefix.
+NOT_A_PREFIX = {"SPEC", "RUNTIME"}
 
 
 def modules():
@@ -138,6 +148,21 @@ def selects(pattern, entry):
     return len(actual) >= len(wanted) and all(a == w for a, w in zip(actual, wanted))
 
 
+def vocabulary():
+    """The prefixes Requirement.java declares, read from Requirement.java.
+
+    Hardcoding the list here would give the repo two vocabularies that drift apart, which is the
+    exact failure the annotation exists to stop. Adding a prefix to the javadoc adds it here.
+    """
+    text = ANNOTATION.read_text()
+    found = set()
+    for tag in CODE_TAG_RE.findall(text):
+        first = tag.strip().strip('"{').split()[0] if tag.strip() else ""
+        if PREFIX_RE.match(first) and first not in NOT_A_PREFIX:
+            found.add(first)
+    return found
+
+
 def requirements():
     """Every @Requirement id in test sources, mapped to the tests that pin it."""
     found = {}
@@ -151,7 +176,14 @@ def requirements():
             ids = re.findall(r'"([^"]+)"', match.group(1))
             tail = text[match.end():match.end() + 400]
             name = TEST_METHOD_RE.search(tail)
-            test = f"{path.stem}#{name.group(1)}" if name else path.stem
+            # @Requirement is legal on a type as well as a method. On a type the next `void` is
+            # some arbitrary test in the body, so naming it would credit one test with a tag that
+            # covers the whole class - attribute those to the class instead.
+            decl = TYPE_DECL_RE.search(tail)
+            if decl and (not name or decl.start() < name.start()):
+                test = path.stem
+            else:
+                test = f"{path.stem}#{name.group(1)}" if name else path.stem
             for rid in ids:
                 found.setdefault(rid, []).append(test)
     return found
@@ -266,6 +298,20 @@ def render():
         w("This counts what *is* pinned. It is not a conformance percentage: the denominator would be")
         w("the matrix rows across all ten specifications, and those rows do not yet carry ids to join")
         w("against. Until they do, read this as an inventory, not a score.")
+        known = vocabulary()
+        suspect = sorted(s for s in by_spec if s not in known)
+        if suspect:
+            w("")
+            w("### Ids with an undeclared prefix")
+            w("")
+            w("These prefixes are not in the vocabulary `Requirement.java` declares. A prefix nobody")
+            w("declared is how a fabricated citation gets in, and how one clause ends up spelled two")
+            w("ways — each spelling then reading as half-covered. Add the prefix to the annotation or")
+            w("fix the id.")
+            w("")
+            for spec in suspect:
+                ids = ", ".join(f"`{rid}`" for rid, _ in sorted(by_spec[spec]))
+                w(f"- **{spec}** — {ids}")
         if "PF-SDK" in by_spec:
             w("")
             w("`PF-SDK` ids name a vendor interface rather than a published specification, and")

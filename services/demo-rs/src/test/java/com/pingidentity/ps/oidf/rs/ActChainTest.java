@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ class ActChainTest {
     private static final String SERVER_AGENT = "https://agents.example.com/planner";
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void theObjectFormIsTheSpecShape() {
         ActChain.Parsed parsed = ActChain.parse(Map.of(
                 "sub", HUMAN,
@@ -34,6 +36,7 @@ class ActChainTest {
     }
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void nestingIsOrderedMostRecentFirst() {
         // The server-side agent received the token from the on-device instance.
         ActChain.Parsed parsed = ActChain.parse(Map.of(
@@ -51,6 +54,7 @@ class ActChainTest {
      * outermost actor is presently acting.
      */
     @Test
+    @Requirement("RFC8693 §4.1")
     void onlyTheOutermostActorMayBeAuthorisedOn() {
         ActChain.Parsed parsed = ActChain.parse(Map.of(
                 "sub", HUMAN,
@@ -70,6 +74,7 @@ class ActChainTest {
      * visible rather than permanent.
      */
     @Test
+    @Requirement("UNVERIFIED item 8")
     void theLegacyStringFormIsParsedButFlagged() {
         ActChain.Parsed parsed = ActChain.parse(Map.of(
                 "sub", HUMAN,
@@ -109,6 +114,7 @@ class ActChainTest {
     }
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void anActOfTheWrongTypeIsMalformed() {
         assertTrue(ActChain.parse(Map.of("act", List.of("nope"))).malformed());
         assertTrue(ActChain.parse(Map.of("act", 42)).malformed());
@@ -123,10 +129,13 @@ class ActChainTest {
             current = Map.of("sub", "hop-" + i, "act", current);
         }
         ActChain.Parsed parsed = ActChain.parse(Map.of("act", current));
-        assertTrue(parsed.depth() <= 16, "depth was " + parsed.depth());
+        // Exact, not <=: an inequality passes under any cap, which is how the README came to
+        // claim 16 while the constant said 10 with every test still green.
+        assertEquals(10, parsed.depth(), "the cap is ActChain.MAX_CHAIN_DEPTH");
     }
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void anActorMayCarryAnIssuerAsWellAsASubject() {
         ActChain.Parsed parsed = ActChain.parse(Map.of(
                 "act", Map.of("sub", INSTANCE, "iss", "https://platform.example.com")));

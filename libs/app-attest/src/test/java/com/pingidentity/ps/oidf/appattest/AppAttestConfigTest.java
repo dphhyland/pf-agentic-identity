@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.EnumSet;
 import java.util.Set;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -31,6 +32,7 @@ class AppAttestConfigTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(6)")
     void appIdIsTeamIdDotBundleId() {
         AppAttestConfig config = AppAttestConfig.production("TEAMID1234", "com.example.app");
         assertEquals("TEAMID1234.com.example.app", config.appId());
@@ -76,6 +78,7 @@ class AppAttestConfigTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(1)")
     void bundledAppleRootCaLoadsAndIsSelfIssued() {
         var root = AppAttestConfig.appleRootCa();
         assertEquals(root.getIssuerX500Principal(), root.getSubjectX500Principal());

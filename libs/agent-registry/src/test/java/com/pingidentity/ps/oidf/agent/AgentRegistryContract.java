@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -28,6 +29,7 @@ abstract class AgentRegistryContract {
     protected abstract AgentRegistry newRegistry() throws Exception;
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void firstSightMintsANonBlankAgentId() throws Exception {
         AgentIdentity identity = newRegistry().resolveOrMint(
                 "https://as.example.com", "client-1", "spiffe_id", "spiffe://example.org/agent-1");
@@ -51,6 +53,7 @@ abstract class AgentRegistryContract {
     }
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void differentInstanceSubjectsMintDifferentIds() throws Exception {
         AgentRegistry registry = newRegistry();
         AgentIdentity a = registry.resolveOrMint(

@@ -46,8 +46,22 @@ import java.lang.annotation.Target;
  *
  * <p><b>External specs.</b> One prefix and one anchor style per document, chosen once:
  * {@code ABCA-10}, {@code RFC9449}, {@code RFC9396}, {@code RFC8693}, {@code RFC7638}, {@code RFC9493},
- * {@code RFC8417}, {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code AUTHZEN-1.0}, {@code OIDC-CORE},
- * {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST}, {@code PF-SDK}.
+ * {@code RFC8417}, {@code RFC8935}, {@code RFC8936}, {@code RFC7515}, {@code RFC7518},
+ * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
+ * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
+ * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
+ * {@code PF-SDK}.
+ *
+ * <p>This list is the vocabulary, not a suggestion: {@code tools/coverage-report.py} reads the
+ * prefixes out of this javadoc and reports any id using one that is not here. That is what catches a
+ * fabricated citation and, just as importantly, one clause spelled two ways — a survey of this repo's
+ * tests spelled OpenID Federation as OIDF on every one of fifty-nine rows, which would have produced
+ * thirty ids joining against nothing. Add a prefix here before using it, and only once the document
+ * behind it has actually been read.
+ *
+ * <p>Note for anyone editing this javadoc: the reporter treats <em>every</em> uppercase token in a
+ * {@code @code} tag as a declared prefix, so a rejected spelling written that way would declare
+ * itself legal. Name counter-examples in plain prose, as above.
  *
  * <h2>Three ways to get it wrong</h2>
  *

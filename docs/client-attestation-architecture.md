@@ -433,10 +433,14 @@ Does the implementation match the text it published?
 
 ## 5. Test coverage
 
-All figures below are from a surefire run on 2026-08-22 (`mvn test` over the six modules), not from
-counting annotations. Everything green: 80 / 195 / 102 / 49 / 111 / 44 tests across
-`client-attestation`, `attestation-issuer`, `pf-integration`, `rar-paz-plugin`, `openid-federation`
-and `device-instance`.
+Counts are no longer written down here. They went stale twice — this paragraph reported six modules
+from a run on 2026-08-22 long after the reactor had grown to fifteen — so the numbers now live in
+[coverage-dashboard.md](coverage-dashboard.md), which is generated from the jacoco reports and the
+`@Requirement` annotations and which CI fails on if the committed copy drifts. Read the totals, the
+gate status and the pinned-requirement inventory there.
+
+The tables below say which tests pin which §4 row. They are about *what* is asserted, not how many —
+which is why they survive a module count changing and the paragraph above them did not.
 
 ### 5.1 Keyed to §4
 

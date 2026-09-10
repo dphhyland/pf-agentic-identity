@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import org.jose4j.jwt.JwtClaims;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.sourceid.oauth20.domain.Client;
@@ -74,6 +75,7 @@ class RegistrationServiceAutomaticRegisterTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.1")
     void autoRegistersWhenClientAdvertisesAutomatic() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
@@ -197,6 +199,7 @@ class RegistrationServiceAutomaticRegisterTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.1")
     void refusesClientThatDoesNotAdvertiseAutomatic() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);

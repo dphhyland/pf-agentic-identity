@@ -26,6 +26,7 @@ import java.security.interfaces.RSAPublicKey;
 import org.jose4j.jwk.RsaJsonWebKey;
 import org.jose4j.jwk.RsaJwkGenerator;
 import org.jose4j.jwt.JwtClaims;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.sourceid.oauth20.domain.Client;
@@ -98,6 +99,7 @@ class RegistrationServiceExplicitRegisterTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void registersANewClientAfterTheChainValidates() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
@@ -179,6 +181,7 @@ class RegistrationServiceExplicitRegisterTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void refusesALeafThatDoesNotAdvertiseExplicitRegistration() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);

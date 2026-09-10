@@ -13,6 +13,7 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.jws.JsonWebSignature;
 import org.junit.jupiter.api.BeforeEach;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
@@ -52,6 +53,7 @@ class AttestationMinterTest {
     }
 
     @Test
+    @Requirement({"CAS §4.5", "CLAIM-DICT divergence 1"})
     void claimLayoutIsCorrect() throws Exception {
         JwsSigner signer = new LocalJwkSigner(TestJwts.privateParams(attesterKey));
         String jwt = mint(signer, List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"))));
@@ -88,6 +90,7 @@ class AttestationMinterTest {
     // ---- agent_id (Phase 2.1/2.2) ------------------------------------------------------------------
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void agentIdIsEmittedWhenPresent() throws Exception {
         JwsSigner signer = new LocalJwkSigner(TestJwts.privateParams(attesterKey));
         String jwt = AttestationMinter.mint(ISSUER, CLIENT_ID, instancePublicJwk,

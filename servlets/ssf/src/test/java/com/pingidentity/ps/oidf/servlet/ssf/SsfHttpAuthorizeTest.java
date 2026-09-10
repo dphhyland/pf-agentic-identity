@@ -20,6 +20,7 @@ import java.util.Set;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.AfterEach;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -53,6 +54,7 @@ class SsfHttpAuthorizeTest {
     }
 
     @Test
+    @Requirement("RFC6750 §3")
     void missingAuthorizationHeaderIs401() throws Exception {
         HttpServletRequest req = requestWithAuthHeader(null);
         ByteArrayOutputStream body = new ByteArrayOutputStream();
@@ -66,6 +68,7 @@ class SsfHttpAuthorizeTest {
     }
 
     @Test
+    @Requirement("RFC6750 §2.1")
     void nonBearerAuthorizationHeaderIs401() throws Exception {
         HttpServletRequest req = requestWithAuthHeader("Basic dXNlcjpwYXNz");
         HttpServletResponse resp = responseCapturingBody(new ByteArrayOutputStream());
@@ -76,6 +79,7 @@ class SsfHttpAuthorizeTest {
     }
 
     @Test
+    @Requirement("RFC6750 §3.1")
     void inactiveTokenIs401WithInvalidToken() throws Exception {
         SsfSupport.installReceiverAuthenticator(token -> AuthContext.inactive());
         HttpServletRequest req = requestWithAuthHeader("Bearer revoked-token");
@@ -90,6 +94,7 @@ class SsfHttpAuthorizeTest {
     }
 
     @Test
+    @Requirement("RFC6750 §3.1")
     void activeTokenLackingScopeIs403() throws Exception {
         SsfSupport.installReceiverAuthenticator(token -> AuthContext.active("client-1", Set.of("some.other.scope")));
         HttpServletRequest req = requestWithAuthHeader("Bearer good-token");
@@ -103,6 +108,7 @@ class SsfHttpAuthorizeTest {
     }
 
     @Test
+    @Requirement("RFC6750 §2.1")
     void activeTokenWithScopeIsAuthorized() throws Exception {
         SsfSupport.installReceiverAuthenticator(token -> AuthContext.active("client-1", Set.of(SCOPE)));
         HttpServletRequest req = requestWithAuthHeader("Bearer good-token");

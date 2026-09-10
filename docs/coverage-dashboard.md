@@ -54,13 +54,41 @@ the three ways to get an id wrong, are documented on the annotation itself
 
 | Specification | Requirements pinned | Tests |
 |---|---:|---:|
-| PROFILE | 6 | 13 |
+| ABCA-10 | 5 | 11 |
+| APPLE-APPATTEST | 8 | 18 |
+| AUTHZEN-1.0 | 11 | 15 |
+| CAEP | 4 | 5 |
+| CAS | 10 | 22 |
+| CLAIM-DICT | 4 | 5 |
+| GRANT-MGMT | 1 | 1 |
+| NIST-800-63B | 1 | 2 |
+| OIDFED | 7 | 21 |
+| PF-SDK *(vendor interface, see below)* | 3 | 6 |
+| PROFILE | 9 | 27 |
+| RFC6750 | 3 | 5 |
+| RFC7515 | 1 | 2 |
+| RFC7518 | 1 | 4 |
+| RFC7662 | 1 | 2 |
+| RFC8417 | 2 | 3 |
+| RFC8693 | 2 | 10 |
+| RFC8725 | 3 | 4 |
+| RFC8935 | 1 | 3 |
+| RFC8936 | 2 | 5 |
+| RFC9396 | 2 | 7 |
+| RFC9449 | 3 | 7 |
+| RFC9493 | 4 | 6 |
+| SSF | 12 | 14 |
+| UNVERIFIED | 2 | 10 |
 
-**6 distinct requirements pinned by 13 tests.**
+**102 distinct requirements pinned by 215 tests.**
 
 This counts what *is* pinned. It is not a conformance percentage: the denominator would be
 the matrix rows across all ten specifications, and those rows do not yet carry ids to join
 against. Until they do, read this as an inventory, not a score.
+
+`PF-SDK` ids name a vendor interface rather than a published specification, and
+`docs/unverified.md` item 5 records that no PingFederate 13.x javadoc exists locally to
+check them against. Real and worth pinning, but a weaker claim than an RFC.
 
 ## What these gates do NOT establish
 

@@ -10,6 +10,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,6 +34,7 @@ class FederationServiceMetadataTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §8")
     void emptyPopMethodsListIsOmittedNotEmitted() throws Exception {
         AttestationMetadataConfig noMethods = new AttestationMetadataConfig(
                 List.of("private_key_jwt"), List.of("RS256"), List.of("ES256"), List.of("ES256"),

@@ -34,7 +34,8 @@ which cache it belongs in.
 object (the legacy string form this platform once emitted is still parsed but flagged
 `legacyStringForm`, so a deployment can see it is on a deviation), and **only the outermost actor may be
 authorised on** — `currentActor()` is the single-valued accessor; `priorActors()` is history, returned
-only as a list. Nesting is bounded at 16 hops. For this platform `sub` is the human and `act.sub` is the
+only as a list. Nesting is bounded at 10 hops, the same cap `services/gm-api` applies - two
+resource servers reading one `act` chain should not disagree about where it stops. For this platform `sub` is the human and `act.sub` is the
 opaque agent instance identifier — an RS can risk-assess on it and learn nothing more without the
 instance registry.
 

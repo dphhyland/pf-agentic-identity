@@ -10,11 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import java.util.Map;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 class PfIntrospectionReceiverAuthenticatorTest {
 
     @Test
+    @Requirement("RFC7662 §2.2")
     void activeTokenWithSpaceDelimitedScopes() throws Exception {
         ReceiverAuthenticator auth = new PfIntrospectionReceiverAuthenticator(
                 token -> Map.of("active", true, "client_id", "receiver-1", "scope", "openid ssf.manage other"));
@@ -33,6 +35,7 @@ class PfIntrospectionReceiverAuthenticatorTest {
     }
 
     @Test
+    @Requirement("RFC7662 §2.2")
     void inactiveTokenIsNotActive() throws Exception {
         ReceiverAuthenticator auth = new PfIntrospectionReceiverAuthenticator(token -> Map.of("active", false));
         AuthContext ctx = auth.authenticate("tok");

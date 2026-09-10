@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
@@ -65,6 +66,7 @@ class DeviceAttestationMinterTest {
     }
 
     @Test
+    @Requirement("CLAIM-DICT divergence 5")
     void subjectIsTheOpaqueInstanceIdentifierUntilTheFlip() throws Exception {
         JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM));
         assertEquals(instance.id(), claims.getSubject());
@@ -80,6 +82,7 @@ class DeviceAttestationMinterTest {
      * still passes there; only a flipped fixture can catch it (the plan's own stated test hazard).
      */
     @Test
+    @Requirement({"PROFILE §6(1)", "PROFILE §6(2)"})
     void flippedSubjectIsTheClientIdAndAgentIdKeepsTheInstanceIdentity() throws Exception {
         String clientId = "https://rp.example.com";
         JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM, clientId));
@@ -102,6 +105,7 @@ class DeviceAttestationMinterTest {
      * in unnoticed.
      */
     @Test
+    @Requirement("PROFILE §10")
     void noUserOrDeviceIdentifierAppearsAnywhereInTheAttestation() throws Exception {
         String pingOneSubject = "e7c4b1a2-user-subject-9f3d";
         String deviceId = instance.deviceId();
@@ -120,6 +124,7 @@ class DeviceAttestationMinterTest {
     }
 
     @Test
+    @Requirement("PROFILE §4(1)")
     void confirmationClaimCarriesTheEnclavePublicKey() throws Exception {
         JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM));
         @SuppressWarnings("unchecked")
@@ -132,6 +137,7 @@ class DeviceAttestationMinterTest {
     }
 
     @Test
+    @Requirement("CLAIM-DICT divergence 4")
     void lifetimeIsFifteenMinutesByDefault() throws Exception {
         JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM));
         long span = claims.getExpirationTime().getValue() - claims.getIssuedAt().getValue();
@@ -139,6 +145,7 @@ class DeviceAttestationMinterTest {
     }
 
     @Test
+    @Requirement("CLAIM-DICT divergence 3")
     void keyStorageIsModerateNotHigh() throws Exception {
         JwtClaims claims = mintAndParse(new DeviceAttestationMinter(PLATFORM));
         assertEquals("iso_18045_moderate", claims.getClaimValueAsString("key_storage"));
@@ -150,6 +157,7 @@ class DeviceAttestationMinterTest {
      * claim. It fails at construction rather than at issuance so it cannot drift upward unnoticed.
      */
     @Test
+    @Requirement("CLAIM-DICT divergence 3")
     void claimingIso18045HighIsRefused() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> new DeviceAttestationMinter(PLATFORM, Duration.ofMinutes(15),
@@ -183,6 +191,7 @@ class DeviceAttestationMinterTest {
     }
 
     @Test
+    @Requirement("PROFILE §4(1)")
     void aPrivateKeyPresentedAsTheInstanceKeyIsRefused() {
         assertThrows(RuntimeException.class, () -> new DeviceAttestationMinter(PLATFORM)
                 .mint(instance, privateParams(enclaveKey), "ref", 300L, signer()));

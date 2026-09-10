@@ -14,6 +14,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.keys.EllipticCurves;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -81,6 +82,7 @@ class TrustChainValidatorFetchBoundsTest {
     }
 
     @Test
+    @Requirement("OIDFED §1.2")
     void aNonHttpsLeafIdentifierIsRefusedBeforeAnyFetch() {
         AtomicInteger fetches = new AtomicInteger();
         HttpGetClient http = (url, accept) -> {

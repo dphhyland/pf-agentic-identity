@@ -44,6 +44,7 @@
         <!-- jose4j only for JWK shaping of the attested key, matching PF's own JOSE library exactly. -->
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <!-- Test only: the JDK has no public API for issuing an X.509 certificate with a custom
              extension, and App Attest's whole trust story hangs on one (the nonce, OID

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.Base64;
 import java.util.HashSet;
 import java.util.Set;
@@ -23,6 +24,7 @@ class AgentIdMinterTest {
     }
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void successiveMintsAreNotRepeats() {
         Set<String> seen = new HashSet<>();
         for (int i = 0; i < 1000; i++) {

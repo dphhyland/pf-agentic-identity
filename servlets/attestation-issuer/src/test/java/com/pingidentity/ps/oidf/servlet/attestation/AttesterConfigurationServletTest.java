@@ -23,6 +23,7 @@ import java.util.Map;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.jose4j.json.JsonUtil;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 class AttesterConfigurationServletTest {
@@ -45,6 +46,7 @@ class AttesterConfigurationServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.3")
     void globalDocumentAdvertisesEndpointsAndProofRequirements() {
         Map<String, Object> m = AttesterConfigurationServlet.metadata("https://pf.example.com", true, false);
 

@@ -13,6 +13,7 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jws.JsonWebSignature;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -29,6 +30,7 @@ class OpenBaoTransitSignerTest {
 
     /** A compact JWS assembled from a JwsSigner must verify under the signer's advertised public JWK. */
     @Test
+    @Requirement("RFC7518 §3.4")
     void transitSignatureVerifies() throws Exception {
         try (FakeBaoServer bao = new FakeBaoServer(TOKEN)) {
             OpenBaoTransitSigner signer = new OpenBaoTransitSigner(bao.url(), TOKEN, FakeBaoServer.KEY_NAME);

@@ -29,7 +29,7 @@ public final class SubjectId {
         this.members = Map.copyOf(members);
     }
 
-    /** RFC 9493 §3.2.1 — an issuer and subject pair. */
+    /** RFC 9493 §3.2.3 — an issuer and subject pair. */
     public static SubjectId issSub(String iss, String sub) {
         Objects.requireNonNull(iss, "iss");
         Objects.requireNonNull(sub, "sub");
@@ -49,7 +49,7 @@ public final class SubjectId {
         return new SubjectId(m);
     }
 
-    /** RFC 9493 §3.2.3 — an E.164 phone number. */
+    /** RFC 9493 §3.2.5 — an E.164 phone number. */
     public static SubjectId phoneNumber(String phoneNumber) {
         Objects.requireNonNull(phoneNumber, "phoneNumber");
         LinkedHashMap<String, Object> m = new LinkedHashMap<>();
@@ -58,7 +58,7 @@ public final class SubjectId {
         return new SubjectId(m);
     }
 
-    /** RFC 9493 §3.2.6 — an opaque, transmitter-defined identifier. */
+    /** RFC 9493 §3.2.4 — an opaque, transmitter-defined identifier. */
     public static SubjectId opaque(String id) {
         Objects.requireNonNull(id, "id");
         LinkedHashMap<String, Object> m = new LinkedHashMap<>();
@@ -67,7 +67,7 @@ public final class SubjectId {
         return new SubjectId(m);
     }
 
-    /** RFC 9493 §3.2.5 — an {@code acct:} URI. */
+    /** RFC 9493 §3.2.1 — an {@code acct:} URI. */
     public static SubjectId account(String acctUri) {
         Objects.requireNonNull(acctUri, "acctUri");
         LinkedHashMap<String, Object> m = new LinkedHashMap<>();

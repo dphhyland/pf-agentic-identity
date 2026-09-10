@@ -1,5 +1,6 @@
 package au.com.idpartners.gm.servlet;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -50,6 +51,7 @@ class GrantEvaluatorTest {
     // ---- the AuthZEN request the PDP will decide ----
 
     @Test
+    @Requirement("AUTHZEN-1.0 §6.1")
     @SuppressWarnings("unchecked")
     void buildsTheDecisionRequestFromTheGrant() throws Exception {
         Map<String, Object> req = build(validGrant(), validToken());
@@ -78,6 +80,7 @@ class GrantEvaluatorTest {
     }
 
     @Test
+    @Requirement("AUTHZEN-1.0 §5.3.1")
     @SuppressWarnings("unchecked")
     void passesActionPropertiesThrough() throws Exception {
         Map<String, Object> req = GrantEvaluator.buildDecisionRequest(

@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.Map;
 import javax.servlet.ServletConfig;
 import org.junit.jupiter.api.AfterEach;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 class ClientAttestationServiceMetadataServletTest {
@@ -32,6 +33,7 @@ class ClientAttestationServiceMetadataServletTest {
     }
 
     @Test
+    @Requirement({"CAS §5.1", "CAS §5.3.1"})
     void defaultsPublishEndpointsAndClaimContract() throws Exception {
         Map<String, Object> m = initialized(Map.of()).metadata(ISSUER);
         assertEquals(ISSUER, m.get("issuer"));
@@ -58,6 +60,7 @@ class ClientAttestationServiceMetadataServletTest {
     }
 
     @Test
+    @Requirement("CAS §5.1")
     void challengeRequiredAddsChallengeToProofClaims() throws Exception {
         Map<String, Object> m = initialized(Map.of("challengeRequired", "true")).metadata(ISSUER);
         assertEquals(true, m.get("challenge_required"));
@@ -65,12 +68,14 @@ class ClientAttestationServiceMetadataServletTest {
     }
 
     @Test
+    @Requirement("CAS §5.1")
     void challengeEndpointCanBeDisabled() throws Exception {
         Map<String, Object> m = initialized(Map.of("challengeEndpointEnabled", "false")).metadata(ISSUER);
         assertFalse(m.containsKey("challenge_endpoint"));
     }
 
     @Test
+    @Requirement("CAS §5.3.2")
     void customClaimsInitParamsAreAdvertised() throws Exception {
         Map<String, Object> m = initialized(Map.of(
                 "customClaimsRequired", "deployment_id, region",

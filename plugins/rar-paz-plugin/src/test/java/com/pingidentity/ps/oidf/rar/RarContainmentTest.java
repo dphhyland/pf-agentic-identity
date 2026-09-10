@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.rar;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -11,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class RarContainmentTest {
 
     @Test
+    @Requirement("RFC9396 §6.1")
     void requestWithinEntitlementIsSubset() {
         Map<String, Object> accepted = Map.of("type", "sales_agent",
                 "actions", List.of("read_accounts", "create_opportunity"), "sales_regions", List.of("EMEA"));
@@ -20,6 +22,7 @@ class RarContainmentTest {
     }
 
     @Test
+    @Requirement("RFC9396 §6.1")
     void regionOutsideEntitlementIsNotSubset() {
         Map<String, Object> accepted = Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"));
         Map<String, Object> requested = Map.of("type", "sales_agent", "sales_regions", List.of("AMER"));
@@ -27,6 +30,7 @@ class RarContainmentTest {
     }
 
     @Test
+    @Requirement("RFC9396 §6.1")
     void actionOutsideEntitlementIsNotSubset() {
         Map<String, Object> accepted = Map.of("type", "sales_agent", "actions", List.of("read_accounts"));
         Map<String, Object> requested = Map.of("type", "sales_agent", "actions", List.of("delete_account"));
@@ -41,6 +45,7 @@ class RarContainmentTest {
     }
 
     @Test
+    @Requirement("RFC9396 §6.1")
     void differentTypeIsNotSubset() {
         assertFalse(RarContainment.isSubset(Map.of("type", "payment_initiation"), Map.of("type", "sales_agent")));
     }

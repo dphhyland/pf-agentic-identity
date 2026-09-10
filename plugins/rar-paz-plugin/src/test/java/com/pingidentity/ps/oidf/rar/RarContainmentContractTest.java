@@ -12,6 +12,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -90,6 +91,7 @@ class RarContainmentContractTest {
                             "locations", List.of("https://eu.example")), false));
 
     @Test
+    @Requirement("RFC9396 §6.1")
     void containmentAgreesWithTheTokenEndpointsRuleOnEveryCase() {
         for (Case c : CASES) {
             assertEquals(c.contained(), RarContainment.isSubset(c.requested(), c.accepted()),

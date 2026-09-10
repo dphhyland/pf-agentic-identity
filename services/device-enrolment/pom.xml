@@ -47,6 +47,7 @@
         <!-- Runtime only: the service ships the driver, the library does not. -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
 
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
         <!-- The synthetic Apple-shaped chain builder, reused rather than reimplemented. It mints

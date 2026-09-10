@@ -12,6 +12,7 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.keys.EllipticCurves;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -68,6 +69,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void parsesAVerifiedSelfSignedEntityStatement() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = sign(entityConfiguration(k, RP, RP, OP), k, List.of("leaf", "anchor"));
@@ -81,6 +83,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void anUnsignedJwtIsRejected() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = unsigned(entityConfiguration(k, RP, RP, OP));
@@ -89,6 +92,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void aJwtSignedByAKeyOtherThanItsOwnJwksIsRejected() throws Exception {
         EllipticCurveJsonWebKey advertised = key("rp-1");
         EllipticCurveJsonWebKey attacker = key("rp-1");   // same kid, different key
@@ -98,6 +102,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void audienceIsCheckedOnTheVerifiedClaims() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = sign(entityConfiguration(k, RP, RP, "https://someone-else.example"), k, null);
@@ -108,6 +113,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
+    @Requirement("OIDFED §12.2")
     void subjectMustEqualIssuerForASelfStatement() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = sign(entityConfiguration(k, RP, "https://other.example.com", OP), k, null);

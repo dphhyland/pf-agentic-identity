@@ -1,5 +1,6 @@
 package au.com.idpartners.gm.servlet;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -63,6 +64,7 @@ class DelegationTest {
     // ---- reading the act chain (RFC 8693 section 4.1) ----
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void readsTheAgentFromADelegatedToken() {
         TokenClaims t = tokenWithAct(Map.of("sub", AGENT));
 
@@ -73,6 +75,7 @@ class DelegationTest {
     }
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void readsANestedChainCurrentActorFirst() {
         // act: {sub: A2, act: {sub: A1}} -- A2 is acting now, A1 is the prior actor.
         TokenClaims t = tokenWithAct(Map.of("sub", "agent-2", "act", Map.of("sub", "agent-1")));
@@ -95,6 +98,7 @@ class DelegationTest {
      * {@code TokenClaims.actorChain}'s contract forbids.
      */
     @Test
+    @Requirement("UNVERIFIED item 8")
     void readsTheLegacyStringFormThisPlatformActuallyMints() {
         TokenClaims t = tokenWithAct("{\"sub\":\"" + AGENT + "\"}");
 
@@ -105,6 +109,7 @@ class DelegationTest {
     }
 
     @Test
+    @Requirement("UNVERIFIED item 8")
     void readsANestedChainFromTheLegacyStringForm() {
         TokenClaims t = tokenWithAct("{\"sub\":\"agent-2\",\"act\":{\"sub\":\"agent-1\"}}");
 
@@ -140,6 +145,7 @@ class DelegationTest {
     }
 
     @Test
+    @Requirement("RFC8693 §4.1")
     void aDirectTokenHasNoActor() {
         TokenClaims t = tokenWithAct(null);
 

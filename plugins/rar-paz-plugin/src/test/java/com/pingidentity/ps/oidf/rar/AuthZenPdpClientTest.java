@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.rar;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -52,6 +53,7 @@ class AuthZenPdpClientTest {
     }
 
     @Test
+    @Requirement({"AUTHZEN-1.0 §5.5", "AUTHZEN-1.0 §6.1"})
     void trueDecisionIsPermitAndSendsAuthZenShape() throws Exception {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":true}"));
         DecisionResponse r = decide(t);
@@ -67,6 +69,7 @@ class AuthZenPdpClientTest {
     }
 
     @Test
+    @Requirement("AUTHZEN-1.0 §5.5")
     void falseDecisionIsDeny() throws Exception {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":false}"));
         assertFalse(decide(t).isPermit());
@@ -99,12 +102,14 @@ class AuthZenPdpClientTest {
     }
 
     @Test
+    @Requirement("AUTHZEN-1.0 §10.1")
     void nonSuccessStatusThrows() {
         StubTransport t = new StubTransport(new HttpTransport.Response(500, "boom"));
         assertThrows(IOException.class, () -> decide(t));
     }
 
     @Test
+    @Requirement("AUTHZEN-1.0 §5.5")
     void missingBooleanDecisionThrows() {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":\"PERMIT\"}"));
         assertThrows(IOException.class, () -> decide(t));

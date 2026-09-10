@@ -17,6 +17,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jwk.RsaJsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.consumer.InvalidJwtException;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -179,6 +180,7 @@ class JwtCodecTest {
     // ---- verifyAttestationPop --------------------------------------------------------------------
 
     @Test
+    @Requirement("ABCA-10 §5.1")
     void popVerifiesWhenJtiIatAndAudienceAreAllPresent() throws Exception {
         PublicJsonWebKey key = TestJwts.ec("pop1");
         JwtClaims claims = new JwtClaims();
@@ -193,6 +195,7 @@ class JwtCodecTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §5.1")
     void popRejectsAMissingJti() throws Exception {
         PublicJsonWebKey key = TestJwts.ec("pop1");
         JwtClaims claims = new JwtClaims();
@@ -205,6 +208,7 @@ class JwtCodecTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §5.1")
     void popRejectsAMissingIat() throws Exception {
         PublicJsonWebKey key = TestJwts.ec("pop1");
         JwtClaims claims = new JwtClaims();
@@ -217,6 +221,7 @@ class JwtCodecTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §7.2")
     void popRejectsAnUnexpectedAudience() throws Exception {
         PublicJsonWebKey key = TestJwts.ec("pop1");
         JwtClaims claims = new JwtClaims();
@@ -243,6 +248,7 @@ class JwtCodecTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §7.2")
     void popAlgorithmConstraintRejectsAnUnlistedAlgorithm() throws Exception {
         PublicJsonWebKey key = TestJwts.ec("pop1");
         JwtClaims claims = new JwtClaims();
@@ -255,6 +261,7 @@ class JwtCodecTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §7.2")
     void popRejectsAKeyThatDidNotProduceTheSignature() throws Exception {
         PublicJsonWebKey key = TestJwts.ec("pop1");
         PublicJsonWebKey otherKey = TestJwts.ec("pop2");
@@ -275,11 +282,13 @@ class JwtCodecTest {
     }
 
     @Test
+    @Requirement("RFC7515 §4.1.9")
     void requireTypeIsCaseInsensitive() throws Exception {
         JwtCodec.requireType(Map.of("typ", "OAuth-Client-Attestation+JWT"), "oauth-client-attestation+jwt");
     }
 
     @Test
+    @Requirement("RFC7515 §4.1.9")
     void requireTypeToleratesAnApplicationPrefix() throws Exception {
         JwtCodec.requireType(Map.of("typ", "application/oauth-client-attestation+jwt"), "oauth-client-attestation+jwt");
     }

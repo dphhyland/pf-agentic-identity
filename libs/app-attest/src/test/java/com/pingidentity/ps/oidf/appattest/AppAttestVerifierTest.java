@@ -12,6 +12,7 @@ import com.fasterxml.jackson.dataformat.cbor.CBORFactory;
 import java.nio.charset.StandardCharsets;
 import java.util.EnumSet;
 import org.junit.jupiter.api.BeforeEach;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 class AppAttestVerifierTest {
@@ -31,6 +32,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(5)")
     void happyPathYieldsTheAttestedKeyAndKeyId() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(clientDataHash);
 
@@ -49,6 +51,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(4)")
     void aDifferentClientDataHashBreaksTheNonce() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(clientDataHash);
         byte[] otherHash = AppAttestFixtures.sha256("someone else's key".getBytes(StandardCharsets.UTF_8));
@@ -64,6 +67,7 @@ class AppAttestVerifierTest {
      * a different nonce were accepted, the whole chain of custody would be decorative.
      */
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(4)")
     void aCredCertCommittingToADifferentNonceIsRejected() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(
                 clientDataHash, AppAttestEnvironment.PRODUCTION, 0L,
@@ -75,6 +79,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(6)")
     void anAttestationForADifferentAppIsRejected() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(
                 clientDataHash, AppAttestEnvironment.PRODUCTION, 0L, "ZZZZZ99999.com.attacker.app", true);
@@ -85,6 +90,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(5)")
     void aKeyIdTheClientDidNotActuallyAttestIsRejected() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(clientDataHash);
         byte[] claimedKeyId = AppAttestFixtures.sha256("not the attested key".getBytes(StandardCharsets.UTF_8));
@@ -95,6 +101,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(1)")
     void aChainRootedElsewhereIsRejected() throws Exception {
         AppAttestFixtures other = new AppAttestFixtures();
         AppAttestFixtures.Attestation foreign = other.attestation(clientDataHash);
@@ -106,6 +113,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(7)")
     void anAttestationWithANonZeroCounterIsRejected() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(
                 clientDataHash, AppAttestEnvironment.PRODUCTION, 7L,
@@ -124,6 +132,7 @@ class AppAttestVerifierTest {
      * a configuration note.
      */
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(8)")
     void aDevelopmentAttestationIsRefusedByAProductionVerifier() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(
                 clientDataHash, AppAttestEnvironment.DEVELOPMENT, 0L,
@@ -135,6 +144,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(8)")
     void aDevelopmentAttestationIsAcceptedOnlyWhenExplicitlyAllowed() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(
                 clientDataHash, AppAttestEnvironment.DEVELOPMENT, 0L,
@@ -186,6 +196,7 @@ class AppAttestVerifierTest {
     private static final ObjectMapper CBOR = new ObjectMapper(new CBORFactory());
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(1)")
     void anAttStmtWithNoX5cIsRejectedAsMalformed() throws Exception {
         ObjectNode root = CBOR.createObjectNode();
         root.put("fmt", "apple-appattest");
@@ -198,6 +209,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the attestation(1)")
     void anAttStmtWithAnEmptyX5cIsRejectedAsMalformed() throws Exception {
         ObjectNode root = CBOR.createObjectNode();
         root.put("fmt", "apple-appattest");
@@ -225,6 +237,7 @@ class AppAttestVerifierTest {
     // ---- assertions -----------------------------------------------------------------------------
 
     @Test
+    @Requirement({"APPLE-APPATTEST §Verify the assertion(3)", "APPLE-APPATTEST §Verify the assertion(5)"})
     void anAssertionVerifiesAndAdvancesTheCounter() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(clientDataHash);
         AppAttestAttestation attested =
@@ -240,6 +253,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the assertion(5)")
     void areplayedAssertionCounterIsRejected() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(clientDataHash);
         AppAttestAttestation attested =
@@ -256,6 +270,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the assertion(3)")
     void anAssertionOverDifferentClientDataIsRejected() throws Exception {
         AppAttestFixtures.Attestation built = fixtures.attestation(clientDataHash);
         AppAttestAttestation attested =
@@ -272,6 +287,7 @@ class AppAttestVerifierTest {
     }
 
     @Test
+    @Requirement("APPLE-APPATTEST §Verify the assertion(3)")
     void anAssertionSignedByAnotherKeyIsRejected() throws Exception {
         AppAttestFixtures.Attestation mine = fixtures.attestation(clientDataHash);
         AppAttestFixtures.Attestation theirs = fixtures.attestation(clientDataHash);

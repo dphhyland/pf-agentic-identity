@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.ssf;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -43,6 +44,7 @@ class PollReceiverClientTest {
     }
 
     @Test
+    @Requirement("RFC8936 §2.2")
     void pollsReceivesAndAcksNextCycle() throws Exception {
         String jws = mint("jti-1");
         PollReceiverClient client = new PollReceiverClient(receiver, body -> {

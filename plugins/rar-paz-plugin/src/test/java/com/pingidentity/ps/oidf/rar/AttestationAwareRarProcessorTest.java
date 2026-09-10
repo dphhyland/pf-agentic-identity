@@ -3,6 +3,7 @@ package com.pingidentity.ps.oidf.rar;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetail;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailContext;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailProcessingException;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -69,6 +70,7 @@ class AttestationAwareRarProcessorTest {
     }
 
     @Test
+    @Requirement({"RFC9396 §7.1", "PF-SDK §AuthorizationDetailProcessor.enrich"})
     void permitMergesStatementsAndStripsThePrincipalMarker() throws Exception {
         when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse(
                 "PERMIT", true,
@@ -92,6 +94,7 @@ class AttestationAwareRarProcessorTest {
     }
 
     @Test
+    @Requirement("PF-SDK §AuthorizationDetailProcessor.enrich")
     void denyThrowsWhenConfiguredToDenyOnNonPermit() throws Exception {
         when(client.decide(anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new DecisionResponse("DENY", false, List.of(), "{}"));

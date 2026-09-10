@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.rar;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -23,6 +24,7 @@ class AuthZenRequestBuilderTest {
     }
 
     @Test
+    @Requirement({"RFC8693 §1.1", "PROFILE §6(3)"})
     void resourceOwnerIsTheSubjectAndAgentIdIsTheActor() {
         // RFC 8693 delegation: the authenticated principal is the subject; the attester-minted agent_id
         // is the actor in context — never disguised as the subject.
@@ -38,6 +40,7 @@ class AuthZenRequestBuilderTest {
     }
 
     @Test
+    @Requirement("PROFILE §6(1)")
     void clientIsTheSubjectWhenNoResourceOwner() {
         // Pin (Phase 2.9): the attestation 'sub' (always == client_id) must never be labelled "agent" as
         // the subject — that was the PDP actor-labelling bug. With no agent_id minted either, there is no
@@ -74,6 +77,7 @@ class AuthZenRequestBuilderTest {
     }
 
     @Test
+    @Requirement({"AUTHZEN-1.0 §5.2", "AUTHZEN-1.0 §5.3"})
     void resourceCarriesTheDetailAsStructuredProperties() {
         Map<String, Object> detail = Map.of(
                 "type", "payment_initiation",

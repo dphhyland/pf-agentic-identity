@@ -52,6 +52,7 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
 import org.junit.jupiter.api.BeforeEach;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 class AttestationIssuanceServletTest {
@@ -83,6 +84,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.5")
     void happyPathIssuesVerifiableAttestation() throws Exception {
         AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
         Map<String, Object> body = servlet.issue(req);
@@ -114,6 +116,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.3")
     void proofSignedByWrongKeyIsRejected() throws Exception {
         PublicJsonWebKey attacker = ec("attacker-1");
         String proof = proof(attacker, ISSUER, UUID.randomUUID().toString(), null);
@@ -123,6 +126,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.3")
     void replayedProofIsRejected() throws Exception {
         String proof = newProof(null);
         servlet.issue(request(SPIFFE_ID, ISSUER, proof, List.of()));
@@ -132,6 +136,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §7")
     void requestExceedingEntitlementIsDenied() throws Exception {
         // Binding entitlement allows only EMEA; request AMER.
         List<Map<String, Object>> requested =
@@ -158,6 +163,7 @@ class AttestationIssuanceServletTest {
      * attestation issued under that identity without the evidence to back it.
      */
     @Test
+    @Requirement("CAS §6")
     void aCallerAssertedClientIdIsIgnoredInFavourOfTheEvidenceResolvedClient() throws Exception {
         String forgedClientId = "https://attacker.example.com/not-the-real-client";
         String realClientId = "https://real-client.example.com/agent";
@@ -234,6 +240,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §7")
     void requestWithinEntitlementIsGranted() throws Exception {
         List<Map<String, Object>> requested =
                 List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA")));
@@ -251,6 +258,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void configuredAgentRegistryEmitsTheResolvedAgentId() throws Exception {
         servlet.setAgentRegistry(fixedAgentRegistry("agent-id-xyz"));
         Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
@@ -337,6 +345,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.4")
     void walletAttestationBindingADifferentKeyThanInstanceKeyIsRejected() throws Exception {
         servlet.setClientResolver(fixedResolver(walletConfig(null)));
         servlet.setInstanceValidators(walletRegistry());
@@ -443,6 +452,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.1")
     void presentedChallengeIsConsumedOnceThenRefused() throws Exception {
         String challenge = AttestationSupport.challengeService().issue();
         servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())); // consumes it
@@ -458,6 +468,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.3")
     void challengeRequiredButAbsentIsRejected() throws Exception {
         servlet.setChallengeRequired(true);
         IssuanceException e = assertThrows(IssuanceException.class,
@@ -468,6 +479,7 @@ class AttestationIssuanceServletTest {
     // ---- deployment-required custom claims (in the instance-key proof) ----------------------------
 
     @Test
+    @Requirement("CAS §5.3.2")
     void requiredCustomClaimMissingIsRejected() throws Exception {
         servlet.setCustomClaimsRequired(List.of("deployment_id"));
         IssuanceException e = assertThrows(IssuanceException.class,
@@ -476,6 +488,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §5.3.2")
     void requiredCustomClaimPresentIsAccepted() throws Exception {
         servlet.setCustomClaimsRequired(List.of("deployment_id"));
         Map<String, Object> body = servlet.issue(
@@ -485,6 +498,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §5.3.2")
     void requiredCustomClaimBlankIsRejected() throws Exception {
         servlet.setCustomClaimsRequired(List.of("deployment_id"));
         IssuanceException e = assertThrows(IssuanceException.class,
@@ -614,6 +628,7 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §5.3.2")
     void anAgentIdClaimInsideTheInstanceKeyProofDoesNotInfluenceTheMintedOne() throws Exception {
         // The proof JWT is fully parsed by InstanceKeyProofValidator, but only jti/challenge are ever
         // read out of it — a claim named agent_id inside the proof's own payload must have no effect.

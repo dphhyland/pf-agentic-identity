@@ -8,6 +8,7 @@ import java.util.HashMap;
 import java.util.Map;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 class AttestationIssuanceConfigTest {
@@ -33,6 +34,7 @@ class AttestationIssuanceConfigTest {
     }
 
     @Test
+    @Requirement("CAS §7")
     void parsesBindingsMetadataAndEntitlement() throws Exception {
         AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(baseProps());
         assertEquals(ISSUER, config.issuer());
@@ -166,6 +168,7 @@ class AttestationIssuanceConfigTest {
     }
 
     @Test
+    @Requirement("CAS §6.1")
     void instanceEntitlementExceedingClientCeilingIsRejected() throws Exception {
         Map<String, String> props = baseProps();
         // sales_regions LATAM is not within the client ceiling {EMEA, APAC}.

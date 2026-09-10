@@ -1,5 +1,6 @@
 package au.com.idpartners.gm.servlet;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.sun.net.httpserver.HttpServer;
 
 import org.junit.jupiter.api.AfterEach;
@@ -56,6 +57,7 @@ class PdpClientTest {
     // ---- URL construction (no network needed) --------------------------------------------
 
     @Test
+    @Requirement({"AUTHZEN-1.0 §6", "AUTHZEN-1.0 §8.5"})
     void appendsTheAuthzenPathsToTheBaseUrl() {
         PdpClient client = new PdpClient("https://pdp.example.com", null, 1000);
         assertEquals("https://pdp.example.com/access/v1/evaluation", client.getEvaluationUrl());
@@ -71,6 +73,7 @@ class PdpClientTest {
     // ---- the happy path --------------------------------------------------------------------
 
     @Test
+    @Requirement("AUTHZEN-1.0 §6.2")
     void evaluateDecodesA200Response() throws Exception {
         String base = start((ex) -> {
             assertEquals("/access/v1/evaluation", ex.getRequestURI().getPath());
@@ -83,6 +86,7 @@ class PdpClientTest {
     }
 
     @Test
+    @Requirement("AUTHZEN-1.0 §8.5")
     void searchPostsToTheResourceSearchPathNotEvaluation() throws Exception {
         String base = start((ex) -> {
             assertEquals("/access/v1/search/resource", ex.getRequestURI().getPath());

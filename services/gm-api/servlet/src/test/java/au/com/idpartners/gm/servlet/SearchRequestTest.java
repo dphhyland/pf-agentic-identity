@@ -1,5 +1,6 @@
 package au.com.idpartners.gm.servlet;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -60,6 +61,7 @@ class SearchRequestTest {
     // ------------------------------------------------------------------
 
     @Test
+    @Requirement("AUTHZEN-1.0 §8.5.1")
     void theResourceCarriesATypeAndNoId() throws Exception {
         Map<String, Object> request = search(validGrant(), validToken(), "account");
         Map<String, Object> resource = sub(request, "resource");

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.net.InetAddress;
 import java.util.List;
@@ -58,6 +59,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement("SSF §8.1.1.1")
     void createPollStreamNarrowsEventsAndAdvertisesPollUrl() {
         Map<String, Object> s = svc.createStream(pollBody());
         String id = (String) s.get("stream_id");
@@ -73,6 +75,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement("SSF §8.1.1.1")
     void createPushStreamRequiresEndpoint() {
         assertThrows(IllegalArgumentException.class, () -> svc.createStream(Map.of(
                 "aud", "https://receiver.example.com",
@@ -86,6 +89,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement({"SSF §8.1.1.2", "SSF §8.1.1.3", "SSF §8.1.1.5"})
     void crudAndListing() {
         String id = (String) svc.createStream(pollBody()).get("stream_id");
         assertEquals(id, svc.getStream(id).get("stream_id"));
@@ -102,6 +106,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement({"SSF §8.1.2.1", "SSF §8.1.2.2"})
     void statusStateMachine() {
         String id = (String) svc.createStream(pollBody()).get("stream_id");
         assertEquals("enabled", svc.getStatus(id).get("status"));
@@ -113,6 +118,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement({"SSF §8.1.3.2", "SSF §8.1.3.3"})
     void subjectManagement() {
         String id = (String) svc.createStream(pollBody()).get("stream_id");
         SubjectId alice = SubjectId.email("alice@example.com");
@@ -125,6 +131,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement({"SSF §8.1.4.1", "RFC8936 §2.2", "RFC8936 §2.3"})
     void verifyMintsSignedSetThatPollReturnsAndAckClears() throws Exception {
         String id = (String) svc.createStream(pollBody()).get("stream_id");
         String jti = svc.verify(id, "state-123");
@@ -159,6 +166,7 @@ class StreamManagementServiceTest {
     }
 
     @Test
+    @Requirement({"RFC8936 §2.2", "RFC8936 §2.3"})
     void pollHonoursMaxEventsAndReportsMore() throws Exception {
         String id = (String) svc.createStream(pollBody()).get("stream_id");
         svc.verify(id, "a");

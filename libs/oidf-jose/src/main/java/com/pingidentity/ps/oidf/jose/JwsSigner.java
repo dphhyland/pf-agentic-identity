@@ -9,7 +9,7 @@ import java.util.Map;
  * A JWS signing capability whose private key may live outside the JVM (an HSM, a vault, a KMS) or be a
  * local in-process key. The signer produces the raw JWS signature bytes over the JWS signing input
  * ({@code BASE64URL(header) || '.' || BASE64URL(payload)}); for ECDSA algorithms that is the
- * fixed-width {@code r||s} concatenation RFC 7515 §3.4 requires, not ASN.1/DER.
+ * fixed-width {@code r||s} concatenation RFC 7518 §3.4 requires, not ASN.1/DER.
  *
  * <p>{@link LocalJwkSigner} covers the local-key case (dev/demo); {@link OpenBaoTransitSigner} signs via
  * an OpenBao/Vault transit engine so the attester's private key never leaves the vault. The attestation

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,6 +49,7 @@ class SetVerifierTest {
     }
 
     @Test
+    @Requirement("SSF §8.1.4.1")
     void subjectlessVerificationEventIsAccepted() throws Exception {
         SetVerifier v = new SetVerifier(ISS, AUD, sourceOf(keys));
         String jws = minter.sign(SecurityEventToken.builder()
@@ -57,6 +59,7 @@ class SetVerifierTest {
     }
 
     @Test
+    @Requirement("RFC8935 §2.4")
     void wrongSignerRejectedWithInvalidKey() throws Exception {
         TestSigningKeyProvider other = new TestSigningKeyProvider("other-key");
         SetVerifier v = new SetVerifier(ISS, AUD, sourceOf(other)); // trusts a DIFFERENT key
@@ -66,6 +69,7 @@ class SetVerifierTest {
     }
 
     @Test
+    @Requirement("RFC8935 §2.4")
     void wrongIssuerAndAudienceRejected() throws Exception {
         SetVerifier v = new SetVerifier(ISS, AUD, sourceOf(keys));
         assertEquals("invalid_issuer", assertThrows(SetVerifier.SetVerificationException.class,
@@ -75,6 +79,7 @@ class SetVerifierTest {
     }
 
     @Test
+    @Requirement("RFC8935 §2.4")
     void garbageRejectedWithInvalidRequest() {
         SetVerifier v = new SetVerifier(ISS, AUD, sourceOf(keys));
         assertEquals("invalid_request", assertThrows(SetVerifier.SetVerificationException.class,

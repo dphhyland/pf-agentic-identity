@@ -7,12 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class SubjectIdTest {
 
     @Test
+    @Requirement("RFC9493 §3.2.3")
     void issSubRoundTripsThroughMap() {
         SubjectId subject = SubjectId.issSub("https://op.example.com", "user-1");
         Map<String, Object> map = subject.toMap();
@@ -23,6 +25,7 @@ class SubjectIdTest {
     }
 
     @Test
+    @Requirement("RFC9493 §3.2")
     void parsesEachSupportedFormat() {
         assertEquals(SubjectId.email("a@b.com"),
                 SubjectId.fromMap(Map.of("format", "email", "email", "a@b.com")));
@@ -35,6 +38,7 @@ class SubjectIdTest {
     }
 
     @Test
+    @Requirement("RFC9493 §3")
     void rejectsMissingOrUnknownFormat() {
         assertThrows(IllegalArgumentException.class, () -> SubjectId.fromMap(Map.of("iss", "x", "sub", "y")));
         assertThrows(IllegalArgumentException.class,
@@ -42,6 +46,7 @@ class SubjectIdTest {
     }
 
     @Test
+    @Requirement("RFC9493 §3.2")
     void rejectsMissingRequiredMember() {
         assertThrows(IllegalArgumentException.class,
                 () -> SubjectId.fromMap(Map.of("format", "iss_sub", "iss", "only-iss")));

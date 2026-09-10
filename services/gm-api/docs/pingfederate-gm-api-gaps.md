@@ -20,7 +20,7 @@ Nothing. Verified, not assumed:
 | §5 `grant_management_action` | `?grant_management_action=create` | **ignored** |
 | §5 invalid action rejected | `?grant_management_action=nonsense_value` | **HTTP 200** |
 | §5 `grant_id` in token response | authorization code exchange | absent — response is `access_token, refresh_token, token_type, expires_in` |
-| §6.2 / §6.3 endpoints | — | no such endpoint |
+| §6.4 / §6.5 endpoints | — | no such endpoint |
 
 The invalid-action result is the telling one. PF does not merely fail to honour
 `grant_management_action`; it does not parse it. A client cannot distinguish an AS that
@@ -44,15 +44,15 @@ serves at `/gm-api`. It reads grants in-process through the supported SDK
 
 | Spec | Endpoint | Status |
 |---|---|---|
-| §6.2 query | `GET /gm-api/grants/{id}` | ✅ |
-| §6.3 revoke | `DELETE /gm-api/grants/{id}` | ✅ 204 |
+| §6.4 query status of a grant | `GET /gm-api/grants/{id}` | ✅ |
+| §6.5 revoke grant | `DELETE /gm-api/grants/{id}` | ✅ 204 |
 | §6.7 evaluate *(proposed)* | `POST /gm-api/grants/{id}/evaluate` | ✅ |
 | §7.1 metadata | `GET /gm-api/.well-known/grant-management-configuration` | ⚠️ wrong location — see below |
 | §5 lifecycle | — | ❌ not implementable |
 
 Two deviations, both forced:
 
-**The query response omits `claims`.** §6.2 shows a `claims` array. PF's
+**The query response omits `claims`.** §6.4 shows a `claims` array. PF's
 `com.pingidentity.sdk.accessgrant.AccessGrant` models no claims — there is no accessor
 and no field. The array has no source, so it is omitted rather than invented.
 
@@ -108,7 +108,7 @@ dropped. §5 may be worth an explicit statement that an AS advertising
 `grant_management_actions_supported` MUST reject unknown actions — giving clients
 something to probe.
 
-**§6.2's `claims` array needs a stated source.** It is unimplementable on an AS whose
+**§6.4's `claims` array needs a stated source.** It is unimplementable on an AS whose
 grant model has no claims, and PF's does not. Either the array is optional and should say
 so, or the spec assumes a grant model it should describe.
 

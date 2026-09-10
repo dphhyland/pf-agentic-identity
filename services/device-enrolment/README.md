@@ -139,7 +139,7 @@ passkey is blocked, so a first enrolment needs the passkey to already exist. Ful
 ## Build and test
 
 ```bash
-mvn -pl services/device-enrolment -am test      # 77 tests
+mvn -pl services/device-enrolment -am test      # 82 tests
 ```
 
 `EnrolmentHttpEndToEndTest` drives the real HTTP surface — challenge, App Attest with the enclave-key

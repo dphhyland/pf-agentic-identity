@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.rar;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import java.util.LinkedHashMap;
@@ -58,6 +59,7 @@ class GovernanceEngineRequestBuilderTest {
     }
 
     @Test
+    @Requirement("PROFILE §6(1)")
     void withNoAgentIdTheAttestationSubjectNeverBecomesUserIdOrActor() {
         // Pin (Phase 2.9): even though the attestation 'sub' field is set, it must never surface as
         // UserID or actor — only agent_id (absent here) can.
@@ -78,6 +80,7 @@ class GovernanceEngineRequestBuilderTest {
     }
 
     @Test
+    @Requirement({"RFC8693 §1.1", "PROFILE §6(3)"})
     void resourceOwnerBecomesUserIdAndAgentIdIsTheActor() {
         // The authenticated principal (e.g. the signed-in user consenting to a payment) is the UserID; the
         // attester-minted agent_id (the delegated agent) is recorded as 'actor' — RFC 8693 delegation, not

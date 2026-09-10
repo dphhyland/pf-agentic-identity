@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.device.AgentInstance;
 import com.pingidentity.ps.oidf.device.AuditEntry;
 import com.pingidentity.ps.oidf.device.BoundAuthenticator;
@@ -138,6 +139,7 @@ class InstanceRegistryDataSourceTest {
     // ---- fail closed, not fail silent -----------------------------------------------------------
 
     @Test
+    @Requirement("PF-SDK §CustomDataSourceDriver.retrieveValues")
     void aRegistryFaultIsThrownNotSwallowedIntoAHealthyLookingValueMap() {
         InstanceRegistryDataSource ds = shellWith(new InstanceLookup(new FailingRegistry(), UV_WINDOW));
 
@@ -151,6 +153,7 @@ class InstanceRegistryDataSourceTest {
     }
 
     @Test
+    @Requirement("PF-SDK §CustomDataSourceDriver.testConnection")
     void testConnectionFailsWhenTheRegistryFaults() {
         InstanceRegistryDataSource ds = shellWith(new InstanceLookup(new FailingRegistry(), UV_WINDOW));
 
@@ -158,6 +161,7 @@ class InstanceRegistryDataSourceTest {
     }
 
     @Test
+    @Requirement("PF-SDK §CustomDataSourceDriver.retrieveValues")
     void retrievingBeforeConfigurationFailsRatherThanNpeOrPassingSilently() {
         InstanceRegistryDataSource ds = new InstanceRegistryDataSource(); // never configured, no setLookup
 
@@ -172,6 +176,7 @@ class InstanceRegistryDataSourceTest {
     // ---- the healthy path: only what was asked for, and an unknown name maps to null -------------
 
     @Test
+    @Requirement("PF-SDK §CustomDataSourceDriver.retrieveValues")
     void onlyRequestedAttributesAreReturned() throws Exception {
         InMemoryStyleFixture fixture = InMemoryStyleFixture.withOneHealthyInstance();
         InstanceRegistryDataSource ds = shellWith(fixture.lookup);

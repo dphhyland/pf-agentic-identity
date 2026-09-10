@@ -11,6 +11,7 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -25,6 +26,7 @@ class HostedEntityConfigurationBuilderTest {
     private static final String TOKEN = "test-token";
 
     @Test
+    @Requirement("OIDFED §3.2")
     void configurationIsGenuinelySelfSigned() throws Exception {
         try (FakeBaoServer bao = new FakeBaoServer(TOKEN)) {
             HostedEntitySigner signer = new RegistryHostedEntitySigner(bao.url(), TOKEN);

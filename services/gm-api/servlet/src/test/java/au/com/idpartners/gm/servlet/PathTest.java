@@ -1,5 +1,6 @@
 package au.com.idpartners.gm.servlet;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -22,6 +23,7 @@ class PathTest {
     }
 
     @Test
+    @Requirement("GRANT-MGMT §6.3")
     void readsTheGrantIdForQueryAndRevoke() {
         // GET/DELETE /gm-api/grants/abc123  ->  pathInfo "/abc123"
         assertEquals("abc123", GrantsServlet.grantIdFrom("/abc123"));

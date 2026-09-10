@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.device.AgentInstance;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.pingidentity.ps.oidf.device.Device;
@@ -152,6 +153,7 @@ class CaepEventHandlerTest {
      * device they own — not silently no-op because the subject isn't opaque.
      */
     @Test
+    @Requirement("RFC9493 §3.2.3")
     void anIssSubFormatSubjectRevokesEveryInstanceTheOwnerHas() throws Exception {
         apply(set("evt-1", "session-revoked",
                 "{\"subject\":{\"format\":\"iss_sub\",\"iss\":\"https://pingone.example\","
