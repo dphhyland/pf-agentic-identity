@@ -325,18 +325,28 @@ This table allocates each requirement to the roles that bear it. It states what 
 **requires**; it is not a report of what any particular implementation currently does. For that, see
 Section 11.1.
 
-| Requirement | Attester | Authorization Server | Agent Instance |
-|---|---|---|---|
-| Signs/verifies only `PS256`/`ES256` (§3) | MUST | MUST | MUST |
-| Explicit algorithm allowlist, not library default (§3) | — | MUST | — |
-| Accepts both PoP and DPoP modes (§4) | — | MUST accept both | MUST use one |
-| `cnf.jwk` is public-key-only (§4) | MUST | MUST reject a private key | — |
-| `exp` ≤ `iat` + 18h (§5) | MUST | MUST reject excess | — |
-| Attestation accepted by ≤ 1 AS (§5) | — | — | MUST |
-| `sub` = Agent Type, never per-instance (§6) | MUST | MUST reject a violation | — |
-| `agent_id` always present, random, per-instance (§6) | MUST | — | — |
-| `authorization_details`, if present, is attester-asserted only (§7) | MUST | MUST NOT caller-source | — |
-| Own, unshared Instance Key (§8) | — | MUST reject shared credentials | MUST |
+The first column is the join key. A test pins a row by carrying that id in a `@Requirement`
+annotation, and [coverage-dashboard.md](coverage-dashboard.md) reports which rows nothing pins. Note
+the notation: sections 3 to 10 have no subsections, so `§6(2)` is list item 2 of section 6.
+
+Sections 9 and 10 have no rows. They are Security and Privacy Considerations: they explain what this
+profile chose not to require, so there is nothing there to allocate to a role.
+
+| Id | Requirement | Attester | Authorization Server | Agent Instance |
+|---|---|---|---|---|
+| `PROFILE §3(1)` | Signs/verifies only `PS256`/`ES256` | MUST | MUST | MUST |
+| `PROFILE §3(2)` | Never `RS256`, `HS*` or `none` | MUST | MUST | MUST |
+| `PROFILE §3(3)` | Explicit algorithm allowlist, not library default | — | MUST | — |
+| `PROFILE §4` | Accepts both PoP and DPoP modes | — | MUST accept both | MUST use one |
+| `PROFILE §4(1)` | `cnf.jwk` is public-key-only | MUST | MUST reject a private key | — |
+| `PROFILE §4(3)` | A DPoP proof is validated per RFC 9449 in full | — | MUST | — |
+| `PROFILE §5(1)` | `exp` ≤ `iat` + 18h | MUST | MUST reject excess | — |
+| `PROFILE §5(3)` | Attestation accepted by ≤ 1 AS | — | — | MUST |
+| `PROFILE §6(1)` | `sub` = Agent Type, never per-instance | MUST | MUST reject a violation | — |
+| `PROFILE §6(2)` | `agent_id` always present, random, per-instance | MUST | — | — |
+| `PROFILE §6(3)` | `agent_id` never substituted for a Resource Owner's subject, downstream included | — | MUST NOT | MUST NOT |
+| `PROFILE §7(1)` | `authorization_details`, if present, is attester-asserted only | MUST | MUST NOT caller-source | — |
+| `PROFILE §8` | Own, unshared Instance Key | — | MUST reject shared credentials | MUST |
 
 ### 11.1 Conformance status of the reference implementation
 

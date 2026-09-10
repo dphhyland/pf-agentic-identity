@@ -358,76 +358,116 @@ configuration that is not the default; **Divergence** — deliberate, defended i
 [claim-dictionary.md](claim-dictionary.md); **Extension** — no spec equivalent exists; **Not
 implemented** — stated so it is not mistaken for coverage.
 
+The **Id** column is the join key. A test pins a row by carrying that id in a `@Requirement`
+annotation, and [coverage-dashboard.md](coverage-dashboard.md) reports which rows nothing pins. A row
+reads `—` where no clause id could be verified against the document itself; that is a gap in the
+citation, not in the code, and it is left visible rather than filled with a plausible guess.
+
 ### 4.1 `draft-ietf-oauth-attestation-based-client-auth-10`
 
-| Requirement | Where | Status |
-|---|---|---|
-| Attestation JWT `typ=oauth-client-attestation+jwt` | `ClientAttestationVerifier:38`, `AttestationMinter:31` | Implemented |
-| `sub` names the OAuth client | `AttestationMinter` (workload path, always); `DeviceAttestationMinter` (device path, behind a flag) | Partial — divergence 5 |
-| `cnf.jwk`, public-only, REQUIRED | `Jwks.assertPublicOnly`, `AttestationMinter` | Implemented |
-| `exp` REQUIRED; expiry ⇒ `use_fresh_attestation` | `verifyAttestation` | Implemented |
-| `iss` removed in -08 | Retained | Divergence 1 |
-| PoP JWT `typ=oauth-client-attestation-pop+jwt`, `aud`, `jti`, `iat` | `verifyPopMode` | Implemented |
-| `attest_jwt_client_auth` at the token endpoint | `ClientAttestationAuthFilter` | Implemented |
-| `attest_jwt_client_auth_dpop` / `dpop_combined`, DPoP key = `cnf` key | `verifyDpopMode`, `Jwks.assertSameKey` | Implemented |
-| Both proof headers, or neither, is an error | `verify:91-98` | Implemented |
-| Challenge endpoint (§6.1) and `use_attestation_challenge` | `ClientAttestationChallengeServlet`, `enforceChallenge` | Implemented, off by default |
-| Error codes `invalid_client` / `use_attestation_challenge` / `use_fresh_attestation` | `ClientAttestationException` | Implemented |
-| SD-JWT presentation encoding (retired) | Actively refused | Implemented |
-| Attester trust establishment (§9.8, out of scope in the draft) | `FederationAttesterKeyResolver` | Extension |
-| Single-use attestation | Reused within the 15-minute window | Divergence 2 |
-| Per-instance identity claim | `agent_id` | Extension — divergence 5 |
-| Instance-key proof at issuance (`oauth-attestation-instance-proof+jwt`) | `InstanceKeyProofValidator` | Extension — the draft has no issuance side |
+| Id | Requirement | Where | Status |
+|---|---|---|---|
+| — | Attestation JWT `typ=oauth-client-attestation+jwt` | `ClientAttestationVerifier:38`, `AttestationMinter:31` | Implemented |
+| `CLAIM-DICT divergence 5` | `sub` names the OAuth client | `AttestationMinter` (workload path, always); `DeviceAttestationMinter` (device path, behind a flag) | Partial — divergence 5 |
+| `ABCA-10 §7.1` | `cnf.jwk`, public-only, REQUIRED | `Jwks.assertPublicOnly`, `AttestationMinter` | Implemented |
+| — | `exp` REQUIRED; expiry ⇒ `use_fresh_attestation` | `verifyAttestation` | Implemented |
+| `CLAIM-DICT divergence 1` | `iss` removed in -08 | Retained | Divergence 1 |
+| `ABCA-10 §5.1` | PoP JWT `typ=oauth-client-attestation-pop+jwt`, `aud`, `jti`, `iat` | `verifyPopMode` | Implemented |
+| `ABCA-10 §7.2` | PoP signed by the `cnf` key, allowlisted algorithm, audience is this server | `verifyPopMode`, `JwtCodec` | Implemented |
+| — | `attest_jwt_client_auth` at the token endpoint | `ClientAttestationAuthFilter` | Implemented |
+| `ABCA-10 §7.3` | `attest_jwt_client_auth_dpop` / `dpop_combined`, DPoP key = `cnf` key | `verifyDpopMode`, `Jwks.assertSameKey` | Implemented |
+| — | Both proof headers, or neither, is an error | `verify:91-98` | Implemented |
+| — | Challenge endpoint (§6.1) and `use_attestation_challenge` | `ClientAttestationChallengeServlet`, `enforceChallenge` | Implemented, off by default |
+| — | Error codes `invalid_client` / `use_attestation_challenge` / `use_fresh_attestation` | `ClientAttestationException` | Implemented |
+| — | SD-JWT presentation encoding (retired) | Actively refused | Implemented |
+| — | Attester trust establishment (§9.8, out of scope in the draft) | `FederationAttesterKeyResolver` | Extension |
+| `CLAIM-DICT divergence 2` | Single-use attestation | Reused within the 15-minute window | Divergence 2 |
+| `PROFILE §6(2)` | Per-instance identity claim | `agent_id` | Extension — divergence 5 |
+| `CAS §4.3` | Instance-key proof at issuance (`oauth-attestation-instance-proof+jwt`) | `InstanceKeyProofValidator` | Extension — the draft has no issuance side |
 
 ### 4.2 The OAuth RFCs
 
-| Requirement | Where | Status |
-|---|---|---|
-| RFC 9449 DPoP: `typ=dpop+jwt`, self-signature under the `jwk` header, alg allowlist, `htm`/`htu`, `iat`, `jti` | `DpopProofValidator` | Implemented |
-| RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial |
-| RFC 9396 `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`, `RarContainment` | Implemented |
-| RFC 9396 processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
-| RFC 8693 `act` as a JSON object; outermost actor only is authorisable | `delegationActChain`, `services/demo-rs` `ActChain` | Partial — PF's ability to emit a nested object is unresolved, see `unverified.md` item 8 |
-| RFC 7800 `cnf` | Attestation `cnf.jwk`; access token `cnf.jkt` | Implemented |
-| RFC 7515 / 7517 / 7519 / 7638 | `libs/oidf-jose` throughout | Implemented |
-| RFC 8705 mTLS client authentication | — | Not implemented |
-| RFC 9126 PAR | — | Not implemented |
-| FAPI 2.0 Security Profile | — | **Not assessed.** No FAPI reference exists anywhere in the repo |
+| Id | Requirement | Where | Status |
+|---|---|---|---|
+| `RFC9449 §4.2` | DPoP proof: `typ=dpop+jwt`, self-signature under the `jwk` header, no private key, alg allowlist | `DpopProofValidator` | Implemented |
+| `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness | `DpopProofValidator`, `services/demo-rs` | Implemented |
+| `RFC9449 §6.1` | `cnf.jkt` equals the presented proof key's thumbprint | `DelegatedTokenValidator` | Implemented |
+| — | RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial — `unverified.md` item 10 |
+| `RFC9396 §7.1` | `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`, `RarContainment` | Implemented |
+| `RFC9396 §6.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
+| `RFC8693 §4.1` | `act` as a JSON object; outermost actor only is authorisable | `services/demo-rs` `ActChain`, `services/gm-api` `TokenClaims` | Implemented on the reading side |
+| `UNVERIFIED item 8` | `act` minted as a JSON string, not an object | `delegationActChain` | Divergence being corrected — whether PF can emit the object form is unresolved |
+| `RFC8693 §1.1` | Principal is the subject, agent is the actor | `plugins/rar-paz-plugin` | Implemented |
+| — | RFC 7800 `cnf` | Attestation `cnf.jwk`; access token `cnf.jkt` | Implemented |
+| `RFC7515 §4.1.9` | `typ` matching is case-insensitive and tolerates an `application/` prefix | `JwtCodec.requireType` | Implemented |
+| `RFC7518 §3.4` | ECDSA signatures are fixed-width `r‖s`, not ASN.1/DER | `LocalJwkSigner`, `OpenBaoTransitSigner` | Implemented |
+| `RFC8725 §3.1` | Algorithm verification — no confusion between key types, no `none` | `DelegatedTokenValidator`, `JwtCodec` | Implemented |
+| `RFC8725 §3.8` | Issuer validated | `DelegatedTokenValidator` | Implemented |
+| `RFC8725 §3.9` | Audience validated | `DelegatedTokenValidator` | Implemented |
+| `RFC6750 §2.1` | Bearer credentials in the `Authorization` header, and no other scheme | `SsfHttp.authorize` | Implemented |
+| `RFC6750 §3` | `WWW-Authenticate` on an unauthenticated request | `SsfHttp.authorize` | Implemented |
+| `RFC6750 §3.1` | `invalid_token` is 401, `insufficient_scope` is 403 | `SsfHttp.authorize` | Implemented |
+| `RFC7662 §2.2` | Introspection response: `active`, space-separated `scope` | `PfIntrospectionReceiverAuthenticator` | Implemented |
+| — | RFC 7517 / 7519 / 7638 | `libs/oidf-jose` throughout | Implemented, no clause-level id |
+| — | RFC 8705 mTLS client authentication | — | Not implemented |
+| — | RFC 9126 PAR | — | Not implemented |
+| — | FAPI 2.0 Security Profile | — | **Not assessed.** No FAPI reference exists anywhere in the repo |
 
 ### 4.3 OpenID Federation 1.0 (Final, 17 Feb 2026)
 
-| Requirement | Where | Status |
-|---|---|---|
-| Attester keys resolved through a trust chain to the anchor | `FederationAttesterKeyResolver` | Implemented |
-| Wallet-provider keys likewise | `FederationWalletProviderKeyResolver` | Implemented, unconfigured by default |
-| AS advertises `attest_jwt_client_auth` / `attest_jwt_client_auth_dpop`, PoP methods `attestation_pop_jwt` / `dpop_combined`, alg lists, `challenge_endpoint` | `AttestationMetadataConfig` | Implemented |
-| `metadata_policy` narrow-only, fails closed | `MetadataPolicy.composeWith` | Partial — the §6.1.4 merge table could not be read; see `unverified.md` item 11 |
+| Id | Requirement | Where | Status |
+|---|---|---|---|
+| `CLAIM-DICT divergence 1` | Attester keys resolved through a trust chain to the anchor | `FederationAttesterKeyResolver` | Extension — ABCA puts attester trust out of scope at §9.8 |
+| — | Wallet-provider keys likewise | `FederationWalletProviderKeyResolver` | Implemented, unconfigured by default |
+| `ABCA-10 §8` | AS advertises `attest_jwt_client_auth` / `attest_jwt_client_auth_dpop`, PoP methods, alg lists, `challenge_endpoint` | `AttestationMetadataConfig` | Implemented |
+| `OIDFED §1.2` | A non-HTTPS entity identifier is refused before any fetch | `TrustChainValidator` | Implemented |
+| `OIDFED §3.2` | An entity configuration is genuinely self-signed | `TrustChainValidator` | Implemented |
+| `OIDFED §3.1.3` | `metadata_policy_crit` invalidates a statement naming an unknown operator | `MetadataPolicy` | Implemented |
+| `OIDFED §6.1.3.1` | The metadata-policy operator set | `MetadataPolicy` | Implemented |
+| `OIDFED §6.1.4.1` | Operators applied in the specified order | `MetadataPolicy` | Implemented |
+| `UNVERIFIED item 11` | `metadata_policy` merge outcomes — narrow-only, fails closed | `MetadataPolicy.composeWith` | Partial — the §6.1.4 merge table truncates in both published renderings |
+| `OIDFED §12.1` | Automatic registration against the trust controller | `RegistrationService` | Implemented |
+| `OIDFED §12.2` | Explicit registration against the trust controller | `ExplicitRegistrationRequest`, `RegistrationService` | Implemented |
 
 ### 4.4 CAS 1.0 draft-00 — this repo's own spec
 
 Does the implementation match the text it published?
 
-| Section | Status |
-|---|---|
-| §3 instance authentication requirements | Implemented |
-| §4 issuance API — challenge endpoint, attestation endpoint, instance-key proof, processing rules, errors | Implemented |
-| §5 discovery metadata | Implemented — and `ClientAttestationServiceMetadataServlet` reads the same config the issuance servlet enforces, so the document cannot drift from behaviour |
-| §6 associating instance identity with a client id | **Partial** — resolution is by evidence rather than by a supplied `client_id` (good), and all three metadata sources exist. But §6.2 rule 1 (federation → CIMD → registration order) is inverted; rule 2 (federation MUST chain-validate to the anchor) is **not met** — self-signature only; rule 3 (CIMD MUST NOT supply instance trust roots) is **violated** — see the next row |
-| §6.2 rule 3 — CIMD trust roots | **Not implemented.** `CimdMapping.toConfig:29-30` copies `bundle` and `bundle_url` straight out of the unsigned document. `OIDF_CIMD_TRUST_BUNDLES` exists but is read only to *advertise* `cimd` in the CAS metadata; nothing enforces it. Whoever controls the CIMD URL can publish a bundle they hold the keys to and mint attestations for arbitrary subjects |
-| §7 down-scoping at issuance | **Partial** — rules 1–3 (subset semantics, empty request = full ceiling, `narrowing_behavior: reject`) are met. Rule 4 (a PDP or context-dependent narrowing) is not; the selector-conditioned downscoping the code comments describe is comment-only (§3.3); and the registration-time `instances[i].entitlement ⊆ entitlement` check is inert for CIMD/federation-sourced clients because they never carry a client ceiling |
-| §8 lifetime / rotation / revocation | Partial — lifetime and rotation yes; revocation depends on the CAEP loop, which is not closed (`unverified.md` items 7 and 12); and a federation client's revocation at the anchor does not revoke issuance because no chain is walked |
+| Id | Section | Status |
+|---|---|---|
+| `CAS §3` | §3 instance authentication requirements | Implemented |
+| `CAS §4` | §4 issuance API — challenge endpoint, attestation endpoint, instance-key proof, processing rules, errors | Implemented |
+| `CAS §5` | §5 discovery metadata | Implemented — and `ClientAttestationServiceMetadataServlet` reads the same config the issuance servlet enforces, so the document cannot drift from behaviour |
+| `CAS §6` | §6 associating instance identity with a client id | **Partial** — resolution is by evidence rather than by a supplied `client_id` (good), and all three metadata sources exist. But §6.2 rule 1 (federation → CIMD → registration order) is inverted; rule 2 (federation MUST chain-validate to the anchor) is **not met** — self-signature only; rule 3 (CIMD MUST NOT supply instance trust roots) is **violated** — see the next row |
+| `CAS §6.2` | §6.2 rule 3 — CIMD trust roots | **Not implemented.** `CimdMapping.toConfig:29-30` copies `bundle` and `bundle_url` straight out of the unsigned document. `OIDF_CIMD_TRUST_BUNDLES` exists but is read only to *advertise* `cimd` in the CAS metadata; nothing enforces it. Whoever controls the CIMD URL can publish a bundle they hold the keys to and mint attestations for arbitrary subjects |
+| `CAS §7` | §7 down-scoping at issuance | **Partial** — rules 1–3 (subset semantics, empty request = full ceiling, `narrowing_behavior: reject`) are met. Rule 4 (a PDP or context-dependent narrowing) is not; the selector-conditioned downscoping the code comments describe is comment-only (§3.3); and the registration-time `instances[i].entitlement ⊆ entitlement` check is inert for CIMD/federation-sourced clients because they never carry a client ceiling |
+| `CAS §8` | §8 lifetime / rotation / revocation | Partial — lifetime and rotation yes; revocation depends on the CAEP loop, which is not closed (`unverified.md` items 7 and 12); and a federation client's revocation at the anchor does not revoke issuance because no chain is walked |
 
 ### 4.5 Everything else
 
-| Standard | Where | Status |
-|---|---|---|
-| SPIFFE / SPIRE — JWT-SVID validation, trust domains, selector introspection | `SpiffeSvidValidator`, `SpireSelectorIntrospector` | Implemented |
-| Cloud workload OIDC tokens (GKE, GCP SA, EKS, AWS STS web identity, AKS, Azure MI) | Six validators, each mapping onto a SPIFFE identity | Implemented |
-| HAIP 1.0 / EUDI ARF Wallet Instance Attestation | `WalletInstanceAttestationValidator` | Implemented, but refuses until wallet trust is configured |
-| OpenID4VCI 1.0 Appendix D `key_storage` / `user_authentication` | Device path, `iso_18045_moderate` | Divergence 3 |
-| `draft-ietf-oauth-client-id-metadata-document` (CIMD) | `CimdClientResolver` | Partial — resolution and caching yes; the CAS-spec constraint that trust roots must not come from the document is not enforced (§4.4) |
-| Apple App Attest | `libs/app-attest`, verified to Apple's root CA | Implemented |
-| SSF 1.0 / CAEP 1.0 (revocation signals) | `servlets/ssf` | Implemented as a transmitter/receiver; the signal source is unresolved |
+| Id | Standard | Where | Status |
+|---|---|---|---|
+| `CAS §5.3.2` | SPIFFE / SPIRE — JWT-SVID validation, trust domains, selector introspection | `SpiffeSvidValidator`, `SpireSelectorIntrospector` | Implemented |
+| `CAS §5.3.1` | Cloud workload OIDC tokens (GKE, GCP SA, EKS, AWS STS web identity, AKS, Azure MI) | Six validators, each mapping onto a SPIFFE identity | Implemented |
+| — | HAIP 1.0 / EUDI ARF Wallet Instance Attestation | `WalletInstanceAttestationValidator` | Implemented, but refuses until wallet trust is configured |
+| `CLAIM-DICT divergence 3` | OpenID4VCI 1.0 Appendix D `key_storage` / `user_authentication` | Device path, `iso_18045_moderate` | Divergence 3 |
+| — | `draft-ietf-oauth-client-id-metadata-document` (CIMD) | `CimdClientResolver` | Partial — resolution and caching yes; the CAS-spec constraint that trust roots must not come from the document is not enforced (§4.4) |
+| `APPLE-APPATTEST §Verify the attestation(1)` | Apple App Attest — chain to Apple's root CA | `libs/app-attest` | Implemented |
+| `APPLE-APPATTEST §Verify the assertion(3)` | Apple App Attest — assertion counter advances | `libs/app-attest`, `libs/device-instance` | Implemented |
+| `SSF §7.1` | SSF 1.0 stream configuration | `servlets/ssf` | Implemented |
+| `SSF §8.1.1.1` | SSF 1.0 stream endpoints | `servlets/ssf` | Implemented |
+| `CAEP §3.1` | CAEP 1.0 session revoked | `servlets/ssf` | Implemented as a transmitter/receiver; the signal source is unresolved |
+| `CAEP §3.5` | CAEP 1.0 device compliance change | `servlets/ssf`, `libs/device-instance` | Implemented; `unverified.md` item 12 — whether PingOne emits it at all is unknown |
+| `RFC8417 §2.2` | Security Event Token claims | `SetVerifier`, `SetMinter` | Implemented |
+| `RFC9493 §3.2` | Subject identifier formats | `SubjectId` | Implemented |
+| `RFC8935 §2.4` | Push-based SET delivery | `servlets/ssf` | Implemented |
+| `RFC8936 §2.3` | Poll-based SET delivery | `servlets/ssf` | Implemented |
+| `AUTHZEN-1.0 §6` | Access Evaluation API | `services/gm-api`, `plugins/rar-paz-plugin` | Implemented |
+| `AUTHZEN-1.0 §8.5` | Resource Search API | `services/gm-api` | Implemented |
+| `GRANT-MGMT §6.3` | Grant resource URL | `services/gm-api` | Implemented — §6.4 query and §6.5 revoke need a running PF and are untested here |
+| `PF-SDK §CustomDataSourceDriver.retrieveValues` | PF custom data source contract | `plugins/instance-registry-datasource` | Implemented |
+| `PF-SDK §AuthorizationDetailProcessor.enrich` | PF RAR processor contract | `plugins/rar-paz-plugin` | Implemented |
+| `NIST-800-63B §6.1.2.1` | Binding requires at least AAL2 | `services/device-enrolment` | Implemented |
 
 ---
 

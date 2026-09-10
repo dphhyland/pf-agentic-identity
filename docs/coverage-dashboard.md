@@ -82,9 +82,29 @@ the three ways to get an id wrong, are documented on the annotation itself
 
 **102 distinct requirements pinned by 215 tests.**
 
-This counts what *is* pinned. It is not a conformance percentage: the denominator would be
-the matrix rows across all ten specifications, and those rows do not yet carry ids to join
-against. Until they do, read this as an inventory, not a score.
+**65 of 73 conformance-matrix rows are pinned by a test.** The
+denominator is the rows that declare an id in `docs/client-attestation-architecture.md`
+and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is
+satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins
+`CAS §4.3`.
+
+This is not a conformance score. A matrix row is one line of prose somebody wrote, not a
+count of the clauses in the document behind it, and rows reading `—` because no clause id
+could be verified are not in the denominator at all. It measures whether what this repo
+*claims* is also *executed*.
+
+### Matrix rows nothing pins
+
+The work queue. Each is a row the docs claim and no test checks.
+
+- `CAS §3` — client-attestation-architecture.md
+- `CAS §6.2` — client-attestation-architecture.md
+- `CAS §8` — client-attestation-architecture.md
+- `CLAIM-DICT divergence 2` — client-attestation-architecture.md
+- `PROFILE §4(3)` — ai-agent-attestation-profile-1_0.md
+- `PROFILE §5(3)` — ai-agent-attestation-profile-1_0.md
+- `PROFILE §7(1)` — ai-agent-attestation-profile-1_0.md
+- `PROFILE §8` — ai-agent-attestation-profile-1_0.md
 
 `PF-SDK` ids name a vendor interface rather than a published specification, and
 `docs/unverified.md` item 5 records that no PingFederate 13.x javadoc exists locally to

@@ -163,6 +163,38 @@ def vocabulary():
     return found
 
 
+MATRIX_DOCS = ("docs/client-attestation-architecture.md",
+               "docs/ai-agent-attestation-profile-1_0.md")
+# A matrix row declares its id as the first cell, backticked and nothing else. Restricting to that
+# shape keeps ids cited in prose out of the denominator.
+MATRIX_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|", re.M)
+
+
+def matrix_rows():
+    """Every conformance-matrix row that declares an id, in document order."""
+    rows = []
+    for name in MATRIX_DOCS:
+        path = ROOT / name
+        if not path.is_file():
+            continue
+        for rid in MATRIX_ROW_RE.findall(path.read_text(errors="replace")):
+            if "§" in rid or " divergence " in rid or " item " in rid:
+                rows.append((name, rid))
+    return rows
+
+
+def pins(rid, pinned):
+    """The pinned ids that satisfy a matrix row.
+
+    A row may be written at section granularity where the tests are finer - the CAS matrix says
+    `CAS §4` while the tests pin `CAS §4.3`. A pinned id counts for a row when it is that row, or a
+    strict refinement of it. Without this the coarse rows would read as uncovered while the tests
+    that cover them sit one column away.
+    """
+    return [p for p in pinned
+            if p == rid or p.startswith(rid + ".") or p.startswith(rid + "(")]
+
+
 def requirements():
     """Every @Requirement id in test sources, mapped to the tests that pin it."""
     found = {}
@@ -295,9 +327,32 @@ def render():
         w(f"**{len(reqs)} distinct requirements pinned by "
           f"{sum(len(t) for t in reqs.values())} tests.**")
         w("")
-        w("This counts what *is* pinned. It is not a conformance percentage: the denominator would be")
-        w("the matrix rows across all ten specifications, and those rows do not yet carry ids to join")
-        w("against. Until they do, read this as an inventory, not a score.")
+        rows = {rid: doc for doc, rid in matrix_rows()}
+        if rows:
+            pinned = set(reqs)
+            unpinned = sorted(r for r in rows if not pins(r, pinned))
+            covered = len(rows) - len(unpinned)
+            w(f"**{covered} of {len(rows)} conformance-matrix rows are pinned by a test.** The")
+            w("denominator is the rows that declare an id in `docs/client-attestation-architecture.md`")
+            w("and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is")
+            w("satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins")
+            w("`CAS §4.3`.")
+            w("")
+            w("This is not a conformance score. A matrix row is one line of prose somebody wrote, not a")
+            w("count of the clauses in the document behind it, and rows reading `—` because no clause id")
+            w("could be verified are not in the denominator at all. It measures whether what this repo")
+            w("*claims* is also *executed*.")
+            if unpinned:
+                w("")
+                w("### Matrix rows nothing pins")
+                w("")
+                w("The work queue. Each is a row the docs claim and no test checks.")
+                w("")
+                for rid in unpinned:
+                    w(f"- `{rid}` — {rows[rid].split('/')[-1]}")
+        else:
+            w("This counts what *is* pinned. There is no denominator yet: no conformance-matrix row")
+            w("declares an id to join against, so read this as an inventory rather than a score.")
         known = vocabulary()
         suspect = sorted(s for s in by_spec if s not in known)
         if suspect:
