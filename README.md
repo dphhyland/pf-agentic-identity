@@ -20,9 +20,10 @@ PF has two very different extension mechanisms, and the tree mirrors them. **Ser
 on the webapp classloader. **Plugins** implement a PF SDK SPI: discovered via a `PF-INF/` descriptor,
 must be named `pf.plugins.*.jar`, and load on a per-plugin *isolated* classloader (which is why the
 RAR plugin shades its jackson). Pure **libs** know nothing about PF at all; **services** are
-standalone processes PF trusts or calls. Sixteen reactor modules, `bom/` included — the one place a
+standalone processes PF trusts or calls. Seventeen reactor modules, `bom/` included — the one place a
 shared dependency version is written down, imported by every module pom except the vendored
-`services/gm-api`.
+`services/gm-api`. `libs/conformance` is the odd one out: a single annotation, test-scoped everywhere
+and deliberately absent from `stage-modules.sh`, so nothing it carries reaches the PF image.
 
 ### `libs/` — pure libraries (no PingFederate)
 

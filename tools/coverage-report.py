@@ -239,6 +239,11 @@ def render():
     reqs = requirements()
     w("## Conformance coverage")
     w("")
+    w("A requirement is *pinned* when a test carries a `@Requirement` naming it. The id scheme, and")
+    w("the three ways to get an id wrong, are documented on the annotation itself")
+    w("(`libs/conformance/.../Requirement.java`) — most importantly that a test asserting a")
+    w("*divergence* is tagged with the divergence, never with the clause it departs from.")
+    w("")
     if not reqs:
         w("No `@Requirement` annotations found yet. Until tests carry them, conformance is asserted")
         w("in prose matrices and pinned by exactly one executable suite (`ProfileConformanceTest`),")
@@ -246,15 +251,26 @@ def render():
     else:
         by_spec = {}
         for rid, tests in reqs.items():
-            by_spec.setdefault(rid.split("§")[0].strip(), []).append((rid, tests))
+            by_spec.setdefault(rid.split("§")[0].split(" divergence")[0].split(" item")[0].strip(),
+                               []).append((rid, tests))
         w("| Specification | Requirements pinned | Tests |")
         w("|---|---:|---:|")
         for spec in sorted(by_spec):
             entries = by_spec[spec]
-            w(f"| {spec} | {len(entries)} | {sum(len(t) for _, t in entries)} |")
+            note = " *(vendor interface, see below)*" if spec == "PF-SDK" else ""
+            w(f"| {spec}{note} | {len(entries)} | {sum(len(t) for _, t in entries)} |")
         w("")
         w(f"**{len(reqs)} distinct requirements pinned by "
           f"{sum(len(t) for t in reqs.values())} tests.**")
+        w("")
+        w("This counts what *is* pinned. It is not a conformance percentage: the denominator would be")
+        w("the matrix rows across all ten specifications, and those rows do not yet carry ids to join")
+        w("against. Until they do, read this as an inventory, not a score.")
+        if "PF-SDK" in by_spec:
+            w("")
+            w("`PF-SDK` ids name a vendor interface rather than a published specification, and")
+            w("`docs/unverified.md` item 5 records that no PingFederate 13.x javadoc exists locally to")
+            w("check them against. Real and worth pinning, but a weaker claim than an RFC.")
     w("")
 
     w("## What these gates do NOT establish")

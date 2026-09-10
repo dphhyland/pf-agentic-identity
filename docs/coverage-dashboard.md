@@ -35,6 +35,10 @@ which says nothing about whether the security paths are the covered ones.
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
 
+### Not yet gated
+
+- `libs/conformance`
+
 ### Deliberately not gated
 
 - `bom` — dependency-version manifest, no source
@@ -43,9 +47,20 @@ decision method gated, and that is the intended shape.
 
 ## Conformance coverage
 
-No `@Requirement` annotations found yet. Until tests carry them, conformance is asserted
-in prose matrices and pinned by exactly one executable suite (`ProfileConformanceTest`),
-so there is no fraction to report here — which is itself the finding.
+A requirement is *pinned* when a test carries a `@Requirement` naming it. The id scheme, and
+the three ways to get an id wrong, are documented on the annotation itself
+(`libs/conformance/.../Requirement.java`) — most importantly that a test asserting a
+*divergence* is tagged with the divergence, never with the clause it departs from.
+
+| Specification | Requirements pinned | Tests |
+|---|---:|---:|
+| PROFILE | 6 | 13 |
+
+**6 distinct requirements pinned by 13 tests.**
+
+This counts what *is* pinned. It is not a conformance percentage: the denominator would be
+the matrix rows across all ten specifications, and those rows do not yet carry ids to join
+against. Until they do, read this as an inventory, not a score.
 
 ## What these gates do NOT establish
 

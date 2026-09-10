@@ -32,6 +32,7 @@
 
     <modules>
         <module>bom</module>
+        <module>libs/conformance</module>
         <module>libs/oidf-jose</module>
         <module>libs/app-attest</module>
         <module>libs/device-instance</module>

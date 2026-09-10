@@ -53,6 +53,7 @@
     <dependencyManagement>
         <dependencies>
             <!-- internal modules that other modules depend on -->
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>

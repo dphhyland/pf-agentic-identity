@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>conformance</artifactId>
+    <version>0.1.3</version>
+    <packaging>jar</packaging>
+
+    <name>conformance</name>
+    <description>One annotation, @Requirement, naming the specification clause a test pins. Tests carry
+        it; tools/coverage-report.py scans for it and joins the result against the conformance matrices,
+        which is what turns "these standards are documented" into a number that can be counted and a gap
+        that can be seen. Deliberately tiny and dependency-free: every module's tests depend on it, so
+        anything it pulled in would be on fifteen test classpaths.</description>
+    <url>https://github.com/dphhyland/pf-agentic-identity</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+
+    <!-- No dependencies at all, so no BOM import either. This pom stays standalone: no parent, plugin
+         config kept local, matching every other module (see bom/pom.xml on why there is no parent). -->
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+</project>

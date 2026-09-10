@@ -14,6 +14,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.junit.jupiter.api.BeforeEach;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -112,24 +113,28 @@ class ProfileConformanceTest {
     // ---------- §3 Algorithms ----------
 
     @Test
+    @Requirement("PROFILE §3(1)")
     void anEs256AttestationAndPopAreAccepted() throws Exception {
         ClientAttestationResult result = verify(conformantAttestation(), pop(instanceEc, "ES256", "p1"));
         assertEquals(CLIENT_ID, result.clientId());
     }
 
     @Test
+    @Requirement("PROFILE §3(1)")
     void aPs256AttestationIsAccepted() throws Exception {
         String att = attestation(attesterRsa, "PS256", instanceEc, 600L, "agent-1", true);
         assertEquals(CLIENT_ID, verify(att, pop(instanceEc, "ES256", "p2")).clientId());
     }
 
     @Test
+    @Requirement("PROFILE §3(2)")
     void anRs256AttestationIsRejected() throws Exception {
         String att = attestation(attesterRsa, "RS256", instanceEc, 600L, "agent-1", true);
         assertThrows(ClientAttestationException.class, () -> verify(att, pop(instanceEc, "ES256", "p3")));
     }
 
     @Test
+    @Requirement("PROFILE §3(2)")
     void anRs256PopIsRejected() throws Exception {
         String att = attestation(attesterEc, "ES256", instanceRsa, 600L, "agent-1", true);
         assertThrows(ClientAttestationException.class, () -> verify(att, pop(instanceRsa, "RS256", "p4")));
@@ -141,6 +146,7 @@ class ProfileConformanceTest {
      * resolution or a malformed fixture rather than from the §3 allowlist.
      */
     @Test
+    @Requirement("PROFILE §3(2)")
     void theRs256RejectionIsTheAllowlistAndNotAnIncidentalFailure() throws Exception {
         String att = attestation(attesterRsa, "RS256", instanceEc, 600L, "agent-1", true);
         ClientAttestationConfig permissive = ClientAttestationConfig.builder()
@@ -158,6 +164,7 @@ class ProfileConformanceTest {
     }
 
     @Test
+    @Requirement("PROFILE §3(3)")
     void theAllowlistIsExplicitAndCoversAttestationPopAndDpop() {
         ClientAttestationConfig config = profileConfig();
         assertEquals(PROFILE_ALGORITHMS, config.attestationAlgorithms());
@@ -178,12 +185,14 @@ class ProfileConformanceTest {
     // ---------- §5 Attestation lifetime ----------
 
     @Test
+    @Requirement("PROFILE §5(1)")
     void anAttestationInsideTheCeilingIsAccepted() throws Exception {
         String att = attestation(attesterEc, "ES256", instanceEc, EIGHTEEN_HOURS - 60L, "agent-1", true);
         assertEquals(CLIENT_ID, verify(att, pop(instanceEc, "ES256", "p5")).clientId());
     }
 
     @Test
+    @Requirement("PROFILE §5(1)")
     void anAttestationExceedingTheCeilingIsRejected() throws Exception {
         String att = attestation(attesterEc, "ES256", instanceEc, EIGHTEEN_HOURS + 3600L, "agent-1", true);
         ClientAttestationException e = assertThrows(ClientAttestationException.class,
@@ -192,6 +201,7 @@ class ProfileConformanceTest {
     }
 
     @Test
+    @Requirement("PROFILE §5(1)")
     void anAttestationWithNoIatIsRejectedRatherThanExempted() throws Exception {
         String att = attestation(attesterEc, "ES256", instanceEc, 600L, "agent-1", false);
         ClientAttestationException e = assertThrows(ClientAttestationException.class,
@@ -216,18 +226,21 @@ class ProfileConformanceTest {
     // ---------- §6 sub and agent_id ----------
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void anAttestationWithoutAgentIdIsRejected() throws Exception {
         String att = attestation(attesterEc, "ES256", instanceEc, 600L, null, true);
         assertThrows(ClientAttestationException.class, () -> verify(att, pop(instanceEc, "ES256", "p9")));
     }
 
     @Test
+    @Requirement("PROFILE §6(2)")
     void anAttestationWithABlankAgentIdIsRejected() throws Exception {
         String att = attestation(attesterEc, "ES256", instanceEc, 600L, "   ", true);
         assertThrows(ClientAttestationException.class, () -> verify(att, pop(instanceEc, "ES256", "p10")));
     }
 
     @Test
+    @Requirement({"PROFILE §6(1)", "PROFILE §6(2)"})
     void subNamesTheAgentTypeAndAgentIdNamesTheInstance() throws Exception {
         ClientAttestationResult result = verify(conformantAttestation(), pop(instanceEc, "ES256", "p11"));
         assertEquals(CLIENT_ID, result.clientId(), "§6.1: sub is the registered client, not the instance");
