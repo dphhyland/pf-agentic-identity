@@ -33,7 +33,7 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
 
 /**
- * Mints a self-signed root, an intermediate, and a leaf credCert carrying Apple's nonce extension,
+ * Mints a self-signed root and a leaf credCert (signed directly by it) carrying Apple's nonce extension,
  * then assembles a CBOR attestation object around them.
  *
  * <p>This is a <em>synthetic</em> chain, not an Apple one. It exercises every check the verifier makes

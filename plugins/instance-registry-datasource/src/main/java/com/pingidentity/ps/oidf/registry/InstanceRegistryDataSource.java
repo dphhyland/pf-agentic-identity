@@ -42,8 +42,9 @@ import org.sourceid.saml20.adapter.gui.TextFieldDescriptor;
  * <p>Discovered via {@code PF-INF/custom-drivers}, in a jar whose filename starts {@code pf.plugins.} —
  * without that prefix PF ignores it silently, which is one of the ways this fails with no error.
  *
- * <p>Configure an access token mapping with a filter of {@code instance_id=$\{sub\}} against the
- * attestation's subject, then gate issuance on {@code instance_active}, {@code device_compliant} and
+ * <p>Configure an access token mapping with a filter of {@code instance_id=$\{agent_id\}} against the
+ * attestation's {@code agent_id} claim (the instance id in every mode — {@code sub} becomes the client
+ * id once {@code OIDF_ATTESTATION_SUB=client_id}), then gate issuance on {@code instance_active}, {@code device_compliant} and
  * {@code uv_fresh}. Map {@code owner_subject} to the token's {@code sub}: RFC 8693 puts the human
  * there and the instance in {@code act.sub}.
  */
@@ -51,7 +52,7 @@ public class InstanceRegistryDataSource implements CustomDataSourceDriver {
 
     private static final Log LOGGER = LogFactory.getLog(InstanceRegistryDataSource.class);
 
-    /** The filter field a mapping supplies: the attestation's {@code sub}. */
+    /** The filter field a mapping supplies: the attestation's {@code agent_id}. */
     public static final String FILTER_INSTANCE_ID = "instance_id";
 
     private static final String CONFIG_JDBC_URL = "JDBC URL";
@@ -80,7 +81,7 @@ public class InstanceRegistryDataSource implements CustomDataSourceDriver {
 
         FilterFieldsGuiDescriptor filterFields = new FilterFieldsGuiDescriptor();
         filterFields.addField(new TextFieldDescriptor(FILTER_INSTANCE_ID,
-                "The agent instance identifier — the attestation's sub."));
+                "The agent instance identifier — the attestation's agent_id claim."));
 
         this.descriptor = new CustomDataSourceDriverDescriptor(
                 this, "Agent Instance Registry", gui, filterFields);

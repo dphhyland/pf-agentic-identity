@@ -3,8 +3,9 @@
 **Apple App Attest verification**: the one-time attestation object from `DCAppAttestService.attestKey`
 and the per-request assertion from `generateAssertion`, validated to Apple's App Attestation Root CA.
 Package `com.pingidentity.ps.oidf.appattest`. Pure verification — no HTTP, no servlet, no PingFederate;
-depends on `jackson-dataformat-cbor` (the attestation's wire format), `jackson-databind`, `jose4j` (JWK
-shaping of the attested key) and `commons-logging`. Consumed by `services/device-enrolment`, where it
+depends on `jackson-dataformat-cbor` (the attestation's wire format), `jackson-databind` and
+`commons-logging` (`jose4j` is declared in the pom but no main source imports it — the attested key comes
+back as an `ECPublicKey`, and JWK shaping is the caller's job). Consumed by `services/device-enrolment`, where it
 gates enrolment before an instance is registered in `device-instance`.
 
 App Attest attests the **app and the device, never the user**, and the key it attests is its own.
@@ -59,8 +60,8 @@ scalar the bytes happen to form.
 mvn -pl libs/app-attest -am package     # or `mvn package` at the repo root; tests run with the build
 ```
 
-Tests use **`AppAttestFixtures`** (test scope), which mints a synthetic Apple-shaped chain — root,
-intermediate, leaf credCert carrying the nonce extension — with BouncyCastle (test scope only, never on
+Tests use **`AppAttestFixtures`** (test scope), which mints a synthetic Apple-shaped chain — a
+self-signed root and a leaf credCert carrying the nonce extension — with BouncyCastle (test scope only, never on
 the runtime classpath), because the JDK has no public API for issuing a certificate with a custom
 extension. The fixtures are published as a `test-jar` and consumed by `services/device-enrolment`'s
 tests. What a synthetic chain cannot prove is that Apple's real objects parse; only a physical device

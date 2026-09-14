@@ -14,7 +14,7 @@
         it; tools/coverage-report.py scans for it and joins the result against the conformance matrices,
         which is what turns "these standards are documented" into a number that can be counted and a gap
         that can be seen. Deliberately tiny and dependency-free: every module's tests depend on it, so
-        anything it pulled in would be on fifteen test classpaths.</description>
+        anything it pulled in would be on fourteen test classpaths.</description>
     <url>https://github.com/dphhyland/pf-agentic-identity</url>
 
     <licenses>

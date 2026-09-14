@@ -46,18 +46,21 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * attestation and its PoP with the same {@link ClientAttestationVerifier} the OGNL issuance criterion
  * uses, resolves the client from the attestation's {@code sub}, and forwards a wrapped request that
  * authenticates to PF with its native {@code private_key_jwt}: a {@code client_assertion}
- * ({@code iss} = {@code sub} = the resolved client id) signed by a deployment-held <em>bridge key</em>
- * whose public half is registered in each attestation client's JWKS. The workload therefore sends only
+ * ({@code iss} = {@code sub} = the resolved client id) signed with that client's own <em>bridge key</em>
+ * ({@link BridgeSigners}, one per client), whose public half is already in the client's registered JWKS.
+ * The workload therefore sends only
  * the draft's wire format — two headers, no {@code client_secret}, no {@code client_id} — and PF's own
  * authenticator makes the accept/reject decision on the bridge assertion.
  *
  * <p><b>Fail closed:</b> an invalid attestation is rejected here with the draft's error codes and never
  * reaches PF. A request with <em>no</em> attestation header passes through untouched — PF then enforces
  * whatever authentication that client is configured for, so the filter can never widen access; it only
- * translates a verified attestation into a credential PF understands. Requests are verified again by the
- * OGNL issuance criterion on the engine classloader; the two run on separate replay caches (one per
- * classloader), so each sees a given PoP {@code jti} exactly once per request and genuine replays fail
- * in both.
+ * translates a verified attestation into a credential PF understands. The attestation is verified ONCE
+ * per request: this filter publishes the verified context as a server-side request attribute, and the
+ * OGNL issuance criterion on the engine classloader reuses it rather than calling {@code verify()} again
+ * ({@code verify()} consumes the PoP {@code jti} and any challenge, so a second call would report a
+ * replay as soon as both classloaders share a Redis store). When the attribute is absent — a deployment
+ * that runs without this filter — the criterion verifies for itself.
  *
  * <p>Signing keys come from {@link BridgeSigners}, one PER CLIENT. What is checked at {@code init} is
  * required: a deployment that registers clients for attestation authentication but has no bridge key

@@ -41,7 +41,8 @@
              one JSON/binary stack the rest of the repo already uses. -->
         <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
-        <!-- jose4j only for JWK shaping of the attested key, matching PF's own JOSE library exactly. -->
+        <!-- Declared but not imported by any main source: the attested key is returned as a
+             java.security.interfaces.ECPublicKey and JWK shaping is the caller's job. -->
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>

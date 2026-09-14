@@ -118,7 +118,7 @@ check them against. Real and worth pinning, but a weaker claim than an RFC.
 Three guarantees in this system are configuration, not code. 100% coverage of the Java says
 nothing about them, and a green dashboard must not be read as covering them:
 
-- **The token-endpoint filters may not run at all.** There is no `@WebFilter` anywhere in the repo and `servlets/oidf-war`'s `web.xml` registers none — `ClientAttestationAuthFilter` and `TokenEndpointAutoRegistrationFilter` are activated by a hand edit to `pf-runtime.war`'s `web.xml` in the deploying repo. A gate on `doFilter(` proves the filter works, never that it runs.
+- **The token-endpoint filters are registered by build surgery, not by code.** There is no `@WebFilter` anywhere in the repo and `servlets/oidf-war`'s `web.xml` registers none — `ClientAttestationAuthFilter` and `TokenEndpointAutoRegistrationFilter` are mapped over `/as/token.oauth2` by `build/pingfederate/assemble-pf-runtime-war.sh` when it merges the jars into `pf-runtime.war` (it also checks their order). A gate on `doFilter(` proves the filter works, never that the war a deployment runs registered it.
 - **Initial-grant RAR containment lives in a PingAuthorize policy file.** `AttestationAwareRarProcessor.enrich` does not call containment; it forwards the attested ceiling and policy enforces `requested ⊆ attested` outside this repo. Its three permissive switches (`failOpenOnError`, `denyOnNonPermit`, `allowClientAssertedPrincipal`) have *defaults* that are the security property, which no coverage counter expresses.
 - **`OutboundUrlPolicy`'s `allowHttp` / `allowPrivateNetworks` come from environment variables,** so the SSRF posture of a running deployment is not a property of this code.
 

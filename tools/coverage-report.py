@@ -72,11 +72,12 @@ MATRIX_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|", re.M)
 # What no coverage number can say. Rendered verbatim into both outputs so a green page never
 # reads as covering them.
 NOT_ESTABLISHED = [
-    ("The token-endpoint filters may not run at all.",
+    ("The token-endpoint filters are registered by build surgery, not by code.",
      "There is no `@WebFilter` anywhere in the repo and `servlets/oidf-war`'s `web.xml` registers "
-     "none — `ClientAttestationAuthFilter` and `TokenEndpointAutoRegistrationFilter` are activated "
-     "by a hand edit to `pf-runtime.war`'s `web.xml` in the deploying repo. A gate on `doFilter(` "
-     "proves the filter works, never that it runs."),
+     "none — `ClientAttestationAuthFilter` and `TokenEndpointAutoRegistrationFilter` are mapped over "
+     "`/as/token.oauth2` by `build/pingfederate/assemble-pf-runtime-war.sh` when it merges the jars "
+     "into `pf-runtime.war` (it also checks their order). A gate on `doFilter(` proves the filter "
+     "works, never that the war a deployment runs registered it."),
     ("Initial-grant RAR containment lives in a PingAuthorize policy file.",
      "`AttestationAwareRarProcessor.enrich` does not call containment; it forwards the attested "
      "ceiling and policy enforces `requested ⊆ attested` outside this repo. Its three permissive "

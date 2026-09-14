@@ -35,9 +35,10 @@ public final class PfTokenVerifier {
 
     /**
      * @param expectedAudience the aud this API answers to, e.g. the access token
-     *                         manager's "Audience Claim Value". When null or blank the
-     *                         audience is not checked, which accepts any token this
-     *                         server signed regardless of who it was minted for.
+     *                         manager's "Audience Claim Value". Required: null or blank
+     *                         throws {@link IllegalArgumentException}, because without it
+     *                         any token this server signed would be accepted regardless
+     *                         of who it was minted for.
      */
     public PfTokenVerifier(String expectedAudience) {
         this(JwksEndpointKeyAccessor.newInstance(), expectedAudience);
