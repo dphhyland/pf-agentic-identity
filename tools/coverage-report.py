@@ -478,55 +478,82 @@ def inline(text):
     return text
 
 
+LOGOS = {
+    # Light and dark wordmarks from the ID Partners brand board, embedded so the committed page
+    # needs no network and the artifact CSP has nothing to block.
+    "light": ROOT / "docs" / "assets" / "idpartners-logo-primary.png",
+    "dark": ROOT / "docs" / "assets" / "idpartners-logo-white-orange.png",
+}
+
+
+def logo(which):
+    """The wordmark as a data URI, or None if the asset is not in the checkout."""
+    path = LOGOS[which]
+    if not path.is_file():
+        return None
+    import base64
+    return "data:image/png;base64," + base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+# ID Partners palette: white or #F1F1F1 grounds, black text, #FC6401 strictly as the accent.
+# The two orange tints are fills, never text. Good/critical stay semantic - a failing gate has to
+# read as failing - but there is no separate warning hue; brand orange is the attention colour.
 CSS = """
 :root {
-  --bg: #F4F6F5; --surface: #FFFFFF; --line: #D9DEDC; --line-soft: #E8ECEA;
-  --ink: #1A2024; --ink-2: #4C5860; --ink-3: #7A868D;
-  --accent: #2C6B70; --accent-soft: #D8E9EA;
-  --good: #2A7A4B; --good-soft: #DCEFE3; --warn: #9C6A12; --warn-soft: #F5EAD3;
-  --crit: #B03A3A; --crit-soft: #F6DCDC;
-  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
-  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --bg: #FFFFFF; --surface: #FFFFFF; --surface-2: #F1F1F1; --line: #DADADA; --line-soft: #ECECEC;
+  --ink: #000000; --ink-2: #3A3A3A; --ink-3: #6E6E6E;
+  --accent: #FC6401; --accent-soft: #FFE1CE; --accent-tint: #FFC39D;
+  --good: #1E7A3E; --good-soft: #DDF0E3;
+  --crit: #B3261E; --crit-soft: #F8DCD9;
+  --logo-light: block; --logo-dark: none;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+  --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #131719; --surface: #1B2124; --line: #2E373B; --line-soft: #252D31;
-    --ink: #E5EAE8; --ink-2: #AEB9BD; --ink-3: #7F8C92;
-    --accent: #6FB8BC; --accent-soft: #1F3A3D;
-    --good: #5FBF85; --good-soft: #1C3527; --warn: #E0A84A; --warn-soft: #3A2E15;
-    --crit: #E06B6B; --crit-soft: #3D2020;
+    --bg: #0E0E0E; --surface: #161616; --surface-2: #1E1E1E; --line: #2E2E2E; --line-soft: #242424;
+    --ink: #FFFFFF; --ink-2: #CFCFCF; --ink-3: #8F8F8F;
+    --accent: #FC6401; --accent-soft: #3A2210; --accent-tint: #FFC39D;
+    --good: #5FBF85; --good-soft: #1C3527;
+    --crit: #F08C85; --crit-soft: #3D2020;
+    --logo-light: none; --logo-dark: block;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #131719; --surface: #1B2124; --line: #2E373B; --line-soft: #252D31;
-  --ink: #E5EAE8; --ink-2: #AEB9BD; --ink-3: #7F8C92;
-  --accent: #6FB8BC; --accent-soft: #1F3A3D;
-  --good: #5FBF85; --good-soft: #1C3527; --warn: #E0A84A; --warn-soft: #3A2E15;
-  --crit: #E06B6B; --crit-soft: #3D2020;
+  --bg: #0E0E0E; --surface: #161616; --surface-2: #1E1E1E; --line: #2E2E2E; --line-soft: #242424;
+  --ink: #FFFFFF; --ink-2: #CFCFCF; --ink-3: #8F8F8F;
+  --accent: #FC6401; --accent-soft: #3A2210; --accent-tint: #FFC39D;
+  --good: #5FBF85; --good-soft: #1C3527;
+  --crit: #F08C85; --crit-soft: #3D2020;
+  --logo-light: none; --logo-dark: block;
 }
 * { box-sizing: border-box; }
 html { color-scheme: light dark; }
 body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
 code { font-family: var(--mono); font-size: 0.92em; }
 a { color: var(--accent); }
-main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; display: grid; gap: 40px; }
-header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
-h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
-h2 { font-size: 17px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.005em; text-wrap: balance; }
-h3 { font-size: 13px; font-weight: 600; margin: 24px 0 8px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; }
+main { max-width: 1180px; margin: 0 auto; padding: 28px 24px 64px; display: grid; gap: 40px; }
+header { display: grid; gap: 22px; }
+.masthead { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-bottom: 18px; border-bottom: 2px solid var(--ink); }
+.masthead img { height: 26px; width: auto; }
+.logo-light { display: var(--logo-light); }
+.logo-dark { display: var(--logo-dark); }
+h1 { font-size: 22px; font-weight: 700; margin: 0 0 6px; text-transform: uppercase; letter-spacing: 0.04em; }
+h2 { font-size: 17px; font-weight: 700; margin: 0 0 6px; text-wrap: balance; }
+h3 { font-size: 12px; font-weight: 700; margin: 24px 0 8px; color: var(--ink); text-transform: uppercase; letter-spacing: 0.08em; }
 p { margin: 0; max-width: 72ch; color: var(--ink-2); }
 p.lede { color: var(--ink-2); }
 .meta { font-size: 13px; color: var(--ink-3); font-family: var(--mono); }
 .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
-.tile { background: var(--surface); border: 1px solid var(--line); padding: 16px 18px 14px; display: grid; gap: 2px; }
-.tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
-.tile .value { font-size: 34px; font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; }
-.tile .value small { font-size: 18px; font-weight: 500; color: var(--ink-3); letter-spacing: 0; }
+.tile { background: var(--surface-2); padding: 16px 18px 14px; display: grid; gap: 2px; }
+.tile .label { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink); }
+.tile .value { font-size: 36px; font-weight: 700; line-height: 1.1; letter-spacing: -0.02em; color: var(--accent); }
+.tile .value small { font-size: 18px; font-weight: 600; color: var(--ink-3); letter-spacing: 0; }
 .tile .note { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
-.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
-.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; background: currentColor; }
 .pill.good { color: var(--good); background: var(--good-soft); }
-.pill.warn { color: var(--warn); background: var(--warn-soft); }
+.pill.warn { color: var(--accent); background: var(--accent-soft); }
 .pill.crit { color: var(--crit); background: var(--crit-soft); }
 .pill.muted { color: var(--ink-2); background: var(--line-soft); }
 .pill.muted::before { display: none; }
@@ -539,8 +566,8 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 td code { white-space: nowrap; }
 tr.fail td { padding-top: 0; border-top: 0; color: var(--crit); font-family: var(--mono); font-size: 13px; }
 .bar { display: inline-grid; grid-template-columns: 96px auto; align-items: center; gap: 10px; }
-.bar i { display: block; height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
-.bar i b { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.bar i { display: block; height: 6px; background: var(--surface-2); overflow: hidden; }
+.bar i b { display: block; height: 100%; background: var(--accent); }
 .bar span { font-variant-numeric: tabular-nums; min-width: 3.5ch; text-align: right; }
 .two { display: grid; grid-template-columns: 1fr; gap: 32px; }
 @media (min-width: 900px) { .two { grid-template-columns: 1.15fr 1fr; } }
@@ -570,10 +597,10 @@ details.spec[hidden] { display: none; }
 .queue { margin-top: 12px; display: grid; gap: 6px; }
 .queue div { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: baseline; font-size: 14px; }
 .queue .doc { color: var(--ink-3); font-size: 13px; }
-.callout { border: 1px solid var(--line); background: var(--surface); padding: 18px 20px; display: grid; gap: 12px; }
+.callout { background: var(--surface-2); padding: 18px 20px; display: grid; gap: 14px; }
 .callout .item { display: grid; gap: 2px; max-width: 80ch; }
 .callout .item strong { color: var(--ink); }
-.callout .tag { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--warn); font-weight: 600; }
+.callout .tag { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 700; }
 .legend { font-size: 13px; color: var(--ink-3); margin-top: 8px; }
 footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
 @media (prefers-reduced-motion: reduce) { details.spec summary .chev { transition: none; } }
@@ -619,18 +646,24 @@ def render_html(d):
     n_tests_pinning = sum(len(t) for t in reqs.values())
 
     w("<title>pf-agentic-identity Coverage</title>")
-    w('<link rel="preconnect" href="https://fonts.googleapis.com">')
-    w('<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">')
     w(f"<style>{CSS}</style>")
     w("<main>")
 
-    # Header
+    # Header: the wordmark on its own rule, then the page name. Both logo variants are in the
+    # markup and the theme tokens decide which one shows.
     w("<header>")
+    w('<div class="masthead"><div>')
+    for which, cls in (("light", "logo-light"), ("dark", "logo-dark")):
+        uri = logo(which)
+        if uri:
+            w(f'<img class="{cls}" src="{uri}" alt="ID Partners">')
+    w("</div>")
+    w("<div class=\"meta\">tools/coverage-report.py · run <code>mvn -o verify</code> first</div>")
+    w("</div>")
     w("<div><h1>Coverage and conformance</h1>"
       "<p class=\"lede\">Are the methods that decide something covered, and is what the docs claim "
       "also executed? Generated from jacoco, surefire and the <code>@Requirement</code> "
       "annotations; CI fails if this page drifts from the build.</p></div>")
-    w("<div class=\"meta\">tools/coverage-report.py · run <code>mvn -o verify</code> first</div>")
     w("</header>")
 
     # Tiles
