@@ -279,8 +279,9 @@ public final class ClientAttestationUtils {
     /**
      * Default verification policy for the token-endpoint auth filter: PoP audience = OP issuer or the
      * request URL, method POST. The filter has no issuance-criteria context, so the per-client
-     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here; the OGNL issuance
-     * criterion still enforces it on the same request.
+     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here — and because the
+     * OGNL issuance criterion reuses the verification this filter publishes rather than verifying again
+     * (verify-once), that tuning does not apply to a filter-authenticated request at all.
      */
     public static ClientAttestationConfig defaultConfig(String opIssuer, String requestUri) {
         return ClientAttestationConfig.builder()

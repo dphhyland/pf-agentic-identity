@@ -2,10 +2,13 @@
 
 **Agentic / workload identity on PingFederate, as one platform.** An agent *type* is an OpenID
 Federation entity a trust anchor vouches for; an ephemeral *instance* authenticates with a Client
-Attestation bound to its own key; the AS registers and authorizes the client **live against the
-trust controller** on every call; its authority is carried as fine-grained RAR entitlements and
-evaluated post-issuance through Grant Management. Revoke the type at the anchor and the very next
-token fails — governance is real-time, not a credential expiry.
+Attestation bound to its own key; the AS registers and authorizes the client **against the trust
+controller**, validating trust chains from statements it caches until shortly before they expire; its
+authority is carried as fine-grained RAR entitlements and evaluated post-issuance through Grant
+Management. Revoke the type at the anchor and its clients stop authenticating once the statements the
+anchor already signed run out — they live an hour, a verifier serves a cached one until five minutes
+before that, and token-time re-registration fails open rather than removing the stored client — so
+governance is bounded by statement lifetime, not credential expiry.
 
 One `mvn package` at the root builds every PF-side artifact, including the gm-api servlet
 (`gm-api.war`). The authorization-server-agnostic **Go** reference implementation of the Grant
@@ -20,7 +23,7 @@ PF has two very different extension mechanisms, and the tree mirrors them. **Ser
 on the webapp classloader. **Plugins** implement a PF SDK SPI: discovered via a `PF-INF/` descriptor,
 must be named `pf.plugins.*.jar`, and load on a per-plugin *isolated* classloader (which is why the
 RAR plugin shades its jackson). Pure **libs** know nothing about PF at all; **services** are
-standalone processes PF trusts or calls. Seventeen reactor modules, `bom/` included — the one place a
+standalone processes PF trusts or calls. Eighteen reactor modules, `bom/` included — the one place a
 shared dependency version is written down, imported by every module pom except the vendored
 `services/gm-api`. `libs/conformance` is the odd one out: a single annotation, test-scoped everywhere
 and deliberately absent from `stage-modules.sh`, so nothing it carries reaches the PF image.
@@ -29,21 +32,21 @@ and deliberately absent from `stage-modules.sh`, so nothing it carries reaches t
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-0.1.0.jar` |
-| `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-0.1.0.jar` |
-| `libs/openid-federation` | **OpenID Federation** core: trust-chain validation, entity statements, trust-controller gateway, client entity authorizer (draft-10 metadata) | `openid-federation-0.1.0.jar` |
-| `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-0.1.0.jar` |
-| `libs/device-instance` | The **agent instance registry** — the only place an opaque instance id resolves to a human — and the **device Client Attestation minter** (subject = that id, never the user). Owns the Postgres schema | `device-instance-0.1.0.jar` |
-| `libs/agent-registry` | Mints/resolves **`agent_id`**: a random, never-derived per-running-instance identifier, for runtimes with no enrolment step of their own (a SPIFFE workload) | `agent-registry-0.1.0.jar` |
+| `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-0.1.3.jar` |
+| `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-0.1.3.jar` |
+| `libs/openid-federation` | **OpenID Federation** core: trust-chain validation, entity statements, trust-controller gateway, client entity authorizer (draft-10 metadata) | `openid-federation-0.1.3.jar` |
+| `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-0.1.3.jar` |
+| `libs/device-instance` | The **agent instance registry** — the only place an opaque instance id resolves to a human — and the **device Client Attestation minter** (subject = that id, never the user). Owns the Postgres schema | `device-instance-0.1.3.jar` |
+| `libs/agent-registry` | Mints/resolves **`agent_id`**: a random, never-derived per-running-instance identifier, for runtimes with no enrolment step of their own (a SPIFFE workload) | `agent-registry-0.1.3.jar` |
 
 ### `servlets/` — webapp extensions (annotation-scanned; ship in `oidf.war`, or merged into `pf-runtime.war` at root context by the deploy image)
 
 | Path | What it is | Artifact |
 |---|---|---|
 | `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store, and the `/as/token.oauth2` filters — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential) and **`TokenEndpointAutoRegistrationFilter`** — registered by the deploy image's `web.xml` surgery (`build/pingfederate/assemble-pf-runtime-war.sh`) | `oidf.jar` |
-| `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (platform evidence — SPIFFE SVID, GKE/EKS/AKS, AWS, Azure — → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer-0.1.0.jar` |
+| `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (platform evidence — SPIFFE SVID, GKE/EKS/AKS, AWS, Azure — → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer-0.1.3.jar` |
 | `servlets/oidf-war` | The **`oidf.war` assembly**: pf-integration + attestation-issuer with their libraries in `WEB-INF/lib` (jose4j excluded — PF ships it; a second copy is a `LinkageError`). Its own module so it can depend on every servlet module without a reactor cycle | `oidf.war` |
-| `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf-0.1.0.jar` |
+| `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf-0.1.3.jar` |
 
 ### `plugins/` — PF SDK plugins (`PF-INF/` descriptor, isolated classloader)
 
@@ -57,8 +60,8 @@ and deliberately absent from `stage-modules.sh`, so nothing it carries reaches t
 | Path | What it is | Artifact |
 |---|---|---|
 | `services/gm-api` | **Grant Management / AuthZEN Grant Evaluation API** as a PingFederate servlet + `/mcp` agent add-on: is this grant, intersected with what the subject holds, still enough — right now? Reads grants in-process via the PF SDK. (AS-agnostic Go reference: **grant-evaluation-api**, sibling checkout.) | `gm-api.war` |
-| `services/device-enrolment` | The **agent platform backend** — Client Attester for device-resident agents: enrolment ceremony (App Attest + PingOne passkey + Secure Enclave key), owns the instance registry, mints Client Attestations, enforces the user-verification time-box server-side. Not a PF extension | `device-enrolment-0.1.0.jar` |
-| `services/demo-rs` | **Resource-server validation** that closes the loop: AS signature, DPoP proof, `cnf.jkt` equals the proof key's thumbprint (the check people skip), then the RFC 8693 `act` chain. A library, no HTTP surface | `demo-rs-0.1.0.jar` |
+| `services/device-enrolment` | The **agent platform backend** — Client Attester for device-resident agents: enrolment ceremony (App Attest + PingOne passkey + Secure Enclave key), owns the instance registry, mints Client Attestations, enforces the user-verification time-box server-side. Not a PF extension | `device-enrolment-0.1.3.jar` |
+| `services/demo-rs` | **Resource-server validation** that closes the loop: AS signature, DPoP proof, `cnf.jkt` equals the proof key's thumbprint (the check people skip), then the RFC 8693 `act` chain. A library, no HTTP surface | `demo-rs-0.1.3.jar` |
 
 `build/pingfederate/` builds the AS image from the reactor's **modular jars**
 (`stage-modules.sh` → `modules/`, merged into `pf-runtime.war` at root context and onto the engine

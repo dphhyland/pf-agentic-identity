@@ -1,7 +1,7 @@
 # Attestation-based client authentication — design
 
-How a verified Client Attestation becomes a credential PingFederate accepts, why the current shape has
-two defects, and what replaces it.
+How a verified Client Attestation becomes a credential PingFederate accepts, why the shape this
+replaced had two defects, and what replaced it.
 
 Status: **implemented 2026-08-22** — per-client signing in `a27e711`, verify-once below, and
 `attestationClaim`/`delegationActChain` now read the published context rather than decoding the header.
@@ -15,7 +15,10 @@ PingFederate has no native `attest_jwt_client_auth` token-endpoint auth method, 
 point for adding one. A verified attestation must therefore be handed to PF as some credential PF
 already understands. That translation is what `ClientAttestationAuthFilter` does, and why it exists.
 
-## Current shape
+## Shape before 2026-08-22 (superseded)
+
+The diagram and the two defects below describe the code as it was *before* `a27e711` and `8c5ad55`;
+they are kept as the rationale. The "Target shape" that follows is what the code does now.
 
 ```
 agent  ──OAuth-Client-Attestation + PoP──▶  ClientAttestationAuthFilter

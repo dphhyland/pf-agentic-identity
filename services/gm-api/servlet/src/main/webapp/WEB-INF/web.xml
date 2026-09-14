@@ -41,7 +41,8 @@
     </init-param>
     <!--
       The aud this API answers to: the access token manager's Audience Claim Value.
-      Leave unset only if you accept any token this server signed, whoever it was for.
+      Required: the verifier refuses to start without it, because any token this server
+      signed would otherwise be accepted, whoever it was for.
     -->
     <init-param>
       <param-name>audience</param-name>

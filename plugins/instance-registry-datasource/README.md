@@ -44,9 +44,10 @@ Data Stores → Custom → **Agent Instance Registry**. Two fields:
 | `User verification max age (seconds)` | the window for `uv_fresh`; default 300. **Must match the enrolment service's `UV_MAX_AGE_SECONDS`**, or the two disagree about when an agent stops |
 
 Filter field: `instance_id` — the instance identifier. That is the attestation's `agent_id` (pf-integration's
-`ClientAttestationUtils.attestationClaim(…, "agent_id")` reads it for a mapping); until the staged Phase 2.5
-`sub` flip it is also the attestation `sub`, which is what the class javadoc's `instance_id=${sub}` example
-assumes — see [docs/claim-dictionary.md](../../docs/claim-dictionary.md).
+`ClientAttestationUtils.attestationClaim(…, "agent_id")` reads it for a mapping), which is right in every mode:
+the minter always sets it to the instance id, whereas `sub` becomes the registered client id once the Phase 2.5
+flip (`OIDF_ATTESTATION_SUB=client_id`) is on — so map `instance_id=${agent_id}`, not `${sub}`. See
+[docs/claim-dictionary.md](../../docs/claim-dictionary.md).
 
 Fields a mapping may request (`InstanceLookup.AVAILABLE_FIELDS`):
 
