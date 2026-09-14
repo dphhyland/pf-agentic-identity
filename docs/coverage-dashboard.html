@@ -1,0 +1,359 @@
+<title>pf-agentic-identity Coverage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root {
+  --bg: #F4F6F5; --surface: #FFFFFF; --line: #D9DEDC; --line-soft: #E8ECEA;
+  --ink: #1A2024; --ink-2: #4C5860; --ink-3: #7A868D;
+  --accent: #2C6B70; --accent-soft: #D8E9EA;
+  --good: #2A7A4B; --good-soft: #DCEFE3; --warn: #9C6A12; --warn-soft: #F5EAD3;
+  --crit: #B03A3A; --crit-soft: #F6DCDC;
+  --sans: "IBM Plex Sans", "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #131719; --surface: #1B2124; --line: #2E373B; --line-soft: #252D31;
+    --ink: #E5EAE8; --ink-2: #AEB9BD; --ink-3: #7F8C92;
+    --accent: #6FB8BC; --accent-soft: #1F3A3D;
+    --good: #5FBF85; --good-soft: #1C3527; --warn: #E0A84A; --warn-soft: #3A2E15;
+    --crit: #E06B6B; --crit-soft: #3D2020;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #131719; --surface: #1B2124; --line: #2E373B; --line-soft: #252D31;
+  --ink: #E5EAE8; --ink-2: #AEB9BD; --ink-3: #7F8C92;
+  --accent: #6FB8BC; --accent-soft: #1F3A3D;
+  --good: #5FBF85; --good-soft: #1C3527; --warn: #E0A84A; --warn-soft: #3A2E15;
+  --crit: #E06B6B; --crit-soft: #3D2020;
+}
+* { box-sizing: border-box; }
+html { color-scheme: light dark; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 var(--sans); }
+code { font-family: var(--mono); font-size: 0.92em; }
+a { color: var(--accent); }
+main { max-width: 1180px; margin: 0 auto; padding: 32px 24px 64px; display: grid; gap: 40px; }
+header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 24px; }
+h1 { font-size: 22px; font-weight: 600; margin: 0; letter-spacing: -0.01em; }
+h2 { font-size: 17px; font-weight: 600; margin: 0 0 6px; letter-spacing: -0.005em; text-wrap: balance; }
+h3 { font-size: 13px; font-weight: 600; margin: 24px 0 8px; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; }
+p { margin: 0; max-width: 72ch; color: var(--ink-2); }
+p.lede { color: var(--ink-2); }
+.meta { font-size: 13px; color: var(--ink-3); font-family: var(--mono); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
+.tile { background: var(--surface); border: 1px solid var(--line); padding: 16px 18px 14px; display: grid; gap: 2px; }
+.tile .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); }
+.tile .value { font-size: 34px; font-weight: 600; line-height: 1.1; letter-spacing: -0.02em; }
+.tile .value small { font-size: 18px; font-weight: 500; color: var(--ink-3); letter-spacing: 0; }
+.tile .note { font-size: 13px; color: var(--ink-2); margin-top: 6px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: 0.02em; white-space: nowrap; }
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.pill.good { color: var(--good); background: var(--good-soft); }
+.pill.warn { color: var(--warn); background: var(--warn-soft); }
+.pill.crit { color: var(--crit); background: var(--crit-soft); }
+.pill.muted { color: var(--ink-2); background: var(--line-soft); }
+.pill.muted::before { display: none; }
+section > p + p { margin-top: 8px; }
+.tablewrap { overflow-x: auto; margin-top: 14px; background: var(--surface); border: 1px solid var(--line); }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th, td { text-align: left; padding: 9px 14px; border-top: 1px solid var(--line-soft); vertical-align: top; }
+thead th { border-top: 0; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); font-weight: 600; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+td code { white-space: nowrap; }
+tr.fail td { padding-top: 0; border-top: 0; color: var(--crit); font-family: var(--mono); font-size: 13px; }
+.bar { display: inline-grid; grid-template-columns: 96px auto; align-items: center; gap: 10px; }
+.bar i { display: block; height: 6px; background: var(--line-soft); border-radius: 3px; overflow: hidden; }
+.bar i b { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.bar span { font-variant-numeric: tabular-nums; min-width: 3.5ch; text-align: right; }
+.two { display: grid; grid-template-columns: 1fr; gap: 32px; }
+@media (min-width: 900px) { .two { grid-template-columns: 1.15fr 1fr; } }
+ul.plain { margin: 8px 0 0; padding: 0 0 0 18px; color: var(--ink-2); }
+ul.plain li { margin: 3px 0; }
+ul.plain li::marker { color: var(--ink-3); }
+.filter { display: flex; gap: 10px; align-items: center; margin-top: 14px; }
+.filter input { font: 14px var(--mono); padding: 7px 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); width: min(100%, 360px); }
+.filter input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.filter .count { font-size: 13px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+details.spec { border-top: 1px solid var(--line-soft); }
+details.spec:first-of-type { border-top: 0; }
+details.spec summary { list-style: none; cursor: pointer; display: grid; grid-template-columns: 1fr auto auto 18px; gap: 16px; align-items: center; padding: 9px 14px; font-size: 14px; }
+details.spec summary::-webkit-details-marker { display: none; }
+details.spec summary:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+details.spec summary .n { font-variant-numeric: tabular-nums; color: var(--ink-2); min-width: 9ch; text-align: right; }
+details.spec summary .chev { color: var(--ink-3); transition: transform 120ms; }
+details.spec[open] summary .chev { transform: rotate(90deg); }
+details.spec .ids { padding: 0 14px 12px 14px; display: grid; gap: 4px; font-size: 13px; }
+details.spec .ids div { display: grid; grid-template-columns: minmax(200px, 0.6fr) 1fr; gap: 12px; color: var(--ink-2); }
+details.spec .ids div code:first-child { color: var(--ink); }
+details.spec .ids .t { font-family: var(--mono); font-size: 12px; color: var(--ink-3); overflow-wrap: anywhere; }
+details.spec[hidden] { display: none; }
+.speclist { background: var(--surface); border: 1px solid var(--line); margin-top: 10px; }
+.speclist .head { display: grid; grid-template-columns: 1fr auto auto 18px; gap: 16px; padding: 8px 14px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--ink-3); border-bottom: 1px solid var(--line-soft); font-weight: 600; }
+.speclist .head .n { min-width: 9ch; text-align: right; }
+.queue { margin-top: 12px; display: grid; gap: 6px; }
+.queue div { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: baseline; font-size: 14px; }
+.queue .doc { color: var(--ink-3); font-size: 13px; }
+.callout { border: 1px solid var(--line); background: var(--surface); padding: 18px 20px; display: grid; gap: 12px; }
+.callout .item { display: grid; gap: 2px; max-width: 80ch; }
+.callout .item strong { color: var(--ink); }
+.callout .tag { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--warn); font-weight: 600; }
+.legend { font-size: 13px; color: var(--ink-3); margin-top: 8px; }
+footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
+@media (prefers-reduced-motion: reduce) { details.spec summary .chev { transition: none; } }
+</style>
+<main>
+<header>
+<div><h1>Coverage and conformance</h1><p class="lede">Are the methods that decide something covered, and is what the docs claim also executed? Generated from jacoco, surefire and the <code>@Requirement</code> annotations; CI fails if this page drifts from the build.</p></div>
+<div class="meta">tools/coverage-report.py · run <code>mvn -o verify</code> first</div>
+</header>
+<section class="tiles">
+<div class="tile"><span class="label">Tests</span><span class="value">1103</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
+<div class="tile"><span class="label">Critical methods gated</span><span class="value">115</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
+<div class="tile"><span class="label">Requirements pinned</span><span class="value">102</span><span class="note">by 215 tests across 25 specifications</span></div>
+<div class="tile"><span class="label">Matrix rows pinned</span><span class="value">65<small> / 73</small></span><span class="note">89% of what the docs claim is checked by a test</span></div>
+</section>
+<section>
+<h2>Critical-method gates</h2>
+<p>Each module gates the methods that <em>decide</em> something — verify a signature, accept or reject a credential, enforce a ceiling — at 100% line and branch. Plumbing and getters sit outside the gate on purpose: a blanket percentage rewards testing whatever is cheapest.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Module</th><th class="num">Gated methods</th><th>Gate</th><th>Module instructions</th><th class="num">Tests</th></tr></thead><tbody>
+<tr><td><code>libs/oidf-jose</code></td><td class="num">10</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">87</td></tr>
+<tr><td><code>libs/app-attest</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">40</td></tr>
+<tr><td><code>libs/device-instance</code></td><td class="num">15</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:42%"></b></i><span>42%</span></span></td><td class="num">44</td></tr>
+<tr><td><code>libs/client-attestation</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:77%"></b></i><span>77%</span></span></td><td class="num">96</td></tr>
+<tr><td><code>libs/openid-federation</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:65%"></b></i><span>65%</span></span></td><td class="num">111</td></tr>
+<tr><td><code>libs/agent-registry</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:92%"></b></i><span>92%</span></span></td><td class="num">25</td></tr>
+<tr><td><code>servlets/pf-integration</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:49%"></b></i><span>49%</span></span></td><td class="num">103</td></tr>
+<tr><td><code>servlets/attestation-issuer</code></td><td class="num">13</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:83%"></b></i><span>83%</span></span></td><td class="num">195</td></tr>
+<tr><td><code>servlets/ssf</code></td><td class="num">16</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:65%"></b></i><span>65%</span></span></td><td class="num">134</td></tr>
+<tr><td><code>plugins/rar-paz-plugin</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">53</td></tr>
+<tr><td><code>plugins/instance-registry-datasource</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">18</td></tr>
+<tr><td><code>services/device-enrolment</code></td><td class="num">4</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">82</td></tr>
+<tr><td><code>services/demo-rs</code></td><td class="num">6</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:91%"></b></i><span>91%</span></span></td><td class="num">29</td></tr>
+<tr><td><code>services/gm-api/servlet</code></td><td class="num">10</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:37%"></b></i><span>37%</span></span></td><td class="num">83</td></tr>
+</tbody></table></div>
+<p class="legend">Module instruction coverage is context, not a target. A module can sit at 30% with every decision method gated, and that is the intended shape.</p>
+<h3>Not yet gated</h3><ul class="plain">
+<li><code>libs/conformance</code></li>
+</ul>
+<h3>Deliberately not gated</h3><ul class="plain">
+<li><code>bom</code> — dependency-version manifest, no source</li>
+<li><code>services/harness</code> — manual self-verify harnesses, not production code</li>
+<li><code>servlets/oidf-war</code> — war assembly, no Java source</li>
+</ul></section>
+<section class="two">
+<div>
+<h2>Conformance coverage</h2>
+<p>A requirement is <em>pinned</em> when a test carries a <code>@Requirement</code> naming it. A test asserting a <em>divergence</em> is tagged with the divergence, never with the clause it departs from — the scheme lives on the annotation itself.</p>
+<div class="filter"><label for="q" class="meta">filter</label><input id="q" type="search" placeholder="RFC9449 §4.3, divergence, ActChainTest…" autocomplete="off"><span class="count" id="qcount"></span></div>
+<div class="speclist">
+<div class="head"><span>Specification</span><span class="n">Requirements</span><span class="n">Tests</span><span></span></div>
+<details class="spec"><summary><span>ABCA-10</span><span class="n">5</span><span class="n">11</span><span class="chev">›</span></summary><div class="ids">
+<div><code>ABCA-10 §5.1</code><span class="t">JwtCodecTest#popRejectsAMissingIat, JwtCodecTest#popRejectsAMissingJti, JwtCodecTest#popVerifiesWhenJtiIatAndAudienceAreAllPresent</span></div>
+<div><code>ABCA-10 §7.1</code><span class="t">JwksTest#assertPublicOnlyAcceptsPublicKey, JwksTest#assertPublicOnlyRejectsPrivateMaterial</span></div>
+<div><code>ABCA-10 §7.2</code><span class="t">JwtCodecTest#popAlgorithmConstraintRejectsAnUnlistedAlgorithm, JwtCodecTest#popRejectsAKeyThatDidNotProduceTheSignature, JwtCodecTest#popRejectsAnUnexpectedAudience</span></div>
+<div><code>ABCA-10 §7.3</code><span class="t">JwksTest#assertSameKeyAcceptsMatchingThumbprints, JwksTest#assertSameKeyRejectsDifferentKeys</span></div>
+<div><code>ABCA-10 §8</code><span class="t">FederationServiceMetadataTest#emptyPopMethodsListIsOmittedNotEmitted</span></div>
+</div></details>
+<details class="spec"><summary><span>APPLE-APPATTEST</span><span class="n">8</span><span class="n">18</span><span class="chev">›</span></summary><div class="ids">
+<div><code>APPLE-APPATTEST §Verify the assertion(3)</code><span class="t">AppAttestVerifierTest#anAssertionOverDifferentClientDataIsRejected, AppAttestVerifierTest#anAssertionSignedByAnotherKeyIsRejected, AppAttestVerifierTest#anAssertionVerifiesAndAdvancesTheCounter</span></div>
+<div><code>APPLE-APPATTEST §Verify the assertion(5)</code><span class="t">AppAttestVerifierTest#anAssertionVerifiesAndAdvancesTheCounter, AppAttestVerifierTest#areplayedAssertionCounterIsRejected</span></div>
+<div><code>APPLE-APPATTEST §Verify the attestation(1)</code><span class="t">AppAttestConfigTest#bundledAppleRootCaLoadsAndIsSelfIssued, AppAttestVerifierTest#aChainRootedElsewhereIsRejected, AppAttestVerifierTest#anAttStmtWithAnEmptyX5cIsRejectedAsMalformed, AppAttestVerifierTest#anAttStmtWithNoX5cIsRejectedAsMalformed</span></div>
+<div><code>APPLE-APPATTEST §Verify the attestation(4)</code><span class="t">AppAttestVerifierTest#aCredCertCommittingToADifferentNonceIsRejected, AppAttestVerifierTest#aDifferentClientDataHashBreaksTheNonce</span></div>
+<div><code>APPLE-APPATTEST §Verify the attestation(5)</code><span class="t">AppAttestVerifierTest#aKeyIdTheClientDidNotActuallyAttestIsRejected, AppAttestVerifierTest#happyPathYieldsTheAttestedKeyAndKeyId</span></div>
+<div><code>APPLE-APPATTEST §Verify the attestation(6)</code><span class="t">AppAttestConfigTest#appIdIsTeamIdDotBundleId, AppAttestVerifierTest#anAttestationForADifferentAppIsRejected</span></div>
+<div><code>APPLE-APPATTEST §Verify the attestation(7)</code><span class="t">AppAttestVerifierTest#anAttestationWithANonZeroCounterIsRejected</span></div>
+<div><code>APPLE-APPATTEST §Verify the attestation(8)</code><span class="t">AppAttestVerifierTest#aDevelopmentAttestationIsAcceptedOnlyWhenExplicitlyAllowed, AppAttestVerifierTest#aDevelopmentAttestationIsRefusedByAProductionVerifier</span></div>
+</div></details>
+<details class="spec"><summary><span>AUTHZEN-1.0</span><span class="n">11</span><span class="n">15</span><span class="chev">›</span></summary><div class="ids">
+<div><code>AUTHZEN-1.0 §10.1</code><span class="t">AuthZenPdpClientTest#nonSuccessStatusThrows</span></div>
+<div><code>AUTHZEN-1.0 §5.2</code><span class="t">AuthZenRequestBuilderTest#resourceCarriesTheDetailAsStructuredProperties</span></div>
+<div><code>AUTHZEN-1.0 §5.3</code><span class="t">AuthZenRequestBuilderTest#resourceCarriesTheDetailAsStructuredProperties</span></div>
+<div><code>AUTHZEN-1.0 §5.3.1</code><span class="t">GrantEvaluatorTest#passesActionPropertiesThrough</span></div>
+<div><code>AUTHZEN-1.0 §5.5</code><span class="t">AuthZenPdpClientTest#falseDecisionIsDeny, AuthZenPdpClientTest#missingBooleanDecisionThrows, AuthZenPdpClientTest#trueDecisionIsPermitAndSendsAuthZenShape</span></div>
+<div><code>AUTHZEN-1.0 §6</code><span class="t">PdpClientTest#appendsTheAuthzenPathsToTheBaseUrl</span></div>
+<div><code>AUTHZEN-1.0 §6.1</code><span class="t">AuthZenPdpClientTest#trueDecisionIsPermitAndSendsAuthZenShape, GrantEvaluatorTest#buildsTheDecisionRequestFromTheGrant</span></div>
+<div><code>AUTHZEN-1.0 §6.2</code><span class="t">PdpClientTest#evaluateDecodesA200Response</span></div>
+<div><code>AUTHZEN-1.0 §8.3</code><span class="t">GrantOperationsTest#searchReturnsThePermittedIdsInOrder</span></div>
+<div><code>AUTHZEN-1.0 §8.5</code><span class="t">PdpClientTest#appendsTheAuthzenPathsToTheBaseUrl, PdpClientTest#searchPostsToTheResourceSearchPathNotEvaluation</span></div>
+<div><code>AUTHZEN-1.0 §8.5.1</code><span class="t">SearchRequestTest#theResourceCarriesATypeAndNoId</span></div>
+</div></details>
+<details class="spec"><summary><span>CAEP</span><span class="n">4</span><span class="n">5</span><span class="chev">›</span></summary><div class="ids">
+<div><code>CAEP §3.1</code><span class="t">CaepRiscEventsTest#sessionRevokedCarriesTimestampAndOptionalReason</span></div>
+<div><code>CAEP §3.3</code><span class="t">CaepRiscEventsTest#credentialChangeCarriesTypeAndChange</span></div>
+<div><code>CAEP §3.4</code><span class="t">CaepRiscEventsTest#assuranceChangeDirection</span></div>
+<div><code>CAEP §3.5</code><span class="t">InstanceRegistryReceiverHandlerTest#deviceComplianceChangeSuspendsActiveInstancesOnTheDevice, InstanceRegistryReceiverHandlerTest#deviceComplianceChangeWithNoCurrentStatusIsIgnored</span></div>
+</div></details>
+<details class="spec"><summary><span>CAS</span><span class="n">10</span><span class="n">22</span><span class="chev">›</span></summary><div class="ids">
+<div><code>CAS §4.1</code><span class="t">AttestationIssuanceServletTest#presentedChallengeIsConsumedOnceThenRefused</span></div>
+<div><code>CAS §4.3</code><span class="t">AttestationIssuanceServletTest#challengeRequiredButAbsentIsRejected, AttestationIssuanceServletTest#proofSignedByWrongKeyIsRejected, AttestationIssuanceServletTest#replayedProofIsRejected, AttesterConfigurationServletTest#globalDocumentAdvertisesEndpointsAndProofRequirements</span></div>
+<div><code>CAS §4.4</code><span class="t">AttestationIssuanceServletTest#walletAttestationBindingADifferentKeyThanInstanceKeyIsRejected</span></div>
+<div><code>CAS §4.5</code><span class="t">AttestationIssuanceServletTest#happyPathIssuesVerifiableAttestation, AttestationMinterTest#claimLayoutIsCorrect</span></div>
+<div><code>CAS §5.1</code><span class="t">ClientAttestationServiceMetadataServletTest#challengeEndpointCanBeDisabled, ClientAttestationServiceMetadataServletTest#challengeRequiredAddsChallengeToProofClaims, ClientAttestationServiceMetadataServletTest#defaultsPublishEndpointsAndClaimContract</span></div>
+<div><code>CAS §5.3.1</code><span class="t">ClientAttestationServiceMetadataServletTest#defaultsPublishEndpointsAndClaimContract</span></div>
+<div><code>CAS §5.3.2</code><span class="t">AttestationIssuanceServletTest#anAgentIdClaimInsideTheInstanceKeyProofDoesNotInfluenceTheMintedOne, AttestationIssuanceServletTest#requiredCustomClaimBlankIsRejected, AttestationIssuanceServletTest#requiredCustomClaimMissingIsRejected, AttestationIssuanceServletTest#requiredCustomClaimPresentIsAccepted, ClientAttestationServiceMetadataServletTest#customClaimsInitParamsAreAdvertised</span></div>
+<div><code>CAS §6</code><span class="t">AttestationIssuanceServletTest#aCallerAssertedClientIdIsIgnoredInFavourOfTheEvidenceResolvedClient</span></div>
+<div><code>CAS §6.1</code><span class="t">AttestationIssuanceConfigTest#instanceEntitlementExceedingClientCeilingIsRejected</span></div>
+<div><code>CAS §7</code><span class="t">AttestationIssuanceConfigTest#parsesBindingsMetadataAndEntitlement, AttestationIssuanceServletTest#requestExceedingEntitlementIsDenied, AttestationIssuanceServletTest#requestWithinEntitlementIsGranted</span></div>
+</div></details>
+<details class="spec"><summary><span>CLAIM-DICT</span><span class="n">4</span><span class="n">5</span><span class="chev">›</span></summary><div class="ids">
+<div><code>CLAIM-DICT divergence 1</code><span class="t">AttestationMinterTest#claimLayoutIsCorrect</span></div>
+<div><code>CLAIM-DICT divergence 3</code><span class="t">DeviceAttestationMinterTest#claimingIso18045HighIsRefused, DeviceAttestationMinterTest#keyStorageIsModerateNotHigh</span></div>
+<div><code>CLAIM-DICT divergence 4</code><span class="t">DeviceAttestationMinterTest#lifetimeIsFifteenMinutesByDefault</span></div>
+<div><code>CLAIM-DICT divergence 5</code><span class="t">DeviceAttestationMinterTest#subjectIsTheOpaqueInstanceIdentifierUntilTheFlip</span></div>
+</div></details>
+<details class="spec"><summary><span>GRANT-MGMT</span><span class="n">1</span><span class="n">1</span><span class="chev">›</span></summary><div class="ids">
+<div><code>GRANT-MGMT §6.3</code><span class="t">PathTest#readsTheGrantIdForQueryAndRevoke</span></div>
+</div></details>
+<details class="spec"><summary><span>NIST-800-63B</span><span class="n">1</span><span class="n">2</span><span class="chev">›</span></summary><div class="ids">
+<div><code>NIST-800-63B §6.1.2.1</code><span class="t">EnrolmentServiceTest#bindingRequiresAtLeastAal2, NotifierTest#aWiredNotifierReceivesTheOwnerDeviceAndInstance</span></div>
+</div></details>
+<details class="spec"><summary><span>OIDFED</span><span class="n">7</span><span class="n">21</span><span class="chev">›</span></summary><div class="ids">
+<div><code>OIDFED §1.2</code><span class="t">TrustChainValidatorFetchBoundsTest#aNonHttpsLeafIdentifierIsRefusedBeforeAnyFetch</span></div>
+<div><code>OIDFED §12.1</code><span class="t">RegistrationServiceAutomaticRegisterTest#autoRegistersWhenClientAdvertisesAutomatic, RegistrationServiceAutomaticRegisterTest#refusesClientThatDoesNotAdvertiseAutomatic</span></div>
+<div><code>OIDFED §12.2</code><span class="t">ExplicitRegistrationRequestTest#aJwtSignedByAKeyOtherThanItsOwnJwksIsRejected, ExplicitRegistrationRequestTest#anUnsignedJwtIsRejected, ExplicitRegistrationRequestTest#audienceIsCheckedOnTheVerifiedClaims, ExplicitRegistrationRequestTest#parsesAVerifiedSelfSignedEntityStatement, ExplicitRegistrationRequestTest#subjectMustEqualIssuerForASelfStatement, RegistrationServiceExplicitRegisterTest#refusesALeafThatDoesNotAdvertiseExplicitRegistration, RegistrationServiceExplicitRegisterTest#registersANewClientAfterTheChainValidates</span></div>
+<div><code>OIDFED §3.1.3</code><span class="t">MetadataPolicyTest#aKnownOperatorListedAsCriticalIsAccepted, MetadataPolicyTest#anUnknownCriticalOperatorInvalidatesTheStatement</span></div>
+<div><code>OIDFED §3.2</code><span class="t">HostedEntityConfigurationBuilderTest#configurationIsGenuinelySelfSigned</span></div>
+<div><code>OIDFED §6.1.3.1</code><span class="t">MetadataPolicyTest#anEssentialParameterMissingFromMetadataIsRefused, MetadataPolicyTest#defaultOnlyFillsAnAbsentParameter, MetadataPolicyTest#metadataMissingASupersetRequirementIsRefused, MetadataPolicyTest#metadataViolatingOneOfIsRefusedRatherThanPassedThrough, MetadataPolicyTest#subsetOfKeepsOnlyThePermittedValues, MetadataPolicyTest#valueOverridesWhateverTheSubordinateDeclared</span></div>
+<div><code>OIDFED §6.1.4.1</code><span class="t">MetadataPolicyTest#addIsAppliedAfterSubsetOfPerTheSpecifiedOrder, MetadataPolicyTest#theApplicationOrderMatchesTheSpecification</span></div>
+</div></details>
+<details class="spec"><summary><span>PF-SDK <span class="pill muted">vendor interface</span></span><span class="n">3</span><span class="n">6</span><span class="chev">›</span></summary><div class="ids">
+<div><code>PF-SDK §AuthorizationDetailProcessor.enrich</code><span class="t">AttestationAwareRarProcessorTest#denyThrowsWhenConfiguredToDenyOnNonPermit, AttestationAwareRarProcessorTest#permitMergesStatementsAndStripsThePrincipalMarker</span></div>
+<div><code>PF-SDK §CustomDataSourceDriver.retrieveValues</code><span class="t">InstanceRegistryDataSourceTest#aRegistryFaultIsThrownNotSwallowedIntoAHealthyLookingValueMap, InstanceRegistryDataSourceTest#onlyRequestedAttributesAreReturned, InstanceRegistryDataSourceTest#retrievingBeforeConfigurationFailsRatherThanNpeOrPassingSilently</span></div>
+<div><code>PF-SDK §CustomDataSourceDriver.testConnection</code><span class="t">InstanceRegistryDataSourceTest#testConnectionFailsWhenTheRegistryFaults</span></div>
+</div></details>
+<details class="spec"><summary><span>PROFILE</span><span class="n">9</span><span class="n">27</span><span class="chev">›</span></summary><div class="ids">
+<div><code>PROFILE §10</code><span class="t">DeviceAttestationMinterTest#noUserOrDeviceIdentifierAppearsAnywhereInTheAttestation</span></div>
+<div><code>PROFILE §3(1)</code><span class="t">ProfileConformanceTest#aPs256AttestationIsAccepted, ProfileConformanceTest#anEs256AttestationAndPopAreAccepted</span></div>
+<div><code>PROFILE §3(2)</code><span class="t">ProfileConformanceTest#anRs256AttestationIsRejected, ProfileConformanceTest#anRs256PopIsRejected, ProfileConformanceTest#theRs256RejectionIsTheAllowlistAndNotAnIncidentalFailure</span></div>
+<div><code>PROFILE §3(3)</code><span class="t">ProfileConformanceTest#theAllowlistIsExplicitAndCoversAttestationPopAndDpop</span></div>
+<div><code>PROFILE §4(1)</code><span class="t">DeviceAttestationMinterTest#aPrivateKeyPresentedAsTheInstanceKeyIsRefused, DeviceAttestationMinterTest#confirmationClaimCarriesTheEnclavePublicKey</span></div>
+<div><code>PROFILE §5(1)</code><span class="t">ProfileConformanceTest#anAttestationExceedingTheCeilingIsRejected, ProfileConformanceTest#anAttestationInsideTheCeilingIsAccepted, ProfileConformanceTest#anAttestationWithNoIatIsRejectedRatherThanExempted</span></div>
+<div><code>PROFILE §6(1)</code><span class="t">AuthZenRequestBuilderTest#clientIsTheSubjectWhenNoResourceOwner, DeviceAttestationMinterTest#flippedSubjectIsTheClientIdAndAgentIdKeepsTheInstanceIdentity, GovernanceEngineRequestBuilderTest#withNoAgentIdTheAttestationSubjectNeverBecomesUserIdOrActor, ProfileConformanceTest#subNamesTheAgentTypeAndAgentIdNamesTheInstance</span></div>
+<div><code>PROFILE §6(2)</code><span class="t">AgentIdMinterTest#successiveMintsAreNotRepeats, AgentRegistryContract#differentInstanceSubjectsMintDifferentIds, AgentRegistryContract#firstSightMintsANonBlankAgentId, AttestationIssuanceServletTest#configuredAgentRegistryEmitsTheResolvedAgentId, AttestationMinterTest#agentIdIsEmittedWhenPresent, DeviceAttestationMinterTest#flippedSubjectIsTheClientIdAndAgentIdKeepsTheInstanceIdentity, ProfileConformanceTest#anAttestationWithABlankAgentIdIsRejected, ProfileConformanceTest#anAttestationWithoutAgentIdIsRejected, ProfileConformanceTest#subNamesTheAgentTypeAndAgentIdNamesTheInstance</span></div>
+<div><code>PROFILE §6(3)</code><span class="t">AuthZenRequestBuilderTest#resourceOwnerIsTheSubjectAndAgentIdIsTheActor, GovernanceEngineRequestBuilderTest#resourceOwnerBecomesUserIdAndAgentIdIsTheActor</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC6750</span><span class="n">3</span><span class="n">5</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC6750 §2.1</code><span class="t">SsfHttpAuthorizeTest#activeTokenWithScopeIsAuthorized, SsfHttpAuthorizeTest#nonBearerAuthorizationHeaderIs401</span></div>
+<div><code>RFC6750 §3</code><span class="t">SsfHttpAuthorizeTest#missingAuthorizationHeaderIs401</span></div>
+<div><code>RFC6750 §3.1</code><span class="t">SsfHttpAuthorizeTest#activeTokenLackingScopeIs403, SsfHttpAuthorizeTest#inactiveTokenIs401WithInvalidToken</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC7515</span><span class="n">1</span><span class="n">2</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC7515 §4.1.9</code><span class="t">JwtCodecTest#requireTypeIsCaseInsensitive, JwtCodecTest#requireTypeToleratesAnApplicationPrefix</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC7518</span><span class="n">1</span><span class="n">4</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC7518 §3.4</code><span class="t">LocalJwkSignerTest#p256SignsAsEs256WithA64ByteConcatenatedSignature, LocalJwkSignerTest#p384SignsAsEs384WithA96ByteConcatenatedSignature, LocalJwkSignerTest#p521SignsAsEs512WithA132ByteConcatenatedSignature, OpenBaoTransitSignerTest#transitSignatureVerifies</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC7662</span><span class="n">1</span><span class="n">2</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC7662 §2.2</code><span class="t">PfIntrospectionReceiverAuthenticatorTest#activeTokenWithSpaceDelimitedScopes, PfIntrospectionReceiverAuthenticatorTest#inactiveTokenIsNotActive</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC8417</span><span class="n">2</span><span class="n">3</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC8417 §2.2</code><span class="t">SetMinterTest#carriesEmailSubjectAndTxnWhenSet, SetMinterTest#mintsSignedSetWithRequiredClaimsAndTyp</span></div>
+<div><code>RFC8417 §2.3</code><span class="t">SetMinterTest#mintsSignedSetWithRequiredClaimsAndTyp</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC8693</span><span class="n">2</span><span class="n">10</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC8693 §1.1</code><span class="t">AuthZenRequestBuilderTest#resourceOwnerIsTheSubjectAndAgentIdIsTheActor, GovernanceEngineRequestBuilderTest#resourceOwnerBecomesUserIdAndAgentIdIsTheActor</span></div>
+<div><code>RFC8693 §4.1</code><span class="t">ActChainTest#anActOfTheWrongTypeIsMalformed, ActChainTest#anActorMayCarryAnIssuerAsWellAsASubject, ActChainTest#nestingIsOrderedMostRecentFirst, ActChainTest#onlyTheOutermostActorMayBeAuthorisedOn, ActChainTest#theObjectFormIsTheSpecShape, DelegationTest#aDirectTokenHasNoActor, DelegationTest#readsANestedChainCurrentActorFirst, DelegationTest#readsTheAgentFromADelegatedToken</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC8725</span><span class="n">3</span><span class="n">4</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC8725 §3.1</code><span class="t">DelegatedTokenValidatorTest#aTokenWithTheNoneAlgorithmIsRejected, DelegatedTokenValidatorTest#anAlgorithmConfusionAttackIsRejected</span></div>
+<div><code>RFC8725 §3.8</code><span class="t">DelegatedTokenValidatorTest#aTokenFromAnotherIssuerIsRejected</span></div>
+<div><code>RFC8725 §3.9</code><span class="t">DelegatedTokenValidatorTest#aTokenForAnotherResourceIsRejected</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC8935</span><span class="n">1</span><span class="n">3</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC8935 §2.4</code><span class="t">SetVerifierTest#garbageRejectedWithInvalidRequest, SetVerifierTest#wrongIssuerAndAudienceRejected, SetVerifierTest#wrongSignerRejectedWithInvalidKey</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC8936</span><span class="n">2</span><span class="n">5</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC8936 §2.2</code><span class="t">PollReceiverClientTest#pollsReceivesAndAcksNextCycle, StreamManagementServiceTest#pollHonoursMaxEventsAndReportsMore, StreamManagementServiceTest#verifyMintsSignedSetThatPollReturnsAndAckClears</span></div>
+<div><code>RFC8936 §2.3</code><span class="t">StreamManagementServiceTest#pollHonoursMaxEventsAndReportsMore, StreamManagementServiceTest#verifyMintsSignedSetThatPollReturnsAndAckClears</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC9396</span><span class="n">2</span><span class="n">7</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC9396 §6.1</code><span class="t">RarContainmentContractTest#containmentAgreesWithTheTokenEndpointsRuleOnEveryCase, RarContainmentTest#actionOutsideEntitlementIsNotSubset, RarContainmentTest#differentTypeIsNotSubset, RarContainmentTest#regionOutsideEntitlementIsNotSubset, RarContainmentTest#requestWithinEntitlementIsSubset</span></div>
+<div><code>RFC9396 §7.1</code><span class="t">AttestationAwareRarProcessorTest#permitMergesStatementsAndStripsThePrincipalMarker, StatementApplierTest#appliesNestedObjectPayloadByDotPath</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC9449</span><span class="n">3</span><span class="n">7</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC9449 §4.2</code><span class="t">JwksTest#assertPublicOnlyRejectsPrivateMaterial, JwksTest#assertPublicOnlyRejectsSymmetricKeys, JwksTest#publicKeyRejectsSymmetric</span></div>
+<div><code>RFC9449 §4.3</code><span class="t">DelegatedTokenValidatorTest#aProofCapturedForAnotherTokenIsRejected, DelegatedTokenValidatorTest#aProofForAnotherMethodOrUrlIsRejected, DelegatedTokenValidatorTest#aProofWithoutAthIsRejected</span></div>
+<div><code>RFC9449 §6.1</code><span class="t">DelegatedTokenValidatorTest#aProofFromADifferentKeyIsRejected</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC9493</span><span class="n">4</span><span class="n">6</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC9493 §3</code><span class="t">SubjectIdTest#rejectsMissingOrUnknownFormat</span></div>
+<div><code>RFC9493 §3.2</code><span class="t">SubjectIdTest#parsesEachSupportedFormat, SubjectIdTest#rejectsMissingRequiredMember</span></div>
+<div><code>RFC9493 §3.2.2</code><span class="t">SetMinterTest#carriesEmailSubjectAndTxnWhenSet</span></div>
+<div><code>RFC9493 §3.2.3</code><span class="t">CaepEventHandlerTest#anIssSubFormatSubjectRevokesEveryInstanceTheOwnerHas, SubjectIdTest#issSubRoundTripsThroughMap</span></div>
+</div></details>
+<details class="spec"><summary><span>SSF</span><span class="n">12</span><span class="n">14</span><span class="chev">›</span></summary><div class="ids">
+<div><code>SSF §6.1.1</code><span class="t">SsfConfigurationMetadataTest#metadataAdvertisesEndpointsDeliveryMethodsAndJwks</span></div>
+<div><code>SSF §6.1.2</code><span class="t">SsfConfigurationMetadataTest#metadataAdvertisesEndpointsDeliveryMethodsAndJwks</span></div>
+<div><code>SSF §7.1</code><span class="t">SsfConfigurationMetadataTest#metadataAdvertisesEndpointsDeliveryMethodsAndJwks</span></div>
+<div><code>SSF §8.1.1.1</code><span class="t">StreamManagementServiceTest#createPollStreamNarrowsEventsAndAdvertisesPollUrl, StreamManagementServiceTest#createPushStreamRequiresEndpoint</span></div>
+<div><code>SSF §8.1.1.2</code><span class="t">StreamManagementServiceTest#crudAndListing</span></div>
+<div><code>SSF §8.1.1.3</code><span class="t">StreamManagementServiceTest#crudAndListing</span></div>
+<div><code>SSF §8.1.1.5</code><span class="t">StreamManagementServiceTest#crudAndListing</span></div>
+<div><code>SSF §8.1.2.1</code><span class="t">StreamManagementServiceTest#statusStateMachine</span></div>
+<div><code>SSF §8.1.2.2</code><span class="t">StreamManagementServiceTest#statusStateMachine</span></div>
+<div><code>SSF §8.1.3.2</code><span class="t">StreamManagementServiceTest#subjectManagement</span></div>
+<div><code>SSF §8.1.3.3</code><span class="t">StreamManagementServiceTest#subjectManagement</span></div>
+<div><code>SSF §8.1.4.1</code><span class="t">SetVerifierTest#subjectlessVerificationEventIsAccepted, StreamManagementServiceTest#verifyMintsSignedSetThatPollReturnsAndAckClears</span></div>
+</div></details>
+<details class="spec"><summary><span>UNVERIFIED</span><span class="n">2</span><span class="n">10</span><span class="chev">›</span></summary><div class="ids">
+<div><code>UNVERIFIED item 11</code><span class="t">MetadataPolicyTest#aSubordinateAddThatIntroducesNewValuesIsRefused, MetadataPolicyTest#aSubordinateCannotWidenASupersetOfItsSuperior, MetadataPolicyTest#anEssentialParameterCannotBeMadeOptionalBySubordinate, MetadataPolicyTest#conflictingFixedValuesAreRefused, MetadataPolicyTest#disjointRestrictionsAreRefusedRatherThanResolvingToNothing</span></div>
+<div><code>UNVERIFIED item 8</code><span class="t">ActChainTest#theLegacyStringFormIsParsedButFlagged, AttestationClaimSourceTest#theDelegationChainNamesTheVerifiedInstanceAndAttester, DelegatedTokenValidatorTest#theLegacyStringActIsSurfacedSoTheDeviationIsVisible, DelegationTest#readsANestedChainFromTheLegacyStringForm, DelegationTest#readsTheLegacyStringFormThisPlatformActuallyMints</span></div>
+</div></details>
+</div>
+<p class="legend">102 distinct requirements pinned by 215 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
+</div>
+<div>
+<h2>What the docs claim</h2>
+<p><strong>65 of 73</strong> conformance-matrix rows are pinned by a test. The denominator is the rows that declare an id in the architecture doc and the profile. A row written at section granularity is satisfied by a finer id beneath it, so <code>CAS §4</code> counts when a test pins <code>CAS §4.3</code>.</p>
+<p>Not a conformance score: a row is one line of prose somebody wrote, not a count of the clauses behind it, and rows with no verifiable id are outside the denominator. It measures whether what this repo <em>claims</em> is also <em>executed</em>.</p>
+<h3>Rows nothing pins</h3>
+<div class="queue">
+<div><code>CAS §3</code><span class="doc">client-attestation-architecture.md</span></div>
+<div><code>CAS §6.2</code><span class="doc">client-attestation-architecture.md</span></div>
+<div><code>CAS §8</code><span class="doc">client-attestation-architecture.md</span></div>
+<div><code>CLAIM-DICT divergence 2</code><span class="doc">client-attestation-architecture.md</span></div>
+<div><code>PROFILE §4(3)</code><span class="doc">ai-agent-attestation-profile-1_0.md</span></div>
+<div><code>PROFILE §5(3)</code><span class="doc">ai-agent-attestation-profile-1_0.md</span></div>
+<div><code>PROFILE §7(1)</code><span class="doc">ai-agent-attestation-profile-1_0.md</span></div>
+<div><code>PROFILE §8</code><span class="doc">ai-agent-attestation-profile-1_0.md</span></div>
+</div>
+</div>
+</section>
+<section>
+<h2>What these gates do not establish</h2>
+<p>Three guarantees in this system are configuration, not code. Full coverage of the Java says nothing about them, and a green page must not be read as covering them.</p>
+<div class="callout" style="margin-top:14px">
+<div class="item"><span class="tag">configuration, not code</span><strong>The token-endpoint filters may not run at all.</strong><span>There is no <code>@WebFilter</code> anywhere in the repo and <code>servlets/oidf-war</code>'s <code>web.xml</code> registers none — <code>ClientAttestationAuthFilter</code> and <code>TokenEndpointAutoRegistrationFilter</code> are activated by a hand edit to <code>pf-runtime.war</code>'s <code>web.xml</code> in the deploying repo. A gate on <code>doFilter(</code> proves the filter works, never that it runs.</span></div>
+<div class="item"><span class="tag">configuration, not code</span><strong>Initial-grant RAR containment lives in a PingAuthorize policy file.</strong><span><code>AttestationAwareRarProcessor.enrich</code> does not call containment; it forwards the attested ceiling and policy enforces <code>requested ⊆ attested</code> outside this repo. Its three permissive switches (<code>failOpenOnError</code>, <code>denyOnNonPermit</code>, <code>allowClientAssertedPrincipal</code>) have <em>defaults</em> that are the security property, which no coverage counter expresses.</span></div>
+<div class="item"><span class="tag">configuration, not code</span><strong><code>OutboundUrlPolicy</code>'s <code>allowHttp</code> / <code>allowPrivateNetworks</code> come from environment variables,</strong><span>so the SSRF posture of a running deployment is not a property of this code.</span></div>
+</div>
+<p class="legend">These belong to the deployed probes (<code>services/harness</code>, <code>plugins/rar-paz-plugin/probe-decision.sh</code>), not to any coverage number.</p>
+</section>
+<footer>Same data as <code>coverage-dashboard.md</code>. Regenerate with <code>python3 tools/coverage-report.py</code> after <code>mvn -o verify</code>; <code>--check</code> is what CI runs.</footer>
+</main>
+<script>
+(function () {
+  var q = document.getElementById('q');
+  if (!q) return;
+  var specs = Array.prototype.slice.call(document.querySelectorAll('details.spec'));
+  var count = document.getElementById('qcount');
+  var total = specs.reduce(function (n, s) { return n + s.querySelectorAll('.ids > div').length; }, 0);
+  function apply() {
+    var needle = q.value.trim().toLowerCase();
+    var shown = 0;
+    specs.forEach(function (s) {
+      var rows = s.querySelectorAll('.ids > div'), any = false;
+      rows.forEach(function (r) {
+        var hit = !needle || r.textContent.toLowerCase().indexOf(needle) !== -1;
+        r.hidden = !hit; if (hit) { any = true; shown++; }
+      });
+      s.hidden = !any;
+      if (needle && any) s.open = true;
+    });
+    count.textContent = needle ? shown + ' of ' + total + ' ids' : total + ' ids';
+  }
+  q.addEventListener('input', apply);
+  apply();
+})();
+</script>
