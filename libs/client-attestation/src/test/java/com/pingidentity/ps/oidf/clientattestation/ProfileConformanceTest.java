@@ -110,6 +110,21 @@ class ProfileConformanceTest {
         return verifier.verify(attestation, pop, null, "POST", TOKEN_ENDPOINT, CLIENT_ID);
     }
 
+    /** An RFC 9449 DPoP proof for the token endpoint, signed by {@code signer} with its public JWK in the header. */
+    private String dpop(PublicJsonWebKey signer, String alg, String htm, String htu, String jti) throws Exception {
+        JwtClaims d = new JwtClaims();
+        d.setClaim("htm", htm);
+        d.setClaim("htu", htu);
+        d.setJwtId(jti);
+        d.setIssuedAtToNow();
+        return TestJwts.signWithJwkHeader(signer, alg, "dpop+jwt", d);
+    }
+
+    /** {@code attest_jwt_client_auth_dpop}: attestation plus DPoP proof, no PoP header. */
+    private ClientAttestationResult verifyDpop(String attestation, String dpop) throws Exception {
+        return verifier.verify(attestation, null, dpop, "POST", TOKEN_ENDPOINT, CLIENT_ID);
+    }
+
     // ---------- §3 Algorithms ----------
 
     @Test
@@ -247,5 +262,68 @@ class ProfileConformanceTest {
         assertNotNull(result.agentId(), "§6.2: agent_id is always present");
         assertNotEquals(result.clientId(), result.agentId(),
                 "§6: the instance identity is a separate claim from the agent type");
+    }
+
+    // ---------- §4 Sender-constraining proof: the DPoP mode ----------
+    //
+    // Every other case in this class presents a bare PoP. The profile requires an AS to support both
+    // modes and applies §3 to the DPoP proof identically; until these, the DPoP half of that was
+    // asserted by nothing in the profile suite.
+
+    @Test
+    @Requirement({"PROFILE §4", "PROFILE §3(1)"})
+    void theDpopModeIsSupportedWithAConformantProof() throws Exception {
+        ClientAttestationResult result = verifyDpop(conformantAttestation(),
+                dpop(instanceEc, "ES256", "POST", TOKEN_ENDPOINT, "d1"));
+        assertEquals(CLIENT_ID, result.clientId());
+        assertEquals(ClientAttestationResult.Mode.DPOP, result.mode());
+    }
+
+    @Test
+    @Requirement({"PROFILE §4(2)", "PROFILE §3(2)"})
+    void anRs256DpopProofIsRejectedUnderTheProfile() throws Exception {
+        String att = attestation(attesterEc, "ES256", instanceRsa, 600L, "agent-1", true);
+        assertThrows(ClientAttestationException.class,
+                () -> verifyDpop(att, dpop(instanceRsa, "RS256", "POST", TOKEN_ENDPOINT, "d2")));
+    }
+
+    @Test
+    @Requirement("PROFILE §4(3)")
+    void aDpopProofForAnotherUriIsRejectedNotMerelyKeyMatched() throws Exception {
+        // Same key as cnf - a jwk-header-matches-cnf check alone would pass this.
+        assertThrows(ClientAttestationException.class,
+                () -> verifyDpop(conformantAttestation(),
+                        dpop(instanceEc, "ES256", "POST", "https://elsewhere.example.com/token", "d3")));
+    }
+
+    @Test
+    @Requirement("PROFILE §4(3)")
+    void aDpopProofForAnotherMethodIsRejected() throws Exception {
+        assertThrows(ClientAttestationException.class,
+                () -> verifyDpop(conformantAttestation(), dpop(instanceEc, "ES256", "GET", TOKEN_ENDPOINT, "d4")));
+    }
+
+    @Test
+    @Requirement("PROFILE §4(3)")
+    void aReplayedDpopProofIsRejected() throws Exception {
+        String att = conformantAttestation();
+        String proof = dpop(instanceEc, "ES256", "POST", TOKEN_ENDPOINT, "d5");
+        verifyDpop(att, proof);
+        assertThrows(ClientAttestationException.class, () -> verifyDpop(att, proof));
+    }
+
+    @Test
+    @Requirement("PROFILE §4(1)")
+    void aPrivateCnfKeyIsRejectedInDpopModeToo() throws Exception {
+        JwtClaims att = new JwtClaims();
+        att.setIssuer(ATTESTER);
+        att.setSubject(CLIENT_ID);
+        att.setIssuedAtToNow();
+        att.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600L));
+        att.setClaim("cnf", Map.of("jwk", TestJwts.privateParams(instanceEc)));
+        att.setClaim("agent_id", "agent-1");
+        String leaky = TestJwts.sign(attesterEc, "ES256", "oauth-client-attestation+jwt", att);
+        assertThrows(ClientAttestationException.class,
+                () -> verifyDpop(leaky, dpop(instanceEc, "ES256", "POST", TOKEN_ENDPOINT, "d6")));
     }
 }

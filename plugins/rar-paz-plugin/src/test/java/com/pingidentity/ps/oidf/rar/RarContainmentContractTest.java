@@ -63,8 +63,16 @@ class RarContainmentContractTest {
                     Map.of("type", "payment", "actions", List.of("cancel")),
                     Map.of("type", "payment", "actions", List.of("initiate")), false),
             new Case("a field the accepted detail omits is unconstrained",
-                    Map.of("type", "payment", "locations", List.of("https://eu.example")),
+                    Map.of("type", "payment", "actions", List.of("initiate"), "locations", List.of("https://eu.example")),
                     Map.of("type", "payment", "actions", List.of("initiate")), true),
+            // The shared rule: an omitted constrained field never widens the grant. RarEntitlement.authorize
+            // cannot answer "contained, verbatim" here either - it grants the request WITH the accepted
+            // detail's locations inherited. A boolean has no way to narrow, so its only non-widening
+            // answer is no; a refresh that wants the same grant restates the field.
+            new Case("a request that omits a field the accepted detail constrains is not contained as-is",
+                    Map.of("type", "payment", "actions", List.of("initiate")),
+                    Map.of("type", "payment", "actions", List.of("initiate"),
+                            "locations", List.of("https://eu.example")), false),
             new Case("a different type is not contained",
                     Map.of("type", "accounts", "actions", List.of("read")),
                     Map.of("type", "payment", "actions", List.of("read")), false),

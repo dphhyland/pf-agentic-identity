@@ -19,7 +19,7 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/app-attest` | 8 | green | 82% |
 | `libs/device-instance` | 15 | green | 42% |
 | `libs/client-attestation` | 8 | green | 77% |
-| `libs/openid-federation` | 7 | green | 65% |
+| `libs/openid-federation` | 7 | green | 67% |
 | `libs/agent-registry` | 7 | green | 92% |
 | `servlets/pf-integration` | 7 | green | 49% |
 | `servlets/attestation-issuer` | 13 | green | 83% |
@@ -54,17 +54,18 @@ the three ways to get an id wrong, are documented on the annotation itself
 
 | Specification | Requirements pinned | Tests |
 |---|---:|---:|
-| ABCA-10 | 5 | 11 |
+| ABCA-10 | 6 | 14 |
 | APPLE-APPATTEST | 8 | 18 |
 | AUTHZEN-1.0 | 11 | 15 |
 | CAEP | 4 | 5 |
-| CAS | 10 | 22 |
+| CAS | 10 | 30 |
 | CLAIM-DICT | 4 | 5 |
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
-| OIDFED | 7 | 21 |
+| OIDC-CORE | 1 | 3 |
+| OIDFED | 8 | 29 |
 | PF-SDK *(vendor interface, see below)* | 3 | 6 |
-| PROFILE | 9 | 27 |
+| PROFILE | 12 | 35 |
 | RFC6750 | 3 | 5 |
 | RFC7515 | 1 | 2 |
 | RFC7518 | 1 | 4 |
@@ -80,9 +81,9 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 12 | 14 |
 | UNVERIFIED | 2 | 10 |
 
-**102 distinct requirements pinned by 215 tests.**
+**108 distinct requirements pinned by 245 tests.**
 
-**65 of 73 conformance-matrix rows are pinned by a test.** The
+**66 of 73 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`
 and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is
 satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins
@@ -101,7 +102,6 @@ The work queue. Each is a row the docs claim and no test checks.
 - `CAS §6.2` — client-attestation-architecture.md
 - `CAS §8` — client-attestation-architecture.md
 - `CLAIM-DICT divergence 2` — client-attestation-architecture.md
-- `PROFILE §4(3)` — ai-agent-attestation-profile-1_0.md
 - `PROFILE §5(3)` — ai-agent-attestation-profile-1_0.md
 - `PROFILE §7(1)` — ai-agent-attestation-profile-1_0.md
 - `PROFILE §8` — ai-agent-attestation-profile-1_0.md

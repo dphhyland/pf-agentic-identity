@@ -8,7 +8,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Locale;
 import java.util.Map;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -138,6 +141,45 @@ public final class BridgeSigners {
         JwsSigner signer = build(clientId, spec);
         SIGNERS.put(clientId, signer);
         return Optional.of(signer);
+    }
+
+    /**
+     * The attester issuers this client's entry binds it to, or empty when the entry names none.
+     *
+     * <p>Same per-client entry as the signing key — {@code {"jwk": …, "attesters": ["https://…"]}} —
+     * because that entry is already the deployment's statement that this client authenticates by
+     * attestation; it is the natural place to say by whose. An entry with no {@code attesters} is
+     * distinguishable from one with an empty list only in that both mean "nobody named": the caller
+     * decides what an unbound client gets ({@link FederationRuntimeConfig#requireAttesterBinding}).
+     *
+     * @throws IllegalStateException when the entry's {@code attesters} is not an array of strings, or
+     *     the key map itself cannot be read — a misconfiguration, never a reason to fall through
+     */
+    public static Set<String> attestersFor(String clientId) {
+        if (clientId == null || clientId.isBlank() || !isConfigured()) {
+            return Set.of();
+        }
+        Object entry = keys().get(clientId);
+        if (!(entry instanceof Map)) {
+            return Set.of();
+        }
+        Object raw = ((Map<?, ?>) entry).get("attesters");
+        if (raw == null) {
+            return Set.of();
+        }
+        if (!(raw instanceof List)) {
+            throw new IllegalStateException("bridge entry for " + clientId
+                    + ": \"attesters\" must be an array of attester issuer identifiers");
+        }
+        LinkedHashSet<String> out = new LinkedHashSet<>();
+        for (Object item : (List<?>) raw) {
+            if (!(item instanceof String) || ((String) item).isBlank()) {
+                throw new IllegalStateException("bridge entry for " + clientId
+                        + ": \"attesters\" must contain only non-blank issuer identifiers");
+            }
+            out.add(((String) item).trim());
+        }
+        return Set.copyOf(out);
     }
 
     /** The signer, or a failure naming what to configure for this specific client. */

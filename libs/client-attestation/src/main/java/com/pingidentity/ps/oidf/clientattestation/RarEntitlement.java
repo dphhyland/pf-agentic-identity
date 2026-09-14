@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.clientattestation;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;
@@ -20,6 +21,13 @@ import org.jose4j.lang.JoseException;
  * every requested detail is <em>contained within</em> some attested detail of the same {@code type}:
  * for each set-valued field the entitlement specifies, the requested values must be a subset. Fields
  * the entitlement omits are unconstrained.
+ *
+ * <p>A field the entitlement constrains and the request <em>omits</em> is inherited into the grant: the
+ * granted detail carries the entitlement's values for it. Silence on a field is a request for the whole
+ * of what the ceiling allows there, never for more than it. Granting the request verbatim used to turn
+ * an EMEA-only {@code sales_agent} into a {@code sales_agent} with no region at all, which everything
+ * downstream reads as "any region" — narrowing by omission produced a wider grant than the ceiling
+ * (CAS §7: the issued details MUST be a subset of the ceiling).
  */
 public final class RarEntitlement {
     private RarEntitlement() {
@@ -33,7 +41,9 @@ public final class RarEntitlement {
      *
      * @param requested the token request's {@code authorization_details} (may be null/empty)
      * @param entitled  the attestation's asserted entitlement (may be null/empty)
-     * @return the granted {@code authorization_details} (the validated request), empty if none requested
+     * @return the granted {@code authorization_details}: each requested detail, with any set-valued
+     *         field the matching entitlement constrains and the request omitted filled in from the
+     *         entitlement; empty if none requested
      * @throws ClientAttestationException {@code access_denied} if the request exceeds the entitlement,
      *                                    {@code invalid_authorization_details} if a request entry is malformed
      */
@@ -54,13 +64,29 @@ public final class RarEntitlement {
                 throw ClientAttestationException.invalidAuthorizationDetails(
                         "authorization_details entry is missing its 'type'");
             }
-            if (findContaining(req, type, entitled) == null) {
+            Map<String, Object> ceiling = findContaining(req, type, entitled);
+            if (ceiling == null) {
                 throw ClientAttestationException.accessDenied(
                         "requested authorization_details of type '" + type + "' exceeds the attested entitlement");
             }
-            granted.add(req);
+            granted.add(narrowedTo(req, ceiling));
         }
         return granted;
+    }
+
+    /**
+     * The requested detail with every {@link #SET_FIELDS set-valued field} the ceiling constrains and
+     * the request omits copied in from the ceiling. Fields the request names are already known to be
+     * within the ceiling ({@link #within}) and are kept as requested.
+     */
+    private static Map<String, Object> narrowedTo(Map<String, Object> req, Map<String, Object> ceiling) {
+        LinkedHashMap<String, Object> out = new LinkedHashMap<>(req);
+        for (String field : SET_FIELDS) {
+            if (ceiling.containsKey(field) && !req.containsKey(field)) {
+                out.put(field, ceiling.get(field));
+            }
+        }
+        return out;
     }
 
     private static Map<String, Object> findContaining(Map<String, Object> req, String type,

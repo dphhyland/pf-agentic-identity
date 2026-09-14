@@ -132,12 +132,14 @@ public final class TrustChainValidator {
                 } else if (Objects.equals(entry.subject, entry.issuer) && entry.jwks != null) {
                     // Self-signed Entity Configuration with no superior statement after it in the
                     // route: per OpenID Federation §3.2 an Entity Configuration is verified with
-                    // the Federation Entity Keys it itself carries. Chain-position trust in this
-                    // subject was already established during the walk (the trust anchor's
-                    // subordinate statement for it resolved successfully) — re-fetching the same
-                    // statement from the entity's .well-known just to re-verify it added a live
-                    // cross-cloud HTTP call to every token request, and was the residual
-                    // stall/timeout source after pushed chains eliminated the walk-time fetch.
+                    // the Federation Entity Keys it itself carries. Since walkRoute always keeps the
+                    // superior's statement about an intermediate, the only self-signed entry that can
+                    // still be last is the leaf of a chain whose route never left it - and a leaf's
+                    // configuration IS verified against the statement above it, at index 0. An
+                    // intermediate's configuration is never last any more, so it is never
+                    // self-verified. (Re-fetching the entity's .well-known just to re-verify it added
+                    // a live cross-cloud HTTP call to every token request, which is why this branch
+                    // exists rather than fetchVerifiedClaims.)
                     verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, entry.jwks, entry.issuer, this.acceptedSigningAlgorithms);
                 } else {
                     verified = this.fetchVerifiedClaims(entry.jwt, pendingWrites);
@@ -313,7 +315,19 @@ public final class TrustChainValidator {
                     HashSet<String> branchVisited = new HashSet<String>(visitedSubjects);
                     List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
                     if (completed != null) {
-                        return Objects.equals(hint, this.knownTrustAnchor) ? route : completed;
+                        // Always the completed branch, INCLUDING the superior's statement about this
+                        // intermediate. When the hint was the anchor itself this used to return `route`
+                        // - the walk up to and including the intermediate's own Entity Configuration -
+                        // and drop the anchor's statement it had just resolved. The verification loop
+                        // then checked that configuration against the keys it carries itself, and the
+                        // statement about the leaf against those same keys: nothing the anchor said
+                        // about the intermediate was ever applied, neither its jwks nor its
+                        // metadata_policy. An attacker could forge a real intermediate's configuration
+                        // and statement with a key of their own; the anchor's genuine statement -
+                        // vouching for a different key - was fetched, noted, and discarded. With the
+                        // statement kept, the configuration is verified against the anchor-asserted
+                        // keys and the statement itself against the anchor's (OpenID Federation §10.2).
+                        return completed;
                     }
                 }
                 return null;

@@ -30,7 +30,14 @@ public final class RarContainment {
     /**
      * @return {@code true} when {@code requested} is equal to or a subset of {@code accepted}: the same
      *         {@code type}, and for every set-valued field the {@code accepted} detail constrains, the
-     *         requested values are a subset. Fields {@code accepted} omits are unconstrained.
+     *         requested values are present and a subset. Fields {@code accepted} omits are unconstrained.
+     *
+     * <p>A field {@code accepted} constrains and {@code requested} omits is NOT contained. The refresh
+     * path acts on this boolean by issuing the requested detail, so "contained" would replace an
+     * EMEA-only grant with one naming no region at all — narrowing by omission that widens. The token
+     * endpoint ({@code RarEntitlement}) answers the same case by inheriting the constraint into the
+     * grant; a boolean cannot narrow, so its only non-widening answer is no. A refresh that wants the
+     * same grant restates the field.
      *
      * <p>Type handling matches {@code RarEntitlement} in {@code libs/client-attestation} deliberately.
      * This method previously skipped the type comparison whenever <em>either</em> side lacked a type,
@@ -56,7 +63,13 @@ public final class RarContainment {
             return false;
         }
         for (String field : SET_FIELDS) {
-            if (accepted.containsKey(field) && !asStrings(accepted.get(field)).containsAll(asStrings(requested.get(field)))) {
+            if (!accepted.containsKey(field)) {
+                continue;
+            }
+            if (!requested.containsKey(field)) {
+                return false;
+            }
+            if (!asStrings(accepted.get(field)).containsAll(asStrings(requested.get(field)))) {
                 return false;
             }
         }

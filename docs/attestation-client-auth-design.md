@@ -165,8 +165,15 @@ applies, because the minted assertion carries `iss = sub = client_id` and PF aut
 
 ## Known adjacent issues, deliberately out of scope
 
-- The attestation's `aud` is not validated (`JwtCodec.java:63` sets `setSkipDefaultAudienceValidation`),
-  so an attestation minted for another AS in the same federation is accepted here.
+- The attestation's `aud` is not validated (`JwtCodec.verifyAgainstKeys` sets
+  `setSkipDefaultAudienceValidation`). This is by specification, not an omission: ABCA-10 §4 defines the
+  Client Attestation JWT's claims as `sub`, `exp`, `cnf` and optionally `iat` — no `aud` — and says "The
+  JWT MAY contain other claims. All claims that are not understood by implementations MUST be ignored."
+  The audience lives on the PoP (§5.1: `aud` REQUIRED, the AS's issuer identifier), which the verifier
+  enforces against its accepted audiences; in DPoP mode `htu` binds the proof to this token endpoint.
+  An attestation is meant to be presentable to any AS; what binds a presentation to *this* AS is the
+  proof. `ClientAttestationVerifierTest` pins both halves so the absence is not "fixed" into a check
+  the draft does not define.
 - `attestation_required` is written at registration (`RegistrationService.java:329`) and read nowhere.
 - Setting a bridge key today breaks any client registered with a secret: the filter drops
   `client_secret` and substitutes an assertion. Under the target shape this is unchanged and still

@@ -121,7 +121,20 @@ public final class LogoutEventFilter implements Filter {
      * id tokens to hand and warns on every use.
      */
     static SubjectId extractSubject(HttpServletRequest request) {
-        return extractSubject(request, PfIdTokenVerifier.forThisDeployment());
+        // Built lazily, on the first token: the PF lookups behind forThisDeployment (signing keys,
+        // issuer) are runtime singletons, and a logout with no token to verify has no reason to
+        // touch them.
+        return extractSubject(request, jwt -> PfIdTokenVerifier.forThisDeployment(request).verifiedSubject(jwt));
+    }
+
+    /**
+     * The production composition with its two PingFederate lookups injected: PF's signing keys and the
+     * issuer PF reports for this request. Exists so the composition itself can be exercised without a
+     * booted server.
+     */
+    static SubjectId extractSubject(HttpServletRequest request, java.util.function.Function<HttpServletRequest, String> issuerOf,
+                                    PfIdTokenVerifier.KeySource keys) {
+        return extractSubject(request, PfIdTokenVerifier.forDeployment(keys, issuerOf.apply(request)));
     }
 
     /** Test seam: the same logic against a supplied verifier. */

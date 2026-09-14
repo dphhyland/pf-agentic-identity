@@ -471,8 +471,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
         List<Map<String, Object>> out = new ArrayList<>();
         for (Map<String, Object> entry : base) {
             try {
-                RarEntitlement.authorize(List.of(entry), narrowing);
-                out.add(entry);
+                // The GRANTED form, not the base entry: a base entry that omits a field the asserted
+                // ceiling constrains is kept with that constraint inherited, which is what makes this
+                // an intersection rather than a filter.
+                out.addAll(RarEntitlement.authorize(List.of(entry), narrowing));
             } catch (ClientAttestationException ignored) {
                 // Not covered by the asserted ceiling — dropped silently; this is narrowing, not an error.
             }

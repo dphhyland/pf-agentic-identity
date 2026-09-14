@@ -31,6 +31,7 @@ import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -81,20 +82,13 @@ class ClientAttestationAuthFilterTest {
         return key.toJson(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE);
     }
 
-    /** A config-backed key map naming exactly the clients given. */
+    /**
+     * A config-backed key map naming exactly the clients given, each bound to the attester the doFilter
+     * cases present ({@code ATTESTER_ISSUER}) - a properly configured deployment. The binding cases
+     * below build their own maps.
+     */
     private static void configureKeysFor(Path dir, String... clientIds) throws Exception {
-        StringBuilder json = new StringBuilder("{");
-        for (int i = 0; i < clientIds.length; i++) {
-            json.append(i > 0 ? "," : "")
-                .append('"').append(clientIds[i]).append("\":{\"jwk\":")
-                .append(privateJwkJson("k" + i)).append('}');
-        }
-        json.append('}');
-        Path file = dir.resolve("bridge-keys.json");
-        Files.writeString(file, json.toString());
-        System.setProperty(BACKING_PROP, "config");
-        System.setProperty(KEYS_PROP, file.toString());
-        resetSingletons();
+        configureKeysBoundTo(dir, java.util.List.of("https://attester.example.com"), clientIds);
     }
 
     private static HttpServletRequest requestWithoutAttestation() {
@@ -530,5 +524,163 @@ class ClientAttestationAuthFilterTest {
         verify(resp).setStatus(401);
         org.mockito.Mockito.verifyNoInteractions(chain);
         assertTrue(body.toString().contains("invalid_client"), body.toString());
+    }
+
+    // ---- attester-to-client binding ------------------------------------------------------------------
+    //
+    // Trust in an attester is federation-wide: any issuer whose chain reaches the anchor (or that the
+    // mock file lists) resolves keys. Nothing about that says WHICH clients an attester may vouch for.
+    // Without a binding, any trusted attester - any federation member that can get a leaf resolved -
+    // mints an attestation with sub = some other client, and this filter bridges to PF as that client.
+    // The binding lives beside the bridge key, in the same per-client entry of OIDF_BRIDGE_SIGNING_KEYS,
+    // because that entry is already the deployment's statement of "this client authenticates by
+    // attestation" - it is the natural place to say by whose.
+
+    private static final String BINDING_PROP = "oidf.attestation.require.attester.binding";
+
+    /** A config-backed key map naming exactly the clients given, each bound to the given attesters (null = no binding). */
+    private static void configureKeysBoundTo(Path dir, java.util.List<String> attesters, String... clientIds) throws Exception {
+        StringBuilder json = new StringBuilder("{");
+        for (int i = 0; i < clientIds.length; i++) {
+            json.append(i > 0 ? "," : "")
+                .append('"').append(clientIds[i]).append("\":{\"jwk\":")
+                .append(privateJwkJson("k" + i));
+            if (attesters != null) {
+                json.append(",\"attesters\":[");
+                for (int a = 0; a < attesters.size(); a++) {
+                    json.append(a > 0 ? "," : "").append('"').append(attesters.get(a)).append('"');
+                }
+                json.append(']');
+            }
+            json.append('}');
+        }
+        json.append('}');
+        Path file = dir.resolve("bridge-keys.json");
+        Files.writeString(file, json.toString());
+        System.setProperty(BACKING_PROP, "config");
+        System.setProperty(KEYS_PROP, file.toString());
+        resetSingletons();
+    }
+
+    @AfterEach
+    void clearBindingProperty() {
+        System.clearProperty(BINDING_PROP);
+    }
+
+    private static String rejectedWith(HttpServletRequest req, ClientAttestationAuthFilter filter, FilterChain chain) throws Exception {
+        java.io.StringWriter body = new java.io.StringWriter();
+        HttpServletResponse resp = responseCapturingBody(body);
+        filter.doFilter(req, resp, chain);
+        return body.toString();
+    }
+
+    @Test
+    @Requirement("CAS §6")
+    void anAttestationFromAnAttesterNotBoundToTheClientIsRefused(@TempDir Path dir) throws Exception {
+        configureKeysBoundTo(dir, java.util.List.of("https://the-clients-real-attester.example.com"), DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        // ATTESTER_ISSUER is trusted by this AS - just not for this client.
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        HttpServletRequest req = attestedRequest(
+                attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
+        FilterChain chain = mock(FilterChain.class);
+
+        String body = rejectedWith(req, filter, chain);
+
+        assertTrue(body.contains("invalid_client"), "a trusted attester vouching for a client it is not bound to: " + body);
+        verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
+    }
+
+    @Test
+    @Requirement("CAS §6")
+    void anAttestationFromABoundAttesterIsBridged(@TempDir Path dir) throws Exception {
+        configureKeysBoundTo(dir, java.util.List.of("https://some-other-attester.example.com", ATTESTER_ISSUER), DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        HttpServletRequest req = attestedRequest(
+                attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
+        FilterChain chain = mock(FilterChain.class);
+
+        String body = rejectedWith(req, filter, chain);
+
+        assertTrue(body.isEmpty(), body);
+        verify(chain).doFilter(any(), any());
+    }
+
+    /**
+     * A client entry with a bridge key but no {@code attesters} is a client anyone trusted may vouch
+     * for. That is the defect, so by default it is a refusal for that client - naming the setting - not
+     * a silent acceptance. Per-client, like a missing key: a 401 for this client, not a boot failure.
+     */
+    @Test
+    @Requirement("CAS §6")
+    void aClientWithNoBoundAttestersIsRefusedByDefault(@TempDir Path dir) throws Exception {
+        configureKeysBoundTo(dir, null, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        HttpServletRequest req = attestedRequest(
+                attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
+        FilterChain chain = mock(FilterChain.class);
+
+        String body = rejectedWith(req, filter, chain);
+
+        assertTrue(body.contains("invalid_client"), body);
+        assertTrue(body.contains("attesters"), "the refusal must say what to configure: " + body);
+        verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
+    }
+
+    /** The explicit opt-out, for a deployment that has one attester and knows it. Unbound clients then accept any trusted attester. */
+    @Test
+    void anUnboundClientAcceptsAnyTrustedAttesterOnlyWhenBindingIsExplicitlyRelaxed(@TempDir Path dir) throws Exception {
+        System.setProperty(BINDING_PROP, "false");
+        configureKeysBoundTo(dir, null, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        HttpServletRequest req = attestedRequest(
+                attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
+        FilterChain chain = mock(FilterChain.class);
+
+        String body = rejectedWith(req, filter, chain);
+
+        assertTrue(body.isEmpty(), body);
+        verify(chain).doFilter(any(), any());
+    }
+
+    /** Relaxing the default relaxes only the UNBOUND case: an explicit binding is still enforced. */
+    @Test
+    @Requirement("CAS §6")
+    void anExplicitBindingIsEnforcedEvenWhenTheDefaultIsRelaxed(@TempDir Path dir) throws Exception {
+        System.setProperty(BINDING_PROP, "false");
+        configureKeysBoundTo(dir, java.util.List.of("https://the-clients-real-attester.example.com"), DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        HttpServletRequest req = attestedRequest(
+                attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
+        FilterChain chain = mock(FilterChain.class);
+
+        String body = rejectedWith(req, filter, chain);
+
+        assertTrue(body.contains("invalid_client"), body);
+        verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
     }
 }
