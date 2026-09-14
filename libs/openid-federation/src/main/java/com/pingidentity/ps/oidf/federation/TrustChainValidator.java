@@ -130,14 +130,17 @@ public final class TrustChainValidator {
                 if (jwks != null) {
                     verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, jwks, entry.issuer, this.acceptedSigningAlgorithms);
                 } else if (Objects.equals(entry.subject, entry.issuer) && entry.jwks != null) {
-                    // Self-signed Entity Configuration with no superior statement after it in the
-                    // route: per OpenID Federation §3.2 an Entity Configuration is verified with
-                    // the Federation Entity Keys it itself carries. Chain-position trust in this
-                    // subject was already established during the walk (the trust anchor's
-                    // subordinate statement for it resolved successfully) — re-fetching the same
-                    // statement from the entity's .well-known just to re-verify it added a live
-                    // cross-cloud HTTP call to every token request, and was the residual
-                    // stall/timeout source after pushed chains eliminated the walk-time fetch.
+                    // Self-signed Entity Configuration as the final route entry. walkRoute only
+                    // ever ends a route on an entry issued by the configured anchor, so this is the
+                    // anchor's own Entity Configuration - which fetchVerifiedClaims would also only
+                    // ever check against the anchor's own, unverified, .well-known jwks. Verifying
+                    // it inline is the same trust decision without the live HTTP call.
+                    //
+                    // It must never be reached for an intermediate: an intermediate's Entity
+                    // Configuration is always followed in the route by its superior's subordinate
+                    // statement (see walkRoute) and is verified against the keys THAT asserts.
+                    // Self-verifying an intermediate here is exactly how a forged intermediate
+                    // once resolved to the anchor.
                     verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, entry.jwks, entry.issuer, this.acceptedSigningAlgorithms);
                 } else {
                     verified = this.fetchVerifiedClaims(entry.jwt, pendingWrites);
@@ -313,7 +316,18 @@ public final class TrustChainValidator {
                     HashSet<String> branchVisited = new HashSet<String>(visitedSubjects);
                     List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
                     if (completed != null) {
-                        return Objects.equals(hint, this.knownTrustAnchor) ? route : completed;
+                        // The completed branch, always - including the anchor's own subordinate
+                        // statement about this intermediate, which is the last entry when the hint
+                        // was the anchor. This used to return the shorter `route` in that case,
+                        // leaving the intermediate's self-signed Entity Configuration as the final
+                        // entry: validate() then verified it against its OWN jwks, so a chain that
+                        // impersonated a genuine intermediate under a key of the caller's choosing
+                        // (and simply omitted the anchor's statement) resolved to the anchor. The
+                        // anchor's statement is what ties the intermediate's keys to the anchor,
+                        // and it is also where the anchor's metadata_policy lives - neither counts
+                        // unless the statement is in the route. Pinned by
+                        // TrustChainValidatorIntermediateTest.
+                        return completed;
                     }
                 }
                 return null;
