@@ -69,8 +69,8 @@
                 or a ceiling that quietly widens, not a cosmetic gap.
 
                 Gated per METHOD, not per class, so the parts that need a live world stay honestly out
-                of scope: OpenIdFederationClientResolver fetches and validates a trust chain over the
-                network, AttesterConfigurationServlet.deploymentEvidenceAudience reads the deployment
+                of scope: OpenIdFederationClientResolver's fetch and cache (only its statement checks are
+                gated), AttesterConfigurationServlet.deploymentEvidenceAudience reads the deployment
                 environment, and the evidence validators (SpiffeSvidValidator, InstanceKeyProofValidator,
                 WalletInstanceAttestationValidator) still have unexercised rejection paths. Those are the
                 next tests to write, not a reason to lower this limit - every method listed here measured
@@ -112,6 +112,7 @@
                                         <include>com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.with(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.RemoteJwksCache.get(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver.fromJson(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.verifiedEntityConfiguration(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
