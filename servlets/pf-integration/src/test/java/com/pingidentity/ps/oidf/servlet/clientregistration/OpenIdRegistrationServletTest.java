@@ -10,6 +10,7 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import java.io.ByteArrayInputStream;
@@ -95,6 +96,49 @@ class OpenIdRegistrationServletTest {
         assertTrue(resp.body.toString().contains("invalid_request"), resp.body.toString());
         verifyNoInteractions(store);      // never even looked up - the parser has nothing to act on
         verifyNoInteractions(validator);
+    }
+
+    /**
+     * OpenID Federation 1.0 §3 through the endpoint: a signed, self-consistent registration statement
+     * with no {@code typ} is a 400 before the trust chain is validated or the store consulted. The
+     * validator would not catch it later - it is handed the body's {@code trust_chain} header, never
+     * the body - so a request that got past the parser would be judged only on statements it carries.
+     */
+    @Test
+    @Requirement("OIDFED §3(2)")
+    void untypedStatementIsRejectedBeforeTheChainIsValidated() throws Exception {
+        ClientStore store = mock(ClientStore.class);
+        TrustChainValidator validator = mock(TrustChainValidator.class);
+        RegistrationService service = new RegistrationService(new RegistrationConfiguration("https://tc.example", false), validator, store);
+        OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet(service, req -> OP_ISSUER);
+        Response resp = new Response();
+
+        servlet.doPost(post("application/entity-statement+jwt", untypedSignedEntityStatement(EXISTING_CLIENT)), resp.mock);
+
+        verify(resp.mock).setStatus(400);
+        assertTrue(resp.body.toString().contains("typ"), resp.body.toString());
+        verifyNoInteractions(store);
+        verifyNoInteractions(validator);
+    }
+
+    /** Signed by the key its own jwks names, addressed to this OP, sub == iss - everything but typ. */
+    private static String untypedSignedEntityStatement(String sub) throws Exception {
+        EllipticCurveJsonWebKey k = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        k.setKeyId("rp-1");
+        JwtClaims c = new JwtClaims();
+        c.setIssuer(sub);
+        c.setSubject(sub);
+        c.setAudience(OP_ISSUER);
+        c.setIssuedAtToNow();
+        c.setExpirationTimeMinutesInTheFuture(10.0f);
+        c.setClaim("jwks", Map.of("keys", List.of(k.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY))));
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setPayload(c.toJson());
+        jws.setKey(k.getPrivateKey());
+        jws.setKeyIdHeaderValue(k.getKeyId());
+        jws.setAlgorithmHeaderValue("ES256");
+        jws.setHeader("trust_chain", List.of("leaf.statement.jwt", "anchor.statement.jwt"));
+        return jws.getCompactSerialization();
     }
 
     @Test

@@ -50,12 +50,17 @@ class ExplicitRegistrationRequestTest {
 
     /** Signed by {@code signer}, but advertising {@code advertised}'s public key in {@code jwks}. */
     private static String sign(JwtClaims claims, EllipticCurveJsonWebKey signer, List<String> trustChain) throws Exception {
+        return sign(claims, signer, trustChain, "entity-statement+jwt");
+    }
+
+    /** @param typ the header value, or {@code null} to leave the header off entirely */
+    private static String sign(JwtClaims claims, EllipticCurveJsonWebKey signer, List<String> trustChain, String typ) throws Exception {
         JsonWebSignature jws = new JsonWebSignature();
         jws.setPayload(claims.toJson());
         jws.setKey(signer.getPrivateKey());
         jws.setKeyIdHeaderValue(signer.getKeyId());
         jws.setAlgorithmHeaderValue("ES256");
-        jws.setHeader("typ", "entity-statement+jwt");
+        if (typ != null) jws.setHeader("typ", typ);
         if (trustChain != null) jws.setHeader("trust_chain", trustChain);
         return jws.getCompactSerialization();
     }
@@ -119,6 +124,36 @@ class ExplicitRegistrationRequestTest {
         String jwt = sign(entityConfiguration(k, RP, "https://other.example.com", OP), k, null);
 
         assertThrows(IllegalArgumentException.class, () -> ExplicitRegistrationRequest.fromJwt(jwt, OP));
+    }
+
+    /**
+     * OpenID Federation 1.0 §3: an Entity Statement with no {@code typ} MUST be rejected, and §12.2.2
+     * applies "all the normal Entity Statement validation rules" to this request. The body never
+     * reaches TrustChainValidator - the chain it validates is the body's own {@code trust_chain}
+     * header, which cannot contain the body - so this parser is the only place the rule can be applied.
+     * The statement is otherwise valid: signed by its own key, right audience, sub == iss.
+     */
+    @Test
+    @Requirement("OIDFED §3(2)")
+    void aStatementWithNoTypIsRejected() throws Exception {
+        EllipticCurveJsonWebKey k = key("rp-1");
+        String jwt = sign(entityConfiguration(k, RP, RP, OP), k, List.of("leaf", "anchor"), null);
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> ExplicitRegistrationRequest.fromJwt(jwt, OP));
+        assertTrue(e.getMessage().contains("typ"), e.getMessage());
+    }
+
+    /** The generic value a JOSE library writes when nobody set one: a JWT, but not an Entity Statement. */
+    @Test
+    @Requirement("OIDFED §3(2)")
+    void aStatementWithAnotherTypIsRejected() throws Exception {
+        EllipticCurveJsonWebKey k = key("rp-1");
+        String jwt = sign(entityConfiguration(k, RP, RP, OP), k, List.of("leaf", "anchor"), "JWT");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> ExplicitRegistrationRequest.fromJwt(jwt, OP));
+        assertTrue(e.getMessage().contains("typ"), e.getMessage());
     }
 
     @Test
