@@ -66,7 +66,9 @@ implements TrustControllerGateway {
     @Override
     public JwtClaims fetchEntityConfiguration() throws Exception {
         String url = this.trustControllerBaseUrl + "/.well-known/openid-federation";
-        return JwtCodec.parseUnverifiedClaims(this.http.get(url, ENTITY_STATEMENT_ACCEPT));
+        String jwt = this.http.get(url, ENTITY_STATEMENT_ACCEPT);
+        EntityStatementType.require(jwt, "from " + url);
+        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     @Override
@@ -117,7 +119,11 @@ implements TrustControllerGateway {
 
     @Override
     public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(this.fetchEntityStatement(issuer, -1L, pendingWrites));
+        // Its federation_fetch_endpoint decides where subordinate statements are requested from, so an
+        // untyped configuration is refused here (OpenID Federation 1.0 §3), not only once it is in a chain.
+        String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
+        EntityStatementType.require(jwt, "iss=sub=" + issuer);
+        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     @Override

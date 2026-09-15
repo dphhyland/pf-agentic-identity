@@ -422,6 +422,7 @@ citation, not in the code, and it is left visible rather than filled with a plau
 | — | Wallet-provider keys likewise | `FederationWalletProviderKeyResolver` | Implemented, unconfigured by default |
 | `ABCA-10 §8` | AS advertises `attest_jwt_client_auth` / `attest_jwt_client_auth_dpop`, PoP methods, alg lists, `challenge_endpoint` | `AttestationMetadataConfig` | Implemented |
 | `OIDFED §1.2` | A non-HTTPS entity identifier is refused before any fetch | `TrustChainValidator` | Implemented |
+| `OIDFED §3(2)` | An entity statement without `typ: entity-statement+jwt` is rejected — every statement in a route, and every entity configuration the gateway reads for keys or a fetch endpoint | `EntityStatementType`, `TrustChainValidator`, `HttpTrustControllerGateway` | Implemented — `(2)` is §3's second paragraph (`#section-3-2`); a bare `OIDFED §3` row would count the `§3.1.x`/`§3.2` pins as covering it |
 | `OIDFED §3.2` | An entity configuration is genuinely self-signed | `TrustChainValidator` | Implemented |
 | `OIDFED §3.1.3` | `metadata_policy_crit` invalidates a statement naming an unknown operator | `MetadataPolicy` | Implemented |
 | `OIDFED §6.1.3.1` | The metadata-policy operator set | `MetadataPolicy` | Implemented |

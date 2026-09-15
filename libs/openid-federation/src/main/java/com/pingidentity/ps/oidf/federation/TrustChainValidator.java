@@ -124,6 +124,10 @@ public final class TrustChainValidator {
                 orderedChain.add(entry.jwt);
             }
             if (entry.jwt != null) {
+                // OpenID Federation 1.0 §3: a statement with no typ, or any typ but
+                // entity-statement+jwt, is rejected - before any key is tried, so a JWT minted for
+                // something else under a federation key never gets as far as a signature check.
+                EntityStatementType.require(entry.jwt, "iss=" + entry.issuer + " sub=" + entry.subject);
                 int lastIndex = orderedChainEntries.size() - 1;
                 Map<String, Object> jwks = i < lastIndex ? orderedChainEntries.get(i + 1).jwks : null;
                 JwtClaims verified;
@@ -488,7 +492,12 @@ public final class TrustChainValidator {
     private JwtClaims fetchVerifiedClaims(String jwt, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         JwtClaims unverifiedClaims = JwtCodec.parseUnverifiedClaims(jwt);
         String issuer = Claims.requireNonBlank(unverifiedClaims.getIssuer(), "iss");
-        JwtClaims fetchIssuerMetadata = this.gateway.fetchEntityConfigurationOf(issuer, pendingWrites);
+        // Read raw rather than through fetchEntityConfigurationOf: the configuration is the source of
+        // the keys this statement is verified against, so its §3 typ is checked here, whatever gateway
+        // implementation is plugged in.
+        String issuerConfiguration = this.gateway.fetchEntityStatement(issuer, -1L, pendingWrites);
+        EntityStatementType.require(issuerConfiguration, "iss=sub=" + issuer);
+        JwtClaims fetchIssuerMetadata = JwtCodec.parseUnverifiedClaims(issuerConfiguration);
         Map<String, Object> jwks = Claims.requiredMap(fetchIssuerMetadata, "jwks");
         return JwtCodec.verifyAgainstInlineJwks(jwt, jwks, issuer, this.acceptedSigningAlgorithms);
     }
