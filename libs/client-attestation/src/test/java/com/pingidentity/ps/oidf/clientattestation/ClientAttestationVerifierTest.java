@@ -11,6 +11,7 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -154,6 +155,7 @@ class ClientAttestationVerifierTest {
     }
 
     @Test
+    @Requirement("ABCA-10 §5.1")
     void wrongPopAudienceRejected() throws Exception {
         assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(validAttestation(), pop("https://someone-else.example.com", "p1", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
@@ -457,5 +459,28 @@ class ClientAttestationVerifierTest {
         assertThrows(ClientAttestationException.class,
                 () -> misconfigured.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID));
+    }
+
+    /**
+     * ABCA-10 §4 defines the Client Attestation JWT's claims as {@code sub}, {@code exp}, {@code cnf}
+     * and optionally {@code iat}, and says "The JWT MAY contain other claims. All claims that are not
+     * understood by implementations MUST be ignored." There is no {@code aud} on the attestation: it is
+     * the PoP (§5.1) that carries the audience, and that is what binds a presentation to this AS. An
+     * attester that adds an {@code aud} of its own is therefore neither honoured nor refused — the PoP
+     * audience decides. Pinned so nobody "fixes" the absence of attestation-{@code aud} validation
+     * into a check the draft does not define.
+     */
+    @Test
+    @Requirement({"ABCA-10 §4", "ABCA-10 §5.1"})
+    void anAudienceClaimOnTheAttestationItselfIsIgnoredAndThePopAudienceDecides() throws Exception {
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L,
+                Map.of("aud", "https://another-as.example.com"));
+
+        assertEquals(CLIENT_ID, verifier.verify(att, pop(OP_ISSUER, "p-aud-1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID).clientId());
+        assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(att, pop("https://another-as.example.com", "p-aud-2", null), null,
+                        "POST", TOKEN_ENDPOINT, CLIENT_ID),
+                "the PoP audience, not the attestation's, is what must name this AS");
     }
 }

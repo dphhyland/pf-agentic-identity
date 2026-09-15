@@ -11,8 +11,9 @@
 #   overlay/pf.jwk                   <- prod master key           (SECRET, git-ignored)
 #   overlay/pingfederate-system-keys.xml                          (SECRET, git-ignored)
 #   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
-#   pf-oidf-modules.jar              <- `mvn -q package` output of this repo (merged into pf-runtime.war)
-#   jose4j-0.9.6.jar                 <- runtime dep of the module (merged into pf-runtime.war)
+#   modules/                         <- stage-modules.sh output of this repo's reactor (merged into
+#                                       pf-runtime.war AND copied to server/default/deploy; see below)
+#   (no jose4j: the assemble call passes "-" and relies on PF's own copy in server/default/lib)
 #   oidf-mock-attesters.json         <- OPTIONAL, consumer-supplied: DEV attester trust
 #                                       (issuer -> public JWK), bypassing federation trust chains
 #
@@ -71,10 +72,14 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
     rm -rf /opt/in/overlay-staged; chown -R 9031:0 "$D"
 # NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
 
-# Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, single classloader),
-# and register the SSF logout filter in its web.xml — via the same assemble script the build-in-CI path uses.
-# modules/ holds the monorepo reactor's modular jars (oidf.jar + attestation-issuer/ssf +
-# oidf-jose/client-attestation/openid-federation) — staged by stage-modules.sh.
+# Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, the webapp
+# classloader — the same jars are ALSO copied to server/default/deploy below, so the engine classloader
+# gets its own copy: two classloaders, deliberately, and without Redis the filter and the OGNL criterion
+# therefore keep separate in-memory challenge/replay stores), and register the three filters
+# (SsfLogoutSignal, OidfAutoRegistration, ClientAttestationAuth) in its web.xml — via the same assemble
+# script a consumer's CI would use. modules/ holds the monorepo reactor's modular jars (oidf.jar +
+# attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance)
+# — staged by stage-modules.sh.
 # (No pf-rar-paz-plugin — that's agentic.)
 COPY assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
 COPY modules/ /tmp/modules/

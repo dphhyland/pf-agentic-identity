@@ -52,6 +52,12 @@ import java.lang.annotation.Target;
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
  * {@code PF-SDK}.
  *
+ * <p>{@code OIDFED} uses the specification's section numbers. A requirement that sits in a section's
+ * own text, before its first subsection, takes the paragraph number in the item notation above:
+ * {@code OIDFED §3(2)} is the second paragraph of §3 (the published page's {@code #section-3-2}
+ * anchor). Never tag it with the bare section, because the reporter counts every §3.x pin as covering
+ * a §3 row, and the typing rule would read as pinned by tests that never check it.
+ *
  * <p>This list is the vocabulary, not a suggestion: {@code tools/coverage-report.py} reads the
  * prefixes out of this javadoc and reports any id using one that is not here. That is what catches a
  * fabricated citation and, just as importantly, one clause spelled two ways — a survey of this repo's

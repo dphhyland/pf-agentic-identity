@@ -105,6 +105,10 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.explicitRegister(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireConstrainedByPolicy(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.isFederationRegistered(*</include>
+                                        <!-- The explicit-registration body itself: typed as an Entity Statement
+                                             (OpenID Federation 1.0 §3) and signed by its own jwks. The chain
+                                             validator never sees this statement, so nothing downstream repeats it. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest.verifySelfSigned(*</include>
                                         <!-- The attestation bridge's configuration read: init decides whether
                                              this filter authenticates at all, and on which keys. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.init(*</include>

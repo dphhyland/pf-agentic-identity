@@ -28,12 +28,18 @@ public interface TrustControllerGateway {
         return this.fetchEntityStatement(issuer, maxAgeFromIatSeconds);
     }
 
+    /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
     default public JwtClaims fetchEntityConfigurationOf(String issuer) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(this.fetchEntityStatement(issuer));
+        String jwt = this.fetchEntityStatement(issuer);
+        EntityStatementType.require(jwt, "iss=sub=" + issuer);
+        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
+    /** Rejects a configuration that is not typed {@code entity-statement+jwt} (OpenID Federation 1.0 §3). */
     default public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(this.fetchEntityStatement(issuer, -1L, pendingWrites));
+        String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
+        EntityStatementType.require(jwt, "iss=sub=" + issuer);
+        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     public String fetchSubordinateStatement(String var1, String var2) throws Exception;

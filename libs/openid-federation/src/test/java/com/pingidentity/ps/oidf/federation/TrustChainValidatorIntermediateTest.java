@@ -19,14 +19,23 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
 import org.junit.jupiter.api.Test;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 
 /**
- * Three-level chains (leaf → intermediate → configured anchor) supplied by the caller. The anchor's
- * subordinate statement about the intermediate is the only thing that ties the intermediate's keys to
- * the anchor: it must be part of what is verified, and its {@code metadata_policy} must reach the
- * leaf. {@link TrustChainValidatorRejectionTest} covers two-level chains only, where the anchor's
- * statement is the last entry and is always verified.
+ * Three-level chains: leaf → intermediate → anchor, with the chain caller-supplied (the shape
+ * {@code POST /federation/register}, the {@code client_assertion} {@code trust_chain} header and the
+ * attestation {@code trust_chain} header all arrive in).
+ *
+ * <p>OpenID Federation 1.0 §10.2 requires that, for each {@code j}, the signature of {@code ES[j]}
+ * validates with a key in {@code ES[j+1]["jwks"]}, and that the statement about the intermediate
+ * validates with a key of the Trust Anchor. The anchor's subordinate statement about the intermediate
+ * is therefore the only thing that connects the intermediate's keys to the anchor. A validator that
+ * merely notices such a statement exists — without verifying its signature against the anchor's keys
+ * and without checking the intermediate's keys against it — lets anyone who can write three
+ * self-consistent JWTs resolve a "valid" chain to the configured anchor. The existing three-level
+ * coverage ({@link PackageChainValidationTest}, {@link LiveChainValidationTest}) is fixture-gated and
+ * always supplies a genuine anchor statement, so it never asked this question.
  */
 class TrustChainValidatorIntermediateTest {
     private static final String LEAF = "https://agent.example.com";
@@ -60,24 +69,13 @@ class TrustChainValidatorIntermediateTest {
         return jws.getCompactSerialization();
     }
 
-    private static String fetchUrl(String subject) {
-        return ANCHOR + "/fetch?sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8)
-                + "&iss=" + URLEncoder.encode(ANCHOR, StandardCharsets.UTF_8);
+    private static String fetchUrl(String issuer, String subject) {
+        return issuer + "/fetch?sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8)
+                + "&iss=" + URLEncoder.encode(issuer, StandardCharsets.UTF_8);
     }
 
-    /** The anchor's side of the federation: its entity configuration and its fetch endpoint. */
-    private static Map<String, String> anchorResponses(PublicJsonWebKey anchorKey, String anchorAboutIntermediate) throws Exception {
-        Map<String, String> responses = new HashMap<>();
-        responses.put(ANCHOR + "/.well-known/openid-federation", statement(anchorKey, ANCHOR, ANCHOR, Map.of(
-                "jwks", jwks(anchorKey),
-                "metadata", Map.of("federation_entity", Map.of("federation_fetch_endpoint", ANCHOR + "/fetch")))));
-        responses.put(fetchUrl(INTERMEDIATE), anchorAboutIntermediate);
-        return responses;
-    }
-
-    private static HttpGetClient stub(Map<String, String> responses, List<String> fetched) {
+    private static HttpGetClient serving(Map<String, String> responses) {
         return (url, accept) -> {
-            fetched.add(url);
             String jwt = responses.get(url);
             if (jwt == null) {
                 throw new IllegalArgumentException("no stub for " + url);
@@ -86,78 +84,236 @@ class TrustChainValidatorIntermediateTest {
         };
     }
 
-    @Test
-    void anIntermediateWhoseKeysTheAnchorNeverVouchedForIsRejected() throws Exception {
-        PublicJsonWebKey leafKey = ec("leaf-1");
-        PublicJsonWebKey anchorKey = ec("anchor-1");
-        PublicJsonWebKey realIntermediateKey = ec("intermediate-real");
-        PublicJsonWebKey forgedIntermediateKey = ec("intermediate-forged");
-
-        // The anchor genuinely lists the intermediate as a subordinate, vouching for its REAL key ...
-        String anchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE, Map.of("jwks", jwks(realIntermediateKey)));
-        // ... and the intermediate's real entity configuration is published under that key.
-        String realIntermediateConfig = statement(realIntermediateKey, INTERMEDIATE, INTERMEDIATE, Map.of(
-                "jwks", jwks(realIntermediateKey), "authority_hints", List.of(ANCHOR)));
-
-        // The caller supplies a chain in which "the intermediate" is impersonated with a key of the
-        // caller's own choosing: a self-signed entity configuration under the forged key, a subordinate
-        // statement about the leaf signed with it, and the leaf itself. The anchor's own statement about
-        // the intermediate is deliberately left out of the chain.
-        String forgedIntermediateConfig = statement(forgedIntermediateKey, INTERMEDIATE, INTERMEDIATE, Map.of(
-                "jwks", jwks(forgedIntermediateKey), "authority_hints", List.of(ANCHOR)));
-        String forgedAboutLeaf = statement(forgedIntermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
-        String leafConfig = statement(leafKey, LEAF, LEAF, Map.of(
-                "jwks", jwks(leafKey), "authority_hints", List.of(INTERMEDIATE)));
-
-        Map<String, String> responses = anchorResponses(anchorKey, anchorAboutIntermediate);
-        responses.put(INTERMEDIATE + "/.well-known/openid-federation", realIntermediateConfig);
-        List<String> fetched = new ArrayList<>();
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(stub(responses, fetched), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
-
-        Exception e = assertThrows(Exception.class,
-                () -> validator.validate(List.of(leafConfig, forgedAboutLeaf, forgedIntermediateConfig), LEAF, LEAF));
-        // Every URL the walk needed was stubbed: a refusal must come from verification, not from a
-        // missing fixture.
-        assertFalse(e.getMessage() != null && e.getMessage().contains("no stub for"), e.getMessage());
+    /** The one statement every case shares: the anchor's own configuration, signed with its real key. */
+    private static String anchorConfig(PublicJsonWebKey anchorKey) throws Exception {
+        return statement(anchorKey, ANCHOR, ANCHOR, Map.of(
+                "jwks", jwks(anchorKey),
+                "metadata", Map.of("federation_entity", Map.of("federation_fetch_endpoint", ANCHOR + "/fetch"))));
     }
 
-    @Test
-    void theAnchorsPolicyOnItsSubordinateStatementConstrainsTheLeafThroughAnIntermediate() throws Exception {
-        PublicJsonWebKey leafKey = ec("leaf-1");
-        PublicJsonWebKey anchorKey = ec("anchor-1");
-        PublicJsonWebKey intermediateKey = ec("intermediate-1");
-
-        // The anchor's statement about the intermediate carries the policy. The intermediate's own
-        // statement about the leaf carries none, so anything narrowing the leaf came from the anchor.
-        String anchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE, Map.of(
-                "jwks", jwks(intermediateKey),
-                "metadata_policy", Map.of("oauth_client", Map.of(
-                        "grant_types", Map.of("subset_of", List.of("authorization_code"))))));
-        String intermediateConfig = statement(intermediateKey, INTERMEDIATE, INTERMEDIATE, Map.of(
-                "jwks", jwks(intermediateKey), "authority_hints", List.of(ANCHOR)));
-        String intermediateAboutLeaf = statement(intermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
-        String leafConfig = statement(leafKey, LEAF, LEAF, Map.of(
+    private static String leafConfig(PublicJsonWebKey leafKey) throws Exception {
+        return statement(leafKey, LEAF, LEAF, Map.of(
                 "jwks", jwks(leafKey),
                 "authority_hints", List.of(INTERMEDIATE),
-                "metadata", Map.of("oauth_client", Map.of(
-                        "grant_types", List.of("authorization_code", "client_credentials"),
-                        "client_name", "Payment Agent"))));
+                "metadata", Map.of("openid_relying_party", Map.of("client_name", "self-published"))));
+    }
 
-        Map<String, String> responses = anchorResponses(anchorKey, anchorAboutIntermediate);
+    private static String intermediateConfig(PublicJsonWebKey intermediateKey) throws Exception {
+        return statement(intermediateKey, INTERMEDIATE, INTERMEDIATE, Map.of(
+                "jwks", jwks(intermediateKey),
+                "authority_hints", List.of(ANCHOR),
+                "metadata", Map.of("federation_entity", Map.of("federation_fetch_endpoint", INTERMEDIATE + "/fetch"))));
+    }
+
+    /**
+     * An attacker who is not in the federation at all: they invent an intermediate, sign a statement
+     * about the leaf with it, and forge the anchor's statement about that intermediate with a key of
+     * their own. Every JWT is internally consistent; none of them is connected to the anchor.
+     */
+    @Test
+    @Requirement("OIDFED §10.2")
+    void aForgedAnchorStatementAboutAnIntermediateIsRejected() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey fakeIntermediateKey = ec("fake-intermediate-1");
+        PublicJsonWebKey attackerKey = ec("not-the-anchors-key");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String intermediateAboutLeaf = statement(fakeIntermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        // iss says "anchor"; the signature says otherwise.
+        String forgedAnchorAboutIntermediate = statement(attackerKey, ANCHOR, INTERMEDIATE,
+                Map.of("jwks", jwks(fakeIntermediateKey)));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        // The anchor has never heard of this intermediate: a fetch for it fails.
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(serving(responses), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+
+        List<String> chain = List.of(leafConfig(leafKey), intermediateAboutLeaf,
+                intermediateConfig(fakeIntermediateKey), forgedAnchorAboutIntermediate);
+        assertThrows(Exception.class, () -> validator.validate(chain, LEAF, LEAF),
+                "a chain whose only link to the anchor is a statement the anchor did not sign must not resolve");
+    }
+
+    /**
+     * The same forgery, but the caller leaves the anchor statement out and lets the validator fetch it
+     * — from an endpoint the attacker answers. Fetched bytes are no more trustworthy than supplied ones;
+     * only the anchor's signature is.
+     */
+    @Test
+    @Requirement("OIDFED §10.2")
+    void aFetchedAnchorStatementIsVerifiedNotMerelyReceived() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey fakeIntermediateKey = ec("fake-intermediate-1");
+        PublicJsonWebKey attackerKey = ec("not-the-anchors-key");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String intermediateAboutLeaf = statement(fakeIntermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        String forgedAnchorAboutIntermediate = statement(attackerKey, ANCHOR, INTERMEDIATE,
+                Map.of("jwks", jwks(fakeIntermediateKey)));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        responses.put(fetchUrl(ANCHOR, INTERMEDIATE), forgedAnchorAboutIntermediate);
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(serving(responses), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+
+        List<String> chain = List.of(leafConfig(leafKey), intermediateAboutLeaf, intermediateConfig(fakeIntermediateKey));
+        assertThrows(Exception.class, () -> validator.validate(chain, LEAF, LEAF));
+    }
+
+    /**
+     * THE case. The intermediate is real and the anchor is honest; the attacker impersonates the
+     * intermediate. They forge its Entity Configuration and its statement about the leaf with a key of
+     * their own, and supply nothing from the anchor. The validator then fetches the anchor's genuine
+     * statement about the intermediate — which vouches for the intermediate's real key, not the
+     * attacker's — and that statement must be what the intermediate's configuration is checked against.
+     * A validator that fetches it, notes that it exists, and verifies the intermediate's configuration
+     * only with the keys the forgery itself carries admits this chain.
+     */
+    @Test
+    @Requirement("OIDFED §10.2")
+    void aForgedIntermediateConfigurationIsCheckedAgainstTheAnchorsStatementAboutIt() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey attackerKey = ec("attacker-posing-as-intermediate");
+        PublicJsonWebKey realIntermediateKey = ec("intermediate-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String forgedIntermediateAboutLeaf = statement(attackerKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        String genuineAnchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE,
+                Map.of("jwks", jwks(realIntermediateKey)));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        responses.put(fetchUrl(ANCHOR, INTERMEDIATE), genuineAnchorAboutIntermediate);
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(serving(responses), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+
+        List<String> chain = List.of(leafConfig(leafKey), forgedIntermediateAboutLeaf, intermediateConfig(attackerKey));
+        assertThrows(Exception.class, () -> validator.validate(chain, LEAF, LEAF),
+                "the anchor vouches for a different key than the one the intermediate's statements are signed with");
+    }
+
+    /**
+     * A real subordinate of the anchor, but the anchor vouches for a different key than the one the
+     * intermediate's configuration and its statement about the leaf are signed with — with the anchor's
+     * statement caller-supplied this time. Whoever holds that other key is not the entity the anchor
+     * admitted. (This case was already refused: a supplied subordinate statement is preferred over the
+     * self-signed configuration and verified against the anchor. It is pinned so the fetched case above
+     * and the supplied case never diverge again.)
+     */
+    @Test
+    @Requirement("OIDFED §10.2")
+    void anIntermediateWhoseKeyTheAnchorDoesNotVouchForIsRejectedWhenTheAnchorStatementIsSupplied() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey intermediateKey = ec("intermediate-1");
+        PublicJsonWebKey keyTheAnchorAdmitted = ec("intermediate-as-the-anchor-knows-it");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String intermediateAboutLeaf = statement(intermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        String anchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE,
+                Map.of("jwks", jwks(keyTheAnchorAdmitted)));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(serving(responses), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+
+        List<String> chain = List.of(leafConfig(leafKey), intermediateAboutLeaf,
+                intermediateConfig(intermediateKey), anchorAboutIntermediate);
+        assertThrows(Exception.class, () -> validator.validate(chain, LEAF, LEAF));
+    }
+
+    /**
+     * The anchor's {@code metadata_policy} sits on its statement about the intermediate. When that
+     * statement is fetched rather than supplied, it must still be part of the verified chain — or a
+     * policy the anchor set for everything under an intermediate silently constrains nothing.
+     */
+    @Test
+    @Requirement({"OIDFED §10.2", "OIDFED §6.1.4.1"})
+    void theAnchorsPolicyReachesTheLeafWhenTheAnchorStatementIsFetched() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey intermediateKey = ec("intermediate-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String intermediateAboutLeaf = statement(intermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        String anchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE, Map.of(
+                "jwks", jwks(intermediateKey),
+                "metadata_policy", Map.of("openid_relying_party", Map.of("client_name", Map.of("value", "as-the-anchor-says")))));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        responses.put(fetchUrl(ANCHOR, INTERMEDIATE), anchorAboutIntermediate);
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(serving(responses), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+
+        List<String> chain = List.of(leafConfig(leafKey), intermediateAboutLeaf, intermediateConfig(intermediateKey));
+        TrustChainValidationResult result = validator.validate(chain, LEAF, LEAF);
+
+        assertEquals(ANCHOR, result.trustAnchorIssuer());
+        assertTrue(result.isPoliced("openid_relying_party"), "the anchor's policy must count as applied");
+        assertEquals("as-the-anchor-says", result.metadataFor("openid_relying_party").get("client_name"));
+    }
+
+    /**
+     * Keeping the anchor's statement in the route must not bring back a live fetch per request: a pushed
+     * chain that carries the intermediate's configuration is resolved with the anchor's endpoints alone,
+     * and nothing is fetched from the intermediate.
+     */
+    @Test
+    void aPushedChainThroughAnIntermediateFetchesOnlyFromTheAnchor() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey intermediateKey = ec("intermediate-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String intermediateAboutLeaf = statement(intermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        String anchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE, Map.of("jwks", jwks(intermediateKey)));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        responses.put(fetchUrl(ANCHOR, INTERMEDIATE), anchorAboutIntermediate);
         List<String> fetched = new ArrayList<>();
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(stub(responses, fetched), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+        HttpGetClient recording = (url, accept) -> {
+            fetched.add(url);
+            return serving(responses).get(url, accept);
+        };
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(recording, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
-        TrustChainValidationResult result = validator.validate(
-                List.of(leafConfig, intermediateAboutLeaf, intermediateConfig), LEAF, LEAF);
+        validator.validate(List.of(leafConfig(leafKey), intermediateAboutLeaf, intermediateConfig(intermediateKey)), LEAF, LEAF);
+
+        assertTrue(fetched.contains(fetchUrl(ANCHOR, INTERMEDIATE)), fetched.toString());
+        assertFalse(fetched.stream().anyMatch(u -> u.startsWith(INTERMEDIATE)), fetched.toString());
+    }
+
+    /**
+     * Control: the genuine chain, anchor statement supplied, resolves and the anchor's
+     * {@code metadata_policy} reaches the leaf.
+     */
+    @Test
+    @Requirement({"OIDFED §10.2", "OIDFED §6.1.4.1"})
+    void aGenuineThreeLevelChainWithTheAnchorStatementSuppliedValidatesWithPolicy() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey intermediateKey = ec("intermediate-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+
+        String intermediateAboutLeaf = statement(intermediateKey, INTERMEDIATE, LEAF, Map.of("jwks", jwks(leafKey)));
+        String anchorAboutIntermediate = statement(anchorKey, ANCHOR, INTERMEDIATE, Map.of(
+                "jwks", jwks(intermediateKey),
+                "metadata_policy", Map.of("openid_relying_party", Map.of("client_name", Map.of("value", "as-the-anchor-says")))));
+
+        Map<String, String> responses = new HashMap<>();
+        responses.put(ANCHOR + "/.well-known/openid-federation", anchorConfig(anchorKey));
+        TrustChainValidator validator = new TrustChainValidator(
+                new HttpTrustControllerGateway(serving(responses), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
+
+        List<String> chain = List.of(leafConfig(leafKey), intermediateAboutLeaf,
+                intermediateConfig(intermediateKey), anchorAboutIntermediate);
+        TrustChainValidationResult result = validator.validate(chain, LEAF, LEAF);
 
         assertEquals(ANCHOR, result.trustAnchorIssuer());
         assertEquals(LEAF, result.leafSubject());
-        assertEquals(List.of("authorization_code"), result.metadataFor("oauth_client").get("grant_types"));
-        assertEquals("Payment Agent", result.metadataFor("oauth_client").get("client_name"));
-        assertTrue(result.isPoliced("oauth_client"));
-        // The pushed chain already carried the intermediate's entity configuration; the anchor's
-        // statement about it was fetched from the anchor, and nothing was fetched from the intermediate.
-        assertTrue(fetched.contains(fetchUrl(INTERMEDIATE)), fetched.toString());
-        assertFalse(fetched.contains(INTERMEDIATE + "/.well-known/openid-federation"), fetched.toString());
+        assertTrue(result.isPoliced("openid_relying_party"), "the anchor's policy must count as applied");
+        assertEquals("as-the-anchor-says", result.metadataFor("openid_relying_party").get("client_name"));
     }
 }

@@ -28,6 +28,7 @@ import org.jose4j.jwt.JwtClaims;
 final class ExplicitRegistrationRequest {
     /** Upper bound on the number of statements accepted in a trust-chain body. */
     static final int MAX_TRUST_CHAIN_LENGTH = 16;
+    private static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
 
     private final String issuer;
     private final String sub;
@@ -47,21 +48,7 @@ final class ExplicitRegistrationRequest {
      * verified result.
      */
     static ExplicitRegistrationRequest fromJwt(String jwt, String expectedAud) throws Exception {
-        JwtClaims verified;
-        try {
-            JwtClaims unverified = JwtCodec.parseUnverifiedClaims(jwt);
-            String opIssuer = Claims.requireNonBlank(unverified.getIssuer(), "iss");
-            Map<String, Object> jwks = Claims.requiredMap(unverified, "jwks");
-            verified = JwtCodec.verifyAgainstInlineJwks(jwt, jwks, opIssuer);
-        }
-        catch (IllegalArgumentException e) {
-            throw e;
-        }
-        catch (Exception e) {
-            // A statement that cannot be parsed or does not verify under its own jwks is a malformed
-            // request (400), not a server fault - and it has, by construction, touched nothing.
-            throw new IllegalArgumentException("Entity statement could not be verified: " + e.getMessage(), e);
-        }
+        JwtClaims verified = verifySelfSigned(jwt);
 
         List<String> audience = verified.getAudience();
         if (audience == null || !audience.contains(expectedAud)) {
@@ -86,6 +73,33 @@ final class ExplicitRegistrationRequest {
         }
         catch (Exception e) {
             throw new IllegalArgumentException("Invalid explicit registration request JSON", e);
+        }
+    }
+
+    /**
+     * The request statement's claims, once it is typed and verifies under its own {@code jwks}.
+     *
+     * <p>OpenID Federation 1.0 §3: an Entity Statement without {@code typ: entity-statement+jwt} MUST be
+     * rejected, and §12.2.2 applies the normal Entity Statement validation rules to this request. It
+     * has to happen here: {@link RegistrationService#explicitRegister} validates the chain in the
+     * body's {@code trust_chain} header, which never contains the body itself, so no later check reads
+     * this statement's header.
+     */
+    private static JwtClaims verifySelfSigned(String jwt) {
+        try {
+            JwtCodec.requireType(JwtCodec.getJwtHeaders(jwt), ENTITY_STATEMENT_TYP);
+            JwtClaims unverified = JwtCodec.parseUnverifiedClaims(jwt);
+            String opIssuer = Claims.requireNonBlank(unverified.getIssuer(), "iss");
+            Map<String, Object> jwks = Claims.requiredMap(unverified, "jwks");
+            return JwtCodec.verifyAgainstInlineJwks(jwt, jwks, opIssuer);
+        }
+        catch (IllegalArgumentException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            // A statement that cannot be parsed or does not verify under its own jwks is a malformed
+            // request (400), not a server fault - and it has, by construction, touched nothing.
+            throw new IllegalArgumentException("Entity statement could not be verified: " + e.getMessage(), e);
         }
     }
 

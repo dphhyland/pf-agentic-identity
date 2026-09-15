@@ -46,18 +46,26 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  * attestation and its PoP with the same {@link ClientAttestationVerifier} the OGNL issuance criterion
  * uses, resolves the client from the attestation's {@code sub}, and forwards a wrapped request that
  * authenticates to PF with its native {@code private_key_jwt}: a {@code client_assertion}
- * ({@code iss} = {@code sub} = the resolved client id) signed by a deployment-held <em>bridge key</em>
- * whose public half is registered in each attestation client's JWKS. The workload therefore sends only
+ * ({@code iss} = {@code sub} = the resolved client id) signed with that client's own <em>bridge key</em>
+ * ({@link BridgeSigners}, one per client), whose public half is already in the client's registered JWKS.
+ * The workload therefore sends only
  * the draft's wire format — two headers, no {@code client_secret}, no {@code client_id} — and PF's own
  * authenticator makes the accept/reject decision on the bridge assertion.
  *
  * <p><b>Fail closed:</b> an invalid attestation is rejected here with the draft's error codes and never
  * reaches PF. A request with <em>no</em> attestation header passes through untouched — PF then enforces
  * whatever authentication that client is configured for, so the filter can never widen access; it only
- * translates a verified attestation into a credential PF understands. Requests are verified again by the
- * OGNL issuance criterion on the engine classloader; the two run on separate replay caches (one per
- * classloader), so each sees a given PoP {@code jti} exactly once per request and genuine replays fail
- * in both.
+ * translates a verified attestation into a credential PF understands. The attestation is verified ONCE
+ * per request: this filter publishes the verified context as a server-side request attribute, and the
+ * OGNL issuance criterion on the engine classloader reuses it rather than calling {@code verify()} again
+ * ({@code verify()} consumes the PoP {@code jti} and any challenge, so a second call would report a
+ * replay as soon as both classloaders share a Redis store). When the attribute is absent — a deployment
+ * that runs without this filter — the criterion verifies for itself.
+ *
+ * <p>Which attesters may vouch for a client is also per client: the same {@code OIDF_BRIDGE_SIGNING_KEYS}
+ * entry names them as {@code "attesters"}. Federation trust says an attester is genuine; the binding
+ * says it is <em>this client's</em>. A trusted attester naming a client it is not bound to is refused,
+ * and so - by default - is a client bound to nobody ({@code OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING}).
  *
  * <p>Signing keys come from {@link BridgeSigners}, one PER CLIENT. What is checked at {@code init} is
  * required: a deployment that registers clients for attestation authentication but has no bridge key
@@ -196,6 +204,18 @@ public final class ClientAttestationAuthFilter implements Filter {
                     requestUri, httpRequest.getParameter("client_id"), authorizationDetails);
 
             String clientId = result.clientId();
+            // Trust in the attester is federation-wide - any issuer whose chain reaches the anchor
+            // resolves keys - and says nothing about WHICH clients that attester may vouch for. Without
+            // this, any trusted attester (any federation member with a resolvable leaf) could mint an
+            // attestation naming some other client and be bridged to PF as that client. The binding
+            // is per client, in the same entry as its bridge key, and is checked BEFORE anything about
+            // this verification is published or bridged.
+            String unbound = ClientAttestationAuthFilter.attesterNotBoundTo(clientId, result.attesterIssuer());
+            if (unbound != null) {
+                LOGGER.warn((Object) ("attest_jwt_client_auth: " + unbound));
+                ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client", unbound);
+                return;
+            }
             // Publish what we just verified, so the issuance criterion does not verify the same request a
             // second time. verify() consumes the challenge and burns the PoP jti; doing it twice destroys
             // the first result. BridgeAuthRequest wraps this request and HttpServletRequestWrapper
@@ -269,6 +289,31 @@ public final class ClientAttestationAuthFilter implements Filter {
         return CompactJws.sign(header, claims.toJson(), signer);
     }
 
+
+    /**
+     * Why {@code attester} may not vouch for {@code clientId}, or {@code null} when it may.
+     *
+     * <p>A client whose entry binds it to attesters is refused for any other attester, always. A client
+     * whose entry names none is refused too, by default, naming the setting - the same shape as a
+     * missing bridge key: a 401 for this client, not a boot failure for everyone. The opt-out
+     * ({@link FederationRuntimeConfig#REQUIRE_ATTESTER_BINDING_ENV}=false) relaxes only the unbound
+     * case, for a deployment with one attester that knows it.
+     */
+    private static String attesterNotBoundTo(String clientId, String attester) {
+        java.util.Set<String> bound = BridgeSigners.attestersFor(clientId);
+        if (!bound.isEmpty()) {
+            return bound.contains(attester) ? null
+                    : "attestation for client_id=" + clientId + " was issued by " + attester
+                            + ", which is not an attester this client is bound to";
+        }
+        if (FederationRuntimeConfig.get().requireAttesterBinding()) {
+            return "attestation for client_id=" + clientId + " verified, but its entry in "
+                    + BridgeSigners.KEYS_ENV + " names no \"attesters\" - any trusted attester could vouch for it. "
+                    + "Add \"attesters\": [<issuer>] to the client's entry, or set "
+                    + FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV + "=false to let unbound clients accept any trusted attester.";
+        }
+        return null;
+    }
 
     private static void reject(HttpServletResponse response, int status, String error, String description)
             throws IOException {

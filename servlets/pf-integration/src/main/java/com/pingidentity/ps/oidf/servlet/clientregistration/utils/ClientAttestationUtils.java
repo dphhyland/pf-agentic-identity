@@ -170,9 +170,13 @@ public final class ClientAttestationUtils {
             }
             ClientAttestationResult result = verifier.verify(attestation, pop, dpop, request.getMethod(), requestUri, requestedClientId, authorizationDetails);
             if (!result.grantedAuthorizationDetails().isEmpty()) {
-                // Stash the granted RFC 9396 authorization_details so an access-token-manager attribute
+                // Stash the GRANTED RFC 9396 authorization_details so an access-token-manager attribute
                 // mapping can surface it into the issued token (OGNL reads the HttpRequest attribute).
-                request.setAttribute("oidf.authorization_details", authorizationDetails);
+                // Granted, not the raw request parameter: a request that omits a field the entitlement
+                // constrains is granted with that constraint inherited (RarEntitlement), and a token
+                // carrying the request verbatim would drop it again.
+                request.setAttribute("oidf.authorization_details",
+                        new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result.grantedAuthorizationDetails()));
             }
             // Publish the verified attestation context for the RAR -> PingAuthorize AuthorizationDetailProcessor
             // (pf-rar-paz-plugin: AttestationSubject.REQUEST_ATTRIBUTE). Decoupled by a shared string key and a
@@ -290,8 +294,9 @@ public final class ClientAttestationUtils {
     /**
      * Default verification policy for the token-endpoint auth filter: PoP audience = OP issuer or the
      * request URL, method POST. The filter has no issuance-criteria context, so the per-client
-     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here; the OGNL issuance
-     * criterion still enforces it on the same request.
+     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here — and because the
+     * OGNL issuance criterion reuses the verification this filter publishes rather than verifying again
+     * (verify-once), that tuning does not apply to a filter-authenticated request at all.
      */
     public static ClientAttestationConfig defaultConfig(String opIssuer, String requestUri) {
         return ClientAttestationConfig.builder()

@@ -42,6 +42,13 @@ public final class FederationRuntimeConfig {
     /** Default true: without the bridge key, attestation authentication silently does nothing. */
     public static final String REQUIRE_BRIDGE_KEY_ENV = "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY";
     /**
+     * Default true. Whether a client whose bridge-key entry names no {@code attesters} is refused at the
+     * token endpoint. Trust in an attester is federation-wide; the binding is what says WHICH clients
+     * it may vouch for. {@code false} lets an unbound client accept any trusted attester - an explicit
+     * binding is still enforced.
+     */
+    public static final String REQUIRE_ATTESTER_BINDING_ENV = "OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING";
+    /**
      * Default true: refuse to register a federation client whose metadata no superior constrained.
      * A trust chain may legally carry no {@code metadata_policy}, in which case the leaf's own
      * self-published {@code scope}, {@code grant_types} and {@code response_types} are what it gets.
@@ -55,6 +62,7 @@ public final class FederationRuntimeConfig {
     private static final String BRIDGE_KEY_PROP = "oidf.bridge.private.jwk";
     private static final String BRIDGE_PREVIOUS_PUBLIC_KEY_PROP = "oidf.bridge.previous.public.jwk";
     private static final String REQUIRE_BRIDGE_KEY_PROP = "oidf.attestation.require.bridge.key";
+    private static final String REQUIRE_ATTESTER_BINDING_PROP = "oidf.attestation.require.attester.binding";
     private static final String REQUIRE_METADATA_POLICY_PROP = "oidf.require.metadata.policy";
 
     private static volatile FederationRuntimeConfig instance;
@@ -67,15 +75,17 @@ public final class FederationRuntimeConfig {
     private final String bridgePreviousPublicJwk;
     private final boolean requireBridgeKey;
     private final boolean requireMetadataPolicy;
+    private final boolean requireAttesterBinding;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
-            boolean requireMetadataPolicy) {
+            boolean requireMetadataPolicy, boolean requireAttesterBinding) {
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
         this.requireBridgeKey = requireBridgeKey;
         this.requireMetadataPolicy = requireMetadataPolicy;
+        this.requireAttesterBinding = requireAttesterBinding;
         this.trustControllerHost = trustControllerHost == null ? "" : trustControllerHost.trim();
         String base = trustControllerBaseUrl == null ? "" : trustControllerBaseUrl.trim();
         // The identity and its reachable location are the same thing in most deployments; only a PF
@@ -105,6 +115,7 @@ public final class FederationRuntimeConfig {
         Objects.requireNonNull(props, "props");
         String requireBridge = setting(env, props, REQUIRE_BRIDGE_KEY_PROP, REQUIRE_BRIDGE_KEY_ENV);
         String requirePolicy = setting(env, props, REQUIRE_METADATA_POLICY_PROP, REQUIRE_METADATA_POLICY_ENV);
+        String requireBinding = setting(env, props, REQUIRE_ATTESTER_BINDING_PROP, REQUIRE_ATTESTER_BINDING_ENV);
         return new FederationRuntimeConfig(
                 setting(env, props, HOST_PROP, HOST_ENV),
                 setting(env, props, BASE_URL_PROP, BASE_URL_ENV),
@@ -117,7 +128,10 @@ public final class FederationRuntimeConfig {
                 requireBridge == null || requireBridge.isBlank() || Boolean.parseBoolean(requireBridge),
                 // Default TRUE for the same reason: a chain with no metadata_policy constrains nothing,
                 // so the leaf's self-published scope and grant_types are simply granted. Silently.
-                requirePolicy == null || requirePolicy.isBlank() || Boolean.parseBoolean(requirePolicy));
+                requirePolicy == null || requirePolicy.isBlank() || Boolean.parseBoolean(requirePolicy),
+                // Default TRUE: a client anyone trusted may vouch for is a client anyone trusted may
+                // impersonate at the bridge.
+                requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding));
     }
 
     private static String blankToNull(String value) {
@@ -206,6 +220,11 @@ public final class FederationRuntimeConfig {
      */
     public boolean requireMetadataPolicy() {
         return this.requireMetadataPolicy;
+    }
+
+    /** Whether a bridge-key entry with no {@code attesters} refuses attestation authentication for that client. Default true. */
+    public boolean requireAttesterBinding() {
+        return this.requireAttesterBinding;
     }
 
     /**

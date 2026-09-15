@@ -49,4 +49,20 @@ class RarContainmentTest {
     void differentTypeIsNotSubset() {
         assertFalse(RarContainment.isSubset(Map.of("type", "payment_initiation"), Map.of("type", "sales_agent")));
     }
+
+    /**
+     * A refresh request that omits a field the accepted detail constrains. Containment here is a
+     * boolean the refresh path acts on by issuing the REQUESTED detail, so "contained" would replace an
+     * EMEA-only grant with one that names no region at all. The token endpoint answers the same
+     * question by inheriting the constraint into the grant ({@code RarEntitlement}); a boolean cannot
+     * narrow, so the only answer that never widens is no.
+     */
+    @Test
+    @Requirement("CAS §7")
+    void aRequestThatOmitsAFieldTheAcceptedDetailConstrainsIsNotContained() {
+        Map<String, Object> accepted = Map.of("type", "sales_agent",
+                "actions", List.of("read_accounts"), "sales_regions", List.of("EMEA"));
+        Map<String, Object> requested = Map.of("type", "sales_agent", "actions", List.of("read_accounts"));
+        assertFalse(RarContainment.isSubset(requested, accepted));
+    }
 }

@@ -69,7 +69,9 @@ implements TrustControllerGateway {
     @Override
     public JwtClaims fetchEntityConfiguration() throws Exception {
         String url = this.trustControllerBaseUrl + "/.well-known/openid-federation";
-        return JwtCodec.parseUnverifiedClaims(this.http.get(url, ENTITY_STATEMENT_ACCEPT));
+        String jwt = this.http.get(url, ENTITY_STATEMENT_ACCEPT);
+        EntityStatementType.require(jwt, "from " + url);
+        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     @Override
@@ -165,6 +167,9 @@ implements TrustControllerGateway {
             return this.fetchEntityConfigurationOf(authorityIssuer, pendingWrites);
         }
         String jwt = this.fetchEntityStatement(authorityIssuer, -1L, pendingWrites);
+        // §3 before §10.2: an untyped configuration is refused outright, not retried - a retry could
+        // only return the same wrong type, and no key should be tried on it.
+        EntityStatementType.require(jwt, "iss=sub=" + authorityIssuer);
         try {
             return anchor.verify(jwt, this.acceptedSigningAlgorithms);
         }
@@ -173,6 +178,7 @@ implements TrustControllerGateway {
                     + first.getMessage() + "); retrieving it again (OpenID Federation 1.0 §11.3)");
             this.subordinateStatementCache.evict(authorityIssuer, authorityIssuer);
             String again = this.http.get(this.entityConfigurationUrl(authorityIssuer), ENTITY_STATEMENT_ACCEPT);
+            EntityStatementType.require(again, "iss=sub=" + authorityIssuer);
             JwtClaims verified;
             try {
                 verified = anchor.verify(again, this.acceptedSigningAlgorithms);
@@ -192,7 +198,11 @@ implements TrustControllerGateway {
 
     @Override
     public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        return JwtCodec.parseUnverifiedClaims(this.fetchEntityStatement(issuer, -1L, pendingWrites));
+        // Its federation_fetch_endpoint decides where subordinate statements are requested from, so an
+        // untyped configuration is refused here (OpenID Federation 1.0 §3), not only once it is in a chain.
+        String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
+        EntityStatementType.require(jwt, "iss=sub=" + issuer);
+        return JwtCodec.parseUnverifiedClaims(jwt);
     }
 
     @Override

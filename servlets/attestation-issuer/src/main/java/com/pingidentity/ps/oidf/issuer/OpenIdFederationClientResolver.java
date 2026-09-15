@@ -32,6 +32,7 @@ public final class OpenIdFederationClientResolver implements IssuanceClientResol
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
     private static final String BINDINGS_CLAIM = "spiffe_client_bindings";
+    private static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
 
     private final String entityUrl;
     private final HttpGetClient http;
@@ -93,21 +94,7 @@ public final class OpenIdFederationClientResolver implements IssuanceClientResol
 
     @SuppressWarnings("unchecked")
     private List<AttesterClient> parse(String entityStatementJwt) throws IssuanceException {
-        JwtClaims claims;
-        try {
-            // The Entity Configuration is self-issued and self-signed: verify it against the JWKS it
-            // publishes (iss == the entity, sub == the entity). This is the tamper-evidence floor.
-            Map<String, Object> unverified = JwtCodec.parseUnverifiedClaims(entityStatementJwt).getClaimsMap();
-            Object jwks = unverified.get("jwks");
-            if (!(jwks instanceof Map)) {
-                throw new IllegalArgumentException("entity statement has no jwks");
-            }
-            claims = JwtCodec.verifyAgainstInlineJwks(entityStatementJwt, (Map<String, Object>) jwks, this.entityUrl);
-        } catch (IssuanceException e) {
-            throw e;
-        } catch (Exception e) {
-            throw IssuanceException.serverError("federation entity statement did not verify: " + e.getMessage());
-        }
+        JwtClaims claims = verifiedEntityConfiguration(entityStatementJwt);
 
         Object bindings;
         try {
@@ -132,6 +119,28 @@ public final class OpenIdFederationClientResolver implements IssuanceClientResol
             out.add(new AttesterClient(clientId, CimdMapping.toConfig(entry, spiffeId, this.defaultSigningJwk)));
         }
         return out;
+    }
+
+    /**
+     * The Entity Configuration is self-issued and self-signed: verify it against the JWKS it publishes,
+     * with iss == the entity. This is the tamper-evidence floor, and on this path it is the only check
+     * there is - no trust chain is walked - so the statement must first be one: OpenID Federation 1.0
+     * §3 rejects an Entity Statement whose {@code typ} is missing or anything but
+     * {@code entity-statement+jwt}.
+     */
+    @SuppressWarnings("unchecked")
+    private JwtClaims verifiedEntityConfiguration(String entityStatementJwt) throws IssuanceException {
+        try {
+            JwtCodec.requireType(JwtCodec.getJwtHeaders(entityStatementJwt), ENTITY_STATEMENT_TYP);
+            Map<String, Object> unverified = JwtCodec.parseUnverifiedClaims(entityStatementJwt).getClaimsMap();
+            Object jwks = unverified.get("jwks");
+            if (!(jwks instanceof Map)) {
+                throw new IllegalArgumentException("entity statement has no jwks");
+            }
+            return JwtCodec.verifyAgainstInlineJwks(entityStatementJwt, (Map<String, Object>) jwks, this.entityUrl);
+        } catch (Exception e) {
+            throw IssuanceException.serverError("federation entity statement did not verify: " + e.getMessage());
+        }
     }
 
     private static String str(Object o) {

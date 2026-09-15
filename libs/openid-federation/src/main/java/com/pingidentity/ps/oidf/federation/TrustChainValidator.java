@@ -135,6 +135,10 @@ public final class TrustChainValidator {
                 orderedChain.add(entry.jwt);
             }
             if (entry.jwt != null) {
+                // OpenID Federation 1.0 §3: a statement with no typ, or any typ but
+                // entity-statement+jwt, is rejected - before any key is tried, so a JWT minted for
+                // something else under a federation key never gets as far as a signature check.
+                EntityStatementType.require(entry.jwt, "iss=" + entry.issuer + " sub=" + entry.subject);
                 int lastIndex = orderedChainEntries.size() - 1;
                 JwtClaims verified;
                 if (i < lastIndex) {
@@ -331,17 +335,19 @@ public final class TrustChainValidator {
                     HashSet<String> branchVisited = new HashSet<String>(visitedSubjects);
                     List<ChainEntry> completed = this.extendRoute(entriesBySubject, branchRoute, current, hint, branchVisited, expectedRpIssuer, maxLeafNodeTime, maxTrustAnchorNodeTime, pendingWrites, budget);
                     if (completed != null) {
-                        // The completed branch, always - including the anchor's own subordinate
-                        // statement about this intermediate, which is the last entry when the hint
-                        // was the anchor. This used to return the shorter `route` in that case,
-                        // leaving the intermediate's self-signed Entity Configuration as the final
-                        // entry: validate() then verified it against its OWN jwks, so a chain that
-                        // impersonated a genuine intermediate under a key of the caller's choosing
-                        // (and simply omitted the anchor's statement) resolved to the anchor. The
-                        // anchor's statement is what ties the intermediate's keys to the anchor,
-                        // and it is also where the anchor's metadata_policy lives - neither counts
-                        // unless the statement is in the route. Pinned by
-                        // TrustChainValidatorIntermediateTest.
+                        // Always the completed branch, INCLUDING the superior's statement about this
+                        // intermediate. When the hint was the anchor itself this used to return `route`
+                        // - the walk up to and including the intermediate's own Entity Configuration -
+                        // and drop the anchor's statement it had just resolved. The verification loop
+                        // then checked that configuration against the keys it carries itself, and the
+                        // statement about the leaf against those same keys: nothing the anchor said
+                        // about the intermediate was ever applied, neither its jwks nor its
+                        // metadata_policy. An attacker could forge a real intermediate's configuration
+                        // and statement with a key of their own; the anchor's genuine statement -
+                        // vouching for a different key - was fetched, noted, and discarded. With the
+                        // statement kept, the configuration is verified against the anchor-asserted
+                        // keys and the statement itself against the anchor's (OpenID Federation §10.2).
+                        // Pinned by TrustChainValidatorIntermediateTest.
                         return completed;
                     }
                 }

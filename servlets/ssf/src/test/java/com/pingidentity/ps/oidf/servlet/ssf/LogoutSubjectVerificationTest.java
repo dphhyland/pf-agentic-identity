@@ -13,6 +13,7 @@ import org.jose4j.jwk.RsaJsonWebKey;
 import org.jose4j.jwk.RsaJwkGenerator;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
@@ -103,6 +104,7 @@ class LogoutSubjectVerificationTest {
     }
 
     @Test
+    @Requirement("OIDC-CORE §3.1.3.7")
     void aTokenFromAnotherIssuerIsRefused() throws Exception {
         RsaJsonWebKey pfKey = key("pf-1");
         LogoutEventFilter.IdTokenVerifier verifier =
@@ -143,5 +145,45 @@ class LogoutSubjectVerificationTest {
                 PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), PF_ISSUER);
 
         assertNull(LogoutEventFilter.extractSubject(request(jws.getCompactSerialization(), null), verifier));
+    }
+
+    /**
+     * The production factory used to build the verifier with no expected issuer at all, while this
+     * class's javadoc and {@link LogoutEventFilter#extractSubject}'s said the issuer was enforced. With
+     * no issuer there is nothing to enforce: any JWT PF's keys ever signed — an access token, a SET, an
+     * id token for another virtual issuer — of any age and for any audience, names the subject of a
+     * {@code caep.session-revoked}. A verifier that does not know which issuer to expect must refuse
+     * every token rather than accept every one.
+     */
+    @Test
+    @Requirement("OIDC-CORE §3.1.3.7")
+    void aVerifierWithNoExpectedIssuerRefusesEveryToken() throws Exception {
+        RsaJsonWebKey pfKey = key("pf-1");
+        LogoutEventFilter.IdTokenVerifier noIssuer = PfIdTokenVerifier.withKeys(new JsonWebKeySet(pfKey), null);
+
+        assertNull(LogoutEventFilter.extractSubject(
+                        request(idToken(pfKey, "https://elsewhere.example", "victim", false), null), noIssuer),
+                "without an expected issuer the issuer check is absent, not satisfied");
+        assertNull(LogoutEventFilter.extractSubject(
+                        request(idToken(pfKey, PF_ISSUER, "alice", false), null), noIssuer),
+                "fail closed: even a token from this PF is refused until the deployment says who this PF is");
+    }
+
+    /**
+     * The production wiring: PF's signing keys plus the issuer PF reports for the request. Built through
+     * the same factory the filter uses, with the two PF lookups injected, so what is asserted here is
+     * the composition rather than a hand-built verifier.
+     */
+    @Test
+    @Requirement("OIDC-CORE §3.1.3.7")
+    void theDeploymentVerifierEnforcesTheIssuerPfReportsForTheRequest() throws Exception {
+        RsaJsonWebKey pfKey = key("pf-1");
+        HttpServletRequest foreign = request(idToken(pfKey, "https://elsewhere.example", "victim", false), null);
+        HttpServletRequest own = request(idToken(pfKey, PF_ISSUER, "alice", false), null);
+
+        assertNull(LogoutEventFilter.extractSubject(foreign, req -> PF_ISSUER, () -> new JsonWebKeySet(pfKey)));
+        SubjectId subject = LogoutEventFilter.extractSubject(own, req -> PF_ISSUER, () -> new JsonWebKeySet(pfKey));
+        assertNotNull(subject);
+        assertEquals(SubjectId.issSub(PF_ISSUER, "alice").toString(), subject.toString());
     }
 }

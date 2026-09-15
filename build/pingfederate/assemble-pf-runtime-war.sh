@@ -1,16 +1,18 @@
 #!/usr/bin/env bash
-# Assemble pf-runtime.war = STOCK PingFederate runtime war + the OIDF module jar + jose4j, injected
-# into WEB-INF/lib, PLUS a small web.xml edit to register the SSF logout filter.
+# Assemble pf-runtime.war = STOCK PingFederate runtime war + the OIDF module jars (+ optionally jose4j),
+# injected into WEB-INF/lib, PLUS web.xml edits to register three filters over PF's own endpoints.
 #
 # Annotation-mapped module classes (@WebServlet servlets like RegisteredClientsServlet, the SSF servlets)
 # auto-map once the jar is on WEB-INF/lib (pf-runtime.war scans it). Plain filters that must run over PF's
 # OWN endpoints are NOT annotated (mapping them by annotation would only bind the module's context), so they
 # are registered explicitly in this war's WEB-INF/web.xml:
 #   - SsfLogoutSignal (LogoutEventFilter) over /idp/init_logout.openid → emits caep.session-revoked SETs.
-# (The OidfAutoRegistration filter over /as/token.oauth2 is the same shape — add it here the same way when
-#  you want token-time auto-registration wired; left out so this change only turns on the logout signal.)
+#   - OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 → §12.1 automatic
+#     registration; MUST be mapped before ClientAttestationAuth (see below — the order is checked).
+#   - ClientAttestationAuth (ClientAttestationAuthFilter) over /as/token.oauth2 → attest_jwt_client_auth.
+# All three registrations are idempotent, and the script fails if any mapping is missing afterwards.
 #
-# Inputs (all provided by the CI job — see .github/workflows/deploy-pingfederate.yml):
+# Inputs (provided by the caller — build/pingfederate/Dockerfile here, or a consumer repo's CI job):
 #   $1  STOCK_WAR   path to the stock pf-runtime.war extracted from the pingidentity/pingfederate image
 #   $2  MODULES     the built module jar(s): either a single jar (the legacy monolith
 #                   pf-oidf-modules.jar), or a DIRECTORY of jars (the monorepo's modular output —

@@ -323,7 +323,8 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 | Setting | Effect | Set in the checked-in deploy config? |
 |---|---|---|
 | `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` | Cluster-wide challenge + replay store. Unset = per-node in-memory | No — a resource of whichever environment deploys this, so set outside this repo |
-| `OIDF_BRIDGE_SIGNER_BACKING` + `OIDF_BRIDGE_SIGNING_KEYS` (+ `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault`) | Per-client bridge signing. Unconfigured = the filter refuses to start unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` | No — deployment secrets, set per environment |
+| `OIDF_BRIDGE_SIGNER_BACKING` + `OIDF_BRIDGE_SIGNING_KEYS` (+ `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault`) | Per-client bridge signing. Unconfigured = the filter refuses to start unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`. Each client entry also names its `"attesters"` | No — deployment secrets, set per environment |
+| `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING` / `oidf.attestation.require.attester.binding` | **Default true.** A client whose bridge entry names no `attesters` is refused at the token endpoint: federation trust says an attester is genuine, the binding says it is this client's, and without one any trusted attester can mint an attestation naming any client and be bridged as it. `=false` lets unbound clients accept any trusted attester; an explicit binding is still enforced | No — the default is the safe one |
 | ~~`OIDF_BRIDGE_PRIVATE_JWK`~~ | **Superseded and refused.** Setting it now fails startup with a message naming where the key should move to, because a security setting that silently does nothing is worse than one that is absent | Must be unset |
 | `OIDF_REQUIRE_METADATA_POLICY` / `oidf.require.metadata.policy` | **Default true.** Refuses federation registration when no superior in the trust chain declares a `metadata_policy` for the entity type being registered — without one the leaf's self-published `scope`, `grant_types` and `response_types` are granted verbatim | No — the default is the safe one, so a deployment only sets this to relax it |
 | `oidf.mock.attesters` | Static attester trust, bypassing federation trust chains | **Only if the consumer supplies `oidf-mock-attesters.json` in the build context.** The capability image no longer carries one or activates the property unconditionally — which attesters an AS believes is a demo's decision about its own trust |
@@ -422,6 +423,7 @@ citation, not in the code, and it is left visible rather than filled with a plau
 | — | Wallet-provider keys likewise | `FederationWalletProviderKeyResolver` | Implemented, unconfigured by default |
 | `ABCA-10 §8` | AS advertises `attest_jwt_client_auth` / `attest_jwt_client_auth_dpop`, PoP methods, alg lists, `challenge_endpoint` | `AttestationMetadataConfig` | Implemented |
 | `OIDFED §1.2` | A non-HTTPS entity identifier is refused before any fetch | `TrustChainValidator` | Implemented |
+| `OIDFED §3(2)` | An entity statement without `typ: entity-statement+jwt` is rejected — every statement in a route, every entity configuration the gateway reads for a fetch endpoint (including the pinned anchor's, before its signature is checked), the explicit-registration request body, and the entity configuration the attester reads its client bindings from | `EntityStatementType`, `TrustChainValidator`, `HttpTrustControllerGateway`, `ExplicitRegistrationRequest`, `OpenIdFederationClientResolver` | Implemented — `(2)` is §3's second paragraph (`#section-3-2`); a bare `OIDFED §3` row would count the `§3.1.x`/`§3.2` pins as covering it |
 | `OIDFED §3.2` | An entity configuration is genuinely self-signed | `TrustChainValidator` | Implemented |
 | `OIDFED §2.1` | Web PKI / TLS is not the basis of signing-key trust: a key the anchor serves over HTTPS is not trusted unless it was pinned | `TrustAnchor`, `TrustChainValidator` | Implemented |
 | `OIDFED §3.1.1` | `jwks` is required: a superior statement without one cannot vouch for the statement below it, and pinned anchor keys each need a unique `kid` | `TrustChainValidator`, `TrustAnchor` | Implemented |
@@ -525,7 +527,7 @@ are the thin part.
 | No end-to-end test spanning issuance → token endpoint | Every test is unit-level. `AttestationMinterTest` does verify a minted attestation through `ClientAttestationVerifier`, which is the closest thing to a seam test, but nothing exercises the HTTP path |
 | `MiniRedisClient` `rediss://` (TLS) | The plain path is well covered by `FakeRedisServer`; the TLS path is not |
 | ~~Signature verification in the OGNL claim hooks~~ **Half-closed.** `attestationClaim` no longer base64-decodes the header — it reads `VERIFIED_ATTESTATION_ATTRIBUTE`, published only once the filter has verified (see [the design doc](attestation-client-auth-design.md), Change 3). `delegationActChain`'s `act` claim is still an unverified read of the caller's `subject_token`, by design: the token-exchange processor validates that token separately, before any issuance | The one remaining unverified read is deliberate and documented, not an oversight |
-| **`OpenIdFederationClientResolver` — no tests at all** | The federation metadata source. Entity-statement fetch, self-signature verification and `spiffe_client_bindings` parsing are all unexercised. `ChainClientResolverTest` uses fake plugins, not this class. `AttesterResolvers` — the env-driven resolver chain — is in the same state |
+| **`OpenIdFederationClientResolver` — statement checks only** | `OpenIdFederationClientResolverTest` pins what is checked on the fetched entity configuration — `typ`, a `jwks`, the self-signature, the issuer — and one binding read; `verifiedEntityConfiguration` is in the coverage gate. The cache, stale-on-error and malformed-binding paths are still unexercised, and nothing here validates a chain (§6). `AttesterResolvers` — the env-driven resolver chain — still has no tests |
 | ~~`PfIssuanceClientResolver` — no test class~~ **CLOSED** | `PfIssuanceClientResolverTest` (8 tests): unknown/disabled clients excluded, a client missing `attestation_issuer` skipped, one misconfigured client doesn't take the rest of the store down with it |
 | Selector-conditioned downscoping | `spireSelectorsAreIntrospectedIntoWorkloadAttributes` asserts the selectors appear in the payload; nothing asserts the granted ceiling changes — because it does not (§3.3) |
 | Issuance driven through CIMD or federation | `AttestationIssuanceServletTest` injects prebuilt configs via `setClientResolver`; no test runs `issue()` behind a real external resolver |
@@ -558,9 +560,9 @@ allowlist keyed by `trust_domain`, a document that carries `bundle`/`bundle_url`
 and the fetch enforces HTTPS-only, no private/loopback resolution, a size cap, and `client_id` equal to
 the fetched URL. Slice 0 in §8.
 
-**Federation-resolved clients are not chain-validated.** `OpenIdFederationClientResolver:96-103`
-verifies the entity configuration against its **own inline `jwks`** — tamper-evidence, not trust. No
-`TrustChainValidator` runs on this path (the only one in the issuer is for wallet-provider keys). Spec
+**Federation-resolved clients are not chain-validated.**
+`OpenIdFederationClientResolver.verifiedEntityConfiguration` checks the entity configuration's `typ` and
+verifies it against its **own inline `jwks`** — tamper-evidence, not trust. No `TrustChainValidator` runs on this path (the only one in the issuer is for wallet-provider keys). Spec
 §6.2 rule 2 says the CAS MUST validate the chain to a configured anchor and SHOULD resolve live so that
 revoking the entity's membership revokes issuance within one cache lifetime. Today revocation at the
 anchor changes nothing at the attester. `FederationAttesterKeyResolver:43-46` on the AS side already
@@ -636,13 +638,6 @@ but only when a client ceiling is present, and `CimdMapping.toConfig` never sets
 federation binding's entitlement is therefore bounded by nothing but itself. *Closes when:* the external
 mapping schema carries a client-level ceiling and the check refuses a binding entitlement with no
 ceiling to sit under. Slice 2 in §8.
-
-**Inbound entity statements are not checked for `typ`.** OIDFED §3 says statements without
-`typ: entity-statement+jwt` MUST be rejected; `TrustChainValidator` verifies signatures, issuers and
-expiry but never reads the header. Found while pinning the anchor keys on 2026-09-15 and left out of that
-change deliberately: turning it on refuses any live federation member that omits the header, so it wants
-its own check against the running federations first. *Closes when:* every statement in a route is
-rejected without that `typ`, pinned by a test tagged `OIDFED §3`.
 
 **Wallet trust is unconfigured everywhere.** Neither `OIDF_TRUST_CONTROLLER_HOST` +
 `OIDF_ATTESTER_OP_ISSUER` nor `OIDF_WALLET_PROVIDER_JWKS` is set in any deploy config, so the WIA path
@@ -762,7 +757,7 @@ rule 4 is a MAY) — but it is the one that delivers the stage the design always
   never on a failed chain, or revocation is defeated.
 - `AttesterResolvers`: reorder to federation → CIMD → PF store. Note in this doc that
   first-match-per-client-id now means the higher-assurance source wins a collision.
-- Tests, new `OpenIdFederationClientResolverTest`: chain-valid entity resolves; chain-invalid or revoked
+- Tests, extending `OpenIdFederationClientResolverTest`: chain-valid entity resolves; chain-invalid or revoked
   entity refused; transport failure serves stale; chain failure does not; bindings come from the
   validated leaf.
 
@@ -808,8 +803,8 @@ rule 4 is a MAY) — but it is the one that delivers the stage the design always
   taking the rest of the store down with it.
 - ~~`ClientAttestationUtils`: `validateClientAttestation` happy and deny paths via a stubbed
   request.~~ **Already covered** — `VerifyOnceTest` predates this slice.
-- Still open: `OpenIdFederationClientResolver` and `AttesterResolvers` have no test files at all (see
-  §5.2 and slice 1, which needs `OpenIdFederationClientResolverTest` anyway); `MiniRedisClient`'s
+- Still open: `AttesterResolvers` has no test file at all, and `OpenIdFederationClientResolverTest`
+  covers only the statement checks (see §5.2 and slice 1, which extends it with the chain cases); `MiniRedisClient`'s
   `rediss://` path is untested; no test spans issuance → token endpoint end to end.
 
 ### Slice 5 — Deploy hygiene
