@@ -50,9 +50,14 @@ final class RegistrationService {
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
 
+    /**
+     * The production wiring. The anchor's keys come from {@link FederationRuntimeConfig#trustAnchor()}
+     * - the same deployment-wide source the configuration's host came from - so a deployment that has
+     * not pinned them fails at init, here, rather than at the first chain.
+     */
     RegistrationService(RegistrationConfiguration configuration) {
         this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
-                        .trusting(configuration.trustControllerBaseUrl(), configuration.trustControllerHost())), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), configuration.trustControllerHost(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
+                        .trusting(configuration.trustControllerBaseUrl(), configuration.trustControllerHost())), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), FederationRuntimeConfig.get().trustAnchor(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
     }
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore) {

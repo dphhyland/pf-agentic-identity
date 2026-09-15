@@ -17,6 +17,7 @@ import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
@@ -267,9 +268,23 @@ public final class ClientAttestationUtils {
     private static AttesterKeyResolver resolveAttesterTrust(boolean ignoreSslErrors, String trustControllerHost,
             String trustControllerBaseUrl, String opIssuer, long trustChainEntryMaxAge) {
         StaticAttesterKeyResolver staticResolver = ClientAttestationUtils.mockAttesterResolver();
+        if (staticResolver == null) {
+            return ClientAttestationUtils.federationAttesterResolver(ignoreSslErrors, trustControllerHost, trustControllerBaseUrl,
+                    opIssuer, trustChainEntryMaxAge);
+        }
+        // The federation side is built only when a static entry misses. Building it needs the trust
+        // anchor's pinned keys (FederationRuntimeConfig.trustAnchor), and a statically trusted attester
+        // must not be refused because a key it never uses is not configured yet - that is exactly the
+        // state of a self-anchored deployment between first boot and capturing its own keys.
+        return new FallbackAttesterKeyResolver(staticResolver, (attesterIssuer, trustChainHeader) ->
+                ClientAttestationUtils.federationAttesterResolver(ignoreSslErrors, trustControllerHost, trustControllerBaseUrl,
+                        opIssuer, trustChainEntryMaxAge).resolve(attesterIssuer, trustChainHeader));
+    }
+
+    private static AttesterKeyResolver federationAttesterResolver(boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, String opIssuer, long trustChainEntryMaxAge) {
         TrustChainValidator chainValidator = ClientAttestationUtils.getValidator(ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
-        FederationAttesterKeyResolver federationResolver = new FederationAttesterKeyResolver(chainValidator, opIssuer, trustChainEntryMaxAge);
-        return staticResolver == null ? federationResolver : new FallbackAttesterKeyResolver(staticResolver, federationResolver);
+        return new FederationAttesterKeyResolver(chainValidator, opIssuer, trustChainEntryMaxAge);
     }
 
     /**
@@ -342,12 +357,15 @@ public final class ClientAttestationUtils {
                 // trustControllerHost is the bare identity used for knownTrustAnchor matching;
                 // effectiveBaseUrl is the (possibly different) HTTP base actually needed to reach it —
                 // see HttpTrustControllerGateway's selfIssuer javadoc for why these can diverge.
+                // The anchor's keys are deployment-wide and out of band; the host has to be that
+                // anchor. Same rule and same check as OIDFederationUtils.
+                TrustAnchor trustAnchor = OIDFederationUtils.requireConfiguredAnchor(trustControllerHost);
                 gateway = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors, OutboundUrlPolicy.fromEnvironment()
                         .trusting(effectiveBaseUrl, trustControllerHost)), effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
                 configuredTrustControllerBaseUrl = effectiveBaseUrl;
-                validator = new TrustChainValidator(gateway, trustControllerHost);
+                validator = new TrustChainValidator(gateway, trustAnchor);
             } else {
                 ClientAttestationUtils.validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             }

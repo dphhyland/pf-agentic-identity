@@ -120,6 +120,28 @@ public final class ClientAttestationAuthFilter implements Filter {
                     + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV + "=false - attestation headers will "
                     + "pass through and PF will enforce each client's configured authentication."));
         } else {
+            // Attestation authentication is live, so an attester that is not statically trusted resolves
+            // through a trust chain to the deployment's anchor, whose keys are pinned out of band (OpenID
+            // Federation 1.0 §4). A pinned JWKS that is not a usable public key set can never work: refuse
+            // to start. An absent one is refused per attester instead - failing init would also stop this
+            // web app's own /.well-known/openid-federation, which a self-anchored PF has to serve before
+            // its keys can be captured - so say so once, loudly, here.
+            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+            if (runtime.isTrustControllerConfigured()) {
+                if (runtime.trustAnchorJwks() == null) {
+                    LOGGER.error((Object) ("attest_jwt_client_auth: " + FederationRuntimeConfig.HOST_ENV + " names "
+                            + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                            + " is unset - every attester resolved through the federation is refused until the trust"
+                            + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
+                } else {
+                    try {
+                        runtime.trustAnchor();
+                    }
+                    catch (RuntimeException e) {
+                        throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
+                    }
+                }
+            }
             LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
         }
     }

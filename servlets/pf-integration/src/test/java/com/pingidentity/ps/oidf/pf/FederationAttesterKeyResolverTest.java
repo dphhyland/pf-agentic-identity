@@ -16,6 +16,7 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
+import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.jose.Jwks;
@@ -73,8 +74,8 @@ class FederationAttesterKeyResolverTest {
         return m;
     }
 
-    private static FederationAttesterKeyResolver resolver(HttpGetClient http) {
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+    private static FederationAttesterKeyResolver resolver(HttpGetClient http, PublicJsonWebKey anchorKey) {
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         return new FederationAttesterKeyResolver(validator, OP);
     }
 
@@ -84,7 +85,7 @@ class FederationAttesterKeyResolverTest {
         PublicJsonWebKey anchorKey = TestJwts.ec("anchor-1");
         HttpGetClient http = stubFederation(attesterKey, anchorKey, Map.of());
 
-        List<JsonWebKey> keys = resolver(http).resolve(ATTESTER, List.of());
+        List<JsonWebKey> keys = resolver(http, anchorKey).resolve(ATTESTER, List.of());
 
         String expected = Jwks.thumbprint(JsonWebKey.Factory.newJwk(TestJwts.publicParams(attesterKey)));
         boolean found = false;
@@ -106,17 +107,18 @@ class FederationAttesterKeyResolverTest {
                 Map.of("oauth_client_attester", Map.of("jwks", jwks(attestationSigningKey))));
         HttpGetClient http = stubFederation(federationKey, anchorKey, extra);
 
-        List<JsonWebKey> keys = resolver(http).resolve(ATTESTER, List.of());
+        List<JsonWebKey> keys = resolver(http, anchorKey).resolve(ATTESTER, List.of());
 
         String wanted = Jwks.thumbprint(JsonWebKey.Factory.newJwk(TestJwts.publicParams(attestationSigningKey)));
         assertEquals(wanted, Jwks.thumbprint(keys.get(0)));
     }
 
     @Test
-    void rejectsUnreachableAttester() {
+    void rejectsUnreachableAttester() throws Exception {
+        PublicJsonWebKey anchorKey = TestJwts.ec("anchor-1");
         HttpGetClient http = (url, accept) -> {
             throw new IllegalArgumentException("GET failed: " + url);
         };
-        assertThrows(Exception.class, () -> resolver(http).resolve(ATTESTER, List.of()));
+        assertThrows(Exception.class, () -> resolver(http, anchorKey).resolve(ATTESTER, List.of()));
     }
 }

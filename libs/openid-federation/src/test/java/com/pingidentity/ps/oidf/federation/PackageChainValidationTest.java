@@ -15,6 +15,7 @@ import org.jose4j.jwt.JwtClaims;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 
 /**
@@ -73,7 +74,10 @@ class PackageChainValidationTest {
     }
 
     private TrustChainValidationResult validateLeaf(String leaf) throws Exception {
-        TrustChainValidator v = new TrustChainValidator(packageGateway(), TA);
+        // The anchor's keys come from the package's copy of its entity configuration - the package IS
+        // the out-of-band distribution here - never from the gateway.
+        Map<String, Object> anchorJwks = Claims.optionalMap(JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA)), "jwks");
+        TrustChainValidator v = new TrustChainValidator(packageGateway(), TrustAnchor.of(TA, anchorJwks));
         // Fix A: hand it the whole set of signed statements; it selects the leaf and routes to the TA.
         return v.validate(allStatements, leaf, leaf);
     }

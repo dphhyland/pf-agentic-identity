@@ -14,6 +14,7 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
+import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
@@ -84,7 +85,7 @@ class MultiTypeEntityMetadataTest {
             return jwt;
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         TrustChainValidationResult result = validator.validate(List.of(), AGENT, AGENT);
 
         // All three types the leaf published are visible, not just openid_relying_party.
@@ -136,7 +137,7 @@ class MultiTypeEntityMetadataTest {
             return jwt;
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         TrustChainValidationResult result = validator.validate(List.of(), rp, rp);
 
         assertTrue(result.metadataFor("oauth_client").isEmpty());

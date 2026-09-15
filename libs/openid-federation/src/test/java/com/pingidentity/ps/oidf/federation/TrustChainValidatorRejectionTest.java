@@ -93,8 +93,9 @@ class TrustChainValidatorRejectionTest {
 
         Map<String, String> responses = new HashMap<>();
         responses.put(LEAF + "/.well-known/openid-federation", leafConfig);
-        // The anchor's own entity configuration, tampered after signing: still well-formed JWS shape,
-        // but the signature no longer matches what it purports to say.
+        // The anchor's own entity configuration, tampered after signing. Its keys are no longer read
+        // from it at all (the TrustAnchor is configured out of band), but the gateway still parses it
+        // to find the fetch endpoint - a tampered payload must not resolve into a validated chain.
         responses.put(ANCHOR + "/.well-known/openid-federation", tamper(anchorConfig));
         responses.put(ANCHOR + "/fetch?sub=" + URLEncoder.encode(LEAF, StandardCharsets.UTF_8)
                 + "&iss=" + URLEncoder.encode(ANCHOR, StandardCharsets.UTF_8), subordinate);
@@ -106,7 +107,7 @@ class TrustChainValidatorRejectionTest {
             return jwt;
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         assertThrows(Exception.class, () -> validator.validate(List.of(), LEAF, LEAF));
     }
 
@@ -139,13 +140,14 @@ class TrustChainValidatorRejectionTest {
             return jwt;
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         assertThrows(Exception.class, () -> validator.validate(List.of(), LEAF, LEAF));
     }
 
     @Test
     void aChainWhoseHintsNeverReachTheConfiguredAnchorIsRejected() throws Exception {
         PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
         String notTheAnchor = "https://other-authority.example.com";
         // The leaf only ever names an authority that is not, and does not lead to, the configured anchor.
         String leafConfig = statement(leafKey, LEAF, LEAF, Map.of(
@@ -162,7 +164,7 @@ class TrustChainValidatorRejectionTest {
             return jwt;
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> validator.validate(List.of(), LEAF, LEAF));
         assertTrue(e.getMessage().contains(ANCHOR), e.getMessage());
@@ -196,7 +198,7 @@ class TrustChainValidatorRejectionTest {
 
         // ... but this AS's policy accepts only ES256. The signature being valid must not be enough.
         TrustChainValidator validator = new TrustChainValidator(
-                new HttpTrustControllerGateway(http, ANCHOR), ANCHOR, Set.of("ES256"));
+                new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)), Set.of("ES256"));
         assertThrows(Exception.class, () -> validator.validate(List.of(), LEAF, LEAF));
     }
 
@@ -204,6 +206,7 @@ class TrustChainValidatorRejectionTest {
     void anAmbiguousSelfSignedLeafInASuppliedChainIsRejected() throws Exception {
         PublicJsonWebKey keyA = ec("leaf-key-a");
         PublicJsonWebKey keyB = ec("leaf-key-b");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
         // Two different self-signed entity configurations for the same subject, both present in the
         // caller-supplied trust_chain. Nothing distinguishes which one is authoritative.
         String configA = statement(keyA, LEAF, LEAF, Map.of(
@@ -214,7 +217,7 @@ class TrustChainValidatorRejectionTest {
         HttpGetClient http = (url, accept) -> {
             throw new IllegalArgumentException("must not need to fetch anything: " + url);
         };
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
                 () -> validator.validate(List.of(configA, configB), LEAF, LEAF));

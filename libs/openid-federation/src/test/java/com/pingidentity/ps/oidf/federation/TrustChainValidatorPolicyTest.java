@@ -86,7 +86,7 @@ class TrustChainValidatorPolicyTest {
             return jwt;
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
         return validator.validate(List.of(), LEAF, LEAF);
     }
 

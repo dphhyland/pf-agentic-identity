@@ -329,7 +329,8 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 | `oidf.mock.attesters` | Static attester trust, bypassing federation trust chains | **Only if the consumer supplies `oidf-mock-attesters.json` in the build context.** The capability image no longer carries one or activates the property unconditionally — which attesters an AS believes is a demo's decision about its own trust |
 | `oidf.attestation.required.claims` | Global required-disclosure default | Yes — `workload`, via the Dockerfile |
 | `OIDF_FEDERATION_TRUST_CONTROLLER_HOST` | Attester trust chain resolution (AS side). Required even in mock mode, or token-endpoint attestation auth NPEs | Yes — staging and production |
-| `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` | Federation-backed **wallet-provider** trust (note: a different variable from the line above) | No |
+| `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` | The trust controller's public Federation Entity Keys, pinned out of band (OIDFED §4). **Required with the line above**: without it no chain validates, and the filters say so at startup. Captured with `tools/pin-trust-anchor.py` | Staging pinned in the demo repo; production not yet — its anchor is not deployed |
+| `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_TRUST_ANCHOR_JWKS` | Federation-backed **wallet-provider** trust (note: different variables from the two lines above) | No |
 | `OIDF_WALLET_PROVIDER_JWKS` | Static wallet-provider trust map | No |
 | `OIDF_ATTESTER_CIMD_URL`, `OIDF_ATTESTER_FEDERATION_ENTITY`, `OIDF_ATTESTER_SIGNING_JWK` | Extra client-metadata sources | No |
 | `OIDF_ATTESTER_SPIRE_ENTRIES_URL` | SPIRE selector introspection; unset = no-op introspector | No |
@@ -422,6 +423,11 @@ citation, not in the code, and it is left visible rather than filled with a plau
 | `ABCA-10 §8` | AS advertises `attest_jwt_client_auth` / `attest_jwt_client_auth_dpop`, PoP methods, alg lists, `challenge_endpoint` | `AttestationMetadataConfig` | Implemented |
 | `OIDFED §1.2` | A non-HTTPS entity identifier is refused before any fetch | `TrustChainValidator` | Implemented |
 | `OIDFED §3.2` | An entity configuration is genuinely self-signed | `TrustChainValidator` | Implemented |
+| `OIDFED §2.1` | Web PKI / TLS is not the basis of signing-key trust: a key the anchor serves over HTTPS is not trusted unless it was pinned | `TrustAnchor`, `TrustChainValidator` | Implemented |
+| `OIDFED §3.1.1` | `jwks` is required: a superior statement without one cannot vouch for the statement below it, and pinned anchor keys each need a unique `kid` | `TrustChainValidator`, `TrustAnchor` | Implemented |
+| `OIDFED §4` | The Trust Anchor's keys are distributed out of band, and verify its Subordinate Statement (ES[i-1]); each other statement is verified with a key from the `jwks` of the statement above it | `TrustAnchor`, `TrustChainValidator`, `FederationRuntimeConfig` | Implemented |
+| `OIDFED §10.2` | ES[i], the anchor's entity configuration, validates with a public key of the Trust Anchor | `HttpTrustControllerGateway` | Implemented — checked where the gateway reads it for the fetch endpoint; a pushed chain's copy of it is not part of the route, so is not separately verified |
+| `OIDFED §11.3` | A mismatch between the out-of-band keys and the anchor's entity configuration is retrieved again before it is treated as a problem | `HttpTrustControllerGateway` | Partial — compares by verifying the configuration's signature with a pinned key rather than by key-set equality, so an in-progress §11.2 rollover is not a mismatch; the remediation on a second failure is refusal |
 | `OIDFED §3.1.3` | `metadata_policy_crit` invalidates a statement naming an unknown operator | `MetadataPolicy` | Implemented |
 | `OIDFED §6.1.3.1` | The metadata-policy operator set | `MetadataPolicy` | Implemented |
 | `OIDFED §6.1.4.1` | Operators applied in the specified order | `MetadataPolicy` | Implemented |
@@ -495,6 +501,7 @@ which is why they survive a module count changing and the paragraph above them d
 | RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (4), `AttestationSubjectTest` (5) | Fail-open strips the internal `_principal_sub` marker; PERMIT merges and strips; DENY throws when configured; engine error throws with cause. Subject parses the PF hook attribute shape, `agent_id` when published |
 | RFC 8693 `act` | `ClientAttestationUtilsTest` (3) | Prefers `agent_id` as the acting party; falls back to `client_id` when null or blank |
 | OIDF attester trust | `FederationAttesterKeyResolverTest` (3) | Resolves chain-validated keys; prefers dedicated attester metadata keys; rejects an unreachable attester |
+| OIDF trust anchor keys | `TrustAnchorTest`, `TrustChainValidatorAnchorKeyTest`, `TrustChainValidatorIntermediateTest`, `HttpTrustControllerGatewayAnchorTest`, `FederationRuntimeConfigTrustAnchorTest`, `ConfiguredAnchorAgreementTest`, filter init tests | Only pinned keys verify the anchor's statements, whatever its host serves; an intermediate's keys must be the ones the anchor's statement asserts; a superior without `jwks` cannot vouch; the anchor's entity configuration verifies before its fetch endpoint is used and is retrieved once more on a mismatch; unusable key sets (private, symmetric, no or duplicate `kid`) refused; a host without keys refuses every chain and names the variable; mock attesters still resolve |
 | OIDF AS advertisement | `AttestationMetadataConfigTest` (2), `MetadataPolicyTest` | Defaults advertise the plain JWT format and both PoP methods; `one_of`/`value` exercised over `attest_jwt_client_auth` |
 | CAS §4 issuance | `AttestationIssuanceServletTest` (52) | Happy path issues an attestation that verifies; unknown SPIFFE id, wrong SVID audience, proof signed by the wrong key, replayed proof all rejected; request exceeding entitlement denied; no clients configured rejected; missing fields rejected; `agent_id` absent with no registry, emitted when configured, registry receives the **resolved** instance subject not the raw SVID, and a **failing registry fails the request**; GKE evidence with fetched bundle; WIA binding a different key rejected; refusal when no wallet trust; declared format narrows the search; bundle-fetch failure with no cache is a server error; SPIRE selectors introspected; malformed `authorization_details` ⇒ `invalid_request`; challenge consumed once then refused; required custom claim missing/blank rejected |
 | CAS §5 discovery | `AttesterConfigurationServletTest` (7), `ClientAttestationServiceMetadataServletTest` (8) | Global document advertises endpoints and proof requirements; `agent_id_supported` reflects the flag both ways; per-client view withholds ceiling/bindings/signing; unknown client ⇒ 404; base URL prefers forwarded headers and omits default ports. CAS doc: challenge-required adds `challenge` to proof claims; endpoint can be disabled; custom claims from init-params and environment; formats follow the registered validators |
@@ -630,11 +637,20 @@ federation binding's entitlement is therefore bounded by nothing but itself. *Cl
 mapping schema carries a client-level ceiling and the check refuses a binding entitlement with no
 ceiling to sit under. Slice 2 in §8.
 
+**Inbound entity statements are not checked for `typ`.** OIDFED §3 says statements without
+`typ: entity-statement+jwt` MUST be rejected; `TrustChainValidator` verifies signatures, issuers and
+expiry but never reads the header. Found while pinning the anchor keys on 2026-09-15 and left out of that
+change deliberately: turning it on refuses any live federation member that omits the header, so it wants
+its own check against the running federations first. *Closes when:* every statement in a route is
+rejected without that `typ`, pinned by a test tagged `OIDFED §3`.
+
 **Wallet trust is unconfigured everywhere.** Neither `OIDF_TRUST_CONTROLLER_HOST` +
 `OIDF_ATTESTER_OP_ISSUER` nor `OIDF_WALLET_PROVIDER_JWKS` is set in any deploy config, so the WIA path
 is discoverable and always fails. Note also that the wallet path reads
 `OIDF_TRUST_CONTROLLER_HOST` while the AS-side attester trust reads
-`OIDF_FEDERATION_TRUST_CONTROLLER_HOST` — two variables, one concept, easy to set the wrong one.
+`OIDF_FEDERATION_TRUST_CONTROLLER_HOST` — two variables, one concept, easy to set the wrong one. The
+pinned anchor keys follow the same split (`OIDF_TRUST_ANCHOR_JWKS` beside
+`OIDF_FEDERATION_TRUST_ANCHOR_JWKS`), so unifying the names now means two pairs.
 *Closes when:* the names are unified and the value is set.
 
 **No Redis in the checked-in config means per-node replay state.** With two verification points on two

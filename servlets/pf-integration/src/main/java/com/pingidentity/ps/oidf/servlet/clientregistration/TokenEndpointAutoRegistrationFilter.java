@@ -72,7 +72,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
     @Override
-    public void init(FilterConfig config) {
+    public void init(FilterConfig config) throws ServletException {
         if (this.service != null) {
             return;
         }
@@ -82,27 +82,44 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
         // registration servlet had established. Only the per-component sizing knobs come from
         // init-params now.
         FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        if (runtime.isTrustControllerConfigured() && runtime.trustAnchorJwks() == null) {
+            // Refuse, but do not take the web app down. The modules are merged into pf-runtime.war, so a
+            // failed init here would also stop this entity's own /.well-known/openid-federation - and a
+            // PF that is its own trust anchor has to serve that before anyone can capture the keys to
+            // pin. Every automatic registration is skipped until the keys are set; the token request
+            // then meets PF's own client authentication, which knows no such client.
+            LOGGER.error((Object)("TokenEndpointAutoRegistrationFilter: " + FederationRuntimeConfig.HOST_ENV + " names "
+                    + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                    + " is unset - automatic registration (OpenID Federation 1.0 §12.1) is refused for every request until the"
+                    + " trust anchor's keys are pinned (§4: they are distributed out of band, not fetched)"));
+            return;
+        }
         int cacheMaxEntries = parseInt(config.getInitParameter("subordinateStatementCacheMaxEntries"), 256);
         long trustChainEntryMaxAge = parseLong(config.getInitParameter("trustChainEntryMaxAgeSeconds"), 60L);
         Set<String> acceptedSigningAlgorithms = parseCsv(config.getInitParameter("acceptedSigningAlgorithms"));
         RegistrationConfiguration configuration = new RegistrationConfiguration(runtime.trustControllerHost(),
                 runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(), cacheMaxEntries, trustChainEntryMaxAge,
                 "RS256", acceptedSigningAlgorithms);
-        this.service = new RegistrationService(configuration);
-        if (!runtime.isTrustControllerConfigured()) {
-            // Fail-closed, but say so once at init: with no anchor every chain validation is refused,
-            // and §12.1 would look like "auto-registration silently does nothing".
-            LOGGER.warn((Object)("TokenEndpointAutoRegistrationFilter initialised with NO trust controller ("
-                    + FederationRuntimeConfig.HOST_ENV + " unset) - automatic registration will refuse every request"));
-        } else {
-            LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller "
-                    + runtime.trustControllerHost() + ")"));
+        // Building the service builds the validator, and the validator needs the anchor's out-of-band
+        // keys (FederationRuntimeConfig.trustAnchor). No trust controller at all, or a JWKS that is set
+        // but is not a usable public key set, is a deployment error that no request can fix: refuse to
+        // start, naming what to set. (The "no trust controller" case already failed init before the
+        // anchor keys existed - the old validator constructor threw on a blank anchor - but as an
+        // unchecked exception, which a container does not reliably surface from init.)
+        try {
+            this.service = new RegistrationService(configuration);
         }
+        catch (RuntimeException e) {
+            throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
+        }
+        LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller "
+                + runtime.trustControllerHost() + ")"));
     }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
-        if (request instanceof HttpServletRequest) {
+        // No service means init refused automatic registration (no pinned anchor keys); pass through.
+        if (request instanceof HttpServletRequest && this.service != null) {
             try {
                 this.maybeAutoRegister((HttpServletRequest)request);
             }

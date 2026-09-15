@@ -100,6 +100,8 @@
                                              and requireConstrainedByPolicy are the two places a trust chain
                                              turns into a registration; isFederationRegistered is what later
                                              decides a client came from federation rather than by hand. -->
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.trustAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requireConfiguredAnchor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.explicitRegister(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireConstrainedByPolicy(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.isFederationRegistered(*</include>

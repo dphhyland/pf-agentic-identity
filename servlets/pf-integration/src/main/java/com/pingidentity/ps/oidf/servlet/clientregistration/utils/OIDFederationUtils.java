@@ -5,6 +5,7 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
@@ -55,17 +56,32 @@ public final class OIDFederationUtils {
                 // trustControllerHost is the bare identity used for knownTrustAnchor matching;
                 // effectiveBaseUrl is the (possibly different) HTTP base actually needed to reach it —
                 // see HttpTrustControllerGateway's selfIssuer javadoc for why these can diverge.
+                // The anchor's keys are deployment-wide and out of band (FederationRuntimeConfig).
+                // The host an OGNL expression passes has to be that anchor; a different one would
+                // otherwise be validated against keys that are not its own.
+                TrustAnchor trustAnchor = requireConfiguredAnchor(trustControllerHost);
                 gateway = local = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors, OutboundUrlPolicy.fromEnvironment()
                         .trusting(effectiveBaseUrl, trustControllerHost)), effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
                 configuredTrustControllerBaseUrl = effectiveBaseUrl;
-                validator = new TrustChainValidator(gateway, trustControllerHost);
+                validator = new TrustChainValidator(gateway, trustAnchor);
             } else {
                 validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             }
             return local;
         }
+    }
+
+    /** The deployment's pinned anchor, which must be the host this call site was asked to validate against. */
+    static TrustAnchor requireConfiguredAnchor(String trustControllerHost) {
+        TrustAnchor trustAnchor = FederationRuntimeConfig.get().trustAnchor();
+        if (!Objects.equals(trustAnchor.entityId(), trustControllerHost)) {
+            throw new IllegalStateException("trust controller host " + trustControllerHost + " is not the configured trust anchor "
+                    + trustAnchor.entityId() + " (" + FederationRuntimeConfig.HOST_ENV + " / " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                    + "); refusing to validate against keys that are not its own");
+        }
+        return trustAnchor;
     }
 
     private static void validateConfiguration(boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {

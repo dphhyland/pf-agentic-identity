@@ -17,26 +17,37 @@ import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 
 /**
- * Validates an OpenID Federation trust chain against a configured known trust anchor. Given a
+ * Validates an OpenID Federation trust chain against a configured {@link TrustAnchor}. Given a
  * (possibly partial) chain plus the expected RP and OP issuers, it locates the leaf, walks
  * {@code authority_hints} to the anchor (fetching and refreshing statements via the gateway as
- * needed), verifies each statement's signature against its issuer's JWKS, and returns the
- * validated leaf metadata as a {@link TrustChainValidationResult}.
+ * needed), verifies each statement's signature against the keys its superior asserts, and returns
+ * the validated leaf metadata as a {@link TrustChainValidationResult}.
+ *
+ * <p>The chain invariants of OpenID Federation 1.0 §4 are what the verification loop enforces: each
+ * statement is verified with a key from the {@code jwks} of the statement above it, and the statement
+ * the anchor issues — the top of every route — is verified with the anchor's out-of-band keys
+ * (§4, §10.2). Nothing the anchor serves over HTTPS is ever a source of trust; the gateway fetches the
+ * anchor's Entity Configuration only to learn where its fetch endpoint is.
  */
 public final class TrustChainValidator {
     private static final Log LOGGER = LogFactory.getLog(TrustChainValidator.class);
     private final TrustControllerGateway gateway;
+    private final TrustAnchor trustAnchor;
     private final String knownTrustAnchor;
     private final Set<String> acceptedSigningAlgorithms;
 
-    public TrustChainValidator(TrustControllerGateway gateway, String knownTrustAnchor) {
-        this(gateway, knownTrustAnchor, Set.of());
+    public TrustChainValidator(TrustControllerGateway gateway, TrustAnchor trustAnchor) {
+        this(gateway, trustAnchor, Set.of());
     }
 
-    public TrustChainValidator(TrustControllerGateway gateway, String knownTrustAnchor, Set<String> acceptedSigningAlgorithms) {
+    public TrustChainValidator(TrustControllerGateway gateway, TrustAnchor trustAnchor, Set<String> acceptedSigningAlgorithms) {
         this.gateway = Objects.requireNonNull(gateway, "gateway");
-        this.knownTrustAnchor = Claims.requireNonBlank(knownTrustAnchor, "knownTrustAnchor");
+        this.trustAnchor = Objects.requireNonNull(trustAnchor, "trustAnchor");
+        this.knownTrustAnchor = trustAnchor.entityId();
         this.acceptedSigningAlgorithms = acceptedSigningAlgorithms != null ? Set.copyOf(acceptedSigningAlgorithms) : Set.of();
+        // §10.2 verifies ES[i] with the anchor's keys too; the gateway is where that configuration is
+        // read, so it has to know the anchor. Done here so no caller can forget it.
+        gateway.bindTrustAnchor(trustAnchor, this.acceptedSigningAlgorithms);
     }
 
     private long applicableMaxAge(String entitySubject, String expectedRpIssuer, long maxLeafNodeTime, long maxTrustAnchorNodeTime) {
@@ -125,25 +136,29 @@ public final class TrustChainValidator {
             }
             if (entry.jwt != null) {
                 int lastIndex = orderedChainEntries.size() - 1;
-                Map<String, Object> jwks = i < lastIndex ? orderedChainEntries.get(i + 1).jwks : null;
                 JwtClaims verified;
-                if (jwks != null) {
-                    verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, jwks, entry.issuer, this.acceptedSigningAlgorithms);
-                } else if (Objects.equals(entry.subject, entry.issuer) && entry.jwks != null) {
-                    // Self-signed Entity Configuration as the final route entry. walkRoute only
-                    // ever ends a route on an entry issued by the configured anchor, so this is the
-                    // anchor's own Entity Configuration - which fetchVerifiedClaims would also only
-                    // ever check against the anchor's own, unverified, .well-known jwks. Verifying
-                    // it inline is the same trust decision without the live HTTP call.
-                    //
-                    // It must never be reached for an intermediate: an intermediate's Entity
-                    // Configuration is always followed in the route by its superior's subordinate
-                    // statement (see walkRoute) and is verified against the keys THAT asserts.
-                    // Self-verifying an intermediate here is exactly how a forged intermediate
-                    // once resolved to the anchor.
-                    verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, entry.jwks, entry.issuer, this.acceptedSigningAlgorithms);
+                if (i < lastIndex) {
+                    // §4: a statement is verified with a key from the jwks of the statement above it.
+                    // §3.1.1 makes jwks REQUIRED in every Entity Statement, so a superior without one
+                    // cannot vouch for anything below it - refuse, rather than fall back to fetching
+                    // the issuer's Entity Configuration and trusting whatever key that carries.
+                    ChainEntry superior = orderedChainEntries.get(i + 1);
+                    if (superior.jwks == null) {
+                        throw new IllegalArgumentException("Statement iss=" + superior.issuer + " sub=" + superior.subject
+                                + " carries no jwks (OpenID Federation 1.0 §3.1.1 requires one), so the statement below it in the chain cannot be verified");
+                    }
+                    verified = JwtCodec.verifyAgainstInlineJwks(entry.jwt, superior.jwks, entry.issuer, this.acceptedSigningAlgorithms);
                 } else {
-                    verified = this.fetchVerifiedClaims(entry.jwt, pendingWrites);
+                    // The top of the route is always a statement the anchor issued (walkRoute ends
+                    // only on one). §4 / §10.2: the anchor's keys come from configuration, out of band -
+                    // never from its .well-known. Verifying against the configured TrustAnchor
+                    // rejects the issuer too if the last entry somehow is not the anchor's.
+                    //
+                    // An intermediate's Entity Configuration never lands here: it is always followed
+                    // in the route by its superior's subordinate statement and verified against the
+                    // keys THAT asserts. Self-verifying an intermediate is exactly how a forged
+                    // intermediate once resolved to the anchor.
+                    verified = this.trustAnchor.verify(entry.jwt, this.acceptedSigningAlgorithms);
                 }
                 verifiedByIndex[i] = verified;
                 if (verifiedLeaf == null) {
@@ -483,14 +498,6 @@ public final class TrustChainValidator {
             filtered.add(jwt);
         }
         return filtered;
-    }
-
-    private JwtClaims fetchVerifiedClaims(String jwt, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        JwtClaims unverifiedClaims = JwtCodec.parseUnverifiedClaims(jwt);
-        String issuer = Claims.requireNonBlank(unverifiedClaims.getIssuer(), "iss");
-        JwtClaims fetchIssuerMetadata = this.gateway.fetchEntityConfigurationOf(issuer, pendingWrites);
-        Map<String, Object> jwks = Claims.requiredMap(fetchIssuerMetadata, "jwks");
-        return JwtCodec.verifyAgainstInlineJwks(jwt, jwks, issuer, this.acceptedSigningAlgorithms);
     }
 
     /**

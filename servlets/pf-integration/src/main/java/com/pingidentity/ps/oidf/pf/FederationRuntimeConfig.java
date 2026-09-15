@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.pf;
 
 import java.util.Objects;
 import java.util.function.Function;
+import com.pingidentity.ps.oidf.federation.TrustAnchor;
 
 /**
  * The deployment-wide federation settings, resolved once from the process environment.
@@ -26,6 +27,13 @@ public final class FederationRuntimeConfig {
     public static final String HOST_ENV = "OIDF_FEDERATION_TRUST_CONTROLLER_HOST";
     /** The HTTP base actually used to reach the trust controller (may carry a context path). */
     public static final String BASE_URL_ENV = "OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL";
+    /**
+     * The trust controller's public Federation Entity Keys as a JWK Set document - the {@code jwks}
+     * claim of its entity configuration, captured once at provisioning time. Required whenever
+     * {@link #HOST_ENV} is set: OpenID Federation 1.0 §4 distributes a Trust Anchor's keys out of
+     * band, and until this existed the anchor was whoever answered HTTPS at the host.
+     */
+    public static final String TRUST_ANCHOR_JWKS_ENV = "OIDF_FEDERATION_TRUST_ANCHOR_JWKS";
     public static final String IGNORE_SSL_ENV = "OIDF_FEDERATION_IGNORE_SSL_ERRORS";
     /** The bridge private JWK: what {@code attest_jwt_client_auth} is translated INTO for PF. */
     public static final String BRIDGE_KEY_ENV = "OIDF_BRIDGE_PRIVATE_JWK";
@@ -42,6 +50,7 @@ public final class FederationRuntimeConfig {
 
     private static final String HOST_PROP = "oidf.federation.trust.controller.host";
     private static final String BASE_URL_PROP = "oidf.federation.trust.controller.base.url";
+    private static final String TRUST_ANCHOR_JWKS_PROP = "oidf.federation.trust.anchor.jwks";
     private static final String IGNORE_SSL_PROP = "oidf.federation.ignore.ssl.errors";
     private static final String BRIDGE_KEY_PROP = "oidf.bridge.private.jwk";
     private static final String BRIDGE_PREVIOUS_PUBLIC_KEY_PROP = "oidf.bridge.previous.public.jwk";
@@ -52,15 +61,17 @@ public final class FederationRuntimeConfig {
 
     private final String trustControllerHost;
     private final String trustControllerBaseUrl;
+    private final String trustAnchorJwks;
     private final boolean ignoreSslErrors;
     private final String bridgePrivateJwk;
     private final String bridgePreviousPublicJwk;
     private final boolean requireBridgeKey;
     private final boolean requireMetadataPolicy;
 
-    private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, boolean ignoreSslErrors,
-            String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
+    private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
+            boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy) {
+        this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
         this.requireBridgeKey = requireBridgeKey;
@@ -97,6 +108,7 @@ public final class FederationRuntimeConfig {
         return new FederationRuntimeConfig(
                 setting(env, props, HOST_PROP, HOST_ENV),
                 setting(env, props, BASE_URL_PROP, BASE_URL_ENV),
+                setting(env, props, TRUST_ANCHOR_JWKS_PROP, TRUST_ANCHOR_JWKS_ENV),
                 Boolean.parseBoolean(setting(env, props, IGNORE_SSL_PROP, IGNORE_SSL_ENV)),
                 setting(env, props, BRIDGE_KEY_PROP, BRIDGE_KEY_ENV),
                 setting(env, props, BRIDGE_PREVIOUS_PUBLIC_KEY_PROP, BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
@@ -130,6 +142,39 @@ public final class FederationRuntimeConfig {
 
     public boolean ignoreSslErrors() {
         return this.ignoreSslErrors;
+    }
+
+    /** The raw configured anchor JWKS document, or null when unset. */
+    public String trustAnchorJwks() {
+        return this.trustAnchorJwks;
+    }
+
+    /**
+     * The trust anchor every chain in this deployment is validated against: the trust controller's
+     * identity plus its out-of-band Federation Entity Keys. This is the only way a
+     * {@code TrustChainValidator} is built in this module, so a deployment that names a trust
+     * controller without pinning its keys cannot validate any chain: the registration servlet fails
+     * its init, the OGNL criteria refuse, and the two token-endpoint filters log it at startup and
+     * refuse per request (they do not fail init, because that would also stop this web app serving
+     * its own entity configuration - which a self-anchored PF must do before its keys can be pinned).
+     * A configured JWKS that is not a usable key set does fail filter init.
+     *
+     * @throws IllegalStateException when no trust controller is configured, or one is named but
+     *                               {@link #TRUST_ANCHOR_JWKS_ENV} is unset
+     * @throws IllegalArgumentException when the configured JWKS is not a usable public key set
+     */
+    public TrustAnchor trustAnchor() {
+        if (!isTrustControllerConfigured()) {
+            throw new IllegalStateException("No trust controller configured: set " + HOST_ENV + " (and " + TRUST_ANCHOR_JWKS_ENV
+                    + ") - every trust chain is refused until then");
+        }
+        if (this.trustAnchorJwks == null) {
+            throw new IllegalStateException(HOST_ENV + " names " + this.trustControllerHost + " but " + TRUST_ANCHOR_JWKS_ENV
+                    + " is unset. A trust anchor's keys are configured out of band (OpenID Federation 1.0 §4), not read from"
+                    + " its .well-known over HTTPS: capture the jwks claim of " + this.trustControllerHost
+                    + "/.well-known/openid-federation once, from a position you trust, and set it as " + TRUST_ANCHOR_JWKS_ENV);
+        }
+        return TrustAnchor.parse(this.trustControllerHost, this.trustAnchorJwks);
     }
 
     /**
@@ -176,6 +221,7 @@ public final class FederationRuntimeConfig {
     public String toString() {
         return "FederationRuntimeConfig[host=" + this.trustControllerHost
                 + ", baseUrl=" + this.trustControllerBaseUrl
+                + ", trustAnchorJwks=" + (this.trustAnchorJwks == null ? "unset" : "set")
                 + ", ignoreSslErrors=" + this.ignoreSslErrors + "]";
     }
 }

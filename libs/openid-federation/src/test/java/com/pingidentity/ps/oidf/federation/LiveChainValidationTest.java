@@ -13,6 +13,7 @@ import org.jose4j.jwt.JwtClaims;
 import org.junit.jupiter.api.Assumptions;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 
 /**
@@ -81,7 +82,10 @@ class LiveChainValidationTest {
     }
 
     private TrustChainValidationResult validate(String leaf) throws Exception {
-        return new TrustChainValidator(liveGateway(), TA).validate(allStatements, leaf, leaf);
+        // The fetched copy of the anchor's entity configuration stands in for out-of-band key
+        // distribution: it was captured by the operator, not read live during validation.
+        Map<String, Object> anchorJwks = Claims.optionalMap(JwtCodec.parseUnverifiedClaims(entityConfigs.get(TA)), "jwks");
+        return new TrustChainValidator(liveGateway(), TrustAnchor.of(TA, anchorJwks)).validate(allStatements, leaf, leaf);
     }
 
     @Test

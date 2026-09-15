@@ -24,6 +24,7 @@ import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
@@ -360,6 +361,12 @@ public class AttestationIssuanceServlet extends HttpServlet {
      * trust controller host ({@code OIDF_TRUST_CONTROLLER_HOST}) and the hosted attester's own entity id
      * ({@code OIDF_ATTESTER_OP_ISSUER}, the relying party in the WIA trust chain) are set; returns null
      * otherwise. {@code OIDF_TRUST_CONTROLLER_IGNORE_SSL} relaxes TLS for a dev trust controller.
+     *
+     * <p>Once the host is named, {@code OIDF_TRUST_ANCHOR_JWKS} is required: the anchor's Federation
+     * Entity Keys are configured out of band (OpenID Federation 1.0 §4), not read from its .well-known
+     * over HTTPS. A host without keys throws here, naming the variable - the registry is built on the
+     * first issuance request, so that request fails closed - rather than yielding a validator that
+     * trusts whoever answers at the host, or silently falling back to the static provider map.
      */
     static InstanceAttestationValidator federationWalletValidatorFromEnv() {
         String trustControllerHost = env("oidf.trust.controller.host", "OIDF_TRUST_CONTROLLER_HOST");
@@ -367,12 +374,21 @@ public class AttestationIssuanceServlet extends HttpServlet {
         if (trustControllerHost == null || opIssuer == null) {
             return null;
         }
+        String anchorJwks = env("oidf.trust.anchor.jwks", "OIDF_TRUST_ANCHOR_JWKS");
+        if (anchorJwks == null) {
+            throw new IllegalStateException("OIDF_TRUST_CONTROLLER_HOST names " + trustControllerHost
+                    + " but OIDF_TRUST_ANCHOR_JWKS is unset. A trust anchor's keys are configured out of band (OpenID"
+                    + " Federation 1.0 §4): capture the jwks claim of " + trustControllerHost
+                    + "/.well-known/openid-federation once, from a position you trust, and set it as OIDF_TRUST_ANCHOR_JWKS"
+                    + " (or oidf.trust.anchor.jwks)");
+        }
+        TrustAnchor trustAnchor = TrustAnchor.parse(trustControllerHost, anchorJwks);
         boolean ignoreSsl = Boolean.parseBoolean(
                 String.valueOf(env("oidf.trust.controller.ignore.ssl", "OIDF_TRUST_CONTROLLER_IGNORE_SSL")));
         TrustChainValidator chainValidator = new TrustChainValidator(
                 new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSsl,
                         OutboundUrlPolicy.fromEnvironment().trusting(trustControllerHost)), trustControllerHost),
-                trustControllerHost);
+                trustAnchor);
         AttesterKeyResolver resolver = new FederationWalletProviderKeyResolver(chainValidator, opIssuer);
         LOGGER.info((Object) ("Wallet instance attestation: federation-backed provider trust via "
                 + trustControllerHost));

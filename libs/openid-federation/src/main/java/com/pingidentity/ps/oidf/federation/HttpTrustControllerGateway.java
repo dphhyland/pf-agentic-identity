@@ -8,6 +8,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwt.JwtClaims;
@@ -30,6 +31,8 @@ implements TrustControllerGateway {
     private final String trustControllerBaseUrl;
     private final String selfIssuer;
     private final SubordinateStatementCache subordinateStatementCache;
+    private volatile TrustAnchor trustAnchor;
+    private volatile Set<String> acceptedSigningAlgorithms = Set.of();
 
     public HttpTrustControllerGateway(HttpGetClient http, String trustControllerBaseUrl) {
         this(http, trustControllerBaseUrl, null, new SubordinateStatementCache());
@@ -107,12 +110,84 @@ implements TrustControllerGateway {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchEntityStatement-cache-not-found: issuer(%s)", issuer));
         }
-        // A self-referential fetch (issuer is the trust controller itself) uses the actual reachable
-        // base URL rather than appending .well-known to the bare identity string — see selfIssuer javadoc.
-        String fetchBase = Objects.equals(issuer, this.selfIssuer) ? this.trustControllerBaseUrl : issuer;
-        String jwt = this.http.get(fetchBase + "/.well-known/openid-federation", ENTITY_STATEMENT_ACCEPT);
+        String jwt = this.http.get(this.entityConfigurationUrl(issuer), ENTITY_STATEMENT_ACCEPT);
         this.recordCacheWrite(issuer, issuer, jwt, pendingWrites);
         return jwt;
+    }
+
+    /**
+     * A self-referential fetch (issuer is the trust controller itself) uses the actual reachable base
+     * URL rather than appending .well-known to the bare identity string — see selfIssuer javadoc.
+     */
+    private String entityConfigurationUrl(String issuer) {
+        String fetchBase = Objects.equals(issuer, this.selfIssuer) ? this.trustControllerBaseUrl : issuer;
+        return fetchBase + "/.well-known/openid-federation";
+    }
+
+    @Override
+    public void bindTrustAnchor(TrustAnchor trustAnchor, Set<String> acceptedSigningAlgorithms) {
+        Objects.requireNonNull(trustAnchor, "trustAnchor");
+        synchronized (this) {
+            TrustAnchor bound = this.trustAnchor;
+            if (bound != null && bound != trustAnchor && !bound.entityId().equals(trustAnchor.entityId())) {
+                // One gateway, one cache, one anchor. Two validators anchored differently sharing this
+                // gateway would each verify the other's anchor with the wrong keys.
+                throw new IllegalStateException("gateway already bound to trust anchor " + bound.entityId()
+                        + "; refusing to rebind it to " + trustAnchor.entityId());
+            }
+            this.trustAnchor = trustAnchor;
+            this.acceptedSigningAlgorithms = acceptedSigningAlgorithms == null ? Set.of() : Set.copyOf(acceptedSigningAlgorithms);
+        }
+    }
+
+    /**
+     * The Entity Configuration of an authority whose fetch endpoint is needed.
+     *
+     * <p>For the bound Trust Anchor, OpenID Federation 1.0 §10.2 requires ES[i] — the anchor's Entity
+     * Configuration — to validate with a public key of the anchor, and §4 distributes those keys out of
+     * band. It is therefore verified against the configured keys, never believed because HTTPS
+     * delivered it: its {@code federation_fetch_endpoint} decides where every subordinate statement is
+     * requested from. §11.3 treats a mismatch between the out-of-band keys and the Entity Configuration
+     * as something to retrieve again before concluding, so a copy that does not verify (a stale cache
+     * entry after a legitimate rollover, a transient bad response) is dropped and fetched once more;
+     * failing again is a security or configuration problem and the chain is refused.
+     *
+     * <p>Verifying the signature rather than comparing key sets for equality is deliberate: during a
+     * §11.2 rollover the anchor publishes its new keys alongside the old before operators have updated
+     * the pinned set, and a configuration signed by a pinned key is the anchor speaking either way.
+     *
+     * <p>Any other authority's Entity Configuration is only a directory entry here. What it points at
+     * is a Subordinate Statement that the chain verifies against the keys its own superior asserts.
+     */
+    private JwtClaims authorityConfiguration(String authorityIssuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        TrustAnchor anchor = this.trustAnchor;
+        if (anchor == null || !anchor.entityId().equals(authorityIssuer)) {
+            return this.fetchEntityConfigurationOf(authorityIssuer, pendingWrites);
+        }
+        String jwt = this.fetchEntityStatement(authorityIssuer, -1L, pendingWrites);
+        try {
+            return anchor.verify(jwt, this.acceptedSigningAlgorithms);
+        }
+        catch (Exception first) {
+            LOGGER.warn("Trust anchor " + authorityIssuer + " entity configuration did not verify against the configured keys ("
+                    + first.getMessage() + "); retrieving it again (OpenID Federation 1.0 §11.3)");
+            this.subordinateStatementCache.evict(authorityIssuer, authorityIssuer);
+            String again = this.http.get(this.entityConfigurationUrl(authorityIssuer), ENTITY_STATEMENT_ACCEPT);
+            JwtClaims verified;
+            try {
+                verified = anchor.verify(again, this.acceptedSigningAlgorithms);
+            }
+            catch (Exception second) {
+                throw new IllegalStateException("Trust anchor " + authorityIssuer + " entity configuration does not verify against the"
+                        + " configured trust anchor keys, on two retrievals: a security or configuration problem (OpenID Federation 1.0"
+                        + " §11.3). Check whether the anchor has rolled its keys and the pinned JWKS needs updating, or whether "
+                        + authorityIssuer + " is being served by something other than the anchor", second);
+            }
+            // Staged writes are read newest-first and committed in order, so this verified copy
+            // supersedes the one that failed, both for the rest of this walk and in the shared cache.
+            this.recordCacheWrite(authorityIssuer, authorityIssuer, again, pendingWrites);
+            return verified;
+        }
     }
 
     @Override
@@ -155,7 +230,7 @@ implements TrustControllerGateway {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchSubordinateStatement-cache-not-found: issuer(%s) subject(%s)", authorityIssuer, subject));
         }
-        if (!((endpointValue = (federationEntity = Claims.optionalNestedMap(Claims.optionalMap(authorityConfig = this.fetchEntityConfigurationOf(authorityIssuer, pendingWrites), "metadata"), "federation_entity")).get("federation_fetch_endpoint")) instanceof String) || ((String)endpointValue).isBlank()) {
+        if (!((endpointValue = (federationEntity = Claims.optionalNestedMap(Claims.optionalMap(authorityConfig = this.authorityConfiguration(authorityIssuer, pendingWrites), "metadata"), "federation_entity")).get("federation_fetch_endpoint")) instanceof String) || ((String)endpointValue).isBlank()) {
             throw new IllegalStateException("Authority " + authorityIssuer + " does not publish a federation_fetch_endpoint and cannot resolve subordinate statements");
         }
         endpoint = (String)endpointValue;

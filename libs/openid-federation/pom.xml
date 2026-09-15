@@ -70,7 +70,10 @@
               members stay honestly out of scope: the TrustChainValidator route walk and the
               HttpTrustControllerGateway fetches need a live federation to exercise their error
               paths, and FederationConfiguration/AttestationMetadataConfig read a real
-              ServletConfig. Those are covered by the deployed probes instead.
+              ServletConfig. Those are covered by the deployed probes instead. The exception is the
+              gateway's check of the trust anchor's own entity configuration against its pinned keys
+              (bindTrustAnchor, authorityConfiguration): that is a trust decision, and a stub HTTP
+              client exercises every branch of it.
 
               Nested classes are named with a DOT here, not a '$' - jacoco's check goal matches
               METHOD elements on the readable name (TrustChainValidator.FetchBudget.spend), and a
@@ -101,7 +104,11 @@
                                     <element>METHOD</element>
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.composeWith(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.fetchVerifiedClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustAnchor.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustAnchor.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustAnchor.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.bindTrustAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.authorityConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.FetchBudget.spend(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.find(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.EntityStatus.canResolve(*</include>

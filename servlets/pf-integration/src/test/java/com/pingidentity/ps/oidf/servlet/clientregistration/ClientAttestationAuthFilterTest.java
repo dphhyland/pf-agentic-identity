@@ -11,6 +11,7 @@ import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -54,6 +55,8 @@ class ClientAttestationAuthFilterTest {
     private static final String LEGACY_KEY_PROP = "oidf.bridge.private.jwk";
     private static final String LEGACY_PREV_KEY_PROP = "oidf.bridge.previous.public.jwk";
     private static final String REQUIRE_PROP = "oidf.attestation.require.bridge.key";
+    private static final String HOST_PROP = "oidf.federation.trust.controller.host";
+    private static final String ANCHOR_JWKS_PROP = "oidf.federation.trust.anchor.jwks";
 
     @AfterEach
     void clearProps() throws Exception {
@@ -62,6 +65,8 @@ class ClientAttestationAuthFilterTest {
         System.clearProperty(LEGACY_KEY_PROP);
         System.clearProperty(LEGACY_PREV_KEY_PROP);
         System.clearProperty(REQUIRE_PROP);
+        System.clearProperty(HOST_PROP);
+        System.clearProperty(ANCHOR_JWKS_PROP);
         resetSingletons();
     }
 
@@ -127,6 +132,38 @@ class ClientAttestationAuthFilterTest {
 
     @Test
     void startsWhenBridgeSigningIsConfigured(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
+
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+    }
+
+    // ---- init: is the trust anchor's key pinned? ----------------------------------------------------
+
+    @Test
+    void startsWhenATrustControllerIsNamedWithoutPinnedAnchorKeysSoTheWebAppCanServeItsOwnEntityConfiguration(@TempDir Path dir) throws Exception {
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
+
+        assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+    }
+
+    @Test
+    void refusesToStartWhenThePinnedAnchorKeysAreNotAUsableKeySet(@TempDir Path dir) throws Exception {
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        System.setProperty(ANCHOR_JWKS_PROP, "{ not json");
+        configureKeysFor(dir, "https://rp.example.com/agent-1");
+
+        ServletException e = assertThrows(ServletException.class, () -> new ClientAttestationAuthFilter().init(null));
+
+        assertTrue(e.getMessage().contains("not a JSON object"), e.getMessage());
+    }
+
+    @Test
+    void startsWhenTheTrustControllersKeysArePinned(@TempDir Path dir) throws Exception {
+        EllipticCurveJsonWebKey anchor = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        anchor.setKeyId("anchor-1");
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
         configureKeysFor(dir, "https://rp.example.com/agent-1");
 
         assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
@@ -306,10 +343,9 @@ class ClientAttestationAuthFilterTest {
     /**
      * Points {@code oidf.mock.attesters} at a fresh JWKS file trusting exactly {@code attesterKey}.
      *
-     * <p>Also sets a (never actually reached) trust-controller host: {@code ClientAttestationUtils}
-     * builds the federation-backed {@code TrustChainValidator} eagerly, before the static resolver gets
-     * a chance to short-circuit for an attester it already knows - so its constructor's
-     * "knownTrustAnchor required" check runs even in a test that only ever exercises the static path.
+     * <p>Also sets a (never actually reached) trust-controller host, and deliberately pins no anchor
+     * keys: a statically trusted attester resolves without the federation validator ever being built,
+     * which is what lets a mock-attester or self-anchored deployment work before its anchor is pinned.
      */
     private static void trustAttester(Path dir, PublicJsonWebKey attesterKey) throws Exception {
         Path file = dir.resolve("mock-attesters.json");
@@ -411,6 +447,36 @@ class ClientAttestationAuthFilterTest {
                         java.nio.charset.StandardCharsets.UTF_8));
         assertEquals(DOFILTER_CLIENT_ID, assertionClaims.get("iss"));
         assertEquals(DOFILTER_CLIENT_ID, assertionClaims.get("sub"));
+    }
+
+    @Test
+    @Requirement("OIDFED §4")
+    void anAttesterOnlyTheFederationCouldVouchForIsRefusedWhileTheAnchorIsUnpinned(@TempDir Path dir) throws Exception {
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey registeredAttester = ecKey("attester-1");
+        PublicJsonWebKey unknownAttester = ecKey("unknown-attester-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, registeredAttester);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        // Issued by an attester the static file does not list, so it falls through to the federation,
+        // which cannot be built without the anchor's pinned keys.
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer("https://federated-attester.example.com");
+        claims.setSubject(DOFILTER_CLIENT_ID);
+        claims.setIssuedAtToNow();
+        claims.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600L));
+        claims.setClaim("cnf", Map.of("jwk", instanceKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY)));
+        String attestation = sign(unknownAttester, "oauth-client-attestation+jwt", claims);
+        HttpServletRequest req = attestedRequest(attestation, popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), null);
+        java.io.StringWriter body = new java.io.StringWriter();
+        HttpServletResponse resp = responseCapturingBody(body);
+        FilterChain chain = mock(FilterChain.class);
+
+        filter.doFilter(req, resp, chain);
+
+        org.mockito.Mockito.verifyNoInteractions(chain);
+        assertTrue(!body.toString().isEmpty(), "refused with an error body, never passed through");
     }
 
     @Test

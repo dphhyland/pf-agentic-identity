@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.servlet.attestation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
@@ -13,6 +14,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.keys.EllipticCurves;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 
 /**
  * Ported from pf-oidf-modules (2026-08-15) when that repo was reduced to the demo — trimmed to the
@@ -27,7 +29,14 @@ class ServletEnvWiringTest {
 
     private static final String[] PROPS = {
             "oidf.trust.controller.host", "oidf.attester.op.issuer", "oidf.wallet.provider.jwks",
-            "oidf.trust.controller.ignore.ssl"};
+            "oidf.trust.controller.ignore.ssl", "oidf.trust.anchor.jwks"};
+
+    /** A public JWK Set for a freshly generated anchor key - what the operator would capture from the anchor. */
+    private static String anchorJwks() throws Exception {
+        PublicJsonWebKey anchor = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        anchor.setKeyId("anchor-1");
+        return new JsonWebKeySet(anchor).toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY);
+    }
 
     @AfterEach
     void clearProps() {
@@ -62,9 +71,25 @@ class ServletEnvWiringTest {
         System.setProperty("oidf.trust.controller.host", "https://trust-controller.example.com");
         assertNull(AttestationIssuanceServlet.federationWalletValidatorFromEnv());   // op issuer missing
         System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
+        System.setProperty("oidf.trust.anchor.jwks", anchorJwks());
         InstanceAttestationValidator v = AttestationIssuanceServlet.federationWalletValidatorFromEnv();
         assertTrue(v instanceof WalletInstanceAttestationValidator);
         assertEquals("wallet", v.format());
+    }
+
+    @Test
+    @Requirement("OIDFED §4")
+    void aTrustControllerWithoutPinnedAnchorKeysRefusesWalletTrustRatherThanFetchingOrFallingBack() {
+        System.setProperty("oidf.trust.controller.host", "https://trust-controller.example.com");
+        System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
+
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                AttestationIssuanceServlet::federationWalletValidatorFromEnv);
+        assertTrue(e.getMessage().contains("OIDF_TRUST_ANCHOR_JWKS"), e.getMessage());
+
+        // And a document that is not a usable key set is refused too, rather than falling back.
+        System.setProperty("oidf.trust.anchor.jwks", "{\"keys\":[]}");
+        assertThrows(IllegalArgumentException.class, AttestationIssuanceServlet::federationWalletValidatorFromEnv);
     }
 
     @Test
@@ -75,6 +100,7 @@ class ServletEnvWiringTest {
         assertNull(AttestationIssuanceServlet.staticWalletValidatorFromEnv());
         System.setProperty("oidf.trust.controller.host", "https://trust-controller.example.com");
         System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
+        System.setProperty("oidf.trust.anchor.jwks", anchorJwks());
         InstanceAttestationValidator v = AttestationIssuanceServlet.walletValidatorFromEnv();
         assertTrue(v instanceof WalletInstanceAttestationValidator);
         assertEquals("wallet", v.format());

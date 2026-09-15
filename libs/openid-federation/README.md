@@ -13,11 +13,16 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 
 ## `federation` — resolving and serving
 
-- **`TrustChainValidator`** — validates a (possibly partial) `trust_chain` from a leaf to the configured
-  known trust anchor: locates the leaf (fetching its entity configuration if absent), walks
+- **`TrustAnchor`** — the anchor a validator is built with: its entity identifier plus its public
+  Federation Entity Keys, supplied out of band (§4). Public keys only, each with a unique `kid`
+  (§3.1.1); a private or symmetric key is refused. There is no constructor that takes an identifier
+  alone - an anchor without pinned keys is whoever answers HTTPS at that URL.
+- **`TrustChainValidator`** — validates a (possibly partial) `trust_chain` from a leaf to its
+  `TrustAnchor`: locates the leaf (fetching its entity configuration if absent), walks
   `authority_hints`, refreshes stale or expiring statements through the gateway, verifies each statement
-  against its issuer's keys (optionally algorithm-constrained), then composes every superior's
-  `metadata_policy` and applies it to the leaf. Returns a `TrustChainValidationResult` carrying the leaf's
+  with a key from the `jwks` of the statement above it (§4, optionally algorithm-constrained) and the
+  anchor's own statement with the pinned keys, then composes every superior's `metadata_policy` and
+  applies it to the leaf. Returns a `TrustChainValidationResult` carrying the leaf's
   full per-entity-type `metadata` (`oauth_client`, `oauth_resource`, `openid_relying_party`, ...).
 - **`MetadataPolicy`** — `metadata_policy` composition and application: `value`, `add`, `default`,
   `one_of`, `subset_of`, `superset_of`, `essential`, applied in the spec's order, with
@@ -27,7 +32,9 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`TrustControllerGateway` / `HttpTrustControllerGateway`** — fetch entity configurations, member lists
   and subordinate statements (resolving each authority's `federation_fetch_endpoint`), over a bounded LRU
   **`SubordinateStatementCache`** with expiry-buffer and max-age eviction; writes are staged as
-  `PendingWrites` and committed only once a chain validates.
+  `PendingWrites` and committed only once a chain validates. The validator binds its `TrustAnchor` to the
+  gateway, which verifies the anchor's entity configuration against the pinned keys before using its
+  fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3).
 - **`ClientEntityAuthorizer`** — the pure AS-side decision for a client that is itself a federation
   entity: member (chain resolves), status active, `oauth_client` metadata within registration policy,
   requested scopes within registered scopes. No I/O.
@@ -57,6 +64,11 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   signer and domain-default policy so every servlet shares one state across classloaders.
 
 ## Configuration
+
+The anchor's pinned keys are not a `FederationConfiguration` setting: they are passed to
+`TrustChainValidator` as a `TrustAnchor`, which `servlets/pf-integration` builds from
+`OIDF_FEDERATION_TRUST_ANCHOR_JWKS` (see its README) and `servlets/attestation-issuer` from
+`OIDF_TRUST_ANCHOR_JWKS`. `tools/pin-trust-anchor.py` captures them.
 
 `FederationConfiguration.fromServletConfig` reads init-params with env fallbacks: `trustAnchorIssuers` /
 `OIDF_FEDERATION_TRUST_ANCHORS` (required), `subordinates` / `OIDF_FEDERATION_SUBORDINATES`,

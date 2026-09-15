@@ -1,5 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -13,14 +16,21 @@ import static org.mockito.Mockito.when;
 import java.util.List;
 import java.util.function.Function;
 import javax.servlet.FilterChain;
+import javax.servlet.FilterConfig;
+import javax.servlet.ServletException;
 import javax.servlet.ServletResponse;
 import javax.servlet.http.HttpServletRequest;
 import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.EllipticCurveJsonWebKey;
+import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.keys.EllipticCurves;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 
 /**
  * Unit tests for the transparent token-endpoint auto-registration filter (OpenID Federation §12.1).
@@ -33,6 +43,68 @@ class TokenEndpointAutoRegistrationFilterTest {
     private static final String OP_ISSUER = "https://as.example.com";
     private static final List<String> TRUST_CHAIN = List.of("leafJwt", "anchorJwt");
     private static final Function<HttpServletRequest, String> FIXED_ISSUER = req -> OP_ISSUER;
+    private static final String HOST_PROP = "oidf.federation.trust.controller.host";
+    private static final String ANCHOR_JWKS_PROP = "oidf.federation.trust.anchor.jwks";
+
+    @BeforeEach
+    @AfterEach
+    void resetRuntimeConfig() throws Exception {
+        System.clearProperty(HOST_PROP);
+        System.clearProperty(ANCHOR_JWKS_PROP);
+        java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
+        instance.setAccessible(true);
+        instance.set(null, null);
+    }
+
+    // ---- init: the anchor's keys are pinned, or the filter does not start ---------------------------
+
+    @Test
+    @Requirement("OIDFED §4")
+    void withoutPinnedAnchorKeysNothingIsRegisteredButTheWebAppKeepsServing() throws Exception {
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        TokenEndpointAutoRegistrationFilter filter = new TokenEndpointAutoRegistrationFilter();
+
+        // Init must not fail: this web app also serves the entity's own .well-known, which a
+        // self-anchored PF has to publish before its keys can be captured and pinned.
+        assertDoesNotThrow(() -> filter.init(mock(FilterConfig.class)));
+
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getParameter("client_assertion")).thenReturn(clientAssertion(TRUST_CHAIN, CLIENT_ID));
+        FilterChain chain = mock(FilterChain.class);
+        ServletResponse response = mock(ServletResponse.class);
+        filter.doFilter(request, response, chain);
+
+        verify(chain).doFilter(request, response);
+        verifyNoInteractions(request);
+    }
+
+    @Test
+    void refusesToStartWhenThePinnedKeysAreNotAUsableKeySet() {
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[]}");
+
+        ServletException e = assertThrows(ServletException.class,
+                () -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
+        assertTrue(e.getMessage().contains("no keys"), e.getMessage());
+    }
+
+    @Test
+    void refusesToStartWithNoTrustControllerAtAll() {
+        ServletException e = assertThrows(ServletException.class,
+                () -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
+
+        assertTrue(e.getMessage().contains(FederationRuntimeConfig.HOST_ENV), e.getMessage());
+    }
+
+    @Test
+    void startsWhenTheTrustControllersKeysArePinned() throws Exception {
+        EllipticCurveJsonWebKey anchor = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        anchor.setKeyId("anchor-1");
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
+
+        assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(mock(FilterConfig.class)));
+    }
 
     /** A client_assertion JWT carrying the Trust Chain in its {@code trust_chain} header and sub=client_id. */
     private static String clientAssertion(List<String> trustChain, String sub) throws Exception {

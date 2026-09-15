@@ -112,7 +112,7 @@ class TrustChainValidatorIntermediateTest {
         Map<String, String> responses = anchorResponses(anchorKey, anchorAboutIntermediate);
         responses.put(INTERMEDIATE + "/.well-known/openid-federation", realIntermediateConfig);
         List<String> fetched = new ArrayList<>();
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(stub(responses, fetched), ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(stub(responses, fetched), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
         Exception e = assertThrows(Exception.class,
                 () -> validator.validate(List.of(leafConfig, forgedAboutLeaf, forgedIntermediateConfig), LEAF, LEAF));
@@ -145,7 +145,7 @@ class TrustChainValidatorIntermediateTest {
 
         Map<String, String> responses = anchorResponses(anchorKey, anchorAboutIntermediate);
         List<String> fetched = new ArrayList<>();
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(stub(responses, fetched), ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(stub(responses, fetched), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
         TrustChainValidationResult result = validator.validate(
                 List.of(leafConfig, intermediateAboutLeaf, intermediateConfig), LEAF, LEAF);

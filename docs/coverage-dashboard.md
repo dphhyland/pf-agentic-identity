@@ -19,9 +19,9 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/app-attest` | 8 | green | 82% |
 | `libs/device-instance` | 15 | green | 42% |
 | `libs/client-attestation` | 8 | green | 77% |
-| `libs/openid-federation` | 7 | green | 65% |
+| `libs/openid-federation` | 11 | green | 70% |
 | `libs/agent-registry` | 7 | green | 92% |
-| `servlets/pf-integration` | 7 | green | 49% |
+| `servlets/pf-integration` | 9 | green | 51% |
 | `servlets/attestation-issuer` | 13 | green | 83% |
 | `servlets/ssf` | 16 | green | 65% |
 | `plugins/rar-paz-plugin` | 2 | green | 75% |
@@ -30,7 +30,7 @@ which says nothing about whether the security paths are the covered ones.
 | `services/demo-rs` | 6 | green | 91% |
 | `services/gm-api/servlet` | 10 | green | 37% |
 
-**115 methods gated across the reactor, all green.**
+**121 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -62,7 +62,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | CLAIM-DICT | 4 | 5 |
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
-| OIDFED | 7 | 21 |
+| OIDFED | 12 | 39 |
 | PF-SDK *(vendor interface, see below)* | 3 | 6 |
 | PROFILE | 9 | 27 |
 | RFC6750 | 3 | 5 |
@@ -80,9 +80,9 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 12 | 14 |
 | UNVERIFIED | 2 | 10 |
 
-**102 distinct requirements pinned by 215 tests.**
+**107 distinct requirements pinned by 233 tests.**
 
-**65 of 73 conformance-matrix rows are pinned by a test.** The
+**70 of 78 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`
 and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is
 satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins

@@ -46,6 +46,16 @@ public interface TrustControllerGateway {
         return this.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds);
     }
 
+    /**
+     * Tells the gateway which Trust Anchor its chains end at, so that whenever it has to read that
+     * anchor's Entity Configuration (to find its fetch endpoint) it verifies it with the anchor's
+     * out-of-band keys first, as OpenID Federation 1.0 §10.2 requires of ES[i]. Called by
+     * {@link TrustChainValidator}'s constructor, so no call site can build a validator whose gateway
+     * skips the check. A gateway that never reads Entity Configurations over the network may ignore it.
+     */
+    default public void bindTrustAnchor(TrustAnchor trustAnchor, java.util.Set<String> acceptedSigningAlgorithms) {
+    }
+
     default public SubordinateStatementCache.PendingWrites newPendingWrites() {
         return SubordinateStatementCache.disabledPendingWrites();
     }

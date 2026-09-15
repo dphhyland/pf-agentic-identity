@@ -56,6 +56,7 @@ class TrustChainValidatorFetchBoundsTest {
     @Test
     void aFanOutOfHintsCannotSpendUnboundedFetches() throws Exception {
         PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
         // A leaf naming many authorities, none of which is the configured anchor. Every one is a URL
         // this validator would otherwise dereference looking for a route.
         List<String> hints = new ArrayList<>();
@@ -74,7 +75,7 @@ class TrustChainValidatorFetchBoundsTest {
             throw new IllegalArgumentException("unreachable: " + url);
         };
 
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
         assertThrows(IllegalArgumentException.class, () -> validator.validate(List.of(), LEAF, LEAF));
         assertTrue(fetches.get() <= TrustChainValidator.DEFAULT_MAX_FETCHES_PER_VALIDATION + 2,
@@ -83,13 +84,14 @@ class TrustChainValidatorFetchBoundsTest {
 
     @Test
     @Requirement("OIDFED §1.2")
-    void aNonHttpsLeafIdentifierIsRefusedBeforeAnyFetch() {
+    void aNonHttpsLeafIdentifierIsRefusedBeforeAnyFetch() throws Exception {
+        PublicJsonWebKey anchorKey = ec("anchor-1");
         AtomicInteger fetches = new AtomicInteger();
         HttpGetClient http = (url, accept) -> {
             fetches.incrementAndGet();
             return "";
         };
-        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), ANCHOR);
+        TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
         for (String bad : new String[] { "file:///etc/passwd", "gopher://x/1", "not-a-url" }) {
             assertThrows(IllegalArgumentException.class, () -> validator.validate(List.of(), bad, bad), bad);
