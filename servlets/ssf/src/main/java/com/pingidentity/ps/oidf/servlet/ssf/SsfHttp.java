@@ -11,6 +11,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import javax.servlet.ServletConfig;
 import javax.servlet.http.HttpServletRequest;
@@ -125,6 +126,24 @@ final class SsfHttp {
         resp.setHeader("Cache-Control", "no-store");
         try (PrintWriter out = resp.getWriter()) {
             out.write(JsonUtil.toJson(body));
+        }
+    }
+
+    /** A bare JSON array of objects. jose4j serialises only objects, so the array is composed around them. */
+    static void writeJsonArray(HttpServletResponse resp, int status, List<Map<String, Object>> items) throws IOException {
+        StringBuilder json = new StringBuilder("[");
+        for (int i = 0; i < items.size(); i++) {
+            if (i > 0) {
+                json.append(',');
+            }
+            json.append(JsonUtil.toJson(items.get(i)));
+        }
+        json.append(']');
+        resp.setStatus(status);
+        resp.setContentType("application/json");
+        resp.setHeader("Cache-Control", "no-store");
+        try (PrintWriter out = resp.getWriter()) {
+            out.write(json.toString());
         }
     }
 

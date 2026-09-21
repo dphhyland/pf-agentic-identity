@@ -78,10 +78,23 @@ public final class StreamManagementService {
 
     // ─────────────────────────────── stream CRUD ───────────────────────────────
 
-    /** Create a stream from an SSF stream-configuration request body. Returns the stored config as JSON. */
+    /** Create a stream with no authenticated receiver to take the audience from; {@code aud} must be in the body. */
     public Map<String, Object> createStream(Map<String, Object> body) {
+        return createStream(body, null);
+    }
+
+    /**
+     * Create a stream from an SSF stream-configuration request body. Returns the stored config as JSON.
+     *
+     * <p>{@code aud} is Transmitter-Supplied (SSF §8.1.1), so a receiver that sends none - as a conformant
+     * one does - is assigned {@code receiverId}, the client its management token identifies. A receiver
+     * that still sends {@code aud} keeps the value it sent: that is not what the specification describes,
+     * and it is retained only because this repo's own {@link ReceiverStreamClient} and the deployed probes
+     * create streams that way and verify SETs against the audience they chose.
+     */
+    public Map<String, Object> createStream(Map<String, Object> body, String receiverId) {
         DeliveryMethod method = parseDeliveryMethod(body);
-        String audience = requireString(body, "aud");
+        String audience = resolveAudience(body, receiverId);
         List<String> requested = parseEvents(body.get("events_requested"));
         List<String> delivered = narrowToDeliverable(requested);
         long now = SetMinter.nowSeconds();
@@ -121,6 +134,7 @@ public final class StreamManagementService {
     /** PATCH: update mutable fields (events_requested, delivery endpoint) of an existing stream. */
     public Map<String, Object> updateStream(String streamId, Map<String, Object> body) {
         Stream existing = requireStream(streamId);
+        requireTransmitterSuppliedToMatch(existing, body);
         Stream.Builder b = existing.toBuilder().updatedAt(SetMinter.nowSeconds());
         if (body.containsKey("events_requested")) {
             List<String> requested = parseEvents(body.get("events_requested"));
@@ -137,6 +151,41 @@ public final class StreamManagementService {
             if (auth != null) {
                 b.pushAuthorizationHeader(auth);
             }
+        }
+        return streamToJson(this.store.updateStream(b.build()));
+    }
+
+    /**
+     * PUT: replace a stream's configuration (SSF §8.1.1.4). Unlike {@link #updateStream}, the body is the
+     * whole set of Receiver-Supplied properties, and one that is missing is a request to delete it: no
+     * {@code events_requested} leaves the stream delivering nothing, and a push stream replaced without
+     * an {@code authorization_header} stops sending one.
+     *
+     * <p>{@code delivery} cannot be deleted - a stream with no delivery is not a stream - so its absence
+     * is a 400. Nor can its method change here: a receiver moving between push and poll deletes the
+     * stream and creates another, which leaves no question about SETs already queued for the old method.
+     */
+    public Map<String, Object> replaceStream(String streamId, Map<String, Object> body) {
+        Stream existing = requireStream(streamId);
+        requireTransmitterSuppliedToMatch(existing, body);
+        if (!body.containsKey("delivery")) {
+            throw new IllegalArgumentException("missing required field: delivery");
+        }
+        DeliveryMethod method = parseDeliveryMethod(body);
+        if (method != existing.deliveryMethod()) {
+            throw new IllegalArgumentException("delivery.method cannot be replaced; delete the stream and create another");
+        }
+        List<String> requested = parseEvents(body.get("events_requested"));
+        Stream.Builder b = existing.toBuilder()
+                .eventsRequested(requested)
+                .eventsDelivered(narrowToDeliverable(requested))
+                .updatedAt(SetMinter.nowSeconds());
+        if (method == DeliveryMethod.PUSH) {
+            Map<String, Object> delivery = asMap(body.get("delivery"));
+            String pushUrl = requireString(delivery, "endpoint_url");
+            requireDeliverableEndpoint(pushUrl);
+            b.pushEndpointUrl(pushUrl);
+            b.pushAuthorizationHeader(optString(delivery, "authorization_header"));
         }
         return streamToJson(this.store.updateStream(b.build()));
     }
@@ -203,7 +252,9 @@ public final class StreamManagementService {
                 .audience(s.audience())
                 .jti(jti)
                 .issuedAt(now)
-                .event(SsfEventTypes.VERIFICATION, payload) // no sub_id — verification carries none
+                // SSF §8.1.4.1: the subject of a verification event is the stream itself.
+                .subjectId(SubjectId.opaque(streamId))
+                .event(SsfEventTypes.VERIFICATION, payload)
                 .build();
         String jws = this.minter.sign(set);
         long expiresAt = this.config.setTtlSeconds() > 0 ? now + this.config.setTtlSeconds() : 0;
@@ -218,13 +269,16 @@ public final class StreamManagementService {
      * Poll for pending SETs and ack previously-received ones (RFC 8936). Acked jtis are deleted first, then up
      * to {@code maxEvents} pending SETs are returned as {@code {jti: jws}}. {@code returnImmediately} is honoured
      * trivially here (this store never long-polls). Returns {@code {sets, moreAvailable}}.
+     *
+     * <p>A {@code maxEvents} of 0 is an acknowledge-only request (RFC 8936 §2.2) and returns no SETs; only
+     * an absent or negative value falls back to the configured cap.
      */
     public Map<String, Object> poll(String streamId, List<String> acks, Integer maxEvents, boolean returnImmediately) {
         requireStream(streamId);
         if (acks != null && !acks.isEmpty()) {
             this.store.ack(streamId, acks);
         }
-        int cap = maxEvents != null && maxEvents > 0 ? maxEvents : this.config.pollMaxEvents();
+        int cap = maxEvents != null && maxEvents >= 0 ? maxEvents : this.config.pollMaxEvents();
         List<PendingSet> pending = this.store.peek(streamId, cap + 1);
         boolean more = pending.size() > cap;
         LinkedHashMap<String, Object> sets = new LinkedHashMap<>();
@@ -261,6 +315,8 @@ public final class StreamManagementService {
         m.put("stream_id", s.id());
         m.put("iss", this.config.issuer());
         m.put("aud", s.audience());
+        // What narrowToDeliverable will accept, so events_delivered is always a subset of it.
+        m.put("events_supported", SsfEventTypes.ALL);
         m.put("events_requested", s.eventsRequested());
         m.put("events_delivered", s.eventsDelivered());
         LinkedHashMap<String, Object> delivery = new LinkedHashMap<>();
@@ -275,6 +331,37 @@ public final class StreamManagementService {
         m.put("delivery", delivery);
         m.put("status", s.status().value());
         return m;
+    }
+
+    /** The receiver's own {@code aud} if it sent one, otherwise the client its token identifies. */
+    private static String resolveAudience(Map<String, Object> body, String receiverId) {
+        String supplied = optString(body, "aud");
+        if (supplied != null) {
+            return supplied;
+        }
+        if (receiverId != null && !receiverId.isBlank()) {
+            return receiverId;
+        }
+        throw new IllegalArgumentException("cannot assign aud: the request carries none and the token names no client");
+    }
+
+    /**
+     * A receiver may echo Transmitter-Supplied properties back on PATCH and PUT, but only as they stand
+     * (SSF §8.1.1.3, §8.1.1.4); absent ones are ignored. Checked before anything is applied, so a request
+     * that tries to move {@code aud} - which "cannot be updated" - changes nothing else either.
+     */
+    private void requireTransmitterSuppliedToMatch(Stream existing, Map<String, Object> body) {
+        requireMatch(body, "iss", this.config.issuer());
+        requireMatch(body, "aud", existing.audience());
+        if (body.containsKey("events_delivered") && !parseEvents(body.get("events_delivered")).equals(existing.eventsDelivered())) {
+            throw new IllegalArgumentException("events_delivered does not match the stream");
+        }
+    }
+
+    private static void requireMatch(Map<String, Object> body, String key, String expected) {
+        if (body.containsKey(key) && !expected.equals(body.get(key))) {
+            throw new IllegalArgumentException(key + " is Transmitter-Supplied and does not match the stream");
+        }
     }
 
     private static DeliveryMethod parseDeliveryMethod(Map<String, Object> body) {

@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**1214 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**1262 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -24,16 +24,16 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/client-attestation` | 8 | green | 77% | 105 |
 | `libs/openid-federation` | 15 | green | 72% | 159 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 10 | green | 51% | 126 |
+| `servlets/pf-integration` | 18 | green | 55% | 154 |
 | `servlets/attestation-issuer` | 14 | green | 85% | 202 |
-| `servlets/ssf` | 16 | green | 65% | 136 |
+| `servlets/ssf` | 16 | green | 68% | 156 |
 | `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
 | `services/device-enrolment` | 4 | green | 75% | 82 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 37% | 83 |
 
-**127 methods gated across the reactor, all green.**
+**135 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -63,6 +63,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | CAEP | 4 | 5 |
 | CAS | 10 | 30 |
 | CLAIM-DICT | 4 | 5 |
+| FAPI2-SP | 2 | 16 |
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
 | OIDC-CORE | 1 | 3 |
@@ -77,14 +78,14 @@ the three ways to get an id wrong, are documented on the annotation itself
 | RFC8693 | 2 | 10 |
 | RFC8725 | 3 | 4 |
 | RFC8935 | 1 | 3 |
-| RFC8936 | 2 | 5 |
+| RFC8936 | 2 | 6 |
 | RFC9396 | 2 | 7 |
-| RFC9449 | 3 | 7 |
+| RFC9449 | 5 | 9 |
 | RFC9493 | 4 | 6 |
-| SSF | 12 | 14 |
+| SSF | 15 | 31 |
 | UNVERIFIED | 2 | 10 |
 
-**113 distinct requirements pinned by 283 tests.**
+**120 distinct requirements pinned by 319 tests.**
 
 **72 of 79 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`
@@ -118,7 +119,7 @@ check them against. Real and worth pinning, but a weaker claim than an RFC.
 Three guarantees in this system are configuration, not code. 100% coverage of the Java says
 nothing about them, and a green dashboard must not be read as covering them:
 
-- **The token-endpoint filters are registered by build surgery, not by code.** There is no `@WebFilter` anywhere in the repo and `servlets/oidf-war`'s `web.xml` registers none — `ClientAttestationAuthFilter` and `TokenEndpointAutoRegistrationFilter` are mapped over `/as/token.oauth2` by `build/pingfederate/assemble-pf-runtime-war.sh` when it merges the jars into `pf-runtime.war` (it also checks their order). A gate on `doFilter(` proves the filter works, never that the war a deployment runs registered it.
+- **The token-endpoint filters are registered by build surgery, not by code.** There is no `@WebFilter` anywhere in the repo and `servlets/oidf-war`'s `web.xml` registers none — `ClientAttestationAuthFilter`, `TokenEndpointAutoRegistrationFilter` and `Fapi2ProfileFilter` are mapped over PingFederate's endpoints by `build/pingfederate/assemble-pf-runtime-war.sh` when it merges the jars into `pf-runtime.war` (it also checks their order). A gate on `doFilter(` proves the filter works, never that the war a deployment runs registered it.
 - **Initial-grant RAR containment lives in a PingAuthorize policy file.** `AttestationAwareRarProcessor.enrich` does not call containment; it forwards the attested ceiling and policy enforces `requested ⊆ attested` outside this repo. Its three permissive switches (`failOpenOnError`, `denyOnNonPermit`, `allowClientAssertedPrincipal`) have *defaults* that are the security property, which no coverage counter expresses.
 - **`OutboundUrlPolicy`'s `allowHttp` / `allowPrivateNetworks` come from environment variables,** so the SSRF posture of a running deployment is not a property of this code.
 

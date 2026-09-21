@@ -20,7 +20,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
 /**
- * The SSF Stream Management API: stream CRUD (POST/GET/PATCH/DELETE {@code /ssf/streams}), status get/set
+ * The SSF Stream Management API: stream CRUD (POST/GET/PATCH/PUT/DELETE {@code /ssf/streams}), status get/set
  * ({@code /ssf/status}), subject add/remove ({@code /ssf/subjects:add|remove}), and verification
  * ({@code /ssf/verify}). Every request is authenticated with a receiver's OAuth bearer token — validated
  * against PingFederate and required to carry the configured {@code receiverScope} — via
@@ -66,19 +66,30 @@ public class SsfStreamManagementServlet extends HttpServlet {
         dispatch(req, resp);
     }
 
+    /** Without this the container answers PUT itself, with a 405 the receiver gets before it is authenticated. */
+    @Override
+    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        dispatch(req, resp);
+    }
+
     private void dispatch(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         SsfConfiguration cfg = SsfSupport.configuration();
         AuthContext auth = authorize(req, resp, cfg);
         if (auth == null) {
             return; // 401/403/503 already written
         }
-        StreamManagementService svc = SsfSupport.streamService();
+        handle(req, resp, SsfSupport.streamService(), auth);
+    }
+
+    /** Everything after authentication, against a given service - the seam the servlet is tested through. */
+    static void handle(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc, AuthContext auth)
+            throws IOException {
         String path = req.getServletPath();
         String method = req.getMethod().toUpperCase();
         try {
             switch (path) {
                 case "/ssf/streams":
-                    handleStreams(req, resp, svc, method);
+                    handleStreams(req, resp, svc, method, auth);
                     break;
                 case "/ssf/status":
                     handleStatus(req, resp, svc, method);
@@ -105,24 +116,34 @@ public class SsfStreamManagementServlet extends HttpServlet {
         }
     }
 
-    private void handleStreams(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc, String method)
-            throws Exception {
+    private static void handleStreams(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc,
+                                      String method, AuthContext auth) throws Exception {
         switch (method) {
             case "POST":
-                writeJson(resp, 201, svc.createStream(readBody(req)));
+                writeJson(resp, 201, svc.createStream(readBody(req), auth.clientId()));
                 break;
             case "GET": {
                 String id = req.getParameter("stream_id");
                 if (id != null && !id.isBlank()) {
                     writeJson(resp, 200, svc.getStream(id));
                 } else {
-                    writeJson(resp, 200, Map.of("streams", svc.listStreams()));
+                    SsfHttp.writeJsonArray(resp, 200, svc.listStreams()); // SSF §8.1.1.2: a list, empty when none
                 }
                 break;
             }
-            case "PATCH":
-                writeJson(resp, 200, svc.updateStream(requireParam(req, "stream_id"), readBody(req)));
+            case "PATCH": {
+                // SSF §8.1.1.3 puts stream_id in the body. The query parameter is what this servlet used
+                // to require, and is still read for a caller that has not moved.
+                Map<String, Object> body = readBody(req);
+                String id = str(body, "stream_id");
+                writeJson(resp, 200, svc.updateStream(id != null && !id.isBlank() ? id : requireParam(req, "stream_id"), body));
                 break;
+            }
+            case "PUT": {
+                Map<String, Object> body = readBody(req);
+                writeJson(resp, 200, svc.replaceStream(reqStr(body, "stream_id"), body));
+                break;
+            }
             case "DELETE":
                 svc.deleteStream(requireParam(req, "stream_id"));
                 resp.setStatus(204);
@@ -132,8 +153,8 @@ public class SsfStreamManagementServlet extends HttpServlet {
         }
     }
 
-    private void handleStatus(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc, String method)
-            throws Exception {
+    private static void handleStatus(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc,
+                                     String method) throws Exception {
         if ("GET".equals(method)) {
             writeJson(resp, 200, svc.getStatus(requireParam(req, "stream_id")));
         } else if ("POST".equals(method)) {
@@ -145,8 +166,8 @@ public class SsfStreamManagementServlet extends HttpServlet {
     }
 
     @SuppressWarnings("unchecked")
-    private void handleSubject(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc,
-                               String method, boolean add) throws Exception {
+    private static void handleSubject(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc,
+                                      String method, boolean add) throws Exception {
         if (!"POST".equals(method)) {
             writeError(resp, 405, "method_not_allowed", method);
             return;
@@ -158,28 +179,31 @@ public class SsfStreamManagementServlet extends HttpServlet {
             throw new IllegalArgumentException("missing required field: subject");
         }
         SubjectId subject = SubjectId.fromMap((Map<String, Object>) subj);
+        // Both are empty responses, and they differ: SSF §8.1.3.2 answers an add with 200, §8.1.3.3 a
+        // remove with 204.
         if (add) {
             svc.addSubject(streamId, subject);
+            resp.setStatus(200);
         } else {
             svc.removeSubject(streamId, subject);
+            resp.setStatus(204);
         }
-        resp.setStatus(204);
     }
 
-    private void handleVerify(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc, String method)
-            throws Exception {
+    private static void handleVerify(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc,
+                                     String method) throws Exception {
         if (!"POST".equals(method)) {
             writeError(resp, 405, "method_not_allowed", method);
             return;
         }
         Map<String, Object> body = readBody(req);
-        String jti = svc.verify(reqStr(body, "stream_id"), str(body, "state"));
-        writeJson(resp, 200, Map.of("jti", jti));
+        svc.verify(reqStr(body, "stream_id"), str(body, "state"));
+        resp.setStatus(204); // SSF §8.1.4.2: empty. The SET is the answer, and it arrives by the stream.
     }
 
     // ─────────────────────────────── auth ───────────────────────────────
 
-    private AuthContext authorize(HttpServletRequest req, HttpServletResponse resp, SsfConfiguration cfg) throws IOException {
+    private static AuthContext authorize(HttpServletRequest req, HttpServletResponse resp, SsfConfiguration cfg) throws IOException {
         return SsfHttp.authorize(req, resp, cfg);
     }
 

@@ -158,7 +158,9 @@ class StreamManagementServiceTest {
         @SuppressWarnings("unchecked")
         Map<String, Object> verEvent = (Map<String, Object>) events.get(SsfEventTypes.VERIFICATION);
         assertEquals("state-123", verEvent.get("state"));
-        assertFalse(claims.containsKey("sub_id"), "verification SETs carry no sub_id");
+        // This asserted the opposite until 2026-09, under the same clause: "verification SETs carry no
+        // sub_id". SSF 1.0 Final §8.1.4.1 makes it REQUIRED, opaque, and the stream's own id.
+        assertEquals(Map.of("format", "opaque", "id", id), claims.get("sub_id"));
 
         // ack clears it; next poll is empty
         Map<String, Object> after = svc.poll(id, List.of(jti), 10, true);
@@ -175,5 +177,161 @@ class StreamManagementServiceTest {
         Map<String, Object> polled = svc.poll(id, null, 2, true);
         assertEquals(2, ((Map<?, ?>) polled.get("sets")).size());
         assertEquals(Boolean.TRUE, polled.get("moreAvailable"));
+    }
+
+    @Test
+    @Requirement("RFC8936 §2.2")
+    void maxEventsZeroAcknowledgesAndReturnsNothing() throws Exception {
+        String id = (String) svc.createStream(pollBody()).get("stream_id");
+        String first = svc.verify(id, "a");
+        svc.verify(id, "b");
+
+        Map<String, Object> polled = svc.poll(id, List.of(first), 0, true);
+
+        assertEquals(0, ((Map<?, ?>) polled.get("sets")).size(), "0 used to fall back to the configured cap");
+        assertEquals(Boolean.TRUE, polled.get("moreAvailable"), "the unacknowledged SET is still waiting");
+        assertEquals(1, ((Map<?, ?>) svc.poll(id, null, 10, true).get("sets")).size(), "and the ack was applied");
+    }
+
+    // ─────────────────────────────── aud is the transmitter's to assign ───────────────────────────────
+
+    private Map<String, Object> pollBodyWithoutAudience() {
+        return Map.of(
+                "delivery", Map.of("method", DeliveryMethod.POLL.urn()),
+                "events_requested", List.of(SsfEventTypes.CAEP_SESSION_REVOKED));
+    }
+
+    @Test
+    @Requirement("SSF §8.1.1")
+    void aReceiverThatSendsNoAudienceIsAssignedItsOwnClientId() throws Exception {
+        Map<String, Object> s = svc.createStream(pollBodyWithoutAudience(), "receiver-client");
+
+        assertEquals("receiver-client", s.get("aud"));
+        // and it is the audience of what the stream then delivers, not only of what the API reports
+        String id = (String) s.get("stream_id");
+        String jti = svc.verify(id, null);
+        JsonWebSignature set = new JsonWebSignature();
+        set.setCompactSerialization((String) ((Map<?, ?>) svc.poll(id, null, 1, true).get("sets")).get(jti));
+        assertEquals("receiver-client", JsonUtil.parseJson(set.getUnverifiedPayload()).get("aud"));
+    }
+
+    @Test
+    @Requirement("SSF §8.1.1")
+    void aStreamNobodyCanBeNamedAsTheAudienceOfIsRefused() {
+        assertThrows(IllegalArgumentException.class, () -> svc.createStream(pollBodyWithoutAudience(), null));
+        assertThrows(IllegalArgumentException.class, () -> svc.createStream(pollBodyWithoutAudience(), " "));
+        assertEquals(0, svc.listStreams().size());
+    }
+
+    /**
+     * Deliberately untagged. SSF §8.1.1 makes {@code aud} Transmitter-Supplied, and honouring one a
+     * receiver sent is a departure from that, kept for {@link ReceiverStreamClient} and the deployed
+     * probes. Tagging it with the clause it departs from would report the clause as covered.
+     */
+    @Test
+    void aReceiverThatStillSendsAnAudienceKeepsIt() {
+        assertEquals("https://receiver.example.com", svc.createStream(pollBody(), "receiver-client").get("aud"));
+    }
+
+    @Test
+    @Requirement("SSF §8.1.1")
+    void aStreamReportsTheEventsItCouldDeliver() {
+        Map<String, Object> s = svc.createStream(pollBody());
+
+        @SuppressWarnings("unchecked")
+        List<String> supported = (List<String>) s.get("events_supported");
+        assertNotNull(supported, "absent, a receiver cannot tell an unsupported event from a refused one");
+        assertTrue(supported.containsAll((List<?>) s.get("events_delivered")));
+        assertFalse(supported.contains("https://unknown/event"));
+    }
+
+    // ─────────────────────────────── PATCH and PUT ───────────────────────────────
+
+    @Test
+    @Requirement("SSF §8.1.1.3")
+    void anUpdateCannotMoveTheAudienceAndChangesNothingWhenItTries() {
+        String id = (String) svc.createStream(pollBody()).get("stream_id");
+
+        assertThrows(IllegalArgumentException.class, () -> svc.updateStream(id, Map.of(
+                "aud", "https://someone-else.example.com",
+                "events_requested", List.of(SsfEventTypes.CAEP_CREDENTIAL_CHANGE))));
+
+        Map<String, Object> after = svc.getStream(id);
+        assertEquals("https://receiver.example.com", after.get("aud"));
+        assertEquals(List.of(SsfEventTypes.CAEP_SESSION_REVOKED), after.get("events_delivered"),
+                "the refused request's other properties were not applied");
+    }
+
+    @Test
+    @Requirement("SSF §8.1.1.3")
+    void anUpdateMayEchoTransmitterSuppliedPropertiesAsTheyStand() {
+        Map<String, Object> created = svc.createStream(pollBody());
+        String id = (String) created.get("stream_id");
+
+        Map<String, Object> updated = svc.updateStream(id, Map.of(
+                "iss", "https://op.example.com",
+                "aud", "https://receiver.example.com",
+                "events_delivered", created.get("events_delivered"),
+                "events_requested", List.of(SsfEventTypes.CAEP_CREDENTIAL_CHANGE)));
+
+        assertEquals(List.of(SsfEventTypes.CAEP_CREDENTIAL_CHANGE), updated.get("events_delivered"));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.updateStream(id, Map.of("iss", "https://another-issuer.example.com")));
+        assertThrows(IllegalArgumentException.class,
+                () -> svc.updateStream(id, Map.of("events_delivered", List.of(SsfEventTypes.RISC_ACCOUNT_DISABLED))));
+    }
+
+    @Test
+    @Requirement("SSF §8.1.1.4")
+    void aReplacementDeletesTheReceiverSuppliedPropertiesItLeavesOut() {
+        String id = (String) svc.createStream(Map.of(
+                "aud", "https://receiver.example.com",
+                "delivery", Map.of("method", DeliveryMethod.PUSH.urn(),
+                        "endpoint_url", "https://receiver.example.com/events",
+                        "authorization_header", "Bearer old"),
+                "events_requested", List.of(SsfEventTypes.CAEP_SESSION_REVOKED))).get("stream_id");
+
+        Map<String, Object> replaced = svc.replaceStream(id, Map.of(
+                "stream_id", id,
+                "delivery", Map.of("method", DeliveryMethod.PUSH.urn(),
+                        "endpoint_url", "https://receiver.example.com/events-v2")));
+
+        assertEquals(List.of(), replaced.get("events_requested"), "an update would have left these alone");
+        assertEquals(List.of(), replaced.get("events_delivered"));
+        Stream stored = store.getStream(id).orElseThrow();
+        assertEquals("https://receiver.example.com/events-v2", stored.pushEndpointUrl());
+        assertEquals(null, stored.pushAuthorizationHeader(), "the old header must not outlive the replacement");
+        assertEquals("https://receiver.example.com", replaced.get("aud"), "Transmitter-Supplied, so untouched");
+    }
+
+    @Test
+    @Requirement("SSF §8.1.1.4")
+    void aReplacementIsRefusedWithoutDeliveryOrForAnotherMethodOrAnUnscreenedEndpoint() {
+        String id = (String) svc.createStream(pollBody()).get("stream_id");
+
+        assertThrows(IllegalArgumentException.class, () -> svc.replaceStream(id, Map.of("stream_id", id)));
+        assertThrows(IllegalArgumentException.class, () -> svc.replaceStream(id, Map.of(
+                "delivery", Map.of("method", DeliveryMethod.PUSH.urn(), "endpoint_url", "https://receiver.example.com/e"))));
+        assertThrows(IllegalArgumentException.class, () -> svc.replaceStream(id, Map.of(
+                "aud", "https://someone-else.example.com",
+                "delivery", Map.of("method", DeliveryMethod.POLL.urn()))));
+        assertThrows(StreamManagementService.NotFoundException.class, () -> svc.replaceStream("no-such-stream",
+                Map.of("delivery", Map.of("method", DeliveryMethod.POLL.urn()))));
+
+        assertEquals(List.of(SsfEventTypes.CAEP_SESSION_REVOKED), svc.getStream(id).get("events_delivered"),
+                "none of the refused replacements was applied");
+    }
+
+    /** PUT is a second door onto the push endpoint, so it is screened like CREATE and PATCH. */
+    @Test
+    void aReplacementCannotPointAPushStreamAtAnInternalAddress() {
+        String id = (String) svc.createStream(Map.of(
+                "aud", "https://receiver.example.com",
+                "delivery", Map.of("method", DeliveryMethod.PUSH.urn(), "endpoint_url", "https://receiver.example.com/events"),
+                "events_requested", List.of(SsfEventTypes.CAEP_SESSION_REVOKED))).get("stream_id");
+
+        assertThrows(IllegalArgumentException.class, () -> svc.replaceStream(id, Map.of(
+                "delivery", Map.of("method", DeliveryMethod.PUSH.urn(), "endpoint_url", "https://metadata.internal/latest"))));
+        assertEquals("https://receiver.example.com/events", store.getStream(id).orElseThrow().pushEndpointUrl());
     }
 }
