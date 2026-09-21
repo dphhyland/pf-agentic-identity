@@ -12,6 +12,7 @@ import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.net.InetAddress;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -28,6 +29,8 @@ import org.junit.jupiter.api.Test;
  * changed after it was accepted.
  */
 class PushDeliverySsrfTest {
+
+    private static final AuthContext RECEIVER = AuthContext.active("receiver-client", Set.of("ssf.manage"));
 
     private final TestSigningKeyProvider keys = new TestSigningKeyProvider("test-set-key");
     private InMemorySsfStore store;
@@ -72,7 +75,7 @@ class PushDeliverySsrfTest {
     @Test
     void aStreamNamingCloudInstanceMetadataIsRefusedAtCreation() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
-                () -> svc.createStream(pushTo("http://metadata.internal/latest/meta-data/iam/security-credentials/")));
+                () -> svc.createStream(pushTo("http://metadata.internal/latest/meta-data/iam/security-credentials/"), RECEIVER));
 
         assertTrue(e.getMessage().contains("endpoint_url"), e.getMessage());
         assertTrue(store.listStreams().isEmpty(), "a refused stream must not be stored");
@@ -81,13 +84,13 @@ class PushDeliverySsrfTest {
     @Test
     void aStreamNamingAPrivateServiceIsRefusedAtCreation() {
         assertThrows(IllegalArgumentException.class,
-                () -> svc.createStream(pushTo("http://redis.railway.internal:6379/")));
+                () -> svc.createStream(pushTo("http://redis.railway.internal:6379/"), RECEIVER));
         assertTrue(store.listStreams().isEmpty());
     }
 
     @Test
     void aPublicEndpointIsAccepted() {
-        Map<String, Object> created = svc.createStream(pushTo("https://receiver.example.com/set"));
+        Map<String, Object> created = svc.createStream(pushTo("https://receiver.example.com/set"), RECEIVER);
         assertNotNull(created.get("stream_id"));
     }
 
@@ -97,15 +100,15 @@ class PushDeliverySsrfTest {
      */
     @Test
     void anExistingStreamCannotBeRepointedAtAPrivateAddress() {
-        Map<String, Object> created = svc.createStream(pushTo("https://receiver.example.com/set"));
+        Map<String, Object> created = svc.createStream(pushTo("https://receiver.example.com/set"), RECEIVER);
         String id = (String) created.get("stream_id");
 
         assertThrows(IllegalArgumentException.class, () -> svc.updateStream(id, Map.of(
                 "delivery", Map.of("method", DeliveryMethod.PUSH.urn(),
-                        "endpoint_url", "http://metadata.internal/latest/meta-data/"))));
+                        "endpoint_url", "http://metadata.internal/latest/meta-data/")), RECEIVER));
 
         assertEquals("https://receiver.example.com/set",
-                ((Map<?, ?>) svc.getStream(id).get("delivery")).get("endpoint_url"),
+                ((Map<?, ?>) svc.getStream(id, RECEIVER).get("delivery")).get("endpoint_url"),
                 "the stored endpoint must be unchanged after a refused update");
     }
 

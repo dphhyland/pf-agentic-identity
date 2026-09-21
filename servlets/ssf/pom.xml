@@ -108,6 +108,14 @@
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfHttp.authorize(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.AuthContext.hasScope(*</include>
 
+                                        <!-- Stream ownership: which receiver a stream answers to. admits() is the whole
+                                             rule, requireStream() the one place every per-stream operation asks it, and
+                                             listStreams() the filter - the endpoint that used to hand out every id. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamAccess.admits(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamAccess.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.listStreams(*</include>
+
                                         <!-- Stream management: what a receiver is allowed to register and be sent. -->
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireDeliverableEndpoint(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.createStream(*</include>

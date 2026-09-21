@@ -5,15 +5,22 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
@@ -101,5 +108,99 @@ class JdbcSsfStoreTest {
         when(ps.executeUpdate()).thenReturn(1);
         assertEquals(1, store.ack("s1", List.of("j1")));
         verify(ps).setString(2, "j1");
+    }
+
+    // ─────────────────────────────── owner ───────────────────────────────
+
+    @Test
+    void aNewStreamsOwnerIsWritten() throws Exception {
+        store.createStream(Stream.builder().id("s1").audience("https://r").ownerClientId("receiver-a")
+                .deliveryMethod(DeliveryMethod.POLL).status(StreamStatus.ENABLED).build());
+
+        verify(conn).prepareStatement(contains("owner_client_id"));
+        verify(ps).setString(12, "receiver-a");
+    }
+
+    @Test
+    void aRowsOwnerIsReadBackAndARowWithoutOneHasNone() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(true);
+        when(rs.getString("stream_id")).thenReturn("s1");
+        when(rs.getString("audience")).thenReturn("https://receiver.example.com");
+        when(rs.getString("delivery_method")).thenReturn("POLL");
+        when(rs.getString("status")).thenReturn("enabled");
+
+        when(rs.getString("owner_client_id")).thenReturn("receiver-a");
+        assertEquals("receiver-a", store.getStream("s1").orElseThrow().ownerClientId());
+
+        when(rs.getString("owner_client_id")).thenReturn(null); // a row from before the column existed
+        assertEquals(null, store.getStream("s1").orElseThrow().ownerClientId());
+    }
+
+    /** SsfStore#updateStream. Here the guarantee is the statement itself: the column is not in it. */
+    @Test
+    void anUpdateNeverWritesTheOwner() throws Exception {
+        when(ps.executeUpdate()).thenReturn(1);
+
+        store.updateStream(Stream.builder().id("s1").audience("https://r").ownerClientId("receiver-b")
+                .deliveryMethod(DeliveryMethod.POLL).status(StreamStatus.PAUSED).build());
+
+        verify(conn).prepareStatement(contains("UPDATE ssf_streams"));       // control: the update did run
+        verify(conn, never()).prepareStatement(contains("owner_client_id"));
+        verify(ps, never()).setString(anyInt(), eq("receiver-b"));
+    }
+
+    // ─────────────────────────────── the owner column on a table that pre-dates it ───────────────────────────────
+
+    @Test
+    void anExistingTableGainsTheOwnerColumn() throws Exception {
+        when(stmt.executeQuery(JdbcSsfStore.PROBE_OWNER)).thenThrow(new SQLException("column not found"));
+
+        store.ensureSchema();
+
+        verify(stmt).execute(JdbcSsfStore.DDL_ADD_OWNER);
+    }
+
+    /** Boot runs this every time, so it has to be safe to run against a table that is already up to date. */
+    @Test
+    void aTableThatAlreadyHasTheColumnIsLeftAlone() throws Exception {
+        when(stmt.executeQuery(JdbcSsfStore.PROBE_OWNER)).thenReturn(mock(ResultSet.class));
+
+        store.ensureSchema();
+        store.ensureSchema();
+
+        verify(stmt, never()).execute(JdbcSsfStore.DDL_ADD_OWNER);
+    }
+
+    @Test
+    void theColumnIsAddedNullableSoTheRowsAlreadyThereSurviveIt() {
+        assertFalse(JdbcSsfStore.DDL_ADD_OWNER.toUpperCase().contains("NOT NULL"),
+                "a NOT NULL column cannot be added to a table with rows in it, and those rows have no owner to give");
+        assertFalse(JdbcSsfStore.DDL_ADD_OWNER.toUpperCase().contains("DEFAULT"),
+                "a default would hand every existing stream to whichever client it named");
+    }
+
+    @Test
+    void losingTheRaceToAddTheColumnIsNotAFailure() throws Exception {
+        // two nodes boot together: this one finds the column missing, and by the time its ALTER runs the other's has landed
+        when(stmt.executeQuery(JdbcSsfStore.PROBE_OWNER))
+                .thenThrow(new SQLException("column not found"))
+                .thenReturn(mock(ResultSet.class));
+        when(stmt.execute(JdbcSsfStore.DDL_ADD_OWNER)).thenThrow(new SQLException("column already exists"));
+
+        store.ensureSchema();
+    }
+
+    /** The control for the test above: a failed ALTER is forgiven only when the column is there afterwards. */
+    @Test
+    void failingToAddTheColumnIsReportedRatherThanBootedPast() throws Exception {
+        when(stmt.executeQuery(JdbcSsfStore.PROBE_OWNER)).thenThrow(new SQLException("column not found"));
+        when(stmt.execute(JdbcSsfStore.DDL_ADD_OWNER)).thenThrow(new SQLException("permission denied"));
+
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> store.ensureSchema());
+
+        assertEquals("permission denied", e.getCause().getMessage(),
+                "a store that cannot record owners must not come up: every stream it created would be nobody's");
     }
 }

@@ -13,18 +13,35 @@ import java.util.Optional;
  * {@link InMemorySsfStore} dev fallback and a PingFederate JDBC-backed store (cluster-safe, survives restart) —
  * selected by {@code dataStoreId}. All methods must be safe for concurrent callers (servlets + the push
  * executor).
+ *
+ * <p>A store answers for every stream, whoever owns it: the event emitter and the push executor work
+ * across receivers and have no caller to scope to. Which receiver may see which stream is decided above
+ * this interface, by {@link StreamAccess} - anything that acts for a receiver asks it about a stream read
+ * from here before doing anything with it.
  */
 public interface SsfStore {
 
     // ---- streams ----
 
+    /**
+     * Store a new stream, refusing an id that is already taken. This is the only write of
+     * {@link Stream#ownerClientId()}.
+     */
     Stream createStream(Stream stream);
 
     Optional<Stream> getStream(String streamId);
 
     List<Stream> listStreams();
 
-    /** Replace an existing stream; returns the stored value. Throws if the stream does not exist. */
+    /**
+     * Replace an existing stream. Throws if the stream does not exist. What is returned is the stream as
+     * it was written, which for the two durable stores is the argument - so its owner is the caller's word
+     * and not the store's. Read the stream back if the owner matters.
+     *
+     * <p>The owner is not part of what is replaced. Whatever {@code stream} carries, the stored owner
+     * stands, so no update - a PATCH, a status change, the push executor pausing a failing stream - can
+     * move a stream to another receiver or strip its owner and orphan it.
+     */
     Stream updateStream(Stream stream);
 
     boolean deleteStream(String streamId);

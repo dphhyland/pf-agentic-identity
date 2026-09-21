@@ -28,7 +28,11 @@ public final class InMemorySsfStore implements SsfStore {
 
     @Override
     public Stream createStream(Stream stream) {
-        this.streams.put(stream.id(), stream);
+        // As the two durable stores, where the id is the primary key. A create that could overwrite would be a
+        // second way to write an owner, and would hand the first stream's subjects and queue to the new one.
+        if (this.streams.putIfAbsent(stream.id(), stream) != null) {
+            throw new IllegalArgumentException("stream already exists: " + stream.id());
+        }
         this.subjects.putIfAbsent(stream.id(), ConcurrentHashMap.newKeySet());
         this.pending.putIfAbsent(stream.id(), new ConcurrentHashMap<>());
         return stream;
@@ -46,11 +50,13 @@ public final class InMemorySsfStore implements SsfStore {
 
     @Override
     public Stream updateStream(Stream stream) {
-        if (!this.streams.containsKey(stream.id())) {
+        // The stored owner stands (see SsfStore#updateStream); computeIfPresent keeps that atomic with the swap.
+        Stream stored = this.streams.computeIfPresent(stream.id(),
+                (id, existing) -> stream.toBuilder().ownerClientId(existing.ownerClientId()).build());
+        if (stored == null) {
             throw new IllegalArgumentException("no such stream: " + stream.id());
         }
-        this.streams.put(stream.id(), stream);
-        return stream;
+        return stored;
     }
 
     @Override

@@ -6,10 +6,14 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.contains;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -17,10 +21,13 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import javax.sql.DataSource;
+import org.jose4j.json.JsonUtil;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 class LdmSsfStoreTest {
 
@@ -122,5 +129,94 @@ class LdmSsfStoreTest {
         assertEquals(1, store.ack(SID, List.of("j1")));
         verify(conn).prepareStatement(contains("attrs->>'jti'"));
         verify(ps).setString(2, "j1");
+    }
+
+    // ─────────────────────────────── owner ───────────────────────────────
+
+    private static Stream pollStream(String owner) {
+        return Stream.builder().id(SID).audience("https://r").ownerClientId(owner).deliveryMethod(DeliveryMethod.POLL)
+                .status(StreamStatus.ENABLED).createdAt(10).updatedAt(20).build();
+    }
+
+    /**
+     * {@code idm.entry} generates its indexed {@code client_id} column from {@code attrs->>'clientId'}. A
+     * stream that wrote its owner under that key would turn up in every client-keyed lookup in the model.
+     */
+    @Test
+    void theOwnerIsAnAttributeOfItsOwnAndNotTheModelsClientId() throws Exception {
+        store.createStream(pollStream("receiver-a"));
+
+        ArgumentCaptor<String> attrs = ArgumentCaptor.forClass(String.class);
+        verify(ps).setString(eq(3), attrs.capture());
+        Map<String, Object> written = JsonUtil.parseJson(attrs.getValue());
+        assertEquals("receiver-a", written.get("ownerClientId"));
+        assertFalse(written.containsKey("clientId"));
+    }
+
+    @Test
+    void aStreamWithNoOwnerWritesNoOwnerAttribute() throws Exception {
+        store.createStream(pollStream(null));
+
+        ArgumentCaptor<String> attrs = ArgumentCaptor.forClass(String.class);
+        verify(ps).setString(eq(3), attrs.capture());
+        assertFalse(JsonUtil.parseJson(attrs.getValue()).containsKey("ownerClientId"), "absent, not an explicit null");
+    }
+
+    @Test
+    void anEntrysOwnerIsReadBackAndAnEntryWithoutOneHasNone() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(true);
+        when(rs.getString("id")).thenReturn(SID);
+        String rest = "\"audience\":\"a\",\"deliveryMethod\":\"urn:ietf:rfc:8936\",\"streamStatus\":\"enabled\"}";
+
+        when(rs.getString("attrs")).thenReturn("{\"ownerClientId\":\"receiver-a\"," + rest);
+        assertEquals("receiver-a", store.getStream(SID).orElseThrow().ownerClientId());
+
+        when(rs.getString("attrs")).thenReturn("{" + rest); // an entry from before streams had owners
+        assertEquals(null, store.getStream(SID).orElseThrow().ownerClientId());
+
+        when(rs.getString("attrs")).thenReturn("{\"ownerClientId\":42," + rest); // not a client id, so not an owner
+        assertEquals(null, store.getStream(SID).orElseThrow().ownerClientId());
+    }
+
+    /**
+     * SsfStore#updateStream. attrs is replaced whole, so the statement has to carry the stored owner over
+     * itself: strip the one it was sent, restore the one on the row. That the SQL does what it says was
+     * checked against Postgres with the model's own trigger; this pins that nobody simplifies it away.
+     */
+    @Test
+    void anUpdateCarriesOverTheStoredOwnerRatherThanTheOneItWasGiven() throws Exception {
+        when(ps.executeUpdate()).thenReturn(1);
+
+        store.updateStream(pollStream("receiver-b"));
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(conn).prepareStatement(sql.capture());
+        assertTrue(sql.getValue().contains("?::jsonb - 'ownerClientId'"), sql.getValue());
+        assertTrue(sql.getValue().contains("jsonb_build_object('ownerClientId', attrs->'ownerClientId')"), sql.getValue());
+        assertTrue(sql.getValue().contains("jsonb_strip_nulls("), "or an unowned entry gains \"ownerClientId\": null");
+    }
+
+    /** The schema is the model repo's. Whatever this store is asked to do about owners, it is never DDL. */
+    @Test
+    void recordingOwnersNeverCreatesOrAltersAnything() throws Exception {
+        when(ps.executeUpdate()).thenReturn(1);
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+
+        store.createStream(pollStream("receiver-a"));
+        store.updateStream(pollStream("receiver-a"));
+        store.getStream(SID);
+        store.listStreams();
+
+        ArgumentCaptor<String> sql = ArgumentCaptor.forClass(String.class);
+        verify(conn, atLeastOnce()).prepareStatement(sql.capture());
+        verify(conn, never()).createStatement();
+        for (String statement : sql.getAllValues()) {
+            String upper = statement.toUpperCase();
+            assertFalse(upper.contains("CREATE ") || upper.contains("ALTER ") || upper.contains("DROP "), statement);
+        }
+        assertEquals(4, sql.getAllValues().size(), "control: the four statements did run, and were looked at");
     }
 }

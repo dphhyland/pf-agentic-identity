@@ -16,14 +16,32 @@ import org.jose4j.lang.JoseException;
  * subject add/remove, the verification event (SSF §Verification), and poll delivery/ack (RFC 8936). Operates
  * on an {@link SsfStore} + {@link SetMinter}; the servlets are thin HTTP adapters over this, and it is tested
  * directly. All stream configs are returned/accepted as JSON-shaped {@code Map}s.
+ *
+ * <p>Every operation takes the receiver it is performed for, and there is deliberately no variant that
+ * does not: a stream is visible to the client that created it and to nobody else ({@link StreamAccess}).
+ * The caller is an {@link AuthContext} rather than a client id so that it cannot be transposed with the
+ * {@code stream_id} or {@code reason} beside it, both of which arrive in the request.
  */
 public final class StreamManagementService {
 
-    /** A requested stream/subject/event that does not exist — servlets map to 404. */
+    /**
+     * A requested stream/subject/event that does not exist — servlets map to 404. A stream that belongs to
+     * another receiver is reported with this exception and this message too, so an id that is taken cannot
+     * be told from one that is free.
+     */
     public static final class NotFoundException extends RuntimeException {
         private static final long serialVersionUID = 1L;
 
         public NotFoundException(String message) {
+            super(message);
+        }
+    }
+
+    /** The receiver is authenticated but may not do this — servlets map to 403. */
+    public static final class ForbiddenException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        public ForbiddenException(String message) {
             super(message);
         }
     }
@@ -33,6 +51,7 @@ public final class StreamManagementService {
     private final SsfConfiguration config;
     private final SetPublisher publisher;
     private final OutboundUrlPolicy outboundPolicy;
+    private final StreamAccess access;
 
     public StreamManagementService(SsfStore store, SetMinter minter, SsfConfiguration config) {
         this(store, minter, config, SetPublisher.NOOP);
@@ -50,6 +69,7 @@ public final class StreamManagementService {
         this.config = config;
         this.publisher = publisher != null ? publisher : SetPublisher.NOOP;
         this.outboundPolicy = outboundPolicy != null ? outboundPolicy : OutboundUrlPolicy.fromEnvironment();
+        this.access = new StreamAccess(config);
     }
 
     /**
@@ -78,23 +98,26 @@ public final class StreamManagementService {
 
     // ─────────────────────────────── stream CRUD ───────────────────────────────
 
-    /** Create a stream with no authenticated receiver to take the audience from; {@code aud} must be in the body. */
-    public Map<String, Object> createStream(Map<String, Object> body) {
-        return createStream(body, null);
-    }
-
     /**
      * Create a stream from an SSF stream-configuration request body. Returns the stored config as JSON.
      *
+     * <p>The stream belongs to the client {@code caller}'s token identifies. A token that names no client is
+     * refused before anything here reads the body (SSF §8.1.1.1, 403): a stream stored with no owner would
+     * be one its own creator could not read or delete, still collecting events.
+     *
      * <p>{@code aud} is Transmitter-Supplied (SSF §8.1.1), so a receiver that sends none - as a conformant
-     * one does - is assigned {@code receiverId}, the client its management token identifies. A receiver
-     * that still sends {@code aud} keeps the value it sent: that is not what the specification describes,
-     * and it is retained only because this repo's own {@link ReceiverStreamClient} and the deployed probes
-     * create streams that way and verify SETs against the audience they chose.
+     * one does - is assigned that same client id. A receiver that still sends {@code aud} keeps the value
+     * it sent: that is not what the specification describes, and it is retained only because this repo's
+     * own {@link ReceiverStreamClient} and the deployed probes create streams that way and verify SETs
+     * against the audience they chose. It is also why {@code aud} cannot stand in for the owner.
      */
-    public Map<String, Object> createStream(Map<String, Object> body, String receiverId) {
+    public Map<String, Object> createStream(Map<String, Object> body, AuthContext caller) {
+        String owner = StreamAccess.clientIdOf(caller);
+        if (owner == null) {
+            throw new ForbiddenException("the token names no client, so there is nobody for a stream to belong to");
+        }
         DeliveryMethod method = parseDeliveryMethod(body);
-        String audience = resolveAudience(body, receiverId);
+        String audience = resolveAudience(body, owner);
         List<String> requested = parseEvents(body.get("events_requested"));
         List<String> delivered = narrowToDeliverable(requested);
         long now = SetMinter.nowSeconds();
@@ -102,6 +125,7 @@ public final class StreamManagementService {
         Stream.Builder b = Stream.builder()
                 .id(UUID.randomUUID().toString())
                 .audience(audience)
+                .ownerClientId(owner)
                 .deliveryMethod(method)
                 .eventsRequested(requested)
                 .eventsDelivered(delivered)
@@ -119,21 +143,24 @@ public final class StreamManagementService {
         return streamToJson(stream);
     }
 
-    public Map<String, Object> getStream(String streamId) {
-        return streamToJson(requireStream(streamId));
+    public Map<String, Object> getStream(String streamId, AuthContext caller) {
+        return streamToJson(requireStream(streamId, caller));
     }
 
-    public List<Map<String, Object>> listStreams() {
+    /** The streams available to this receiver (SSF §8.1.1.2) - its own, which may be none. */
+    public List<Map<String, Object>> listStreams(AuthContext caller) {
         List<Map<String, Object>> out = new ArrayList<>();
         for (Stream s : this.store.listStreams()) {
-            out.add(streamToJson(s));
+            if (this.access.admits(s, caller)) {
+                out.add(streamToJson(s));
+            }
         }
         return out;
     }
 
     /** PATCH: update mutable fields (events_requested, delivery endpoint) of an existing stream. */
-    public Map<String, Object> updateStream(String streamId, Map<String, Object> body) {
-        Stream existing = requireStream(streamId);
+    public Map<String, Object> updateStream(String streamId, Map<String, Object> body, AuthContext caller) {
+        Stream existing = requireStream(streamId, caller);
         requireTransmitterSuppliedToMatch(existing, body);
         Stream.Builder b = existing.toBuilder().updatedAt(SetMinter.nowSeconds());
         if (body.containsKey("events_requested")) {
@@ -165,8 +192,8 @@ public final class StreamManagementService {
      * is a 400. Nor can its method change here: a receiver moving between push and poll deletes the
      * stream and creates another, which leaves no question about SETs already queued for the old method.
      */
-    public Map<String, Object> replaceStream(String streamId, Map<String, Object> body) {
-        Stream existing = requireStream(streamId);
+    public Map<String, Object> replaceStream(String streamId, Map<String, Object> body, AuthContext caller) {
+        Stream existing = requireStream(streamId, caller);
         requireTransmitterSuppliedToMatch(existing, body);
         if (!body.containsKey("delivery")) {
             throw new IllegalArgumentException("missing required field: delivery");
@@ -190,7 +217,8 @@ public final class StreamManagementService {
         return streamToJson(this.store.updateStream(b.build()));
     }
 
-    public void deleteStream(String streamId) {
+    public void deleteStream(String streamId, AuthContext caller) {
+        requireStream(streamId, caller);
         if (!this.store.deleteStream(streamId)) {
             throw new NotFoundException("no such stream: " + streamId);
         }
@@ -198,8 +226,8 @@ public final class StreamManagementService {
 
     // ─────────────────────────────── status ───────────────────────────────
 
-    public Map<String, Object> getStatus(String streamId) {
-        Stream s = requireStream(streamId);
+    public Map<String, Object> getStatus(String streamId, AuthContext caller) {
+        Stream s = requireStream(streamId, caller);
         LinkedHashMap<String, Object> m = new LinkedHashMap<>();
         m.put("stream_id", s.id());
         m.put("status", s.status().value());
@@ -210,22 +238,22 @@ public final class StreamManagementService {
     }
 
     /** Set stream status (enabled/paused/disabled) per SSF §Updating a Stream's Status. */
-    public Map<String, Object> setStatus(String streamId, String status, String reason) {
-        Stream s = requireStream(streamId);
+    public Map<String, Object> setStatus(String streamId, String status, String reason, AuthContext caller) {
+        Stream s = requireStream(streamId, caller);
         StreamStatus next = StreamStatus.fromValue(status);
         this.store.updateStream(s.withStatus(next, reason, SetMinter.nowSeconds()));
-        return getStatus(streamId);
+        return getStatus(streamId, caller);
     }
 
     // ─────────────────────────────── subjects ───────────────────────────────
 
-    public void addSubject(String streamId, SubjectId subject) {
-        requireStream(streamId);
+    public void addSubject(String streamId, SubjectId subject, AuthContext caller) {
+        requireStream(streamId, caller);
         this.store.addSubject(streamId, subject);
     }
 
-    public void removeSubject(String streamId, SubjectId subject) {
-        requireStream(streamId);
+    public void removeSubject(String streamId, SubjectId subject, AuthContext caller) {
+        requireStream(streamId, caller);
         this.store.removeSubject(streamId, subject);
     }
 
@@ -236,8 +264,8 @@ public final class StreamManagementService {
      * event with the receiver's {@code state} echoed, and enqueue it. Poll streams drain it via {@link #poll};
      * push streams via the push executor (later phase). Returns the SET's {@code jti} for correlation.
      */
-    public String verify(String streamId, String state) throws JoseException {
-        Stream s = requireStream(streamId);
+    public String verify(String streamId, String state, AuthContext caller) throws JoseException {
+        Stream s = requireStream(streamId, caller);
         if (!this.config.verificationEventEnabled()) {
             throw new IllegalStateException("verification events are disabled");
         }
@@ -272,9 +300,14 @@ public final class StreamManagementService {
      *
      * <p>A {@code maxEvents} of 0 is an acknowledge-only request (RFC 8936 §2.2) and returns no SETs; only
      * an absent or negative value falls back to the configured cap.
+     *
+     * <p>The stream is the caller's or the poll goes no further - before the acks, not only before the
+     * SETs. Acknowledging is deleting: another receiver's poll would not just read this one's events, it
+     * would consume them, and the receiver they were meant for would never learn they had existed.
      */
-    public Map<String, Object> poll(String streamId, List<String> acks, Integer maxEvents, boolean returnImmediately) {
-        requireStream(streamId);
+    public Map<String, Object> poll(String streamId, List<String> acks, Integer maxEvents, boolean returnImmediately,
+            AuthContext caller) {
+        requireStream(streamId, caller);
         if (acks != null && !acks.isEmpty()) {
             this.store.ack(streamId, acks);
         }
@@ -294,9 +327,17 @@ public final class StreamManagementService {
 
     // ─────────────────────────────── helpers ───────────────────────────────
 
-    private Stream requireStream(String streamId) {
-        return this.store.getStream(streamId)
-                .orElseThrow(() -> new NotFoundException("no such stream: " + streamId));
+    /**
+     * The stream, if it exists and is the caller's. One exception and one message for both failures, thrown
+     * from one place: a stream that belongs to someone else has to look exactly like one that was never
+     * created, or probing ids tells a receiver which of them are in use.
+     */
+    private Stream requireStream(String streamId, AuthContext caller) {
+        Stream stream = this.store.getStream(streamId).orElse(null);
+        if (stream == null || !this.access.admits(stream, caller)) {
+            throw new NotFoundException("no such stream: " + streamId);
+        }
+        return stream;
     }
 
     /** The subset of requested events this transmitter recognises and will deliver. */
@@ -334,15 +375,9 @@ public final class StreamManagementService {
     }
 
     /** The receiver's own {@code aud} if it sent one, otherwise the client its token identifies. */
-    private static String resolveAudience(Map<String, Object> body, String receiverId) {
+    private static String resolveAudience(Map<String, Object> body, String owner) {
         String supplied = optString(body, "aud");
-        if (supplied != null) {
-            return supplied;
-        }
-        if (receiverId != null && !receiverId.isBlank()) {
-            return receiverId;
-        }
-        throw new IllegalArgumentException("cannot assign aud: the request carries none and the token names no client");
+        return supplied != null ? supplied : owner;
     }
 
     /**

@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.StreamManagementService;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
@@ -24,7 +25,8 @@ import org.apache.commons.logging.LogFactory;
  * {@code <issuer>/ssf/poll?stream_id=<id>}; the receiver POSTs the RFC 8936 request body
  * ({@code maxEvents}, {@code returnImmediately}, {@code ack}) there. The response is
  * {@code {"sets": {jti: <compact JWS>, …}, "moreAvailable": <bool>}}; acked jtis are deleted before the next
- * batch is returned. Authenticated with the same receiver bearer token as the management API.
+ * batch is returned. Authenticated with the same receiver bearer token as the management API, and answerable
+ * only to the client that created the stream: anyone else's poll is a 404, and acknowledges nothing.
  */
 @WebServlet(urlPatterns = {"/ssf/poll"})
 public class SsfPollServlet extends HttpServlet {
@@ -41,9 +43,16 @@ public class SsfPollServlet extends HttpServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         SsfConfiguration cfg = SsfSupport.configuration();
-        if (SsfHttp.authorize(req, resp, cfg) == null) {
-            return;
+        AuthContext auth = SsfHttp.authorize(req, resp, cfg);
+        if (auth == null) {
+            return; // 401/403/503 already written
         }
+        handle(req, resp, SsfSupport.streamService(), auth);
+    }
+
+    /** Everything after authentication, against a given service - the seam the servlet is tested through. */
+    static void handle(HttpServletRequest req, HttpServletResponse resp, StreamManagementService svc, AuthContext auth)
+            throws IOException {
         String streamId = req.getParameter("stream_id");
         if (streamId == null || streamId.isBlank()) {
             SsfHttp.writeError(resp, 400, "invalid_request", "missing required parameter: stream_id");
@@ -54,8 +63,7 @@ public class SsfPollServlet extends HttpServlet {
             List<String> acks = parseStringList(body.get("ack"));
             Integer maxEvents = parseInt(body.get("maxEvents"));
             boolean returnImmediately = !Boolean.FALSE.equals(body.get("returnImmediately"));
-            StreamManagementService svc = SsfSupport.streamService();
-            SsfHttp.writeJson(resp, 200, svc.poll(streamId, acks, maxEvents, returnImmediately));
+            SsfHttp.writeJson(resp, 200, svc.poll(streamId, acks, maxEvents, returnImmediately, auth));
         } catch (StreamManagementService.NotFoundException e) {
             SsfHttp.writeError(resp, 404, "not_found", e.getMessage());
         } catch (IllegalArgumentException e) {
