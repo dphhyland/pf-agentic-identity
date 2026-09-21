@@ -89,6 +89,11 @@ The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.0.0.3) ar
 public `pingidentity/pingfederate` image — see `.github/workflows/build.yml` for the exact steps, or
 run its `install:install-file` lines once locally. Nothing licensed or secret is committed.
 
+Those jars also pin this repo to PingFederate **13.0.x**. 13.1 moved its servlet container to
+`jakarta.servlet`, so bumping the base image is a migration, not a version change - an image built
+on 13.1.3 boots to a 503. What has to move, what does not, and the evidence for both:
+[docs/pf-13_1-jakarta-migration-plan.md](docs/pf-13_1-jakarta-migration-plan.md).
+
 ## Provenance
 
 This repo absorbed several repos **with their history** (git subtree / filter-repo). The originals

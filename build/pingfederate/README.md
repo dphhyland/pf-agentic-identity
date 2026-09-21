@@ -7,7 +7,7 @@ Three repos consume it, and only one of them deploys to Railway:
 
 | Consumer | What it does with this | Where it runs |
 |---|---|---|
-| [`pf-oidf-modules`](https://github.com/dphhyland/pf-oidf-modules) | composes a deploy context from this + its own `railway.json`/vars/archive | Railway project `e02a8e2f` |
+| [`pf-oidf-modules`](https://github.com/dphhyland/pf-oidf-modules) | composes a deploy context from this + its own `railway.json`/vars/archive | Railway project `2a226db6` (recreated 2026-09-02; was `e02a8e2f`) |
 | [`idp-agentic-demo`](https://github.com/dphhyland/idp-agentic-demo) | builds its own agentic-banking PF; consumes the module jars | Railway project `ac9af096` |
 | [`pf-agentic-identity-domain-authority`](https://github.com/dphhyland/pf-agentic-identity-domain-authority) | builds this context and pushes the image to **ECR** for the EKS/GKE rigs | AWS / GCP |
 
