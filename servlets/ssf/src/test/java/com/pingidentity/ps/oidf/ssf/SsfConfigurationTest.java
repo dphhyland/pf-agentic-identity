@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.lenient;
@@ -135,5 +136,35 @@ class SsfConfigurationTest {
         p.put("kafkaEnabled", "true");
         assertThrows(IllegalArgumentException.class,
                 () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
+    }
+
+    /** Unset is the safe value, so it has to be what an operator who has never heard of the setting gets. */
+    @Test
+    void nobodyIsAdmittedToUnownedStreamsUnlessAClientIsNamed() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://op.example.com");
+        assertNull(SsfConfiguration.fromServletConfig(servletConfig(p)).unownedStreamOwner());
+
+        p.put("unownedStreamOwner", "   "); // set, but to nothing: still nobody, not a client named ""
+        assertNull(SsfConfiguration.fromServletConfig(servletConfig(p)).unownedStreamOwner());
+        assertNull(new SsfConfiguration.Builder().issuer("https://op.example.com").unownedStreamOwner(" ").build()
+                .unownedStreamOwner());
+
+        p.put("unownedStreamOwner", " legacy-receiver "); // control
+        assertEquals("legacy-receiver", SsfConfiguration.fromServletConfig(servletConfig(p)).unownedStreamOwner());
+    }
+
+    /** The name an operator actually types. OIDF_SSF_UNOWNED_STREAM_OWNER is derived from this one the same way. */
+    @Test
+    void theUnownedStreamOwnerResolvesFromItsSystemProperty() {
+        System.setProperty("oidf.ssf.issuer", "https://sysprop.example.com");
+        System.setProperty("oidf.ssf.unownedStreamOwner", "legacy-receiver");
+        try {
+            assertEquals("legacy-receiver",
+                    SsfConfiguration.fromServletConfig(servletConfig(new HashMap<>())).unownedStreamOwner());
+        } finally {
+            System.clearProperty("oidf.ssf.issuer");
+            System.clearProperty("oidf.ssf.unownedStreamOwner");
+        }
     }
 }

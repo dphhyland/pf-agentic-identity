@@ -23,7 +23,8 @@ import org.jose4j.json.JsonUtil;
  * tables ({@code ssf_streams}, {@code ssf_stream_subjects}, {@code ssf_pending_sets}) so they survive a PF
  * restart and are shared across nodes. Obtains connections from a {@link DataSource} — in the runtime this is a
  * PingFederate-configured JDBC data store resolved by id (installed via {@link SsfSupport#installStoreFactory});
- * this class never opens its own pool. {@link #ensureSchema()} applies the DDL on boot if the tables are absent.
+ * this class never opens its own pool. {@link #ensureSchema()} applies the DDL on boot if the tables are absent,
+ * and adds {@code owner_client_id} to an {@code ssf_streams} created before streams had owners.
  *
  * <p>Event lists are stored newline-joined (event-type URIs contain no newlines); subjects are stored as their
  * RFC 9493 JSON plus a canonical key. SQL is kept to a portable subset ({@code CREATE TABLE IF NOT EXISTS},
@@ -33,7 +34,7 @@ public final class JdbcSsfStore implements SsfStore {
 
     static final String DDL_STREAMS =
             "CREATE TABLE IF NOT EXISTS ssf_streams ("
-                    + "stream_id VARCHAR(64) PRIMARY KEY, audience VARCHAR(1024) NOT NULL, "
+                    + "stream_id VARCHAR(64) PRIMARY KEY, audience VARCHAR(1024) NOT NULL, owner_client_id VARCHAR(1024), "
                     + "delivery_method VARCHAR(64) NOT NULL, push_endpoint_url VARCHAR(2048), push_auth_header VARCHAR(4096), "
                     + "events_requested VARCHAR(8192), events_delivered VARCHAR(8192), "
                     + "status VARCHAR(16) NOT NULL, status_reason VARCHAR(1024), created_at BIGINT, updated_at BIGINT)";
@@ -47,20 +48,65 @@ public final class JdbcSsfStore implements SsfStore {
                     + "event_type VARCHAR(256), set_jws VARCHAR(16384) NOT NULL, issued_at BIGINT, expires_at BIGINT, "
                     + "delivery_attempts INTEGER DEFAULT 0, next_attempt_at BIGINT, PRIMARY KEY (jti))";
 
+    /**
+     * The one additive change to a table an earlier version created. Nullable on purpose: the rows already
+     * there have no owner to give, and a row with none is a stream no receiver is admitted to until an
+     * operator says whose it is ({@code SsfConfiguration#unownedStreamOwner}) - not a row to guess at.
+     * As wide as {@code audience}, which already holds a client id whenever a receiver sends no {@code aud}.
+     */
+    static final String DDL_ADD_OWNER = "ALTER TABLE ssf_streams ADD COLUMN owner_client_id VARCHAR(1024)";
+    /** Selects nothing. It resolves the column exactly as the store's own statements will, or fails. */
+    static final String PROBE_OWNER = "SELECT owner_client_id FROM ssf_streams WHERE 1 = 0";
+
     private final DataSource dataSource;
 
     public JdbcSsfStore(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
-    /** Create the three tables if they don't exist. Call once on boot. */
+    /** Create the three tables if they don't exist, and bring an older {@code ssf_streams} up to date. Call once on boot. */
     public void ensureSchema() {
-        try (Connection c = this.dataSource.getConnection(); Statement st = c.createStatement()) {
-            st.execute(DDL_STREAMS);
-            st.execute(DDL_SUBJECTS);
-            st.execute(DDL_PENDING);
+        try (Connection c = this.dataSource.getConnection()) {
+            try (Statement st = c.createStatement()) {
+                st.execute(DDL_STREAMS);
+                st.execute(DDL_SUBJECTS);
+                st.execute(DDL_PENDING);
+            }
+            ensureOwnerColumn(c);
         } catch (SQLException e) {
             throw new IllegalStateException("failed to apply SSF schema", e);
+        }
+    }
+
+    /**
+     * {@code CREATE TABLE IF NOT EXISTS} leaves an existing table as it found it, so a deployment that
+     * already has {@code ssf_streams} needs the column added. Probed rather than read from
+     * {@code DatabaseMetaData}, which has to guess the engine's identifier case (HSQLDB and H2 fold to upper,
+     * Postgres to lower) and can be answered by a same-named table in another schema. And rather than
+     * {@code ADD COLUMN IF NOT EXISTS}, which is an extension and not standard SQL: the three engines this
+     * was run against - PF 13.0.3's bundled HSQLDB 2.7.1, H2 and Postgres 16 - all have it, but a probe asks
+     * nothing of an engine beyond a SELECT and a plain ALTER.
+     */
+    private static void ensureOwnerColumn(Connection c) throws SQLException {
+        if (hasOwnerColumn(c)) {
+            return;
+        }
+        try (Statement st = c.createStatement()) {
+            st.execute(DDL_ADD_OWNER);
+        } catch (SQLException e) {
+            // Two nodes booting together both find the column missing, and the second ALTER fails because
+            // the first landed. That is the only failure forgiven here.
+            if (!hasOwnerColumn(c)) {
+                throw e;
+            }
+        }
+    }
+
+    private static boolean hasOwnerColumn(Connection c) {
+        try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery(PROBE_OWNER)) {
+            return true;
+        } catch (SQLException e) {
+            return false;
         }
     }
 
@@ -69,8 +115,8 @@ public final class JdbcSsfStore implements SsfStore {
     @Override
     public Stream createStream(Stream s) {
         exec("INSERT INTO ssf_streams (stream_id, audience, delivery_method, push_endpoint_url, push_auth_header, "
-                + "events_requested, events_delivered, status, status_reason, created_at, updated_at) "
-                + "VALUES (?,?,?,?,?,?,?,?,?,?,?)", ps -> {
+                + "events_requested, events_delivered, status, status_reason, created_at, updated_at, owner_client_id) "
+                + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", ps -> {
                     ps.setString(1, s.id());
                     ps.setString(2, s.audience());
                     ps.setString(3, s.deliveryMethod().name());
@@ -82,6 +128,7 @@ public final class JdbcSsfStore implements SsfStore {
                     ps.setString(9, s.statusReason());
                     ps.setLong(10, s.createdAt());
                     ps.setLong(11, s.updatedAt());
+                    ps.setString(12, s.ownerClientId());
                 });
         return s;
     }
@@ -105,6 +152,7 @@ public final class JdbcSsfStore implements SsfStore {
 
     @Override
     public Stream updateStream(Stream s) {
+        // owner_client_id is absent from this statement by design, not oversight: see SsfStore#updateStream.
         int n = exec("UPDATE ssf_streams SET audience=?, delivery_method=?, push_endpoint_url=?, push_auth_header=?, "
                 + "events_requested=?, events_delivered=?, status=?, status_reason=?, updated_at=? WHERE stream_id=?", ps -> {
                     ps.setString(1, s.audience());
@@ -244,6 +292,7 @@ public final class JdbcSsfStore implements SsfStore {
         return Stream.builder()
                 .id(rs.getString("stream_id"))
                 .audience(rs.getString("audience"))
+                .ownerClientId(rs.getString("owner_client_id"))
                 .deliveryMethod(DeliveryMethod.valueOf(rs.getString("delivery_method")))
                 .pushEndpointUrl(rs.getString("push_endpoint_url"))
                 .pushAuthorizationHeader(rs.getString("push_auth_header"))

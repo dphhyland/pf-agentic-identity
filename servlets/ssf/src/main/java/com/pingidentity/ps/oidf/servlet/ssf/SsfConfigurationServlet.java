@@ -62,6 +62,8 @@ public class SsfConfigurationServlet extends HttpServlet {
 
     static Map<String, Object> metadata(SsfConfiguration cfg) {
         LinkedHashMap<String, Object> m = new LinkedHashMap<>();
+        // Not decoration: SSF §7.1 reads a transmitter that omits this as implementing 1_0-ID1.
+        m.put("spec_version", "1_0");
         m.put("issuer", cfg.issuer());
         m.put("jwks_uri", cfg.jwksUri());
         m.put("delivery_methods_supported", List.of(DeliveryMethod.PUSH.urn(), DeliveryMethod.POLL.urn()));

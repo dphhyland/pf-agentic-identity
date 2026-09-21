@@ -33,6 +33,12 @@ import org.jose4j.json.JsonUtil;
  *       TTL eviction; retry state lives in {@code attrs}. Stream deletion cascades to both.</li>
  * </ul>
  *
+ * <p>A stream's owner is the {@code ownerClientId} attribute. Not {@code clientId}: {@code idm.entry}
+ * generates its indexed {@code client_id} column from that key, so a stream carrying it would answer
+ * every client-keyed lookup in the model as though it were a client or a grant. The entry trigger checks
+ * MUST attributes only, so the attribute needs no migration to be written - and it has to stay a MAY if
+ * the model repo declares it, because the trigger runs on UPDATE too and the streams already there have none.
+ *
  * <p>Postgres-specific SQL (JSONB operators, {@code ANY(object_classes)}). The schema is owned by the
  * model repo's migration workflow — this store never creates tables. Connections come from the supplied
  * {@link DataSource} (in PF, the managed pool for the configured JDBC data store).
@@ -42,6 +48,7 @@ public final class LdmSsfStore implements SsfStore {
     private static final String STREAM_CLASS = "ssfStream";
     private static final String SUBJECT_CLASS = "ssfStreamSubject";
     private static final String PENDING_CLASS = "ssfPendingSet";
+    private static final String OWNER_ATTR = "ownerClientId";
 
     private final DataSource dataSource;
 
@@ -104,7 +111,12 @@ public final class LdmSsfStore implements SsfStore {
 
     @Override
     public Stream updateStream(Stream s) {
-        int n = exec("UPDATE idm.entry SET attrs = ?::jsonb, modified_at = to_timestamp(?) "
+        // attrs is replaced whole, so the owner is carried over inside the statement rather than trusted
+        // from the caller (SsfStore#updateStream): dropped from what was sent, then restored from the row.
+        // jsonb_strip_nulls is for the row with no owner, which must not acquire an "ownerClientId": null.
+        int n = exec("UPDATE idm.entry SET attrs = (?::jsonb - '" + OWNER_ATTR + "') || jsonb_strip_nulls("
+                + "jsonb_build_object('" + OWNER_ATTR + "', attrs->'" + OWNER_ATTR + "')), "
+                + "modified_at = to_timestamp(?) "
                 + "WHERE entry_uuid = ?::uuid AND ? = ANY (object_classes)", ps -> {
                     ps.setString(1, JsonUtil.toJson(streamAttrs(s)));
                     ps.setLong(2, s.updatedAt());
@@ -273,6 +285,9 @@ public final class LdmSsfStore implements SsfStore {
     private static Map<String, Object> streamAttrs(Stream s) {
         LinkedHashMap<String, Object> attrs = new LinkedHashMap<>();
         attrs.put("audience", s.audience());
+        if (s.ownerClientId() != null) {
+            attrs.put(OWNER_ATTR, s.ownerClientId());
+        }
         attrs.put("deliveryMethod", s.deliveryMethod().urn());
         attrs.put("streamStatus", s.status().value());
         if (s.pushEndpointUrl() != null) {
@@ -294,6 +309,7 @@ public final class LdmSsfStore implements SsfStore {
         return Stream.builder()
                 .id(rs.getString("id"))
                 .audience((String) attrs.get("audience"))
+                .ownerClientId(attrs.get(OWNER_ATTR) instanceof String owner ? owner : null)
                 .deliveryMethod(DeliveryMethod.fromUrn((String) attrs.get("deliveryMethod")))
                 .pushEndpointUrl((String) attrs.get("pushEndpointUrl"))
                 .pushAuthorizationHeader((String) attrs.get("pushAuthorizationHeader"))

@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
@@ -96,5 +97,67 @@ class InMemorySsfStoreTest {
         assertEquals(1, store.evictExpired(300));
         assertEquals(1, store.peek("s1", 10).size());
         assertEquals("live", store.peek("s1", 10).get(0).jti());
+    }
+
+    // ─────────────────────────────── owner ───────────────────────────────
+
+    @Test
+    void aStreamsOwnerIsStoredWithIt() {
+        store.createStream(pollStream("s1").toBuilder().ownerClientId("receiver-a").build());
+
+        assertEquals("receiver-a", store.getStream("s1").orElseThrow().ownerClientId());
+        assertEquals("receiver-a", store.listStreams().get(0).ownerClientId());
+    }
+
+    /** SsfStore#updateStream: whatever the update carries, the stored owner stands. */
+    @Test
+    void anUpdateCanNeitherMoveNorClearTheOwner() {
+        store.createStream(pollStream("s1").toBuilder().ownerClientId("receiver-a").build());
+
+        Stream moved = store.updateStream(pollStream("s1").toBuilder().ownerClientId("receiver-b")
+                .status(StreamStatus.PAUSED).build());
+        assertEquals("receiver-a", moved.ownerClientId(), "what is returned is what was stored");
+        assertEquals("receiver-a", store.getStream("s1").orElseThrow().ownerClientId());
+        // control: it is the owner that is held back, not the update. Checked here, against a status the
+        // stream did not start with - an update that did nothing at all would leave it ENABLED.
+        assertEquals(StreamStatus.PAUSED, store.getStream("s1").orElseThrow().status());
+
+        store.updateStream(pollStream("s1")); // carries no owner at all
+        assertEquals("receiver-a", store.getStream("s1").orElseThrow().ownerClientId());
+        assertEquals(StreamStatus.ENABLED, store.getStream("s1").orElseThrow().status());
+    }
+
+    /** The durable stores refuse this already - the id is their primary key. A create that overwrote would be a second way to write an owner. */
+    @Test
+    void aCreateCannotOverwriteAStreamAndTakeItsSubjectsAndQueue() {
+        store.createStream(pollStream("s1").toBuilder().ownerClientId("receiver-a").build());
+        SubjectId alice = SubjectId.email("alice@example.com");
+        store.addSubject("s1", alice);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> store.createStream(pollStream("s1").toBuilder().ownerClientId("receiver-b").build()));
+
+        assertEquals("receiver-a", store.getStream("s1").orElseThrow().ownerClientId());
+        assertTrue(store.hasSubject("s1", alice));
+        store.createStream(pollStream("s2").toBuilder().ownerClientId("receiver-b").build()); // control: a free id is fine
+    }
+
+    @Test
+    void anUpdateOfAStreamThatIsNotThereIsRefusedAndCreatesNothing() {
+        assertThrows(IllegalArgumentException.class, () -> store.updateStream(pollStream("never-created")));
+        assertTrue(store.listStreams().isEmpty(), "an update must not become a create - least of all one with no owner");
+
+        store.createStream(pollStream("s1")); // control: the same call on a stream that exists is fine
+        store.updateStream(pollStream("s1"));
+    }
+
+    @Test
+    void anUpdateDoesNotGiveAnOwnerToAStreamThatHasNone() {
+        store.createStream(pollStream("s1"));
+
+        store.updateStream(pollStream("s1").toBuilder().ownerClientId("receiver-b").build());
+
+        assertEquals(null, store.getStream("s1").orElseThrow().ownerClientId(),
+                "an update is not a way to claim an unowned stream");
     }
 }

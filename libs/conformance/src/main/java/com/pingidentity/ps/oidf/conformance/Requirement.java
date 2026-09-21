@@ -50,7 +50,13 @@ import java.lang.annotation.Target;
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
- * {@code PF-SDK}.
+ * {@code FAPI2-SP}, {@code PF-SDK}.
+ *
+ * <p>{@code FAPI2-SP} is the FAPI 2.0 Security Profile, Final. Its requirements are bullets with no
+ * printed number, but each has an anchor, and that is the id, in the item notation above:
+ * {@code FAPI2-SP §5.3.2.1(2.8)} is {@code #section-5.3.2.1-2.8}, the audience of a client assertion,
+ * and {@code FAPI2-SP §5.4.1(2.1.2.2)} the permitted JWS algorithms. Never the bare section - §5.3.2.1
+ * is fourteen requirements, and a test of one of them has not pinned the rest.
  *
  * <p>{@code OIDFED} uses the specification's section numbers. A requirement that sits in a section's
  * own text, before its first subsection, takes the paragraph number in the item notation above:

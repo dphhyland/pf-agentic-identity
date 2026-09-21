@@ -28,7 +28,9 @@ class SsfEventEmitterTest {
     }
 
     private Stream stream(String id, StreamStatus status, String event, boolean withAlice) {
-        Stream s = Stream.builder().id(id).audience("https://r/" + id).deliveryMethod(DeliveryMethod.POLL)
+        // each stream is its own receiver's, so a fan-out that reaches two of them has crossed receivers
+        Stream s = Stream.builder().id(id).audience("https://r/" + id).ownerClientId("receiver-of-" + id)
+                .deliveryMethod(DeliveryMethod.POLL)
                 .eventsRequested(List.of(event)).eventsDelivered(List.of(event)).status(status).build();
         store.createStream(s);
         if (withAlice) {
@@ -72,5 +74,32 @@ class SsfEventEmitterTest {
     void noMatchEmitsNothing() throws Exception {
         stream("s", StreamStatus.ENABLED, SsfEventTypes.CAEP_SESSION_REVOKED, false);
         assertEquals(0, emitter.accountDisabled(alice, "hijacking").size());
+    }
+
+    /**
+     * An event raised at one receiver's request stays with that receiver. Without the filter, a receiver
+     * that deprovisions a subject has the transmitter sign an account-disabled SET to every other
+     * receiver holding that subject - and a receiving PingFederate revokes grants on that signal.
+     */
+    @Test
+    void anEmitCanBeConfinedToSomeStreams() throws Exception {
+        stream("mine", StreamStatus.ENABLED, SsfEventTypes.RISC_ACCOUNT_DISABLED, true);
+        stream("theirs", StreamStatus.ENABLED, SsfEventTypes.RISC_ACCOUNT_DISABLED, true);
+
+        List<SsfEventEmitter.Emitted> emitted = emitter.accountDisabled(alice, "scim-deprovision", s -> s.id().equals("mine"));
+
+        assertEquals(1, emitted.size());
+        assertEquals("mine", emitted.get(0).streamId());
+        assertEquals(0, store.peek("theirs", 10).size(), "it matches in every other respect, and must still get nothing");
+    }
+
+    /** The control for the test above, and the transmitter's own events: unconfined, both streams hear. */
+    @Test
+    void anEventTheTransmitterObservedForItselfStillGoesToEveryReceiver() throws Exception {
+        stream("mine", StreamStatus.ENABLED, SsfEventTypes.RISC_ACCOUNT_DISABLED, true);
+        stream("theirs", StreamStatus.ENABLED, SsfEventTypes.RISC_ACCOUNT_DISABLED, true);
+
+        assertEquals(2, emitter.accountDisabled(alice, "hijacking").size());
+        assertEquals(1, store.peek("theirs", 10).size());
     }
 }

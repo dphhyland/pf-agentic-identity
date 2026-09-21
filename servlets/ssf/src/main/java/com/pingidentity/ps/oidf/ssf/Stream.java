@@ -13,11 +13,17 @@ import java.util.Objects;
  * <p>{@code audience} is the SET {@code aud}. For {@link DeliveryMethod#PUSH} streams, {@code pushEndpointUrl}
  * and (optionally) {@code pushAuthorizationHeader} carry the receiver's RFC 8935 endpoint and bearer credential.
  * {@code eventsDelivered} is the transmitter-narrowed subset of {@code eventsRequested} it will actually emit.
+ *
+ * <p>{@code ownerClientId} is the OAuth client that created the stream, and the only receiver the management
+ * and poll endpoints will admit to it. It is not {@code audience}: a receiver may still choose its own
+ * {@code aud}, so that value says who a SET is addressed to and nothing about who may manage the stream.
+ * {@code null} means the stream pre-dates ownership; see {@code SsfConfiguration#unownedStreamOwner}.
  */
 public final class Stream {
 
     private final String id;
     private final String audience;
+    private final String ownerClientId;
     private final DeliveryMethod deliveryMethod;
     private final String pushEndpointUrl;
     private final String pushAuthorizationHeader;
@@ -31,6 +37,8 @@ public final class Stream {
     private Stream(Builder b) {
         this.id = Objects.requireNonNull(b.id, "id");
         this.audience = Objects.requireNonNull(b.audience, "audience");
+        // One spelling of "nobody": a blank owner read back from a store is no owner, never a client named "".
+        this.ownerClientId = b.ownerClientId == null || b.ownerClientId.isBlank() ? null : b.ownerClientId;
         this.deliveryMethod = Objects.requireNonNull(b.deliveryMethod, "deliveryMethod");
         this.pushEndpointUrl = b.pushEndpointUrl;
         this.pushAuthorizationHeader = b.pushAuthorizationHeader;
@@ -54,6 +62,7 @@ public final class Stream {
         return new Builder()
                 .id(this.id)
                 .audience(this.audience)
+                .ownerClientId(this.ownerClientId)
                 .deliveryMethod(this.deliveryMethod)
                 .pushEndpointUrl(this.pushEndpointUrl)
                 .pushAuthorizationHeader(this.pushAuthorizationHeader)
@@ -76,6 +85,11 @@ public final class Stream {
 
     public String audience() {
         return this.audience;
+    }
+
+    /** The client that created this stream, or {@code null} for one that pre-dates ownership. */
+    public String ownerClientId() {
+        return this.ownerClientId;
     }
 
     public DeliveryMethod deliveryMethod() {
@@ -121,6 +135,7 @@ public final class Stream {
     public static final class Builder {
         private String id;
         private String audience;
+        private String ownerClientId;
         private DeliveryMethod deliveryMethod;
         private String pushEndpointUrl;
         private String pushAuthorizationHeader;
@@ -138,6 +153,11 @@ public final class Stream {
 
         public Builder audience(String v) {
             this.audience = v;
+            return this;
+        }
+
+        public Builder ownerClientId(String v) {
+            this.ownerClientId = v;
             return this;
         }
 
