@@ -1,6 +1,6 @@
 # OIDF demo AS — stock PingFederate 13.0.3 + the pf-oidf-modules attestation/federation module ONLY.
 #
-# This is the ISOLATED deploy context for pingfederate-runtime (Railway project e02a8e2f). It is the
+# This is the ISOLATED deploy context for pingfederate-runtime (Railway project 2a226db6). It is the
 # minus-RAR variant of idp-paz-authzen-adapter/demo/pingfederate/Dockerfile: it drops the agentic
 # RFC 9396 RAR->PingAuthorize plugin, the RAR consent page, and the PingAuthorize-TLS workaround, and
 # it bakes THIS repo's own OIDF-only data.zip (produced by terraform/ Phase 2) — so no agentic

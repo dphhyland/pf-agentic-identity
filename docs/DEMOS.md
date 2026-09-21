@@ -23,7 +23,7 @@ parent and the relative paths in their scripts resolve:
 ```
 Source/
   pf-agentic-identity/                    # this repo — the capability
-  pf-oidf-modules/                        # OIDF + attestation demos, Railway project e02a8e2f
+  pf-oidf-modules/                        # OIDF + attestation demos, Railway project 2a226db6
   idp-agentic-demo/                       # agentic banking demo, Railway project ac9af096
   pf-agentic-identity-domain-authority/   # cross-cloud rigs + phone-simulator (private)
 ```
