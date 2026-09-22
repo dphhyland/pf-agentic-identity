@@ -1,5 +1,6 @@
 /*
- * Push delivery of SETs (RFC 8935): background executor with retry/backoff and dead-letter -> pause.
+ * Push delivery of SETs (RFC 8935): background executor with retry/backoff and dead-letter -> pause. The same
+ * executor expires undelivered SETs, push and poll alike.
  */
 package com.pingidentity.ps.oidf.ssf;
 
@@ -77,10 +78,16 @@ public final class PushDeliveryService {
     }
 
     /**
-     * Attempt delivery of every push SET due at {@code now}. Returns the number successfully delivered. Deterministic
-     * and synchronous — the scheduler simply calls this on a timer.
+     * Evict every SET past its TTL, then attempt delivery of every push SET due at {@code now}. Returns the
+     * number successfully delivered. Deterministic and synchronous — the scheduler simply calls this on a timer.
+     *
+     * <p>Eviction is here because this is the one loop the transmitter runs, and it runs whether or not any
+     * push stream exists — so a poll stream nobody drains is emptied too. It comes first and is not caught:
+     * what is read for delivery is read after the expired SETs are gone, and a tick that cannot evict
+     * delivers nothing rather than something it was configured to have discarded.
      */
     public int runOnce(long now) {
+        evictExpired(now);
         int delivered = 0;
         for (PendingSet p : this.store.dueForPush(now, BATCH)) {
             Optional<Stream> so = this.store.getStream(p.streamId());
@@ -112,6 +119,17 @@ public final class PushDeliveryService {
         return delivered;
     }
 
+    /**
+     * Drop pending SETs whose {@code setTtlSeconds} has run out, on every stream and either delivery method.
+     * One DELETE; a SET stamped with no expiry ({@code setTtlSeconds <= 0}) is never touched.
+     */
+    private void evictExpired(long now) {
+        int evicted = this.store.evictExpired(now);
+        if (evicted > 0) {
+            LOGGER.info((Object) ("evicted " + evicted + " undelivered SET(s) past setTtlSeconds"));
+        }
+    }
+
     private DeliveryResult safeDeliver(Stream s, PendingSet p) {
         try {
             return this.client.deliver(s.pushEndpointUrl(), s.pushAuthorizationHeader(), p.setJws());
@@ -141,7 +159,10 @@ public final class PushDeliveryService {
 
     // ─────────────────────────────── lifecycle ───────────────────────────────
 
-    /** Start the background delivery loop (idempotent). Ticks every {@code pushRetryBackoffSeconds}. */
+    /**
+     * Start the background loop (idempotent). Ticks every {@code pushRetryBackoffSeconds}; each tick is
+     * {@link #runOnce}, so it is also what expires SETs on a transmitter with no push stream at all.
+     */
     public synchronized void start() {
         if (this.scheduler != null) {
             return;

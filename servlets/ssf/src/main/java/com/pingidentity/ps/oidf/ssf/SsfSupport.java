@@ -66,6 +66,7 @@ public final class SsfSupport {
             configuration = config;
             minter = new SetMinter(config.signingAlgorithm());
             store = selectStore(config);
+            warnOfUnownedStreams(store, config);
             setPublisher = buildPublisher(config);
             streamService = new StreamManagementService(store, minter, config, setPublisher);
             eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
@@ -147,6 +148,32 @@ public final class SsfSupport {
         receiver.addHandler(new InstanceRegistryReceiverHandler(
                 new CaepSignalApplier(new IomInstanceRegistry(ldmStore.dataSource()))));
         LOGGER.info((Object) "SSF receiver: instance registry CAEP handler installed (ldm store)");
+    }
+
+    /**
+     * Streams stored before streams had owners answer every receiver as though they did not exist. Said once
+     * at boot, so it is read in a log rather than worked out from a receiver's 404s. Returns the count, or -1
+     * if the store could not be asked - which must not stop the transmitter starting.
+     */
+    static int warnOfUnownedStreams(SsfStore store, SsfConfiguration config) {
+        int unowned = 0;
+        try {
+            for (Stream s : store.listStreams()) {
+                if (s.ownerClientId() == null) {
+                    unowned++;
+                }
+            }
+        } catch (RuntimeException e) {
+            LOGGER.warn((Object) ("SSF store: could not count streams with no owner: " + e.getMessage()));
+            return -1;
+        }
+        if (unowned > 0) {
+            LOGGER.warn((Object) (unowned + " SSF stream(s) have no owner. " + (config.unownedStreamOwner() == null
+                    ? "No receiver is admitted to them: name their client in OIDF_SSF_UNOWNED_STREAM_OWNER or set "
+                            + "their owners in the store (servlets/ssf/README.md, Stream ownership)"
+                    : "Client '" + config.unownedStreamOwner() + "' is admitted to them (OIDF_SSF_UNOWNED_STREAM_OWNER)")));
+        }
+        return unowned;
     }
 
     private static SsfStore selectStore(SsfConfiguration config) {

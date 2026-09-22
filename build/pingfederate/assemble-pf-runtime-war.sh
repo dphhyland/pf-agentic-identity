@@ -1,16 +1,19 @@
 #!/usr/bin/env bash
 # Assemble pf-runtime.war = STOCK PingFederate runtime war + the OIDF module jars (+ optionally jose4j),
-# injected into WEB-INF/lib, PLUS web.xml edits to register three filters over PF's own endpoints.
+# injected into WEB-INF/lib, PLUS web.xml edits to register four filters over PF's own endpoints.
 #
 # Annotation-mapped module classes (@WebServlet servlets like RegisteredClientsServlet, the SSF servlets)
 # auto-map once the jar is on WEB-INF/lib (pf-runtime.war scans it). Plain filters that must run over PF's
 # OWN endpoints are NOT annotated (mapping them by annotation would only bind the module's context), so they
 # are registered explicitly in this war's WEB-INF/web.xml:
 #   - SsfLogoutSignal (LogoutEventFilter) over /idp/init_logout.openid → emits caep.session-revoked SETs.
+#   - Fapi2Profile (Fapi2ProfileFilter) over every endpoint that takes a client assertion or a DPoP proof
+#     → the two FAPI 2.0 rules PF 13.0 has no setting for, for the clients OIDF_FAPI2_CLIENTS lists. MUST be
+#     mapped before the two below (see its block — the order is checked).
 #   - OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 → §12.1 automatic
 #     registration; MUST be mapped before ClientAttestationAuth (see below — the order is checked).
 #   - ClientAttestationAuth (ClientAttestationAuthFilter) over /as/token.oauth2 → attest_jwt_client_auth.
-# All three registrations are idempotent, and the script fails if any mapping is missing afterwards.
+# All four registrations are idempotent, and the script fails if any mapping is missing afterwards.
 #
 # Inputs (provided by the caller — build/pingfederate/Dockerfile here, or a consumer repo's CI job):
 #   $1  STOCK_WAR   path to the stock pf-runtime.war extracted from the pingidentity/pingfederate image
@@ -152,6 +155,46 @@ else
   echo "web.xml: registered SsfLogoutSignal over /idp/init_logout.openid"
 fi
 
+# Fapi2Profile (Fapi2ProfileFilter) — FAPI 2.0 Security Profile: a client assertion's aud must be this
+# server's issuer, as a string (§5.3.2.1), and a DPoP proof must be signed with PS256, ES256 or EdDSA
+# (§5.4.1). PF 13.0 accepts the token endpoint URL as an audience and RS256 on a proof, and has no
+# setting for either. Registered always and OFF by default: it examines only the clients named in
+# OIDF_FAPI2_CLIENTS ("*" for all) and passes everything else through, because OIDC Core tells clients
+# to use the token endpoint URL, and a server with FAPI 2.0 clients usually has the other kind too.
+#
+# Mapped over every PF endpoint that authenticates a client by assertion or takes a DPoP proof. One the
+# list misses is one where the rule is silently not applied, so it errs long: PAR, token, introspection,
+# revocation, CIBA, and UserInfo (the one resource PF serves itself).
+#
+# MUST be mapped BEFORE OidfAutoRegistration and ClientAttestationAuth. An assertion this server is
+# about to refuse should not first trigger an automatic registration; and ClientAttestationAuth replaces
+# the client's assertion with a bridge assertion of its own, which is not the one the rule is about.
+if grep -q "Fapi2Profile" "$WEBXML"; then
+  echo "web.xml: Fapi2Profile already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>Fapi2Profile</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>Fapi2Profile</filter-name>"
+      print "    <url-pattern>/as/par.oauth2</url-pattern>"
+      print "    <url-pattern>/as/token.oauth2</url-pattern>"
+      print "    <url-pattern>/as/introspect.oauth2</url-pattern>"
+      print "    <url-pattern>/as/revoke_token.oauth2</url-pattern>"
+      print "    <url-pattern>/as/bc-auth.ciba</url-pattern>"
+      print "    <url-pattern>/idp/userinfo.openid</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered Fapi2Profile over the client-assertion and DPoP endpoints (only for clients listed in OIDF_FAPI2_CLIENTS)"
+fi
+
 # OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 — OpenID
 # Federation §12.1 automatic registration: an unknown federation client presenting its trust chain in
 # its client_assertion is just-in-time materialised in PF's client store so the same request then
@@ -231,6 +274,8 @@ unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "ClientAttestationAuth" \
   || { echo "ERROR: ClientAttestationAuth filter mapping not present in assembled war" >&2; exit 1; }
 unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "OidfAutoRegistration" \
   || { echo "ERROR: OidfAutoRegistration filter mapping not present in assembled war" >&2; exit 1; }
+unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "Fapi2Profile" \
+  || { echo "ERROR: Fapi2Profile filter mapping not present in assembled war" >&2; exit 1; }
 # Order is load-bearing, not cosmetic (see the OidfAutoRegistration block): the LAST occurrence of each
 # name is its <filter-mapping>, and auto-registration's must come first. This also catches a bad order
 # baked into a stock web.xml, which the "already registered — leaving as is" branches would skip over.
@@ -241,4 +286,10 @@ _autoreg_at="$(_mapping_line OidfAutoRegistration)"; _attest_at="$(_mapping_line
   echo "       mapped before ClientAttestationAuth (line ${_attest_at:-?}); the attestation filter" >&2
   echo "       rewrites client_assertion and would hide the trust_chain from auto-registration." >&2
   exit 1; }
-echo "verified: SsfLogoutSignal + OidfAutoRegistration + ClientAttestationAuth mapped in $OUT_WAR (order checked)"
+_fapi2_at="$(_mapping_line Fapi2Profile)"
+[ -n "$_fapi2_at" ] && [ "$_fapi2_at" -lt "$_autoreg_at" ] || {
+  echo "ERROR: filter order wrong in $OUT_WAR - Fapi2Profile (line ${_fapi2_at:-?}) must be mapped" >&2
+  echo "       before OidfAutoRegistration (line $_autoreg_at): a refused assertion must not trigger a" >&2
+  echo "       registration, and must be judged before ClientAttestationAuth replaces it." >&2
+  exit 1; }
+echo "verified: SsfLogoutSignal + Fapi2Profile + OidfAutoRegistration + ClientAttestationAuth mapped in $OUT_WAR (order checked)"

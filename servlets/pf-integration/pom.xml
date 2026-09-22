@@ -116,6 +116,21 @@
                                              subject the delegated act chain names. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.defaultConfig(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.actingPartySub(*</include>
+                                        <!-- FAPI 2.0 enforcement over PingFederate's own endpoints. checkClientAssertion
+                                             and checkDpopProof are the rules. subjectOf, clientOfAccessToken and
+                                             appliesTo decide WHOSE request it is and so whether the rules apply at
+                                             all - get one wrong and a FAPI client is quietly treated as an ordinary
+                                             one. violationIn is which parts of a request are examined (every DPoP
+                                             header, and never one client_assertion out of several); doFilter is
+                                             whether a refusal actually stops the request; init is who is listed. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.checkClientAssertion(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.checkDpopProof(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.subjectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.clientOfAccessToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.appliesTo(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.violationIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.init(*</include>
                                         <!-- The admin read surface: what it will disclose, and to whom. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.doGet(*</include>
                                     </includes>

@@ -1,14 +1,27 @@
 /*
- * Push delivery: success acks, retryable backs off, dead-letter pauses the stream, permanent drops the SET.
+ * Push delivery: success acks, retryable backs off, dead-letter pauses the stream, permanent drops the SET;
+ * and the same tick expires undelivered SETs, push or poll.
  */
 package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
+import java.util.ArrayList;
 import java.util.List;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.InOrder;
 
 class PushDeliveryServiceTest {
 
@@ -82,5 +95,94 @@ class PushDeliveryServiceTest {
         }).runOnce(100);
         assertEquals(0, delivered);
         assertEquals(1, store.peek("s1", 10).size(), "SET is retained while paused");
+    }
+
+    // ─────────────────────────────── setTtlSeconds ───────────────────────────────
+
+    private void pollStream(String id) {
+        store.createStream(Stream.builder().id(id).audience("https://r").deliveryMethod(DeliveryMethod.POLL)
+                .eventsRequested(List.of(SsfEventTypes.CAEP_SESSION_REVOKED)).status(StreamStatus.ENABLED).build());
+    }
+
+    private static PendingSet expiring(String jti, String streamId, long expiresAt) {
+        return PendingSet.fresh(jti, streamId, "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-" + jti, 100, expiresAt);
+    }
+
+    private List<String> queued(String streamId) {
+        return store.peek(streamId, 10).stream().map(PendingSet::jti).toList();
+    }
+
+    /**
+     * Deliberately untagged. RFC 8936 §2 lets a transmitter do this - "Transmitters may also discard
+     * undelivered SETs under deployment-specific conditions, such as if they have not been polled for over
+     * too long a period of time" - and requires nothing. That the condition is {@code setTtlSeconds}, and
+     * that it is enforced at all, is this transmitter's choice.
+     *
+     * <p>No push stream exists here. The loop that evicts is the push executor's, and a poll stream nobody
+     * drains is exactly the queue that grows without bound if eviction waits for a push SET to come due.
+     */
+    @Test
+    void aTickEvictsExpiredSetsFromAPollStreamWithNoPushStreamAnywhere() {
+        pollStream("p1");
+        store.enqueue(expiring("dead", "p1", 200));
+        store.enqueue(expiring("dead-on-the-second", "p1", 300));
+        store.enqueue(expiring("live", "p1", 301));
+        store.enqueue(expiring("never-expires", "p1", 0));
+
+        int delivered = svc((u, a, j) -> {
+            throw new AssertionError("nothing here is a push SET");
+        }).runOnce(300);
+
+        assertEquals(0, delivered);
+        assertEquals(List.of("live", "never-expires"), queued("p1"),
+                "a SET one second short of its expiry stays, and so does one stamped with none (setTtlSeconds <= 0)");
+    }
+
+    /** Deliberately untagged, as above: RFC 8935 has no clause on how long an undelivered SET is kept. */
+    @Test
+    void anExpiredPushSetIsEvictedBeforeItIsReadForDelivery() {
+        pushStream("s1", StreamStatus.ENABLED);
+        store.enqueue(expiring("dead", "s1", 200));
+        store.enqueue(expiring("live", "s1", 1000));
+        List<String> posted = new ArrayList<>();
+
+        int delivered = svc((u, a, j) -> {
+            posted.add(j);
+            return PushDeliveryService.DeliveryResult.retryable(503, "down");
+        }).runOnce(300);
+
+        assertEquals(0, delivered);
+        assertEquals(List.of("jws-live"), posted, "the expired SET was due for push, and was never posted");
+        assertEquals(List.of("live"), queued("s1"), "the unexpired SET is still queued for its retry");
+    }
+
+    /**
+     * Deliberately untagged: the order is this transmitter's. Eviction is not caught, so a tick that cannot
+     * evict stops before it reads the queue - the alternative is to deliver a SET the operator configured
+     * the transmitter to have discarded, on exactly the ticks where the store is misbehaving.
+     */
+    @Test
+    void aTickThatCannotEvictDeliversNothing() {
+        SsfStore failing = mock(SsfStore.class);
+        when(failing.evictExpired(300)).thenThrow(new IllegalStateException("connection refused"));
+        PushDeliveryService.SetDeliveryClient client = mock(PushDeliveryService.SetDeliveryClient.class);
+
+        assertThrows(IllegalStateException.class, () -> new PushDeliveryService(failing, cfg, client).runOnce(300));
+
+        verify(failing, never()).dueForPush(anyLong(), anyInt());
+        verifyNoInteractions(client);
+    }
+
+    /** The control for the test above: the same mocks, an eviction that succeeds, and the queue is read. */
+    @Test
+    void aTickThatEvictsGoesOnToReadTheQueue() {
+        SsfStore working = mock(SsfStore.class);
+        when(working.evictExpired(300)).thenReturn(2);
+
+        assertEquals(0, new PushDeliveryService(working, cfg, (u, a, j) -> null).runOnce(300));
+
+        InOrder order = inOrder(working);
+        order.verify(working).evictExpired(300);
+        order.verify(working).dueForPush(eq(300L), anyInt());
     }
 }

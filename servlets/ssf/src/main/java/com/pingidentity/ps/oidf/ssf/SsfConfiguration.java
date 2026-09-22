@@ -58,6 +58,7 @@ public final class SsfConfiguration {
     private final int pollMaxEvents;
     private final long setTtlSeconds;
     private final String receiverScope;
+    private final String unownedStreamOwner;
     private final String introspectionEndpoint;
     private final String introspectionClientId;
     private final String introspectionClientSecret;
@@ -102,6 +103,7 @@ public final class SsfConfiguration {
         this.pollMaxEvents = b.pollMaxEvents;
         this.setTtlSeconds = b.setTtlSeconds;
         this.receiverScope = b.receiverScope;
+        this.unownedStreamOwner = trimOrNull(b.unownedStreamOwner);
         this.introspectionEndpoint = b.introspectionEndpoint;
         this.introspectionClientId = b.introspectionClientId;
         this.introspectionClientSecret = b.introspectionClientSecret;
@@ -150,6 +152,7 @@ public final class SsfConfiguration {
                     .pollMaxEvents(parseInt(param(config,"pollMaxEvents"), DEFAULT_POLL_MAX_EVENTS))
                     .setTtlSeconds(parseLong(param(config,"setTtlSeconds"), DEFAULT_SET_TTL_SECONDS))
                     .receiverScope(orDefault(param(config,"receiverScope"), DEFAULT_RECEIVER_SCOPE))
+                    .unownedStreamOwner(trimOrNull(param(config,"unownedStreamOwner")))
                     .introspectionEndpoint(trimOrNull(param(config,"introspectionEndpoint")))
                     .introspectionClientId(trimOrNull(param(config,"introspectionClientId")))
                     .introspectionClientSecret(trimOrNull(param(config,"introspectionClientSecret")))
@@ -270,6 +273,23 @@ public final class SsfConfiguration {
 
     public String receiverScope() {
         return this.receiverScope;
+    }
+
+    /**
+     * The one client admitted to streams that record no owner - those created before streams had owners
+     * ({@code OIDF_SSF_UNOWNED_STREAM_OWNER}). Unset, which is the default, nobody is: such a stream answers
+     * every receiver as though it did not exist, because the transmitter never recorded whose it was and
+     * every guess open to it - the {@code aud} its creator chose, or whoever asks first - is one a second
+     * receiver can make as well.
+     *
+     * <p>A client id rather than a switch. A switch could only put these streams back where any holder of
+     * the receiver scope reads, repoints, polls and deletes them, which is the fault ownership closes; a
+     * name admits one client the operator chose. Nothing is written to the stream, so unsetting this
+     * withdraws it. Where unowned streams belong to several receivers, name none of them: have each
+     * create its stream again, or set the owner in the store.
+     */
+    public String unownedStreamOwner() {
+        return this.unownedStreamOwner;
     }
 
     /** Token introspection endpoint for receiver auth; defaults to {@code <issuer>/as/introspect.oauth2}. */
@@ -534,6 +554,7 @@ public final class SsfConfiguration {
         private int pollMaxEvents = DEFAULT_POLL_MAX_EVENTS;
         private long setTtlSeconds = DEFAULT_SET_TTL_SECONDS;
         private String receiverScope = DEFAULT_RECEIVER_SCOPE;
+        private String unownedStreamOwner;
         private String introspectionEndpoint;
         private String introspectionClientId;
         private String introspectionClientSecret;
@@ -661,6 +682,11 @@ public final class SsfConfiguration {
             if (v != null && !v.isBlank()) {
                 this.receiverScope = v;
             }
+            return this;
+        }
+
+        public Builder unownedStreamOwner(String v) {
+            this.unownedStreamOwner = v;
             return this;
         }
 

@@ -74,8 +74,9 @@ MATRIX_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|", re.M)
 NOT_ESTABLISHED = [
     ("The token-endpoint filters are registered by build surgery, not by code.",
      "There is no `@WebFilter` anywhere in the repo and `servlets/oidf-war`'s `web.xml` registers "
-     "none — `ClientAttestationAuthFilter` and `TokenEndpointAutoRegistrationFilter` are mapped over "
-     "`/as/token.oauth2` by `build/pingfederate/assemble-pf-runtime-war.sh` when it merges the jars "
+     "none — `ClientAttestationAuthFilter`, `TokenEndpointAutoRegistrationFilter` and "
+     "`Fapi2ProfileFilter` are mapped over PingFederate's endpoints by "
+     "`build/pingfederate/assemble-pf-runtime-war.sh` when it merges the jars "
      "into `pf-runtime.war` (it also checks their order). A gate on `doFilter(` proves the filter "
      "works, never that the war a deployment runs registered it."),
     ("Initial-grant RAR containment lives in a PingAuthorize policy file.",

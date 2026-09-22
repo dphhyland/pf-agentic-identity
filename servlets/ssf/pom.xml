@@ -108,6 +108,14 @@
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfHttp.authorize(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.AuthContext.hasScope(*</include>
 
+                                        <!-- Stream ownership: which receiver a stream answers to. admits() is the whole
+                                             rule, requireStream() the one place every per-stream operation asks it, and
+                                             listStreams() the filter - the endpoint that used to hand out every id. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamAccess.admits(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamAccess.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.listStreams(*</include>
+
                                         <!-- Stream management: what a receiver is allowed to register and be sent. -->
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.requireDeliverableEndpoint(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.createStream(*</include>
@@ -115,9 +123,10 @@
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.narrowToDeliverable(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InMemorySsfStore.addSubject(*</include>
 
-                                        <!-- Delivery: retry/backoff, so a failed push is neither lost nor hammered. -->
+                                        <!-- Delivery: retry/backoff, so a failed push is neither lost nor hammered; and setTtlSeconds, so an undelivered SET does not outlive it. -->
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.handleRetry(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.backoffSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.evictExpired(*</include>
 
                                         <!-- Inbound signals: which subject a received SET acts on. -->
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>

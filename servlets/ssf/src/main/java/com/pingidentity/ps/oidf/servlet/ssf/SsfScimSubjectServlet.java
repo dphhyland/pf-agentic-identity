@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.ScimSubjectService;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
@@ -28,8 +29,11 @@ import org.apache.commons.logging.LogFactory;
  * a user with the {@code urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject} extension (carrying stream
  * id(s)) to make it a subject of those streams; {@code active:false} or {@code DELETE} removes the subject from
  * every stream and emits a RISC {@code account-disabled}. Wire it as an inbound SCIM target in PF like any SCIM
- * app. Authenticated with the same receiver bearer token as the management API. Logic lives in
- * {@link ScimSubjectService}.
+ * app. Authenticated with the same receiver bearer token as the management API, and so confined like it to
+ * the streams of the client that token identifies. That has a cost: a provisioning client that created no
+ * streams has none to act on, so its assignments answer 404 and its deprovisions reach nobody (logged, with
+ * the count). Provisioning across receivers needs an authority of its own, which this endpoint does not yet
+ * have. Logic lives in {@link ScimSubjectService}.
  */
 @WebServlet(urlPatterns = {"/ssf/scim/v2/Users", "/ssf/scim/v2/Users/*"})
 public class SsfScimSubjectServlet extends HttpServlet {
@@ -69,7 +73,8 @@ public class SsfScimSubjectServlet extends HttpServlet {
 
     private void dispatch(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         SsfConfiguration cfg = SsfSupport.configuration();
-        if (SsfHttp.authorize(req, resp, cfg) == null) {
+        AuthContext auth = SsfHttp.authorize(req, resp, cfg);
+        if (auth == null) {
             return;
         }
         ScimSubjectService svc = SsfSupport.scimSubjectService();
@@ -77,16 +82,16 @@ public class SsfScimSubjectServlet extends HttpServlet {
         try {
             switch (method) {
                 case "POST":
-                    SsfHttp.writeJson(resp, 201, svc.provision(SsfHttp.readBody(req)));
+                    SsfHttp.writeJson(resp, 201, svc.provision(SsfHttp.readBody(req), auth));
                     break;
                 case "PUT":
-                    SsfHttp.writeJson(resp, 200, svc.provision(SsfHttp.readBody(req)));
+                    SsfHttp.writeJson(resp, 200, svc.provision(SsfHttp.readBody(req), auth));
                     break;
                 case "PATCH":
-                    handlePatch(req, resp, svc);
+                    handlePatch(req, resp, svc, auth);
                     break;
                 case "DELETE":
-                    svc.deprovision(subjectFromPath(req));
+                    svc.deprovision(subjectFromPath(req), auth);
                     resp.setStatus(204);
                     break;
                 default:
@@ -104,7 +109,8 @@ public class SsfScimSubjectServlet extends HttpServlet {
 
     /** Minimal SCIM PatchOp: {@code active:false} deprovisions; otherwise assign the referenced stream id(s). */
     @SuppressWarnings("unchecked")
-    private void handlePatch(HttpServletRequest req, HttpServletResponse resp, ScimSubjectService svc) throws Exception {
+    private void handlePatch(HttpServletRequest req, HttpServletResponse resp, ScimSubjectService svc, AuthContext auth)
+            throws Exception {
         SubjectId subject = subjectFromPath(req);
         Map<String, Object> body = SsfHttp.readBody(req);
         Object operations = body.get("Operations");
@@ -138,9 +144,9 @@ public class SsfScimSubjectServlet extends HttpServlet {
             }
         }
         if (disable) {
-            svc.deprovision(subject);
+            svc.deprovision(subject, auth);
         } else {
-            svc.assign(subject, streams);
+            svc.assign(subject, streams, auth);
         }
         SsfHttp.writeJson(resp, 200, Map.of("id", subject.canonicalKey(), "active", !disable));
     }

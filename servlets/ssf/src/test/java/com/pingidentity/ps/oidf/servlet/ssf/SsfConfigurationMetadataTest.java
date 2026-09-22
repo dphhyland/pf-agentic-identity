@@ -40,4 +40,13 @@ class SsfConfigurationMetadataTest {
         assertTrue(allEvents.contains("https://schemas.openid.net/secevent/caep/event-type/session-revoked"));
         assertTrue(allEvents.contains("https://schemas.openid.net/secevent/risc/event-type/account-disabled"));
     }
+
+    /** Absent, §7.1 has a receiver assume 1_0-ID1 - an implementer's draft this transmitter does not speak. */
+    @Test
+    @Requirement("SSF §7.1")
+    void metadataDeclaresTheSpecificationVersionRatherThanLeavingItToBeAssumed() {
+        SsfConfiguration cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").build();
+
+        assertEquals("1_0", SsfConfigurationServlet.metadata(cfg).get("spec_version"));
+    }
 }

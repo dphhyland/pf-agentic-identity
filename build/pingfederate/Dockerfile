@@ -75,8 +75,8 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, the webapp
 # classloader — the same jars are ALSO copied to server/default/deploy below, so the engine classloader
 # gets its own copy: two classloaders, deliberately, and without Redis the filter and the OGNL criterion
-# therefore keep separate in-memory challenge/replay stores), and register the three filters
-# (SsfLogoutSignal, OidfAutoRegistration, ClientAttestationAuth) in its web.xml — via the same assemble
+# therefore keep separate in-memory challenge/replay stores), and register the four filters
+# (SsfLogoutSignal, Fapi2Profile, OidfAutoRegistration, ClientAttestationAuth) in its web.xml — via the same assemble
 # script a consumer's CI would use. modules/ holds the monorepo reactor's modular jars (oidf.jar +
 # attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance)
 # — staged by stage-modules.sh.
