@@ -1,8 +1,13 @@
 # PingFederate 13.1 and the Jakarta migration - plan
 
-**Status: PLAN ONLY (2026-09-21). Nothing in this document has been done.** No source, pom, workflow,
-script or Dockerfile has changed. Two files came with it: `tools/pf-linkcheck.py`, the checker behind
-the linkage evidence (wired into no build), and a pointer to this plan in the root `README.md`.
+**Status: the migration itself has NOT been done.** No source, pom, workflow or Dockerfile has
+changed, and nothing is compiled against `jakarta.servlet`. Two files came with the plan:
+`tools/pf-linkcheck.py`, the checker behind the linkage evidence (wired into no build), and a pointer
+to this plan in the root `README.md`.
+
+**Landed since (2026-09-22):** the namespace guard of [step 0](#the-steps), in
+`assemble-pf-runtime-war.sh`. It is correct on both lines and guards a hazard that exists today,
+which is why it went first and on its own. Everything else below is unexecuted.
 
 PingFederate 13.1 moved its servlet container from `javax.servlet` to `jakarta.servlet`. This repo
 is compiled against `javax.servlet`, so an image built on 13.1.3 boots to a 503. This plan says what
@@ -27,8 +32,8 @@ under [probes and claims that were wrong](#probes-and-claims-that-were-wrong).
    from one source tree.
 2. **Leave the two SDK plugins alone for now.** They are not on the critical path - see
    [the premise, corrected](#the-premise-corrected).
-3. **Three things land first, on the javax line, in this order:**
-   a namespace guard in `assemble-pf-runtime-war.sh`; the conformance work that today exists only as
+3. **Three things land first, on the javax line, in this order:** a namespace guard in
+   `assemble-pf-runtime-war.sh` (**done**); the conformance work that today exists only as
    uncommitted files in one worktree; and a final javax release, **`v0.1.4`, cut from `main`**.
 4. **Pin consumers to `v0.1.4` - not to `v0.1.3`.** `v0.1.3` is 19 commits behind `main`, and those
    commits are the 15 September audit fixes. Pinning to it would roll a deploy back past them.
@@ -305,9 +310,9 @@ and the line of the artifacts it consumes change in one commit, never separately
 
 **0. On the javax line, before anything else, in this order.**
 
-- *The namespace guard* (step 5's first half), as its own change. It reads the stock war to learn
-  the namespace, so it is correct on both lines, and it is the only thing that stops a stale
-  `modules/` meeting a new `FROM`.
+- ~~*The namespace guard* (step 5's first half), as its own change.~~ **Done, 2026-09-22.** It reads
+  the stock war to learn the namespace, so it is correct on both lines, and it is the only thing that
+  stops a stale `modules/` meeting a new `FROM`.
 - *Commit and merge the conformance work* - the untracked filter and the 15 modified files.
 - *Cut `v0.1.4` from `main`.* Branch `pf-13.0` from it. Record in its `PROVENANCE.txt` that it
   targets PingFederate 13.0.x.
@@ -357,28 +362,23 @@ consumer most needs.
 
 **5. Two guards, so this cannot fail at boot again.**
 
-*In `assemble-pf-runtime-war.sh`.* Read the stock war's descriptor to learn which namespace this
-PingFederate speaks, and refuse any staged module compiled against the other. This is the tested
-prototype verbatim, with `$1` and `$2` standing for the script's `$STOCK_WAR` and `$MODULES`. Over
-all four module × image combinations it passes the two matched pairs and refuses the two mismatched
-ones, naming the same five jars the inventory found. It covers the directory mode; the legacy
-single-jar mode needs the same test on the one jar.
-
-```bash
-descriptor="$(unzip -p "$1" WEB-INF/web.xml)"
-case "$descriptor" in *jakarta.ee/xml/ns/jakartaee*) want=jakarta; other=javax ;; *) want=javax; other=jakarta ;; esac
-bad=""
-for j in "$2"/*.jar; do
-  n="$(unzip -p "$j" '*.class' 2>/dev/null | LC_ALL=C grep -ac "${other}/servlet/" || true)"
-  [ "${n:-0}" -gt 0 ] && bad="$bad $(basename "$j")"
-done
-if [ -n "$bad" ]; then echo "REFUSED: this PingFederate speaks ${want}.servlet; compiled against ${other}.servlet:$bad"; exit 1; fi
-```
+*In `assemble-pf-runtime-war.sh`* - **done, 2026-09-22.** It reads the stock war's descriptor to
+learn which namespace this PingFederate speaks, and refuses any staged jar compiled against the
+other. It sits after the jars are staged into the work tree and before they are zipped in, so one
+check covers the directory mode, the legacy single-jar mode and a supplied jose4j jar alike.
+Exercised over all four module × image combinations in both modes: it passes the two matched pairs
+and refuses the two mismatched ones, naming the same five jars the inventory found.
 
 Count with `grep -c`; **do not write this with `grep -q`.** The script runs under `set -o pipefail`.
 `grep -q` exits at the first match, `unzip` dies of SIGPIPE, the pipeline reports failure, and a
 *match* reads as "no match". My first version of this guard passed all four combinations for exactly
 that reason.
+
+The same change made a refusal *delete* the output war. The script's first act is to copy the stock
+war to the output path, so until now every check - the MANIFEST checks included - failed with a
+plausible `pf-runtime.war` already in place, carrying no modules and no filters. The `EXIT` trap now
+reads the exit status and removes it on any non-zero one, so a refusal leaves nothing rather than
+something subtly wrong.
 
 *In CI.* After `mvn verify`:
 
@@ -417,7 +417,7 @@ lifetime and replay only. Move the plugin to `getJakartaRequest()` before the re
 | The plugin's javax code works through Ping's bridge | By execution, in a unit test: a value stubbed on a *jakarta* mock, handed to the real 13.1.3 context, read back by the plugin's untouched *javax* code. Not inside a running PingFederate |
 | `context.HttpRequest` is a jakarta request, never a javax adapter | Traced to the ground. In `pf-protocolengine.jar` 20 classes populate it at 21 sites, every one with a jakarta request in its signature, straight into `AttrValueSupport.make` → `AttrValueSupportServiceImpl`, which has no servlet or bridge reference at all. Four more classes elsewhere read the constant; none touches the bridge. The OGNL evaluator classes are bytecode-identical across versions. It may be one of Ping's own jakarta request wrappers |
 | Servlet API parity | `javap` both jars, namespace-normalised `diff`, all 85 classes. **Control:** the same diff between two different types does show a difference |
-| The assemble script works unmodified, and the guard works | All four combinations, through the real script and the prototype |
+| The assemble script works unmodified on both lines, and the guard works | All four module × image combinations, through the real script, in directory and single-jar mode. A trial three-way merge against the conformance worktree's uncommitted copy is clean, and the merged script still refuses both mismatches |
 | A BOM import ignores `-P` | A two-pom experiment, three invocations, three saved effective poms (below) |
 | ee9 maps only `jakarta.servlet.annotation.WebServlet` | The string constant in `jetty-ee9-annotations`' `WebServletAnnotationHandler`; ee8's counterpart holds the javax name |
 
@@ -443,8 +443,9 @@ passed everything, as above.
   artifact in which it found nothing to check. Both fixed; both now have a test case.
 - The bridge's stub list came from a loose `grep -B12`: I had `getServletContext()` throwing. It
   returns `null`.
-- The guard snippet, abbreviated for the page, no longer matched what was tested - it died on an
-  unset variable under `set -u`. What is printed above is the tested text.
+- The guard snippet printed in the first draft, abbreviated for the page, no longer matched what had
+  been tested - it died on an unset variable under `set -u`. The guard now lives in the script, where
+  it is exercised rather than transcribed.
 - The draft said CI "already has" the jakarta servlet jar. It does not.
 - `attestation-issuer`'s need for `commons-lang3` was inferred; the module had been *skipped* in the
   run I cited. It has now been observed failing without it. My first attempt at that was itself

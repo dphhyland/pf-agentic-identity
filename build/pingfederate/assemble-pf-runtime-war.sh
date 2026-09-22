@@ -27,7 +27,16 @@ set -euo pipefail
 STOCK_WAR="$1"; MODULES="$2"; JOSE4J_JAR="$3"; OUT_WAR="$4"
 MODULE_NAME="pf-oidf-modules-0.0.1-SNAPSHOT.jar"   # single-jar mode: keep the WEB-INF/lib entry name stable
 
-work="$(mktemp -d)"; trap 'rm -rf "$work"' EXIT
+# On any failure, take the output war with us. The first thing this script does is copy the STOCK war
+# to OUT_WAR, so every check below - the MANIFEST checks, the namespace guard, the filter-mapping
+# verification - fails with a plausible-looking pf-runtime.war already sitting at the output path: one
+# with no modules and no filters in it. A caller that assembles and deploys in separate steps, or that
+# misses the exit code, ships a PingFederate with none of this repo's code and no error to explain it.
+# Deleting it makes a refusal absent rather than subtly wrong.
+# `rc=$?` must come first - anything before it clobbers the status we are testing. Reading the exit
+# status rather than setting a "we got there" flag at the bottom means a check added later is covered
+# automatically, with nothing to remember.
+work="$(mktemp -d)"; trap 'rc=$?; rm -rf "$work"; [[ $rc -eq 0 ]] || rm -f "$OUT_WAR"' EXIT
 cp "$STOCK_WAR" "$OUT_WAR"
 # Resolve OUT_WAR to an absolute path — the `zip` calls below run from inside $work, so a relative
 # OUT_WAR would land in the temp dir instead of the intended output.
@@ -70,6 +79,49 @@ fi
 if [[ "$JOSE4J_JAR" != "-" ]]; then
   cp "$JOSE4J_JAR" "$work/WEB-INF/lib/$(basename "$JOSE4J_JAR")"
 fi
+
+# --- namespace guard: the stock war decides which servlet namespace this PingFederate speaks ---
+#
+# PingFederate 13.1 moved its container to jakarta.servlet (Jetty ee9); 13.0.x is javax.servlet (ee8).
+# Nothing above notices the difference. A module compiled against the wrong namespace assembles into a
+# perfectly well-formed war and the build passes; it fails at BOOT instead, and how it fails depends on
+# how the class is reached:
+#   - a FILTER is named in web.xml below, so the whole merged war dies with "class ...Filter is not a
+#     jakarta.servlet.Filter" and PF serves 503 - loud, but only after a deploy;
+#   - an @WebServlet is found by annotation scanning, and ee9's scanner keys on
+#     jakarta.servlet.annotation.WebServlet, so a javax-annotated servlet is never mapped at all. That
+#     one is silent: the endpoint 404s and nothing in the log says why.
+# The MANIFEST check above cannot catch this. It compares the directory against its own manifest, not
+# against the PingFederate being assembled, so a stale but self-consistent modules/ passes it - which is
+# exactly the shape of the accident this guards: a consumer pulls a new base image while a gitignored
+# modules/ still holds jars built for the old one.
+#
+# The stock war's own web.xml is the authority (javaee 3.1 on 13.0.x, jakartaee 5.0 on 13.1.x), so this
+# needs no flag and stays correct on both lines. Background: docs/pf-13_1-jakarta-migration-plan.md.
+ns_descriptor="$(unzip -p "$STOCK_WAR" WEB-INF/web.xml)"
+case "$ns_descriptor" in
+  *jakarta.ee/xml/ns/jakartaee*) ns_want=jakarta; ns_other=javax ;;
+  *)                             ns_want=javax;   ns_other=jakarta ;;
+esac
+ns_wrong=""
+for staged in "$work"/WEB-INF/lib/*.jar; do
+  # COUNT the matches; never write this as `grep -q`. This script runs under `set -o pipefail`, where
+  # grep -q exits at the first match, unzip dies of SIGPIPE, the pipeline reports failure, and the
+  # `|| true` then turns a MATCH into "no match" - a guard that passes everything. Not hypothetical:
+  # that is how the first draft of this check behaved on all four module/image combinations.
+  ns_hits="$(unzip -p "$staged" '*.class' 2>/dev/null | LC_ALL=C grep -ac "${ns_other}/servlet/" || true)"
+  if [[ "${ns_hits:-0}" -gt 0 ]]; then ns_wrong="$ns_wrong $(basename "$staged")"; fi
+done
+if [[ -n "$ns_wrong" ]]; then
+  echo "ERROR: $(basename "$STOCK_WAR") speaks ${ns_want}.servlet, but these staged jars are compiled" >&2
+  echo "       against ${ns_other}.servlet:$ns_wrong" >&2
+  echo "       A war built from them boots to a 503 (filters) or silently 404s (servlets). Rebuild the" >&2
+  echo "       modules against the matching PingFederate line, or stage a set that was - see" >&2
+  echo "       docs/pf-13_1-jakarta-migration-plan.md." >&2
+  exit 1
+fi
+echo "namespace: ${ns_want}.servlet (per the stock war); no staged jar references ${ns_other}.servlet"
+
 ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/lib/*.jar )
 
 # --- web.xml surgery: register the SSF logout filter (idempotent) ---
