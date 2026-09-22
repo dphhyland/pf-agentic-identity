@@ -140,6 +140,19 @@
                                         <!-- SCIM subject lifecycle: which stream a subject is added to or removed from. -->
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.assign(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.deprovision(*</include>
+
+                                        <!-- What the transmitter will sign, and for whom. provisions() is who may have an
+                                             account-disabled raised (SCIM - never a receiver); mayAddress() and
+                                             resolveAudience() are which aud a receiver's SETs carry. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.ssf.SsfHttp.authorizeProvisioner(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamAccess.provisions(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamAccess.mayAddress(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireProvisioner(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.resolveAudience(*</include>
+
+                                        <!-- Receiver fail-closed: no audience or no endpoint token, no receiver. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.receiverMissingRequirements(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverMayRun(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

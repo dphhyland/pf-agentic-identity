@@ -12,6 +12,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import java.net.InetAddress;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -33,7 +34,9 @@ class StreamManagementServiceTest {
     @BeforeEach
     void setUp() {
         store = new InMemorySsfStore();
-        cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").build();
+        // the audience these bodies name is one the operator has agreed for this client
+        cfg = new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .allowedAudiences("receiver-client=https://receiver.example.com").build();
         svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg, SetPublisher.NOOP, testPolicy());
     }
 
@@ -234,7 +237,8 @@ class StreamManagementServiceTest {
     /** Deliberately untagged: {@code setTtlSeconds <= 0} meaning "no expiry" is a repo default, not a clause. */
     @Test
     void aSetMintedWithNoTtlIsNeverEvictedByAPoll() throws Exception {
-        cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").setTtlSeconds(0).build();
+        cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").setTtlSeconds(0)
+                .allowedAudiences("receiver-client=https://receiver.example.com").build();
         svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg, SetPublisher.NOOP, testPolicy());
         String id = (String) svc.createStream(pollBody(), RECEIVER).get("stream_id");
         String kept = svc.verify(id, "no-ttl", RECEIVER);
@@ -270,13 +274,37 @@ class StreamManagementServiceTest {
     }
 
     /**
-     * Deliberately untagged. SSF §8.1.1 makes {@code aud} Transmitter-Supplied, and honouring one a
-     * receiver sent is a departure from that, kept for {@link ReceiverStreamClient} and the deployed
-     * probes. Tagging it with the clause it departs from would report the clause as covered.
+     * {@code aud} is the transmitter's to supply. A receiver that names one gets it only where the
+     * transmitter would have supplied it anyway: its own client id, or an audience the operator agreed for
+     * that client out of band. Anything else would have SETs signed to an audience of the receiver's choosing.
      */
     @Test
-    void aReceiverThatStillSendsAnAudienceKeepsIt() {
+    @Requirement("SSF §8.1.1")
+    void aReceiverCannotChooseItsAudience() {
+        AuthContext other = AuthContext.active("receiver-b", Set.of("ssf.manage"));
+        for (Object chosen : new Object[] {"https://victim.example.com", other.clientId(), "Receiver-Client",
+                List.of("https://receiver.example.com"), "", 7}) {
+            Map<String, Object> body = new HashMap<>(pollBodyWithoutAudience());
+            body.put("aud", chosen);
+            assertThrows(IllegalArgumentException.class, () -> svc.createStream(body, RECEIVER), "aud " + chosen);
+        }
+        // an audience agreed for one client is not agreed for another
+        assertThrows(IllegalArgumentException.class, () -> svc.createStream(pollBody(), other));
+        assertTrue(store.listStreams().isEmpty(), "a refused create leaves nothing behind");
+
+        // controls: the same body is accepted once aud is one this caller may use, so the refusals above were about aud
         assertEquals("https://receiver.example.com", svc.createStream(pollBody(), RECEIVER).get("aud"));
+        Map<String, Object> own = new HashMap<>(pollBodyWithoutAudience());
+        own.put("aud", RECEIVER.clientId());
+        assertEquals(RECEIVER.clientId(), svc.createStream(own, RECEIVER).get("aud"));
+    }
+
+    @Test
+    void aTokenThatNamesNoClientMayAddressNoAudience() {
+        StreamAccess access = new StreamAccess(cfg);
+        assertFalse(access.mayAddress(AuthContext.active(null, Set.of("ssf.manage")), "https://receiver.example.com"));
+        assertFalse(access.mayAddress(null, "https://receiver.example.com"));
+        assertTrue(access.mayAddress(RECEIVER, "https://receiver.example.com")); // control
     }
 
     @Test

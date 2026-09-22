@@ -30,7 +30,7 @@ class ReceiverStreamClientTest {
         List<Call> calls = new ArrayList<>();
         ReceiverStreamClient c = new ReceiverStreamClient("https://tx.example.com/", (m, u, b) -> {
             calls.add(new Call(m, u, b));
-            return "{\"stream_id\":\"s-1\"}";
+            return "{\"stream_id\":\"s-1\",\"aud\":\"https://me.example.com\"}";
         });
         String id = c.createPushStream("https://me.example.com",
                 List.of(SsfEventTypes.CAEP_SESSION_REVOKED), "https://me.example.com/ssf/receiver/events", "tok");
@@ -39,6 +39,25 @@ class ReceiverStreamClientTest {
         assertEquals("https://tx.example.com/ssf/streams", calls.get(0).url, "trailing slash trimmed");
         assertTrue(calls.get(0).body.contains("urn:ietf:rfc:8935"));
         assertTrue(calls.get(0).body.contains("\"authorization_header\":\"Bearer tok\""));
+    }
+
+    /** SSF §8.1.1.1: "the Receiver SHOULD ensure that it matches what it expects". */
+    @Test
+    void aStreamCreatedUnderAnotherAudienceIsRefused() {
+        ReceiverStreamClient c = new ReceiverStreamClient("https://tx.example.com",
+                (m, u, b) -> "{\"stream_id\":\"s-1\",\"aud\":\"someone-else\"}");
+        assertThrows(IllegalStateException.class, () -> c.createPollStream("https://me.example.com", List.of()));
+    }
+
+    @Test
+    void aClientThatExpectsNoParticularAudienceSendsNone() throws Exception {
+        List<Call> calls = new ArrayList<>();
+        ReceiverStreamClient c = new ReceiverStreamClient("https://tx.example.com", (m, u, b) -> {
+            calls.add(new Call(m, u, b));
+            return "{\"stream_id\":\"s-1\",\"aud\":\"my-client-id\"}";
+        });
+        assertEquals("s-1", c.createPollStream(null, List.of()));
+        assertTrue(!calls.get(0).body.contains("\"aud\""), "aud is the transmitter's to supply");
     }
 
     @Test

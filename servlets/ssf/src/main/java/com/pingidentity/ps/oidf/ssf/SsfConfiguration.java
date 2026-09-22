@@ -4,7 +4,10 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import javax.servlet.ServletConfig;
 
@@ -59,6 +62,8 @@ public final class SsfConfiguration {
     private final long setTtlSeconds;
     private final String receiverScope;
     private final String unownedStreamOwner;
+    private final String provisionerScope;
+    private final Map<String, Set<String>> allowedAudiences;
     private final String introspectionEndpoint;
     private final String introspectionClientId;
     private final String introspectionClientSecret;
@@ -104,6 +109,12 @@ public final class SsfConfiguration {
         this.setTtlSeconds = b.setTtlSeconds;
         this.receiverScope = b.receiverScope;
         this.unownedStreamOwner = trimOrNull(b.unownedStreamOwner);
+        this.provisionerScope = trimOrNull(b.provisionerScope);
+        this.allowedAudiences = parseAllowedAudiences(b.allowedAudiences);
+        if (this.receiverScope.equals(this.provisionerScope)) {
+            throw new IllegalArgumentException("provisionerScope must not be the receiverScope ('" + this.receiverScope
+                    + "'): every receiver would be a provisioner, able to have an account-disabled signed about any subject");
+        }
         this.introspectionEndpoint = b.introspectionEndpoint;
         this.introspectionClientId = b.introspectionClientId;
         this.introspectionClientSecret = b.introspectionClientSecret;
@@ -113,8 +124,8 @@ public final class SsfConfiguration {
         this.verificationEventEnabled = b.verificationEventEnabled;
         this.receiverExpectedIssuer = b.receiverExpectedIssuer;
         this.receiverJwksUrl = b.receiverJwksUrl;
-        this.receiverAudience = b.receiverAudience;
-        this.receiverEndpointAuthToken = b.receiverEndpointAuthToken;
+        this.receiverAudience = trimOrNull(b.receiverAudience);
+        this.receiverEndpointAuthToken = trimOrNull(b.receiverEndpointAuthToken);
         this.receiverJwksCacheSeconds = b.receiverJwksCacheSeconds;
         this.receiverInsecureTls = b.receiverInsecureTls;
         this.receiverPollUrl = b.receiverPollUrl;
@@ -153,6 +164,8 @@ public final class SsfConfiguration {
                     .setTtlSeconds(parseLong(param(config,"setTtlSeconds"), DEFAULT_SET_TTL_SECONDS))
                     .receiverScope(orDefault(param(config,"receiverScope"), DEFAULT_RECEIVER_SCOPE))
                     .unownedStreamOwner(trimOrNull(param(config,"unownedStreamOwner")))
+                    .provisionerScope(trimOrNull(param(config,"provisionerScope")))
+                    .allowedAudiences(trimOrNull(param(config,"allowedAudiences")))
                     .introspectionEndpoint(trimOrNull(param(config,"introspectionEndpoint")))
                     .introspectionClientId(trimOrNull(param(config,"introspectionClientId")))
                     .introspectionClientSecret(trimOrNull(param(config,"introspectionClientSecret")))
@@ -292,6 +305,47 @@ public final class SsfConfiguration {
         return this.unownedStreamOwner;
     }
 
+    /**
+     * The scope that makes a client a provisioner, admitted to {@code /ssf/scim/v2/Users}
+     * ({@code OIDF_SSF_PROVISIONER_SCOPE}, e.g. {@code ssf.provision}). Unset, which is the default, nobody
+     * is and the endpoint refuses every caller. It is never the receiver scope: a deprovision has the
+     * transmitter sign an account-disabled about a subject of the caller's choosing, and a receiver that
+     * could ask for that could take the JWS to any other receiver of this transmitter. A provisioner acts
+     * across every receiver's streams, so grant the scope to the provisioning client and to nothing else.
+     */
+    public String provisionerScope() {
+        return this.provisionerScope;
+    }
+
+    /**
+     * The {@code aud} values a client may name when it creates a stream, other than its own client id
+     * ({@code OIDF_SSF_ALLOWED_AUDIENCES}, {@code clientA=aud1,aud2;clientB=aud3}). SSF 1.0 §8.1.1 makes
+     * {@code aud} Transmitter-Supplied, and lets the two sides "agree upon the audience value out of band":
+     * this is where the operator records that agreement. Empty for a client named nowhere.
+     */
+    public Set<String> allowedAudiences(String clientId) {
+        return this.allowedAudiences.getOrDefault(clientId, Set.of());
+    }
+
+    /**
+     * The settings an enabled receiver is missing and may not run without: {@code receiverAudience} and
+     * {@code receiverEndpointAuthToken}. A signature and an {@code iss} say the transmitter signed a SET,
+     * not that it signed it for this receiver or that the transmitter is who delivered it - and a SET acted
+     * on here revokes a user's grants. Empty when the receiver is off, or is on and has both.
+     */
+    public List<String> receiverMissingRequirements() {
+        ArrayList<String> missing = new ArrayList<>();
+        if (receiverConfigured()) {
+            if (this.receiverAudience == null) {
+                missing.add("receiverAudience");
+            }
+            if (this.receiverEndpointAuthToken == null) {
+                missing.add("receiverEndpointAuthToken");
+            }
+        }
+        return missing;
+    }
+
     /** Token introspection endpoint for receiver auth; defaults to {@code <issuer>/as/introspect.oauth2}. */
     public String introspectionEndpoint() {
         return this.introspectionEndpoint != null ? this.introspectionEndpoint
@@ -350,12 +404,12 @@ public final class SsfConfiguration {
                 : this.receiverExpectedIssuer + "/pf/JWKS";
     }
 
-    /** Expected {@code aud} of inbound SETs (null = not enforced). */
+    /** Expected {@code aud} of inbound SETs. Required when the receiver is on ({@link #receiverMissingRequirements}). */
     public String receiverAudience() {
         return this.receiverAudience;
     }
 
-    /** Optional bearer token the transmitter must present when POSTing to our push endpoint. */
+    /** Bearer token the transmitter must present when POSTing to our push endpoint. Required when the receiver is on. */
     public String receiverEndpointAuthToken() {
         return this.receiverEndpointAuthToken;
     }
@@ -473,6 +527,25 @@ public final class SsfConfiguration {
         return result;
     }
 
+    private static Map<String, Set<String>> parseAllowedAudiences(String value) {
+        LinkedHashMap<String, Set<String>> byClient = new LinkedHashMap<>();
+        if (value == null || value.isBlank()) {
+            return byClient;
+        }
+        for (String entry : value.split(";")) {
+            if (entry.isBlank()) {
+                continue;
+            }
+            int eq = entry.indexOf('=');
+            if (eq < 0 || entry.substring(0, eq).isBlank()) {
+                throw new IllegalArgumentException("allowedAudiences entry '" + entry.trim() + "' is not clientId=aud[,aud]");
+            }
+            byClient.computeIfAbsent(entry.substring(0, eq).trim(), k -> new LinkedHashSet<>())
+                    .addAll(parseCommaSeparated(entry.substring(eq + 1)));
+        }
+        return byClient;
+    }
+
     private static String orDefault(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value.trim();
     }
@@ -555,6 +628,8 @@ public final class SsfConfiguration {
         private long setTtlSeconds = DEFAULT_SET_TTL_SECONDS;
         private String receiverScope = DEFAULT_RECEIVER_SCOPE;
         private String unownedStreamOwner;
+        private String provisionerScope;
+        private String allowedAudiences;
         private String introspectionEndpoint;
         private String introspectionClientId;
         private String introspectionClientSecret;
@@ -687,6 +762,17 @@ public final class SsfConfiguration {
 
         public Builder unownedStreamOwner(String v) {
             this.unownedStreamOwner = v;
+            return this;
+        }
+
+        public Builder provisionerScope(String v) {
+            this.provisionerScope = v;
+            return this;
+        }
+
+        /** {@code clientA=aud1,aud2;clientB=aud3} - see {@link SsfConfiguration#allowedAudiences(String)}. */
+        public Builder allowedAudiences(String v) {
+            this.allowedAudiences = v;
             return this;
         }
 

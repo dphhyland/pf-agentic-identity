@@ -21,10 +21,11 @@ and PF-managed data sources. `com.pingidentity.ps.oidf.ssf` is the core; `…ser
   picks: direct `jdbcUrl` (dev) beats a PF-managed `dataStoreId` (production, PF's own pool).
 - **Kafka** - `KafkaSetPublisher` is reflection-only: no compile-time dependency, no Kafka class loaded
   unless `kafkaEnabled`.
-- **Auth** - every management/poll/SCIM call carries a receiver bearer, validated by PF's own RFC 7662
+- **Auth** - every management/poll call carries a receiver bearer, validated by PF's own RFC 7662
   introspection (`PfIntrospectionReceiverAuthenticator`) and required to hold `receiverScope`. The scope
   gets a client to the endpoints, not to every stream behind them: a stream is its creator's
-  ([Stream ownership](#stream-ownership)).
+  ([Stream ownership](#stream-ownership)). SCIM takes a different scope, `provisionerScope`, and the
+  receiver scope never opens it ([What the transmitter signs](#what-the-transmitter-signs)).
 
 Events: `SsfEventTypes` / `CaepRiscEvents` - CAEP session-revoked, credential-change,
 assurance-level-change, token-claims-change, device-compliance-change, session-established; RISC
@@ -39,7 +40,7 @@ Default stream event types: session-revoked, credential-change, account-disabled
 | `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API; starts the push-delivery loop. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
 | `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only), `returnImmediately`, `ack`. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. |
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err` on failure). Active only when `receiverExpectedIssuer` is set. |
-| `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Scoped like the management API: it assigns to, removes from and signals the caller's streams only - so a provisioning client that created no streams gets 404 on assign, and its deprovision reaches nobody (204, and a WARN with the count). |
+| `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
 | filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF processes an OIDC logout. Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
 
 `LogoutEventFilter` takes the subject from an `id_token_hint`/`logout_token`, verified (`PfIdTokenVerifier`)
@@ -62,8 +63,8 @@ external base receivers use).
 |---|---|
 | Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
 | Store | `dataStoreId` (PF JDBC data store id) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory |
-| Receiver auth | `receiverScope` (`ssf.manage`), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` |
-| Receiver | `receiverExpectedIssuer`, `receiverJwksUrl`, `receiverAudience`, `receiverEndpointAuthToken`, `receiverJwksCacheSeconds` (300), `receiverInsecureTls`, `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
+| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` |
+| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls`, `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
 
@@ -115,14 +116,55 @@ The owner is the client id and nothing more. A client deleted and registered aga
 same owner, streams and queued SETs included. Ids are compared exactly - `Receiver-A` is not `receiver-a`.
 
 The event emitter and the push executor are not scoped - they act for the transmitter, across every
-receiver's streams. The exception is the account-disabled a SCIM deprovision raises: it goes to the
-caller's streams only, since it is the caller's word that the account is disabled.
+receiver's streams. So does the SCIM endpoint, for a provisioner: it is not a receiver and owns no
+streams (below).
 
 **What ownership does not settle.** It decides who may manage and drain a stream, not what the stream's
-SETs say. `aud` is still whatever the creator sent, and a receiver can still have the transmitter sign an
-account-disabled about any subject it puts on its own stream (SCIM deprovision) and walk away with the
-JWS. Both are as they were before this change. Until they are closed, a receiver of this transmitter
-should set `receiverAudience` and `receiverEndpointAuthToken` rather than rely on the signature alone.
+SETs say. That is the next section.
+
+## What the transmitter signs
+
+Ownership left two things a receiver could still do. Together they let any holder of `ssf.manage` knock
+out a user's grants at any other receiver of this transmitter that verified the signature and nothing
+else: create a stream naming that receiver's `aud`, put a subject on it, deprovision the subject over SCIM
+so the transmitter signs an account-disabled to that `aud`, poll it, and hand the JWS on (or point a push
+stream straight at the other receiver). Three changes close it, on both sides.
+
+**`aud` is Transmitter-Supplied.** SSF 1.0 §8.1.1: "`aud` - Transmitter-Supplied, REQUIRED. A string or an
+array of strings ... that identifies the Event Receiver(s) for the Event Stream." A create that sends none
+gets the caller's client id. One that sends `aud` gets it only where it is that client id, or an audience
+the operator has agreed for that client in `allowedAudiences` (§8.1.1.1: "A Transmitter and Receiver MAY
+agree upon the audience value out of band") - anything else, an array or a blank included, is a 400.
+Every SET on a stream is signed to its `aud`, so a receiver free to pick one could have SETs minted that
+another receiver accepts as its own. `ReceiverStreamClient` now sends `aud` only when given one and
+refuses a stream created under a different one; pass `null` to take the transmitter's choice.
+
+**Raising an event is a provisioner's, never a receiver's.** `/ssf/scim/v2/Users` requires
+`provisionerScope`, which is unset by default - the endpoint then refuses everyone - and may not equal
+`receiverScope`. A provisioner is not a receiver: it owns no streams and its assignments and deprovisions
+reach every receiver's, which is what a provisioning client needs and what ownership had taken from it.
+A receiver holding only `ssf.manage` gets 403 on every SCIM call, its own streams included: the
+account-disabled it used to be able to raise was a signed SET about a subject of its choosing.
+
+**A receiver runs with an audience and an endpoint token, or does not run.** `receiverAudience` and
+`receiverEndpointAuthToken` were optional and unset meant unchecked - a SET was accepted on the
+transmitter's signature alone, whoever it was minted for and whoever delivered it, and grants were
+revoked on it. With `receiverExpectedIssuer` set and either missing, the receiver does not start (its
+endpoint is 404, nothing is polled, the transmitter is unaffected) and an ERROR names the setting. The
+push endpoint itself no longer has an open state: no configured token, no delivery accepted.
+
+### Upgrading to this
+
+- **Provisioning clients** (`pf-oidf-modules` bootstrap and `harness/probe-ssf.sh`, `idp-agentic-demo` if
+  it drives SCIM): add a PF scope (`ssf.provision`), grant it to the provisioning client and to no
+  receiver, and set `OIDF_SSF_PROVISIONER_SCOPE=ssf.provision`. Until then every SCIM call is 403. The
+  probe currently drives SCIM with its `ssf.manage` token and will fail.
+- **Receivers that send `aud`** (the probe sends `https://receiver.example.com`): stop, or have the
+  operator list it: `OIDF_SSF_ALLOWED_AUDIENCES=<client_id>=https://receiver.example.com`.
+- **Every deployed receiver**: set `OIDF_SSF_RECEIVER_AUDIENCE` (what it expects in `aud` - on this
+  transmitter, its own client id unless agreed otherwise) and `OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN`
+  (and give the transmitter the same token in the stream's `authorization_header`). No known deployment
+  enables the receiver today, so nothing live is affected; one that enables it without both will not start.
 
 ### Upgrading
 

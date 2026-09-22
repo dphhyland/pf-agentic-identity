@@ -120,6 +120,53 @@ class SsfHttpAuthorizeTest {
         assertEquals("client-1", auth.clientId());
     }
 
+    // ─────────────────────────────── the provisioner scope ───────────────────────────────
+
+    private static SsfConfiguration provisioning(String scope) {
+        return new SsfConfiguration.Builder().issuer("https://op.example.com").receiverScope(SCOPE).provisionerScope(scope).build();
+    }
+
+    @Test
+    @Requirement("RFC6750 §3.1")
+    void theReceiverScopeDoesNotOpenTheProvisionerGate() throws Exception {
+        SsfSupport.installReceiverAuthenticator(token -> AuthContext.active("receiver-a", Set.of(SCOPE)));
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        HttpServletResponse resp = responseCapturingBody(body);
+
+        assertNull(SsfHttp.authorizeProvisioner(requestWithAuthHeader("Bearer t"), resp, provisioning("ssf.provision")));
+
+        verify(resp).setStatus(403);
+        assertEquals("insufficient_scope", errorField(body.toString()));
+
+        // controls: that token is a good receiver token, and the provisioner's opens the gate it could not
+        assertNotNull(SsfHttp.authorize(requestWithAuthHeader("Bearer t"), mock(HttpServletResponse.class), provisioning("ssf.provision")));
+        SsfSupport.installReceiverAuthenticator(token -> AuthContext.active("scim", Set.of("ssf.provision")));
+        assertNotNull(SsfHttp.authorizeProvisioner(requestWithAuthHeader("Bearer t"), mock(HttpServletResponse.class),
+                provisioning("ssf.provision")));
+    }
+
+    @Test
+    void theProvisionerScopeDoesNotOpenTheReceiverGate() throws Exception {
+        SsfSupport.installReceiverAuthenticator(token -> AuthContext.active("scim", Set.of("ssf.provision")));
+        HttpServletResponse resp = responseCapturingBody(new ByteArrayOutputStream());
+
+        assertNull(SsfHttp.authorize(requestWithAuthHeader("Bearer t"), resp, provisioning("ssf.provision")));
+
+        verify(resp).setStatus(403);
+    }
+
+    @Test
+    void withNoProvisionerScopeConfiguredEveryTokenIs403() throws Exception {
+        SsfSupport.installReceiverAuthenticator(token -> AuthContext.active("scim", Set.of("ssf.provision", SCOPE)));
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        HttpServletResponse resp = responseCapturingBody(body);
+
+        assertNull(SsfHttp.authorizeProvisioner(requestWithAuthHeader("Bearer t"), resp, provisioning(null)));
+
+        verify(resp).setStatus(403);
+        assertEquals("insufficient_scope", errorField(body.toString()));
+    }
+
     @Test
     void introspectionFailureIs503NotABareServerError() throws Exception {
         SsfSupport.installReceiverAuthenticator(token -> {

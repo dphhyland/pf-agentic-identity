@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import javax.servlet.ServletConfig;
 import org.junit.jupiter.api.Test;
 
@@ -165,6 +166,54 @@ class SsfConfigurationTest {
         } finally {
             System.clearProperty("oidf.ssf.issuer");
             System.clearProperty("oidf.ssf.unownedStreamOwner");
+        }
+    }
+
+    /** Unset is the closed value: nobody provisions until an operator names a scope for it. */
+    @Test
+    void thereIsNoProvisionerScopeUnlessOneIsNamed() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://op.example.com");
+        assertNull(SsfConfiguration.fromServletConfig(servletConfig(p)).provisionerScope());
+
+        p.put("provisionerScope", "  ");
+        assertNull(SsfConfiguration.fromServletConfig(servletConfig(p)).provisionerScope());
+
+        p.put("provisionerScope", " ssf.provision "); // control
+        assertEquals("ssf.provision", SsfConfiguration.fromServletConfig(servletConfig(p)).provisionerScope());
+    }
+
+    /** Naming the receiver scope would make every receiver a provisioner, which is the hole the scope closes. */
+    @Test
+    void theProvisionerScopeMayNotBeTheReceiverScope() {
+        assertThrows(IllegalArgumentException.class, () -> new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .provisionerScope("ssf.manage").build());
+        assertThrows(IllegalArgumentException.class, () -> new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .receiverScope("custom").provisionerScope(" custom ").build());
+        // control: the default receiver scope's name is free once the receiver scope is something else
+        assertEquals("ssf.manage", new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .receiverScope("custom").provisionerScope("ssf.manage").build().provisionerScope());
+    }
+
+    @Test
+    void allowedAudiencesAreReadPerClient() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://op.example.com");
+        assertEquals(Set.of(), SsfConfiguration.fromServletConfig(servletConfig(p)).allowedAudiences("receiver-a"));
+
+        p.put("allowedAudiences", " receiver-a = https://a.example.com , https://a2.example.com ;; receiver-b=https://b.example.com?x=1; receiver-a=https://a3.example.com ");
+        SsfConfiguration cfg = SsfConfiguration.fromServletConfig(servletConfig(p));
+        assertEquals(Set.of("https://a.example.com", "https://a2.example.com", "https://a3.example.com"), cfg.allowedAudiences("receiver-a"));
+        assertEquals(Set.of("https://b.example.com?x=1"), cfg.allowedAudiences("receiver-b"));
+        assertEquals(Set.of(), cfg.allowedAudiences("receiver-c"));
+        assertEquals(Set.of(), cfg.allowedAudiences(null));
+        assertEquals(Set.of(), new SsfConfiguration.Builder().issuer("https://op.example.com").allowedAudiences("  ").build()
+                .allowedAudiences("receiver-a"));
+
+        // an entry that names no client is a mistake to be told about, not an audience open to all
+        for (String bad : new String[] {"https://a.example.com", "=https://a.example.com", " =https://a.example.com"}) {
+            p.put("allowedAudiences", bad);
+            assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)));
         }
     }
 }

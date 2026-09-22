@@ -28,10 +28,10 @@ import org.jose4j.json.JsonUtil;
  * JWKS ({@code receiverExpectedIssuer} / {@code receiverJwksUrl}), duplicates are accepted idempotently, and
  * verified SETs are dispatched to the registered handlers. Responses per RFC 8935 §2.3–2.4: {@code 202} on
  * acceptance (including duplicates), {@code 400} with {@code {"err": "...", "description": "..."}} on
- * verification failure. When {@code receiverEndpointAuthToken} is configured, the POST must carry it as a
- * bearer token ({@code 401} otherwise).
+ * verification failure. The POST must carry {@code receiverEndpointAuthToken} as a bearer token
+ * ({@code 401} otherwise).
  *
- * <p>{@code GET} serves a bounded recent-events summary for demos/inspection (same bearer when configured).
+ * <p>{@code GET} serves a bounded recent-events summary for demos/inspection (same bearer).
  * The receiver is active only when {@code receiverExpectedIssuer} is set; otherwise both methods return 404.
  */
 @WebServlet(urlPatterns = {"/ssf/receiver/events"})
@@ -91,14 +91,15 @@ public class SsfReceiverServlet extends HttpServlet {
         SsfHttp.writeJson(resp, 200, Map.of("received", receiver.recentEvents()));
     }
 
-    /** Bearer check for the push endpoint when {@code receiverEndpointAuthToken} is configured. */
+    /**
+     * Bearer check for the push endpoint. The receiver does not start without a
+     * {@code receiverEndpointAuthToken}, so a missing one is not reached through configuration; if it is
+     * reached some other way, the answer is a refusal and not an open door.
+     */
     private boolean endpointAuthorized(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String required = SsfSupport.configuration().receiverEndpointAuthToken();
-        if (required == null || required.isBlank()) {
-            return true;
-        }
         String header = req.getHeader("Authorization");
-        if (header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)
+        if (required != null && header != null && header.regionMatches(true, 0, "Bearer ", 0, 7)
                 && required.equals(header.substring(7).trim())) {
             return true;
         }

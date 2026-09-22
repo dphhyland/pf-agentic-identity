@@ -29,11 +29,11 @@ import org.apache.commons.logging.LogFactory;
  * a user with the {@code urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject} extension (carrying stream
  * id(s)) to make it a subject of those streams; {@code active:false} or {@code DELETE} removes the subject from
  * every stream and emits a RISC {@code account-disabled}. Wire it as an inbound SCIM target in PF like any SCIM
- * app. Authenticated with the same receiver bearer token as the management API, and so confined like it to
- * the streams of the client that token identifies. That has a cost: a provisioning client that created no
- * streams has none to act on, so its assignments answer 404 and its deprovisions reach nobody (logged, with
- * the count). Provisioning across receivers needs an authority of its own, which this endpoint does not yet
- * have. Logic lives in {@link ScimSubjectService}.
+ * app. Its authority is its own: a bearer token carrying {@code provisionerScope}, which is unset by default
+ * (the endpoint then refuses everyone) and is never the receiver scope. A provisioner owns no streams and
+ * acts across every receiver's; a receiver cannot use this endpoint at all, because a deprovision makes the
+ * transmitter sign an account-disabled about whichever subject the caller names. Logic lives in
+ * {@link ScimSubjectService}.
  */
 @WebServlet(urlPatterns = {"/ssf/scim/v2/Users", "/ssf/scim/v2/Users/*"})
 public class SsfScimSubjectServlet extends HttpServlet {
@@ -73,7 +73,7 @@ public class SsfScimSubjectServlet extends HttpServlet {
 
     private void dispatch(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         SsfConfiguration cfg = SsfSupport.configuration();
-        AuthContext auth = SsfHttp.authorize(req, resp, cfg);
+        AuthContext auth = SsfHttp.authorizeProvisioner(req, resp, cfg);
         if (auth == null) {
             return;
         }
@@ -99,6 +99,8 @@ public class SsfScimSubjectServlet extends HttpServlet {
             }
         } catch (StreamManagementService.NotFoundException e) {
             SsfHttp.writeError(resp, 404, "not_found", e.getMessage());
+        } catch (StreamManagementService.ForbiddenException e) {
+            SsfHttp.writeError(resp, 403, "access_denied", e.getMessage());
         } catch (IllegalArgumentException e) {
             SsfHttp.writeError(resp, 400, "invalid_request", e.getMessage());
         } catch (Exception e) {

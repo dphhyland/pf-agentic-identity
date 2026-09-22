@@ -34,7 +34,11 @@ public final class ReceiverStreamClient {
         this.http = Objects.requireNonNull(http, "http");
     }
 
-    /** Create a push stream delivering to {@code receiverEndpointUrl}; returns the stream id. */
+    /**
+     * Create a push stream delivering to {@code receiverEndpointUrl}; returns the stream id. {@code audience}
+     * is the {@code aud} this receiver expects its SETs under, or null to take whatever the transmitter
+     * assigns (its client id, on this repo's transmitter).
+     */
     public String createPushStream(String audience, List<String> events, String receiverEndpointUrl,
                                    String receiverEndpointBearer) throws Exception {
         LinkedHashMap<String, Object> delivery = new LinkedHashMap<>();
@@ -53,7 +57,11 @@ public final class ReceiverStreamClient {
 
     private String createStream(String audience, List<String> events, Map<String, Object> delivery) throws Exception {
         LinkedHashMap<String, Object> body = new LinkedHashMap<>();
-        body.put("aud", audience);
+        // aud is the transmitter's to supply (SSF §8.1.1). Naming one asks for an audience agreed out of
+        // band, and a transmitter that has not agreed it refuses; null leaves the choice to the transmitter.
+        if (audience != null) {
+            body.put("aud", audience);
+        }
         body.put("delivery", delivery);
         body.put("events_requested", events);
         Map<String, Object> resp = JsonUtil.parseJson(
@@ -61,6 +69,9 @@ public final class ReceiverStreamClient {
         Object id = resp.get("stream_id");
         if (!(id instanceof String) || ((String) id).isBlank()) {
             throw new IllegalStateException("stream create returned no stream_id: " + resp);
+        }
+        if (audience != null && !audience.equals(resp.get("aud"))) {
+            throw new IllegalStateException("stream " + id + " was created with aud " + resp.get("aud") + ", not " + audience);
         }
         return (String) id;
     }

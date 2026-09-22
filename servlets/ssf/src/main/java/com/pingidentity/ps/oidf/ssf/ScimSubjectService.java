@@ -19,10 +19,12 @@ import org.jose4j.lang.JoseException;
  * ({@code active:false}) removes the subject from every stream <em>and</em> emits a RISC {@code account-disabled}.
  * Transport-free so it unit-tests without a servlet.
  *
- * <p>"Every stream" means every stream of the receiver asking. This endpoint admits the same token as the
- * Stream Management API, so it is held to the same rule ({@link StreamAccess}); otherwise it is a second
- * door onto other receivers' subjects, and one that also makes the transmitter tell them an account of the
- * caller's choosing has been disabled - a signal a receiving PingFederate revokes grants on.
+ * <p>The caller is a provisioner ({@link StreamAccess#provisions}) and "every stream" means every
+ * receiver's. A receiver is refused outright, not confined to its own streams: a deprovision has the
+ * transmitter sign an account-disabled about a subject of the caller's choosing - a signal a receiving
+ * PingFederate revokes grants on - and a receiver handed that SET on its own stream, under an {@code aud}
+ * it picked, could carry it to another receiver. The servlet applies the same scope; it is asked again
+ * here so that the rule holds for any caller of this class and not only for that one.
  */
 public final class ScimSubjectService {
 
@@ -58,13 +60,13 @@ public final class ScimSubjectService {
     }
 
     /**
-     * Add {@code subject} to each named stream (validating that it exists and is the caller's - another
-     * receiver's stream is reported as absent). Used by PATCH and provisioning.
+     * Add {@code subject} to each named stream, whichever receiver's it is (validating that it exists).
+     * Used by PATCH and provisioning.
      */
     public void assign(SubjectId subject, List<String> streamIds, AuthContext caller) {
+        requireProvisioner(caller);
         for (String streamId : streamIds) {
-            Stream stream = this.store.getStream(streamId).orElse(null);
-            if (stream == null || !this.access.admits(stream, caller)) {
+            if (this.store.getStream(streamId).isEmpty()) {
                 throw new StreamManagementService.NotFoundException("no such stream: " + streamId);
             }
             this.store.addSubject(streamId, subject);
@@ -72,31 +74,30 @@ public final class ScimSubjectService {
     }
 
     /**
-     * Deprovision a subject: emit a RISC {@code account-disabled} to each of the caller's subscribed streams,
-     * then remove the subject from them. (Emit first, so streams still holding the subject actually receive
-     * the event.) Another receiver's streams get neither the event nor the removal.
-     *
-     * <p>Returns how many streams hold the subject and were left alone because they are not the caller's.
-     * That is the cost of the rule, and it is not hidden: a provisioning client that owns no streams used to
-     * reach every receiver with this call and now reaches none, which the caller is not told (its own
-     * request did succeed) but the operator is.
+     * Deprovision a subject: emit a RISC {@code account-disabled} to every subscribed stream, then remove
+     * the subject from every stream. (Emit first, so streams still holding the subject actually receive
+     * the event.) Returns how many streams the subject was removed from.
      */
     public int deprovision(SubjectId subject, AuthContext caller) throws JoseException {
-        this.emitter.accountDisabled(subject, "scim-deprovision", s -> this.access.admits(s, caller));
-        int leftAlone = 0;
+        requireProvisioner(caller);
+        this.emitter.accountDisabled(subject, "scim-deprovision");
+        int removed = 0;
         for (Stream s : this.store.listStreams()) {
-            if (this.access.admits(s, caller)) {
+            if (this.store.hasSubject(s.id(), subject)) {
                 this.store.removeSubject(s.id(), subject);
-            } else if (this.store.hasSubject(s.id(), subject)) {
-                leftAlone++;
+                removed++;
             }
         }
-        if (leftAlone > 0) {
-            LOGGER.warn((Object) ("SSF SCIM deprovision by client '" + StreamAccess.clientIdOf(caller) + "' did not reach "
-                    + leftAlone + " stream(s) that hold the subject but belong to other receivers: no "
-                    + "account-disabled was sent to them and the subject is still on them"));
+        LOGGER.info((Object) ("SSF SCIM deprovision by provisioner '" + StreamAccess.clientIdOf(caller)
+                + "': account-disabled raised and the subject removed from " + removed + " stream(s)"));
+        return removed;
+    }
+
+    private void requireProvisioner(AuthContext caller) {
+        if (!this.access.provisions(caller)) {
+            throw new StreamManagementService.ForbiddenException(
+                    "provisioning needs the provisioner scope, which the receiver scope is not");
         }
-        return leftAlone;
     }
 
     // ─────────────────────────────── SCIM parsing ───────────────────────────────

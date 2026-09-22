@@ -6,7 +6,6 @@ package com.pingidentity.ps.oidf.ssf;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Predicate;
 import org.jose4j.lang.JoseException;
 
 /**
@@ -64,24 +63,11 @@ public final class SsfEventEmitter {
      * stream a SET was enqueued for (empty if no stream subscribes this subject to this event).
      */
     public List<Emitted> emit(String eventType, SubjectId subject, Map<String, Object> payload) throws JoseException {
-        return emit(eventType, subject, payload, anyStream -> true);
-    }
-
-    /**
-     * As {@link #emit(String, SubjectId, Map)}, confined to the streams {@code only} accepts. An event the
-     * transmitter observed for itself goes to every receiver that subscribed to it. One raised at a
-     * receiver's request is delivered to that receiver's streams and nobody else's.
-     *
-     * <p>That is a limit on delivery and no more. The SET is still signed by the transmitter, about a
-     * subject and with an {@code aud} the requesting receiver chose, and that receiver now holds it.
-     */
-    public List<Emitted> emit(String eventType, SubjectId subject, Map<String, Object> payload, Predicate<Stream> only)
-            throws JoseException {
         List<Emitted> out = new ArrayList<>();
         long now = SetMinter.nowSeconds();
         long expiresAt = this.config.setTtlSeconds() > 0 ? now + this.config.setTtlSeconds() : 0;
         for (Stream s : this.store.listStreams()) {
-            if (!only.test(s) || s.status() != StreamStatus.ENABLED || !s.deliversEvent(eventType)
+            if (s.status() != StreamStatus.ENABLED || !s.deliversEvent(eventType)
                     || !this.store.hasSubject(s.id(), subject)) {
                 continue;
             }
@@ -115,12 +101,8 @@ public final class SsfEventEmitter {
     }
 
     public List<Emitted> accountDisabled(SubjectId subject, String reason) throws JoseException {
-        return accountDisabled(subject, reason, anyStream -> true);
-    }
-
-    public List<Emitted> accountDisabled(SubjectId subject, String reason, Predicate<Stream> only) throws JoseException {
         return emit(SsfEventTypes.RISC_ACCOUNT_DISABLED, subject,
-                CaepRiscEvents.accountDisabled(SetMinter.nowSeconds(), reason), only);
+                CaepRiscEvents.accountDisabled(SetMinter.nowSeconds(), reason));
     }
 
     public List<Emitted> accountEnabled(SubjectId subject) throws JoseException {

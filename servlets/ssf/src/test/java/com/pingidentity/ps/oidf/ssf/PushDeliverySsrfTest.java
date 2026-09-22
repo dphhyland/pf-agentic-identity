@@ -59,7 +59,8 @@ class PushDeliverySsrfTest {
     @BeforeEach
     void setUp() {
         store = new InMemorySsfStore();
-        SsfConfiguration cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").build();
+        SsfConfiguration cfg = new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .allowedAudiences("receiver-client=https://receiver.example.com").build();
         svc = new StreamManagementService(store, new SetMinter("RS256", keys), cfg, SetPublisher.NOOP, policy());
     }
 

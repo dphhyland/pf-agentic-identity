@@ -66,6 +66,21 @@ final class SsfHttp {
      * writes the appropriate 401/403/503 error and returns {@code null}; on success returns the {@link AuthContext}.
      */
     static AuthContext authorize(HttpServletRequest req, HttpServletResponse resp, SsfConfiguration cfg) throws IOException {
+        return authorize(req, resp, cfg.receiverScope());
+    }
+
+    /**
+     * The same, for the SCIM endpoint, which takes the provisioner scope and not the receiver's: what it
+     * does - have an account-disabled signed about a subject the caller names - is not a receiver's to ask
+     * for. No provisioner scope configured means no provisioners, so every caller is a 403.
+     */
+    static AuthContext authorizeProvisioner(HttpServletRequest req, HttpServletResponse resp, SsfConfiguration cfg)
+            throws IOException {
+        return authorize(req, resp, cfg.provisionerScope());
+    }
+
+    /** {@code scope} may be null - nothing is configured to grant this - and then no token carries it. */
+    private static AuthContext authorize(HttpServletRequest req, HttpServletResponse resp, String scope) throws IOException {
         String header = req.getHeader("Authorization");
         if (header == null || !header.regionMatches(true, 0, "Bearer ", 0, 7)) {
             resp.setHeader("WWW-Authenticate", "Bearer");
@@ -86,8 +101,9 @@ final class SsfHttp {
             writeError(resp, 401, "invalid_token", "token is not active");
             return null;
         }
-        if (!auth.hasScope(cfg.receiverScope())) {
-            writeError(resp, 403, "insufficient_scope", "token lacks scope " + cfg.receiverScope());
+        if (scope == null || !auth.hasScope(scope)) {
+            writeError(resp, 403, "insufficient_scope", scope == null
+                    ? "no scope is configured to grant this, so no token can" : "token lacks scope " + scope);
             return null;
         }
         return auth;

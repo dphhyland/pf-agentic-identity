@@ -18,6 +18,9 @@ import org.junit.jupiter.api.Test;
 
 class ScimSubjectServiceTest {
 
+    private static final String PROVISIONER_SCOPE = "ssf.provision";
+    /** The provisioning client: holds the provisioner scope, owns no streams. */
+    private static final AuthContext PROVISIONER = AuthContext.active("scim-provisioner", Set.of(PROVISIONER_SCOPE));
     private static final AuthContext RECEIVER = AuthContext.active("receiver-client", Set.of("ssf.manage"));
 
     private InMemorySsfStore store;
@@ -27,9 +30,13 @@ class ScimSubjectServiceTest {
     @BeforeEach
     void setUp() {
         store = new InMemorySsfStore();
-        SsfConfiguration cfg = new SsfConfiguration.Builder().issuer("https://op.example.com").build();
+        svc = serviceWith(new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .provisionerScope(PROVISIONER_SCOPE).build());
+    }
+
+    private ScimSubjectService serviceWith(SsfConfiguration cfg) {
         SsfEventEmitter emitter = new SsfEventEmitter(store, new SetMinter("RS256", new TestSigningKeyProvider("k")), cfg);
-        svc = new ScimSubjectService(store, emitter, cfg);
+        return new ScimSubjectService(store, emitter, cfg);
     }
 
     private void stream(String id, String event) {
@@ -52,7 +59,7 @@ class ScimSubjectServiceTest {
     void provisioningAssignsSubjectToStreams() throws Exception {
         stream("s1", SsfEventTypes.CAEP_SESSION_REVOKED);
         stream("risc", SsfEventTypes.RISC_ACCOUNT_DISABLED);
-        svc.provision(aliceUser(List.of("s1", "risc")), RECEIVER);
+        svc.provision(aliceUser(List.of("s1", "risc")), PROVISIONER);
         assertTrue(store.hasSubject("s1", alice));
         assertTrue(store.hasSubject("risc", alice));
     }
@@ -61,12 +68,12 @@ class ScimSubjectServiceTest {
     void disablingDeprovisionsAndEmitsRisc() throws Exception {
         stream("s1", SsfEventTypes.CAEP_SESSION_REVOKED);
         stream("risc", SsfEventTypes.RISC_ACCOUNT_DISABLED);
-        svc.provision(aliceUser(List.of("s1", "risc")), RECEIVER);
+        svc.provision(aliceUser(List.of("s1", "risc")), PROVISIONER);
 
         // active:false -> deprovision
         svc.provision(Map.of("userName", "alice",
                 "emails", List.of(Map.of("value", "alice@example.com", "primary", true)),
-                "active", false), RECEIVER);
+                "active", false), PROVISIONER);
 
         // the RISC-subscribing stream received an account-disabled SET before removal
         assertEquals(1, store.peek("risc", 10).size());
@@ -80,7 +87,7 @@ class ScimSubjectServiceTest {
     void deleteDeprovisionsBySubject() throws Exception {
         stream("risc", SsfEventTypes.RISC_ACCOUNT_DISABLED);
         store.addSubject("risc", alice);
-        assertEquals(0, svc.deprovision(alice, RECEIVER), "every stream holding her was the caller's, so none was left alone");
+        assertEquals(1, svc.deprovision(alice, PROVISIONER), "the one stream holding her");
         assertEquals(1, store.peek("risc", 10).size());
         assertFalse(store.hasSubject("risc", alice));
     }
@@ -97,90 +104,73 @@ class ScimSubjectServiceTest {
     @Test
     void provisioningUnknownStreamIs404() {
         assertThrows(StreamManagementService.NotFoundException.class,
-                () -> svc.provision(aliceUser(List.of("no-such-stream")), RECEIVER));
+                () -> svc.provision(aliceUser(List.of("no-such-stream")), PROVISIONER));
     }
 
-    // ─────────────────────────────── whose streams ───────────────────────────────
+    // ─────────────────────────────── whose authority ───────────────────────────────
     //
-    // This endpoint takes the same token as the Stream Management API. Scoping that API and not this would
-    // leave every refusal there one URL away from being undone.
+    // A deprovision has the transmitter sign an account-disabled about a subject the caller names, and a
+    // receiving PingFederate revokes grants on that. It is a provisioner's to ask for and never a receiver's.
 
     private static final AuthContext OTHER = AuthContext.active("receiver-b", Set.of("ssf.manage"));
 
     @Test
-    @Requirement("SSF §8.1.3.2")
-    void provisioningCannotAddASubjectToAnotherReceiversStream() {
-        stream("theirs", SsfEventTypes.CAEP_SESSION_REVOKED, OTHER.clientId());
+    void aProvisionerActsAcrossEveryReceiversStreams() throws Exception {
+        stream("a", SsfEventTypes.RISC_ACCOUNT_DISABLED);
+        stream("b", SsfEventTypes.RISC_ACCOUNT_DISABLED, OTHER.clientId());
+        stream("unowned", SsfEventTypes.RISC_ACCOUNT_DISABLED, null);
+        stream("without-her", SsfEventTypes.RISC_ACCOUNT_DISABLED, OTHER.clientId());
 
-        StreamManagementService.NotFoundException theirs = assertThrows(StreamManagementService.NotFoundException.class,
-                () -> svc.provision(aliceUser(List.of("theirs")), RECEIVER));
-        StreamManagementService.NotFoundException nobodys = assertThrows(StreamManagementService.NotFoundException.class,
-                () -> svc.provision(aliceUser(List.of("absent")), RECEIVER));
-        assertEquals(nobodys.getMessage().replace("absent", "<id>"), theirs.getMessage().replace("theirs", "<id>"),
-                "another receiver's stream must not be tellable from one that does not exist");
-        assertFalse(store.hasSubject("theirs", alice));
+        svc.assign(alice, List.of("a", "b", "unowned"), PROVISIONER);
+        assertTrue(store.hasSubject("a", alice) && store.hasSubject("b", alice) && store.hasSubject("unowned", alice));
 
-        assertDoesNotThrow(() -> svc.provision(aliceUser(List.of("theirs")), OTHER)); // control: its owner may
-        assertTrue(store.hasSubject("theirs", alice));
-    }
-
-    @Test
-    void provisioningCannotAddASubjectToAStreamWithNoOwner() {
-        stream("unowned", SsfEventTypes.CAEP_SESSION_REVOKED, null);
-
-        assertThrows(StreamManagementService.NotFoundException.class,
-                () -> svc.assign(alice, List.of("unowned"), RECEIVER));
-        assertThrows(StreamManagementService.NotFoundException.class,
-                () -> svc.assign(alice, List.of("unowned"), AuthContext.active(null, Set.of("ssf.manage"))));
-        assertFalse(store.hasSubject("unowned", alice));
-
-        // control: the stream is assignable - by the one client named for streams with no owner. So the
-        // refusals above are about who was asking, not a stream this fixture made unreachable.
-        SsfConfiguration adopting = new SsfConfiguration.Builder().issuer("https://op.example.com")
-                .unownedStreamOwner(RECEIVER.clientId()).build();
-        ScimSubjectService withAdopter = new ScimSubjectService(store,
-                new SsfEventEmitter(store, new SetMinter("RS256", new TestSigningKeyProvider("k")), adopting), adopting);
-        withAdopter.assign(alice, List.of("unowned"), RECEIVER);
-        assertTrue(store.hasSubject("unowned", alice));
-    }
-
-    @Test
-    @Requirement("SSF §8.1.3.3")
-    void deprovisioningLeavesAnotherReceiversStreamsAlone() throws Exception {
-        stream("mine", SsfEventTypes.RISC_ACCOUNT_DISABLED);
-        stream("theirs", SsfEventTypes.RISC_ACCOUNT_DISABLED, OTHER.clientId());
-        store.addSubject("mine", alice);
-        store.addSubject("theirs", alice);
-
-        int leftAlone = svc.deprovision(alice, RECEIVER);
-
-        assertEquals(1, leftAlone, "the stream passed over is counted, so the operator is told what the caller is not");
-        assertTrue(store.hasSubject("theirs", alice), "or any receiver can stop every other hearing about a subject");
-        assertEquals(0, store.peek("theirs", 10).size(),
-                "and must not be told, in the transmitter's name, that an account of the caller's choosing is disabled");
-        // control: the caller's own stream got both halves, so the above is ownership and not a deprovision that did nothing
-        assertFalse(store.hasSubject("mine", alice));
-        assertEquals(1, store.peek("mine", 10).size());
+        assertEquals(3, svc.deprovision(alice, PROVISIONER), "three streams held her; the fourth did not and is not counted");
+        assertEquals(3, store.peek("a", 10).size() + store.peek("b", 10).size() + store.peek("unowned", 10).size());
+        assertEquals(0, store.peek("without-her", 10).size());
+        assertFalse(store.hasSubject("a", alice) || store.hasSubject("b", alice) || store.hasSubject("unowned", alice));
     }
 
     /**
-     * What scoping this endpoint costs, pinned so it cannot become silent: a provisioning client that created
-     * no streams used to reach every receiver with a deprovision and now reaches none. Its request still
-     * succeeds - it is told nothing about other receivers' streams - but the streams it did not reach are
-     * counted (and logged), and only those that actually hold the subject.
+     * The receiver scope does not provision - not even on the receiver's own stream, which is where the
+     * signed account-disabled would land for it to carry elsewhere.
      */
     @Test
-    void aProvisionerThatOwnsNoStreamsReachesNobodyAndThatIsCounted() throws Exception {
-        AuthContext provisioner = AuthContext.active("scim-provisioner", Set.of("ssf.manage"));
-        stream("a", SsfEventTypes.RISC_ACCOUNT_DISABLED);
-        stream("b", SsfEventTypes.RISC_ACCOUNT_DISABLED, OTHER.clientId());
-        stream("without-her", SsfEventTypes.RISC_ACCOUNT_DISABLED, OTHER.clientId());
-        store.addSubject("a", alice);
-        store.addSubject("b", alice);
+    void aReceiverCannotProvisionOrDeprovisionEvenOnItsOwnStream() throws Exception {
+        stream("mine", SsfEventTypes.RISC_ACCOUNT_DISABLED);
+        store.addSubject("mine", alice);
+        AuthContext both = AuthContext.active("receiver-client", Set.of("ssf.manage", PROVISIONER_SCOPE));
 
-        assertEquals(2, svc.deprovision(alice, provisioner), "two streams hold her; the third does not and is not counted");
+        for (AuthContext refused : new AuthContext[] {RECEIVER, AuthContext.inactive(), null,
+                AuthContext.active("scim-provisioner", Set.of("SSF.PROVISION"))}) {
+            assertThrows(StreamManagementService.ForbiddenException.class, () -> svc.deprovision(alice, refused));
+            assertThrows(StreamManagementService.ForbiddenException.class,
+                    () -> svc.assign(SubjectId.email("bob@example.com"), List.of("mine"), refused));
+            assertThrows(StreamManagementService.ForbiddenException.class,
+                    () -> svc.provision(aliceUser(List.of("mine")), refused));
+        }
+        assertEquals(0, store.peek("mine", 10).size(), "nothing was signed");
+        assertTrue(store.hasSubject("mine", alice), "and nothing removed");
+        assertFalse(store.hasSubject("mine", SubjectId.email("bob@example.com")), "or added");
 
-        assertEquals(0, store.peek("a", 10).size() + store.peek("b", 10).size(), "nobody was signalled");
-        assertTrue(store.hasSubject("a", alice) && store.hasSubject("b", alice), "and nobody lost the subject");
+        // control: the same calls from a token that does carry the scope go through, so it was the scope
+        svc.assign(SubjectId.email("bob@example.com"), List.of("mine"), both);
+        assertEquals(1, svc.deprovision(alice, both));
+        assertEquals(1, store.peek("mine", 10).size());
+    }
+
+    /** Fail closed: with no provisioner scope configured there are no provisioners, whatever a token carries. */
+    @Test
+    void withNoProvisionerScopeConfiguredNobodyProvisions() throws Exception {
+        ScimSubjectService unconfigured = serviceWith(new SsfConfiguration.Builder().issuer("https://op.example.com").build());
+        stream("s", SsfEventTypes.RISC_ACCOUNT_DISABLED);
+        store.addSubject("s", alice);
+
+        for (AuthContext caller : new AuthContext[] {PROVISIONER, RECEIVER}) {
+            assertThrows(StreamManagementService.ForbiddenException.class, () -> unconfigured.deprovision(alice, caller));
+            assertThrows(StreamManagementService.ForbiddenException.class, () -> unconfigured.assign(alice, List.of("s"), caller));
+        }
+        assertEquals(0, store.peek("s", 10).size());
+
+        assertEquals(1, svc.deprovision(alice, PROVISIONER)); // control: configured, the same caller and stream work
     }
 }

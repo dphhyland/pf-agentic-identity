@@ -106,10 +106,11 @@ public final class StreamManagementService {
      * be one its own creator could not read or delete, still collecting events.
      *
      * <p>{@code aud} is Transmitter-Supplied (SSF §8.1.1), so a receiver that sends none - as a conformant
-     * one does - is assigned that same client id. A receiver that still sends {@code aud} keeps the value
-     * it sent: that is not what the specification describes, and it is retained only because this repo's
-     * own {@link ReceiverStreamClient} and the deployed probes create streams that way and verify SETs
-     * against the audience they chose. It is also why {@code aud} cannot stand in for the owner.
+     * one does - is assigned that same client id. One that sends {@code aud} is not choosing it: the value
+     * is accepted only where it is that client id, or an audience the operator has agreed for that client
+     * ({@link SsfConfiguration#allowedAudiences}), and is otherwise a 400. Every SET on the stream is signed
+     * to this {@code aud}, so a receiver free to pick it could have SETs minted that another receiver
+     * accepts as its own.
      */
     public Map<String, Object> createStream(Map<String, Object> body, AuthContext caller) {
         String owner = StreamAccess.clientIdOf(caller);
@@ -117,7 +118,7 @@ public final class StreamManagementService {
             throw new ForbiddenException("the token names no client, so there is nobody for a stream to belong to");
         }
         DeliveryMethod method = parseDeliveryMethod(body);
-        String audience = resolveAudience(body, owner);
+        String audience = resolveAudience(body, caller, owner);
         List<String> requested = parseEvents(body.get("events_requested"));
         List<String> delivered = narrowToDeliverable(requested);
         long now = SetMinter.nowSeconds();
@@ -381,9 +382,20 @@ public final class StreamManagementService {
     }
 
     /** The receiver's own {@code aud} if it sent one, otherwise the client its token identifies. */
-    private static String resolveAudience(Map<String, Object> body, String owner) {
-        String supplied = optString(body, "aud");
-        return supplied != null ? supplied : owner;
+    /**
+     * Anything under {@code aud} that is not a string the caller may use is refused, an array or a blank
+     * included - reading those as "none sent" would quietly turn a request for one audience into another.
+     */
+    private String resolveAudience(Map<String, Object> body, AuthContext caller, String owner) {
+        Object supplied = body.get("aud");
+        if (supplied == null) {
+            return owner;
+        }
+        if (!(supplied instanceof String) || !this.access.mayAddress(caller, (String) supplied)) {
+            throw new IllegalArgumentException("aud is Transmitter-Supplied: omit it, or send your client id or an "
+                    + "audience this transmitter has agreed for your client");
+        }
+        return (String) supplied;
     }
 
     /**

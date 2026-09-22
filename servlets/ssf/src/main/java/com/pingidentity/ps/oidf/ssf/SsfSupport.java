@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
+import java.util.List;
 import java.util.Objects;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -72,7 +73,7 @@ public final class SsfSupport {
             eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
             scimSubjectService = new ScimSubjectService(store, eventEmitter, config);
             pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
-            if (config.receiverConfigured()) {
+            if (receiverMayRun(config)) {
                 receiverService = new SsfReceiverService(new SetVerifier(
                         config.receiverExpectedIssuer(), config.receiverAudience(),
                         SetVerifier.httpJwksSource(config.receiverJwksUrl(),
@@ -90,6 +91,25 @@ public final class SsfSupport {
                 }
             }
         }
+    }
+
+    /**
+     * Whether to bring the receiver up: it is switched on, and it has the audience and the endpoint token it
+     * may not run without. Short of those it stays down - its endpoint answers 404 and nothing is polled -
+     * and the log says which is missing. The transmitter is unaffected.
+     */
+    static boolean receiverMayRun(SsfConfiguration config) {
+        if (!config.receiverConfigured()) {
+            return false;
+        }
+        List<String> missing = config.receiverMissingRequirements();
+        if (!missing.isEmpty()) {
+            LOGGER.error((Object) ("SSF receiver NOT started: " + missing + " must be set (OIDF_SSF_RECEIVER_AUDIENCE, "
+                    + "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN). Without them a SET is accepted on the transmitter's "
+                    + "signature alone, whoever it was minted for and whoever delivers it, and grants are revoked on it"));
+            return false;
+        }
+        return true;
     }
 
     /** Kafka fan-out sink when enabled (best-effort — a build failure falls back to no-op, never crashes init). */

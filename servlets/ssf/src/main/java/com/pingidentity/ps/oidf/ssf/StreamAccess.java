@@ -9,9 +9,9 @@ package com.pingidentity.ps.oidf.ssf;
  * "available to this Receiver", and every per-stream operation answers 404 when there is none with that id
  * "for this Event Receiver" - so a stream is its creator's, and to anyone else it does not exist.
  *
- * <p>Both services that act for a receiver - {@link StreamManagementService} and {@link ScimSubjectService} -
- * ask here, so the rule cannot be right behind one endpoint and missing behind another. The event emitter
- * and the push executor do not: they act for the transmitter, across every receiver's streams.
+ * <p>A provisioner is the other kind of caller, and is decided here too ({@link #provisions}): it owns no
+ * streams and acts across all of them, which is what {@link ScimSubjectService} does and why a receiver may
+ * not use it. The event emitter and the push executor ask nothing: they act for the transmitter.
  */
 final class StreamAccess {
 
@@ -29,6 +29,26 @@ final class StreamAccess {
     static String clientIdOf(AuthContext caller) {
         String id = caller == null ? null : caller.clientId();
         return id == null || id.isBlank() ? null : id;
+    }
+
+    /**
+     * Whether {@code caller} is a provisioner: it holds the configured provisioner scope. With none
+     * configured nobody is. {@link SsfConfiguration} refuses a provisioner scope equal to the receiver
+     * scope, so holding the receiver scope never answers this.
+     */
+    boolean provisions(AuthContext caller) {
+        String scope = this.config.provisionerScope();
+        return scope != null && caller != null && caller.hasScope(scope);
+    }
+
+    /**
+     * Whether {@code caller} may name {@code audience} as the {@code aud} of a stream it creates: it is the
+     * caller's own client id, or one the operator has agreed for that client.
+     */
+    boolean mayAddress(AuthContext caller, String audience) {
+        String callerId = clientIdOf(caller);
+        return callerId != null
+                && (callerId.equals(audience) || this.config.allowedAudiences(callerId).contains(audience));
     }
 
     /**

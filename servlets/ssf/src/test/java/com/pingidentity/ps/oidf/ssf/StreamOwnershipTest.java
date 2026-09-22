@@ -45,7 +45,9 @@ class StreamOwnershipTest {
     @BeforeEach
     void setUp() {
         store = new InMemorySsfStore();
-        svc = serviceWith(new SsfConfiguration.Builder().issuer("https://op.example.com").build());
+        svc = serviceWith(new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .allowedAudiences("receiver-a=https://receiver.example.com,https://shared.example.com;"
+                        + "receiver-b=https://shared.example.com").build());
     }
 
     private StreamManagementService serviceWith(SsfConfiguration cfg) {
@@ -86,14 +88,14 @@ class StreamOwnershipTest {
     // ─────────────────────────────── whose it becomes ───────────────────────────────
 
     @Test
-    void aStreamBelongsToTheClientThatCreatedItWhateverAudienceThatClientChose() {
+    void aStreamBelongsToTheClientThatCreatedItWhateverItsAudience() {
         Map<String, Object> body = new HashMap<>(pollBody());
-        body.put("aud", OTHER.clientId()); // a receiver may still pick its own aud, even another client's id
+        body.put("aud", "https://shared.example.com"); // an audience B is agreed for as well
 
         String id = (String) svc.createStream(body, OWNER).get("stream_id");
 
         assertEquals(OWNER.clientId(), store.getStream(id).orElseThrow().ownerClientId());
-        assertLooksAbsent(id, sid -> svc.getStream(sid, OTHER)); // naming B as the audience gave B nothing
+        assertLooksAbsent(id, sid -> svc.getStream(sid, OTHER)); // sharing the audience gave B nothing
         assertEquals(id, svc.getStream(id, OWNER).get("stream_id"));
     }
 
