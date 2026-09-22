@@ -5,9 +5,10 @@ changed, and nothing is compiled against `jakarta.servlet`. Two files came with 
 `tools/pf-linkcheck.py`, the checker behind the linkage evidence (wired into no build), and a pointer
 to this plan in the root `README.md`.
 
-**Landed since (2026-09-22):** the namespace guard of [step 0](#the-steps), in
-`assemble-pf-runtime-war.sh`. It is correct on both lines and guards a hazard that exists today,
-which is why it went first and on its own. Everything else below is unexecuted.
+**Landed since (2026-09-22), both from [step 0](#the-steps):** the namespace guard, in
+`assemble-pf-runtime-war.sh` - correct on both lines, and guarding a hazard that exists today, which
+is why it went first and on its own; and the conformance work, which the first draft found sitting
+uncommitted in a worktree. The counts below include the latter. Everything else is unexecuted.
 
 PingFederate 13.1 moved its servlet container from `javax.servlet` to `jakarta.servlet`. This repo
 is compiled against `javax.servlet`, so an image built on 13.1.3 boots to a 503. This plan says what
@@ -33,18 +34,23 @@ under [probes and claims that were wrong](#probes-and-claims-that-were-wrong).
 2. **Leave the two SDK plugins alone for now.** They are not on the critical path - see
    [the premise, corrected](#the-premise-corrected).
 3. **Three things land first, on the javax line, in this order:** a namespace guard in
-   `assemble-pf-runtime-war.sh` (**done**); the conformance work that today exists only as
-   uncommitted files in one worktree; and a final javax release, **`v0.1.4`, cut from `main`**.
+   `assemble-pf-runtime-war.sh` (**done**); the conformance work, which was uncommitted in a worktree
+   (**done** - landed on `main` 2026-09-22); and a final javax release, **`v0.1.4`, cut from `main`**.
 4. **Pin consumers to `v0.1.4` - not to `v0.1.3`.** `v0.1.3` is 19 commits behind `main`, and those
    commits are the 15 September audit fixes. Pinning to it would roll a deploy back past them.
 
-The cost of the cut-over is small and measured, not estimated. 45 files name `javax.servlet`; 43 are
-rewritten by a blind replace (164 lines), one plugin test changes by hand, and one plugin source file
+The cost of the cut-over is small and measured, not estimated. 48 files name `javax.servlet`; 46 are
+rewritten by a blind replace (182 lines), one plugin test changes by hand, and one plugin source file
 deliberately stays. Add two test-scope dependency swaps and the coordinates. A scratch copy of the
 reactor built that way passes `mvn clean verify` against the real 13.1.3 jars with **1193 tests, 0
 failures, 4 skipped - identical, module for module, to the 13.0.3 baseline**, with all 14 coverage
 gates executing and passing on both sides. What is left is the part static analysis cannot do:
 booting it.
+
+(The spike predates the conformance merge, so those figures are the 45-file / 166-line tree and its
+1193 tests; the tree is now 48 files, 184 lines and 1302 tests. The three files that arrived use only
+types the spike already covered, so the shape of the result does not change - but the spike has not
+been re-run on top of them, and should be before the cut-over commit is written.)
 
 ---
 
@@ -88,7 +94,7 @@ this repo ships - constant pools, not imports - exactly one PingFederate member 
 org/sourceid/oauth20/issuer/OAuthIssuerUtils.getIssuerValue:(Ljavax/servlet/http/HttpServletRequest;)Ljava/lang/String;
 ```
 
-It has nine callers in three modules (ten with the uncommitted filter). `OAuthIssuerUtils` is
+It has ten callers in four modules. `OAuthIssuerUtils` is
 PingFederate-internal, not SDK, and got no second overload - the parameter simply became
 `jakarta.servlet.http.HttpServletRequest`, already so in 13.1.0. That single method is why one binary
 cannot serve both lines, independently of what Jetty will load.
@@ -99,14 +105,14 @@ cannot serve both lines, independently of what Jetty will load.
 
 ### What moves
 
-`javax.servlet` appears on **166 lines in 45 files**. 165 are plain `import` lines. The one
+`javax.servlet` appears on **184 lines in 48 files**. 183 are plain `import` lines. The one
 exception is a fully-qualified name in a test (`ClientAttestationAuthFilterTest.java:275`). There
 are no wildcard imports.
 
 | Module | main files / lines | test files / lines | What it holds |
 |---|---|---|---|
-| `servlets/pf-integration` | 10 / 44 | 6 / 19 | 2 filters, 4 servlets, the OGNL-side utils |
-| `servlets/ssf` | 9 / 42 | 5 / 8 | 1 filter, 5 servlets |
+| `servlets/pf-integration` | 11 / 52 | 7 / 25 | 3 filters, 4 servlets, the OGNL-side utils |
+| `servlets/ssf` | 9 / 42 | 6 / 12 | 1 filter, 5 servlets |
 | `servlets/attestation-issuer` | 3 / 18 | 3 / 8 | 3 servlets |
 | `services/gm-api/servlet` | 3 / 15 | 0 / 0 | 3 servlets, registered in its own `web.xml` |
 | `libs/client-attestation` | 1 / 6 | 1 / 2 | 1 servlet (`/federation/attestation-challenge`) |
@@ -115,7 +121,7 @@ are no wildcard imports.
 | `servlets/oidf-war` | 0 / 0 | 0 / 0 | no Java; a descriptor and an assembly |
 
 That is 13 `@WebServlet` servlets on **26 paths** in the root context, 3 servlets in `gm-api.war`,
-and 3 filters registered by `assemble-pf-runtime-war.sh`. None of the 26 paths collides with any of
+and 4 filters registered by `assemble-pf-runtime-war.sh`. None of the 26 paths collides with any of
 the 32 URL patterns PingFederate 13.1.3 maps itself.
 
 Source names **14 servlet types**; bytecode links **16**, because `ServletOutputStream` and
@@ -155,20 +161,19 @@ vendored skill copies that will mislead the next agent to read them:
 `plugins/rar-paz-plugin/.claude/skills/pf-rar-paz-plugin/SKILL.md` (the context "has only
 `getRequest()`, `getClientId()`, `getScope()`" - no longer true).
 
-### Work that is not committed anywhere
+### The conformance work - landed 2026-09-22
 
-The `.claude/worktrees/ssf-conformance` worktree holds the conformance work, all of it uncommitted.
-Its branch, `conformance/ssf-transmitter`, is 0 ahead and 0 behind `main`.
+This was the plan's biggest sequencing risk while it sat uncommitted in the `ssf-conformance`
+worktree. It is now on `main`, and the counts above include it.
 
-- **Untracked:** `Fapi2ProfileFilter`, `Fapi2RequestPolicy`, their tests, and a new SSF servlet
-  test. That is a fourth filter (mapped over six PingFederate endpoints), a tenth caller of
-  `getIssuerValue`, and 18 more `javax.servlet` lines in three files. Same small type set, so the
-  same replace covers it.
-- **Modified, tracked:** 15 files, among them `assemble-pf-runtime-war.sh` and the `Dockerfile` -
-  the two files the cut-over also edits.
+What it added to the migration's surface: `Fapi2ProfileFilter` and `Fapi2RequestPolicy` with their
+tests, plus a new SSF servlet test - **a fourth filter** (mapped over eight PingFederate endpoint
+patterns and ordered ahead of the other three), a **tenth caller of `getIssuerValue`**, and 18 more
+`javax.servlet` lines across three files. It uses only types the inventory already lists, so the
+replace covers it unchanged.
 
-It should be committed and merged before the cut-over branch is cut, or the two will have to be
-reconciled by hand in exactly the files where order matters.
+It also rewrote `assemble-pf-runtime-war.sh`, the same file the namespace guard edits. The two merged
+without conflict, verified by trial merge before either landed and again on the real merge.
 
 ---
 
@@ -229,7 +234,7 @@ Cost: the work in [the steps](#the-steps). One mechanical commit, reviewable as 
 artifacts, one CI job, one `FROM` line, no new build machinery.
 
 What it gives up: `main` can no longer produce a build for PingFederate 13.0.x. A fix needed on both
-lines is made twice. Because 165 of the 166 lines are imports, a cherry-pick to `pf-13.0` conflicts
+lines is made twice. Because 183 of the 184 lines are imports, a cherry-pick to `pf-13.0` conflicts
 only when it touches an import block - but a pick that applies cleanly can still carry a
 `jakarta.servlet` import across and fail to compile there. That failure is loud, and CI on the branch
 catches it.
@@ -321,7 +326,7 @@ and the line of the artifacts it consumes change in one commit, never separately
 
 **1. The rename.** `javax.servlet` → `jakarta.servlet` in `*.java` under `servlets/`,
 `services/gm-api/`, `libs/client-attestation/` and `libs/openid-federation/`, main and test trees
-both: 43 files, 164 lines. **Not** `plugins/rar-paz-plugin` - a blind replace there does not
+both: 46 files, 182 lines. **Not** `plugins/rar-paz-plugin` - a blind replace there does not
 compile, because `getRequest()` still returns the javax type:
 
 ```
@@ -493,7 +498,8 @@ passed everything, as above.
 ## Reproducing the evidence
 
 The commands work in both bash and zsh. They exclude `worktrees` because the main checkout nests
-other worktrees under `.claude/`; without that the inventory counts them all (1032 lines, not 166).
+other worktrees under `.claude/`; without that the inventory counts every one of them as well, and
+the totals come out several times too high.
 
 Extraction - containers are created, never started:
 
@@ -509,8 +515,8 @@ Inventory:
 
 ```bash
 X=(--include='*.java' --exclude-dir=target --exclude-dir=worktrees)
-grep -rE  'javax\.servlet' "${X[@]}" . | wc -l                                  # 166 lines
-grep -rlE 'javax\.servlet' "${X[@]}" . | wc -l                                  # 45 files
+grep -rE  'javax\.servlet' "${X[@]}" . | wc -l                                  # 184 lines
+grep -rlE 'javax\.servlet' "${X[@]}" . | wc -l                                  # 48 files
 grep -rnE 'javax\.servlet' "${X[@]}" . \
   | grep -vE ':[0-9]+:import (static )?javax\.servlet[a-zA-Z.]*;'                # the one non-import line
 grep -rhoE 'javax\.servlet(\.[A-Za-z]+)+' "${X[@]}" . | sort | uniq -c          # 14 types, plus one `.class` literal
@@ -545,7 +551,7 @@ and whose writes do not (`sed -i ''` is the macOS form):
 ```bash
 rsync -a --exclude target/ --exclude .git --exclude .claude/ ./ /tmp/spike/ && cd /tmp/spike
 grep -rlE 'javax\.servlet' --include='*.java' . | grep -v plugins/rar-paz-plugin \
-  | xargs sed -i '' 's/javax\.servlet/jakarta.servlet/g'                          # 43 files
+  | xargs sed -i '' 's/javax\.servlet/jakarta.servlet/g'                          # 46 files
 # then steps 2 and 3, and five install:install-file calls from pf131 - protocol engine, the SDK
 # under both groupIds, the jakarta servlet jar, the bridge - with:
 M=(-Dmaven.repo.local=/tmp/spike-m2 -Dmaven.repo.local.tail="$HOME/.m2/repository")
