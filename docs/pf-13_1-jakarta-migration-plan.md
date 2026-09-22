@@ -360,10 +360,11 @@ bridge: 54 of 54, no deprecation warnings left.
 `release.yml`: `PF_IMAGE`; the six version strings; and **a second `docker cp`, of
 `/opt/server/lib/`**, because the jakarta servlet jar lives there and CI copies only
 `server/default/lib` today. The bridge jar is in the directory CI already extracts. The Dockerfile
-`FROM` line, and the prose listed above. For 0.2.0 the version `0.1.3` appears 35 times across 19
-poms, and `release.yml` asserts only the BOM's. Have `PROVENANCE.txt` and the release notes say
-which PingFederate line the assets target - nothing records that today, and it is the fact a
-consumer most needs.
+`FROM` line, and the prose listed above. For 0.2.0, note that the project version appears 35 times
+across 19 poms while `release.yml` asserts only the BOM's, so a partial bump tags cleanly and ships
+mixed coordinates. `PROVENANCE.txt` now states which PingFederate line the assets target, added when
+`v0.1.4` was cut; keep that line honest when the cut-over lands, because it is the fact a consumer
+most needs and it will be the thing that changes.
 
 **5. Two guards, so this cannot fail at boot again.**
 
