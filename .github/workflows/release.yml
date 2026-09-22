@@ -122,6 +122,12 @@ jobs:
             echo "built:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
             echo "run:       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo
+            echo "PingFederate line: 13.0.x (javax.servlet). PF 13.1 moved its container to"
+            echo "jakarta.servlet, and these artifacts do NOT load on it - a filter fails the war with a"
+            echo "503, an @WebServlet is silently never mapped. Which line a build targets is the thing a"
+            echo "consumer most needs and the one thing these assets never used to state. See"
+            echo "docs/pf-13_1-jakarta-migration-plan.md."
+            echo
             echo "The module set below is what PF loads. It is EIGHT SEPARATE JARS staged into modules/,"
             echo "merged into pf-runtime.war at image build. It is NOT the legacy single"
             echo "pf-oidf-modules.jar, which this build has not produced since the 2026-08-15"
