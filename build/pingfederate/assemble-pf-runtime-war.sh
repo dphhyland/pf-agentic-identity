@@ -259,27 +259,32 @@ fi
 
 
 echo "assembled $OUT_WAR:"
+# Read the listing and the descriptor ONCE, then grep the strings. Never `unzip ... | grep -q`: under
+# `set -o pipefail`, grep -q exits at its first match, unzip is still writing, dies of SIGPIPE, and the
+# pipeline reports failure - so a mapping that IS present reads as absent. Whether it happens depends on
+# how much of the descriptor sits after the match and how the pipe buffers, which is why the same
+# context built clean on this machine and failed on Railway's builder (2026-09-23, "Fapi2Profile filter
+# mapping not present in assembled war" with the mapping in the war). The namespace guard above found
+# the same thing from the other side.
+war_listing="$(unzip -l "$OUT_WAR")"
+war_web_xml="$(unzip -p "$OUT_WAR" WEB-INF/web.xml)"
 if [[ -d "$MODULES" ]]; then
   for j in "$MODULES"/*.jar; do
-    unzip -l "$OUT_WAR" | grep -qF "WEB-INF/lib/$(basename "$j")" \
+    grep -qF "WEB-INF/lib/$(basename "$j")" <<<"$war_listing" \
       || { echo "ERROR: module jar $(basename "$j") not present in war"; exit 1; }
   done
-  unzip -l "$OUT_WAR" | grep -E "WEB-INF/lib/.*\.jar" | tail -n +1
+  grep -E "WEB-INF/lib/.*\.jar" <<<"$war_listing" || true
 else
-  unzip -l "$OUT_WAR" | grep -E "pf-oidf-modules" || { echo "ERROR: module jar not present in war"; exit 1; }
+  grep -E "pf-oidf-modules" <<<"$war_listing" || { echo "ERROR: module jar not present in war"; exit 1; }
 fi
-unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "SsfLogoutSignal" \
-  || { echo "ERROR: SsfLogoutSignal filter mapping not present in assembled war" >&2; exit 1; }
-unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "ClientAttestationAuth" \
-  || { echo "ERROR: ClientAttestationAuth filter mapping not present in assembled war" >&2; exit 1; }
-unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "OidfAutoRegistration" \
-  || { echo "ERROR: OidfAutoRegistration filter mapping not present in assembled war" >&2; exit 1; }
-unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -q "Fapi2Profile" \
-  || { echo "ERROR: Fapi2Profile filter mapping not present in assembled war" >&2; exit 1; }
+for mapping in SsfLogoutSignal ClientAttestationAuth OidfAutoRegistration Fapi2Profile; do
+  grep -q "$mapping" <<<"$war_web_xml" \
+    || { echo "ERROR: $mapping filter mapping not present in assembled war" >&2; exit 1; }
+done
 # Order is load-bearing, not cosmetic (see the OidfAutoRegistration block): the LAST occurrence of each
 # name is its <filter-mapping>, and auto-registration's must come first. This also catches a bad order
 # baked into a stock web.xml, which the "already registered — leaving as is" branches would skip over.
-_mapping_line() { unzip -p "$OUT_WAR" WEB-INF/web.xml | grep -n "<filter-name>$1</filter-name>" | tail -1 | cut -d: -f1; }
+_mapping_line() { grep -n "<filter-name>$1</filter-name>" <<<"$war_web_xml" | tail -1 | cut -d: -f1; }
 _autoreg_at="$(_mapping_line OidfAutoRegistration)"; _attest_at="$(_mapping_line ClientAttestationAuth)"
 [ -n "$_autoreg_at" ] && [ -n "$_attest_at" ] && [ "$_autoreg_at" -lt "$_attest_at" ] || {
   echo "ERROR: filter order wrong in $OUT_WAR - OidfAutoRegistration (line ${_autoreg_at:-?}) must be" >&2
