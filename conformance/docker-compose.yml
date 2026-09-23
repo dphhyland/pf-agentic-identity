@@ -1,0 +1,38 @@
+# The repo's PingFederate, running locally. Built from .context/ (compose-context.sh: this repo's
+# build/pingfederate/ image build plus the config archive export.sh produced), configured by
+# .context/vars.env (rendered from vars.env by up.sh), licensed by your own DevOps credentials.
+#
+#   ./up.sh                       does everything, including this
+#   docker compose up -d --build  once .context/ exists
+#   docker compose down           stops it; the archive and keys stay for the next start
+#
+# Ports are bound to 127.0.0.1: the archive's admin password is in .author.env and this is not a rig
+# to expose. 9031 is PF's HTTPS runtime (the issuer), 9080 an HTTP runtime listener for anything that
+# terminates TLS itself, 9999 the admin console and API. PF_PORT_* move the host side when another PF
+# already has them; up.sh then makes the issuer match.
+services:
+  pingfederate:
+    build:
+      context: .context
+    image: pf-agentic-identity/pingfederate:local
+    container_name: pf-agentic-identity
+    ports:
+      - "127.0.0.1:${PF_PORT_HTTPS:-9031}:9031"
+      - "127.0.0.1:${PF_PORT_HTTP:-9080}:9080"
+      - "127.0.0.1:${PF_PORT_ADMIN:-9999}:9999"
+    # Both files are required in practice; `required: false` only lets `docker compose config` run before
+    # up.sh has rendered the first, and PF then fails at boot with a clear licence or issuer error.
+    env_file:
+      - path: .context/vars.env
+        required: false
+      # PING_IDENTITY_DEVOPS_USER / PING_IDENTITY_DEVOPS_KEY - yours, never in git. up.sh checks it exists.
+      - path: ${PING_DEVOPS_CONFIG:-${HOME}/.pingidentity/config}
+        required: false
+    environment:
+      PING_IDENTITY_ACCEPT_EULA: "YES"
+    healthcheck:
+      test: ["CMD", "curl", "-sk", "-o", "/dev/null", "https://localhost:9031/pf/heartbeat.ping"]
+      interval: 15s
+      timeout: 5s
+      retries: 40
+      start_period: 90s

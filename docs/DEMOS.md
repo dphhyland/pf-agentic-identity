@@ -1,12 +1,14 @@
 # Demos — where each one lives
 
-This repo is the **capability**: the libs, servlets, plugins and services, plus the PF image build in
-[`build/pingfederate/`](../build/pingfederate/README.md) that packages them. **It deploys nothing and
-configures no PingFederate.** Every demo therefore lives in the repo that owns the environment it runs
-in, along with the PF config that makes it work.
+This repo is the **product**: the libs, servlets, plugins and services, the PF image build in
+[`build/pingfederate/`](../build/pingfederate/README.md) that packages them, and
+[`conformance/`](../conformance/README.md), which configures that PF as code and runs it locally -
+`conformance/up.sh` is how anyone gets a PingFederate from a clone. **It deploys nothing.** Each demo
+lives in the repo that owns the environment it runs in, with whatever that environment adds on top.
 
 | Demo | Shows | Lives in |
 |---|---|---|
+| Conformance | FAPI 2.0 + Shared Signals against the OpenID Foundation suite, locally or on a public PF | **this repo**, [`conformance/`](../conformance/README.md) (the demo repo deploys one such PF as Railway project `pf-conformance`) |
 | Staging environment | the AS + federation, live | [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules/blob/main/docs/DEMOS.md) |
 | Demo UI / harness | attestation client-auth, step by step, in a browser | [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules/blob/main/docs/DEMOS.md) |
 | SSF transmitter/receiver | CAEP/RISC SETs on real PF + Identity Object Model store | [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules/blob/main/docs/DEMOS.md) (compose demo in `idp-pingfed-ssf-servelet`) |

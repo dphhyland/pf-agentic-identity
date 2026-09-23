@@ -92,7 +92,8 @@ final class SsfHttp {
         try {
             auth = SsfSupport.receiverAuthenticator().authenticate(token);
         } catch (ReceiverAuthException e) {
-            log.warn((Object) ("receiver auth unavailable: " + e.getMessage()));
+            // With the cause: "token introspection failed" alone has hidden a certificate-name mismatch.
+            log.warn((Object) ("receiver auth unavailable: " + e.getMessage()), e);
             writeError(resp, 503, "temporarily_unavailable", "token validation unavailable");
             return null;
         }

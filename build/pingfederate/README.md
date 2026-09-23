@@ -1,12 +1,14 @@
 # The PingFederate image build
 
 PF 13.0.3 plus this repo's modules, assembled into a runnable image. This is the **capability made
-runnable** - it belongs here, beside the code it packages, and it deploys nowhere by itself.
+runnable** - it belongs here, beside the code it packages. To run it on this machine, configured,
+use [`../conformance/up.sh`](../../conformance/README.md); this page is about the image itself.
 
-Three repos consume it, and only one of them deploys to Railway:
+Consumers, and where they run it:
 
 | Consumer | What it does with this | Where it runs |
 |---|---|---|
+| [`conformance/`](../../conformance/README.md) (this repo) | authors the PF config as Terraform, exports the archive, composes the context, runs the image | this machine (`docker compose`) |
 | [`pf-oidf-modules`](https://github.com/dphhyland/pf-oidf-modules) | composes a deploy context from this + its own `railway.json`/vars/archive | Railway project `2a226db6` (recreated 2026-09-02; was `e02a8e2f`) |
 | [`idp-agentic-demo`](https://github.com/dphhyland/idp-agentic-demo) | builds its own agentic-banking PF; consumes the module jars | Railway project `ac9af096` |
 | [`pf-agentic-identity-domain-authority`](https://github.com/dphhyland/pf-agentic-identity-domain-authority) | builds this context and pushes the image to **ECR** for the EKS/GKE rigs | AWS / GCP |

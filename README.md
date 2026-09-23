@@ -65,11 +65,11 @@ and deliberately absent from `stage-modules.sh`, so nothing it carries reaches t
 
 `build/pingfederate/` builds the AS image from the reactor's **modular jars**
 (`stage-modules.sh` → `modules/`, merged into `pf-runtime.war` at root context and onto the engine
-classpath — the `pf-oidf-modules.jar` monolith is gone). That is as far as this repo goes: **it
-deploys nothing.** The image build lives here because three repos consume it and one of them pushes
-the result to ECR, but every Railway project, `railway.json` and `vars.<env>.env` belongs to the repo
-that owns that environment — see [build/pingfederate/README.md](build/pingfederate/README.md) for what
-a consumer supplies. **Client attestation
+classpath — the `pf-oidf-modules.jar` monolith is gone), and [`conformance/`](conformance/README.md)
+configures and runs it (below). What this repo does not do is **deploy**: every Railway project,
+`railway.json` and per-environment variable set belongs to the repo that owns that environment — see
+[build/pingfederate/README.md](build/pingfederate/README.md) for what a deployment supplies on top.
+**Client attestation
 end to end** — how issuance, verification, the PF token-endpoint filter and the RAR consumer fit
 together, what is implemented, standards alignment, test coverage and the open gaps:
 [docs/client-attestation-architecture.md](docs/client-attestation-architecture.md). **Demos:**
@@ -78,6 +78,19 @@ in [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules); the cross-pl
 GKE/EKS/Azure legs, the cross-cloud chain, the phone simulator — in
 **pf-agentic-identity-domain-authority** (private, so named rather than linked; extracted 2026-08-08
 with history; consumes this repo as a sibling checkout).
+
+## Running PingFederate
+
+```bash
+conformance/up.sh
+```
+
+One command from a clone to a PingFederate 13.0.3 with every module in it on `https://localhost:9031`,
+configured as code (Terraform) to pass the OpenID Foundation conformance suite's FAPI 2.0 and Shared
+Signals plans. You bring your own licence details - your Ping DevOps credentials in
+`~/.pingidentity/config`; the image bakes no licence and the repo commits nothing licensed or secret.
+What it does, what it configures, how to point a conformance suite at it and what the suite says:
+[conformance/README.md](conformance/README.md).
 
 ## Building
 

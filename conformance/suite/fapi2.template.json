@@ -1,0 +1,306 @@
+{
+  "alias": "pf-agentic-identity",
+  "description": "PingFederate 13.0.3 + pf-agentic-identity modules. FAPI 2.0 Security Profile Final: private_key_jwt, DPoP, plain_fapi, OpenID Connect.",
+  "server": {
+    "discoveryUrl": "{{PF_BASE_URL}}/.well-known/openid-configuration"
+  },
+  "client": {
+    "client_id": "conformance-fapi2-client1",
+    "scope": "openid profile",
+    "jwks": "{{JWKS:fapi2-client1}}"
+  },
+  "client2": {
+    "client_id": "conformance-fapi2-client2",
+    "scope": "openid profile",
+    "jwks": "{{JWKS:fapi2-client2}}"
+  },
+  "resource": {
+    "resourceUrl": "{{PF_BASE_URL}}/idp/userinfo.openid"
+  },
+  "browser": [
+    {
+      "comment": "PingFederate's stock HTML form, then its stock consent page, then the suite's own callback. Selectors are the ids in html.form.login.template.html and oauth.approval.page.template.html.",
+      "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+      "tasks": [
+        {
+          "task": "Sign in",
+          "optional": true,
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "commands": [
+            [
+              "text",
+              "id",
+              "username",
+              "suite-user"
+            ],
+            [
+              "text",
+              "id",
+              "password",
+              "{{TEST_USER_PASSWORD}}"
+            ],
+            [
+              "click",
+              "id",
+              "signOnButton"
+            ]
+          ]
+        },
+        {
+          "task": "Consent",
+          "optional": true,
+          "match": "{{PF_BASE_URL}}/as/*/resume/as/authorization.ping*",
+          "commands": [
+            [
+              "click",
+              "id",
+              "allowButton"
+            ]
+          ]
+        },
+        {
+          "task": "Back at the suite",
+          "match": "*/test/a/*/callback*",
+          "commands": [
+            [
+              "wait",
+              "id",
+              "submission_complete",
+              10
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "override": {
+    "fapi2-security-profile-final-user-rejects-authentication": {
+      "browser": [
+        {
+          "comment": "The one module where the user says no. Same sign-in, then Don't Allow; PingFederate answers the client with error=access_denied.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "Sign in",
+              "optional": true,
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "text",
+                  "id",
+                  "username",
+                  "suite-user"
+                ],
+                [
+                  "text",
+                  "id",
+                  "password",
+                  "{{TEST_USER_PASSWORD}}"
+                ],
+                [
+                  "click",
+                  "id",
+                  "signOnButton"
+                ]
+              ]
+            },
+            {
+              "task": "Refuse consent",
+              "optional": true,
+              "match": "{{PF_BASE_URL}}/as/*/resume/as/authorization.ping*",
+              "commands": [
+                [
+                  "click",
+                  "id",
+                  "denyButton"
+                ]
+              ]
+            },
+            {
+              "task": "Back at the suite",
+              "match": "*/test/a/*/callback*",
+              "commands": [
+                [
+                  "wait",
+                  "id",
+                  "submission_complete",
+                  10
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "fapi2-security-profile-final-par-attempt-reuse-request_uri": {
+      "browser": [
+        {
+          "comment": "First use of the request_uri: an ordinary sign-in.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "match-limit": 1,
+          "tasks": [
+            {
+              "task": "Sign in",
+              "optional": true,
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "text",
+                  "id",
+                  "username",
+                  "suite-user"
+                ],
+                [
+                  "text",
+                  "id",
+                  "password",
+                  "{{TEST_USER_PASSWORD}}"
+                ],
+                [
+                  "click",
+                  "id",
+                  "signOnButton"
+                ]
+              ]
+            },
+            {
+              "task": "Consent",
+              "optional": true,
+              "match": "{{PF_BASE_URL}}/as/*/resume/as/authorization.ping*",
+              "commands": [
+                [
+                  "click",
+                  "id",
+                  "allowButton"
+                ]
+              ]
+            },
+            {
+              "task": "Back at the suite",
+              "match": "*/test/a/*/callback*",
+              "commands": [
+                [
+                  "wait",
+                  "id",
+                  "submission_complete",
+                  10
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "comment": "Second use of the same request_uri: 400 invalid_request_uri.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "PingFederate refuses the request_uri",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//*",
+                  10,
+                  "invalid_request_uri",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "fapi2-security-profile-final-par-attempt-to-use-expired-request_uri": {
+      "browser": [
+        {
+          "comment": "The suite waited out expires_in before coming here: 400 invalid_request_uri.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "PingFederate refuses the request_uri",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//*",
+                  10,
+                  "invalid_request_uri",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "fapi2-security-profile-final-par-attempt-to-use-request_uri-for-different-client": {
+      "browser": [
+        {
+          "comment": "Client 2 presenting client 1's request_uri: 400 invalid_request_uri, Client mismatch.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "PingFederate refuses the request_uri",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//*",
+                  10,
+                  "invalid_request_uri",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "fapi2-security-profile-final-par-ensure-reused-request-uri-prior-to-auth-completion-succeeds": {
+      "browser": [
+        {
+          "comment": "First visit: reach the sign-in page and stop. The module fails if anyone signs in before the second visit.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "match-limit": 1,
+          "tasks": [
+            {
+              "task": "Look at the sign-in page, and leave",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "id",
+                  "username",
+                  10
+                ]
+              ]
+            }
+          ]
+        },
+        {
+          "comment": "Second visit, same request_uri, nobody has signed in yet. PingFederate 13.0.3 has already spent it: it enforces one-time use when the authorization page is LOADED, where FAPI 2.0 Final (5.3.2.2, NOTE 3) recommends the point of authorization, so that a browser preloading the URL cannot invalidate it. A recommendation, so the suite takes the page as evidence and the module ends in REVIEW rather than FAILED. If a later PingFederate shows the sign-in page here instead, this entry becomes the ordinary sign-in and the module can PASS.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "PingFederate has already spent the request_uri",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//*",
+                  10,
+                  "invalid_request_uri",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

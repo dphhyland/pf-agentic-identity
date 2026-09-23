@@ -155,12 +155,12 @@ push endpoint itself no longer has an open state: no configured token, no delive
 
 ### Upgrading to this
 
-- **Provisioning clients** (`pf-oidf-modules` bootstrap and `harness/probe-ssf.sh`, `idp-agentic-demo` if
-  it drives SCIM): add a PF scope (`ssf.provision`), grant it to the provisioning client and to no
-  receiver, and set `OIDF_SSF_PROVISIONER_SCOPE=ssf.provision`. Until then every SCIM call is 403. The
-  probe currently drives SCIM with its `ssf.manage` token and will fail.
-- **Receivers that send `aud`** (the probe sends `https://receiver.example.com`): stop, or have the
-  operator list it: `OIDF_SSF_ALLOWED_AUDIENCES=<client_id>=https://receiver.example.com`.
+- **Provisioning clients**: add a PF scope (`ssf.provision`), grant it to the provisioning client and to
+  no receiver, and set `OIDF_SSF_PROVISIONER_SCOPE=ssf.provision`. Until then every SCIM call is 403. A
+  client that drove SCIM with its `ssf.manage` token will fail. The repo's own PF configuration
+  ([conformance/](../../conformance/)) carries both the scope and a provisioner client.
+- **Receivers that send `aud`**: stop, or have the operator list it:
+  `OIDF_SSF_ALLOWED_AUDIENCES=<client_id>=<the aud it sends>`.
 - **Every deployed receiver**: set `OIDF_SSF_RECEIVER_AUDIENCE` (what it expects in `aud` - on this
   transmitter, its own client id unless agreed otherwise) and `OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN`
   (and give the transmitter the same token in the stream's `authorization_header`). No known deployment
@@ -247,4 +247,4 @@ Versions from `bom/pom.xml`. **Not part of `oidf.war`** - `oidf-war` does not de
 It reaches production only through the `pf-runtime.war` merge: `build/pingfederate/stage-modules.sh`
 stages `ssf-0.1.0.jar` with the other six jars, the Dockerfile injects them into the stock war (root
 context, single classloader - the only place a filter can sit over PF's own `/idp/init_logout.openid`) and
-copies them to the engine deploy dir. The deploying repo's [`vars.<env>.env`](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate) sets `OIDF_SSF_ISSUER`.
+copies them to the engine deploy dir. `OIDF_SSF_ISSUER` is set in the environment the PF runs with - locally, [conformance/vars.env](../../conformance/vars.env).
