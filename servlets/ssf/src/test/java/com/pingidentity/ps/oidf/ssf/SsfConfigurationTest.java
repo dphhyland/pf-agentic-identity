@@ -47,6 +47,34 @@ class SsfConfigurationTest {
     }
 
     @Test
+    void defaultSubjectsIsNoneUnlessSetToAllAndNothingElseIsAccepted() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://op.example.com");
+        assertEquals("NONE", SsfConfiguration.fromServletConfig(servletConfig(p)).defaultSubjects());
+        assertFalse(SsfConfiguration.fromServletConfig(servletConfig(p)).defaultSubjectsAll());
+
+        p.put("defaultSubjects", " ALL ");
+        assertTrue(SsfConfiguration.fromServletConfig(servletConfig(p)).defaultSubjectsAll());
+        p.put("defaultSubjects", "NONE");
+        assertEquals("NONE", SsfConfiguration.fromServletConfig(servletConfig(p)).defaultSubjects());
+
+        for (String bad : new String[] {"all", "Everyone", "true"}) {
+            p.put("defaultSubjects", bad);
+            assertThrows(IllegalArgumentException.class, () -> SsfConfiguration.fromServletConfig(servletConfig(p)), bad);
+        }
+        assertEquals("NONE", SsfConfiguration.parseDefaultSubjects(null));
+        assertEquals("NONE", SsfConfiguration.parseDefaultSubjects("  "));
+    }
+
+    @Test
+    void theDefaultEventTypesNameTheThreeInteropEvents() {
+        Map<String, String> p = new HashMap<>();
+        p.put("issuer", "https://op.example.com");
+        assertTrue(SsfConfiguration.fromServletConfig(servletConfig(p)).defaultEventTypes()
+                .containsAll(SsfEventTypes.CAEP_INTEROP));
+    }
+
+    @Test
     void overridesAreParsed() {
         Map<String, String> p = new HashMap<>();
         p.put("issuer", "https://op.example.com");

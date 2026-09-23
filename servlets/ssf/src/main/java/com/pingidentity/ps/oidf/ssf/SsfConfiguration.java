@@ -38,8 +38,11 @@ public final class SsfConfiguration {
     private static final List<String> DEFAULT_EVENT_TYPES = List.of(
             SsfEventTypes.CAEP_SESSION_REVOKED,
             SsfEventTypes.CAEP_CREDENTIAL_CHANGE,
+            SsfEventTypes.CAEP_DEVICE_COMPLIANCE_CHANGE,
             SsfEventTypes.RISC_ACCOUNT_DISABLED,
             SsfEventTypes.RISC_ACCOUNT_ENABLED);
+    static final String DEFAULT_SUBJECTS_ALL = "ALL";
+    static final String DEFAULT_SUBJECTS_NONE = "NONE";
 
     private final String issuer;
     private final String signingAlgorithm;
@@ -69,6 +72,7 @@ public final class SsfConfiguration {
     private final String introspectionClientSecret;
     private final boolean introspectionInsecureTls;
     private final List<String> defaultEventTypes;
+    private final String defaultSubjects;
     private final boolean verificationEventEnabled;
     private final String receiverExpectedIssuer;
     private final String receiverJwksUrl;
@@ -121,6 +125,7 @@ public final class SsfConfiguration {
         this.introspectionInsecureTls = b.introspectionInsecureTls;
         this.defaultEventTypes = (b.defaultEventTypes == null || b.defaultEventTypes.isEmpty())
                 ? DEFAULT_EVENT_TYPES : List.copyOf(b.defaultEventTypes);
+        this.defaultSubjects = parseDefaultSubjects(b.defaultSubjects);
         this.verificationEventEnabled = b.verificationEventEnabled;
         this.receiverExpectedIssuer = b.receiverExpectedIssuer;
         this.receiverJwksUrl = b.receiverJwksUrl;
@@ -171,6 +176,7 @@ public final class SsfConfiguration {
                     .introspectionClientSecret(trimOrNull(param(config,"introspectionClientSecret")))
                     .introspectionInsecureTls(parseBoolean(param(config,"introspectionInsecureTls"), false))
                     .defaultEventTypes(parseCommaSeparated(param(config,"defaultEventTypes")))
+                    .defaultSubjects(trimOrNull(param(config,"defaultSubjects")))
                     .verificationEventEnabled(parseBoolean(param(config,"verificationEventEnabled"), true))
                     .receiverExpectedIssuer(trimOrNull(param(config,"receiverExpectedIssuer")))
                     .receiverJwksUrl(trimOrNull(param(config,"receiverJwksUrl")))
@@ -373,6 +379,23 @@ public final class SsfConfiguration {
         return this.defaultEventTypes;
     }
 
+    /**
+     * Which subjects a stream hears about before any are added to it: {@code NONE}, the default, or
+     * {@code ALL} ({@code OIDF_SSF_DEFAULT_SUBJECTS}). This is the transmitter's {@code default_subjects}
+     * (SSF 1.0 §7.1.1) and is advertised as such. With {@code ALL}, every enabled stream that delivers an
+     * event's type receives it whether or not the subject was ever added - which is the model the CAEP
+     * Interop Profile requires (§2.4.4: a receiver "MUST assume that all subjects are implicitly included
+     * in a Stream, without any Add Subject method invocations"). It says nothing about whose streams they
+     * are: ownership decides who manages and drains a stream, this decides what it hears.
+     */
+    public String defaultSubjects() {
+        return this.defaultSubjects;
+    }
+
+    public boolean defaultSubjectsAll() {
+        return DEFAULT_SUBJECTS_ALL.equals(this.defaultSubjects);
+    }
+
     public boolean verificationEventEnabled() {
         return this.verificationEventEnabled;
     }
@@ -561,6 +584,18 @@ public final class SsfConfiguration {
         return Boolean.parseBoolean(value.trim());
     }
 
+    /** Exactly {@code ALL} or {@code NONE}, as SSF 1.0 §7.1.1 spells them; unset is {@code NONE}. */
+    static String parseDefaultSubjects(String value) {
+        if (value == null || value.isBlank()) {
+            return DEFAULT_SUBJECTS_NONE;
+        }
+        String trimmed = value.trim();
+        if (!DEFAULT_SUBJECTS_ALL.equals(trimmed) && !DEFAULT_SUBJECTS_NONE.equals(trimmed)) {
+            throw new IllegalArgumentException("defaultSubjects must be ALL or NONE, got: " + trimmed);
+        }
+        return trimmed;
+    }
+
     private static String parseSigningAlgorithm(String value) {
         if (value == null || value.isBlank()) {
             return DEFAULT_SIGNING_ALGORITHM;
@@ -635,6 +670,7 @@ public final class SsfConfiguration {
         private String introspectionClientSecret;
         private boolean introspectionInsecureTls;
         private List<String> defaultEventTypes;
+        private String defaultSubjects;
         private boolean verificationEventEnabled = true;
         private String receiverExpectedIssuer;
         private String receiverJwksUrl;
@@ -798,6 +834,12 @@ public final class SsfConfiguration {
 
         public Builder defaultEventTypes(List<String> v) {
             this.defaultEventTypes = v;
+            return this;
+        }
+
+        /** {@code ALL} or {@code NONE} - see {@link SsfConfiguration#defaultSubjects()}. */
+        public Builder defaultSubjects(String v) {
+            this.defaultSubjects = v;
             return this;
         }
 

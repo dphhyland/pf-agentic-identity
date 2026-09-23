@@ -150,6 +150,20 @@
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireProvisioner(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.resolveAudience(*</include>
 
+                                        <!-- Raising an event: subscribes() is the one rule every emission path applies
+                                             (membership, or default_subjects ALL); emit() is who may raise one (a provisioner);
+                                             parse() is what the transmitter will sign; parseDefaultSubjects() the two spellings. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEventEmitter.subscribes(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfEmitService.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.requireEventType(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.stampTimestamp(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.checkInitiatingEntity(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.normaliseReason(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.checkInteropSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.EmitRequest.requireOneOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.parseDefaultSubjects(*</include>
+
                                         <!-- Receiver fail-closed: no audience or no endpoint token, no receiver. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfConfiguration.receiverMissingRequirements(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverMayRun(*</include>

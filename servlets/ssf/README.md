@@ -30,7 +30,10 @@ and PF-managed data sources. `com.pingidentity.ps.oidf.ssf` is the core; `…ser
 Events: `SsfEventTypes` / `CaepRiscEvents` - CAEP session-revoked, credential-change,
 assurance-level-change, token-claims-change, device-compliance-change, session-established; RISC
 account-disabled/enabled/purged, credential-change-required, identifier-changed/recycled; verification.
-Default stream event types: session-revoked, credential-change, account-disabled, account-enabled.
+Default stream event types: session-revoked, credential-change, device-compliance-change, account-disabled,
+account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Interop](#caep-interop)). A CAEP
+`reason_admin` is an object keyed by language tag, never a bare string: `CaepRiscEvents` tags a sentence
+`en`, and a caller with translations passes the object.
 
 ## Endpoints
 
@@ -41,6 +44,7 @@ Default stream event types: session-revoked, credential-change, account-disabled
 | `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only), `returnImmediately`, `ack`. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. |
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err` on failure). Active only when `receiverExpectedIssuer` is set. |
 | `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
+| `POST /ssf/events:emit` | `SsfEventEmitServlet` | Raise an event the transmitter did not observe itself: `{"event_type", "subject", "event"?, "stream_id"?}` (`EmitRequest`). Bearer must hold `provisionerScope`, like SCIM and for the same reason - the transmitter signs a SET about a subject of the caller's choosing to every receiver. It admits nothing the emitter does not: a stream still has to subscribe (`SsfEventEmitter.subscribes`), and `stream_id` only narrows the fan-out (404 if absent). For the three interop events the subject is `email` or `iss_sub`, `reason_admin` is supplied if absent, and `credential_type`/`change_type`/`previous_status`/`current_status` take only their defined values (400 otherwise). Answers `{"event_type", "emitted":[{stream_id, jti, delivery}], "count"}`; a count of 0 is nothing subscribed, not an error. |
 | filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF processes an OIDC logout. Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
 
 `LogoutEventFilter` takes the subject from an `id_token_hint`/`logout_token`, verified (`PfIdTokenVerifier`)
@@ -61,7 +65,7 @@ external base receivers use).
 
 | Group | Settings (defaults) |
 |---|---|
-| Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
+| Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
 | Store | `dataStoreId` (PF JDBC data store id) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory |
 | Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` |
 | Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls`, `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
@@ -121,6 +125,27 @@ streams (below).
 
 **What ownership does not settle.** It decides who may manage and drain a stream, not what the stream's
 SETs say. That is the next section.
+
+## CAEP Interop
+
+The [CAEP Interoperability Profile 1.0](https://openid.net/specs/openid-caep-interoperability-profile-1_0.html)
+is the SSF profile the OpenID Foundation certifies against (its plan: `openid-ssf-transmitter-caep-test-plan`).
+It asks three things of a transmitter beyond SSF itself, and each is a setting or an endpoint here:
+
+- **Subjects are implicit** (§2.4.4: the receiver "MUST assume that all subjects are implicitly included in
+  a Stream, without any Add Subject method invocations"). Set `OIDF_SSF_DEFAULT_SUBJECTS=ALL`. It is
+  advertised as `default_subjects` and applied by the one fan-out rule, `SsfEventEmitter.subscribes`:
+  enabled, delivers the type, and (member or ALL). Ownership is untouched - who manages and drains a
+  stream is one question, what it hears is another.
+- **Three events, with their fields** (§3): session-revoked, credential-change with `credential_type` and
+  `change_type`, device-compliance-change with `previous_status` and `current_status`; `reason_admin` a
+  non-empty object. `events_supported` names all three by default; PingFederate observes the first (logout,
+  audit) and never the third, so the suite's run - which waits for an operator to "trigger these events on
+  the transmitter now" - raises them through `POST /ssf/events:emit` with a provisioner token. The rig that
+  does this, and its results, are in `pf-oidf-modules/deploy/conformance`.
+- **Subjects are `email` or `iss_sub`** (§2.5; `opaque` for the verification event only), SETs RS256 with
+  one event each (§2.6, §2.8.1), and a short-lived management token (§2.7.1, 60 minutes) - the last is the
+  authorization server's token lifetime, not this module's.
 
 ## What the transmitter signs
 

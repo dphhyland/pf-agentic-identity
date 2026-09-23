@@ -57,11 +57,25 @@ public final class SsfEventTypes {
             RISC_IDENTIFIER_RECYCLED,
             VERIFICATION);
 
+    /**
+     * The three events the CAEP Interop Profile 1.0 profiles (§3): what a receiver certifying against it
+     * asks for, and what a transmitter certifying against it has to be able to send.
+     */
+    public static final List<String> CAEP_INTEROP = List.of(
+            CAEP_SESSION_REVOKED,
+            CAEP_CREDENTIAL_CHANGE,
+            CAEP_DEVICE_COMPLIANCE_CHANGE);
+
     private static final Set<String> KNOWN = Set.copyOf(ALL);
 
     /** True if {@code uri} is an event type this transmitter recognises. */
     public static boolean isKnown(String uri) {
         return uri != null && KNOWN.contains(uri);
+    }
+
+    /** True if {@code uri} is one of the CAEP Interop Profile's three events. */
+    public static boolean isCaepInterop(String uri) {
+        return uri != null && CAEP_INTEROP.contains(uri);
     }
 
     private SsfEventTypes() {

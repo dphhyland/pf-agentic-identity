@@ -41,6 +41,17 @@ class SsfConfigurationMetadataTest {
         assertTrue(allEvents.contains("https://schemas.openid.net/secevent/risc/event-type/account-disabled"));
     }
 
+    @Test
+    @Requirement({"SSF §7.1.1", "CAEPIOP §2.4.4", "CAEPIOP §3"})
+    void metadataSaysWhatDefaultSubjectsIsAndAdvertisesTheInteropEvents() {
+        SsfConfiguration all = new SsfConfiguration.Builder().issuer("https://op.example.com").defaultSubjects("ALL").build();
+        assertEquals("ALL", SsfConfigurationServlet.metadata(all).get("default_subjects"));
+
+        @SuppressWarnings("unchecked")
+        List<String> supported = (List<String>) SsfConfigurationServlet.metadata(all).get("events_supported");
+        assertTrue(supported.containsAll(com.pingidentity.ps.oidf.ssf.SsfEventTypes.CAEP_INTEROP));
+    }
+
     /** Absent, §7.1 has a receiver assume 1_0-ID1 - an implementer's draft this transmitter does not speak. */
     @Test
     @Requirement("SSF §7.1")

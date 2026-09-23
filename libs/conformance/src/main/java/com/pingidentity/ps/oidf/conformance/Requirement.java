@@ -48,7 +48,7 @@ import java.lang.annotation.Target;
  * {@code ABCA-10}, {@code RFC9449}, {@code RFC9396}, {@code RFC8693}, {@code RFC7638}, {@code RFC9493},
  * {@code RFC8417}, {@code RFC8935}, {@code RFC8936}, {@code RFC7515}, {@code RFC7518},
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
- * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
+ * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
  * {@code FAPI2-SP}, {@code PF-SDK}.
  *
@@ -57,6 +57,11 @@ import java.lang.annotation.Target;
  * {@code FAPI2-SP §5.3.2.1(2.8)} is {@code #section-5.3.2.1-2.8}, the audience of a client assertion,
  * and {@code FAPI2-SP §5.4.1(2.1.2.2)} the permitted JWS algorithms. Never the bare section - §5.3.2.1
  * is fourteen requirements, and a test of one of them has not pinned the rest.
+ *
+ * <p>{@code CAEPIOP} is the CAEP Interoperability Profile 1.0, by section: {@code CAEPIOP §2.4.4} is
+ * Implicitly Added Subjects, {@code §2.5} Event Subjects, {@code §2.8.1} the one-event rule, and
+ * {@code §3.1}-{@code §3.3} the three profiled events. The suite's own ids ({@code CAEPIOP-2.5}) use the
+ * same numbers.
  *
  * <p>{@code OIDFED} uses the specification's section numbers. A requirement that sits in a section's
  * own text, before its first subsection, takes the paragraph number in the item notation above:

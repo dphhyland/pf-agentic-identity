@@ -83,6 +83,13 @@ public final class SsfEventBridge {
         return emit(subject, e -> e.credentialChange(subject, credentialType, changeType), "credential-change");
     }
 
+    /** CAEP device-compliance-change; the reason is a sentence, tagged as English on the wire. */
+    public static int onDeviceComplianceChange(SubjectId subject, String previousStatus, String currentStatus,
+                                               String reasonAdmin) {
+        return emit(subject, e -> e.deviceComplianceChange(subject, previousStatus, currentStatus,
+                CaepRiscEvents.reasonAdmin(reasonAdmin)), "device-compliance-change");
+    }
+
     /** RISC account-disabled (e.g. from a deprovisioning flow). */
     public static int onAccountDisabled(SubjectId subject, String reason) {
         return emit(subject, e -> e.accountDisabled(subject, reason), "account-disabled");

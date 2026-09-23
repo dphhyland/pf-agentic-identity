@@ -24,6 +24,7 @@ class SsfEventBridgeTest {
         assertEquals(0, SsfEventBridge.onSessionRevoked(SubjectId.email("a@b.com"), "logout"));
         assertEquals(0, SsfEventBridge.onAccountDisabledEmail("a@b.com", "hijacking"));
         assertEquals(0, SsfEventBridge.onSessionRevoked("https://op.example.com", "user-1", null));
+        assertEquals(0, SsfEventBridge.onDeviceComplianceChange(SubjectId.email("a@b.com"), "compliant", "not-compliant", "x"));
     }
 
     @Test

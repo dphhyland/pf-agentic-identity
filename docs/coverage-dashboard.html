@@ -117,9 +117,9 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><h1>Coverage and conformance</h1><p class="lede">Are the methods that decide something covered, and is what the docs claim also executed? Generated from jacoco, surefire and the <code>@Requirement</code> annotations; CI fails if this page drifts from the build.</p></div>
 </header>
 <section class="tiles">
-<div class="tile"><span class="label">Tests</span><span class="value">1335</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
-<div class="tile"><span class="label">Critical methods gated</span><span class="value">147</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
-<div class="tile"><span class="label">Requirements pinned</span><span class="value">120</span><span class="note">by 342 tests across 27 specifications</span></div>
+<div class="tile"><span class="label">Tests</span><span class="value">1368</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
+<div class="tile"><span class="label">Critical methods gated</span><span class="value">157</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
+<div class="tile"><span class="label">Requirements pinned</span><span class="value">130</span><span class="note">by 372 tests across 28 specifications</span></div>
 <div class="tile"><span class="label">Matrix rows pinned</span><span class="value">72<small> / 79</small></span><span class="note">91% of what the docs claim is checked by a test</span></div>
 </section>
 <section>
@@ -135,7 +135,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <tr><td><code>libs/agent-registry</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:92%"></b></i><span>92%</span></span></td><td class="num">25</td></tr>
 <tr><td><code>servlets/pf-integration</code></td><td class="num">18</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:55%"></b></i><span>55%</span></span></td><td class="num">154</td></tr>
 <tr><td><code>servlets/attestation-issuer</code></td><td class="num">14</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:85%"></b></i><span>85%</span></span></td><td class="num">202</td></tr>
-<tr><td><code>servlets/ssf</code></td><td class="num">28</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">229</td></tr>
+<tr><td><code>servlets/ssf</code></td><td class="num">38</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:76%"></b></i><span>76%</span></span></td><td class="num">262</td></tr>
 <tr><td><code>plugins/rar-paz-plugin</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">54</td></tr>
 <tr><td><code>plugins/instance-registry-datasource</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">18</td></tr>
 <tr><td><code>services/device-enrolment</code></td><td class="num">4</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">82</td></tr>
@@ -189,11 +189,22 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>AUTHZEN-1.0 §8.5</code><span class="t">PdpClientTest#appendsTheAuthzenPathsToTheBaseUrl, PdpClientTest#searchPostsToTheResourceSearchPathNotEvaluation</span></div>
 <div><code>AUTHZEN-1.0 §8.5.1</code><span class="t">SearchRequestTest#theResourceCarriesATypeAndNoId</span></div>
 </div></details>
-<details class="spec"><summary><span>CAEP</span><span class="n">4</span><span class="n">5</span><span class="chev">›</span></summary><div class="ids">
-<div><code>CAEP §3.1</code><span class="t">CaepRiscEventsTest#sessionRevokedCarriesTimestampAndOptionalReason</span></div>
-<div><code>CAEP §3.3</code><span class="t">CaepRiscEventsTest#credentialChangeCarriesTypeAndChange</span></div>
+<details class="spec"><summary><span>CAEP</span><span class="n">5</span><span class="n">14</span><span class="chev">›</span></summary><div class="ids">
+<div><code>CAEP §2</code><span class="t">CaepRiscEventsTest#aReasonThatArrivesTaggedIsSentAsGivenAndAnEmptyOneIsOmitted, CaepRiscEventsTest#sessionRevokedCarriesTimestampAndALanguageTaggedReason, EmitRequestTest#aReasonIsASentenceOrANonEmptyTaggedObject, EmitRequestTest#initiatingEntityTakesOnlyItsFourValues, EmitRequestTest#theTimestampIsStampedUnlessANumberWasSupplied</span></div>
+<div><code>CAEP §3.1</code><span class="t">CaepRiscEventsTest#sessionRevokedCarriesTimestampAndALanguageTaggedReason</span></div>
+<div><code>CAEP §3.3</code><span class="t">CaepRiscEventsTest#credentialChangeCarriesTypeAndChange, EmitRequestTest#credentialChangeTakesOnlyDefinedTypesAndChanges</span></div>
 <div><code>CAEP §3.4</code><span class="t">CaepRiscEventsTest#assuranceChangeDirection</span></div>
-<div><code>CAEP §3.5</code><span class="t">InstanceRegistryReceiverHandlerTest#deviceComplianceChangeSuspendsActiveInstancesOnTheDevice, InstanceRegistryReceiverHandlerTest#deviceComplianceChangeWithNoCurrentStatusIsIgnored</span></div>
+<div><code>CAEP §3.5</code><span class="t">CaepRiscEventsTest#deviceComplianceChangeCarriesBothStatusesAndTheReason, EmitRequestTest#deviceComplianceChangeTakesOnlyTheTwoStatuses, InstanceRegistryReceiverHandlerTest#deviceComplianceChangeSuspendsActiveInstancesOnTheDevice, InstanceRegistryReceiverHandlerTest#deviceComplianceChangeWithNoCurrentStatusIsIgnored, SsfEventEmitterTest#deviceComplianceChangeIsAnEventThisTransmitterCanEmit</span></div>
+</div></details>
+<details class="spec"><summary><span>CAEPIOP</span><span class="n">8</span><span class="n">19</span><span class="chev">›</span></summary><div class="ids">
+<div><code>CAEPIOP §2.4.4</code><span class="t">EmitProvisionerGateTest#aReceiverTokenIsRefusedAndAProvisionerTokenIsNot, SsfConfigurationMetadataTest#metadataSaysWhatDefaultSubjectsIsAndAdvertisesTheInteropEvents, SsfEmitServiceTest#theThreeInteropEventsReachAStreamNoSubjectWasEverAddedToAsOneEventPerVerifiableSet, SsfEventEmitterTest#subscribesIsEnabledAndDeliversAndEitherMemberOrDefaultSubjectsAll, SsfEventEmitterTest#withDefaultSubjectsAllAStreamNoSubjectWasAddedToStillHears</span></div>
+<div><code>CAEPIOP §2.5</code><span class="t">EmitRequestTest#anInteropEventsSubjectIsEmailOrIssSubAndNeverOpaque</span></div>
+<div><code>CAEPIOP §2.6</code><span class="t">SsfEmitServiceTest#theThreeInteropEventsReachAStreamNoSubjectWasEverAddedToAsOneEventPerVerifiableSet</span></div>
+<div><code>CAEPIOP §2.8.1</code><span class="t">SsfEmitServiceTest#theThreeInteropEventsReachAStreamNoSubjectWasEverAddedToAsOneEventPerVerifiableSet</span></div>
+<div><code>CAEPIOP §3</code><span class="t">SsfConfigurationMetadataTest#metadataSaysWhatDefaultSubjectsIsAndAdvertisesTheInteropEvents</span></div>
+<div><code>CAEPIOP §3.1</code><span class="t">CaepRiscEventsTest#sessionRevokedCarriesTimestampAndALanguageTaggedReason, EmitRequestTest#aReasonIsASentenceOrANonEmptyTaggedObject, EmitRequestTest#anInteropEventWithoutAReasonGetsOneRatherThanGoingOutWithout, SsfEmitServiceTest#theThreeInteropEventsReachAStreamNoSubjectWasEverAddedToAsOneEventPerVerifiableSet</span></div>
+<div><code>CAEPIOP §3.2</code><span class="t">EmitRequestTest#credentialChangeTakesOnlyDefinedTypesAndChanges, SsfEmitServiceTest#theThreeInteropEventsReachAStreamNoSubjectWasEverAddedToAsOneEventPerVerifiableSet</span></div>
+<div><code>CAEPIOP §3.3</code><span class="t">CaepRiscEventsTest#deviceComplianceChangeCarriesBothStatusesAndTheReason, EmitRequestTest#anInteropEventWithoutAReasonGetsOneRatherThanGoingOutWithout, EmitRequestTest#deviceComplianceChangeTakesOnlyTheTwoStatuses, SsfEmitServiceTest#theThreeInteropEventsReachAStreamNoSubjectWasEverAddedToAsOneEventPerVerifiableSet</span></div>
 </div></details>
 <details class="spec"><summary><span>CAS</span><span class="n">10</span><span class="n">30</span><span class="chev">›</span></summary><div class="ids">
 <div><code>CAS §4.1</code><span class="t">AttestationIssuanceServletTest#presentedChallengeIsConsumedOnceThenRefused</span></div>
@@ -311,10 +322,11 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>RFC9493 §3.2.2</code><span class="t">SetMinterTest#carriesEmailSubjectAndTxnWhenSet</span></div>
 <div><code>RFC9493 §3.2.3</code><span class="t">CaepEventHandlerTest#anIssSubFormatSubjectRevokesEveryInstanceTheOwnerHas, SubjectIdTest#issSubRoundTripsThroughMap</span></div>
 </div></details>
-<details class="spec"><summary><span>SSF</span><span class="n">15</span><span class="n">53</span><span class="chev">›</span></summary><div class="ids">
+<details class="spec"><summary><span>SSF</span><span class="n">16</span><span class="n">55</span><span class="chev">›</span></summary><div class="ids">
 <div><code>SSF §6.1.1</code><span class="t">SsfConfigurationMetadataTest#metadataAdvertisesEndpointsDeliveryMethodsAndJwks</span></div>
 <div><code>SSF §6.1.2</code><span class="t">SsfConfigurationMetadataTest#metadataAdvertisesEndpointsDeliveryMethodsAndJwks</span></div>
 <div><code>SSF §7.1</code><span class="t">SsfConfigurationMetadataTest#metadataAdvertisesEndpointsDeliveryMethodsAndJwks, SsfConfigurationMetadataTest#metadataDeclaresTheSpecificationVersionRatherThanLeavingItToBeAssumed</span></div>
+<div><code>SSF §7.1.1</code><span class="t">SsfConfigurationMetadataTest#metadataSaysWhatDefaultSubjectsIsAndAdvertisesTheInteropEvents, SsfEventEmitterTest#subscribesIsEnabledAndDeliversAndEitherMemberOrDefaultSubjectsAll</span></div>
 <div><code>SSF §8.1.1</code><span class="t">StreamManagementServiceTest#aReceiverCannotChooseItsAudience, StreamManagementServiceTest#aReceiverThatSendsNoAudienceIsAssignedItsOwnClientId, StreamManagementServiceTest#aStreamReportsTheEventsItCouldDeliver</span></div>
 <div><code>SSF §8.1.1.1</code><span class="t">SsfStreamManagementServletTest#aCreateThatNamesNoAudienceSucceedsAndIsAddressedToTheCaller, SsfStreamManagementServletTest#aTokenThatNamesNoClientIsForbiddenToCreateAStream, StreamManagementServiceTest#createPollStreamNarrowsEventsAndAdvertisesPollUrl, StreamManagementServiceTest#createPushStreamRequiresEndpoint, StreamOwnershipTest#aTokenThatNamesNoClientCannotCreateAStream</span></div>
 <div><code>SSF §8.1.1.2</code><span class="t">SsfStreamManagementServletTest#aReceiverIsListedItsOwnStreamsAndNotAnotherReceivers, SsfStreamManagementServletTest#aStreamThatIsAnotherReceiversAnswersEveryEndpointAsOneThatDoesNotExist, SsfStreamManagementServletTest#readingWithoutAStreamIdReturnsAListAndAnEmptyOneWhenThereAreNone, StreamManagementServiceTest#crudAndListing, StreamOwnershipTest#aReceiverIsListedItsOwnStreamsAndNobodyElses, StreamOwnershipTest#anotherReceiversStreamCannotBeRead</span></div>
@@ -333,7 +345,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>UNVERIFIED item 8</code><span class="t">ActChainTest#theLegacyStringFormIsParsedButFlagged, AttestationClaimSourceTest#theDelegationChainNamesTheVerifiedInstanceAndAttester, DelegatedTokenValidatorTest#theLegacyStringActIsSurfacedSoTheDeviationIsVisible, DelegationTest#readsANestedChainFromTheLegacyStringForm, DelegationTest#readsTheLegacyStringFormThisPlatformActuallyMints</span></div>
 </div></details>
 </div>
-<p class="legend">120 distinct requirements pinned by 342 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
+<p class="legend">130 distinct requirements pinned by 372 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
 </div>
 <div>
 <h2>What the docs claim</h2>

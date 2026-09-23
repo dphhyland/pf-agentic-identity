@@ -72,7 +72,7 @@ public class SsfConfigurationServlet extends HttpServlet {
         m.put("add_subject_endpoint", cfg.addSubjectEndpoint());
         m.put("remove_subject_endpoint", cfg.removeSubjectEndpoint());
         m.put("verification_endpoint", cfg.verificationEndpoint());
-        m.put("default_subjects", "NONE");
+        m.put("default_subjects", cfg.defaultSubjects());
         m.put("events_supported", cfg.defaultEventTypes());
         m.put("all_events_supported", SsfEventTypes.ALL);
         m.put("authorization_schemes", List.of(Map.of("spec_urn", "urn:ietf:rfc:6749")));

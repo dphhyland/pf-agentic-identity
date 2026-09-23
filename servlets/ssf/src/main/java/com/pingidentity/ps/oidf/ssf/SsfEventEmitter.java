@@ -10,10 +10,11 @@ import org.jose4j.lang.JoseException;
 
 /**
  * Turns one observed event (an event-type URI + subject + payload) into a signed SET per matching stream, and
- * enqueues each. A stream matches when it is {@link StreamStatus#ENABLED}, its {@code events_delivered} contains
- * the event type, and it has the subject registered. Poll streams then drain via the poll endpoint; push streams
- * via {@link PushDeliveryService}. This is the bridge PF's event hooks call (see the notification-publisher
- * adapter) — kept transport-free so it unit-tests without PF.
+ * enqueues each. A stream matches when it {@link #subscribes}: it is {@link StreamStatus#ENABLED}, its
+ * {@code events_delivered} contains the event type, and it hears about the subject - because the subject was
+ * added to it, or because the transmitter's {@code default_subjects} is {@code ALL}. Poll streams then drain
+ * via the poll endpoint; push streams via {@link PushDeliveryService}. This is the bridge PF's event hooks
+ * call (see the notification-publisher adapter) — kept transport-free so it unit-tests without PF.
  */
 public final class SsfEventEmitter {
 
@@ -63,12 +64,20 @@ public final class SsfEventEmitter {
      * stream a SET was enqueued for (empty if no stream subscribes this subject to this event).
      */
     public List<Emitted> emit(String eventType, SubjectId subject, Map<String, Object> payload) throws JoseException {
+        return emit(eventType, subject, payload, null);
+    }
+
+    /**
+     * The same, considering only the stream {@code onlyStreamId} when it is non-null. The stream must still
+     * subscribe; naming it narrows the fan-out and admits nothing.
+     */
+    public List<Emitted> emit(String eventType, SubjectId subject, Map<String, Object> payload, String onlyStreamId)
+            throws JoseException {
         List<Emitted> out = new ArrayList<>();
         long now = SetMinter.nowSeconds();
         long expiresAt = this.config.setTtlSeconds() > 0 ? now + this.config.setTtlSeconds() : 0;
         for (Stream s : this.store.listStreams()) {
-            if (s.status() != StreamStatus.ENABLED || !s.deliversEvent(eventType)
-                    || !this.store.hasSubject(s.id(), subject)) {
+            if ((onlyStreamId != null && !onlyStreamId.equals(s.id())) || !subscribes(s, eventType, subject)) {
                 continue;
             }
             String jti = SetMinter.newJti();
@@ -88,6 +97,17 @@ public final class SsfEventEmitter {
         return out;
     }
 
+    /**
+     * Whether {@code s} hears {@code eventType} about {@code subject}: it is enabled, it delivers the type,
+     * and either the subject was added to it or the transmitter's {@code default_subjects} is {@code ALL}
+     * (SSF 1.0 §7.1.1; CAEP Interop Profile §2.4.4). The one rule every emission path applies - there is no
+     * way to raise an event past it.
+     */
+    boolean subscribes(Stream s, String eventType, SubjectId subject) {
+        return s.status() == StreamStatus.ENABLED && s.deliversEvent(eventType)
+                && (this.config.defaultSubjectsAll() || this.store.hasSubject(s.id(), subject));
+    }
+
     // ─────────────────────────── convenience emitters ───────────────────────────
 
     public List<Emitted> sessionRevoked(SubjectId subject, String reasonAdmin) throws JoseException {
@@ -98,6 +118,12 @@ public final class SsfEventEmitter {
     public List<Emitted> credentialChange(SubjectId subject, String credentialType, String changeType) throws JoseException {
         return emit(SsfEventTypes.CAEP_CREDENTIAL_CHANGE, subject,
                 CaepRiscEvents.credentialChange(SetMinter.nowSeconds(), credentialType, changeType));
+    }
+
+    public List<Emitted> deviceComplianceChange(SubjectId subject, String previousStatus, String currentStatus,
+                                                Map<String, Object> reasonAdmin) throws JoseException {
+        return emit(SsfEventTypes.CAEP_DEVICE_COMPLIANCE_CHANGE, subject,
+                CaepRiscEvents.deviceComplianceChange(SetMinter.nowSeconds(), previousStatus, currentStatus, reasonAdmin));
     }
 
     public List<Emitted> accountDisabled(SubjectId subject, String reason) throws JoseException {
