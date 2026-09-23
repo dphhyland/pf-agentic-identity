@@ -117,9 +117,9 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><h1>Coverage and conformance</h1><p class="lede">Are the methods that decide something covered, and is what the docs claim also executed? Generated from jacoco, surefire and the <code>@Requirement</code> annotations; CI fails if this page drifts from the build.</p></div>
 </header>
 <section class="tiles">
-<div class="tile"><span class="label">Tests</span><span class="value">1368</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
-<div class="tile"><span class="label">Critical methods gated</span><span class="value">157</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
-<div class="tile"><span class="label">Requirements pinned</span><span class="value">130</span><span class="note">by 372 tests across 28 specifications</span></div>
+<div class="tile"><span class="label">Tests</span><span class="value">1392</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
+<div class="tile"><span class="label">Critical methods gated</span><span class="value">169</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
+<div class="tile"><span class="label">Requirements pinned</span><span class="value">136</span><span class="note">by 380 tests across 31 specifications</span></div>
 <div class="tile"><span class="label">Matrix rows pinned</span><span class="value">72<small> / 79</small></span><span class="note">91% of what the docs claim is checked by a test</span></div>
 </section>
 <section>
@@ -133,11 +133,12 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <tr><td><code>libs/client-attestation</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:77%"></b></i><span>77%</span></span></td><td class="num">105</td></tr>
 <tr><td><code>libs/openid-federation</code></td><td class="num">15</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:72%"></b></i><span>72%</span></span></td><td class="num">159</td></tr>
 <tr><td><code>libs/agent-registry</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:92%"></b></i><span>92%</span></span></td><td class="num">25</td></tr>
-<tr><td><code>servlets/pf-integration</code></td><td class="num">18</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:55%"></b></i><span>55%</span></span></td><td class="num">154</td></tr>
+<tr><td><code>servlets/pf-integration</code></td><td class="num">24</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:57%"></b></i><span>57%</span></span></td><td class="num">164</td></tr>
 <tr><td><code>servlets/attestation-issuer</code></td><td class="num">14</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:85%"></b></i><span>85%</span></span></td><td class="num">202</td></tr>
 <tr><td><code>servlets/ssf</code></td><td class="num">38</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:76%"></b></i><span>76%</span></span></td><td class="num">262</td></tr>
 <tr><td><code>plugins/rar-paz-plugin</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">54</td></tr>
 <tr><td><code>plugins/instance-registry-datasource</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">18</td></tr>
+<tr><td><code>plugins/ciba-sim</code></td><td class="num">6</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:90%"></b></i><span>90%</span></span></td><td class="num">14</td></tr>
 <tr><td><code>services/device-enrolment</code></td><td class="num">4</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">82</td></tr>
 <tr><td><code>services/demo-rs</code></td><td class="num">6</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:91%"></b></i><span>91%</span></span></td><td class="num">29</td></tr>
 <tr><td><code>services/gm-api/servlet</code></td><td class="num">10</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:37%"></b></i><span>37%</span></span></td><td class="num">83</td></tr>
@@ -218,11 +219,20 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>CAS §6.1</code><span class="t">AttestationIssuanceConfigTest#instanceEntitlementExceedingClientCeilingIsRejected</span></div>
 <div><code>CAS §7</code><span class="t">AttestationIssuanceConfigTest#parsesBindingsMetadataAndEntitlement, AttestationIssuanceServletTest#requestExceedingEntitlementIsDenied, AttestationIssuanceServletTest#requestWithinEntitlementIsGranted, RarContainmentTest#aRequestThatOmitsAFieldTheAcceptedDetailConstrainsIsNotContained, RarEntitlementTest#aFieldTheEntitlementDoesNotConstrainPassesThroughUnchanged, RarEntitlementTest#aRequestThatOmitsAConstrainedFieldInheritsTheCeilingsValueForIt, RarEntitlementTest#grantsRequestWithinEntitlement</span></div>
 </div></details>
+<details class="spec"><summary><span>CIBA</span><span class="n">3</span><span class="n">3</span><span class="chev">›</span></summary><div class="ids">
+<div><code>CIBA §10.1</code><span class="t">SimOobAuthenticatorTest#checkIsInProgressUntilADecisionThenSuccessOrFailure</span></div>
+<div><code>CIBA §11</code><span class="t">SimOobAuthenticatorTest#checkIsInProgressUntilADecisionThenSuccessOrFailure</span></div>
+<div><code>CIBA §7.1</code><span class="t">SimOobAuthenticatorTest#initiateDerivesTheTransactionFromTheAuthReqIdAndRefusesToStartWithout</span></div>
+</div></details>
 <details class="spec"><summary><span>CLAIM-DICT</span><span class="n">4</span><span class="n">5</span><span class="chev">›</span></summary><div class="ids">
 <div><code>CLAIM-DICT divergence 1</code><span class="t">AttestationMinterTest#claimLayoutIsCorrect</span></div>
 <div><code>CLAIM-DICT divergence 3</code><span class="t">DeviceAttestationMinterTest#claimingIso18045HighIsRefused, DeviceAttestationMinterTest#keyStorageIsModerateNotHigh</span></div>
 <div><code>CLAIM-DICT divergence 4</code><span class="t">DeviceAttestationMinterTest#lifetimeIsFifteenMinutesByDefault</span></div>
 <div><code>CLAIM-DICT divergence 5</code><span class="t">DeviceAttestationMinterTest#subjectIsTheOpaqueInstanceIdentifierUntilTheFlip</span></div>
+</div></details>
+<details class="spec"><summary><span>FAPI1-BASE</span><span class="n">2</span><span class="n">3</span><span class="chev">›</span></summary><div class="ids">
+<div><code>FAPI1-BASE §6.2.1(11)</code><span class="t">FapiResourceServerFilterTest#aUuidFromTheClientIsEchoedBeforeTheChainRuns, FapiResourceServerFilterTest#withoutOneOrWithSomethingThatIsNotAUuidAFreshOneIsMinted</span></div>
+<div><code>FAPI1-BASE §6.2.1(3)</code><span class="t">FapiResourceServerFilterTest#anAccessTokenInTheQueryIsRefusedBeforeTheChainAndStillGetsAnInteractionId</span></div>
 </div></details>
 <details class="spec"><summary><span>FAPI2-SP</span><span class="n">2</span><span class="n">16</span><span class="chev">›</span></summary><div class="ids">
 <div><code>FAPI2-SP §5.3.2.1(2.8)</code><span class="t">Fapi2ProfileFilterTest#aListedClientsConformantRequestReachesPingFederateExactlyAsItArrived, Fapi2ProfileFilterTest#aMisaddressedAssertionIs401InvalidClientAndNeverReachesPingFederate, Fapi2ProfileFilterTest#aWellAddressedAssertionCannotShieldAMisaddressedOneSentWithIt, Fapi2RequestPolicyTest#anAssertionWithTwoAudiencesIsRefusedWhicheverComesLast, Fapi2RequestPolicyTest#anIssuerThatOnlyResemblesThisOneIsRefused, Fapi2RequestPolicyTest#theAudiencesPingFederateWouldHaveAcceptedAreRefused, Fapi2RequestPolicyTest#theIssuerAloneInAnArrayIsRefused, Fapi2RequestPolicyTest#theIssuerAsAStringIsTheOnlyAudienceAccepted</span></div>
@@ -271,10 +281,13 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>PROFILE §6(2)</code><span class="t">AgentIdMinterTest#successiveMintsAreNotRepeats, AgentRegistryContract#differentInstanceSubjectsMintDifferentIds, AgentRegistryContract#firstSightMintsANonBlankAgentId, AttestationIssuanceServletTest#configuredAgentRegistryEmitsTheResolvedAgentId, AttestationMinterTest#agentIdIsEmittedWhenPresent, DeviceAttestationMinterTest#flippedSubjectIsTheClientIdAndAgentIdKeepsTheInstanceIdentity, ProfileConformanceTest#anAttestationWithABlankAgentIdIsRejected, ProfileConformanceTest#anAttestationWithoutAgentIdIsRejected, ProfileConformanceTest#subNamesTheAgentTypeAndAgentIdNamesTheInstance</span></div>
 <div><code>PROFILE §6(3)</code><span class="t">AuthZenRequestBuilderTest#resourceOwnerIsTheSubjectAndAgentIdIsTheActor, GovernanceEngineRequestBuilderTest#resourceOwnerBecomesUserIdAndAgentIdIsTheActor</span></div>
 </div></details>
-<details class="spec"><summary><span>RFC6750</span><span class="n">3</span><span class="n">6</span><span class="chev">›</span></summary><div class="ids">
+<details class="spec"><summary><span>RFC6749</span><span class="n">1</span><span class="n">1</span><span class="chev">›</span></summary><div class="ids">
+<div><code>RFC6749 §5.2</code><span class="t">OAuthErrorDescriptionFilterTest#anErrorDescriptionOutsideTheSetIsBroughtInsideIt</span></div>
+</div></details>
+<details class="spec"><summary><span>RFC6750</span><span class="n">3</span><span class="n">7</span><span class="chev">›</span></summary><div class="ids">
 <div><code>RFC6750 §2.1</code><span class="t">SsfHttpAuthorizeTest#activeTokenWithScopeIsAuthorized, SsfHttpAuthorizeTest#nonBearerAuthorizationHeaderIs401</span></div>
 <div><code>RFC6750 §3</code><span class="t">SsfHttpAuthorizeTest#missingAuthorizationHeaderIs401</span></div>
-<div><code>RFC6750 §3.1</code><span class="t">SsfHttpAuthorizeTest#activeTokenLackingScopeIs403, SsfHttpAuthorizeTest#inactiveTokenIs401WithInvalidToken, SsfHttpAuthorizeTest#theReceiverScopeDoesNotOpenTheProvisionerGate</span></div>
+<div><code>RFC6750 §3.1</code><span class="t">FapiResourceServerFilterTest#anAccessTokenInTheQueryIsRefusedBeforeTheChainAndStillGetsAnInteractionId, SsfHttpAuthorizeTest#activeTokenLackingScopeIs403, SsfHttpAuthorizeTest#inactiveTokenIs401WithInvalidToken, SsfHttpAuthorizeTest#theReceiverScopeDoesNotOpenTheProvisionerGate</span></div>
 </div></details>
 <details class="spec"><summary><span>RFC7515</span><span class="n">1</span><span class="n">2</span><span class="chev">›</span></summary><div class="ids">
 <div><code>RFC7515 §4.1.9</code><span class="t">JwtCodecTest#requireTypeIsCaseInsensitive, JwtCodecTest#requireTypeToleratesAnApplicationPrefix</span></div>
@@ -345,7 +358,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>UNVERIFIED item 8</code><span class="t">ActChainTest#theLegacyStringFormIsParsedButFlagged, AttestationClaimSourceTest#theDelegationChainNamesTheVerifiedInstanceAndAttester, DelegatedTokenValidatorTest#theLegacyStringActIsSurfacedSoTheDeviationIsVisible, DelegationTest#readsANestedChainFromTheLegacyStringForm, DelegationTest#readsTheLegacyStringFormThisPlatformActuallyMints</span></div>
 </div></details>
 </div>
-<p class="legend">130 distinct requirements pinned by 372 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
+<p class="legend">136 distinct requirements pinned by 380 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
 </div>
 <div>
 <h2>What the docs claim</h2>

@@ -7,7 +7,7 @@
 #   2. author.sh            a stock PF 13.0.3 with an admin API, on localhost:29999
 #   3. apply.sh apply       terraform/ -> that server: OAuth server, tokens, clients, login form
 #   4. export.sh            its realised config as data.zip - PF's own saved state    (git-ignored)
-#   5. mvn package + stage  the module jars from this repo
+#   5. mvn package + stage  the module jars from this repo (run FIRST: author.sh needs the CIBA plugin)
 #   6. compose-context.sh   the image build context: this repo's Dockerfile + that archive
 #   7. docker compose up    the image, built and running, with vars.env and your licence details
 #
@@ -52,6 +52,12 @@ if [[ ! -f "$PF_AUTHOR_ENV" ]]; then
   echo "generated $PF_AUTHOR_ENV (the authoring PF's admin password; git-ignored)"
 fi
 
+# Build first: author.sh stages plugins/ciba-sim into the authoring server, because terraform/ciba.tf
+# can only instantiate a plugin PingFederate can see.
+if [[ "${SKIP_BUILD:-0}" != 1 || ! -f "$REPO/build/pingfederate/modules/MANIFEST" ]]; then
+  ( cd "$REPO" && mvn -q -DskipTests package && build/pingfederate/stage-modules.sh )
+fi
+
 if [[ "${SKIP_AUTHOR:-0}" != 1 ]]; then
   "$HERE/gen-keys.sh"
   "$HERE/author.sh"
@@ -60,10 +66,6 @@ if [[ "${SKIP_AUTHOR:-0}" != 1 ]]; then
   docker rm -f "$PF_AUTHOR_NAME" >/dev/null 2>&1 || true
 else
   [[ -f "$HERE/data.zip" ]] || { echo "ERROR: SKIP_AUTHOR=1 but no data.zip - run without it first" >&2; exit 1; }
-fi
-
-if [[ "${SKIP_BUILD:-0}" != 1 || ! -f "$REPO/build/pingfederate/modules/MANIFEST" ]]; then
-  ( cd "$REPO" && mvn -q -DskipTests package && build/pingfederate/stage-modules.sh )
 fi
 
 CTX="$("$HERE/compose-context.sh")"

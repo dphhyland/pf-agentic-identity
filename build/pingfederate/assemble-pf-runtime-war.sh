@@ -13,7 +13,11 @@
 #   - OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 → §12.1 automatic
 #     registration; MUST be mapped before ClientAttestationAuth (see below — the order is checked).
 #   - ClientAttestationAuth (ClientAttestationAuthFilter) over /as/token.oauth2 → attest_jwt_client_auth.
-# All four registrations are idempotent, and the script fails if any mapping is missing afterwards.
+#   - FapiResourceServer (FapiResourceServerFilter) over /idp/userinfo.openid → the two FAPI 1.0 Baseline
+#     resource-server provisions UserInfo misses: the x-fapi-interaction-id header, no token in the query.
+#   - OAuthErrorDescription (OAuthErrorDescriptionFilter) over the backchannel, token and PAR endpoints →
+#     error_description kept inside RFC 6749's character set (PF puts a formatted date in it).
+# All six registrations are idempotent, and the script fails if any mapping is missing afterwards.
 #
 # Inputs (provided by the caller — build/pingfederate/Dockerfile here, or a consumer repo's CI job):
 #   $1  STOCK_WAR   path to the stock pf-runtime.war extracted from the pingidentity/pingfederate image
@@ -195,6 +199,61 @@ else
   echo "web.xml: registered Fapi2Profile over the client-assertion and DPoP endpoints (only for clients listed in OIDF_FAPI2_CLIENTS)"
 fi
 
+# FapiResourceServer (FapiResourceServerFilter) over /idp/userinfo.openid — FAPI 1.0 Baseline §6.2.1: a
+# resource server echoes the client's x-fapi-interaction-id or mints a UUID (provision 11), and does not
+# accept an access token in the query (provision 3). UserInfo is the one resource PF serves itself and it
+# does neither; the FAPI-CIBA plan fails every positive module on the first and the happy path on the
+# second. Order-independent: a header before the chain, or a 400 instead of it.
+if grep -q "FapiResourceServer" "$WEBXML"; then
+  echo "web.xml: FapiResourceServer already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>FapiResourceServer</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>FapiResourceServer</filter-name>"
+      print "    <url-pattern>/idp/userinfo.openid</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered FapiResourceServer over /idp/userinfo.openid"
+fi
+
+# OAuthErrorDescription (OAuthErrorDescriptionFilter) over the backchannel, token and PAR endpoints —
+# RFC 6749 §5.2 gives error_description a character set, and PF 13.0.3 puts jose4j's explanation of a
+# refused request object in it, Java-formatted date and its U+202F included. The filter buffers a 4xx
+# JSON body and brings the description inside the set. Order: it wraps the response, so it must be
+# OUTERMOST for these endpoints - registered here, before the filters that run inside it; the container
+# applies filter-mappings in web.xml order.
+if grep -q "OAuthErrorDescription" "$WEBXML"; then
+  echo "web.xml: OAuthErrorDescription already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>OAuthErrorDescription</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>OAuthErrorDescription</filter-name>"
+      print "    <url-pattern>/as/bc-auth.ciba</url-pattern>"
+      print "    <url-pattern>/as/token.oauth2</url-pattern>"
+      print "    <url-pattern>/as/par.oauth2</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered OAuthErrorDescription over the backchannel, token and PAR endpoints"
+fi
+
 # OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 — OpenID
 # Federation §12.1 automatic registration: an unknown federation client presenting its trust chain in
 # its client_assertion is just-in-time materialised in PF's client store so the same request then
@@ -277,7 +336,7 @@ if [[ -d "$MODULES" ]]; then
 else
   grep -E "pf-oidf-modules" <<<"$war_listing" || { echo "ERROR: module jar not present in war"; exit 1; }
 fi
-for mapping in SsfLogoutSignal ClientAttestationAuth OidfAutoRegistration Fapi2Profile; do
+for mapping in SsfLogoutSignal ClientAttestationAuth OidfAutoRegistration Fapi2Profile FapiResourceServer OAuthErrorDescription; do
   grep -q "$mapping" <<<"$war_web_xml" \
     || { echo "ERROR: $mapping filter mapping not present in assembled war" >&2; exit 1; }
 done
@@ -297,4 +356,4 @@ _fapi2_at="$(_mapping_line Fapi2Profile)"
   echo "       before OidfAutoRegistration (line $_autoreg_at): a refused assertion must not trigger a" >&2
   echo "       registration, and must be judged before ClientAttestationAuth replaces it." >&2
   exit 1; }
-echo "verified: SsfLogoutSignal + Fapi2Profile + OidfAutoRegistration + ClientAttestationAuth mapped in $OUT_WAR (order checked)"
+echo "verified: SsfLogoutSignal + Fapi2Profile + OidfAutoRegistration + ClientAttestationAuth + FapiResourceServer + OAuthErrorDescription mapped in $OUT_WAR (order checked)"

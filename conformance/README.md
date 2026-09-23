@@ -90,6 +90,27 @@ clients and deliberately not `*`: the suite's SSF client is an ordinary OAuth cl
 assertion to the token endpoint, and with the rules applied to everyone the SSF plan went from 19 of
 19 to 1 of 19.
 
+**CIBA has an authentication device that is a directory.** PingFederate implements CIBA itself, but
+the only out-of-band authenticator it ships wants a PingOne tenant and a phone. `plugins/ciba-sim` is
+the stand-in: an `OOBAuthPlugin` that answers `IN_PROGRESS` until an operator has recorded `allow` or
+`deny` at `POST /ciba-sim/decision?auth_req_id=...&action=...` - the shape the suite's
+`automated_ciba_approval_url` takes - and then `SUCCESS` or `FAILURE`. Nothing is approved by default or
+by time: the suite polls the token endpoint expecting `authorization_pending` before it decides, and two
+modules never decide. The plugin and the servlet are two classloaders in PF, so the handoff is a file
+named by the SHA-256 of the `auth_req_id` (`OIDF_CIBA_SIM_DIR`). The endpoint is an approval oracle
+keyed by that id alone, so it answers 404 unless `OIDF_CIBA_SIM_ENABLED=true`; `vars.env` turns it on
+because this is a rig. `author.sh` stages the jar into the authoring PF, which is why `up.sh` builds
+before it authors: `terraform/ciba.tf` can only instantiate a plugin PF can see.
+
+**Three more small filters close what the FAPI-CIBA plan measures and PF does not do.** The signed
+request object's `exp`/`nbf` window is 720 minutes in 13.0.3 and the profile wants 60: a config-store
+file (`org.sourceid.openid.ciba.handlers.CibaHelper.xml`, overlay and archive like the cipher list).
+UserInfo, the one resource PF serves itself, sends no `x-fapi-interaction-id` and accepts
+`?access_token=`, both of which FAPI 1.0 Baseline §6.2.1 forbids: `FapiResourceServerFilter`. And a
+refused request object's `error_description` is jose4j's whole explanation with a Java-formatted date
+in it - U+202F, the narrow no-break space, before "PM" - which RFC 6749 §5.2's character set excludes:
+`OAuthErrorDescriptionFilter` brings a 4xx's description inside the set and touches nothing else.
+
 **Staying on 13.0.3 is not a choice.** PingFederate 13.1 moved to `jakarta.servlet`, and the modules are
 compiled against `javax.servlet`: on a 13.1.3 base image the merged `pf-runtime.war` fails to start at
 all. Until the modules are migrated ([docs/pf-13_1-jakarta-migration-plan.md](../docs/pf-13_1-jakarta-migration-plan.md)),
@@ -104,6 +125,7 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 | `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED |
 | `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet from branch `conformance/caep-interop`) |
 | `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 49 PASSED, 4 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-21) |
+| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, local replica) - all three on one PingFederate 13.x product gap, below |
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:
 
@@ -117,12 +139,24 @@ Expect, and do not be alarmed by, in the FAPI 2.0 plan:
   (FAPI 2.0 §5.3.2.2 NOTE 3).
 - **SKIPPED** on the claims-parameter module - not supported, not advertised, so not tested.
 
+And for FAPI-CIBA, three **FAILED** modules that no configuration and no filter can turn, because
+FAPI-CIBA profiles CIBA over FAPI 1.0 Advanced, whose resource servers "shall only support
+sender-constrained access tokens via MTLS" - certificate-bound tokens, RFC 8705 §3, `cnf.x5t#S256`.
+PingFederate 13.0.3 has no such thing, and neither does 13.1.3: every jar of both was searched for the
+claim, for `mtls_endpoint_aliases` and for `tls_client_certificate_bound_access_tokens`, and none of
+them is there (DPoP is the one sender-constraint it implements). So `discovery-end-point-verification`
+fails on the missing metadata flag, `ensure-mtls-holder-of-key-required` on a token issued without a
+certificate, and the happy path `fapi-ciba-id1` on its "client1's TLS cert with client2's access token"
+step, which expects a refusal the server cannot make. A certification of this plan is not available
+on PingFederate 13.x; the other 32 modules say the rest of CIBA is right.
+
 None of that is a certification. A run that counts is made on the hosted suite, by a person who is
 signed in, against a PF the suite can reach. SSF **push** delivery has not been run at all: it needs a
 suite PF can call back, which a suite on localhost is not (the servlet's outbound policy refuses
-loopback, rightly). CIBA is not here: the suite's only CIBA plan is `fapi-ciba-id1-test-plan`, which
-profiles CIBA over FAPI **1** Advanced with certificate-bound tokens, so it is a second configuration
-rather than a fourth plan on this one.
+loopback, rightly). CIBA's ping mode is one more thing only the hosted suite can test: PF has to call
+the suite's notification endpoint back, the client carries ONE such endpoint, and `ciba.tf` registers
+the hosted suite's (`ciba_notification_suite_base_url`). Author with `-var ciba_delivery_mode=PING`,
+re-export, and run the ping plan against that image.
 
 ## Testing it
 
@@ -142,6 +176,10 @@ suite/run-plan.py https://localhost:9643 openid-ssf-transmitter-test-plan suite/
 
 suite/run-plan.py https://localhost:9643 fapi2-security-profile-final-test-plan suite/fapi2.json \
   --variant client_auth_type=private_key_jwt sender_constrain=dpop fapi_profile=plain_fapi openid=openid_connect
+
+# FAPI-CIBA, poll mode; the ciba-sim plugin is the "user" and the suite tells it allow or deny
+suite/run-plan.py https://localhost:9643 fapi-ciba-id1-test-plan suite/fapi-ciba.json \
+  --variant client_auth_type=private_key_jwt ciba_mode=poll fapi_ciba_profile=plain_fapi client_registration=static_client
 
 # the CAEP Interop plan: its last module waits for the operator, and the hook is the operator
 suite/run-plan.py https://localhost:9643 openid-ssf-transmitter-caep-test-plan suite/ssf-transmitter.json \

@@ -19,6 +19,8 @@ def fill(node):
     if isinstance(node, str):
         m = re.fullmatch(r"\{\{JWKS:([a-z0-9-]+)\}\}", node)
         if m: return json.load(open(f"{rig}/keys/{m.group(1)}.private.jwks.json"))
+        m = re.fullmatch(r"\{\{PEM:([a-z0-9.-]+)\}\}", node)
+        if m: return open(f"{rig}/keys/{m.group(1)}").read()  # PEM text, armour and all; the suite strips it
         return node.replace("{{PF_BASE_URL}}", base).replace("{{TEST_USER_PASSWORD}}", secrets["TF_VAR_test_user_password"])
     return node
 for template in sys.argv[1:]:

@@ -15,7 +15,7 @@ KEYS="$HERE/keys"
 mkdir -p "$KEYS"; chmod 700 "$KEYS"
 command -v node >/dev/null || { echo "ERROR: node is required (it exports JWKs natively)" >&2; exit 1; }
 
-for name in fapi2-client1 fapi2-client2 ssf-receiver; do
+for name in fapi2-client1 fapi2-client2 ssf-receiver ciba-client1 ciba-client2; do
   if [[ -f "$KEYS/$name.private.jwks.json" ]]; then
     echo "kept      keys/$name.*"
     continue
@@ -36,6 +36,28 @@ for name in fapi2-client1 fapi2-client2 ssf-receiver; do
   chmod 644 "$KEYS/$name.public.jwks.json"
   echo "generated keys/$name.*"
 done
+
+# mTLS material for the FAPI-CIBA plan: a throwaway CA and a client certificate for each client. The
+# suite's static-client configuration insists on mtls/mtls2 (cert, key, ca) whatever the client
+# authentication method, and reads the key as PKCS#8 RSA - hence genpkey, not genrsa. PingFederate is
+# never given any of it: FAPI-CIBA's certificate binding is a product gap on 13.x (README.md), and
+# private_key_jwt is the authentication method under test.
+if [[ -f "$KEYS/mtls-ca.crt" ]]; then
+  echo "kept      keys/mtls-*"
+else
+  ( umask 177; cd "$KEYS"
+    openssl req -x509 -newkey rsa:2048 -nodes -days 397 -keyout mtls-ca.key -out mtls-ca.crt \
+      -subj "/CN=pf-agentic-identity conformance mTLS CA" >/dev/null 2>&1
+    for c in mtls-client1 mtls-client2; do
+      openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 -out "$c.key" >/dev/null 2>&1
+      openssl req -new -key "$c.key" -subj "/CN=$c" -out "$c.csr" >/dev/null 2>&1
+      openssl x509 -req -in "$c.csr" -CA mtls-ca.crt -CAkey mtls-ca.key -CAcreateserial -days 397 -out "$c.crt" >/dev/null 2>&1
+      rm -f "$c.csr"
+    done
+    rm -f mtls-ca.srl )
+  chmod 644 "$KEYS"/mtls-*.crt
+  echo "generated keys/mtls-* (a CA and two client certificates)"
+fi
 
 SECRETS="$HERE/secrets.env"
 if [[ -f "$SECRETS" ]]; then

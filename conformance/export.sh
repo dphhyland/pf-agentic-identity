@@ -24,7 +24,8 @@ code="$(curl -sk --max-time 180 -u "administrator:$PW" -H 'X-XSRF-Header: PingFe
 # An archive without these imports cleanly and produces a rig that fails the suite for reasons that
 # look like PingFederate's: the wrong issuer, or a listener still offering CBC suites.
 listing="$(unzip -l "$HERE/data.zip.tmp")"
-for member in pf.jwk pingfederate-system-keys.xml config-store/com.pingidentity.crypto.SunJCEManager.xml; do
+for member in pf.jwk pingfederate-system-keys.xml config-store/com.pingidentity.crypto.SunJCEManager.xml \
+              config-store/org.sourceid.openid.ciba.handlers.CibaHelper.xml; do
   grep -q " $member\$" <<<"$listing" || { rm -f "$HERE/data.zip.tmp"; echo "ERROR: archive has no $member" >&2; exit 1; }
 done
 if unzip -p "$HERE/data.zip.tmp" config-store/com.pingidentity.crypto.SunJCEManager.xml | grep -q '_CBC_'; then
@@ -32,6 +33,24 @@ if unzip -p "$HERE/data.zip.tmp" config-store/com.pingidentity.crypto.SunJCEMana
   echo "ERROR: the archive still enables CBC cipher suites - stage config-store/ into the authoring" >&2
   echo "       PingFederate and restart it before exporting (see README.md). The image overlay alone" >&2
   echo "       is not enough: an import of this archive would write the stock list back to disk." >&2
+  exit 1
+fi
+
+ciba_window="$(unzip -p "$HERE/data.zip.tmp" config-store/org.sourceid.openid.ciba.handlers.CibaHelper.xml | LC_ALL=C grep -ac 'nbfMaxPastInMinutes">60<' || true)"
+if [[ "${ciba_window:-0}" -eq 0 ]]; then
+  rm -f "$HERE/data.zip.tmp"
+  echo "ERROR: the archive's CIBA request-object window is not 60 minutes - stage config-store/ into the" >&2
+  echo "       authoring PingFederate before it first starts (author.sh does), then re-export." >&2
+  exit 1
+fi
+# COUNT the matches; never `grep -q` here. Under `set -o pipefail`, grep -q exits at its first match,
+# unzip dies of SIGPIPE, and the pipeline reports failure - a plugin that IS in the archive reads as
+# absent (the assemble script has the same note, learned the same way).
+sim_hits="$(unzip -p "$HERE/data.zip.tmp" '*' 2>/dev/null | LC_ALL=C grep -ac 'SimOobAuthenticator' || true)"
+if [[ "${sim_hits:-0}" -eq 0 ]]; then
+  rm -f "$HERE/data.zip.tmp"
+  echo "ERROR: the archive has no CIBA simulator instance - was terraform/ciba.tf applied against an" >&2
+  echo "       authoring PingFederate that had plugins/ciba-sim in its deploy directory (author.sh)?" >&2
   exit 1
 fi
 

@@ -32,6 +32,11 @@ JARS=(
   "libs/openid-federation/target/openid-federation-$VERSION.jar"
   "libs/agent-registry/target/agent-registry-$VERSION.jar"
   "libs/device-instance/target/device-instance-$VERSION.jar"
+  # The CIBA simulator: an OOBAuthPlugin plus its decision servlet in one jar. The Dockerfile puts every
+  # staged jar in BOTH places, which is what this one needs - loose in deploy/ (PF-INF discovery, the
+  # pf.plugins. prefix) for the plugin, merged into the war for the servlet. Inert unless a CIBA policy
+  # names the authenticator and OIDF_CIBA_SIM_ENABLED=true; see plugins/ciba-sim.
+  plugins/ciba-sim/target/pf.plugins.ciba-sim.jar
 )
 
 mkdir -p "$DEST"

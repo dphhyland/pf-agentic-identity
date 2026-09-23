@@ -29,8 +29,15 @@ docker create --name "$NAME" \
 # config-store/com.pingidentity.crypto.SunJCEManager.xml for why the archive has to.
 # (docker cp will not create missing parents, and the stock image's /opt/in is empty - hence the tree.)
 STAGE="$(mktemp -d)"; trap 'rm -rf "$STAGE"' EXIT
-mkdir -p "$STAGE/instance/server/default/data/config-store"
+mkdir -p "$STAGE/instance/server/default/data/config-store" "$STAGE/instance/server/default/deploy"
 cp "$HERE"/config-store/*.xml "$STAGE/instance/server/default/data/config-store/"
+# The CIBA simulator plugin, so terraform/ciba.tf can create an instance of it: PingFederate lists a
+# plugin descriptor only for a jar in its deploy directory. Built by the reactor (up.sh builds before
+# it authors); refused rather than skipped, because an archive authored without it has no CIBA and the
+# first sign would be the FAPI-CIBA plan failing on every module.
+PLUGIN="${PF_AGENTIC_IDENTITY_HOME:-$HERE/..}/plugins/ciba-sim/target/pf.plugins.ciba-sim.jar"
+[[ -f "$PLUGIN" ]] || { echo "ERROR: $PLUGIN not built - run 'mvn -q -DskipTests package' at the repo root first" >&2; exit 1; }
+cp "$PLUGIN" "$STAGE/instance/server/default/deploy/"
 docker cp "$STAGE/instance" "$NAME:/opt/in/"
 docker start "$NAME" >/dev/null
 

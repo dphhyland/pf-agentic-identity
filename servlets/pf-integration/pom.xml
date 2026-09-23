@@ -131,6 +131,12 @@
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.violationIn(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.interactionIdFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.carriesTokenInQuery(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.sanitise(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.withinSet(*</include>
                                         <!-- The admin read surface: what it will disclose, and to whom. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.doGet(*</include>
                                     </includes>

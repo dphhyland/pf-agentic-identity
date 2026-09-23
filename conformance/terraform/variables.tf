@@ -60,6 +60,29 @@ variable "suite_alias" {
   default     = "pf-agentic-identity"
 }
 
+# ── CIBA ────────────────────────────────────────────────────────────────────────────────────────
+
+# POLL or PING: one delivery mode per archive, because it is a property of the client. The FAPI-CIBA
+# plan is run once per mode; author with PING, re-export, and run the ping plan against that image.
+variable "ciba_delivery_mode" {
+  description = "CIBA token delivery mode of the two conformance clients: POLL or PING"
+  type        = string
+  default     = "POLL"
+
+  validation {
+    condition     = contains(["POLL", "PING"], var.ciba_delivery_mode)
+    error_message = "ciba_delivery_mode is POLL or PING."
+  }
+}
+
+# Where PingFederate pings. A client has ONE notification endpoint, so ping mode targets one suite:
+# the hosted one by default, since a local suite is on a name PF would have to be taught to resolve.
+variable "ciba_notification_suite_base_url" {
+  description = "Origin of the conformance suite whose CIBA notification endpoint the PING clients are registered with"
+  type        = string
+  default     = "https://www.certification.openid.net"
+}
+
 # ── generated secrets (../secrets.env, written by ../gen-keys.sh) ───────────────────────────────
 
 variable "test_user_password" {

@@ -1,0 +1,33 @@
+{
+  "alias": "pf-agentic-identity",
+  "description": "PingFederate 13.0.3 + pf-agentic-identity modules. FAPI-CIBA ID1: private_key_jwt, plain_fapi, poll or ping. Approval by the ciba-sim plugin's decision endpoint. Two modules fail on a PingFederate 13.x product gap (no certificate-bound access tokens); see conformance/README.md.",
+  "server": {
+    "discoveryUrl": "{{PF_BASE_URL}}/.well-known/openid-configuration"
+  },
+  "client": {
+    "client_id": "conformance-ciba-client1",
+    "scope": "openid profile",
+    "jwks": "{{JWKS:ciba-client1}}",
+    "hint_type": "login_hint",
+    "hint_value": "suite-user"
+  },
+  "client2": {
+    "client_id": "conformance-ciba-client2",
+    "scope": "openid profile",
+    "jwks": "{{JWKS:ciba-client2}}"
+  },
+  "mtls": {
+    "cert": "{{PEM:mtls-client1.crt}}",
+    "key": "{{PEM:mtls-client1.key}}",
+    "ca": "{{PEM:mtls-ca.crt}}"
+  },
+  "mtls2": {
+    "cert": "{{PEM:mtls-client2.crt}}",
+    "key": "{{PEM:mtls-client2.key}}",
+    "ca": "{{PEM:mtls-ca.crt}}"
+  },
+  "resource": {
+    "resourceUrl": "{{PF_BASE_URL}}/idp/userinfo.openid"
+  },
+  "automated_ciba_approval_url": "{{PF_BASE_URL}}/ciba-sim/decision?auth_req_id={auth_req_id}&action={action}"
+}

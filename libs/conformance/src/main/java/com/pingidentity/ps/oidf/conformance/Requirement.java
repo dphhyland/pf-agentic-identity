@@ -50,13 +50,20 @@ import java.lang.annotation.Target;
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
- * {@code FAPI2-SP}, {@code PF-SDK}.
+ * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}.
  *
  * <p>{@code FAPI2-SP} is the FAPI 2.0 Security Profile, Final. Its requirements are bullets with no
  * printed number, but each has an anchor, and that is the id, in the item notation above:
  * {@code FAPI2-SP §5.3.2.1(2.8)} is {@code #section-5.3.2.1-2.8}, the audience of a client assertion,
  * and {@code FAPI2-SP §5.4.1(2.1.2.2)} the permitted JWS algorithms. Never the bare section - §5.3.2.1
  * is fourteen requirements, and a test of one of them has not pinned the rest.
+ *
+ * <p>{@code FAPI1-BASE} is FAPI 1.0 Baseline (Final), in the item notation: {@code FAPI1-BASE §6.2.1(3)}
+ * is the third provision of §6.2.1 (no access token in the query), {@code §6.2.1(11)} the eleventh (the
+ * resource server's {@code x-fapi-interaction-id}). FAPI 1.0 Advanced §6.2.1 incorporates them by reference.
+ * {@code CIBA} is OpenID Connect Client Initiated Backchannel Authentication Core 1.0, by section:
+ * {@code CIBA §7.1} the authentication request, {@code §10.1} poll mode at the token endpoint,
+ * {@code §11} the token error response ({@code authorization_pending}, {@code access_denied}).
  *
  * <p>{@code CAEPIOP} is the CAEP Interoperability Profile 1.0, by section: {@code CAEPIOP §2.4.4} is
  * Implicitly Added Subjects, {@code §2.5} Event Subjects, {@code §2.8.1} the one-event rule, and
