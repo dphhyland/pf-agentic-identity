@@ -79,7 +79,6 @@ GKE/EKS/Azure legs, the cross-cloud chain, the phone simulator — in
 **pf-agentic-identity-domain-authority** (private, so named rather than linked; extracted 2026-08-08
 with history; consumes this repo as a sibling checkout).
 
-<<<<<<< ours
 ## Running PingFederate
 
 ```bash
@@ -92,13 +91,12 @@ Signals plans. You bring your own licence details - your Ping DevOps credentials
 `~/.pingidentity/config`; the image bakes no licence and the repo commits nothing licensed or secret.
 What it does, what it configures, how to point a conformance suite at it and what the suite says:
 [conformance/README.md](conformance/README.md).
-=======
+
 ## Product showcase
 
 Open [showcase/index.html](showcase/index.html) in a browser for the servlet and plugin catalogue, shared libraries,
 ecosystem architecture and interactive policy simulation. No build step is required. See
 [showcase/README.md](showcase/README.md) for the local preview command and simulation boundaries.
->>>>>>> theirs
 
 ## Building
 
