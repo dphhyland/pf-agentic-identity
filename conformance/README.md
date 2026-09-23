@@ -102,7 +102,7 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 | Plan | Variant | Result |
 |---|---|---|
 | `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED |
-| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23, with the `/ssf/events:emit` servlet from branch `conformance/caep-interop`) |
+| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet from branch `conformance/caep-interop`) |
 | `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 49 PASSED, 4 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-21) |
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:
