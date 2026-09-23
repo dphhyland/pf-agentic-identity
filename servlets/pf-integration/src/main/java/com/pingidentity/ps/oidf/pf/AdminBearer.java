@@ -2,7 +2,7 @@ package com.pingidentity.ps.oidf.pf;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
-import javax.servlet.ServletConfig;
+import jakarta.servlet.ServletConfig;
 
 /**
  * The static bearer token guarding this module's operator endpoints.

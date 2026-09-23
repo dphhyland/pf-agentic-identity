@@ -1,8 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.pf.AdminBearer;
-import javax.servlet.ServletException;
-import javax.servlet.ServletConfig;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
@@ -12,10 +12,10 @@ import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.servlet.annotation.WebServlet;
-import javax.servlet.http.HttpServlet;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.annotation.WebServlet;
+import jakarta.servlet.http.HttpServlet;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.domain.Client;

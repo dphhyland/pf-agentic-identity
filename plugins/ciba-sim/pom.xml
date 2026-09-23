@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>ciba-sim</artifactId>
-    <version>0.1.4</version>
+    <version>0.2.0</version>
     <packaging>jar</packaging>
 
     <name>ciba-sim</name>
@@ -33,7 +33,7 @@
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.1.4</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.2.0</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -44,7 +44,7 @@
              inherited, so it is declared here as instance-registry-datasource does. -->
         <dependency><groupId>local.pingfederate</groupId><artifactId>commons-lang3</artifactId><version>3.x</version><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
-        <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
 
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>

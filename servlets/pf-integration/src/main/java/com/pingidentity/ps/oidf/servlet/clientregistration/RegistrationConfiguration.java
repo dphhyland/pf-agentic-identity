@@ -3,7 +3,7 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 import java.util.ArrayList;
 import java.util.Set;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
-import javax.servlet.ServletConfig;
+import jakarta.servlet.ServletConfig;
 
 /**
  * Immutable per-component configuration for the client-registration servlet and filters: the

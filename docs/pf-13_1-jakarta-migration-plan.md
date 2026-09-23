@@ -1,9 +1,12 @@
 # PingFederate 13.1 and the Jakarta migration - plan
 
-**Status: the migration itself has NOT been done.** No source, pom, workflow or Dockerfile has
-changed, and nothing is compiled against `jakarta.servlet`. Two files came with the plan:
-`tools/pf-linkcheck.py`, the checker behind the linkage evidence (wired into no build), and a pointer
-to this plan in the root `README.md`.
+**Status: done, 2026-09-24, as steps 1-5 below describe** - the rename (58 files: the plan's 46 plus
+the CIBA rig's), the coordinates, the plugin's tests on the `Builder`, both descriptors, the
+workflows, the `FROM` line, and `tools/pf-linkcheck.py` in CI. 0.2.0 is the first `jakarta.servlet`
+version. `mvn clean verify` against the real 13.1.3 jars: 1392 tests, 0 failures, 4 skipped, every
+gate passing; the link checker reports 0 unresolved on 13.1.3 and 59 on 13.0.3. Step 6 (a booted
+13.1.3) is recorded in `conformance/README.md`; steps 0 (the `v0.1.4` tag and `pf-13.0` branch) and
+7 (moving the consumers) are for whoever pushes.
 
 **Landed since (2026-09-22), both from [step 0](#the-steps):** the namespace guard, in
 `assemble-pf-runtime-war.sh` - correct on both lines, and guarding a hazard that exists today, which

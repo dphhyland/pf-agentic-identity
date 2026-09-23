@@ -19,11 +19,11 @@ import java.util.HashMap;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import java.util.Map;
 import java.util.UUID;
-import javax.servlet.FilterChain;
-import javax.servlet.ServletException;
-import javax.servlet.ServletRequest;
-import javax.servlet.http.HttpServletRequest;
-import javax.servlet.http.HttpServletResponse;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.ServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.jose4j.jwk.EcJwkGenerator;
 import org.jose4j.jwk.EllipticCurveJsonWebKey;
 import org.jose4j.jwk.JsonWebKey;
@@ -272,7 +272,7 @@ class ClientAttestationAuthFilterTest {
         ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter();
         filter.init(null);
         HttpServletRequest req = requestWithoutAttestation();
-        javax.servlet.http.HttpServletResponse resp = mock(javax.servlet.http.HttpServletResponse.class);
+        jakarta.servlet.http.HttpServletResponse resp = mock(jakarta.servlet.http.HttpServletResponse.class);
         FilterChain chain = mock(FilterChain.class);
 
         filter.doFilter(req, resp, chain);

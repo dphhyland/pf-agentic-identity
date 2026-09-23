@@ -6,7 +6,7 @@ package com.pingidentity.ps.oidf.federation;
 
 import java.util.ArrayList;
 import java.util.List;
-import javax.servlet.ServletConfig;
+import jakarta.servlet.ServletConfig;
 
 /**
  * Capability lists advertised under {@code metadata.openid_provider} for attestation-based client

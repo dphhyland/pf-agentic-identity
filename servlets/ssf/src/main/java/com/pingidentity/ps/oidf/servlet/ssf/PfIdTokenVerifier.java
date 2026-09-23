@@ -4,7 +4,7 @@ import com.pingidentity.access.JwksEndpointKeyAccessor;
 import com.pingidentity.ps.oidf.ssf.SubjectId;
 import java.util.List;
 import java.util.Set;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwa.AlgorithmConstraints;

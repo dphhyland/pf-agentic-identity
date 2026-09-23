@@ -14,16 +14,16 @@
   token itself, against PingFederate's own signing keys via JwksEndpointKeyAccessor.
   A container-managed constraint would be a second, weaker answer to the same question.
 
-  Servlet 3.1 matches what PingFederate's own WARs declare (see pf-ws.war). Jetty EE8
+  Servlet 5.0 (jakarta) matches what PingFederate 13.1's own WARs declare (see pf-ws.war). Jetty EE9
   parses this descriptor at deploy time and refuses the context if it is not
   well-formed, so keep it boring. Note that a double hyphen is illegal inside an XML
   comment and will silently take the whole context down.
 -->
-<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+<web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee http://xmlns.jcp.org/xml/ns/javaee/web-app_3_1.xsd"
+         xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd"
          metadata-complete="false"
-         version="3.1">
+         version="5.0">
 
   <display-name>Grant Management API</display-name>
 

@@ -1,6 +1,6 @@
 # Running PingFederate from this repo
 
-This directory turns a clone of this repo into a running PingFederate 13.0.3 with every module in it,
+This directory turns a clone of this repo into a running PingFederate 13.1.3 with every module in it,
 configured to pass the [OpenID Foundation conformance suite](https://www.certification.openid.net/)'s
 FAPI 2.0 and Shared Signals plans. It is the repo's own PingFederate configuration - the demo and deploy
 repos consume it; nothing here depends on them.
@@ -32,7 +32,7 @@ listener on 9080 and the admin console on 9999 (`administrator`, password in `.a
 | Step | Script | Produces |
 |---|---|---|
 | 1 | `gen-keys.sh` | `keys/` - key pairs for the suite's three clients (PF gets the public halves; the suite gets the private); `secrets.env` - a test-user password and two client secrets |
-| 2 | `author.sh` | a **stock** PF 13.0.3 container with its admin API on `localhost:29999`, the cipher-list overlay staged |
+| 2 | `author.sh` | a **stock** PF 13.1.3 container with its admin API on `localhost:29999`, the cipher-list overlay and the CIBA plugin staged |
 | 3 | `apply.sh apply` | `terraform/` applied to it: OAuth server settings, a JWT access token manager and mappings, an OIDC policy, a login form and test user, the clients (below) |
 | 4 | `export.sh` | `data.zip` - PF's config archive, its whole saved state; refused if it would fail the suite |
 | 5 | `mvn package` + `stage-modules.sh` | the module jars, from this repo |
@@ -111,10 +111,11 @@ refused request object's `error_description` is jose4j's whole explanation with 
 in it - U+202F, the narrow no-break space, before "PM" - which RFC 6749 §5.2's character set excludes:
 `OAuthErrorDescriptionFilter` brings a 4xx's description inside the set and touches nothing else.
 
-**Staying on 13.0.3 is not a choice.** PingFederate 13.1 moved to `jakarta.servlet`, and the modules are
-compiled against `javax.servlet`: on a 13.1.3 base image the merged `pf-runtime.war` fails to start at
-all. Until the modules are migrated ([docs/pf-13_1-jakarta-migration-plan.md](../docs/pf-13_1-jakarta-migration-plan.md)),
-13.0.x is the ceiling.
+**13.1.3 is the base, and it is `jakarta.servlet`.** The modules moved with it (0.2.0;
+[docs/pf-13_1-jakarta-migration-plan.md](../docs/pf-13_1-jakarta-migration-plan.md)). Two things that
+were true of 13.0.3 still are: it has no certificate-bound access tokens, and it accepts RS256 on a
+DPoP proof. 13.1 does add `Rfc7523bisCompliantAudienceVerification`, off on an upgraded archive; it is
+not set here, and `Fapi2ProfileFilter` still carries the audience rule until it is.
 
 ## What the suite says, and what it does not
 
@@ -124,19 +125,19 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 |---|---|---|
 | `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED |
 | `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet from branch `conformance/caep-interop`) |
-| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 49 PASSED, 4 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-21) |
-| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, local replica) - all three on one PingFederate 13.x product gap, below |
+| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3) |
+| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike) - all three on one PingFederate 13.x product gap, below |
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:
 
 - **WARNING** on discovery - PF publishes vendor metadata the suite does not know.
 - **WARNING** on authorization-code reuse - PF refuses the second use, as required, but does not also
   revoke the token the first use produced, which the profile only says it should.
-- **REVIEW** on four `request_uri` modules - PF answers a reused, expired or foreign `request_uri`
+- **REVIEW** on three `request_uri` modules - PF answers a reused, expired or foreign `request_uri`
   with an HTTP 400 error *page*, not a redirect. The suite accepts a picture of the page and asks a
-  person to look at it. One of the four is a recommendation 13.0.3 does not follow: it spends a
-  `request_uri` when the authorization page is loaded rather than when the user authorizes
-  (FAPI 2.0 §5.3.2.2 NOTE 3).
+  person to look at it. (A fourth was REVIEW on 13.0.3, which spent a `request_uri` when the
+  authorization page was loaded rather than when the user authorized; 13.1.3 follows FAPI 2.0
+  §5.3.2.2 NOTE 3 and that module now PASSES.)
 - **SKIPPED** on the claims-parameter module - not supported, not advertised, so not tested.
 
 And for FAPI-CIBA, three **FAILED** modules that no configuration and no filter can turn, because

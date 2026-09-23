@@ -16,7 +16,7 @@ import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
 import com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator;
 import java.util.List;
 import java.util.Map;
-import javax.servlet.ServletConfig;
+import jakarta.servlet.ServletConfig;
 import org.junit.jupiter.api.AfterEach;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;

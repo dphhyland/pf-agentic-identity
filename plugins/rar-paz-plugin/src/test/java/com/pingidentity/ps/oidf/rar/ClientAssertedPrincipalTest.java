@@ -13,7 +13,7 @@ import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -60,7 +60,8 @@ class ClientAssertedPrincipalTest {
         when(request.getParameter("login_hint")).thenReturn(loginHint);
         when(request.getAttribute("com.pingidentity.ps.oidf.rar.resource_owner_sub"))
                 .thenReturn(authenticatedAttribute);
-        return new AuthorizationDetailContext(request, "agent-client", null);
+        // A jakarta request goes in; the plugin's javax code reads it through PF's own ee8 bridge.
+        return new AuthorizationDetailContext.Builder().withRequest(request).withClientId("agent-client").build();
     }
 
     private void permit() throws Exception {

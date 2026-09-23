@@ -53,7 +53,8 @@ class AttestationAwareRarProcessorTest {
     }
 
     private static AuthorizationDetailContext context() {
-        return new AuthorizationDetailContext(null, "agent-client", null);
+        // 13.1: the public constructor is forRemoval; the Builder is the way in
+        return new AuthorizationDetailContext.Builder().withClientId("agent-client").build();
     }
 
     @Test

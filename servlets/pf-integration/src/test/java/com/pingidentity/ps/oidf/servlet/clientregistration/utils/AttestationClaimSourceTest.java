@@ -13,7 +13,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;

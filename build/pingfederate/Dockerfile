@@ -1,4 +1,4 @@
-# OIDF demo AS — stock PingFederate 13.0.3 + the pf-oidf-modules attestation/federation module ONLY.
+# OIDF demo AS — stock PingFederate 13.1.3 (jakarta.servlet) + the pf-oidf-modules attestation/federation module ONLY.
 #
 # This is the ISOLATED deploy context for pingfederate-runtime (Railway project 2a226db6). It is the
 # minus-RAR variant of idp-paz-authzen-adapter/demo/pingfederate/Dockerfile: it drops the agentic
@@ -31,7 +31,7 @@
 #   PING_IDENTITY_DEVOPS_KEY=<devops key>    (SECRET — never in git)
 # Trade-off: DevOps eval licenses are short-lived (~7 days) and re-fetched only at container start.
 
-FROM pingidentity/pingfederate:13.0.3-alpine_3.23.4-al21-latest
+FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest
 USER root
 
 # Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that

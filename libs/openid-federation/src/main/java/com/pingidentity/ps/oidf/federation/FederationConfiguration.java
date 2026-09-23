@@ -3,7 +3,7 @@ package com.pingidentity.ps.oidf.federation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import javax.servlet.ServletConfig;
+import jakarta.servlet.ServletConfig;
 
 /**
  * Immutable configuration for the trust-anchor federation servlet: trust anchor issuers,

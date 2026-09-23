@@ -85,7 +85,7 @@ with history; consumes this repo as a sibling checkout).
 conformance/up.sh
 ```
 
-One command from a clone to a PingFederate 13.0.3 with every module in it on `https://localhost:9031`,
+One command from a clone to a PingFederate 13.1.3 with every module in it on `https://localhost:9031`,
 configured as code (Terraform) to pass the OpenID Foundation conformance suite's FAPI 2.0 and Shared
 Signals plans. You bring your own licence details - your Ping DevOps credentials in
 `~/.pingidentity/config`; the image bakes no licence and the repo commits nothing licensed or secret.
@@ -108,9 +108,10 @@ The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.0.0.3) ar
 public `pingidentity/pingfederate` image — see `.github/workflows/build.yml` for the exact steps, or
 run its `install:install-file` lines once locally. Nothing licensed or secret is committed.
 
-Those jars also pin this repo to PingFederate **13.0.x**. 13.1 moved its servlet container to
-`jakarta.servlet`, so bumping the base image is a migration, not a version change - an image built
-on 13.1.3 boots to a 503. What has to move, what does not, and the evidence for both:
+Those jars pin this repo to PingFederate **13.1.x**, whose servlet container is `jakarta.servlet`.
+From 0.2.0 every servlet, filter and war here is compiled against it, and the artifacts do not load
+on 13.0.x; `v0.1.4` is the last release for that line. The two SDK plugins are the exception and
+still link on both, through the bridge PF ships. What moved, what did not, and the evidence:
 [docs/pf-13_1-jakarta-migration-plan.md](docs/pf-13_1-jakarta-migration-plan.md).
 
 ## Provenance
