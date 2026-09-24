@@ -76,6 +76,33 @@ public final class FederationRuntimeConfig {
      * than passed on for PingFederate to refuse (or, for a client registered before, to accept) without it.
      */
     public static final String AUTO_REGISTRATION_FAIL_CLOSED_ENV = "OIDF_AUTO_REGISTRATION_FAIL_CLOSED";
+    /** Automatic registration at the authorization and PAR endpoints (OpenID Federation 1.0 §12.1.1): default true. */
+    public static final String AUTO_REGISTRATION_FRONT_CHANNEL_ENV = "OIDF_AUTO_REGISTRATION_FRONT_CHANNEL";
+    /**
+     * How a refusal at the authorization endpoint is answered: {@code page} (default), this module's error page -
+     * never a redirect (§12.1.3) - or {@code passthrough}, leaving the request to PingFederate's own error handling.
+     */
+    public static final String AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV = "OIDF_AUTO_REGISTRATION_AUTHZ_ERROR_MODE";
+    /**
+     * {@code allow} (default) or {@code refuse} registration from an encrypted request object. Only its header can be
+     * read before PingFederate decrypts it, so its claims are checked, and its signature verified, only by
+     * PingFederate, after the client is registered.
+     */
+    public static final String AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV = "OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS";
+    /** The scopes an RP that declares none is registered with (default {@code openid}). */
+    public static final String AUTO_REGISTRATION_DEFAULT_SCOPES_ENV = "OIDF_AUTO_REGISTRATION_DEFAULT_SCOPES";
+    /** Every RP registered at the front channel must use PAR (default false; an RP can ask for it in its metadata). */
+    public static final String AUTO_REGISTRATION_REQUIRE_PAR_ENV = "OIDF_AUTO_REGISTRATION_REQUIRE_PAR";
+    /** Every RP registered at the front channel must use PKCE (default true). */
+    public static final String AUTO_REGISTRATION_REQUIRE_PKCE_ENV = "OIDF_AUTO_REGISTRATION_REQUIRE_PKCE";
+    /** The largest request object or client assertion read for registration, in bytes (default 65536). */
+    public static final String AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV = "OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES";
+    /** How many registrations may be resolved at once across all clients (default 8); more are answered 503. */
+    public static final String AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV = "OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS";
+    /** How long a request waits for another registration of the same client to finish, in ms (default 2000). */
+    public static final String AUTO_REGISTRATION_LOCK_WAIT_MS_ENV = "OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS";
+    /** A file holding the HTML page a refusal at the authorization endpoint is shown with; unset uses a built-in page. */
+    public static final String FEDERATION_ERROR_PAGE_ENV = "OIDF_FEDERATION_ERROR_PAGE";
 
     /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
@@ -106,6 +133,16 @@ public final class FederationRuntimeConfig {
     private static final String REGISTRATION_EXPIRY_ENFORCEMENT_PROP = "oidf.registration.expiry.enforcement";
     private static final String REGISTRATION_SWEEP_INTERVAL_PROP = "oidf.registration.sweep.interval.seconds";
     private static final String AUTO_REGISTRATION_FAIL_CLOSED_PROP = "oidf.auto.registration.fail.closed";
+    private static final String AUTO_REGISTRATION_FRONT_CHANNEL_PROP = "oidf.auto.registration.front.channel";
+    private static final String AUTO_REGISTRATION_AUTHZ_ERROR_MODE_PROP = "oidf.auto.registration.authz.error.mode";
+    private static final String AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_PROP = "oidf.auto.registration.encrypted.request.objects";
+    private static final String AUTO_REGISTRATION_DEFAULT_SCOPES_PROP = "oidf.auto.registration.default.scopes";
+    private static final String AUTO_REGISTRATION_REQUIRE_PAR_PROP = "oidf.auto.registration.require.par";
+    private static final String AUTO_REGISTRATION_REQUIRE_PKCE_PROP = "oidf.auto.registration.require.pkce";
+    private static final String AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_PROP = "oidf.auto.registration.max.request.object.bytes";
+    private static final String AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_PROP = "oidf.auto.registration.max.concurrent.resolutions";
+    private static final String AUTO_REGISTRATION_LOCK_WAIT_MS_PROP = "oidf.auto.registration.lock.wait.ms";
+    private static final String FEDERATION_ERROR_PAGE_PROP = "oidf.federation.error.page";
 
     /** What happens to an expired registration that cannot be renewed. */
     public enum ExpiryEnforcement {
@@ -142,6 +179,38 @@ public final class FederationRuntimeConfig {
         }
     }
 
+    /**
+     * Automatic registration at the authorization and PAR endpoints, and the limits on registration work any
+     * unauthenticated request can start.
+     *
+     * @param frontChannel               whether the authorization and PAR endpoints register at all
+     * @param pageOnAuthorizationError   answer a refusal at the authorization endpoint with the error page (else pass it on)
+     * @param allowEncryptedRequestObjects register from a request object only PingFederate can decrypt
+     * @param defaultScopes              what an RP that declares no {@code scope} is registered with
+     * @param requirePar                 register every front-channel RP as PAR-only
+     * @param requirePkce                register every front-channel RP as PKCE-only
+     * @param maxRequestObjectBytes      the largest request object or client assertion read
+     * @param maxConcurrentResolutions   registrations resolved at once, across all clients
+     * @param lockWaitMillis             how long a request waits for another registration of the same client
+     * @param errorPage                  the file the error page is rendered from, or null for the built-in page
+     */
+    public record AutoRegistrationSettings(boolean frontChannel, boolean pageOnAuthorizationError, boolean allowEncryptedRequestObjects,
+                                           String defaultScopes, boolean requirePar, boolean requirePkce, int maxRequestObjectBytes,
+                                           int maxConcurrentResolutions, long lockWaitMillis, String errorPage) {
+
+        public static final AutoRegistrationSettings DEFAULTS =
+                new AutoRegistrationSettings(true, true, true, "openid", false, true, 65_536, 8, 2_000L, null);
+
+        public AutoRegistrationSettings {
+            if (maxRequestObjectBytes < 1 || maxConcurrentResolutions < 1 || lockWaitMillis < 0) {
+                throw new IllegalStateException(AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV + " and "
+                        + AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV + " must be at least 1, and "
+                        + AUTO_REGISTRATION_LOCK_WAIT_MS_ENV + " must not be negative");
+            }
+            defaultScopes = defaultScopes == null || defaultScopes.isBlank() ? "openid" : defaultScopes.trim();
+        }
+    }
+
     private static volatile FederationRuntimeConfig instance;
 
     private final String trustControllerHost;
@@ -155,13 +224,15 @@ public final class FederationRuntimeConfig {
     private final boolean requireAttesterBinding;
     private final List<String> deprecationWarnings;
     private final RegistrationSettings registration;
+    private final AutoRegistrationSettings autoRegistration;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
-            RegistrationSettings registration) {
+            RegistrationSettings registration, AutoRegistrationSettings autoRegistration) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
+        this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -239,7 +310,38 @@ public final class FederationRuntimeConfig {
                 // impersonate at the bridge.
                 requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding),
                 deprecations,
-                registrationSettings(env, props));
+                registrationSettings(env, props),
+                autoRegistrationSettings(env, props));
+    }
+
+    private static AutoRegistrationSettings autoRegistrationSettings(Function<String, String> env, Function<String, String> props) {
+        AutoRegistrationSettings d = AutoRegistrationSettings.DEFAULTS;
+        String errorMode = blankToNull(setting(env, props, AUTO_REGISTRATION_AUTHZ_ERROR_MODE_PROP, AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV));
+        if (errorMode != null && !errorMode.equalsIgnoreCase("page") && !errorMode.equalsIgnoreCase("passthrough")) {
+            throw new IllegalStateException(AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV + " must be page or passthrough, not " + errorMode);
+        }
+        String encrypted = blankToNull(setting(env, props, AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_PROP, AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV));
+        if (encrypted != null && !encrypted.equalsIgnoreCase("allow") && !encrypted.equalsIgnoreCase("refuse")) {
+            throw new IllegalStateException(AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV + " must be allow or refuse, not " + encrypted);
+        }
+        return new AutoRegistrationSettings(
+                bool(env, props, AUTO_REGISTRATION_FRONT_CHANNEL_PROP, AUTO_REGISTRATION_FRONT_CHANNEL_ENV, d.frontChannel()),
+                errorMode == null ? d.pageOnAuthorizationError() : errorMode.equalsIgnoreCase("page"),
+                encrypted == null ? d.allowEncryptedRequestObjects() : encrypted.equalsIgnoreCase("allow"),
+                blankToNull(setting(env, props, AUTO_REGISTRATION_DEFAULT_SCOPES_PROP, AUTO_REGISTRATION_DEFAULT_SCOPES_ENV)),
+                bool(env, props, AUTO_REGISTRATION_REQUIRE_PAR_PROP, AUTO_REGISTRATION_REQUIRE_PAR_ENV, d.requirePar()),
+                bool(env, props, AUTO_REGISTRATION_REQUIRE_PKCE_PROP, AUTO_REGISTRATION_REQUIRE_PKCE_ENV, d.requirePkce()),
+                (int) seconds(env, props, AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_PROP, AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV,
+                        d.maxRequestObjectBytes()),
+                (int) seconds(env, props, AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_PROP, AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV,
+                        d.maxConcurrentResolutions()),
+                seconds(env, props, AUTO_REGISTRATION_LOCK_WAIT_MS_PROP, AUTO_REGISTRATION_LOCK_WAIT_MS_ENV, d.lockWaitMillis()),
+                blankToNull(setting(env, props, FEDERATION_ERROR_PAGE_PROP, FEDERATION_ERROR_PAGE_ENV)));
+    }
+
+    private static boolean bool(Function<String, String> env, Function<String, String> props, String prop, String var, boolean fallback) {
+        String value = blankToNull(setting(env, props, prop, var));
+        return value == null ? fallback : strictBoolean(value, var);
     }
 
     private static RegistrationSettings registrationSettings(Function<String, String> env, Function<String, String> props) {
@@ -280,7 +382,7 @@ public final class FederationRuntimeConfig {
         try {
             return Long.parseLong(value);
         } catch (NumberFormatException e) {
-            throw new IllegalStateException(var + " must be a whole number of seconds, not " + value);
+            throw new IllegalStateException(var + " must be a whole number, not " + value);
         }
     }
 
@@ -424,6 +526,11 @@ public final class FederationRuntimeConfig {
     }
 
     /** How long federation registrations live, and what happens when they end (§12.3). */
+    /** Automatic registration at the front channel, and the limits on registration work. */
+    public AutoRegistrationSettings autoRegistration() {
+        return this.autoRegistration;
+    }
+
     public RegistrationSettings registration() {
         return this.registration;
     }

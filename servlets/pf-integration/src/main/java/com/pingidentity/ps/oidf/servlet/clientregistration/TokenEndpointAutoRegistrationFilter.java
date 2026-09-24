@@ -112,20 +112,15 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
                     + " trust anchor's keys are pinned (§4: they are distributed out of band, not fetched)"));
             return;
         }
-        int cacheMaxEntries = parseInt(config.getInitParameter("subordinateStatementCacheMaxEntries"), 256);
-        long trustChainEntryMaxAge = parseLong(config.getInitParameter("trustChainEntryMaxAgeSeconds"), 60L);
-        Set<String> acceptedSigningAlgorithms = parseCsv(config.getInitParameter("acceptedSigningAlgorithms"));
-        RegistrationConfiguration configuration = new RegistrationConfiguration(runtime.trustControllerHost(),
-                runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(), cacheMaxEntries, trustChainEntryMaxAge,
-                "RS256", acceptedSigningAlgorithms);
         // Building the service builds the validator, and the validator needs the anchor's out-of-band
         // keys (FederationRuntimeConfig.trustAnchor). No trust controller at all, or a JWKS that is set
         // but is not a usable public key set, is a deployment error that no request can fix: refuse to
         // start, naming what to set. (The "no trust controller" case already failed init before the
         // anchor keys existed - the old validator constructor threw on a blank anchor - but as an
-        // unchecked exception, which a container does not reliably surface from init.)
+        // unchecked exception, which a container does not reliably surface from init.) So is an init-param
+        // that does not parse: it used to mean the default, quietly.
         try {
-            this.service = new RegistrationService(configuration);
+            this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
         }
         catch (RuntimeException e) {
             throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
@@ -164,9 +159,14 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
                 return;
             }
             // RFC 6749 §5.2: a client whose federation registration cannot stand has failed client
-            // authentication; one whose federation cannot be reached right now may try again.
-            boolean transport = e.isTransport();
-            OAuthErrorWriter.write(httpResponse, transport ? 503 : 401, transport ? "temporarily_unavailable" : "invalid_client",
+            // authentication; one whose federation cannot be reached right now, or that arrived while this
+            // server was busy registering, may try again.
+            boolean retryable = e.isRetryable();
+            if (retryable) {
+                httpResponse.setHeader("Retry-After", e.kind() == RegistrationRejectedException.Kind.BUSY ? "2"
+                        : Long.toString(RegistrationService.TRANSPORT_FAILURE_BACKOFF_SECONDS));
+            }
+            OAuthErrorWriter.write(httpResponse, retryable ? 503 : 401, retryable ? "temporarily_unavailable" : "invalid_client",
                     e.getMessage());
             return;
         }
@@ -233,41 +233,4 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
 
-    private static int parseInt(String value, int fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        }
-        catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private static long parseLong(String value, long fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Long.parseLong(value.trim());
-        }
-        catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private static Set<String> parseCsv(String value) {
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        ArrayList<String> result = new ArrayList<String>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result.isEmpty() ? Set.of() : Set.copyOf(result);
-    }
 }

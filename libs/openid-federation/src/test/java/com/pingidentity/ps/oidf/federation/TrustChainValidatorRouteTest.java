@@ -218,6 +218,41 @@ class TrustChainValidatorRouteTest {
         assertEquals(3, decoys.stream().filter(d -> g.http().hitsStartingWith(d) > 0).count(), "three hints followed, no more");
     }
 
+    /** A request may spend less than the validator allows - down to nothing, for a chain someone else handed over. */
+    @Test
+    @Requirement({"OIDFED §18.1(3)", "OIDFED §18.1(5)"})
+    void aRequestCanValidateThePresentedStatementsAlone() {
+        Federation f = threeLevels();
+
+        TrustChainValidationResult complete = f.validator(TA).validate(request().presentedChain(f.chain(LEAF, TA)).maxFetches(0).build());
+        assertEquals(0, complete.fetchesUsed());
+
+        List<String> partial = f.chain(LEAF, TA).subList(0, 2);
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
+                () -> f.validator(TA).validate(request().presentedChain(partial).maxFetches(0).build()));
+        assertEquals(Kind.BUDGET, e.kind(), e.getMessage());
+        assertEquals(List.of(), f.http().requests(), "nothing fetched for either");
+        assertEquals(-1, request().build().maxFetches(), "the validator's own limit unless the request says less");
+    }
+
+    @Test
+    void aRequestCannotSpendMoreThanTheValidatorAllows() {
+        Federation.Builder builder = Federation.builder().anchor(TA);
+        List<String> hints = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            String decoy = "https://decoy-" + i + ".example";
+            builder.intermediate(decoy);
+            hints.add(decoy);
+        }
+        Federation f = builder.leaf(LEAF, hints.toArray(new String[0])).build();
+
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
+                () -> f.validator(ValidatorOptions.defaults().withMaxFetches(3), TA).validate(request().maxFetches(50).build()));
+
+        assertEquals(Kind.BUDGET, e.kind(), e.getMessage());
+        assertTrue(e.getMessage().contains("budget of 3"), e.getMessage());
+    }
+
     @Test
     @Requirement("OIDFED §18.1(3)")
     void theFetchBudgetStopsTheWholeValidation() {

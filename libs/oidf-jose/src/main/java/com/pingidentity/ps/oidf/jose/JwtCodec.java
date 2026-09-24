@@ -151,6 +151,45 @@ public final class JwtCodec {
     }
 
     /**
+     * Verifies the signature of a JWS and nothing else: no claim is required or checked, so the caller applies its
+     * own rules to the claims this returns. That is for a JWT whose rules the statement verifiers above would get
+     * wrong - an OpenID Federation request object, for one, MUST NOT carry {@code sub} (§12.1.1.1), which they
+     * require. The key is the one the {@code kid} header names exactly, or, with no {@code kid}, whichever of
+     * {@code keys} verifies. {@code none} and MAC algorithms are refused whatever {@code acceptedAlgorithms} says,
+     * and so is any algorithm outside it when it is not empty.
+     */
+    public static JwtClaims verifySignature(String jwt, List<JsonWebKey> keys, Set<String> acceptedAlgorithms) throws JwtVerificationException {
+        Map<String, Object> headers = getJwtHeaders(jwt);
+        Object alg = headers.get("alg");
+        if (!(alg instanceof String algorithm) || algorithm.isBlank() || "none".equalsIgnoreCase(algorithm)
+                || algorithm.toUpperCase(java.util.Locale.ROOT).startsWith("HS")
+                || acceptedAlgorithms != null && !acceptedAlgorithms.isEmpty() && !acceptedAlgorithms.contains(algorithm)) {
+            throw new JwtVerificationException(JwtVerificationException.Reason.ALGORITHM);
+        }
+        JwtConsumerBuilder builder = new JwtConsumerBuilder()
+                .setSkipAllDefaultValidators()
+                .setJwsAlgorithmConstraints(new AlgorithmConstraints(AlgorithmConstraints.ConstraintType.PERMIT, algorithm));
+        if (headers.get("kid") != null) {
+            builder.setVerificationKey(verificationKeyOf(selectByKid(keys, requireKid(headers))));
+        } else {
+            List<JsonWebKey> asymmetric = new ArrayList<>();
+            for (JsonWebKey key : keys == null ? List.<JsonWebKey>of() : keys) {
+                if (key instanceof PublicJsonWebKey) {
+                    asymmetric.add(key);
+                }
+            }
+            JwksVerificationKeyResolver resolver = new JwksVerificationKeyResolver(asymmetric);
+            resolver.setDisambiguateWithVerifySignature(true);
+            builder.setVerificationKeyResolver(resolver);
+        }
+        try {
+            return builder.build().processToClaims(jwt);
+        } catch (InvalidJwtException e) {
+            throw translate(e);
+        }
+    }
+
+    /**
      * Verifies a Client Attestation PoP JWT against the public key bound in the attestation's
      * {@code cnf} claim. Per draft-ietf-oauth-attestation-based-client-auth, a PoP JWT carries
      * {@code aud}, {@code jti} and {@code iat} (but no {@code exp}); freshness of {@code iat} is the

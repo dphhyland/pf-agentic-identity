@@ -106,6 +106,19 @@ public final class RegistrationConfiguration {
         }
     }
 
+    /**
+     * For a filter in front of PingFederate's OAuth endpoints: the deployment-wide trust controller, and this filter's
+     * own sizing from its init-params - parsed as strictly as the registration servlet's, so a typo stops the filter
+     * starting rather than quietly meaning the default.
+     */
+    static RegistrationConfiguration forFilter(FederationRuntimeConfig runtime, jakarta.servlet.FilterConfig config) {
+        return new RegistrationConfiguration(runtime.trustControllerHost(), runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(),
+                parseCacheMaxEntries(config.getInitParameter(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM)),
+                parseTrustChainEntryMaxAge(config.getInitParameter(TRUST_CHAIN_ENTRY_MAX_AGE_PARAM)),
+                DEFAULT_SIGNING_ALGORITHM,
+                parseAcceptedSigningAlgorithms(config.getInitParameter("acceptedSigningAlgorithms")));
+    }
+
     private static Set<String> parseAcceptedSigningAlgorithms(String value) {
         if (value == null || value.isBlank()) {
             return Set.of();

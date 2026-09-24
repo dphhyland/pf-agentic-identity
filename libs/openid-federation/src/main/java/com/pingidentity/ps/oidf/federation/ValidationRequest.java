@@ -22,6 +22,7 @@ public final class ValidationRequest {
     private final long maxAnchorAgeSeconds;
     private final long maxPresentedEntryAgeSeconds;
     private final boolean includeAnchorConfiguration;
+    private final int maxFetches;
 
     private ValidationRequest(Builder b) {
         this.subject = b.subject;
@@ -33,6 +34,7 @@ public final class ValidationRequest {
         this.maxAnchorAgeSeconds = b.maxAnchorAgeSeconds;
         this.maxPresentedEntryAgeSeconds = b.maxPresentedEntryAgeSeconds;
         this.includeAnchorConfiguration = b.includeAnchorConfiguration;
+        this.maxFetches = b.maxFetches;
     }
 
     /** @param subject the Entity Identifier of the Trust Chain subject (§4.1) */
@@ -92,6 +94,16 @@ public final class ValidationRequest {
         return this.includeAnchorConfiguration;
     }
 
+    /**
+     * At most this many fetches for this request, within the validator's own limit; -1 (the default) is the
+     * validator's limit. 0 validates the presented statements alone - nothing fetched, nothing from cache - which
+     * is how a chain handed over by someone other than its subject is checked without letting them choose what
+     * this server fetches.
+     */
+    public int maxFetches() {
+        return this.maxFetches;
+    }
+
     public static final class Builder {
         private final String subject;
         private List<String> presentedChain = List.of();
@@ -102,6 +114,7 @@ public final class ValidationRequest {
         private long maxAnchorAgeSeconds = -1L;
         private long maxPresentedEntryAgeSeconds = -1L;
         private boolean includeAnchorConfiguration;
+        private int maxFetches = -1;
 
         private Builder(String subject) {
             this.subject = Objects.requireNonNull(subject, "subject");
@@ -157,6 +170,11 @@ public final class ValidationRequest {
 
         public Builder includeAnchorConfiguration(boolean include) {
             this.includeAnchorConfiguration = include;
+            return this;
+        }
+
+        public Builder maxFetches(int fetches) {
+            this.maxFetches = fetches;
             return this;
         }
 

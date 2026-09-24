@@ -1,29 +1,26 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
-import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
-import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
-import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.FederationException;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
-import com.pingidentity.ps.oidf.federation.event.FederationEvents;
-import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
-import com.pingidentity.ps.oidf.jose.JwtCodec;
-import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
-import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
-import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import com.pingidentity.ps.oidf.federation.SubordinateStatementCache;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.ValidationRequest;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
-import java.time.Clock;
-import java.util.ArrayList;
-import java.util.Arrays;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
+import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -36,22 +33,25 @@ import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.lang.JoseException;
 import org.sourceid.oauth20.domain.Client;
-import org.sourceid.oauth20.domain.ClientAuthenticationType;
 import org.sourceid.oauth20.domain.ParamValues;
 
 /**
  * OpenID Federation 1.0 §12 client registration on PingFederate: explicit registration (§12.2), automatic
- * registration at the token endpoint (§12.1), and the lifetime every registration has (§12.3).
+ * registration (§12.1) at the token endpoint and - for an RP - at the authorization and PAR endpoints, and the
+ * lifetime every registration has (§12.3).
  *
  * <p>Order matters and is the whole point: the trust chain is validated first; only then is the client
  * store consulted, and a client this module did not register (no {@code status} extended parameter - a
  * console or Terraform client) is never modified.
  *
  * <p>Every registration records when it ends: the earlier of its chain's expiry and the deployment's maximum
- * ({@link RegistrationLifetime}). An automatically registered client is renewed at the token endpoint as it
- * nears that time ({@link #admit}); an explicitly registered one is renewed by its RP registering again, as
- * §12.3 says. What an expired registration that cannot be renewed gets is the deployment's choice:
- * {@link ExpiryEnforcement}.
+ * ({@link RegistrationLifetime}). An automatically registered client is renewed as it nears that time
+ * ({@link #admit}); an explicitly registered one is renewed by its RP registering again, as §12.3 says. What an
+ * expired registration that cannot be renewed gets is the deployment's choice: {@link ExpiryEnforcement}.
+ *
+ * <p>Automatic registration starts from a request nobody has authenticated, so a chain it presents is only ever
+ * validated on its own, fetching nothing: if it does not validate as it stands, the federation's own answer - by
+ * discovery from the client's own Entity Configuration - is what counts, never statements a stranger chose.
  */
 final class RegistrationService {
     static final String STATUS_REGISTERED = "registered";
@@ -64,32 +64,36 @@ final class RegistrationService {
     /** A failed attempt is not repeated with the same hint for this long: the request that triggers it is unauthenticated. */
     static final long TRUST_FAILURE_BACKOFF_SECONDS = 60L;
     static final long TRANSPORT_FAILURE_BACKOFF_SECONDS = 15L;
+    /** A chain that validated is used again for this long (or until it expires), so repeating a request repeats no fetch. */
+    static final long RESOLUTION_REUSE_SECONDS = 60L;
     private static final int ATTEMPT_MEMORY = 4096;
+    private static final int RESOLUTION_MEMORY = 1024;
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
+    static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
+
     private final RegistrationConfiguration configuration;
     private final TrustChainValidator trustChainValidator;
     private final ClientStore clientStore;
     private final SigningKeyProvider signingKeyProvider;
     private final RegistrationLifetime lifetime;
+    private final RpKeyMaterial rpKeyMaterial;
+    private final RegistrationCoordinator coordinator;
+    private final Channel tokenChannel = new TokenChannel();
     /**
      * Recent attempts: a failure under its client and hint, so a caller's bad chain never stands in for the client's
      * own or for discovery, and a success under its client alone.
      */
-    private final Map<String, Attempt> recentAttempts = java.util.Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
-        @Override
-        protected boolean removeEldestEntry(Map.Entry<String, Attempt> eldest) {
-            return this.size() > ATTEMPT_MEMORY;
-        }
-    });
-    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
-    static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
+    private final Map<String, Attempt> recentAttempts = lru(ATTEMPT_MEMORY);
+    /** Chains that validated, under the same keys, with the RP keys resolved from them. */
+    private final Map<String, Resolution> resolutions = lru(RESOLUTION_MEMORY);
 
-    /** What the token endpoint may do with a request naming a client. */
+    /** What the endpoint may do with a request naming a client. */
     enum Admission {
-        /** Not a client this module registered, and no chain to register one from: PingFederate decides. */
+        /** Not a client this module registered, and nothing to register one from: PingFederate decides. */
         NOT_FEDERATION,
         /** A federation client whose registration is current. */
         CURRENT,
-        /** Registered now, from the chain the request presented. */
+        /** Registered now. */
         REGISTERED,
         /** Renewed now: its chain validated again and the registration's life was extended. */
         RENEWED,
@@ -103,11 +107,23 @@ final class RegistrationService {
     private record Attempt(long at, RegistrationRejectedException failure) {
     }
 
+    /** A chain that validated, and the keys resolved from it once they were needed. */
+    private static final class Resolution {
+        private final long at;
+        private final TrustChainValidationResult validation;
+        private volatile RpKeyMaterial.Keys keys;
+
+        private Resolution(long at, TrustChainValidationResult validation) {
+            this.at = at;
+            this.validation = validation;
+        }
+    }
+
     /**
      * The production wiring. The anchors' keys come from {@link FederationRuntimeConfig#trustAnchors()}
      * - the same deployment-wide source the configuration's host came from - so a deployment that has
      * not pinned them fails at init, here, rather than at the first chain. A chain registers through
-     * whichever pinned anchor it reaches.
+     * whichever pinned anchor it reaches. An RP's own key sets are fetched through the outbound URL policy.
      */
     RegistrationService(RegistrationConfiguration configuration) {
         this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
@@ -120,16 +136,30 @@ final class RegistrationService {
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore, SigningKeyProvider signingKeyProvider) {
         this(configuration, trustChainValidator, clientStore, signingKeyProvider,
-                new RegistrationLifetime(FederationRuntimeConfig.get().registration(), Clock.systemUTC()));
+                new RegistrationLifetime(FederationRuntimeConfig.get().registration(), java.time.Clock.systemUTC()));
     }
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore,
                         SigningKeyProvider signingKeyProvider, RegistrationLifetime lifetime) {
+        this(configuration, trustChainValidator, clientStore, signingKeyProvider, lifetime,
+                new RpKeyMaterial(new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment()), lifetime.clock()),
+                coordinatorFor(FederationRuntimeConfig.get().autoRegistration()));
+    }
+
+    RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore,
+                        SigningKeyProvider signingKeyProvider, RegistrationLifetime lifetime, RpKeyMaterial rpKeyMaterial,
+                        RegistrationCoordinator coordinator) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.trustChainValidator = Objects.requireNonNull(trustChainValidator, "trustChainValidator");
         this.clientStore = Objects.requireNonNull(clientStore, "clientStore");
         this.signingKeyProvider = signingKeyProvider;
         this.lifetime = Objects.requireNonNull(lifetime, "lifetime");
+        this.rpKeyMaterial = Objects.requireNonNull(rpKeyMaterial, "rpKeyMaterial");
+        this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+    }
+
+    static RegistrationCoordinator coordinatorFor(AutoRegistrationSettings settings) {
+        return new RegistrationCoordinator(settings.maxConcurrentResolutions(), settings.lockWaitMillis());
     }
 
     RegistrationLifetime lifetime() {
@@ -170,15 +200,15 @@ final class RegistrationService {
         requireConstrainedByPolicy(validation, entityType, clientId);
         long expiresAt = this.lifetime.expiresAt(validation);
 
-        Map<String, Object> rpJwks = jwksOf(validation);
         LinkedHashMap<String, Object> registered = new LinkedHashMap<String, Object>(leafMetadata);
         registered.put("client_id", clientId);
         registered.put("client_id_issued_at", this.lifetime.now());
         // §12.2.3 SHOULD: the parameters that have a default, as registered.
         registered.putIfAbsent("token_endpoint_auth_method", "private_key_jwt");
         String signedJwt = this.buildSignedRegistrationResponse(opIssuer, rpSubject, trustAnchorIssuer, immediateSuperior(validation),
-                rpJwks, entityType, registered, expiresAt);
-        Client client = buildClient(clientId, leafMetadata, rpJwks, validation.trustChain(), STATUS_REGISTERED, expiresAt, trustAnchorIssuer, entityType);
+                jwksOf(validation), entityType, registered, expiresAt);
+        Client client = FederationClientBuilder.agent(clientId, leafMetadata, this.keysFor(entityType, leafMetadata, validation, clientId),
+                new FederationClientBuilder.Provenance(STATUS_REGISTERED, validation.trustChain(), expiresAt, trustAnchorIssuer, entityType));
         this.store(client, existing);
         if (existing != null) {
             LOGGER.info((Object)("Refreshed federation client " + clientId + " via explicit registration (trust anchor " + trustAnchorIssuer + ")"));
@@ -186,63 +216,34 @@ final class RegistrationService {
             LOGGER.info((Object)("Explicitly registered federation client " + clientId + " (trust anchor " + trustAnchorIssuer + ")"));
         }
         this.registrationEvent(existing == null ? FederationEvents.REGISTRATION_CREATED : FederationEvents.REGISTRATION_REFRESHED,
-                clientId, trustAnchorIssuer, "explicit", entityType, expiresAt, existing, client);
+                clientId, trustAnchorIssuer, "explicit", "registration", entityType, expiresAt, existing, client);
         return new RegisteredClient(clientId, rpSubject, trustAnchorIssuer, validation.trustChain(), registered, STATUS_REGISTERED, signedJwt, expiresAt);
     }
 
     // ---- automatic registration (§12.1) and renewal (§12.3) -------------------------------------------------
 
-    /**
-     * §12.1 automatic registration: the chain validated - from {@code presented} when the request carried one,
-     * by discovery when it did not - and the client provisioned just-in-time from its resolved metadata, or
-     * refreshed in place when this module registered it automatically before.
-     *
-     * @throws RegistrationRejectedException when the chain does not validate, the entity does not advertise
-     *                                       {@code automatic}, or its metadata cannot become a client here
-     */
-    private void registerAutomatically(List<String> presented, String clientId, String opIssuer, Client existing) throws Exception {
-        TrustChainValidationResult validation = this.validate(ValidationRequest.forSubject(clientId)
-                .presentedChain(presented)
-                .opIssuer(opIssuer)
-                .maxPresentedEntryAgeSeconds(this.configuration.trustChainEntryMaxAgeSeconds())
-                .build());
-        String entityType = clientEntityType(validation, OAUTH_CLIENT);
-        Map<String, Object> leafMetadata = federationClientMetadata(validation, entityType, clientId);
-        requireRegistrationType(leafMetadata, clientId, "automatic");
-        requireConstrainedByPolicy(validation, entityType, clientId);
-        long expiresAt = this.lifetime.expiresAt(validation);
-        Client client = buildClient(clientId, leafMetadata, jwksOf(validation), validation.trustChain(), STATUS_AUTO, expiresAt,
-                validation.trustAnchorIssuer(), entityType);
-        this.store(client, existing);
-        if (existing != null) {
-            // An auto-registered client is wholly derived from its (just re-validated) trust chain, so a
-            // chain presenting new keys/metadata refreshes the record — this is how §12.1 key rotation
-            // works: the federation, not the stored copy, is the authority.
-            LOGGER.info((Object)("Refreshed auto-registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
-        } else {
-            // The demo's activity panel parses this line; keep its wording.
-            LOGGER.info((Object)("Automatically registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
-        }
-        this.registrationEvent(existing == null ? FederationEvents.REGISTRATION_CREATED : FederationEvents.REGISTRATION_REFRESHED,
-                clientId, validation.trustAnchorIssuer(), "automatic", entityType, expiresAt, existing, client);
+    /** {@link #admit(String, List, String, Channel)} at the token endpoint. */
+    Admission admit(String clientId, List<String> hint, String opIssuer) throws Exception {
+        return this.admit(clientId, hint, opIssuer, this.tokenChannel);
     }
 
     /**
-     * What the token endpoint does with a request naming {@code clientId}, before PingFederate authenticates
-     * it. The request is not authenticated yet, so nothing here trusts it: the chain it presents is only ever
-     * a hint, validated like any other; a presented chain that fails never costs a client its current
-     * registration, and never stands in for the client's own attempts.
+     * What an endpoint does with a request naming {@code clientId}, before PingFederate authenticates it. The request
+     * is not authenticated yet, so nothing here trusts it: the chain it presents is only ever a hint, validated on
+     * its own; a presented chain that fails never costs a client its current registration, and never stands in for
+     * the client's own attempts.
      *
      * <ul>
-     *   <li>No such client: registered automatically from the presented chain, or left to PingFederate when
-     *       there is none.</li>
+     *   <li>No such client: registered automatically - from the presented chain, else by discovery where the
+     *       channel allows it (the front channel does; the token endpoint registers only a client that presents a
+     *       chain). Otherwise left to PingFederate.</li>
      *   <li>A client this module did not register: left to PingFederate.</li>
      *   <li>An explicit registration: current until it expires; after that only its RP can renew it, by
      *       registering again (§12.3), and the expiry is enforced.</li>
      *   <li>An automatic registration: renewed when it nears expiry, or when the request presents a newer Entity
-     *       Configuration with different keys or metadata - the notice of a change §12.5 describes. A renewal
-     *       that fails before expiry leaves the registration standing; after expiry the chain is tried again by
-     *       discovery, and if that fails too the expiry is enforced.</li>
+     *       Configuration with different keys or metadata - the notice of a change §12.5 describes. A notice renews
+     *       only from the chain it came with; a renewal that is due falls back to discovery. One that fails before
+     *       expiry leaves the registration standing; after expiry the expiry is enforced.</li>
      * </ul>
      *
      * <p>A failed attempt is not repeated with the same hint within its backoff, a registration renewed in the
@@ -252,18 +253,14 @@ final class RegistrationService {
      *
      * @throws RegistrationRejectedException when the request must be refused
      */
-    Admission admit(String clientId, List<String> hint, String opIssuer) throws Exception {
+    Admission admit(String clientId, List<String> hint, String opIssuer, Channel channel) throws Exception {
         List<String> presented = hint == null ? List.of() : hint;
         Client existing = this.clientStore.get(clientId);
         if (existing == null) {
-            if (presented.isEmpty()) {
+            if (presented.isEmpty() && !channel.discoversUnknownClients()) {
                 return Admission.NOT_FEDERATION;
             }
-            RegistrationRejectedException recent = this.recentFailure(clientId, presented);
-            if (recent != null) {
-                throw recent;
-            }
-            this.register(presented, clientId, opIssuer, null);
+            this.register(presented, clientId, opIssuer, null, channel, true);
             return Admission.REGISTERED;
         }
         String status = extendedParamValue(existing, FederationClientParams.STATUS);
@@ -281,51 +278,140 @@ final class RegistrationService {
                     RegistrationRejectedException.Kind.TRUST, null));
         }
         boolean changed = presentsChange(presented, existing, clientId);
-        if (!expired && !changed && (!this.lifetime.isDueForRenewal(expiresAt) || this.renewedRecently(clientId))) {
+        boolean due = this.lifetime.isDueForRenewal(expiresAt);
+        if (!expired && !changed && (!due || this.renewedRecently(clientId))) {
             return Admission.CURRENT;
         }
         List<String> renewFrom = predatesRegistration(presented, existing, clientId) ? List.of() : presented;
-        RegistrationRejectedException reason = this.recentFailure(clientId, renewFrom);
-        if (reason == null) {
-            try {
-                this.register(renewFrom, clientId, opIssuer, existing);
-                return Admission.RENEWED;
-            } catch (RegistrationRejectedException e) {
-                reason = e;
-                if (!expired) {
+        boolean known = this.recentFailure(clientId, renewFrom) != null;
+        try {
+            this.register(renewFrom, clientId, opIssuer, existing, channel, due);
+            return Admission.RENEWED;
+        } catch (RegistrationRejectedException e) {
+            if (e.kind() == RegistrationRejectedException.Kind.REQUEST || expired && e.kind() == RegistrationRejectedException.Kind.BUSY) {
+                throw e;
+            }
+            if (!expired) {
+                if (!known && e.concernsTheClient()) {
                     FederationEvents.event(FederationEvents.REGISTRATION_REFRESH_DEFERRED).failure(kindCode(e)).subject(clientId)
-                            .role("OP").description(e.getMessage()).emit();
+                            .role("OP").field("endpoint", channel.endpoint()).description(e.getMessage()).emit();
                 }
+                return Admission.DEFERRED;
             }
+            return this.enforceExpiry(existing, clientId, e);
         }
-        if (!expired) {
-            return Admission.DEFERRED;
-        }
-        if (!renewFrom.isEmpty()) {
-            // The presented chain is the caller's; the federation's own answer is what counts.
-            RegistrationRejectedException byDiscovery = this.recentFailure(clientId, List.of());
-            if (byDiscovery == null) {
-                try {
-                    this.register(List.of(), clientId, opIssuer, existing);
-                    return Admission.RENEWED;
-                } catch (RegistrationRejectedException e) {
-                    byDiscovery = e;
-                }
-            }
-            reason = byDiscovery;
-        }
-        return this.enforceExpiry(existing, clientId, reason);
     }
 
-    /** Registers or renews {@code clientId} from {@code hint} (empty: by discovery), remembering how it went. */
-    private void register(List<String> hint, String clientId, String opIssuer, Client existing) throws Exception {
+    /**
+     * Registers or renews {@code clientId}. A presented chain is validated on its own, fetching nothing; when that
+     * fails and {@code discover} allows, by discovery from the client's own Entity Configuration. Runs alone among
+     * registrations of the client, and first checks another request has not just done it.
+     */
+    private void register(List<String> hint, String clientId, String opIssuer, Client existing, Channel channel, boolean discover)
+            throws Exception {
+        channel.precheck();
+        this.coordinator.register(clientId, () -> {
+            if (!sameRecord(this.clientStore.get(clientId), existing)) {
+                return;
+            }
+            if (!hint.isEmpty()) {
+                RegistrationRejectedException presented = this.attempt(hint, 0, clientId, opIssuer, existing, channel);
+                if (presented == null) {
+                    return;
+                }
+                if (!discover) {
+                    throw presented;
+                }
+            }
+            RegistrationRejectedException discovered = this.attempt(List.of(), -1, clientId, opIssuer, existing, channel);
+            if (discovered != null) {
+                throw discovered;
+            }
+        });
+    }
+
+    /**
+     * One attempt from {@code hint} (empty: discovery) with at most {@code maxFetches} fetches (-1: the validator's
+     * limit). Null when it registered; its failure otherwise, remembered when it concerns the client. A failure of
+     * the request itself - its proof - is thrown: no chain would change it.
+     */
+    private RegistrationRejectedException attempt(List<String> hint, int maxFetches, String clientId, String opIssuer, Client existing,
+                                                  Channel channel) throws Exception {
+        RegistrationRejectedException recent = this.recentFailure(clientId, hint);
+        if (recent != null) {
+            return recent;
+        }
         try {
-            this.registerAutomatically(hint, clientId, opIssuer, existing);
+            this.registerFrom(hint, maxFetches, clientId, opIssuer, existing, channel);
         } catch (RegistrationRejectedException e) {
+            if (!e.concernsTheClient()) {
+                throw e;
+            }
             this.recentAttempts.put(failureKey(clientId, hint), new Attempt(this.lifetime.now(), e));
-            throw e;
+            return e;
         }
         this.recentAttempts.put(renewalKey(clientId), new Attempt(this.lifetime.now(), null));
+        return null;
+    }
+
+    private void registerFrom(List<String> hint, int maxFetches, String clientId, String opIssuer, Client existing, Channel channel)
+            throws Exception {
+        Resolution resolution = this.resolution(clientId, hint, maxFetches, opIssuer);
+        TrustChainValidationResult validation = resolution.validation;
+        String entityType = channel.entityType(validation);
+        Map<String, Object> leafMetadata = federationClientMetadata(validation, entityType, clientId);
+        requireRegistrationType(leafMetadata, clientId, "automatic");
+        requireConstrainedByPolicy(validation, entityType, clientId);
+        long expiresAt = this.lifetime.expiresAt(validation);
+        RpKeyMaterial.Keys keys = resolution.keys;
+        if (keys == null) {
+            keys = channel.keys(leafMetadata, validation, entityType, clientId);
+            resolution.keys = keys;
+        }
+        Client client = channel.build(clientId, leafMetadata, keys,
+                new FederationClientBuilder.Provenance(STATUS_AUTO, validation.trustChain(), expiresAt, validation.trustAnchorIssuer(), entityType));
+        channel.beforeStore(keys);
+        this.store(client, existing);
+        if (existing != null) {
+            // An auto-registered client is wholly derived from its (just re-validated) trust chain, so a
+            // chain presenting new keys/metadata refreshes the record — this is how §12.1 key rotation
+            // works: the federation, not the stored copy, is the authority.
+            LOGGER.info((Object)("Refreshed auto-registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
+        } else {
+            // The demo's activity panel parses this line; keep its wording.
+            LOGGER.info((Object)("Automatically registered federation client " + clientId + " (trust anchor " + validation.trustAnchorIssuer() + ")"));
+        }
+        this.registrationEvent(existing == null ? FederationEvents.REGISTRATION_CREATED : FederationEvents.REGISTRATION_REFRESHED,
+                clientId, validation.trustAnchorIssuer(), "automatic", channel.endpoint(), entityType, expiresAt, existing, client);
+    }
+
+    /** The chain for {@code clientId} from {@code hint}: one that validated moments ago, or validated now. */
+    private Resolution resolution(String clientId, List<String> hint, int maxFetches, String opIssuer) throws RegistrationRejectedException {
+        String key = failureKey(clientId, hint);
+        long now = this.lifetime.now();
+        Resolution kept = this.resolutions.get(key);
+        // No expiry check needed here: a registration from it still has to outlive RegistrationLifetime's minimum.
+        if (kept != null && now - kept.at < RESOLUTION_REUSE_SECONDS) {
+            return kept;
+        }
+        TrustChainValidationResult validation = this.validate(ValidationRequest.forSubject(clientId)
+                .presentedChain(hint)
+                .opIssuer(opIssuer)
+                .maxPresentedEntryAgeSeconds(this.configuration.trustChainEntryMaxAgeSeconds())
+                .maxFetches(maxFetches)
+                .build());
+        Resolution fresh = new Resolution(now, validation);
+        this.resolutions.put(key, fresh);
+        return fresh;
+    }
+
+    /** Whether the client is as it was when the request found it - not registered, renewed or replaced meanwhile. */
+    static boolean sameRecord(Client now, Client before) {
+        if (now == null || before == null) {
+            return now == before;
+        }
+        return RegistrationLifetime.storedExpiry(now).equals(RegistrationLifetime.storedExpiry(before))
+                && Objects.equals(firstChainEntry(now), firstChainEntry(before));
     }
 
     private Admission enforceExpiry(Client existing, String clientId, RegistrationRejectedException reason) throws RegistrationRejectedException {
@@ -343,9 +429,9 @@ final class RegistrationService {
             FederationEvents.event(FederationEvents.REGISTRATION_DISABLED).subject(clientId).role("OP").audit()
                     .description("expired and not renewed").emit();
         }
-        boolean transport = reason.isTransport();
-        throw new RegistrationRejectedException(transport ? 503 : 401, transport ? "temporarily_unavailable" : "invalid_client",
-                transport ? "the client's federation registration has expired and its trust chain cannot be checked right now"
+        boolean retryable = reason.isRetryable();
+        throw new RegistrationRejectedException(retryable ? 503 : 401, retryable ? "temporarily_unavailable" : "invalid_client",
+                retryable ? "the client's federation registration has expired and its trust chain cannot be checked right now"
                         : "the client's federation registration has expired and could not be renewed: " + reason.getMessage(),
                 reason.kind(), reason);
     }
@@ -356,7 +442,7 @@ final class RegistrationService {
      */
     static void disableExpired(ClientStore store, Client client, long now) {
         Map<String, ParamValues> params = client.getExtendedParams() == null ? new HashMap<>() : new HashMap<>(client.getExtendedParams());
-        addParamValue(params, FederationClientParams.DISABLED_AT, Long.toString(now));
+        FederationClientBuilder.addParamValue(params, FederationClientParams.DISABLED_AT, Long.toString(now));
         client.setExtendedParams(params);
         store.disable(client);
     }
@@ -403,6 +489,15 @@ final class RegistrationService {
         }
     }
 
+    private static <V> Map<String, V> lru(int capacity) {
+        return java.util.Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+            @Override
+            protected boolean removeEldestEntry(Map.Entry<String, V> eldest) {
+                return this.size() > capacity;
+            }
+        });
+    }
+
     /**
      * Whether the presented chain gives notice of a change (§12.5): its first statement is {@code clientId}'s own
      * Entity Configuration, issued after the one the registration was built from, with other keys or metadata.
@@ -447,6 +542,157 @@ final class RegistrationService {
         return iat instanceof Number number ? number.longValue() : Long.MIN_VALUE;
     }
 
+    // ---- channels -----------------------------------------------------------------------------------------
+
+    /** How an automatic registration arrives, and what that path adds to it. */
+    interface Channel {
+        /** For the audit record: {@code token}, {@code authorization} or {@code par}. */
+        String endpoint();
+
+        /** Whether a client this server has never seen is found by discovery when the request carries no chain. */
+        boolean discoversUnknownClients();
+
+        /** What can be checked before anything is fetched. */
+        void precheck() throws RegistrationRejectedException;
+
+        /** Which of the leaf's client metadata is registered. */
+        String entityType(TrustChainValidationResult validation) throws RegistrationRejectedException;
+
+        /** The keys the client is registered with. */
+        RpKeyMaterial.Keys keys(Map<String, Object> metadata, TrustChainValidationResult validation, String entityType, String clientId)
+                throws RegistrationRejectedException;
+
+        /** The client to store. */
+        Client build(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, FederationClientBuilder.Provenance provenance)
+                throws RegistrationRejectedException;
+
+        /** The last check before the store is written. */
+        void beforeStore(RpKeyMaterial.Keys keys) throws RegistrationRejectedException;
+    }
+
+    /**
+     * The token endpoint: an agent's {@code oauth_client} metadata when it has some, else an RP's. PingFederate
+     * authenticates the request itself, after this, with the keys registered here.
+     */
+    private final class TokenChannel implements Channel {
+        @Override
+        public String endpoint() {
+            return "token";
+        }
+
+        @Override
+        public boolean discoversUnknownClients() {
+            return false;
+        }
+
+        @Override
+        public void precheck() {
+        }
+
+        @Override
+        public String entityType(TrustChainValidationResult validation) {
+            return clientEntityType(validation, OAUTH_CLIENT);
+        }
+
+        @Override
+        public RpKeyMaterial.Keys keys(Map<String, Object> metadata, TrustChainValidationResult validation, String entityType, String clientId)
+                throws RegistrationRejectedException {
+            return RegistrationService.this.keysFor(entityType, metadata, validation, clientId);
+        }
+
+        @Override
+        public Client build(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, FederationClientBuilder.Provenance provenance) {
+            return FederationClientBuilder.agent(clientId, metadata, keys, provenance);
+        }
+
+        @Override
+        public void beforeStore(RpKeyMaterial.Keys keys) {
+        }
+    }
+
+    /**
+     * The authorization or PAR endpoint (§12.1.1): only an RP, registered with the keys it publishes for
+     * {@code openid_relying_party}, and only once the request has shown it holds one of them - checked before
+     * the store is written, so a request that cannot prove itself registers nothing.
+     */
+    Channel frontChannel(String endpoint, String clientId, String opIssuer, RequestObject proof, RegistrationRejectedException unreadableProof,
+                         RequestObject.ReplayGuard replay, AutoRegistrationSettings settings) {
+        return new FrontChannel(endpoint, clientId, opIssuer, proof, unreadableProof, replay, settings);
+    }
+
+    private final class FrontChannel implements Channel {
+        private final String endpoint;
+        private final String clientId;
+        private final String opIssuer;
+        private final RequestObject proof;
+        private final RegistrationRejectedException unreadableProof;
+        private final RequestObject.ReplayGuard replay;
+        private final AutoRegistrationSettings settings;
+
+        private FrontChannel(String endpoint, String clientId, String opIssuer, RequestObject proof, RegistrationRejectedException unreadableProof,
+                             RequestObject.ReplayGuard replay, AutoRegistrationSettings settings) {
+            this.endpoint = endpoint;
+            this.clientId = clientId;
+            this.opIssuer = opIssuer;
+            this.proof = proof;
+            this.unreadableProof = unreadableProof;
+            this.replay = replay;
+            this.settings = settings;
+        }
+
+        @Override
+        public String endpoint() {
+            return this.endpoint;
+        }
+
+        @Override
+        public boolean discoversUnknownClients() {
+            return true;
+        }
+
+        @Override
+        public void precheck() throws RegistrationRejectedException {
+            if (this.unreadableProof != null) {
+                throw this.unreadableProof;
+            }
+            if (this.proof == null) {
+                throw RegistrationRejectedException.request(400, "invalid_request", "registering a client here needs a signed request object"
+                        + " or, at the PAR endpoint, a client assertion, to show it holds the RP's keys (OpenID Federation 1.0 §12.1.1)");
+            }
+            if (this.proof.encrypted() && !this.settings.allowEncryptedRequestObjects()) {
+                throw RegistrationRejectedException.request(400, "invalid_request_object",
+                        "an encrypted request object cannot register a client here; send it signed only, or use PAR");
+            }
+            this.proof.checkProfile(this.clientId, this.opIssuer, RegistrationService.this.lifetime.now(), this.settings.maxRequestObjectBytes());
+        }
+
+        @Override
+        public String entityType(TrustChainValidationResult validation) throws RegistrationRejectedException {
+            if (validation.metadataFor(RELYING_PARTY).isEmpty()) {
+                throw new RegistrationRejectedException(400, "invalid_client_metadata", this.clientId
+                        + " has no openid_relying_party metadata, which is what registers here (OpenID Federation 1.0 §12.1.1.1.2)");
+            }
+            return RELYING_PARTY;
+        }
+
+        @Override
+        public RpKeyMaterial.Keys keys(Map<String, Object> metadata, TrustChainValidationResult validation, String entityType, String clientId)
+                throws RegistrationRejectedException {
+            return RegistrationService.this.rpKeyMaterial.resolve(metadata, jwksOf(validation), clientId);
+        }
+
+        @Override
+        public Client build(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, FederationClientBuilder.Provenance provenance)
+                throws RegistrationRejectedException {
+            return FederationClientBuilder.relyingParty(clientId, metadata, keys, provenance, this.settings, this.proof.kind(), this.proof.algorithm());
+        }
+
+        @Override
+        public void beforeStore(RpKeyMaterial.Keys keys) throws RegistrationRejectedException {
+            this.proof.verify(keys.verificationKeys(), this.clientId, this.replay, RegistrationService.this.lifetime.now());
+        }
+    }
+
     // ---- shared ------------------------------------------------------------------------------------------
 
     private TrustChainValidationResult validate(ValidationRequest request) throws RegistrationRejectedException {
@@ -460,12 +706,34 @@ final class RegistrationService {
     }
 
     /**
+     * The keys a client is registered with. An RP that publishes keys for {@code openid_relying_party} is registered
+     * with them (§5.2.1, §12.1.1.2.1). An agent authenticates with its Federation Entity Keys - the attestation bridge
+     * signs with them - and so does an RP that publishes no keys of its own, as it was registered before 0.3.0.
+     */
+    private RpKeyMaterial.Keys keysFor(String entityType, Map<String, Object> metadata, TrustChainValidationResult validation, String clientId)
+            throws RegistrationRejectedException {
+        if (RELYING_PARTY.equals(entityType)
+                && (metadata.containsKey("jwks") || metadata.containsKey("signed_jwks_uri") || metadata.containsKey("jwks_uri"))) {
+            return this.rpKeyMaterial.resolve(metadata, jwksOf(validation), clientId);
+        }
+        return new RpKeyMaterial.Keys(List.of(), org.jose4j.json.JsonUtil.toJson(jwksOf(validation)), null, "federation");
+    }
+
+    /**
      * Writes a freshly derived client over the old one. A client this module disabled because its registration
-     * expired comes back enabled; one disabled by anyone else - an operator - stays disabled.
+     * expired comes back enabled; one disabled by anyone else - an operator - stays disabled. A new client that
+     * another server registered first is left as that server wrote it.
      */
     private void store(Client client, Client existing) {
         if (existing == null) {
-            this.clientStore.add(client);
+            try {
+                this.clientStore.add(client);
+            } catch (RuntimeException e) {
+                if (this.clientStore.get(client.getClientId()) == null) {
+                    throw e;
+                }
+                LOGGER.info((Object)("Federation client " + client.getClientId() + " was registered by another server first; keeping that"));
+            }
             return;
         }
         if (!existing.isEnabled()) {
@@ -483,13 +751,13 @@ final class RegistrationService {
      * The audit record of a registration written. A refresh - §12.2.2's "that registration MUST be invalidated",
      * met by replacing it whole - also says when the old one would have ended and whether the keys changed.
      */
-    private void registrationEvent(String code, String clientId, String anchor, String type, String entityType, long expiresAt,
-                                   Client previous, Client written) {
+    private void registrationEvent(String code, String clientId, String anchor, String type, String endpoint, String entityType,
+                                   long expiresAt, Client previous, Client written) {
         com.pingidentity.ps.oidf.federation.event.FederationEvent.Builder event = FederationEvents.event(code).subject(clientId).partner(anchor).role("OP")
-                .field("type", type).field("entity_type", entityType).field("expires_at", expiresAt).audit();
+                .field("type", type).field("endpoint", endpoint).field("entity_type", entityType).field("expires_at", expiresAt).audit();
         if (previous != null) {
             RegistrationLifetime.storedExpiry(previous).ifPresent(p -> event.field("previous_expires_at", p));
-            event.field("keys_changed", !sameKeys(previous.getJwks(), written.getJwks()));
+            event.field("keys_changed", !sameKeys(previous.getJwks(), written.getJwks()) || !Objects.equals(previous.getJwksUrl(), written.getJwksUrl()));
         }
         event.emit();
     }
@@ -635,153 +903,8 @@ final class RegistrationService {
         return this.signingKeyProvider != null ? this.signingKeyProvider : new PfJwksSigningKeyProvider(this.configuration.signingAlgorithm());
     }
 
-    private static Client buildClient(String clientId, Map<String, Object> metadata, Map<String, Object> jwks, List<String> trustChain,
-                                      String status, long expiresAt, String trustAnchor, String entityType) throws Exception {
-        Client client = new Client();
-        Map<String, Object> oidcRPMetadata = metadata;
-        String tokenEndpointAuthMethod = metadataString(oidcRPMetadata, "token_endpoint_auth_method");
-        boolean attestationAuth = "attest_jwt_client_auth".equals(tokenEndpointAuthMethod) || "attest_jwt_client_auth_dpop".equals(tokenEndpointAuthMethod);
-        // PingFederate has no native attest_jwt_client_auth type. It used to be mapped to NONE - a
-        // PUBLIC client - on the theory that ClientAttestationAuthFilter and the OGNL issuance
-        // criterion would authenticate it instead. But the filter passes through when no bridge key is
-        // configured, and no environment in this repo sets one, so that composition produced
-        // JIT-registered clients PF would accept with no credential at all. Attestation clients are
-        // now PRIVATE_KEY_JWT authenticated by their OWN registered keys: the filter mints an assertion
-        // under the client's own key (BridgeSigners), so PF's native authenticator makes the decision,
-        // and a client with no signing key configured simply cannot authenticate (fail closed) rather
-        // than authenticating trivially.
-        client.setClientAuthnType(ClientAuthenticationType.PRIVATE_KEY_JWT);
-        // The client's own registered JWKS, unmodified. Nothing is injected here any more: the bridge
-        // signs with the key this client is ALREADY registered with, so there is no deployment key whose
-        // public half has to be merged in - and no ordering trap where a client registered before that
-        // key existed never carried it.
-        client.setJwks(OBJECT_MAPPER.writeValueAsString(jwks));
-        // String.valueOf(null) is the string "null", not null. Every one of these used to write that
-        // literal into PF whenever the leaf omitted the field - a client actually named "null", signing
-        // algorithms of "null", and (worst) a client restricted to a scope called "null", which is a
-        // scope no token will ever carry. metadataString is the null-safe reader; use it.
-        client.setName(metadataString(oidcRPMetadata, "client_name"));
-        // An oauth_client doing client_credentials legitimately has no redirect_uris / response_types,
-        // but PF's XML client store iterates these lists unguarded at save time — never pass null.
-        List redirectUris = (List)oidcRPMetadata.get("redirect_uris");
-        client.setRedirectUris(redirectUris != null ? redirectUris : new ArrayList<>());
-        List responseTypes = (List)oidcRPMetadata.get("response_types");
-        client.setRestrictedResponseTypes(responseTypes != null ? responseTypes : new ArrayList<>());
-        // The list alone restricts nothing: PingFederate consults restrictedResponseTypes only when
-        // restrictResponseTypes is set. Until this flag was set a federation client could use any response
-        // type the server allows, whatever its (policy-constrained) metadata said.
-        client.setRestrictResponseTypes(true);
-        List grantTypes = (List)oidcRPMetadata.get("grant_types");
-        client.setGrantTypes(grantTypes != null ? new HashSet(grantTypes) : new HashSet());
-        client.setTokenEndpointAuthSigningAlgorithm(metadataString(oidcRPMetadata, "token_endpoint_auth_signing_alg"));
-        client.setIdTokenSigningAlgorithm(metadataString(oidcRPMetadata, "id_token_signed_response_alg"));
-        client.setRequestObjectSigningAlgorithm(metadataString(oidcRPMetadata, "request_object_signing_alg"));
-        String scope = metadataString(oidcRPMetadata, "scope");
-        List<String> scopes = scope == null ? List.of()
-                : Arrays.stream(scope.trim().split(" +")).filter(s -> !s.isBlank()).toList();
-        client.setRestrictedScopes(scopes);
-        // Likewise for scopes: without the flag PF ignores the list and the client may request any scope the
-        // server defines - exactly what a superior's metadata_policy on `scope` exists to prevent. With it, a
-        // leaf that declares no scope may request none.
-        client.setRestrictScopes(true);
-        client.setBypassApprovalPage(bypassApprovalPage(grantTypes));
-        HashMap<String, ParamValues> extendedParams = new HashMap<String, ParamValues>();
-        // Every name written here must be declared in extended-properties.tf or PF rejects/drops it -
-        // see FederationClientParams, which both this and that file are checked against.
-        addParamValue(extendedParams, FederationClientParams.STATUS, status);
-        addParamValue(extendedParams, oidcRPMetadata, "application_type");
-        addParamValue(extendedParams, oidcRPMetadata, "subject_type");
-        addParamValue(extendedParams, oidcRPMetadata, "contacts");
-        addParamValues(extendedParams, "trust_chain", trustChain);
-        addParamValue(extendedParams, FederationClientParams.EXPIRES_AT, Long.toString(expiresAt));
-        addParamValue(extendedParams, FederationClientParams.TRUST_ANCHOR, trustAnchor);
-        addParamValue(extendedParams, FederationClientParams.ENTITY_TYPE, entityType);
-        if (attestationAuth) {
-            addParamValue(extendedParams, "token_endpoint_auth_method", tokenEndpointAuthMethod);
-            addParamValue(extendedParams, "attestation_required", "true");
-        }
-        client.setExtendedParams(extendedParams);
-        if (clientId != null) {
-            client.setClientId(clientId);
-        }
-        return client;
-    }
-
-    /**
-     * Whether to skip the approval page. Previously always true, which silently suppressed consent for
-     * every federation-registered client - including one running authorization_code with a real user in
-     * front of it.
-     *
-     * <p>The honest rule is whether there is anyone to ask. A client whose only grant is
-     * {@code client_credentials} acts with no resource owner present, so an approval page has no one to
-     * show and bypassing is correct. Any user-facing grant gets the page.
-     *
-     * <p>This is a behaviour change, in the safer direction: some clients that skipped consent will now
-     * ask for it. A deployment that genuinely wants consent suppressed for a user-facing client should
-     * configure that on the client in PF, where it is visible, rather than inherit it from a default
-     * that applied to everything.
-     */
-    private static boolean bypassApprovalPage(List<?> grantTypes) {
-        if (grantTypes == null || grantTypes.isEmpty()) {
-            return false;
-        }
-        for (Object g : grantTypes) {
-            if (!"client_credentials".equals(String.valueOf(g))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static String metadataString(Map<String, Object> oidcRPMetadata, String key) {
-        Object value = oidcRPMetadata.get(key);
-        return value == null ? null : String.valueOf(value);
-    }
-
-    private static void addParamValue(Map<String, ParamValues> extendedParams, Map<String, Object> oidcRPMetadata, String paramName) {
-        if (!oidcRPMetadata.containsKey(paramName)) {
-            return;
-        }
-        Object rpMetadataValue = oidcRPMetadata.get(paramName);
-        if (rpMetadataValue instanceof List) {
-            addParamValues(extendedParams, paramName, (List)rpMetadataValue);
-        } else {
-            String paramValue = String.valueOf(rpMetadataValue);
-            addParamValue(extendedParams, paramName, paramValue);
-        }
-    }
-
-    private static void addParamValue(Map<String, ParamValues> extendedParams, String paramName, String paramValue) {
-        ParamValues existing = extendedParams.get(paramName);
-        if (existing != null) {
-            existing.getElements().add(paramValue);
-            return;
-        }
-        ParamValues paramValues = new ParamValues();
-        ArrayList<String> elements = new ArrayList<String>();
-        elements.add(paramValue);
-        paramValues.setElements(elements);
-        extendedParams.put(paramName, paramValues);
-    }
-
-    /** First value of a client's extended param, or null when absent — the read twin of addParamValue. */
+    /** First value of a client's extended param, or null when absent. */
     static String extendedParamValue(Client client, String paramName) {
-        Map<String, ParamValues> params = client.getExtendedParams();
-        ParamValues values = params != null ? params.get(paramName) : null;
-        List<String> elements = values != null ? values.getElements() : null;
-        return elements != null && !elements.isEmpty() ? elements.get(0) : null;
-    }
-
-    private static void addParamValues(Map<String, ParamValues> extendedParams, String paramName, List<String> paramValues1) {
-        ParamValues existing = extendedParams.get(paramName);
-        if (existing != null) {
-            existing.getElements().addAll(paramValues1);
-            return;
-        }
-        ParamValues paramValues = new ParamValues();
-        ArrayList<String> elements = new ArrayList<String>();
-        elements.addAll(paramValues1);
-        paramValues.setElements(elements);
-        extendedParams.put(paramName, paramValues);
+        return FederationClientBuilder.extendedParamValue(client, paramName);
     }
 }

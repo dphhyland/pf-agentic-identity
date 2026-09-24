@@ -36,6 +36,10 @@ final class RegistrationLifetime {
         return this.clock.instant().getEpochSecond();
     }
 
+    Clock clock() {
+        return this.clock;
+    }
+
     /**
      * When a registration from this chain ends, in epoch seconds.
      *

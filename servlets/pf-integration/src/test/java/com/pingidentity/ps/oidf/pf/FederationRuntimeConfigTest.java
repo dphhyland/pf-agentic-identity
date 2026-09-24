@@ -129,4 +129,77 @@ class FederationRuntimeConfigTest {
         IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> of(env, Map.of()));
         assertTrue(e.getMessage().contains(named), e.getMessage());
     }
+
+    // ---- automatic registration at the front channel, and its limits ----------------------------------------
+
+    @Test
+    void autoRegistrationDefaultsAreOnPagedAndBounded() {
+        FederationRuntimeConfig.AutoRegistrationSettings a = of(Map.of(), Map.of()).autoRegistration();
+
+        assertEquals(FederationRuntimeConfig.AutoRegistrationSettings.DEFAULTS, a);
+        assertTrue(a.frontChannel());
+        assertTrue(a.pageOnAuthorizationError());
+        assertTrue(a.allowEncryptedRequestObjects());
+        assertEquals("openid", a.defaultScopes());
+        assertFalse(a.requirePar());
+        assertTrue(a.requirePkce());
+        assertEquals(65_536, a.maxRequestObjectBytes());
+        assertEquals(8, a.maxConcurrentResolutions());
+        assertEquals(2_000L, a.lockWaitMillis());
+        assertEquals(null, a.errorPage());
+    }
+
+    @Test
+    void autoRegistrationSettingsComeFromTheEnvironmentOrSystemProperties() {
+        FederationRuntimeConfig.AutoRegistrationSettings a = of(Map.of(
+                FederationRuntimeConfig.AUTO_REGISTRATION_FRONT_CHANNEL_ENV, "false",
+                FederationRuntimeConfig.AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV, "Passthrough",
+                FederationRuntimeConfig.AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV, "REFUSE",
+                FederationRuntimeConfig.AUTO_REGISTRATION_DEFAULT_SCOPES_ENV, "openid profile",
+                FederationRuntimeConfig.AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV, "2",
+                FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV, "/opt/error.html"), Map.of(
+                "oidf.auto.registration.require.par", "true",
+                "oidf.auto.registration.require.pkce", "false",
+                "oidf.auto.registration.max.request.object.bytes", "1024",
+                "oidf.auto.registration.lock.wait.ms", "0")).autoRegistration();
+
+        assertFalse(a.frontChannel());
+        assertFalse(a.pageOnAuthorizationError());
+        assertFalse(a.allowEncryptedRequestObjects());
+        assertEquals("openid profile", a.defaultScopes());
+        assertTrue(a.requirePar());
+        assertFalse(a.requirePkce());
+        assertEquals(1024, a.maxRequestObjectBytes());
+        assertEquals(2, a.maxConcurrentResolutions());
+        assertEquals(0L, a.lockWaitMillis());
+        assertEquals("/opt/error.html", a.errorPage());
+        assertEquals("openid", new FederationRuntimeConfig.AutoRegistrationSettings(true, true, true, " ", false, true, 1, 1, 0L, null)
+                .defaultScopes(), "blank scopes are the default");
+    }
+
+    @Test
+    void anAutoRegistrationSettingThatIsNotWhatItShouldBeRefusesToStart() {
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV, "redirect"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV, "maybe"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_FRONT_CHANNEL_ENV, "on"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_FRONT_CHANNEL_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV, "0"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV, "big"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_LOCK_WAIT_MS_ENV, "-1"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_LOCK_WAIT_MS_ENV);
+    }
+
+    @Test
+    void theDefaultValuesCanBeNamedOutright() {
+        FederationRuntimeConfig.AutoRegistrationSettings a = of(Map.of(
+                FederationRuntimeConfig.AUTO_REGISTRATION_AUTHZ_ERROR_MODE_ENV, "page",
+                FederationRuntimeConfig.AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS_ENV, "allow"), Map.of()).autoRegistration();
+
+        assertTrue(a.pageOnAuthorizationError());
+        assertTrue(a.allowEncryptedRequestObjects());
+    }
 }

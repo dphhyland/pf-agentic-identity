@@ -160,7 +160,8 @@ public final class TrustChainValidator {
         Objects.requireNonNull(request, "request");
         Claims.requireNonBlank(request.subject(), "subject");
         SubordinateStatementCache.PendingWrites pendingWrites = this.gateway.newPendingWrites();
-        FetchBudget budget = new FetchBudget(this.options.maxFetches());
+        int maxFetches = request.maxFetches() < 0 ? this.options.maxFetches() : Math.min(request.maxFetches(), this.options.maxFetches());
+        FetchBudget budget = new FetchBudget(maxFetches);
         TrustChainValidationResult result = new Run(request, budget, pendingWrites).execute();
         // Statements fetched on the way are cached only once the chain they belong to validated, so a
         // refused chain leaves nothing behind for the next caller.

@@ -442,6 +442,10 @@ class RegistrationServiceAdmitTest {
 
     // ---- a client the OP has not seen ----------------------------------------------------------------------
 
+    /**
+     * A first registration tries the presented chain on its own, then the federation's answer by discovery. Both
+     * failures are remembered, so the same request again costs nothing; another chain costs one attempt of its own.
+     */
     @Test
     void aFailedFirstRegistrationIsNotRepeatedWithTheSameChain() throws Exception {
         this.federation(List.of(), null, Kind.SIGNATURE, Kind.SIGNATURE);
@@ -451,10 +455,39 @@ class RegistrationServiceAdmitTest {
         RegistrationRejectedException first = assertThrows(RegistrationRejectedException.class, () -> service.admit(CLIENT_ID, chain, OP_ISSUER));
         RegistrationRejectedException second = assertThrows(RegistrationRejectedException.class, () -> service.admit(CLIENT_ID, chain, OP_ISSUER));
         assertSame(first, second);
-        verify(this.validator, times(1)).validate(any(ValidationRequest.class));
+        assertEquals(List.of(chain, List.of()), this.validated);
 
         assertThrows(RegistrationRejectedException.class, () -> service.admit(CLIENT_ID, this.chainIssued(1, NEW_KEYS), OP_ISSUER));
-        verify(this.validator, times(2)).validate(any(ValidationRequest.class));
+        assertEquals(3, this.validated.size(), "the new chain's own attempt; discovery is still remembered");
+    }
+
+    /** A chain someone presents is checked as it stands - nothing fetched on its say-so; discovery gets the full budget. */
+    @Test
+    @Requirement("OIDFED §18.1(5)")
+    void aPresentedChainIsValidatedOnItsOwnAndDiscoveryFromTheClientsOwnConfiguration() throws Exception {
+        this.federation(List.of(), null, Kind.SIGNATURE, Kind.SIGNATURE);
+        List<String> chain = this.chainIssued(5, RegistrationFixtures.JWKS);
+
+        assertThrows(RegistrationRejectedException.class, () -> this.service().admit(CLIENT_ID, chain, OP_ISSUER));
+
+        ArgumentCaptor<ValidationRequest> asked = ArgumentCaptor.forClass(ValidationRequest.class);
+        verify(this.validator, times(2)).validate(asked.capture());
+        assertEquals(chain, asked.getAllValues().get(0).presentedChain());
+        assertEquals(0, asked.getAllValues().get(0).maxFetches());
+        assertEquals(List.of(), asked.getAllValues().get(1).presentedChain());
+        assertEquals(-1, asked.getAllValues().get(1).maxFetches());
+    }
+
+    /** A notice of change renews a current registration only from its own chain: a forged one fetches nothing at all. */
+    @Test
+    void aNoticeThatDoesNotValidateOnItsOwnIsNotFollowedToDiscovery() throws Exception {
+        this.autoClient(this.in(3600), this.chainIssued(600, RegistrationFixtures.JWKS));
+        this.federation(this.chainIssued(1, RegistrationFixtures.JWKS), null, Kind.BUDGET, null);
+
+        assertEquals(Admission.DEFERRED, this.service().admit(CLIENT_ID, this.chainIssued(5, NEW_KEYS), OP_ISSUER));
+
+        assertEquals(1, this.validated.size(), "no discovery on a stranger's say-so");
+        assertEquals(List.of(), this.store.writes());
     }
 
     @Test

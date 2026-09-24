@@ -24,7 +24,14 @@ final class RegistrationRejectedException extends Exception {
         /** An entity in the chain could not be reached: worth retrying, and no evidence against the client. */
         TRANSPORT,
         /** A fault of ours. */
-        INTERNAL
+        INTERNAL,
+        /**
+         * The request itself - its request object, or the proof it offers - not the client's federation. Never held
+         * against the client: a stranger can send a bad request in anyone's name.
+         */
+        REQUEST,
+        /** Too much registration is under way to take this one now; worth retrying, and no evidence of anything. */
+        BUSY
     }
 
     private final int status;
@@ -40,6 +47,16 @@ final class RegistrationRejectedException extends Exception {
         this.status = status;
         this.error = error;
         this.kind = kind;
+    }
+
+    /** A refusal of the request itself ({@link Kind#REQUEST}), 400 unless it is a failed proof of the client's keys. */
+    static RegistrationRejectedException request(int status, String error, String description) {
+        return new RegistrationRejectedException(status, error, description, Kind.REQUEST, null);
+    }
+
+    /** Too much registration under way ({@link Kind#BUSY}): 503, try again shortly. */
+    static RegistrationRejectedException busy(String description) {
+        return new RegistrationRejectedException(503, "temporarily_unavailable", description, Kind.BUSY, null);
     }
 
     /** A refusal from the federation layer, keeping its §8.9 code and status. */
@@ -68,5 +85,15 @@ final class RegistrationRejectedException extends Exception {
     /** True for a federation that could not be reached, as against one that refused. */
     boolean isTransport() {
         return this.kind == Kind.TRANSPORT;
+    }
+
+    /** True when trying again shortly may succeed: the federation was unreachable, or this server was busy. */
+    boolean isRetryable() {
+        return this.kind == Kind.TRANSPORT || this.kind == Kind.BUSY;
+    }
+
+    /** True when the failure says something about the client's federation, so is worth remembering against it. */
+    boolean concernsTheClient() {
+        return this.kind != Kind.REQUEST && this.kind != Kind.BUSY;
     }
 }

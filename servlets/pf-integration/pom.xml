@@ -119,7 +119,11 @@
                                              client again. The response claims are §12.2.3's. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.admit(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.register(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.registerAutomatically(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.attempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.registerFrom(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.resolution(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.sameRecord(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.keysFor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.enforceExpiry(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.disableExpired(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.renewedRecently(*</include>
@@ -149,6 +153,37 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.clientIdOf(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.extractTrustChain(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(*</include>
+                                        <!-- Registration at the authorization and PAR endpoints (§12.1.1): which requests
+                                             are touched, what the request must prove before anything is fetched or
+                                             written, which keys an RP is registered with, what it is held to, and how
+                                             a refusal is answered - never with a redirect. The coordinator is the bound
+                                             on the work any unauthenticated request can start. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.refuse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.trustChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.checkProfile(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.onlyAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.verifiedSignedJwks(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.signingKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.httpsUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.agent(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.relyingParty(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.bypassApprovalPage(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.strings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.precheck(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.entityType(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.beforeStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration.forFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.escape(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.autoRegistrationSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.bool(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.doPost(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.registrationExpired(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.registrationSettings(*</include>

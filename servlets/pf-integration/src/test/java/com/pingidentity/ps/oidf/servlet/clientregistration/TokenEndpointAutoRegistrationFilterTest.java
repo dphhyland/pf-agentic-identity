@@ -306,6 +306,31 @@ class TokenEndpointAutoRegistrationFilterTest {
     }
 
     @Test
+    void aServerTooBusyToRegisterSaysWhenToRetry() throws Exception {
+        when(this.request.getParameter("client_id")).thenReturn(CLIENT_ID);
+        when(this.service.admit(anyString(), anyList(), anyString())).thenThrow(RegistrationRejectedException.busy("busy"));
+
+        this.filter(true).doFilter(this.request, this.response, this.chain);
+
+        verify(this.response).setStatus(503);
+        verify(this.response).setHeader("Retry-After", "2");
+        assertEquals("temporarily_unavailable", this.answered().get("error"));
+    }
+
+    @Test
+    void anInitParamThatDoesNotParseStopsTheFilterStarting() throws Exception {
+        EllipticCurveJsonWebKey anchor = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        anchor.setKeyId("anchor-1");
+        System.setProperty(HOST_PROP, "https://anchor.example");
+        System.setProperty(ANCHOR_JWKS_PROP, "{\"keys\":[" + anchor.toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY) + "]}");
+        FilterConfig config = mock(FilterConfig.class);
+        when(config.getInitParameter("trustChainEntryMaxAgeSeconds")).thenReturn("a minute");
+
+        ServletException e = assertThrows(ServletException.class, () -> new TokenEndpointAutoRegistrationFilter().init(config));
+        assertTrue(e.getMessage().contains("trustChainEntryMaxAgeSeconds"), e.getMessage());
+    }
+
+    @Test
     @Requirement("OIDFED §10.5")
     void aFederationThatCannotBeReachedIsTemporarilyUnavailable() throws Exception {
         when(this.request.getParameter("client_id")).thenReturn(CLIENT_ID);
@@ -315,6 +340,7 @@ class TokenEndpointAutoRegistrationFilterTest {
         this.filter(true).doFilter(this.request, this.response, this.chain);
 
         verify(this.response).setStatus(503);
+        verify(this.response).setHeader("Retry-After", "15");
         assertEquals("temporarily_unavailable", this.answered().get("error"));
         verify(this.chain, never()).doFilter(any(), any());
     }

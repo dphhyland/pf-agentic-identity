@@ -24,7 +24,9 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   one of the configured anchors, starting from any it was handed, then validates the chain and resolves
   the entity's metadata. The search tries the configured anchors first, follows at most ten
   `authority_hints` per entity, never revisits an entity on the path, and spends one fetch budget across
-  the whole validation (§18.1). Every statement passes the §3.2 checks (`EntityStatementChecks`: claims,
+  the whole validation (§18.1). A request can spend less than that budget: `ValidationRequest.maxFetches(0)`
+  validates the statements it was handed and nothing else, which is how a chain someone other than its subject
+  presents is checked without letting them choose what gets fetched. Every statement passes the §3.2 checks (`EntityStatementChecks`: claims,
   `crit`, which claims may appear where, key sets, `aud`, chain headers) and is verified with the keys the
   statement above it asserts; the anchor's own statement with its pinned keys; the subject's configuration
   with its own keys as well. A route that fails does not end the search, so an entity in two federations

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Assemble pf-runtime.war = STOCK PingFederate runtime war + the OIDF module jars (+ optionally jose4j),
-# injected into WEB-INF/lib, PLUS web.xml edits to register four filters over PF's own endpoints.
+# injected into WEB-INF/lib, PLUS web.xml edits to register seven filters over PF's own endpoints.
 #
 # Annotation-mapped module classes (@WebServlet servlets like RegisteredClientsServlet, the SSF servlets)
 # auto-map once the jar is on WEB-INF/lib (pf-runtime.war scans it). Plain filters that must run over PF's
@@ -17,7 +17,10 @@
 #     resource-server provisions UserInfo misses: the x-fapi-interaction-id header, no token in the query.
 #   - OAuthErrorDescription (OAuthErrorDescriptionFilter) over the backchannel, token and PAR endpoints →
 #     error_description kept inside RFC 6749's character set (PF puts a formatted date in it).
-# All six registrations are idempotent, and the script fails if any mapping is missing afterwards.
+#   - OidfFrontChannelAutoRegistration (FrontChannelAutoRegistrationFilter) over the authorization and PAR
+#     endpoints → §12.1.1 automatic registration of an RP from its signed request; MUST be mapped after
+#     Fapi2Profile and OAuthErrorDescription (the order is checked).
+# All seven registrations are idempotent, and the script fails if any mapping is missing afterwards.
 #
 # Inputs (provided by the caller — build/pingfederate/Dockerfile here, or a consumer repo's CI job):
 #   $1  STOCK_WAR   path to the stock pf-runtime.war extracted from the pingidentity/pingfederate image
@@ -254,11 +257,44 @@ else
   echo "web.xml: registered OAuthErrorDescription over the backchannel, token and PAR endpoints"
 fi
 
+# OidfFrontChannelAutoRegistration (FrontChannelAutoRegistrationFilter) over the authorization and PAR
+# endpoints — OpenID Federation §12.1.1 automatic registration: an RP that has never registered here sends
+# its request with its Entity Identifier as client_id and a signed request object (or, at PAR, a
+# private_key_jwt assertion) as proof it holds its keys; the filter resolves its chain, verifies that proof
+# against the keys it publishes for openid_relying_party, and registers it before PF sees the request.
+# Refusals are JSON at PAR and a page - never a redirect - at the authorization endpoint (§12.1.3).
+#
+# MUST be mapped AFTER Fapi2Profile and OAuthErrorDescription: a PAR assertion FAPI 2.0 refuses must not
+# first cause a registration, and a PAR refusal from here must pass through the description sanitiser,
+# which wraps the response and so has to sit outside. The check below enforces both.
+if grep -q "OidfFrontChannelAutoRegistration" "$WEBXML"; then
+  echo "web.xml: OidfFrontChannelAutoRegistration already registered — leaving as is"
+else
+  awk '
+    /<\/web-app>/ && !ins {
+      print "  <filter>"
+      print "    <filter-name>OidfFrontChannelAutoRegistration</filter-name>"
+      print "    <filter-class>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter</filter-class>"
+      print "  </filter>"
+      print "  <filter-mapping>"
+      print "    <filter-name>OidfFrontChannelAutoRegistration</filter-name>"
+      print "    <url-pattern>/as/authorization.oauth2</url-pattern>"
+      print "    <url-pattern>/as/par.oauth2</url-pattern>"
+      print "  </filter-mapping>"
+      ins=1
+    }
+    { print }
+  ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
+  ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
+  echo "web.xml: registered OidfFrontChannelAutoRegistration over the authorization and PAR endpoints"
+fi
+
 # OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 — OpenID
 # Federation §12.1 automatic registration: an unknown federation client presenting its trust chain in
 # its client_assertion is just-in-time materialised in PF's client store so the same request then
-# authenticates normally. Fail-open; idempotent for known clients. Trust controller comes from
-# OIDF_FEDERATION_TRUST_CONTROLLER_HOST at runtime (FederationRuntimeConfig).
+# authenticates normally, and a federation client's registration is renewed as it nears its end (§12.3).
+# Fail-closed by default (OIDF_AUTO_REGISTRATION_FAIL_CLOSED); a current registration costs one store
+# read. Trust controller comes from OIDF_FEDERATION_TRUST_CONTROLLER_HOST at runtime (FederationRuntimeConfig).
 #
 # MUST be mapped BEFORE ClientAttestationAuth. Filters run in <filter-mapping> document order, and
 # ClientAttestationAuth REPLACES client_assertion with a bridge assertion that carries no trust_chain
@@ -336,7 +372,7 @@ if [[ -d "$MODULES" ]]; then
 else
   grep -E "pf-oidf-modules" <<<"$war_listing" || { echo "ERROR: module jar not present in war"; exit 1; }
 fi
-for mapping in SsfLogoutSignal ClientAttestationAuth OidfAutoRegistration Fapi2Profile FapiResourceServer OAuthErrorDescription; do
+for mapping in SsfLogoutSignal ClientAttestationAuth OidfAutoRegistration OidfFrontChannelAutoRegistration Fapi2Profile FapiResourceServer OAuthErrorDescription; do
   grep -q "$mapping" <<<"$war_web_xml" \
     || { echo "ERROR: $mapping filter mapping not present in assembled war" >&2; exit 1; }
 done
@@ -356,4 +392,10 @@ _fapi2_at="$(_mapping_line Fapi2Profile)"
   echo "       before OidfAutoRegistration (line $_autoreg_at): a refused assertion must not trigger a" >&2
   echo "       registration, and must be judged before ClientAttestationAuth replaces it." >&2
   exit 1; }
-echo "verified: SsfLogoutSignal + Fapi2Profile + OidfAutoRegistration + ClientAttestationAuth + FapiResourceServer + OAuthErrorDescription mapped in $OUT_WAR (order checked)"
+_frontchannel_at="$(_mapping_line OidfFrontChannelAutoRegistration)"; _description_at="$(_mapping_line OAuthErrorDescription)"
+[ -n "$_frontchannel_at" ] && [ "$_fapi2_at" -lt "$_frontchannel_at" ] && [ "$_description_at" -lt "$_frontchannel_at" ] || {
+  echo "ERROR: filter order wrong in $OUT_WAR - OidfFrontChannelAutoRegistration (line ${_frontchannel_at:-?}) must be" >&2
+  echo "       mapped after Fapi2Profile (line $_fapi2_at) and OAuthErrorDescription (line ${_description_at:-?}): a" >&2
+  echo "       PAR assertion FAPI 2.0 refuses must not register a client, and its refusals need the sanitiser." >&2
+  exit 1; }
+echo "verified: SsfLogoutSignal + Fapi2Profile + OidfAutoRegistration + OidfFrontChannelAutoRegistration + ClientAttestationAuth + FapiResourceServer + OAuthErrorDescription mapped in $OUT_WAR (order checked)"
