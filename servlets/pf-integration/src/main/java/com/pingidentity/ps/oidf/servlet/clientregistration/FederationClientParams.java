@@ -16,6 +16,21 @@ final class FederationClientParams {
     /** Registration provenance: {@code registered} (§12.2 explicit) or {@code auto_registered} (§12.1). */
     static final String STATUS = "status";
 
+    /** When the registration ends, in epoch seconds: never later than its trust chain (§12.3). */
+    static final String EXPIRES_AT = "federation_registration_expires_at";
+
+    /** The Trust Anchor the registration's chain reached. */
+    static final String TRUST_ANCHOR = "federation_trust_anchor";
+
+    /** The Entity Type the client was registered from: {@code openid_relying_party} or {@code oauth_client}. */
+    static final String ENTITY_TYPE = "federation_entity_type";
+
+    /**
+     * When this module disabled the client because its registration expired, in epoch seconds. Only a client
+     * carrying it is enabled again by a renewal: one disabled without it was disabled by an operator.
+     */
+    static final String DISABLED_AT = "federation_registration_disabled_at";
+
     static final List<String> EXTENDED_PARAM_NAMES = List.of(
             STATUS,
             "trust_chain",
@@ -23,7 +38,11 @@ final class FederationClientParams {
             "subject_type",
             "contacts",
             "token_endpoint_auth_method",
-            "attestation_required");
+            "attestation_required",
+            EXPIRES_AT,
+            TRUST_ANCHOR,
+            ENTITY_TYPE,
+            DISABLED_AT);
 
     private FederationClientParams() {
     }

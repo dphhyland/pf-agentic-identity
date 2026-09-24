@@ -15,8 +15,8 @@ How the ids are written:
   as pinning the row `OIDFED §6.1.3.1.1`. So each metadata-policy operator, each constraint and each §3.2
   validation step has one row, and the tests carry the paragraph.
 - A section that has subsections is never used bare for a new row: it would count every subsection's pins as
-  covering it. The older bare rows below (`§4`, `§12.1`, `§12.2`) are being split into paragraph rows as the
-  tests they pin are rewritten.
+  covering it. The older bare row `§4` is being split into paragraph rows as the tests it pins are
+  rewritten; `§12.1` and `§12.2` were split on 2026-09-25.
 - A behaviour that departs from the text on purpose is tagged with its divergence (`UNVERIFIED item N`),
   never with the clause it departs from.
 
@@ -64,6 +64,7 @@ Rows exist only for behaviour that is implemented. What is not implemented yet i
 | `OIDFED §4.4` | A `peer_trust_chain` about the OP is validated alongside, ending at the same anchor; statements in a chain never carry one | `TrustChainValidator`, `EntityStatementChecks` | Implemented - the same anchor is required by default, see `docs/unverified.md` item 15 when it lands |
 | `OIDFED §5(3)` | Metadata never uses `null` as a value | `EntityStatementChecks`, `MetadataPolicy` | Implemented |
 | `OIDFED §5.1.1` | The entity's `federation_entity` metadata: fetch and list endpoints only when it has subordinates (a leaf MUST NOT publish them), the resolve endpoint only when a resolver is configured, and `organization_name` when set | `FederationService`, `FederationConfiguration` | Implemented |
+| `OIDFED §5.1.2` | A client that lists its `client_registration_types` is registered only by the types it lists: a leaf advertising only `explicit` is not registered automatically, and the reverse | `RegistrationService` | Implemented - a leaf that lists none is refused too: the parameter is only RECOMMENDED, and the OP need not accept what it cannot read |
 | `OIDFED §5.1.3` | The OP metadata: `issuer` is the entity's identifier, `client_registration_types_supported` is what the deployment accepts, and `federation_registration_endpoint` appears exactly when explicit registration does | `FederationService`, `FederationConfiguration` | Implemented |
 | `OIDFED §6.1.3(2.2)` | An operator refuses a metadata parameter of a JSON type it does not support | `MetadataPolicy` | Implemented |
 | `OIDFED §6.1.3(2.4)` | An operator refuses an operand of a JSON type it does not support | `MetadataPolicy` | Implemented |
@@ -103,9 +104,17 @@ Rows exist only for behaviour that is implemented. What is not implemented yet i
 | `OIDFED §10.4` | A chain expires with its earliest statement | `TrustChainValidationResult.expiresAt` | Implemented |
 | `OIDFED §10.5` | A failure to reach an entity is reported as temporary, not as an invalid chain | `TrustChainValidator` | Implemented |
 | `OIDFED §11.3` | A mismatch between the out-of-band keys and the anchor's entity configuration is retrieved again before it is treated as a problem | `HttpTrustControllerGateway` | Partial - compares by verifying the configuration's signature with a pinned key rather than by key-set equality, so an in-progress §11.2 rollover is not a mismatch; a second failure is refused |
-| `OIDFED §12.1` | Automatic registration against the trust controller | `RegistrationService`, `TokenEndpointAutoRegistrationFilter` | Implemented at the token endpoint |
-| `OIDFED §12.2` | Explicit registration against the trust controller | `ExplicitRegistrationRequest`, `RegistrationService` | Implemented |
+| `OIDFED §12(3)` | Registration serves OAuth profiles other than OpenID Connect too: an agent registers from `oauth_client` metadata, and its explicit registration is answered under `oauth_client` | `RegistrationService` | Implemented |
+| `OIDFED §12.1(4.1)` | Automatic registration takes the client's Entity Identifier as its `client_id` | `RegistrationService.admit`, `TokenEndpointAutoRegistrationFilter` | Implemented at the token endpoint; the authorization and PAR endpoints are to follow |
+| `OIDFED §12.1(4.2)` | An automatically registered client authenticates with its asymmetric keys (`private_key_jwt`), never a shared secret | `RegistrationService` | Implemented |
+| `OIDFED §12.1.1.1.2` | A presented chain is a hint: it registers a client the OP does not know, renews one whose registration has expired, and may update a current one | `RegistrationService.admit` | Implemented at the token endpoint |
 | `OIDFED §12.2.1` | An Explicit Registration request's `aud` is the OP and nothing else, and its `trust_chain` header begins with its own configuration | `EntityStatementChecks`, `ExplicitRegistrationRequest` | Implemented |
+| `OIDFED §12.2.2` | An explicit registration request is a self-signed Entity Statement addressed to the OP. With no chain, discovery starts from the posted configuration; a chain in its header only shows a path, and the posted configuration's metadata is what registers. An existing registration is replaced whole, and the new one gets an expiry no later than its chain's | `ExplicitRegistrationRequest`, `RegistrationService`, `RegistrationLifetime` | Implemented - the `client_id` is the Entity Identifier |
+| `OIDFED §12.2.3` | The explicit registration response: signed by the OP as `explicit-registration-response+jwt` with a `kid` and answered 200; `aud` the RP alone; `exp` the registration's expiry; `trust_anchor` the anchor reached; `authority_hints` the RP's Immediate Superior; `jwks` a verbatim copy of the RP's; the registered metadata with its `client_id` and defaults | `RegistrationService`, `OpenIdRegistrationServlet` | Implemented |
+| `OIDFED §12.2.4` | A refused registration is answered with its §8.9 error and status | `RegistrationRejectedException`, `OpenIdRegistrationServlet` | Implemented |
+| `OIDFED §12.2.6` | The OP may end a registration early: a client an operator disabled stays disabled when it registers or renews again | `RegistrationService` | Implemented |
+| `OIDFED §12.3` | No registration outlives its chain. Each records when it ends - the chain's expiry, capped by `OIDF_REGISTRATION_MAX_TTL_SECONDS`. An automatic one is renewed at the token endpoint as that time nears; an expired one that cannot be renewed is refused (or disabled, or only logged, as configured) at the token endpoint and by the OGNL criterion; the sweeper disables expired clients | `RegistrationLifetime`, `RegistrationService.admit`, `TokenEndpointAutoRegistrationFilter`, `RegistrationExpirySweeper`, `OIDFederationUtils` | Implemented |
+| `OIDFED §12.5` | A presented chain whose configuration is newer than the registered one, with other keys or metadata, updates the registration at once; an older one never does | `RegistrationService.admit` | Implemented |
 | `OIDFED §13.4` | `crit` is a non-empty array of extension claim names; a JWT listing one the recipient does not understand is invalid | `EntityStatementChecks` | Implemented |
 | `OIDFED §18.1(3)` | One validation's network work is bounded: a fetch budget across every anchor and any peer chain, and a route depth limit | `TrustChainValidator`, `ValidatorOptions` | Implemented |
 | `OIDFED §18.1(4)` | Only a limited number of `authority_hints` is inspected per entity | `TrustChainValidator`, `ValidatorOptions.maxAuthorityHints` | Implemented |

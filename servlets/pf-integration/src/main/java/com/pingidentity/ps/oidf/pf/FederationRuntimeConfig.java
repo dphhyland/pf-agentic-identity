@@ -59,6 +59,25 @@ public final class FederationRuntimeConfig {
     public static final String REQUIRE_METADATA_POLICY_ENV = "OIDF_REQUIRE_METADATA_POLICY";
 
     /**
+     * The longest a federation registration lives, in seconds (default 86400). OpenID Federation 1.0 §12.3:
+     * a registration "MUST NOT exceed the lifetime of the Trust Chain" - it gets the shorter of the two.
+     */
+    public static final String REGISTRATION_MAX_TTL_ENV = "OIDF_REGISTRATION_MAX_TTL_SECONDS";
+    /** A chain that would leave a registration less than this many seconds (default 60) is refused. */
+    public static final String REGISTRATION_MIN_TTL_ENV = "OIDF_REGISTRATION_MIN_TTL_SECONDS";
+    /** How long before expiry a registration is re-validated at the token endpoint (default 300). */
+    public static final String REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV = "OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS";
+    /** What an expired registration that cannot be renewed gets: {@code refuse} (default), {@code disable} or {@code log}. */
+    public static final String REGISTRATION_EXPIRY_ENFORCEMENT_ENV = "OIDF_REGISTRATION_EXPIRY_ENFORCEMENT";
+    /** How often expired federation clients are disabled, in seconds (default 300; 0 turns the sweep off). */
+    public static final String REGISTRATION_SWEEP_INTERVAL_ENV = "OIDF_REGISTRATION_SWEEP_INTERVAL_SECONDS";
+    /**
+     * Default true: a token request whose automatic registration fails is refused with the reason, rather
+     * than passed on for PingFederate to refuse (or, for a client registered before, to accept) without it.
+     */
+    public static final String AUTO_REGISTRATION_FAIL_CLOSED_ENV = "OIDF_AUTO_REGISTRATION_FAIL_CLOSED";
+
+    /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
      * three concepts under these names, so one deployment could name two different trust controllers without
      * noticing. They are still accepted, with a warning naming the replacement; setting an old and a new
@@ -81,6 +100,47 @@ public final class FederationRuntimeConfig {
     private static final String REQUIRE_BRIDGE_KEY_PROP = "oidf.attestation.require.bridge.key";
     private static final String REQUIRE_ATTESTER_BINDING_PROP = "oidf.attestation.require.attester.binding";
     private static final String REQUIRE_METADATA_POLICY_PROP = "oidf.require.metadata.policy";
+    private static final String REGISTRATION_MAX_TTL_PROP = "oidf.registration.max.ttl.seconds";
+    private static final String REGISTRATION_MIN_TTL_PROP = "oidf.registration.min.ttl.seconds";
+    private static final String REGISTRATION_REFRESH_BEFORE_EXPIRY_PROP = "oidf.registration.refresh.before.expiry.seconds";
+    private static final String REGISTRATION_EXPIRY_ENFORCEMENT_PROP = "oidf.registration.expiry.enforcement";
+    private static final String REGISTRATION_SWEEP_INTERVAL_PROP = "oidf.registration.sweep.interval.seconds";
+    private static final String AUTO_REGISTRATION_FAIL_CLOSED_PROP = "oidf.auto.registration.fail.closed";
+
+    /** What happens to an expired registration that cannot be renewed. */
+    public enum ExpiryEnforcement {
+        /** The request is refused; the client stays as it is, to be renewed later. The default. */
+        REFUSE,
+        /** The request is refused and the client disabled until a renewal succeeds. */
+        DISABLE,
+        /** The expiry is logged and the request goes on - for a deployment not yet ready to enforce §12.3. */
+        LOG
+    }
+
+    /**
+     * How long federation registrations live and what happens when they end.
+     *
+     * @param maxTtlSeconds                the longest a registration lives, whatever its chain allows
+     * @param minTtlSeconds                a registration that would live less than this is refused
+     * @param refreshBeforeExpirySeconds   how long before expiry the token endpoint re-validates
+     * @param expiryEnforcement            what an expired registration that cannot be renewed gets
+     * @param sweepIntervalSeconds         how often expired clients are disabled; 0 turns it off
+     * @param failClosed                   whether a failed automatic registration refuses the token request
+     */
+    public record RegistrationSettings(long maxTtlSeconds, long minTtlSeconds, long refreshBeforeExpirySeconds,
+                                       ExpiryEnforcement expiryEnforcement, long sweepIntervalSeconds, boolean failClosed) {
+
+        public static final RegistrationSettings DEFAULTS = new RegistrationSettings(86_400L, 60L, 300L, ExpiryEnforcement.REFUSE, 300L, true);
+
+        public RegistrationSettings {
+            if (minTtlSeconds < 0 || maxTtlSeconds < minTtlSeconds || refreshBeforeExpirySeconds < 0 || sweepIntervalSeconds < 0) {
+                throw new IllegalStateException("registration lifetimes must satisfy 0 <= " + REGISTRATION_MIN_TTL_ENV + " <= "
+                        + REGISTRATION_MAX_TTL_ENV + ", and " + REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV + " and "
+                        + REGISTRATION_SWEEP_INTERVAL_ENV + " must not be negative");
+            }
+            Objects.requireNonNull(expiryEnforcement, "expiryEnforcement");
+        }
+    }
 
     private static volatile FederationRuntimeConfig instance;
 
@@ -94,11 +154,14 @@ public final class FederationRuntimeConfig {
     private final boolean requireMetadataPolicy;
     private final boolean requireAttesterBinding;
     private final List<String> deprecationWarnings;
+    private final RegistrationSettings registration;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
-            boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings) {
+            boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
+            RegistrationSettings registration) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
+        this.registration = Objects.requireNonNull(registration, "registration");
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -175,7 +238,50 @@ public final class FederationRuntimeConfig {
                 // Default TRUE: a client anyone trusted may vouch for is a client anyone trusted may
                 // impersonate at the bridge.
                 requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding),
-                deprecations);
+                deprecations,
+                registrationSettings(env, props));
+    }
+
+    private static RegistrationSettings registrationSettings(Function<String, String> env, Function<String, String> props) {
+        RegistrationSettings d = RegistrationSettings.DEFAULTS;
+        String enforcement = blankToNull(setting(env, props, REGISTRATION_EXPIRY_ENFORCEMENT_PROP, REGISTRATION_EXPIRY_ENFORCEMENT_ENV));
+        ExpiryEnforcement parsed;
+        try {
+            parsed = enforcement == null ? d.expiryEnforcement() : ExpiryEnforcement.valueOf(enforcement.toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(REGISTRATION_EXPIRY_ENFORCEMENT_ENV + " must be refuse, disable or log, not " + enforcement);
+        }
+        String failClosed = blankToNull(setting(env, props, AUTO_REGISTRATION_FAIL_CLOSED_PROP, AUTO_REGISTRATION_FAIL_CLOSED_ENV));
+        return new RegistrationSettings(
+                seconds(env, props, REGISTRATION_MAX_TTL_PROP, REGISTRATION_MAX_TTL_ENV, d.maxTtlSeconds()),
+                seconds(env, props, REGISTRATION_MIN_TTL_PROP, REGISTRATION_MIN_TTL_ENV, d.minTtlSeconds()),
+                seconds(env, props, REGISTRATION_REFRESH_BEFORE_EXPIRY_PROP, REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV, d.refreshBeforeExpirySeconds()),
+                parsed,
+                seconds(env, props, REGISTRATION_SWEEP_INTERVAL_PROP, REGISTRATION_SWEEP_INTERVAL_ENV, d.sweepIntervalSeconds()),
+                failClosed == null || strictBoolean(failClosed, AUTO_REGISTRATION_FAIL_CLOSED_ENV));
+    }
+
+    /** {@code true} or {@code false}, any case; anything else is refused rather than read as {@code false}. */
+    private static boolean strictBoolean(String value, String var) {
+        if ("true".equalsIgnoreCase(value.trim())) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value.trim())) {
+            return false;
+        }
+        throw new IllegalStateException(var + " must be true or false, not " + value);
+    }
+
+    private static long seconds(Function<String, String> env, Function<String, String> props, String prop, String var, long fallback) {
+        String value = blankToNull(setting(env, props, prop, var));
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException(var + " must be a whole number of seconds, not " + value);
+        }
     }
 
     /**
@@ -315,6 +421,11 @@ public final class FederationRuntimeConfig {
      */
     public boolean requireMetadataPolicy() {
         return this.requireMetadataPolicy;
+    }
+
+    /** How long federation registrations live, and what happens when they end (§12.3). */
+    public RegistrationSettings registration() {
+        return this.registration;
     }
 
     /** Whether a bridge-key entry with no {@code attesters} refuses attestation authentication for that client. Default true. */

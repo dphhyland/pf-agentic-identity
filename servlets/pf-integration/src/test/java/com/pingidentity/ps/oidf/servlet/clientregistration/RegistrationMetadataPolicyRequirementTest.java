@@ -15,6 +15,7 @@ import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidationRequest;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import java.util.HashMap;
@@ -91,11 +92,11 @@ class RegistrationMetadataPolicyRequirementTest {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(null);
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(Map.of("oauth_client", GREEDY_METADATA), Set.of()));
 
         RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
-                () -> service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
+                () -> service(validator, store).admit(CLIENT_ID, TRUST_CHAIN, OP_ISSUER));
 
         assertEquals(400, e.status());
         assertTrue(e.getMessage().contains("metadata_policy"), e.getMessage());
@@ -110,7 +111,7 @@ class RegistrationMetadataPolicyRequirementTest {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(null);
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(Map.of("oauth_client", GREEDY_METADATA), Set.of()));
 
         RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
@@ -126,12 +127,10 @@ class RegistrationMetadataPolicyRequirementTest {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(null);
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(Map.of("oauth_client", GREEDY_METADATA), Set.of("oauth_client")));
 
-        RegisteredClient registered = service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER);
-
-        assertNotNull(registered);
+        assertEquals(RegistrationService.Admission.REGISTERED, service(validator, store).admit(CLIENT_ID, TRUST_CHAIN, OP_ISSUER));
         verify(store).add(any());
     }
 
@@ -147,13 +146,13 @@ class RegistrationMetadataPolicyRequirementTest {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(null);
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(
                         Map.of("oauth_client", GREEDY_METADATA, "openid_relying_party", GREEDY_METADATA),
                         Set.of("openid_relying_party")));
 
         RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
-                () -> service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
+                () -> service(validator, store).admit(CLIENT_ID, TRUST_CHAIN, OP_ISSUER));
 
         assertTrue(e.getMessage().contains("oauth_client"),
                 "must name the type actually consumed, not the one that happened to be policed: " + e.getMessage());
@@ -171,7 +170,7 @@ class RegistrationMetadataPolicyRequirementTest {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(clientWithStatus(null));   // no status = administrator's
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(Map.of("oauth_client", GREEDY_METADATA), Set.of()));
 
         RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
@@ -192,12 +191,11 @@ class RegistrationMetadataPolicyRequirementTest {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(null);
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(Map.of("oauth_client", GREEDY_METADATA), Set.of()));
 
-        RegisteredClient registered = service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER);
-
-        assertNotNull(registered, "with the flag off, an unconstrained chain registers");
+        assertEquals(RegistrationService.Admission.REGISTERED, service(validator, store).admit(CLIENT_ID, TRUST_CHAIN, OP_ISSUER),
+                "with the flag off, an unconstrained chain registers");
         verify(store).add(any());
     }
 

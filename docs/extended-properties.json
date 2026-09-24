@@ -24,6 +24,10 @@
     "subject_type",
     "contacts",
     "token_endpoint_auth_method",
-    "attestation_required"
+    "attestation_required",
+    "federation_registration_expires_at",
+    "federation_trust_anchor",
+    "federation_entity_type",
+    "federation_registration_disabled_at"
   ]
 }

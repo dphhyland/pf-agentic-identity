@@ -170,4 +170,54 @@ class OpenIdRegistrationServletTest {
         verify(store, never()).disable(any());
         verify(store, never()).get(anyString());
     }
+
+    /** A trust-chain+json body whose leaf is the RP's configuration, parseable enough to select. */
+    private static String trustChainBody() {
+        String leaf = com.pingidentity.ps.oidf.federation.testkit.Statements.spec("entity-statement+jwt")
+                .claim("iss", EXISTING_CLIENT).claim("sub", EXISTING_CLIENT)
+                .claim("authority_hints", List.of("https://tc.example")).unsigned().sign(null, java.time.Clock.systemUTC());
+        return "[\"" + leaf + "\"]";
+    }
+
+    @Test
+    @Requirement("OIDFED §12.2.3(9)")
+    void aRegistrationIsAnswered200WithTheSignedResponse() throws Exception {
+        RegistrationService service = mock(RegistrationService.class);
+        when(service.explicitRegister(any(ExplicitRegistrationRequest.class), org.mockito.ArgumentMatchers.eq(OP_ISSUER)))
+                .thenReturn(new RegisteredClient(EXISTING_CLIENT, EXISTING_CLIENT, "https://tc.example", List.of(), Map.of(),
+                        "registered", "signed.response.jwt", 1L));
+        Response resp = new Response();
+
+        new OpenIdRegistrationServlet(service, req -> OP_ISSUER).doPost(post("application/trust-chain+json", trustChainBody()), resp.mock);
+
+        verify(resp.mock).setStatus(200);
+        verify(resp.mock).setContentType("application/explicit-registration-response+jwt");
+        assertEquals("signed.response.jwt", resp.body.toString());
+    }
+
+    @Test
+    @Requirement("OIDFED §12.2.4(1)")
+    void aRefusedRegistrationIsAnsweredWithItsStatusAndCode() throws Exception {
+        RegistrationService service = mock(RegistrationService.class);
+        when(service.explicitRegister(any(ExplicitRegistrationRequest.class), anyString()))
+                .thenThrow(new RegistrationRejectedException(409, "invalid_client_metadata", "administered outside OpenID Federation"));
+        Response resp = new Response();
+
+        new OpenIdRegistrationServlet(service, req -> OP_ISSUER).doPost(post("application/trust-chain+json", trustChainBody()), resp.mock);
+
+        verify(resp.mock).setStatus(409);
+        assertTrue(resp.body.toString().contains("\"invalid_client_metadata\""), resp.body.toString());
+        assertTrue(resp.body.toString().contains("administered outside"), resp.body.toString());
+    }
+
+    @Test
+    void aPathThisServletDoesNotServeIsNotFound() throws Exception {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getServletPath()).thenReturn("/federation/elsewhere");
+        Response resp = new Response();
+
+        new OpenIdRegistrationServlet(mock(RegistrationService.class), r -> OP_ISSUER).doPost(req, resp.mock);
+
+        verify(resp.mock).setStatus(404);
+    }
 }

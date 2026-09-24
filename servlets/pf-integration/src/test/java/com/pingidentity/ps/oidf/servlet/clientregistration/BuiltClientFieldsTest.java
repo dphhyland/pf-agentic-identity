@@ -8,12 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidationRequest;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import java.util.List;
 import java.util.Map;
@@ -47,12 +49,12 @@ class BuiltClientFieldsTest {
         JwtClaims leaf = new JwtClaims();
         leaf.setClaim("jwks", Map.of("keys", List.of(
                 Map.of("kty", "EC", "crv", "P-256", "x", "abc", "y", "def", "kid", "k1"))));
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(new TrustChainValidationResult("https://tc.example", CLIENT_ID,
                         Map.of("oauth_client", metadata), TRUST_CHAIN, leaf, Set.of("oauth_client")));
 
         new RegistrationService(new RegistrationConfiguration("https://tc.example", false), validator, store)
-                .automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER);
+                .admit(CLIENT_ID, TRUST_CHAIN, OP_ISSUER);
 
         ArgumentCaptor<Client> captor = ArgumentCaptor.forClass(Client.class);
         verify(store).add(captor.capture());

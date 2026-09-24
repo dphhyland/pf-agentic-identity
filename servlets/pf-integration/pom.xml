@@ -110,6 +110,49 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.explicitRegister(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireConstrainedByPolicy(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.isFederationRegistered(*</include>
+                                        <!-- A registration's life (§12.3) and who may renew it. admit is every
+                                             token request naming a client, unauthenticated: what it renews, when,
+                                             from whose chain, and what it refuses. presentsChange and
+                                             predatesRegistration are the only reads of a presented chain before it
+                                             is validated; recentFailure is the backoff that keeps a caller's bad
+                                             chain from standing in for the client's own; store is who may enable a
+                                             client again. The response claims are §12.2.3's. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.registerAutomatically(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.enforceExpiry(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.disableExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.renewedRecently(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.recentFailure(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.failureKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.presentsChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.predatesRegistration(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.entityConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.issuedAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.store(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.immediateSuperior(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.buildSignedRegistrationResponse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.clientEntityType(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.sameKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.expiresAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.storedExpiry(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.isExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.isDueForRenewal(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationExpirySweeper.sweepOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationRejectedException.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest.presentedChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest.isOwnConfiguration(*</include>
+                                        <!-- The token endpoint in front of PingFederate: which client a request names,
+                                             and what it is told when the answer is no. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.extractTrustChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.registrationExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.registrationSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictBoolean(*</include>
                                         <!-- The explicit-registration body itself: typed as an Entity Statement
                                              (OpenID Federation 1.0 §3) and signed by its own jwks. The chain
                                              validator never sees this statement, so nothing downstream repeats it. -->

@@ -72,4 +72,61 @@ class FederationRuntimeConfigTest {
         assertEquals("https://anchor.example", c.trustControllerHost());
         assertTrue(c.isTrustControllerConfigured());
     }
+
+    // ---- registration lifetime (OpenID Federation 1.0 §12.3) ---------------------------------------------
+
+    @Test
+    void registrationDefaultsAreADayAMinuteAndRefusal() {
+        FederationRuntimeConfig.RegistrationSettings r = of(Map.of(), Map.of()).registration();
+
+        assertEquals(FederationRuntimeConfig.RegistrationSettings.DEFAULTS, r);
+        assertEquals(86_400L, r.maxTtlSeconds());
+        assertEquals(60L, r.minTtlSeconds());
+        assertEquals(300L, r.refreshBeforeExpirySeconds());
+        assertEquals(FederationRuntimeConfig.ExpiryEnforcement.REFUSE, r.expiryEnforcement());
+        assertEquals(300L, r.sweepIntervalSeconds());
+        assertTrue(r.failClosed(), "a failed registration refuses the token request unless someone chose otherwise");
+    }
+
+    @Test
+    void registrationSettingsComeFromTheEnvironmentOrSystemProperties() {
+        FederationRuntimeConfig.RegistrationSettings r = of(Map.of(
+                FederationRuntimeConfig.REGISTRATION_MAX_TTL_ENV, "3600",
+                FederationRuntimeConfig.REGISTRATION_MIN_TTL_ENV, "30",
+                FederationRuntimeConfig.REGISTRATION_EXPIRY_ENFORCEMENT_ENV, "Disable",
+                FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV, "FALSE"), Map.of(
+                "oidf.registration.refresh.before.expiry.seconds", "120",
+                "oidf.registration.sweep.interval.seconds", "0")).registration();
+
+        assertEquals(3600L, r.maxTtlSeconds());
+        assertEquals(30L, r.minTtlSeconds());
+        assertEquals(120L, r.refreshBeforeExpirySeconds());
+        assertEquals(FederationRuntimeConfig.ExpiryEnforcement.DISABLE, r.expiryEnforcement());
+        assertEquals(0L, r.sweepIntervalSeconds());
+        assertFalse(r.failClosed());
+    }
+
+    @Test
+    void aSettingThatIsNotWhatItShouldBeRefusesToStart() {
+        assertRefused(Map.of(FederationRuntimeConfig.REGISTRATION_EXPIRY_ENFORCEMENT_ENV, "warn"),
+                FederationRuntimeConfig.REGISTRATION_EXPIRY_ENFORCEMENT_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.REGISTRATION_MAX_TTL_ENV, "a day"), FederationRuntimeConfig.REGISTRATION_MAX_TTL_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.REGISTRATION_MIN_TTL_ENV, "100000"), FederationRuntimeConfig.REGISTRATION_MIN_TTL_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.REGISTRATION_SWEEP_INTERVAL_ENV, "-1"), FederationRuntimeConfig.REGISTRATION_SWEEP_INTERVAL_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV, "-5"),
+                FederationRuntimeConfig.REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV);
+    }
+
+    /** A typo in a security switch must not quietly mean "off": {@code yes} is refused, not read as false. */
+    @Test
+    void failClosedIsTrueOrFalseAndNothingElse() {
+        assertRefused(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV, "yes"),
+                FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV);
+        assertTrue(of(Map.of(FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV, " True "), Map.of()).registration().failClosed());
+    }
+
+    private static void assertRefused(Map<String, String> env, String named) {
+        IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class, () -> of(env, Map.of()));
+        assertTrue(e.getMessage().contains(named), e.getMessage());
+    }
 }

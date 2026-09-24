@@ -92,7 +92,8 @@ extends HttpServlet {
             return;
         }
         RegisteredClient registeredClient = this.RegistrationService.explicitRegister(registrationRequest, oidcIssuer);
-        writeEntityStatement(resp, 201, registeredClient.signedJwt());
+        // §12.2.3: "A successful response MUST have an HTTP status code 200" - not 201.
+        writeEntityStatement(resp, 200, registeredClient.signedJwt());
     }
 
     private static String baseMediaType(String contentType) {

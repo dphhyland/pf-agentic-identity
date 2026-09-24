@@ -158,6 +158,9 @@ public final class OIDFederationUtils {
         long maxLeafNodeTime = longSetting(inParameters, "extproperties.trust_chain_leaf_max_time", -1L);
         long maxTrustAnchorNodeTime = longSetting(inParameters, "extproperties.trust_chain_trustanchor_max_time", -1L);
         long maxTrustChainEntryAgeSeconds = longSetting(inParameters, "extproperties.trust_chain_request_max_age", 60L);
+        if (registrationExpired(inParameters, rpEntityId)) {
+            return false;
+        }
         try {
             validator.validate(trustChainList, rpEntityId, opEntityId, maxLeafNodeTime, maxTrustAnchorNodeTime, maxTrustChainEntryAgeSeconds);
             FederationEvents.event(FederationEvents.CHAIN_VALIDATED).subject(rpEntityId).partner(configuredTrustControllerHost)
@@ -175,6 +178,34 @@ public final class OIDFederationUtils {
             return false;
         }
     }
+
+    /**
+     * The no-network backstop for OpenID Federation 1.0 §12.3: a client whose recorded registration expiry has
+     * passed is refused at issuance, whatever its chain says now - an explicit registration is renewed by its
+     * RP registering again, an automatic one by the token-endpoint filter. A client with no recorded expiry
+     * (registered before expiries were) is left to the chain check. With
+     * {@code OIDF_REGISTRATION_EXPIRY_ENFORCEMENT=log} the expiry is only logged.
+     *
+     * @return true when the request must be refused
+     */
+    static boolean registrationExpired(Map inParameters, String clientId) {
+        long expiresAt = longSetting(inParameters, EXPIRES_AT_PROPERTY, -1L);
+        if (expiresAt < 0 || java.time.Instant.now().getEpochSecond() < expiresAt) {
+            return false;
+        }
+        FederationRuntimeConfig.ExpiryEnforcement enforcement = FederationRuntimeConfig.get().registration().expiryEnforcement();
+        FederationEvents.event(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE).failure("expired").subject(clientId).role("OP")
+                .field("expires_at", expiresAt).field("enforcement", enforcement.name().toLowerCase(java.util.Locale.ROOT)).audit().emit();
+        if (enforcement == FederationRuntimeConfig.ExpiryEnforcement.LOG) {
+            LOGGER.warn("Federation client " + clientId + " is past its registration's expiry; issuing because "
+                    + FederationRuntimeConfig.REGISTRATION_EXPIRY_ENFORCEMENT_ENV + "=log");
+            return false;
+        }
+        return true;
+    }
+
+    /** The criteria-map key of a client's recorded registration expiry. */
+    static final String EXPIRES_AT_PROPERTY = "extproperties.federation_registration_expires_at";
 
     /** A short machine reason for a refusal, for the event's {@code reason}. */
     static String refusalReason(Exception e) {
@@ -243,7 +274,8 @@ public final class OIDFederationUtils {
             headers = JwtCodec.getJwtHeaders(clientAssertion);
         }
         catch (Exception e) {
-            LOGGER.info("client_assertion is not a parseable JWT; running validator with empty trust_chain", e);
+            // The caller's input, not a fault of ours: one line, no stack, nothing of the assertion itself.
+            LOGGER.info("client_assertion is not a parseable JWT (" + refusalReason(e) + "); running validator with empty trust_chain");
             return Collections.emptyList();
         }
         Object rawTrustChain = headers.get("trust_chain");

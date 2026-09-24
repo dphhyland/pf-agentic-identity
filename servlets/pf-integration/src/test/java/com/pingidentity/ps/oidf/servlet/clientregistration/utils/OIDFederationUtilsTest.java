@@ -152,4 +152,52 @@ class OIDFederationUtilsTest {
                 new JwtVerificationException(JwtVerificationException.Reason.EXPIRED)));
         assertEquals("invalid", OIDFederationUtils.refusalReason(new IllegalArgumentException("x")));
     }
+
+    // ---- §12.3: the recorded registration expiry, checked with no network ------------------------------------
+
+    private static Map<String, Object> expiringAt(long epochSeconds) {
+        return Map.of(OIDFederationUtils.EXPIRES_AT_PROPERTY, Long.toString(epochSeconds));
+    }
+
+    @Test
+    @Requirement("OIDFED §12.3(1)")
+    void aClientPastItsRegistrationsExpiryIsRefusedAtIssuanceWhateverItsChainSays() {
+        Federation f = federation();
+        long past = java.time.Instant.now().getEpochSecond() - 1;
+
+        boolean ok = OIDFederationUtils.validateTrustChain(criteria(RP, assertionCarrying(f, f.chain(RP, TA)), expiringAt(past)));
+
+        assertFalse(ok);
+        FederationEvent expired = this.events.only(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE);
+        assertTrue(expired.audit());
+        assertEquals(RP, expired.subject());
+        assertEquals(Long.toString(past), expired.fields().get("expires_at"));
+        assertEquals("refuse", expired.fields().get("enforcement"));
+        assertEquals(List.of(), this.events.withCode(FederationEvents.CHAIN_VALIDATED), "refused before any chain is looked at");
+    }
+
+    @Test
+    void aClientInsideItsRegistrationIsCheckedOnItsChain() {
+        Federation f = federation();
+
+        assertTrue(OIDFederationUtils.validateTrustChain(criteria(RP, assertionCarrying(f, f.chain(RP, TA)),
+                expiringAt(java.time.Instant.now().getEpochSecond() + 600))));
+        assertEquals(List.of(), this.events.withCode(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE));
+    }
+
+    @Test
+    void aClientWithNoRecordedExpiryIsLeftToTheChainCheck() {
+        assertFalse(OIDFederationUtils.registrationExpired(Map.of(), RP));
+        assertFalse(OIDFederationUtils.registrationExpired(Map.of(OIDFederationUtils.EXPIRES_AT_PROPERTY, "soon"), RP));
+        assertEquals(List.of(), this.events.events());
+    }
+
+    @Test
+    void underLogAnExpiredRegistrationIsOnlyRecorded() {
+        FederationRuntimeConfig.install(FederationRuntimeConfig.from(
+                Map.of(FederationRuntimeConfig.REGISTRATION_EXPIRY_ENFORCEMENT_ENV, "log")::get, name -> null));
+
+        assertFalse(OIDFederationUtils.registrationExpired(expiringAt(1L), RP));
+        assertEquals("log", this.events.only(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE).fields().get("enforcement"));
+    }
 }
