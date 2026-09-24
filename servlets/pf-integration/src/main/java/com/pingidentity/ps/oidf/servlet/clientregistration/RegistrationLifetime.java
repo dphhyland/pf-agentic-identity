@@ -46,9 +46,27 @@ final class RegistrationLifetime {
      * @throws RegistrationRejectedException {@code invalid_trust_chain} when that is sooner than the minimum
      */
     long expiresAt(TrustChainValidationResult validation) throws RegistrationRejectedException {
+        return this.expiresAt(validation, null);
+    }
+
+    /**
+     * {@link #expiresAt(TrustChainValidationResult)}, no later than {@code policyTtlSeconds} from now when a policy decision
+     * limits the registration's life (null: it does not).
+     *
+     * @throws RegistrationRejectedException {@code invalid_client_metadata} when the policy allows less than the minimum
+     */
+    long expiresAt(TrustChainValidationResult validation, Long policyTtlSeconds) throws RegistrationRejectedException {
         long now = this.now();
         long chainExpiry = validation.expEpochSeconds() < 0 ? Long.MAX_VALUE : validation.expEpochSeconds();
         long expires = Math.min(chainExpiry, now + this.settings.maxTtlSeconds());
+        if (policyTtlSeconds != null && policyTtlSeconds < expires - now) {
+            if (policyTtlSeconds < this.settings.minTtlSeconds()) {
+                throw new RegistrationRejectedException(400, "invalid_client_metadata", "the policy decision allows the registration "
+                        + policyTtlSeconds + "s, less than the " + this.settings.minTtlSeconds() + "s a registration needs",
+                        RegistrationRejectedException.Kind.POLICY, null);
+            }
+            expires = now + policyTtlSeconds;
+        }
         if (expires - now < this.settings.minTtlSeconds()) {
             throw new RegistrationRejectedException(400, "invalid_trust_chain", "the trust chain expires in " + (expires - now)
                     + "s, sooner than the " + this.settings.minTtlSeconds() + "s a registration needs", RegistrationRejectedException.Kind.TRUST, null);

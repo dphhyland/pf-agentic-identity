@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.federation.policy.ClientDraft;
+import com.pingidentity.ps.oidf.federation.policy.NarrowingObligations;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -85,6 +87,37 @@ final class FederationClientBuilder {
         client.setExtendedParams(extendedParams(metadata, provenance, attestationAuth ? tokenEndpointAuthMethod : null));
         client.setClientId(clientId);
         return client;
+    }
+
+    /**
+     * {@code client} narrowed by a permit's obligations: only the scopes, grant types and response types they allow, of
+     * those it has - defaults included, so narrowing only ever takes away. Its end, {@code expiresAt}, is already the
+     * policy's ({@link RegistrationLifetime#expiresAt(com.pingidentity.ps.oidf.federation.TrustChainValidationResult, Long)}).
+     */
+    static void narrow(Client client, NarrowingObligations obligations, long expiresAt, long now) {
+        ClientDraft narrowed = obligations.applyTo(new ClientDraft(client.getRestrictedScopes(), client.getGrantTypes(),
+                client.getRestrictedResponseTypes(), expiresAt), now);
+        client.setRestrictedScopes(new ArrayList<>(narrowed.scopes()));
+        client.setGrantTypes(new HashSet<>(narrowed.grantTypes()));
+        client.setRestrictedResponseTypes(new ArrayList<>(narrowed.responseTypes()));
+    }
+
+    /**
+     * {@code registered} - the metadata an explicit registration response reports (§12.2.3) - as {@code client} was
+     * narrowed: each of {@code scope}, {@code grant_types} and {@code response_types} it reports keeps only what the
+     * client has, in the order the entity gave them.
+     */
+    static void narrowed(Map<String, Object> registered, Client client) {
+        if (registered.get("scope") instanceof String) {
+            registered.put("scope", String.join(" ", client.getRestrictedScopes()));
+        }
+        if (registered.containsKey("grant_types")) {
+            registered.put("grant_types", strings(registered.get("grant_types")).stream().filter(client.getGrantTypes()::contains).toList());
+        }
+        if (registered.containsKey("response_types")) {
+            registered.put("response_types", strings(registered.get("response_types")).stream()
+                    .filter(client.getRestrictedResponseTypes()::contains).toList());
+        }
     }
 
     /**

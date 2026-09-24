@@ -129,6 +129,29 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 This entity publishes its history; it does not read other entities'. A chain this validator checks is live, and a
 statement signed with a key since rotated is fetched again rather than checked against a historical key.
 
+## `federation.policy` — asking a policy decision point
+
+The federation says who an entity is and what its superiors allow it. Whether this deployment wants it is a
+question for a policy engine, and this package is how one is asked - with no PingFederate in it.
+
+- **`FederationPolicyDecisionPoint`** — `decide(PolicyDecisionRequest)` returns a **`PolicyDecision`**: permitted or not,
+  the reasons (`reason_admin` for the logs, `reason_user` fit to show the caller), and what a permit narrows. It throws
+  **`PolicyDecisionException`** only when no decision could be had - never as a denial.
+- **`PolicyDecisionRequest`** — one question, rendered as an AuthZEN 1.0 Access Evaluation request: the subject is always
+  the `federation_entity` the request is about, never a user; the action is the **`DecisionPoint`**'s
+  (`federation.register.explicit`, `federation.register.automatic`, `federation.hosted_entity.enrol`). A `request`
+  member of its context holds what belongs to one request only, and is left out of the cache key.
+- **`NarrowingObligations`** — what a permit may do to a registration: keep only some of the scopes, grant types and
+  response types it asked for, end it sooner, require Trust Marks. Applied to a **`ClientDraft`** - the registration
+  with every default already in - so it can only take away. Two sets of obligations combine by intersection.
+- **`AuthZenFederationPolicyDecisionPoint`** — the AuthZEN client: POST JSON with `X-Request-ID`; only a 200 with a
+  boolean `decision` is a decision (§10.1.2); the evaluation endpoint at the default path, configured outright, or read
+  from the PDP's `/.well-known/authzen-configuration` with the §9.2.3 identifier check. Context it doesn't understand
+  is listed as ignored, or refuses the permit when the deployment says so (§5.5).
+- **`LocalFederationPolicyDecisionPoint`** (an allow-list of scopes), **`CompositePolicyDecisionPoint`** (local first; a
+  local refusal is final, and both permits' obligations apply), **`CachingPolicyDecisionPoint`** (permits and denials
+  for a while, keyed on a hash of the request; failures never).
+
 ## Configuration
 
 The anchor's pinned keys are not a `FederationConfiguration` setting: they are passed to

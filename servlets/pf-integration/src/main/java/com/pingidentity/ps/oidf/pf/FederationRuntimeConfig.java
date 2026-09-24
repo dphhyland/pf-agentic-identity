@@ -139,6 +139,38 @@ public final class FederationRuntimeConfig {
     public static final String AUTHORITY_METADATA_POLICY_ENV = "OIDF_AUTHORITY_METADATA_POLICY";
     /** The {@code constraints} (§6.2) every Subordinate Statement this entity issues carries. */
     public static final String SUBORDINATE_CONSTRAINTS_ENV = "OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS";
+    /** Which policy decides federation requests: {@code off}, {@code local} (the default) or {@code authzen}. */
+    public static final String PDP_MODE_ENV = "OIDF_PDP_MODE";
+    /** The AuthZEN PDP's base URL; its evaluation endpoint is {@code /access/v1/evaluation} under it unless discovered. */
+    public static final String PDP_URL_ENV = "OIDF_PDP_URL";
+    /** The AuthZEN evaluation endpoint itself, when it is not at the default path. */
+    public static final String PDP_EVALUATION_URL_ENV = "OIDF_PDP_EVALUATION_URL";
+    /** Whether the evaluation endpoint is read from the PDP's {@code /.well-known/authzen-configuration} (default false). */
+    public static final String PDP_DISCOVER_ENV = "OIDF_PDP_DISCOVER";
+    /** How this deployment authenticates to the PDP: {@code none} (the default), {@code bearer} or {@code header}. */
+    public static final String PDP_AUTH_ENV = "OIDF_PDP_AUTH";
+    /** The bearer token or shared secret for {@link #PDP_AUTH_ENV}. */
+    public static final String PDP_AUTH_TOKEN_ENV = "OIDF_PDP_AUTH_TOKEN";
+    /** The header the shared secret goes in (default {@code CLIENT-TOKEN}, as the RAR plugin sends it). */
+    public static final String PDP_AUTH_HEADER_ENV = "OIDF_PDP_AUTH_HEADER";
+    /** Whether a request goes ahead when the PDP gives no decision (default false: it is refused, 503). */
+    public static final String PDP_FAIL_OPEN_ENV = "OIDF_PDP_FAIL_OPEN";
+    /** Whether a permit carrying context this deployment does not understand is refused: {@code ignore} (default) or {@code reject}. */
+    public static final String PDP_UNKNOWN_CONTEXT_ENV = "OIDF_PDP_UNKNOWN_CONTEXT";
+    /** How long a decision is kept, in seconds (default 0: never). */
+    public static final String PDP_CACHE_TTL_ENV = "OIDF_PDP_CACHE_TTL_SECONDS";
+    public static final String PDP_CONNECT_TIMEOUT_ENV = "OIDF_PDP_CONNECT_TIMEOUT_MS";
+    public static final String PDP_REQUEST_TIMEOUT_ENV = "OIDF_PDP_REQUEST_TIMEOUT_MS";
+    /** Whether the PDP's {@code reason_user} is shown to the refused caller (default false). */
+    public static final String PDP_SURFACE_USER_REASON_ENV = "OIDF_PDP_SURFACE_USER_REASON";
+    /**
+     * Which decisions the PDP is asked for: {@code explicit_registration}, {@code automatic_registration},
+     * {@code hosted_entity_enrol}. Default the two registrations; enrolment is asked only when listed, so a PDP with no
+     * policy for it does not start refusing enrolments the day it is switched on.
+     */
+    public static final String PDP_DECISION_POINTS_ENV = "OIDF_PDP_DECISION_POINTS";
+    /** The scopes a federation client may keep, whatever its metadata asks (space or comma separated; unset: no limit). */
+    public static final String REGISTRATION_ALLOWED_SCOPES_ENV = "OIDF_REGISTRATION_ALLOWED_SCOPES";
 
     /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
@@ -218,6 +250,68 @@ public final class FederationRuntimeConfig {
             }
         }
     }
+
+    /**
+     * Who decides federation requests beyond the federation's own checks, and how it is reached.
+     *
+     * @param mode                 {@code OFF}: nobody; {@code LOCAL}: this deployment's own policy; {@code AUTHZEN}: that, then an AuthZEN PDP
+     * @param url                  the PDP's base URL (its identifier, when discovered)
+     * @param evaluationUrl        its evaluation endpoint, when configured outright
+     * @param discover             whether the evaluation endpoint is read from the PDP's metadata
+     * @param auth                 how this deployment authenticates to the PDP
+     * @param authToken            the bearer token or shared secret
+     * @param authHeader           the header a shared secret goes in
+     * @param failOpen             whether a request goes ahead when the PDP gives no decision
+     * @param rejectUnknownContext whether a permit with context this deployment does not understand is refused
+     * @param cacheTtlSeconds      how long a decision is kept; 0 never
+     * @param connectTimeoutMs     the PDP connection timeout
+     * @param requestTimeoutMs     the PDP request timeout
+     * @param surfaceUserReason    whether the PDP's {@code reason_user} is shown to a refused caller
+     * @param allowedScopes        the scopes a federation client may keep; null for no limit
+     * @param decisionPoints       which decisions are asked for
+     */
+    public record PdpSettings(PdpMode mode, String url, String evaluationUrl, boolean discover, PdpAuth auth, String authToken, String authHeader,
+                              boolean failOpen, boolean rejectUnknownContext, long cacheTtlSeconds, long connectTimeoutMs, long requestTimeoutMs,
+                              boolean surfaceUserReason, java.util.Set<String> allowedScopes,
+                              java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> decisionPoints) {
+        public static final PdpSettings DEFAULTS = new PdpSettings(PdpMode.LOCAL, null, null, false, PdpAuth.NONE, null, "CLIENT-TOKEN", false,
+                false, 0L, 2_000L, 3_000L, false, null, java.util.EnumSet.of(com.pingidentity.ps.oidf.federation.policy.DecisionPoint.EXPLICIT_REGISTRATION,
+                com.pingidentity.ps.oidf.federation.policy.DecisionPoint.AUTOMATIC_REGISTRATION));
+
+        public PdpSettings {
+            Objects.requireNonNull(mode, "mode");
+            Objects.requireNonNull(auth, "auth");
+            decisionPoints = java.util.Set.copyOf(decisionPoints);
+            allowedScopes = allowedScopes == null ? null : java.util.Set.copyOf(allowedScopes);
+            if (mode == PdpMode.AUTHZEN && url == null && evaluationUrl == null) {
+                throw new IllegalStateException(PDP_MODE_ENV + "=authzen needs " + PDP_URL_ENV + " or " + PDP_EVALUATION_URL_ENV);
+            }
+            if (discover && url == null) {
+                throw new IllegalStateException(PDP_DISCOVER_ENV + "=true needs " + PDP_URL_ENV + ", the PDP's identifier");
+            }
+            if (auth != PdpAuth.NONE && authToken == null) {
+                throw new IllegalStateException(PDP_AUTH_ENV + "=" + auth.name().toLowerCase(java.util.Locale.ROOT) + " needs " + PDP_AUTH_TOKEN_ENV);
+            }
+            if (cacheTtlSeconds < 0 || connectTimeoutMs <= 0 || requestTimeoutMs <= 0) {
+                throw new IllegalStateException("the PDP cache and timeouts must be positive (" + PDP_CACHE_TTL_ENV + " may be 0)");
+            }
+            if (mode == PdpMode.OFF && allowedScopes != null) {
+                throw new IllegalStateException(REGISTRATION_ALLOWED_SCOPES_ENV + " is this deployment's own policy, which "
+                        + PDP_MODE_ENV + "=off turns off; unset one of them");
+            }
+        }
+
+        /** Whether an external PDP is asked for {@code point}. */
+        public boolean asksExternally(com.pingidentity.ps.oidf.federation.policy.DecisionPoint point) {
+            return this.mode == PdpMode.AUTHZEN && this.decisionPoints.contains(point);
+        }
+    }
+
+    /** Who decides federation requests beyond the federation's own checks. */
+    public enum PdpMode { OFF, LOCAL, AUTHZEN }
+
+    /** How this deployment authenticates to an AuthZEN PDP. */
+    public enum PdpAuth { NONE, BEARER, HEADER }
 
     /** What happens to an expired registration that cannot be renewed. */
     public enum ExpiryEnforcement {
@@ -306,13 +400,14 @@ public final class FederationRuntimeConfig {
     private final KeyHistorySettings keyHistory;
     private final Map<String, Object> authorityMetadataPolicy;
     private final Map<String, Object> subordinateConstraints;
+    private final PdpSettings pdp;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
             RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
             boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory,
-            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints) {
+            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
@@ -322,6 +417,7 @@ public final class FederationRuntimeConfig {
         this.keyHistory = Objects.requireNonNull(keyHistory, "keyHistory");
         this.authorityMetadataPolicy = Objects.requireNonNull(authorityMetadataPolicy, "authorityMetadataPolicy");
         this.subordinateConstraints = subordinateConstraints;
+        this.pdp = Objects.requireNonNull(pdp, "pdp");
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -415,7 +511,108 @@ public final class FederationRuntimeConfig {
                 strictly(AUTHORITY_METADATA_POLICY_ENV, () -> metadataPolicyByType(jsonObject(
                         setting(env, props, AUTHORITY_METADATA_POLICY_PROP, AUTHORITY_METADATA_POLICY_ENV)))),
                 strictly(SUBORDINATE_CONSTRAINTS_ENV, () -> constraints(jsonObject(
-                        setting(env, props, SUBORDINATE_CONSTRAINTS_PROP, SUBORDINATE_CONSTRAINTS_ENV)))));
+                        setting(env, props, SUBORDINATE_CONSTRAINTS_PROP, SUBORDINATE_CONSTRAINTS_ENV)))),
+                pdpSettings(env, props));
+    }
+
+    private static PdpSettings pdpSettings(Function<String, String> env, Function<String, String> props) {
+        PdpSettings d = PdpSettings.DEFAULTS;
+        String unknownContext = choice(env, props, PDP_UNKNOWN_CONTEXT_ENV, "ignore", "ignore", "reject");
+        // AuthZEN 1.0 §10.1: "All API requests within this binding are made via an HTTPS POST request"; §11.1: the PEP-PDP
+        // connection "MUST be secured ... (e.g. TLS for HTTP REST)". A decision - and the token that asks for it - is not
+        // sent in the clear unless the deployment allows plaintext fetches at all.
+        boolean allowHttp = "true".equalsIgnoreCase(blankToNull(env.apply(com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.ALLOW_HTTP_ENV)));
+        for (String var : List.of(PDP_URL_ENV, PDP_EVALUATION_URL_ENV)) {
+            String url = blankToNull(setting(env, props, prop(var), var));
+            if (url == null) {
+                continue;
+            }
+            if (!url.startsWith("https://") && !(allowHttp && url.startsWith("http://"))) {
+                throw new IllegalStateException(var + " must be an https URL (AuthZEN 1.0 §10.1, §11.1), not " + url + "; set "
+                        + com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.ALLOW_HTTP_ENV + "=true for a plaintext development PDP");
+            }
+            if (!hasHost(url)) {
+                throw new IllegalStateException(var + " is not a URL with a host: " + url);
+            }
+        }
+        return new PdpSettings(
+                PdpMode.valueOf(choice(env, props, PDP_MODE_ENV, "local", "off", "local", "authzen").toUpperCase(java.util.Locale.ROOT)),
+                blankToNull(setting(env, props, prop(PDP_URL_ENV), PDP_URL_ENV)),
+                blankToNull(setting(env, props, prop(PDP_EVALUATION_URL_ENV), PDP_EVALUATION_URL_ENV)),
+                bool(env, props, prop(PDP_DISCOVER_ENV), PDP_DISCOVER_ENV, d.discover()),
+                PdpAuth.valueOf(choice(env, props, PDP_AUTH_ENV, "none", "none", "bearer", "header").toUpperCase(java.util.Locale.ROOT)),
+                blankToNull(setting(env, props, prop(PDP_AUTH_TOKEN_ENV), PDP_AUTH_TOKEN_ENV)),
+                java.util.Optional.ofNullable(blankToNull(setting(env, props, prop(PDP_AUTH_HEADER_ENV), PDP_AUTH_HEADER_ENV))).orElse(d.authHeader()),
+                bool(env, props, prop(PDP_FAIL_OPEN_ENV), PDP_FAIL_OPEN_ENV, d.failOpen()),
+                "reject".equals(unknownContext),
+                seconds(env, props, prop(PDP_CACHE_TTL_ENV), PDP_CACHE_TTL_ENV, d.cacheTtlSeconds()),
+                seconds(env, props, prop(PDP_CONNECT_TIMEOUT_ENV), PDP_CONNECT_TIMEOUT_ENV, d.connectTimeoutMs()),
+                seconds(env, props, prop(PDP_REQUEST_TIMEOUT_ENV), PDP_REQUEST_TIMEOUT_ENV, d.requestTimeoutMs()),
+                bool(env, props, prop(PDP_SURFACE_USER_REASON_ENV), PDP_SURFACE_USER_REASON_ENV, d.surfaceUserReason()),
+                words(REGISTRATION_ALLOWED_SCOPES_ENV, setting(env, props, prop(REGISTRATION_ALLOWED_SCOPES_ENV), REGISTRATION_ALLOWED_SCOPES_ENV)),
+                decisionPoints(setting(env, props, prop(PDP_DECISION_POINTS_ENV), PDP_DECISION_POINTS_ENV), d.decisionPoints()));
+    }
+
+    private static boolean hasHost(String url) {
+        try {
+            return java.net.URI.create(url).getHost() != null;
+        } catch (IllegalArgumentException e) {
+            return false;
+        }
+    }
+
+    /** The system property for an {@code OIDF_...} variable: lower case, underscores as dots. */
+    private static String prop(String var) {
+        return var.toLowerCase(java.util.Locale.ROOT).replace('_', '.');
+    }
+
+    /** One of {@code allowed}, any case; unset is {@code fallback}; anything else stops the deployment starting. */
+    private static String choice(Function<String, String> env, Function<String, String> props, String var, String fallback, String... allowed) {
+        String value = blankToNull(setting(env, props, prop(var), var));
+        if (value == null) {
+            return fallback;
+        }
+        for (String option : allowed) {
+            if (option.equalsIgnoreCase(value)) {
+                return option;
+            }
+        }
+        throw new IllegalStateException(var + " must be one of " + String.join(", ", allowed) + ", not " + value);
+    }
+
+    /** Space- or comma-separated words; unset is null, "no list", and a list of nothing is refused as a likely slip. */
+    private static java.util.Set<String> words(String var, String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        java.util.Set<String> words = new java.util.LinkedHashSet<>();
+        for (String word : value.split("[\\s,]+")) {
+            if (!word.isEmpty()) {
+                words.add(word);
+            }
+        }
+        if (words.isEmpty()) {
+            throw new IllegalStateException(var + " lists nothing; leave it unset instead");
+        }
+        return words;
+    }
+
+    private static java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> decisionPoints(String value,
+            java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> fallback) {
+        java.util.Set<String> names = words(PDP_DECISION_POINTS_ENV, value);
+        if (names == null) {
+            return fallback;
+        }
+        java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> points = java.util.EnumSet.noneOf(
+                com.pingidentity.ps.oidf.federation.policy.DecisionPoint.class);
+        for (String name : names) {
+            try {
+                points.add(com.pingidentity.ps.oidf.federation.policy.DecisionPoint.valueOf(name.toUpperCase(java.util.Locale.ROOT)));
+            } catch (IllegalArgumentException e) {
+                throw new IllegalStateException(PDP_DECISION_POINTS_ENV + " names " + name + ", which is not a decision this deployment asks for");
+            }
+        }
+        return points;
     }
 
     /** A JSON object, or null when blank. */
@@ -700,6 +897,11 @@ public final class FederationRuntimeConfig {
     /** The {@code constraints} on every Subordinate Statement ({@link #SUBORDINATE_CONSTRAINTS_ENV}); null when unset. */
     public Map<String, Object> subordinateConstraints() {
         return this.subordinateConstraints;
+    }
+
+    /** Who decides federation requests beyond the federation's own checks. */
+    public PdpSettings pdp() {
+        return this.pdp;
     }
 
     /** Whether this entity keeps and publishes its key history (§8.7). */

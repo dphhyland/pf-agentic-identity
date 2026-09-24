@@ -309,6 +309,23 @@
                                         <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.hostedEntityIds(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.hostedSubordinateClaims(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.Constraints.requireValid(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.NarrowingObligations.and(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.NarrowingObligations.applyTo(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.NarrowingObligations.keep(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.NarrowingObligations.intersect(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.NarrowingObligations.min(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.PolicyDecisionRequest.body(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.PolicyDecisionRequest.sorted(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.discover(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.obligations(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.scopes(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.strings(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.reason(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.AuthZenFederationPolicyDecisionPoint.stripSlash(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.CachingPolicyDecisionPoint.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.CompositePolicyDecisionPoint.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.policy.LocalFederationPolicyDecisionPoint.decide(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

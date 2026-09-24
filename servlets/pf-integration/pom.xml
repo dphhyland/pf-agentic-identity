@@ -265,6 +265,26 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.booleanParameter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.repeated(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.resolverAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.noDecision(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.request(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.obligationNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.nullIfEmpty(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.validated(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.verifiedTypes(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrow(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.askPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.build(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.authHeaders(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.trustedUrls(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.policies(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.Policies.forPoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.pdpSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.choice(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.words(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.decisionPoints(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings.asksExternally(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

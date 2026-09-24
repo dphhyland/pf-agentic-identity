@@ -13,6 +13,14 @@ import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
+import com.pingidentity.ps.oidf.federation.policy.FederationPolicyDecisionPoint;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecision;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecisionException;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecisionRequest;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
+import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfDataSources;
@@ -21,6 +29,7 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -279,6 +288,12 @@ public class HostedEntityServlet extends HttpServlet {
         }
 
         String actor = FederationAdminServlet.actor(this.adminToken, req.getHeader("X-Federation-Actor"));
+        Refusal refusal = askPolicy(FederationPolicySupport.decisionPointFor(DecisionPoint.HOSTED_ENTITY_ENROL), FederationPolicySupport.settings(),
+                entity, AuthoritySupport.authorityEntityId(), actor);
+        if (refusal != null) {
+            writeError(resp, refusal.status(), refusal.error(), refusal.description());
+            return;
+        }
         try {
             AuthoritySupport.registry().register(entity, actor);
         } catch (AuthorityRegistryException e) {
@@ -301,6 +316,64 @@ public class HostedEntityServlet extends HttpServlet {
         try (PrintWriter w = resp.getWriter()) {
             w.write(JsonUtil.toJson(out));
         }
+    }
+
+    /** Why an enrolment may not go ahead. */
+    record Refusal(int status, String error, String description) {
+    }
+
+    /**
+     * Asks whoever decides enrolments in this deployment ({@code OIDF_PDP_DECISION_POINTS} naming
+     * {@code hosted_entity_enrol}) whether {@code entity} may be enrolled: null when it may, or when nobody decides. A
+     * denial is 403 {@code access_denied}, with the PDP's {@code reason_user} only when the deployment surfaces it. No
+     * decision is 503, never a permit (AuthZEN 1.0 §10.1.2), unless the deployment fails open.
+     *
+     * <p>The PDP hears the entity's identifier, its Entity Types and the metadata it is to be enrolled with, whether it is
+     * listed, and who is enrolling it (the admin token's fingerprint, never the token).
+     */
+    static Refusal askPolicy(FederationPolicyDecisionPoint pdp, PdpSettings settings, HostedEntity entity, String authority, String actor) {
+        if (pdp == null) {
+            return null;
+        }
+        Map<String, Object> subject = new LinkedHashMap<>();
+        subject.put("entity_types", new ArrayList<>(entity.metadata().keySet()));
+        subject.put("listable", entity.listable());
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("metadata", entity.metadata());
+        context.put("actor", actor);
+        String trackingId = PfTracking.trackingId();
+        if (trackingId != null) {
+            context.put(PolicyDecisionRequest.REQUEST_CONTEXT, Map.of("tracking_id", trackingId));
+        }
+        PolicyDecisionRequest request = new PolicyDecisionRequest(DecisionPoint.HOSTED_ENTITY_ENROL, entity.entityId(), subject,
+                "federation_authority", authority, Map.of(), context, trackingId);
+        PolicyDecision decision;
+        try {
+            decision = pdp.decide(request);
+        } catch (PolicyDecisionException e) {
+            FederationEvents.event(FederationEvents.PDP_CONSULTED).failure("no_decision").subject(entity.entityId()).role("authority").audit()
+                    .field("action", DecisionPoint.HOSTED_ENTITY_ENROL.action()).field("actor", actor).description(e.getMessage()).emit();
+            if (settings.failOpen()) {
+                FederationEvents.event(FederationEvents.PDP_FAIL_OPEN).failure("no_decision").subject(entity.entityId()).role("authority").audit()
+                        .field("action", DecisionPoint.HOSTED_ENTITY_ENROL.action()).description("enrolled without a policy decision: OIDF_PDP_FAIL_OPEN=true")
+                        .emit();
+                return null;
+            }
+            return new Refusal(503, "temporarily_unavailable", "the policy decision this enrolment needs could not be obtained; try again shortly");
+        }
+        FederationEvents.event(FederationEvents.PDP_CONSULTED).subject(entity.entityId()).role("authority").audit()
+                .field("action", DecisionPoint.HOSTED_ENTITY_ENROL.action()).field("actor", actor)
+                .field("decision", decision.permitted() ? "permit" : "deny").field("latency_ms", decision.latencyMs())
+                .field("pdp_request_id", decision.pdpRequestId())
+                .field("ignored_context", decision.ignoredContextKeys().isEmpty() ? null : decision.ignoredContextKeys())
+                .description(decision.reasonAdmin()).emit();
+        if (decision.permitted()) {
+            return null;
+        }
+        FederationEvents.event(FederationEvents.HOSTED_ENTITY_REFUSED).failure("policy_denied").subject(entity.entityId()).role("authority").audit()
+                .field("actor", actor).description("the policy decision point refused the enrolment").emit();
+        return new Refusal(403, "access_denied", settings.surfaceUserReason() && decision.reasonUser() != null ? decision.reasonUser()
+                : "this deployment's policy does not allow " + entity.entityId() + " to be enrolled");
     }
 
     /** Constant-time comparison against the configured admin token — a timing side channel on this check

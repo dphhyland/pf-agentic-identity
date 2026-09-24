@@ -14,7 +14,13 @@ import com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
+import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
+import com.pingidentity.ps.oidf.jose.HttpPostClient;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -48,6 +54,7 @@ class HostedEntityServletEnrolTest {
         AuthoritySupport.resetForTests();
         TrustMarkSupport.resetForTests();
         FederationRuntimeConfig.resetForTests();
+        FederationPolicySupport.resetForTests();
     }
 
     private static void host(JwsSigner signer) {
@@ -141,6 +148,26 @@ class HostedEntityServletEnrolTest {
                 ", \"metadataPolicy\": {\"oauth_client\": {\"token_endpoint_auth_method\": {\"value\": \"none\"}}}")).json(400).get("error"));
         assertEquals("invalid_request", new Exchange("POST", null, enrolment(", \"metadataPolicy\": [1]")).json(400).get("error"));
         assertTrue(AuthoritySupport.registry().all().isEmpty());
+    }
+
+    @Test
+    void aPolicyDecisionPointCanRefuseAnEnrolment() throws Exception {
+        host(SIGNER);
+        java.util.List<String> answers = new java.util.ArrayList<>(java.util.List.of(
+                "{\"decision\": false, \"context\": {\"reason_admin\": \"no new agents this week\"}}", "{\"decision\": true}"));
+        HttpPostClient pdp = (url, contentType, body, headers, accept) -> new HttpPostClient.Response(200, answers.remove(0), Map.of());
+        PdpSettings d = PdpSettings.DEFAULTS;
+        FederationPolicySupport.configure(new PdpSettings(PdpMode.AUTHZEN, "https://pdp.example.com", null, false, PdpAuth.NONE, null,
+                d.authHeader(), false, false, 0L, d.connectTimeoutMs(), d.requestTimeoutMs(), false, null,
+                java.util.Set.of(DecisionPoint.HOSTED_ENTITY_ENROL)), pdp, null, java.time.Clock.systemUTC());
+
+        Map<String, Object> refused = new Exchange("POST", null, enrolment("")).json(403);
+
+        assertEquals("access_denied", refused.get("error"));
+        assertFalse(refused.toString().contains("this week"), "the administrator's reason stays in the logs");
+        assertTrue(AuthoritySupport.registry().all().isEmpty());
+        assertEquals("policy_denied", this.events.only(FederationEvents.HOSTED_ENTITY_REFUSED).reason());
+        assertEquals(AUTHORITY + "/federation/agents/a1", new Exchange("POST", null, enrolment("")).json(201).get("entityId"));
     }
 
     /** A fault of the authority's shows nothing of itself - not the vault's address, not the database's. */

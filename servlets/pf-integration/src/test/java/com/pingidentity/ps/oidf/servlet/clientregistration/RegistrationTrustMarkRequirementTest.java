@@ -16,8 +16,14 @@ import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
+import com.pingidentity.ps.oidf.federation.policy.FederationPolicyDecisionPoint;
+import com.pingidentity.ps.oidf.federation.policy.NarrowingObligations;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecision;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecisionRequest;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.RegistrationSettings;
 import com.pingidentity.ps.oidf.pf.testkit.FakeClientStore;
@@ -26,6 +32,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Consumer;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.junit.jupiter.api.AfterEach;
@@ -48,6 +55,7 @@ class RegistrationTrustMarkRequirementTest {
     private final PublicJsonWebKey tmiKey = Keys.ec("tmi-1");
     private final FakeClientStore store = new FakeClientStore();
     private final List<String> statusAsked = new ArrayList<>();
+    private final List<PolicyDecisionRequest> asked = new ArrayList<>();
     private EventCapture events;
 
     @BeforeEach
@@ -59,6 +67,7 @@ class RegistrationTrustMarkRequirementTest {
     void tearDown() {
         this.events.close();
         FederationRuntimeConfig.resetForTests();
+        FederationPolicySupport.resetForTests();
     }
 
     private static void configure(String requiredMarks, boolean statusCheck) {
@@ -92,6 +101,18 @@ class RegistrationTrustMarkRequirementTest {
     }
 
     private RegistrationService service(Federation f, String status) throws Exception {
+        return this.service(f, status, RegistrationPolicy.fromEnvironment());
+    }
+
+    /** A service whose policy decisions come from {@code pdp}, which records what it was asked. */
+    private RegistrationService service(Federation f, FederationPolicyDecisionPoint pdp) throws Exception {
+        return this.service(f, "active", new RegistrationPolicy(point -> request -> {
+            this.asked.add(request);
+            return pdp.decide(request);
+        }, PdpSettings.DEFAULTS));
+    }
+
+    private RegistrationService service(Federation f, String status, RegistrationPolicy policy) throws Exception {
         HttpPostClient statusClient = (url, contentType, body, headers, accept) -> {
             this.statusAsked.add(url);
             String answer = Statements.spec(TrustMarkValidator.STATUS_RESPONSE_TYP).claim("iss", TMI)
@@ -103,7 +124,7 @@ class RegistrationTrustMarkRequirementTest {
                 this.store, RegistrationFixtures.signer(), new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock),
                 new RpKeyMaterial((url, accept) -> {
                     throw new java.io.IOException("no RP key fetch expected: " + url);
-                }, this.clock), RegistrationService.coordinatorFor(AutoRegistrationSettings.DEFAULTS), statusClient);
+                }, this.clock), RegistrationService.coordinatorFor(AutoRegistrationSettings.DEFAULTS), statusClient, policy);
     }
 
     private Admission admit(Federation f) throws Exception {
@@ -180,5 +201,45 @@ class RegistrationTrustMarkRequirementTest {
                 .explicitRegister(new ExplicitRegistrationRequest(AGENT, AGENT, without.chain(AGENT, TA), Map.of()), OP));
         assertEquals(AGENT, this.service(with, "active")
                 .explicitRegister(new ExplicitRegistrationRequest(AGENT, AGENT, with.chain(AGENT, TA), Map.of()), OP).clientId());
+    }
+
+    @Test
+    @Requirement("AUTHZEN-1.0 §5.5")
+    void aPolicyDecisionCanRequireAMarkTheDeploymentDoesNot() throws Exception {
+        configure(null, false);
+        FederationPolicyDecisionPoint certifiedOnly = request -> PolicyDecision.permit(new NarrowingObligations(null, null, null, null,
+                Set.of(CERTIFIED)));
+        Federation without = this.federation(List.of());
+        Federation with = this.federation(List.of(this.mark(this.tmiKey)));
+
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
+                () -> this.service(without, certifiedOnly).admit(AGENT, without.chain(AGENT, TA), OP));
+        assertTrue(e.getMessage().endsWith("which the policy decision requires"), e.getMessage());
+        assertEquals(CERTIFIED, this.events.withCode(FederationEvents.REGISTRATION_REFUSED).get(0).fields().get("missing_trust_marks"));
+        assertNull(this.store.get(AGENT));
+
+        assertEquals(Admission.REGISTERED, this.service(with, certifiedOnly).admit(AGENT, with.chain(AGENT, TA), OP));
+        assertNull(this.asked.get(0).subjectProperties().get("trust_marks"), "nothing was verified before the PDP asked for it");
+    }
+
+    @Test
+    void theMarksAreValidatedOnceHoweverManyThingsRequireThem() throws Exception {
+        configure("{\"oauth_client\": [\"" + CERTIFIED + "\"]}", true);
+        Federation f = this.federation(List.of(this.mark(this.tmiKey)));
+
+        assertEquals(Admission.REGISTERED, this.service(f, request -> PolicyDecision.permit(new NarrowingObligations(null, null, null, null,
+                Set.of(CERTIFIED)))).admit(AGENT, f.chain(AGENT, TA), OP));
+
+        assertEquals(List.of(TMI + "/status"), this.statusAsked, "the deployment and the policy decision both required it; its issuer was asked once");
+    }
+
+    @Test
+    void thePdpHearsWhichMarksVerifiedWhenTheDeploymentChecked() throws Exception {
+        configure("{\"oauth_client\": [\"" + CERTIFIED + "\"]}", false);
+        Federation f = this.federation(List.of(this.mark(this.tmiKey)));
+
+        this.service(f, request -> PolicyDecision.permit(NarrowingObligations.NONE)).admit(AGENT, f.chain(AGENT, TA), OP);
+
+        assertEquals(List.of(CERTIFIED), this.asked.get(0).subjectProperties().get("trust_marks"));
     }
 }

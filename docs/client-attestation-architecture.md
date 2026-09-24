@@ -460,7 +460,10 @@ Does the implementation match the text it published?
 | `RFC9493 §3.2` | Subject identifier formats | `SubjectId` | Implemented |
 | `RFC8935 §2.4` | Push-based SET delivery | `servlets/ssf` | Implemented |
 | `RFC8936 §2.3` | Poll-based SET delivery | `servlets/ssf` | Implemented |
-| `AUTHZEN-1.0 §6` | Access Evaluation API | `services/gm-api`, `plugins/rar-paz-plugin` | Implemented |
+| `AUTHZEN-1.0 §6` | Access Evaluation API | `services/gm-api`, `plugins/rar-paz-plugin`; as a PEP, the federation policy hook (`libs/openid-federation` `federation.policy`) | Implemented |
+| `AUTHZEN-1.0 §5.5` | Decision and its `context`, read by a PEP: a permit only narrows a registration; `reason_admin` stays in the logs, `reason_user` is shown only when allowed; context not understood is ignored or refuses the permit | `AuthZenFederationPolicyDecisionPoint`, `RegistrationPolicy` | Implemented |
+| `AUTHZEN-1.0 §9.2` | PDP metadata discovery, with the §9.2.3 identifier check | `AuthZenFederationPolicyDecisionPoint` | Implemented |
+| `AUTHZEN-1.0 §10.1` | HTTPS JSON binding, as a PEP: POST, `X-Request-ID` echoed, an HTTP error never read as a decision | `AuthZenFederationPolicyDecisionPoint`, `FederationRuntimeConfig` (https required) | Implemented |
 | `AUTHZEN-1.0 §8.5` | Resource Search API | `services/gm-api` | Implemented |
 | `GRANT-MGMT §6.3` | Grant resource URL | `services/gm-api` | Implemented — §6.4 query and §6.5 revoke need a running PF and are untested here |
 | `PF-SDK §CustomDataSourceDriver.retrieveValues` | PF custom data source contract | `plugins/instance-registry-datasource` | Implemented |
