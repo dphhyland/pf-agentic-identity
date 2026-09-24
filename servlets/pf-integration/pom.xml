@@ -190,6 +190,19 @@
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.registrationSettings(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictBoolean(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.requiredTrustMarks(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictly(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.AuthorityDataSource.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.route(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.authorized(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.grant(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.actor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleTrustMark(*</include>
                                         <!-- The explicit-registration body itself: typed as an Entity Statement
                                              (OpenID Federation 1.0 §3) and signed by its own jwks. The chain
                                              validator never sees this statement, so nothing downstream repeats it. -->

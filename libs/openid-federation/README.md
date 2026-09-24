@@ -68,7 +68,11 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   configuration, carrying the subject's verified Trust Marks and expiring with the first of them if that is
   sooner than the chain (§8.3.2). Its resolver answers for this entity's own statements in-process
   (`LocalFirstTrustControllerGateway`) rather than fetching its own URL. RS256/PS256 through
-  `SigningKeyProvider`.
+  `SigningKeyProvider`. Given a **`TrustMarkIssuing`** it is also a Trust Mark Issuer: the Trust Mark
+  endpoint (§8.6), the status endpoint (§8.4) and the Trust Marked Entities Listing (§8.5), advertised in its
+  `federation_entity` metadata, the list endpoint's `trust_marked` and `trust_mark_type` filters, and the marks it
+  issues itself in its own `trust_marks`. As a trust anchor it publishes `trust_mark_issuers` (naming itself for
+  the types it issues) and `trust_mark_owners`.
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).
   The latter is the `openid_provider` attestation capability set the entity configuration advertises:
   auth methods, per-JWT algorithm lists, `attestation_pop_jwt` + `dpop_combined`, challenge endpoint.
@@ -87,8 +91,26 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   scheme, so it isn't part of this numbering at all.
 - **`HostedEntitySigner` / `RegistryHostedEntitySigner`** — resolves an entity's `hostingKeyRef` to an
   `OpenBaoTransitSigner` on one deployment-wide vault; **`HostedEntityConfigurationBuilder`** signs the
-  entity configuration with it (60 min lifetime). **`AuthoritySupport`** holds the process-wide registry,
-  signer and domain-default policy so every servlet shares one state across classloaders.
+  entity configuration with it (60 min lifetime), with the Trust Marks this authority issues the entity.
+  **`AuthoritySupport`** holds the process-wide registry, signer, domain-default policy and Trust Mark lookup so
+  every servlet shares one state across classloaders.
+
+## `trustmark` — issuing Trust Marks
+
+- **`TrustMarkType`** — a type this entity issues, parsed from the operator's JSON: its lifetime, whether it
+  goes to hosted entities only (the default) or to anyone granted it, and the `delegation`, `ref` and `logo_uri`
+  its marks carry.
+- **`TrustMarkGrant`**, **`TrustMarkRegistry`** — who is granted which type, until when, by whom:
+  `InMemoryTrustMarkRegistry` or **`JdbcTrustMarkRegistry`** over `db/migration/V102__trust_mark.sql`
+  (`trust_mark_grant` plus an append-only `trust_mark_audit_log`, each change and its audit line in one
+  transaction). Granting again starts a grant afresh. **`TrustMarkSupport`** holds the process-wide one.
+- **`TrustMarkIssuer`** — the issuing decisions behind `FederationService`: a mark only under a grant that stands
+  and, for a hosted-only type, to an active hosted entity; `exp` never past the grant's end. No mark is recorded:
+  its status is its signature plus its grant - revoked, or granted again since it was minted, is `revoked`; past
+  its `exp` or its grant's end, `expired`; no grant, unknown (404).
+- **`TrustMarkClaims`** — the claims an operator has this entity publish (`trust_marks` it carries from other
+  issuers, `trust_mark_issuers`, `trust_mark_owners`), held to the shape a receiving entity's statement checks
+  demand.
 
 ## Configuration
 

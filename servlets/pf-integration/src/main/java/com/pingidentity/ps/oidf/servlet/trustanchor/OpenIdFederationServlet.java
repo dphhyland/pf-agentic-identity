@@ -5,6 +5,7 @@ import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.jose.JdkHttpClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import java.io.IOException;
@@ -31,6 +32,8 @@ import com.pingidentity.ps.oidf.federation.ListRequest;
 import com.pingidentity.ps.oidf.federation.ResolveRequest;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 
 /**
  * This deployment's federation endpoints (OpenID Federation 1.0 §8, §9): its Entity Configuration at
@@ -41,7 +44,8 @@ import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 // loadOnStartup: init (and the subordinate prewarm it kicks off) must run at war deploy, not
 // lazily on first request — lazy init would put the prewarm INSIDE the first token exchange,
 // which is the exact cold-fetch-on-the-request-path problem it exists to remove.
-@WebServlet(urlPatterns={"/.well-known/openid-federation", "/federation/entity", "/federation/fetch", "/federation/list", "/federation/resolve"}, loadOnStartup=1)
+@WebServlet(urlPatterns={"/.well-known/openid-federation", "/federation/entity", "/federation/fetch", "/federation/list", "/federation/resolve",
+        "/federation/trust_mark", "/federation/trust_mark_status", "/federation/trust_marked_list"}, loadOnStartup=1)
 public class OpenIdFederationServlet
 extends HttpServlet {
     private static final long serialVersionUID = 1L;
@@ -106,7 +110,30 @@ extends HttpServlet {
                 log.info("Federation resolve endpoint enabled for trust anchors " + anchors.entityIds() + " (discovery: "
                         + this.federationConfiguration.resolveDiscovery().name().toLowerCase(java.util.Locale.ROOT) + ")");
             }
+            FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
+            service.ownTrustMarks(marks.carried()).trustMarkIssuers(marks.issuers()).trustMarkOwners(marks.owners());
+            if (!marks.types().isEmpty()) {
+                // The grants live in the authority's store; HostedEntityServlet points the registry at it too, but starts
+                // only on its first request, so the store is resolved here as well - whichever runs first configures it.
+                if (!TrustMarkSupport.isConfigured()) {
+                    AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
+                }
+                service.trustMarkIssuing(new TrustMarkIssuer(marks.types(), TrustMarkSupport.shared(), AuthoritySupport::isActiveHostedEntity,
+                        java.time.Clock.systemUTC()));
+                log.info("Issuing Trust Marks of types " + marks.types().keySet());
+            }
             this.federationService = service.build();
+            FederationService issuing = this.federationService;
+            if (issuing.issuesTrustMarks()) {
+                // A hosted entity's configuration carries the marks this entity issues it, signed as the authority.
+                AuthoritySupport.configureTrustMarks(subject -> {
+                    try {
+                        return issuing.issuedTrustMarks(subject, AuthoritySupport.authorityEntityId());
+                    } catch (org.jose4j.lang.JoseException e) {
+                        throw new IllegalStateException("could not sign a Trust Mark for " + subject, e);
+                    }
+                });
+            }
             // Fetch each configured subordinate's entity configuration off the request path —
             // a cold cache otherwise puts a live cross-network fetch inside the first token
             // exchange after every restart (see FederationService#prewarmSubordinatesAsync).
@@ -143,6 +170,20 @@ extends HttpServlet {
                     this.handleResolve(req, resp, oidcIssuer);
                     break;
                 }
+                case "/federation/trust_mark": {
+                    this.handleTrustMark(req, resp, oidcIssuer);
+                    break;
+                }
+                case "/federation/trust_marked_list": {
+                    writeJson(resp, 200, toJsonStringArray(this.federationService.trustMarkedEntities(optional(req, "trust_mark_type"),
+                            optional(req, "sub"))));
+                    break;
+                }
+                case "/federation/trust_mark_status": {
+                    resp.setHeader("Allow", "POST");
+                    FederationErrors.write(resp, 405, "invalid_request", "the Trust Mark Status endpoint takes POST (OpenID Federation 1.0 §8.4.1)", null);
+                    break;
+                }
                 default: {
                     FederationErrors.write(resp, FederationError.NOT_FOUND, "unknown endpoint", null);
                     break;
@@ -151,6 +192,38 @@ extends HttpServlet {
         }
         catch (Exception e) {
             FederationErrors.write(resp, e);
+        }
+    }
+
+    /** Only the Trust Mark Status endpoint takes POST (§8.4.1); client authentication (§8.8) will add the others. */
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        this.applyCorsHeaders(resp);
+        if (!"/federation/trust_mark_status".equals(req.getServletPath())) {
+            resp.setHeader("Allow", "GET");
+            FederationErrors.write(resp, 405, "invalid_request", "this endpoint takes GET", null);
+            return;
+        }
+        try {
+            String jwt = this.federationService.trustMarkStatus(optional(req, "trust_mark"), this.issuerResolver.apply(req));
+            resp.setStatus(200);
+            resp.setContentType("application/trust-mark-status-response+jwt");
+            try (PrintWriter out = resp.getWriter()) {
+                out.write(jwt);
+            }
+        }
+        catch (Exception e) {
+            FederationErrors.write(resp, e);
+        }
+    }
+
+    /** §8.6: the mark of {@code trust_mark_type} this entity issues to {@code sub}, as {@code application/trust-mark+jwt}. */
+    private void handleTrustMark(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws Exception {
+        String jwt = this.federationService.trustMark(optional(req, "trust_mark_type"), optional(req, "sub"), oidcIssuer);
+        resp.setStatus(200);
+        resp.setContentType("application/trust-mark+jwt");
+        try (PrintWriter out = resp.getWriter()) {
+            out.write(jwt);
         }
     }
 

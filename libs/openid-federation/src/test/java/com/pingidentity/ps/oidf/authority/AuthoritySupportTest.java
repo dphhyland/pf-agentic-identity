@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.authority;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -255,5 +256,61 @@ class AuthoritySupportTest {
                 return false;
             }
         };
+    }
+
+    // ---- Trust Marks for hosted entities -------------------------------------------------------------------
+
+    /** Runs from a clean slate and leaves one: the only test here that resets the shared state. */
+    @Test
+    void onlyAnEntityHostedHereThatResolvesMayHoldAHostedOnlyMark() throws Exception {
+        AuthoritySupport.resetForTests();
+        try {
+            assertFalse(AuthoritySupport.isActiveHostedEntity("https://as.example.com/agents/a1"), "nothing is hosted until hosting is configured");
+            AuthoritySupport.configureSigning(e -> {
+                throw new IllegalStateException("not exercised in this test");
+            }, "https://as.example.com");
+            AuthoritySupport.registry().register(HostedEntity.hosted("https://as.example.com/agents/a1", "k1", Map.of("oauth_client", Map.of()), null));
+            AuthoritySupport.registry().register(HostedEntity.hosted("https://as.example.com/agents/a2", "k1", Map.of("oauth_client", Map.of()), null));
+            AuthoritySupport.registry().setStatus("https://as.example.com/agents/a2", EntityStatus.SUSPENDED, "test");
+
+            assertTrue(AuthoritySupport.isActiveHostedEntity("https://as.example.com/agents/a1"));
+            assertFalse(AuthoritySupport.isActiveHostedEntity("https://as.example.com/agents/a2"), "suspended");
+            assertFalse(AuthoritySupport.isActiveHostedEntity("https://as.example.com/agents/never"));
+        } finally {
+            AuthoritySupport.resetForTests();
+        }
+    }
+
+    @Test
+    void aHostedEntityCarriesTheMarksTheFederationServletIssuesIt() {
+        AuthoritySupport.resetForTests();
+        try {
+            assertEquals(List.of(), AuthoritySupport.trustMarksFor("https://as.example.com/agents/a1"), "none until configured");
+            List<Map<String, Object>> marks = List.of(Map.of("trust_mark_type", "https://as.example.com/marks/m", "trust_mark", "jwt"));
+            AuthoritySupport.configureTrustMarks(id -> id.endsWith("/a1") ? marks : List.of());
+
+            assertEquals(marks, AuthoritySupport.trustMarksFor("https://as.example.com/agents/a1"));
+            assertEquals(List.of(), AuthoritySupport.trustMarksFor("https://as.example.com/agents/a2"));
+        } finally {
+            AuthoritySupport.resetForTests();
+        }
+    }
+
+    @Test
+    void aRegistryThatFailsIsNotReadAsNotHosted() throws Exception {
+        AuthoritySupport.resetForTests();
+        try {
+            AuthoritySupport.configureJdbcRegistry((javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                    javax.sql.DataSource.class.getClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (proxy, method, args) -> {
+                        throw new java.sql.SQLException("connection refused");
+                    }));
+            AuthoritySupport.configureSigning(e -> {
+                throw new IllegalStateException("not exercised in this test");
+            }, "https://as.example.com");
+
+            assertThrows(IllegalStateException.class, () -> AuthoritySupport.isActiveHostedEntity("https://as.example.com/agents/a1"));
+        } finally {
+            AuthoritySupport.resetForTests();
+        }
     }
 }

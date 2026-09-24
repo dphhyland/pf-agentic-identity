@@ -229,4 +229,38 @@ class FederationRuntimeConfigTest {
                 FederationRuntimeConfig.REQUIRED_TRUST_MARKS_ENV);
         assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_STATUS_CHECK_ENV, "yes"), FederationRuntimeConfig.TRUST_MARK_STATUS_CHECK_ENV);
     }
+
+    @Test
+    void thisEntityIssuesAndPublishesNoTrustMarksUnlessConfigured() {
+        assertEquals(FederationRuntimeConfig.TrustMarkIssuingSettings.NONE, of(Map.of(), Map.of()).trustMarkIssuing());
+    }
+
+    @Test
+    void theTrustMarkIssuingSettingsComeFromTheEnvironmentOrSystemProperties() {
+        String mark = com.pingidentity.ps.oidf.federation.testkit.Statements.spec("trust-mark+jwt").claim("iss", "https://tmi.example")
+                .claim("sub", "https://pf.example").claim("trust_mark_type", "https://tmi.example/marks/audited")
+                .sign(com.pingidentity.ps.oidf.federation.testkit.Keys.ec("tmi-1"), java.time.Clock.systemUTC());
+        String ownerJwks = org.jose4j.json.JsonUtil.toJson(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwks(
+                com.pingidentity.ps.oidf.federation.testkit.Keys.ec("owner-1")));
+        FederationRuntimeConfig.TrustMarkIssuingSettings settings = of(Map.of(
+                FederationRuntimeConfig.TRUST_MARK_TYPES_ENV, "{\"https://pf.example/marks/open\": {\"subjects\": \"any\"}}",
+                FederationRuntimeConfig.TRUST_MARKS_ENV, "[{\"trust_mark_type\": \"https://tmi.example/marks/audited\", \"trust_mark\": \"" + mark + "\"}]"),
+                Map.of("oidf.federation.trust.mark.issuers", "{\"https://tmi.example/marks/audited\": [\"https://tmi.example\"]}",
+                        "oidf.federation.trust.mark.owners", "{\"https://owner.example/marks/owned\": {\"sub\": \"https://owner.example\", \"jwks\": "
+                                + ownerJwks + "}}")).trustMarkIssuing();
+
+        assertEquals(java.util.List.of("https://pf.example/marks/open"), java.util.List.copyOf(settings.types().keySet()));
+        assertEquals(mark, settings.carried().get(0).get("trust_mark"));
+        assertEquals(java.util.List.of("https://tmi.example"), settings.issuers().get("https://tmi.example/marks/audited"));
+        assertTrue(settings.owners().containsKey("https://owner.example/marks/owned"));
+    }
+
+    /** A Trust Mark setting the operator got wrong stops the deployment, naming the setting. */
+    @Test
+    void aTrustMarkIssuingSettingThatIsNotWhatItShouldBeRefusesToStart() {
+        assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_TYPES_ENV, "[]"), FederationRuntimeConfig.TRUST_MARK_TYPES_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARKS_ENV, "{}"), FederationRuntimeConfig.TRUST_MARKS_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_ISSUERS_ENV, "[]"), FederationRuntimeConfig.TRUST_MARK_ISSUERS_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_OWNERS_ENV, "[]"), FederationRuntimeConfig.TRUST_MARK_OWNERS_ENV);
+    }
 }

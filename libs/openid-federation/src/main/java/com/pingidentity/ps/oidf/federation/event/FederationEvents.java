@@ -46,6 +46,7 @@ public final class FederationEvents {
     public static final String REGISTRATION_EXPIRED_AT_ISSUANCE = "federation.registration.expired_at_issuance";
     public static final String REGISTRATION_REFRESH_DEFERRED = "federation.registration.refresh_deferred";
     public static final String REGISTRATION_DISABLED = "federation.registration.disabled";
+    public static final String TRUST_MARK_GRANTED = "federation.trust_mark.granted";
     public static final String TRUST_MARK_ISSUED = "federation.trust_mark.issued";
     public static final String TRUST_MARK_REFUSED = "federation.trust_mark.refused";
     public static final String TRUST_MARK_REVOKED = "federation.trust_mark.revoked";

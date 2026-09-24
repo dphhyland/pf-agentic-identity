@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
@@ -82,17 +83,28 @@ public class HostedEntityServlet extends HttpServlet {
             if (jdbcUrl != null) {
                 String jdbcUser = optionalInitParam(config, "jdbcUsername", "oidf.authority.jdbc.username", "OIDF_AUTHORITY_JDBC_USERNAME");
                 String jdbcPassword = optionalInitParam(config, "jdbcPassword", "oidf.authority.jdbc.password", "OIDF_AUTHORITY_JDBC_PASSWORD");
-                AuthoritySupport.configureJdbcRegistry(PfDataSources.direct(jdbcUrl, jdbcUser, jdbcPassword));
+                javax.sql.DataSource store = PfDataSources.direct(jdbcUrl, jdbcUser, jdbcPassword);
+                AuthoritySupport.configureJdbcRegistry(store);
+                // Trust Mark grants live beside the hosted entities they are mostly given to.
+                configureTrustMarkRegistry(store);
             } else {
                 String dataStoreId = optionalInitParam(config, "dataStoreId", "oidf.authority.data_store_id", "OIDF_AUTHORITY_DATA_STORE_ID");
                 if (dataStoreId != null) {
-                    AuthoritySupport.configureJdbcRegistry(PfDataSources.pfManaged(dataStoreId));
+                    javax.sql.DataSource store = PfDataSources.pfManaged(dataStoreId);
+                    AuthoritySupport.configureJdbcRegistry(store);
+                    configureTrustMarkRegistry(store);
                 }
                 // Neither set: AuthoritySupport.registry() falls back to an in-memory registry with its
                 // own loud warning the first time it is actually used — nothing to configure here.
             }
         } catch (RuntimeException e) {
             throw new ServletException("Failed to initialize HostedEntityServlet", e);
+        }
+    }
+
+    private static void configureTrustMarkRegistry(javax.sql.DataSource store) {
+        if (!TrustMarkSupport.isConfigured()) {
+            TrustMarkSupport.configureJdbcRegistry(store);
         }
     }
 

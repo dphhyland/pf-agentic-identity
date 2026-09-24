@@ -1,17 +1,22 @@
 package com.pingidentity.ps.oidf.federation;
 
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
+import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
@@ -42,7 +47,11 @@ import org.jose4j.lang.JoseException;
  *
  * <p>The entity configuration advertises what is actually enabled: the fetch and list endpoints only when
  * this entity has subordinates (§5.1.1: "Leaf Entities MUST NOT" publish them), the resolve endpoint only
- * when a resolver is configured, and the client registration types the deployment accepts (§5.1.3).
+ * when a resolver is configured, the Trust Mark endpoints only when it issues Trust Marks, and the client
+ * registration types the deployment accepts (§5.1.3).
+ *
+ * <p>As a Trust Mark Issuer (§7, §8.4-§8.6) it signs marks with the same Federation Entity Key. A mark is minted
+ * once and served again while more than half its life is left and the grant it was minted under still stands.
  */
 public final class FederationService {
     private static final Log LOGGER = LogFactory.getLog(FederationService.class);
@@ -53,6 +62,7 @@ public final class FederationService {
     // Refresher period — under the lifetime a verifier would accept a stale key for, so entries are
     // re-fetched while still fresh and request threads never see an empty cache after boot.
     private static final long REFRESH_INTERVAL_SECONDS = 240L;
+    private static final int MINTED_MEMORY = 4096;
     private final FederationConfiguration configuration;
     private final SigningKeyProvider signingKeyProvider;
     private final HttpGetClient subordinateFetcher;
@@ -66,6 +76,19 @@ public final class FederationService {
     private final Set<String> resolverAlgorithms;
     private final ValidatorOptions resolverOptions;
     private final HttpPostClient trustMarkStatusClient;
+    private final TrustMarkIssuing trustMarkIssuing;
+    private final List<Map<String, Object>> ownTrustMarks;
+    private final Map<String, List<String>> trustMarkIssuers;
+    private final Map<String, Object> trustMarkOwners;
+    /** Marks minted, by issuer, type and subject: served again until half their life is gone or their grant changes. */
+    private final Map<String, Minted> minted = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Minted> eldest) {
+            return this.size() > MINTED_MEMORY;
+        }
+    });
     private final Clock clock;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
@@ -122,6 +145,10 @@ public final class FederationService {
         this.resolverAlgorithms = b.resolverAlgorithms == null ? Set.of() : Set.copyOf(b.resolverAlgorithms);
         this.resolverOptions = b.resolverOptions != null ? b.resolverOptions : ValidatorOptions.defaults();
         this.trustMarkStatusClient = b.trustMarkStatusClient;
+        this.trustMarkIssuing = b.trustMarkIssuing;
+        this.ownTrustMarks = List.copyOf(b.ownTrustMarks);
+        this.trustMarkIssuers = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkIssuers));
+        this.trustMarkOwners = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkOwners));
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
     }
 
@@ -163,7 +190,49 @@ public final class FederationService {
         if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
             claims.setClaim("authority_hints", authorityHints);
         }
+        this.addTrustMarkClaims(claims, oidcIssuer);
         return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+    }
+
+    /**
+     * §3.1.2: the Trust Marks this entity carries - those configured from other issuers, then those it issues
+     * itself - and, when it is a trust anchor, whose marks the federation accepts and who owns which type.
+     */
+    private void addTrustMarkClaims(JwtClaims claims, String oidcIssuer) throws JoseException {
+        List<Map<String, Object>> marks = new ArrayList<>(this.ownTrustMarks);
+        marks.addAll(this.issuedTrustMarks(oidcIssuer, oidcIssuer));
+        if (!marks.isEmpty()) {
+            claims.setClaim("trust_marks", marks);
+        }
+        if (!this.configuration.isTrustAnchor(oidcIssuer)) {
+            return;
+        }
+        Map<String, Object> issuers = this.anchorTrustMarkIssuers(oidcIssuer);
+        if (!issuers.isEmpty()) {
+            claims.setClaim("trust_mark_issuers", issuers);
+        }
+        if (!this.trustMarkOwners.isEmpty()) {
+            claims.setClaim("trust_mark_owners", this.trustMarkOwners);
+        }
+    }
+
+    /**
+     * The configured {@code trust_mark_issuers}, with this entity named for every type it issues itself - an anchor
+     * that forgot to list itself would otherwise have its own marks refused - unless anyone may issue the type.
+     */
+    private Map<String, Object> anchorTrustMarkIssuers(String oidcIssuer) {
+        Map<String, Object> issuers = new LinkedHashMap<>(this.trustMarkIssuers);
+        for (String type : this.issuedTypes()) {
+            List<String> listed = this.trustMarkIssuers.get(type);
+            if (listed == null) {
+                issuers.put(type, List.of(oidcIssuer));
+            } else if (!listed.isEmpty() && listed.stream().noneMatch(i -> EntityId.same(i, oidcIssuer))) {
+                List<String> withSelf = new ArrayList<>(listed);
+                withSelf.add(oidcIssuer);
+                issuers.put(type, withSelf);
+            }
+        }
+        return issuers;
     }
 
     /**
@@ -185,6 +254,11 @@ public final class FederationService {
         }
         if (this.resolveEnabled()) {
             federationEntity.put("federation_resolve_endpoint", fedBase + "/federation/resolve");
+        }
+        if (this.issuesTrustMarks()) {
+            federationEntity.put("federation_trust_mark_endpoint", fedBase + "/federation/trust_mark");
+            federationEntity.put("federation_trust_mark_status_endpoint", fedBase + "/federation/trust_mark_status");
+            federationEntity.put("federation_trust_mark_list_endpoint", fedBase + "/federation/trust_marked_list");
         }
         if (this.configuration.organizationName() != null) {
             federationEntity.put("organization_name", this.configuration.organizationName());
@@ -276,6 +350,7 @@ public final class FederationService {
         claims.setClaim("jwks", this.buildInlineJwks());
         claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
         claims.setClaim("authority_hints", this.configuration.authorityHints());
+        this.addTrustMarkClaims(claims, oidcIssuer);
         return this.signClaims(claims, ENTITY_STATEMENT_TYP);
     }
 
@@ -317,11 +392,16 @@ public final class FederationService {
      * subordinates), are known once its configuration has been fetched; until then it appears only in an
      * unfiltered list. A hosted entity is never an Intermediate.
      *
+     * <p>{@code trust_marked=true} and {@code trust_mark_type} keep the subordinates this entity has issued a Trust
+     * Mark to that is still valid - of that type, for {@code trust_mark_type}, which leaves none for a type it does not
+     * issue.
+     *
      * @throws FederationException {@code unsupported_parameter} for {@code trust_marked=true} or
-     *                             {@code trust_mark_type}: this entity issues no Trust Marks to filter by
+     *                             {@code trust_mark_type} when this entity issues no Trust Marks to filter by
      */
     public List<String> listSubordinates(ListRequest request) {
-        if (Boolean.TRUE.equals(request.trustMarked()) || request.trustMarkType() != null) {
+        boolean markFilter = Boolean.TRUE.equals(request.trustMarked()) || request.trustMarkType() != null;
+        if (markFilter && !this.issuesTrustMarks()) {
             throw new FederationException(FederationError.UNSUPPORTED_PARAMETER,
                     "this entity issues no Trust Marks, so it cannot filter by them");
         }
@@ -349,7 +429,142 @@ public final class FederationService {
                 listed.addAll(hosted);
             }
         }
-        return List.copyOf(new LinkedHashSet<>(listed));
+        List<String> distinct = List.copyOf(new LinkedHashSet<>(listed));
+        return markFilter ? distinct.stream().filter(s -> this.trustMarkIssuing.isMarked(s, request.trustMarkType())).toList() : distinct;
+    }
+
+    // ---- Trust Marks (§7, §8.4-§8.6) -----------------------------------------------------------------
+
+    /** Whether this entity issues Trust Marks. */
+    public boolean issuesTrustMarks() {
+        return !this.issuedTypes().isEmpty();
+    }
+
+    private Set<String> issuedTypes() {
+        return this.trustMarkIssuing == null ? Set.of() : this.trustMarkIssuing.types();
+    }
+
+    private void requireIssuing() {
+        if (!this.issuesTrustMarks()) {
+            throw new FederationException(FederationError.NOT_FOUND, "this entity issues no Trust Marks");
+        }
+    }
+
+    /**
+     * The marks this entity issues to {@code subject} as {@code issuerId}, as a {@code trust_marks} claim (§3.1.2): one
+     * for each type the subject holds now. For its own configuration, and the configurations of entities it hosts.
+     */
+    public List<Map<String, Object>> issuedTrustMarks(String subject, String issuerId) throws JoseException {
+        List<Map<String, Object>> marks = new ArrayList<>();
+        for (String type : this.issuedTypes()) {
+            Optional<String> mark = this.mint(type, subject, issuerId);
+            if (mark.isPresent()) {
+                marks.add(Map.of("trust_mark_type", type, "trust_mark", mark.get()));
+            }
+        }
+        return marks;
+    }
+
+    /** A mark of {@code type} for {@code subject}: the one minted earlier while it is still fresh, else a new one. */
+    private Optional<String> mint(String type, String subject, String issuerId) throws JoseException {
+        Optional<TrustMarkIssuing.Mintable> mintable = this.trustMarkIssuing.mintable(issuerId, type, subject);
+        if (mintable.isEmpty()) {
+            return Optional.empty();
+        }
+        String key = issuerId + "\n" + type + "\n" + subject;
+        long now = this.clock.instant().getEpochSecond();
+        Minted kept = this.minted.get(key);
+        if (kept != null && kept.grantedAt().equals(mintable.get().grantedAt()) && now - kept.issuedAt() < (kept.expiresAt() - kept.issuedAt()) / 2) {
+            return Optional.of(kept.jwt());
+        }
+        JwtClaims claims = mintable.get().claims();
+        String jwt = this.signClaims(claims, TrustMarkValidator.TRUST_MARK_TYP);
+        long iat = ((Number) claims.getClaimValue("iat")).longValue();
+        long exp = ((Number) claims.getClaimValue("exp")).longValue();
+        this.minted.put(key, new Minted(jwt, iat, exp, mintable.get().grantedAt()));
+        FederationEvents.event(FederationEvents.TRUST_MARK_ISSUED).subject(subject).partner(issuerId).role("TMI").audit()
+                .field("trust_mark_type", type).field("exp", exp).emit();
+        return Optional.of(jwt);
+    }
+
+    private record Minted(String jwt, long issuedAt, long expiresAt, java.time.Instant grantedAt) {
+    }
+
+    /**
+     * The Trust Mark endpoint (§8.6): the mark of {@code type} this entity issues to {@code subject}.
+     *
+     * @throws FederationException {@code invalid_request} without {@code trust_mark_type} or {@code sub};
+     *                             {@code not_found} when the subject holds no such mark (§8.6.2) or this entity issues none
+     */
+    public String trustMark(String type, String subject, String oidcIssuer) throws JoseException {
+        this.requireIssuing();
+        if (type == null || type.isBlank()) {
+            throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark_type is required");
+        }
+        if (subject == null || subject.isBlank()) {
+            throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
+        }
+        return this.mint(type, subject, oidcIssuer).orElseThrow(() ->
+                new FederationException(FederationError.NOT_FOUND, "that entity holds no Trust Mark of that type from this issuer"));
+    }
+
+    /**
+     * The Trust Mark Status endpoint (§8.4): a signed {@code trust-mark-status-response+jwt} saying whether a mark this
+     * entity issued is {@code active}, {@code expired} or {@code revoked} - or {@code invalid}, when it names this entity
+     * as issuer but is not typed as a Trust Mark or its signature does not verify with this entity's key.
+     *
+     * @throws FederationException {@code invalid_request} without {@code trust_mark} or when it is not a signed JWT;
+     *                             {@code not_found} for a mark this entity did not issue or knows nothing of (§8.4.2)
+     */
+    public String trustMarkStatus(String trustMark, String oidcIssuer) throws JoseException {
+        this.requireIssuing();
+        if (trustMark == null || trustMark.isBlank()) {
+            throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark is required");
+        }
+        Map<String, Object> header;
+        JwtClaims mark;
+        try {
+            header = JwtCodec.getJwtHeaders(trustMark);
+            mark = JwtCodec.parseUnverifiedClaims(trustMark);
+        } catch (Exception e) {
+            throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark is not a signed JWT");
+        }
+        if (!(mark.getClaimValue("iss") instanceof String iss) || !EntityId.same(iss, oidcIssuer)) {
+            throw new FederationException(FederationError.NOT_FOUND, "this entity did not issue that Trust Mark");
+        }
+        String status = !TrustMarkValidator.TRUST_MARK_TYP.equals(header.get("typ")) || !this.signedWithOwnKey(trustMark) ? "invalid"
+                : this.trustMarkIssuing.status(mark).orElseThrow(() ->
+                        new FederationException(FederationError.NOT_FOUND, "this entity knows nothing of that Trust Mark"));
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer(oidcIssuer);
+        claims.setIssuedAt(NumericDate.fromSeconds(this.clock.instant().getEpochSecond()));
+        claims.setClaim("trust_mark", trustMark);
+        claims.setClaim("status", status);
+        return this.signClaims(claims, TrustMarkValidator.STATUS_RESPONSE_TYP);
+    }
+
+    private boolean signedWithOwnKey(String jwt) throws JoseException {
+        try {
+            JwtCodec.verifySignature(jwt, Jwks.parseFederationKeySet(this.buildInlineJwks()), Set.of(this.configuration.signingAlgorithm()));
+            return true;
+        } catch (JwtVerificationException e) {
+            return false;
+        }
+    }
+
+    /**
+     * The Trust Marked Entities Listing endpoint (§8.5): the entities holding a valid mark of {@code type} from this
+     * entity, only {@code subject} when it is given.
+     *
+     * @throws FederationException {@code invalid_request} without {@code trust_mark_type}; {@code not_found} when this
+     *                             entity issues no Trust Marks
+     */
+    public List<String> trustMarkedEntities(String type, String subject) {
+        this.requireIssuing();
+        if (type == null || type.isBlank()) {
+            throw new FederationException(FederationError.INVALID_REQUEST, "trust_mark_type is required");
+        }
+        return this.trustMarkIssuing.marked(type, subject == null || subject.isBlank() ? null : subject);
     }
 
     // ---- resolve (§8.3) ------------------------------------------------------------------------------
@@ -601,6 +816,10 @@ public final class FederationService {
         private Set<String> resolverAlgorithms;
         private ValidatorOptions resolverOptions;
         private HttpPostClient trustMarkStatusClient;
+        private TrustMarkIssuing trustMarkIssuing;
+        private List<Map<String, Object>> ownTrustMarks = List.of();
+        private Map<String, List<String>> trustMarkIssuers = Map.of();
+        private Map<String, Object> trustMarkOwners = Map.of();
         private Clock clock;
 
         private Builder(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -658,6 +877,33 @@ public final class FederationService {
             this.resolverGateway = gateway;
             this.resolverAlgorithms = acceptedAlgorithms;
             this.resolverOptions = options;
+            return this;
+        }
+
+        /** Issues Trust Marks (§7, §8.4-§8.6) under the grants {@code issuing} decides on. */
+        public Builder trustMarkIssuing(TrustMarkIssuing issuing) {
+            this.trustMarkIssuing = issuing;
+            return this;
+        }
+
+        /** Trust Marks from other issuers this entity carries in its own configuration (§3.1.2). */
+        public Builder ownTrustMarks(List<Map<String, Object>> marks) {
+            this.ownTrustMarks = marks == null ? List.of() : marks;
+            return this;
+        }
+
+        /**
+         * As a trust anchor: whose Trust Marks of each type the federation accepts ({@code trust_mark_issuers}, §3.1.2).
+         * This entity is added for the types it issues itself.
+         */
+        public Builder trustMarkIssuers(Map<String, List<String>> issuers) {
+            this.trustMarkIssuers = issuers == null ? Map.of() : issuers;
+            return this;
+        }
+
+        /** As a trust anchor: who owns which Trust Mark type ({@code trust_mark_owners}, §3.1.2). */
+        public Builder trustMarkOwners(Map<String, Object> owners) {
+            this.trustMarkOwners = owners == null ? Map.of() : owners;
             return this;
         }
 

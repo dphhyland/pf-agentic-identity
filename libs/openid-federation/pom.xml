@@ -234,6 +234,49 @@
                                         <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.isEmpty(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.requiredFor(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.missing(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.trustMark(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.trustMarkStatus(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.trustMarkedEntities(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.mint(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.issuedTrustMarks(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.addTrustMarkClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.anchorTrustMarkIssuers(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.signedWithOwnKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.issuesTrustMarks(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.requireIssuing(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.issuedTypes(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkType.parseAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkType.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkType.text(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkType.requireDelegationFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkType.httpsUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkClaims.parseMarks(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkClaims.isMarkOfType(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkClaims.parseIssuers(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkClaims.parseOwners(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkClaims.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkGrant.activeAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.issuable(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.subjectMayHold(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.mintable(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.claims(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.typesHeldBy(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.marked(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.isMarked(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.statusOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.inTransaction(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.grantIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.revokeIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.auditTrailIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.JdbcTrustMarkRegistry.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry.grant(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkSupport.configureJdbcRegistry(*</include>
+                                        <include>com.pingidentity.ps.oidf.trustmark.TrustMarkSupport.registry(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.isActiveHostedEntity(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.trustMarksFor(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

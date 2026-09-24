@@ -11,6 +11,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 
 /**
  * Builds a {@link HostedEntity}'s Entity Configuration — {@code iss == sub == entityId}, signed by the
@@ -27,10 +28,18 @@ public final class HostedEntityConfigurationBuilder {
 
     private final HostedEntitySigner signer;
     private final String authorityEntityId;
+    private final Function<String, List<Map<String, Object>>> trustMarks;
 
     public HostedEntityConfigurationBuilder(HostedEntitySigner signer, String authorityEntityId) {
+        this(signer, authorityEntityId, entityId -> List.of());
+    }
+
+    /** @param trustMarks entity id -> the {@code trust_marks} (§3.1.2) this authority issues it, empty for none */
+    public HostedEntityConfigurationBuilder(HostedEntitySigner signer, String authorityEntityId,
+                                            Function<String, List<Map<String, Object>>> trustMarks) {
         this.signer = Objects.requireNonNull(signer, "signer");
         this.authorityEntityId = Claims.requireNonBlank(authorityEntityId, "authorityEntityId");
+        this.trustMarks = Objects.requireNonNull(trustMarks, "trustMarks");
     }
 
     /** Builds and signs {@code entity}'s Entity Configuration JWT. */
@@ -53,6 +62,10 @@ public final class HostedEntityConfigurationBuilder {
         // itself an intermediate with its own subordinates.
         claims.put("authority_hints", List.of(this.authorityEntityId));
         claims.put("metadata", entity.metadata());
+        List<Map<String, Object>> marks = this.trustMarks.apply(entity.entityId());
+        if (!marks.isEmpty()) {
+            claims.put("trust_marks", marks);
+        }
 
         return CompactJws.sign(header, claims, jwsSigner);
     }

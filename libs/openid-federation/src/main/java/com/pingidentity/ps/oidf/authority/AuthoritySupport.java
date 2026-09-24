@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -44,6 +45,8 @@ public final class AuthoritySupport {
     /** One block per entity type, the same shape as {@link HostedEntity#metadataPolicy()}. Empty (no
      *  domain-wide constraint) unless {@link #configureDomainDefaultMetadataPolicy} is called. */
     private static volatile Map<String, Object> domainDefaultMetadataPolicy = Map.of();
+    /** Entity id -> the {@code trust_marks} this authority issues it; none until the federation servlet configures it. */
+    private static volatile Function<String, List<Map<String, Object>>> trustMarks;
 
     private AuthoritySupport() {
     }
@@ -73,7 +76,7 @@ public final class AuthoritySupport {
             signer = Objects.requireNonNull(hostedEntitySigner, "hostedEntitySigner");
             authorityEntityId = com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(
                     configuredAuthorityEntityId, "authorityEntityId");
-            configurationBuilder = new HostedEntityConfigurationBuilder(signer, authorityEntityId);
+            configurationBuilder = new HostedEntityConfigurationBuilder(signer, authorityEntityId, AuthoritySupport::trustMarksFor);
         }
     }
 
@@ -100,6 +103,49 @@ public final class AuthoritySupport {
                             + "unlike the registry, there is no safe default signer to fall back to");
         }
         return local;
+    }
+
+    /**
+     * Sets where hosted entities' Trust Marks come from: the federation servlet, which issues them. The latest call
+     * wins - it is a lookup, like the domain default policy, not a resource.
+     */
+    public static void configureTrustMarks(Function<String, List<Map<String, Object>>> issuedTo) {
+        trustMarks = issuedTo;
+    }
+
+    /** The {@code trust_marks} this authority issues {@code entityId}; empty when it issues none. */
+    public static List<Map<String, Object>> trustMarksFor(String entityId) {
+        Function<String, List<Map<String, Object>>> local = trustMarks;
+        return local == null ? List.of() : local.apply(entityId);
+    }
+
+    /**
+     * Whether {@code entityId} is an entity this authority hosts that resolves now - the only kind a Trust Mark issued
+     * to hosted entities alone may be held by.
+     *
+     * @throws IllegalStateException if the registry itself is unavailable
+     */
+    public static boolean isActiveHostedEntity(String entityId) {
+        if (!isHostingConfigured()) {
+            return false;
+        }
+        try {
+            return registry().find(entityId).map(e -> e.resolvable(Instant.now())).orElse(false);
+        } catch (AuthorityRegistryException e) {
+            throw new IllegalStateException("hosted-entity lookup failed for " + entityId, e);
+        }
+    }
+
+    /** Tests only: forget every configuration, so a test can see the unconfigured state. */
+    static void resetForTests() {
+        synchronized (LOCK) {
+            registry = null;
+            signer = null;
+            authorityEntityId = null;
+            configurationBuilder = null;
+            domainDefaultMetadataPolicy = Map.of();
+            trustMarks = null;
+        }
     }
 
     /** True once {@link #configureSigning} has run: this deployment hosts entities and is their superior. */

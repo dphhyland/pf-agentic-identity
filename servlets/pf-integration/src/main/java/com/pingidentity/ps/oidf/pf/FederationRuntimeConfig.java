@@ -2,11 +2,14 @@ package com.pingidentity.ps.oidf.pf;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkClaims;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
 
 /**
  * The deployment-wide federation settings, resolved once from the process environment.
@@ -112,6 +115,17 @@ public final class FederationRuntimeConfig {
     public static final String REQUIRED_TRUST_MARKS_ENV = "OIDF_FEDERATION_REQUIRED_TRUST_MARKS";
     /** Whether a Trust Mark is also checked at its issuer's status endpoint (§8.4) before it counts (default false). */
     public static final String TRUST_MARK_STATUS_CHECK_ENV = "OIDF_FEDERATION_TRUST_MARK_STATUS_CHECK";
+    /**
+     * The Trust Mark types this entity issues: {@code {"<type>": {"lifetime_seconds": 86400, "subjects": "hosted" | "any",
+     * "delegation": "<jwt>", "ref": "https://...", "logo_uri": "https://..."}}}. Unset: it issues none.
+     */
+    public static final String TRUST_MARK_TYPES_ENV = "OIDF_FEDERATION_TRUST_MARK_TYPES";
+    /** Trust Marks from other issuers this entity carries in its configuration: {@code [{"trust_mark_type": ..., "trust_mark": ...}]}. */
+    public static final String TRUST_MARKS_ENV = "OIDF_FEDERATION_TRUST_MARKS";
+    /** As a trust anchor, whose Trust Marks of each type the federation accepts: {@code {"<type>": ["<entity id>", ...]}}. */
+    public static final String TRUST_MARK_ISSUERS_ENV = "OIDF_FEDERATION_TRUST_MARK_ISSUERS";
+    /** As a trust anchor, who owns which Trust Mark type: {@code {"<type>": {"sub": "<entity id>", "jwks": {...}}}}. */
+    public static final String TRUST_MARK_OWNERS_ENV = "OIDF_FEDERATION_TRUST_MARK_OWNERS";
 
     /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
@@ -154,6 +168,23 @@ public final class FederationRuntimeConfig {
     private static final String FEDERATION_ERROR_PAGE_PROP = "oidf.federation.error.page";
     private static final String REQUIRED_TRUST_MARKS_PROP = "oidf.federation.required.trust.marks";
     private static final String TRUST_MARK_STATUS_CHECK_PROP = "oidf.federation.trust.mark.status.check";
+    private static final String TRUST_MARK_TYPES_PROP = "oidf.federation.trust.mark.types";
+    private static final String TRUST_MARKS_PROP = "oidf.federation.trust.marks";
+    private static final String TRUST_MARK_ISSUERS_PROP = "oidf.federation.trust.mark.issuers";
+    private static final String TRUST_MARK_OWNERS_PROP = "oidf.federation.trust.mark.owners";
+
+    /**
+     * What this entity publishes and issues as a Trust Mark Issuer and, when it is one, as a trust anchor.
+     *
+     * @param types   the types it issues, by identifier, in the order configured
+     * @param carried the marks from other issuers it carries in its own configuration
+     * @param issuers as an anchor, whose marks of each type the federation accepts
+     * @param owners  as an anchor, who owns which type
+     */
+    public record TrustMarkIssuingSettings(Map<String, TrustMarkType> types, List<Map<String, Object>> carried,
+                                           Map<String, List<String>> issuers, Map<String, Object> owners) {
+        public static final TrustMarkIssuingSettings NONE = new TrustMarkIssuingSettings(Map.of(), List.of(), Map.of(), Map.of());
+    }
 
     /** What happens to an expired registration that cannot be renewed. */
     public enum ExpiryEnforcement {
@@ -238,17 +269,19 @@ public final class FederationRuntimeConfig {
     private final AutoRegistrationSettings autoRegistration;
     private final TrustMarkPolicy requiredTrustMarks;
     private final boolean trustMarkStatusCheck;
+    private final TrustMarkIssuingSettings trustMarkIssuing;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
             RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
-            boolean trustMarkStatusCheck) {
+            boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
         this.requiredTrustMarks = Objects.requireNonNull(requiredTrustMarks, "requiredTrustMarks");
         this.trustMarkStatusCheck = trustMarkStatusCheck;
+        this.trustMarkIssuing = Objects.requireNonNull(trustMarkIssuing, "trustMarkIssuing");
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -329,15 +362,27 @@ public final class FederationRuntimeConfig {
                 registrationSettings(env, props),
                 autoRegistrationSettings(env, props),
                 requiredTrustMarks(env, props),
-                bool(env, props, TRUST_MARK_STATUS_CHECK_PROP, TRUST_MARK_STATUS_CHECK_ENV, false));
+                bool(env, props, TRUST_MARK_STATUS_CHECK_PROP, TRUST_MARK_STATUS_CHECK_ENV, false),
+                new TrustMarkIssuingSettings(
+                        strictly(TRUST_MARK_TYPES_ENV, () -> TrustMarkType.parseAll(setting(env, props, TRUST_MARK_TYPES_PROP, TRUST_MARK_TYPES_ENV))),
+                        strictly(TRUST_MARKS_ENV, () -> TrustMarkClaims.parseMarks(setting(env, props, TRUST_MARKS_PROP, TRUST_MARKS_ENV))),
+                        strictly(TRUST_MARK_ISSUERS_ENV, () -> TrustMarkClaims.parseIssuers(setting(env, props, TRUST_MARK_ISSUERS_PROP,
+                                TRUST_MARK_ISSUERS_ENV))),
+                        strictly(TRUST_MARK_OWNERS_ENV, () -> TrustMarkClaims.parseOwners(setting(env, props, TRUST_MARK_OWNERS_PROP,
+                                TRUST_MARK_OWNERS_ENV)))));
+    }
+
+    /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting. */
+    private static <T> T strictly(String var, java.util.function.Supplier<T> parse) {
+        try {
+            return parse.get();
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(var + ": " + e.getMessage());
+        }
     }
 
     private static TrustMarkPolicy requiredTrustMarks(Function<String, String> env, Function<String, String> props) {
-        try {
-            return TrustMarkPolicy.parse(setting(env, props, REQUIRED_TRUST_MARKS_PROP, REQUIRED_TRUST_MARKS_ENV));
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(REQUIRED_TRUST_MARKS_ENV + ": " + e.getMessage());
-        }
+        return strictly(REQUIRED_TRUST_MARKS_ENV, () -> TrustMarkPolicy.parse(setting(env, props, REQUIRED_TRUST_MARKS_PROP, REQUIRED_TRUST_MARKS_ENV)));
     }
 
     private static AutoRegistrationSettings autoRegistrationSettings(Function<String, String> env, Function<String, String> props) {
@@ -561,6 +606,11 @@ public final class FederationRuntimeConfig {
     /** Whether a Trust Mark is also checked at its issuer's status endpoint ({@link #TRUST_MARK_STATUS_CHECK_ENV}). */
     public boolean trustMarkStatusCheck() {
         return this.trustMarkStatusCheck;
+    }
+
+    /** What this entity issues and publishes as a Trust Mark Issuer, and as an anchor; {@link TrustMarkIssuingSettings#NONE} when unset. */
+    public TrustMarkIssuingSettings trustMarkIssuing() {
+        return this.trustMarkIssuing;
     }
 
     public AutoRegistrationSettings autoRegistration() {
