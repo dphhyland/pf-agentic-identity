@@ -35,7 +35,7 @@ import java.util.regex.Pattern;
  * host matches only an identical constraint, never a {@code .suffix}. Unknown constraint parameters are
  * ignored, as §6.2 requires.
  */
-final class Constraints {
+public final class Constraints {
     static final String FEDERATION_ENTITY = "federation_entity";
     private static final Pattern IPV4 = Pattern.compile("\\d{1,3}(\\.\\d{1,3}){3}");
     private static final Pattern DNS_NAME = Pattern.compile("\\.?[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*");
@@ -50,6 +50,16 @@ final class Constraints {
         this.permitted = permitted;
         this.excluded = excluded;
         this.allowedEntityTypes = allowedEntityTypes;
+    }
+
+    /**
+     * Checks {@code raw} is a {@code constraints} claim this entity could publish (§6.2) - for an operator's setting,
+     * refused at start-up rather than in every statement a superior would then reject.
+     *
+     * @throws IllegalArgumentException naming what is wrong
+     */
+    public static void requireValid(Object raw) {
+        parse(raw);
     }
 
     /**

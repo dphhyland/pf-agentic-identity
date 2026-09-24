@@ -113,6 +113,14 @@ extends HttpServlet {
                 log.info("Federation resolve endpoint enabled for trust anchors " + anchors.entityIds() + " (discovery: "
                         + this.federationConfiguration.resolveDiscovery().name().toLowerCase(java.util.Locale.ROOT) + ")");
             }
+            // Hosting is configured now, not on HostedEntityServlet's first request, when the environment names an authority:
+            // fetches about hosted entities are answered from the first request on.
+            try {
+                HostedEntityServlet.configureAuthority(null);
+            } catch (RuntimeException e) {
+                log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again on its first request", e);
+            }
+            service.subordinateConstraints(runtime.subordinateConstraints());
             FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
             service.ownTrustMarks(marks.carried()).trustMarkIssuers(marks.issuers()).trustMarkOwners(marks.owners());
             if (!marks.types().isEmpty()) {

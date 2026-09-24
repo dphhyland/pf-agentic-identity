@@ -206,6 +206,23 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.keys(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revokeKey(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.recordSigningKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.change(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.metadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.metadataPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.rotateKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.isObjectOfObjects(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.configureAuthority(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.setting(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.blankToNull(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.jsonObject(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.metadataPolicyByType(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.constraints(*</include>
                                         <!-- The explicit-registration body itself: typed as an Entity Statement
                                              (OpenID Federation 1.0 §3) and signed by its own jwks. The chain
                                              validator never sees this statement, so nothing downstream repeats it. -->

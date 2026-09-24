@@ -59,6 +59,11 @@ import org.jose4j.json.JsonUtil;
  *   <li>{@code POST /federation/admin/keys/revoke} with {@code {"kid", "reason"?}}: revokes a retired key - with a §8.7.3
  *       reason ({@code unspecified}, {@code compromised}, {@code superseded}) or none. The key in use is not history:
  *       rotate PingFederate's signing key first. A revoked key must never sign again.</li>
+ *   <li>{@code GET /federation/admin/entities} (every hosted entity, whatever its status), {@code ?entity_id=...} (one, with
+ *       its metadata and policy), {@code /entities/audit?entity_id=...} (its history); {@code POST
+ *       /federation/admin/entities/suspend}, {@code /reactivate}, {@code /revoke} (permanent), {@code /metadata},
+ *       {@code /metadata-policy} (only narrowing the domain default) and {@code /rotate-key}, each with
+ *       {@code {"entity_id", ...}} - see {@link HostedEntityAdmin}.</li>
  * </ul>
  *
  * <p>Only a type this entity is configured to issue can be granted ({@code OIDF_FEDERATION_TRUST_MARK_TYPES}), and one
@@ -100,6 +105,12 @@ public class FederationAdminServlet extends HttpServlet {
             return;
         }
         this.adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+        try {
+            HostedEntityServlet.configureAuthority(config::getInitParameter);
+        } catch (RuntimeException e) {
+            // The entity routes then answer that nothing is hosted; the rest of the API still works.
+            log("Hosting could not be configured for the admin API", e);
+        }
         FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
         this.types = runtime.trustMarkIssuing().types();
         if (!TrustMarkSupport.isConfigured()) {
@@ -126,6 +137,8 @@ public class FederationAdminServlet extends HttpServlet {
                 case "/trust-marks" -> this.list(req, resp);
                 case "/trust-marks/audit" -> this.audit(req, resp);
                 case "/keys" -> this.keys(resp);
+                case "/entities" -> write(resp, HostedEntityAdmin.list(parameter(req, "entity_id")));
+                case "/entities/audit" -> write(resp, HostedEntityAdmin.audit(parameter(req, "entity_id")));
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
@@ -146,7 +159,13 @@ public class FederationAdminServlet extends HttpServlet {
             return;
         }
         try {
-            switch (route(req)) {
+            String route = route(req);
+            if (route.startsWith("/entities/")) {
+                write(resp, HostedEntityAdmin.change(route.substring("/entities/".length()), body,
+                        actor(this.adminToken, req.getHeader("X-Federation-Actor"))));
+                return;
+            }
+            switch (route) {
                 case "/trust-marks" -> this.grant(req, resp, body);
                 case "/trust-marks/revoke" -> this.revoke(req, resp, body);
                 case "/keys/revoke" -> this.revokeKey(req, resp, body);
@@ -371,6 +390,17 @@ public class FederationAdminServlet extends HttpServlet {
             out.append(i == 0 ? "" : ",").append(JsonUtil.toJson(values.get(i)));
         }
         write(resp, status, out.append(']').toString());
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void write(HttpServletResponse resp, HostedEntityAdmin.Answer answer) throws IOException {
+        if (answer.error() != null) {
+            writeError(resp, answer.status(), answer.error(), answer.description());
+        } else if (answer.body() instanceof List<?> list) {
+            writeJson(resp, answer.status(), (List<Map<String, Object>>) list);
+        } else {
+            writeJson(resp, answer.status(), (Map<String, Object>) answer.body());
+        }
     }
 
     private static void write(HttpServletResponse resp, int status, String json) throws IOException {

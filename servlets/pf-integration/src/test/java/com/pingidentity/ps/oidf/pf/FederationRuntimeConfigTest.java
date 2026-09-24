@@ -274,4 +274,24 @@ class FederationRuntimeConfigTest {
         assertRefused(Map.of(FederationRuntimeConfig.HISTORICAL_KEYS_ENV, "yes"), FederationRuntimeConfig.HISTORICAL_KEYS_ENV);
         assertRefused(Map.of(FederationRuntimeConfig.KEY_HISTORY_GRACE_ENV, "-1"), FederationRuntimeConfig.KEY_HISTORY_GRACE_ENV);
     }
+
+    @Test
+    void theDomainDefaultPolicyAndTheSubordinateConstraintsAreCheckedAtStartUp() {
+        FederationRuntimeConfig config = of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV,
+                "{\"oauth_client\": {\"scope\": {\"subset_of\": [\"read\"]}}}"),
+                Map.of("oidf.federation.subordinate.constraints", "{\"max_path_length\": 0}"));
+
+        assertEquals(java.util.List.of("oauth_client"), java.util.List.copyOf(config.authorityMetadataPolicy().keySet()));
+        assertEquals(Map.of("max_path_length", 0), config.subordinateConstraints());
+        assertEquals(Map.of(), of(Map.of(), Map.of()).authorityMetadataPolicy());
+        assertEquals(Map.of(), of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, " "), Map.of()).authorityMetadataPolicy());
+        assertEquals(null, of(Map.of(), Map.of()).subordinateConstraints());
+        assertRefused(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, "[]"), FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, "{\"oauth_client\": 1}"),
+                FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, "{\"oauth_client\": {\"scope\": {\"value\": \"a\", \"one_of\": [\"b\"]}}}"),
+                FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, "{\"max_path_length\": -1}"),
+                FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV);
+    }
 }

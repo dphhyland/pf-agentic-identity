@@ -5,6 +5,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
+import com.pingidentity.ps.oidf.federation.Constraints;
+import com.pingidentity.ps.oidf.federation.MetadataPolicy;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
@@ -130,6 +132,13 @@ public final class FederationRuntimeConfig {
     public static final String HISTORICAL_KEYS_ENV = "OIDF_FEDERATION_HISTORICAL_KEYS";
     /** How long a retired key stays valid for what it signed before it was retired, in seconds (default 86400). */
     public static final String KEY_HISTORY_GRACE_ENV = "OIDF_FEDERATION_KEY_HISTORY_GRACE_SECONDS";
+    /**
+     * The {@code metadata_policy} every hosted entity's Subordinate Statement starts from, by Entity Type:
+     * {@code {"oauth_client": {"scope": {"subset_of": [...]}}}}. An entity's own policy can only narrow it.
+     */
+    public static final String AUTHORITY_METADATA_POLICY_ENV = "OIDF_AUTHORITY_METADATA_POLICY";
+    /** The {@code constraints} (§6.2) every Subordinate Statement this entity issues carries. */
+    public static final String SUBORDINATE_CONSTRAINTS_ENV = "OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS";
 
     /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
@@ -178,6 +187,8 @@ public final class FederationRuntimeConfig {
     private static final String TRUST_MARK_OWNERS_PROP = "oidf.federation.trust.mark.owners";
     private static final String HISTORICAL_KEYS_PROP = "oidf.federation.historical.keys";
     private static final String KEY_HISTORY_GRACE_PROP = "oidf.federation.key.history.grace.seconds";
+    private static final String AUTHORITY_METADATA_POLICY_PROP = "oidf.authority.metadata.policy";
+    private static final String SUBORDINATE_CONSTRAINTS_PROP = "oidf.federation.subordinate.constraints";
 
     /**
      * What this entity publishes and issues as a Trust Mark Issuer and, when it is one, as a trust anchor.
@@ -293,12 +304,15 @@ public final class FederationRuntimeConfig {
     private final boolean trustMarkStatusCheck;
     private final TrustMarkIssuingSettings trustMarkIssuing;
     private final KeyHistorySettings keyHistory;
+    private final Map<String, Object> authorityMetadataPolicy;
+    private final Map<String, Object> subordinateConstraints;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
             RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
-            boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory) {
+            boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory,
+            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
@@ -306,6 +320,8 @@ public final class FederationRuntimeConfig {
         this.trustMarkStatusCheck = trustMarkStatusCheck;
         this.trustMarkIssuing = Objects.requireNonNull(trustMarkIssuing, "trustMarkIssuing");
         this.keyHistory = Objects.requireNonNull(keyHistory, "keyHistory");
+        this.authorityMetadataPolicy = Objects.requireNonNull(authorityMetadataPolicy, "authorityMetadataPolicy");
+        this.subordinateConstraints = subordinateConstraints;
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -395,7 +411,49 @@ public final class FederationRuntimeConfig {
                         strictly(TRUST_MARK_OWNERS_ENV, () -> TrustMarkClaims.parseOwners(setting(env, props, TRUST_MARK_OWNERS_PROP,
                                 TRUST_MARK_OWNERS_ENV)))),
                 new KeyHistorySettings(bool(env, props, HISTORICAL_KEYS_PROP, HISTORICAL_KEYS_ENV, KeyHistorySettings.DEFAULTS.enabled()),
-                        seconds(env, props, KEY_HISTORY_GRACE_PROP, KEY_HISTORY_GRACE_ENV, KeyHistorySettings.DEFAULTS.graceSeconds())));
+                        seconds(env, props, KEY_HISTORY_GRACE_PROP, KEY_HISTORY_GRACE_ENV, KeyHistorySettings.DEFAULTS.graceSeconds())),
+                strictly(AUTHORITY_METADATA_POLICY_ENV, () -> metadataPolicyByType(jsonObject(
+                        setting(env, props, AUTHORITY_METADATA_POLICY_PROP, AUTHORITY_METADATA_POLICY_ENV)))),
+                strictly(SUBORDINATE_CONSTRAINTS_ENV, () -> constraints(jsonObject(
+                        setting(env, props, SUBORDINATE_CONSTRAINTS_PROP, SUBORDINATE_CONSTRAINTS_ENV)))));
+    }
+
+    /** A JSON object, or null when blank. */
+    private static Map<String, Object> jsonObject(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(json,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() {});
+        } catch (Exception e) {
+            throw new IllegalArgumentException("not a JSON object");
+        }
+    }
+
+    /** One {@code metadata_policy} per Entity Type, each one a policy {@link MetadataPolicy} can apply. */
+    private static Map<String, Object> metadataPolicyByType(Map<String, Object> policy) {
+        if (policy == null) {
+            return Map.of();
+        }
+        for (Map.Entry<String, Object> type : policy.entrySet()) {
+            if (!(type.getValue() instanceof Map<?, ?> operators)) {
+                throw new IllegalArgumentException("the policy for " + type.getKey() + " is not a JSON object");
+            }
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> typed = (Map<String, Object>) operators;
+                MetadataPolicy.parse(typed, null);
+            } catch (MetadataPolicy.PolicyException e) {
+                throw new IllegalArgumentException("the policy for " + type.getKey() + " is not one: " + e.getMessage());
+            }
+        }
+        return Map.copyOf(policy);
+    }
+
+    private static Map<String, Object> constraints(Map<String, Object> constraints) {
+        Constraints.requireValid(constraints);
+        return constraints == null ? null : Map.copyOf(constraints);
     }
 
     /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting. */
@@ -632,6 +690,16 @@ public final class FederationRuntimeConfig {
     /** Whether a Trust Mark is also checked at its issuer's status endpoint ({@link #TRUST_MARK_STATUS_CHECK_ENV}). */
     public boolean trustMarkStatusCheck() {
         return this.trustMarkStatusCheck;
+    }
+
+    /** The {@code metadata_policy} every hosted entity starts from ({@link #AUTHORITY_METADATA_POLICY_ENV}); empty when unset. */
+    public Map<String, Object> authorityMetadataPolicy() {
+        return this.authorityMetadataPolicy;
+    }
+
+    /** The {@code constraints} on every Subordinate Statement ({@link #SUBORDINATE_CONSTRAINTS_ENV}); null when unset. */
+    public Map<String, Object> subordinateConstraints() {
+        return this.subordinateConstraints;
     }
 
     /** Whether this entity keeps and publishes its key history (§8.7). */

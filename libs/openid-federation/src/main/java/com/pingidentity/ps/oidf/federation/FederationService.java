@@ -79,6 +79,7 @@ public final class FederationService {
     private final HttpPostClient trustMarkStatusClient;
     private final TrustMarkIssuing trustMarkIssuing;
     private final HistoricalKeys historicalKeys;
+    private final Map<String, Object> subordinateConstraints;
     private final List<Map<String, Object>> ownTrustMarks;
     private final Map<String, List<String>> trustMarkIssuers;
     private final Map<String, Object> trustMarkOwners;
@@ -149,6 +150,8 @@ public final class FederationService {
         this.trustMarkStatusClient = b.trustMarkStatusClient;
         this.trustMarkIssuing = b.trustMarkIssuing;
         this.historicalKeys = b.historicalKeys;
+        Constraints.requireValid(b.subordinateConstraints);
+        this.subordinateConstraints = b.subordinateConstraints == null ? null : Map.copyOf(b.subordinateConstraints);
         this.ownTrustMarks = List.copyOf(b.ownTrustMarks);
         this.trustMarkIssuers = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkIssuers));
         this.trustMarkOwners = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkOwners));
@@ -376,6 +379,10 @@ public final class FederationService {
             // A foreign subordinate: vouch for ITS keys, learned from its own entity configuration.
             // Metadata and authority_hints stay on the subordinate's own configuration.
             claims.setClaim("jwks", this.fetchSubordinateJwks(subject));
+        }
+        if (this.subordinateConstraints != null) {
+            // §6.2: what this entity allows below each subordinate, whichever kind it is.
+            claims.setClaim("constraints", this.subordinateConstraints);
         }
         claims.setClaim("source_endpoint", this.fetchEndpoint(oidcIssuer));
         return this.signClaims(claims, ENTITY_STATEMENT_TYP);
@@ -849,6 +856,7 @@ public final class FederationService {
         private HttpPostClient trustMarkStatusClient;
         private TrustMarkIssuing trustMarkIssuing;
         private HistoricalKeys historicalKeys;
+        private Map<String, Object> subordinateConstraints;
         private List<Map<String, Object>> ownTrustMarks = List.of();
         private Map<String, List<String>> trustMarkIssuers = Map.of();
         private Map<String, Object> trustMarkOwners = Map.of();
@@ -909,6 +917,16 @@ public final class FederationService {
             this.resolverGateway = gateway;
             this.resolverAlgorithms = acceptedAlgorithms;
             this.resolverOptions = options;
+            return this;
+        }
+
+        /**
+         * The {@code constraints} (§6.2) every Subordinate Statement this entity issues carries.
+         *
+         * @throws IllegalArgumentException at {@link #build} when they are not syntactically correct
+         */
+        public Builder subordinateConstraints(Map<String, Object> constraints) {
+            this.subordinateConstraints = constraints;
             return this;
         }
 

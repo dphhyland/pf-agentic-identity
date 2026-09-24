@@ -10,11 +10,17 @@ import java.time.Instant;
  * exists on any implementation — because it is the record a dispute about "who could resolve this
  * entity, and when" is settled from.
  */
-public record AuthorityAuditEntry(String entityId, String eventCode, String detail, Instant at) {
+public record AuthorityAuditEntry(String entityId, String eventCode, String detail, Instant at, String actor) {
+
+    /** An entry no one is named for: written by the system, or before actors were recorded. */
+    public AuthorityAuditEntry(String entityId, String eventCode, String detail, Instant at) {
+        this(entityId, eventCode, detail, at, null);
+    }
 
     public static final String ENTITY_REGISTERED = "entity_registered";
     public static final String ENTITY_STATUS_CHANGED = "entity_status_changed";
     public static final String ENTITY_REVOKED = "entity_revoked";
     public static final String ENTITY_METADATA_UPDATED = "entity_metadata_updated";
     public static final String ENTITY_KEY_ROTATED = "entity_key_rotated";
+    public static final String ENTITY_METADATA_POLICY_UPDATED = "entity_metadata_policy_updated";
 }

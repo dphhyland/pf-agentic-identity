@@ -21,13 +21,13 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
     private final Map<String, List<AuthorityAuditEntry>> audit = new ConcurrentHashMap<>();
 
     @Override
-    public synchronized HostedEntity register(HostedEntity entity) throws AuthorityRegistryException {
+    public synchronized HostedEntity register(HostedEntity entity, String actor) throws AuthorityRegistryException {
         if (this.entities.containsKey(entity.entityId())) {
             throw new AuthorityRegistryException(AuthorityRegistryException.DUPLICATE,
                     "entity already hosted: " + entity.entityId());
         }
         this.entities.put(entity.entityId(), entity);
-        appendAudit(entity.entityId(), AuthorityAuditEntry.ENTITY_REGISTERED, "hostingMode=" + entity.hostingMode());
+        appendAudit(entity.entityId(), AuthorityAuditEntry.ENTITY_REGISTERED, "hostingMode=" + entity.hostingMode(), actor);
         return entity;
     }
 
@@ -53,7 +53,12 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
     }
 
     @Override
-    public synchronized void setStatus(String entityId, EntityStatus status, String reason)
+    public synchronized List<HostedEntity> all() {
+        return this.entities.values().stream().sorted(java.util.Comparator.comparing(HostedEntity::entityId)).toList();
+    }
+
+    @Override
+    public synchronized void setStatus(String entityId, EntityStatus status, String reason, String actor)
             throws AuthorityRegistryException {
         HostedEntity current = require(entityId);
         if (current.status() == status) {
@@ -68,28 +73,36 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
         this.entities.put(entityId, current.withStatus(status));
         String code = status == EntityStatus.REVOKED
                 ? AuthorityAuditEntry.ENTITY_REVOKED : AuthorityAuditEntry.ENTITY_STATUS_CHANGED;
-        appendAudit(entityId, code, status + ": " + reason);
+        appendAudit(entityId, code, status + ": " + reason, actor);
     }
 
     @Override
-    public synchronized void updateMetadata(String entityId, Map<String, Object> metadata)
+    public synchronized void updateMetadata(String entityId, Map<String, Object> metadata, String actor)
             throws AuthorityRegistryException {
         HostedEntity current = require(entityId);
         this.entities.put(entityId, current.withMetadata(metadata));
-        appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "types=" + metadata.keySet());
+        appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "types=" + metadata.keySet(), actor);
     }
 
     @Override
-    public synchronized void rotateHostingKey(String entityId, String newHostingKeyRef)
+    public synchronized void updateMetadataPolicy(String entityId, Map<String, Object> metadataPolicy, String actor)
+            throws AuthorityRegistryException {
+        HostedEntity current = require(entityId);
+        this.entities.put(entityId, current.withMetadataPolicy(metadataPolicy));
+        appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_POLICY_UPDATED, "types=" + metadataPolicy.keySet(), actor);
+    }
+
+    @Override
+    public synchronized void rotateHostingKey(String entityId, String newHostingKeyRef, String actor)
             throws AuthorityRegistryException {
         HostedEntity current = require(entityId);
         this.entities.put(entityId, current.withHostingKeyRef(newHostingKeyRef));
-        appendAudit(entityId, AuthorityAuditEntry.ENTITY_KEY_ROTATED, "hostingKeyRef rotated");
+        appendAudit(entityId, AuthorityAuditEntry.ENTITY_KEY_ROTATED, "hostingKeyRef rotated", actor);
     }
 
     @Override
     public synchronized void audit(String entityId, String eventCode, String detail) {
-        appendAudit(entityId, eventCode, detail);
+        appendAudit(entityId, eventCode, detail, null);
     }
 
     @Override
@@ -108,8 +121,8 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
     }
 
     /** Callers hold the instance monitor (every public method here is {@code synchronized}). */
-    private void appendAudit(String entityId, String eventCode, String detail) {
+    private void appendAudit(String entityId, String eventCode, String detail, String actor) {
         this.audit.computeIfAbsent(entityId, ignored -> new ArrayList<>())
-                .add(new AuthorityAuditEntry(entityId, eventCode, detail, Instant.now()));
+                .add(new AuthorityAuditEntry(entityId, eventCode, detail, Instant.now(), actor));
     }
 }

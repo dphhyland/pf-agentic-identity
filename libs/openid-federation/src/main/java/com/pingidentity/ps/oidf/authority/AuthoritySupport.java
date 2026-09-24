@@ -137,7 +137,7 @@ public final class AuthoritySupport {
     }
 
     /** Tests only: forget every configuration, so a test can see the unconfigured state. */
-    static void resetForTests() {
+    public static void resetForTests() {
         synchronized (LOCK) {
             registry = null;
             signer = null;
@@ -195,7 +195,33 @@ public final class AuthoritySupport {
      * hazard in an operator updating it without a restart.
      */
     public static void configureDomainDefaultMetadataPolicy(Map<String, Object> policy) {
-        domainDefaultMetadataPolicy = policy == null ? Map.of() : Map.copyOf(policy);
+        Map<String, Object> checked = policy == null ? Map.of() : Map.copyOf(policy);
+        for (Map.Entry<String, Object> type : checked.entrySet()) {
+            if (!(type.getValue() instanceof Map)) {
+                throw new IllegalArgumentException("the domain default metadata_policy for " + type.getKey() + " is not a JSON object");
+            }
+            try {
+                MetadataPolicy.parse(asPolicyMap(type.getValue()), null);
+            } catch (MetadataPolicy.PolicyException | RuntimeException e) {
+                throw new IllegalArgumentException("the domain default metadata_policy for " + type.getKey() + " is not a policy: "
+                        + e.getMessage(), e);
+            }
+        }
+        domainDefaultMetadataPolicy = checked;
+    }
+
+    /**
+     * Refuses a hosted entity whose own {@code metadata_policy} would not compose with the domain default - before it is
+     * stored, rather than in every Subordinate Statement about it afterwards.
+     *
+     * @throws IllegalArgumentException naming the type and the conflict
+     */
+    public static void requireComposable(HostedEntity candidate) {
+        try {
+            composedMetadataPolicyFor(candidate);
+        } catch (IllegalStateException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
     }
 
     public static HostedEntitySigner hostedEntitySigner() {
@@ -217,6 +243,11 @@ public final class AuthoritySupport {
      * @throws IllegalStateException if the registry itself is unavailable
      */
     public static List<String> hostedEntityIds(String entityType) {
+        // Nothing is hosted before hosting is configured - and asking the registry now would create the in-memory
+        // fallback, which the durable registry configured moments later could then never replace.
+        if (!isHostingConfigured()) {
+            return List.of();
+        }
         try {
             return registry().list(entityType).stream().map(HostedEntity::entityId).toList();
         } catch (AuthorityRegistryException e) {
@@ -240,6 +271,9 @@ public final class AuthoritySupport {
      *                                faults, not "subject not hosted"
      */
     public static Map<String, Object> hostedSubordinateClaims(String subject) {
+        if (!isHostingConfigured()) {
+            return null;
+        }
         Optional<HostedEntity> found;
         try {
             found = registry().find(subject);

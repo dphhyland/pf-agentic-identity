@@ -132,6 +132,20 @@ class FederationServiceEndpointsTest {
     }
 
     @Test
+    @Requirement("OIDFED §6.2(1)")
+    void everySubordinateStatementCarriesTheConstraintsThisEntitySets() throws Exception {
+        Map<String, Object> constraints = Map.of("max_path_length", 0L, "naming_constraints", Map.of("permitted", List.of(".example")));
+        ServingMap http = new ServingMap().entityConfiguration(FOREIGN, foreignConfiguration(Map.of("openid_provider", Map.of("issuer", FOREIGN))));
+        FederationService service = pf(configuration(), http).subordinateConstraints(constraints).build();
+
+        assertEquals(constraints, claims(service.fetchSubordinateStatement(null, HOSTED, PF)).getClaimValue("constraints"));
+        assertEquals(constraints, claims(service.fetchSubordinateStatement(null, FOREIGN, PF)).getClaimValue("constraints"));
+        assertFalse(claims(pf(configuration(), http).build().fetchSubordinateStatement(null, HOSTED, PF)).hasClaim("constraints"));
+        assertThrows(IllegalArgumentException.class, () -> pf(configuration(), http)
+                .subordinateConstraints(Map.of("allowed_entity_types", List.of("federation_entity"))).build(), "§6.2.3: never listed");
+    }
+
+    @Test
     void theNonStandardEntityEndpointNeverSignsAsAnotherIssuer() throws Exception {
         FederationService service = pf(configuration(), new ServingMap()).build();
 

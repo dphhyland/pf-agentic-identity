@@ -85,8 +85,9 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   not yet implemented), **`EntityStatus`** (`ACTIVE` / `SUSPENDED` / `REVOKED` — only `ACTIVE`
   resolves; revocation is permanent).
 - **`HostedEntityRegistry`** — `InMemoryHostedEntityRegistry` (tests, single node) or
-  **`JdbcHostedEntityRegistry`** over `db/migration/V100__hosted_entity.sql`: `hosted_entity` plus an
-  append-only `hosted_entity_audit_log`, JSON stored as text so Postgres and H2 run identical SQL.
+  **`JdbcHostedEntityRegistry`** over `db/migration/V100__hosted_entity.sql` and `V101__hosted_entity_actor.sql`:
+  `hosted_entity` plus an append-only `hosted_entity_audit_log` that records who made each change, written in the
+  same transaction as the change; JSON stored as text so Postgres and H2 run identical SQL.
   Numbered V100 so it never collides with `agent-registry`'s V200 on the shared classpath (both land on
   `servlets/attestation-issuer`); `device-instance` uses a separate, non-Flyway IDM/SCIM migration
   scheme, so it isn't part of this numbering at all.
@@ -94,7 +95,8 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   `OpenBaoTransitSigner` on one deployment-wide vault; **`HostedEntityConfigurationBuilder`** signs the
   entity configuration with it (60 min lifetime), with the Trust Marks this authority issues the entity.
   **`AuthoritySupport`** holds the process-wide registry, signer, domain-default policy and Trust Mark lookup so
-  every servlet shares one state across classloaders.
+  every servlet shares one state across classloaders. Nothing is looked up before hosting is configured, so a
+  request that arrives first cannot leave the in-memory fallback in place of the durable registry.
 
 ## `trustmark` — issuing Trust Marks
 

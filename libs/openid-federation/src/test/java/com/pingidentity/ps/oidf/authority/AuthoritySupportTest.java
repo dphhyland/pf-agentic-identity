@@ -107,6 +107,11 @@ class AuthoritySupportTest {
 
     @Test
     void hostedEntityIdsIncludesAListableEntityAndRespectsTheTypeFilter() throws Exception {
+        // Listing needs hosting configured (nothing is hosted before it is); first configuration wins, so this is a no-op
+        // when an earlier test in this JVM configured it already.
+        AuthoritySupport.configureSigning(e -> {
+            throw new IllegalStateException("not exercised in this test");
+        }, "https://as.example.com");
         String entityId = "https://as.example.com/agents/listable-" + Instant.now().toEpochMilli();
         AuthoritySupport.registry().register(new HostedEntity(entityId, HostingMode.AUTHORITY_SIGNED,
                 "some-key-ref", Map.of("oauth_client", Map.of()), Map.of(), EntityStatus.ACTIVE,
@@ -312,5 +317,132 @@ class AuthoritySupportTest {
         } finally {
             AuthoritySupport.resetForTests();
         }
+    }
+
+    /**
+     * A fetch or list that arrives before hosting is configured finds nothing hosted - and leaves the registry alone, so
+     * the durable one configured when HostedEntityServlet starts is the one used, not an in-memory stand-in.
+     */
+    @Test
+    void nothingIsLookedUpBeforeHostingIsConfigured() {
+        AuthoritySupport.resetForTests();
+        try {
+            assertEquals(List.of(), AuthoritySupport.hostedEntityIds(null));
+            assertNull(AuthoritySupport.hostedSubordinateClaims("https://as.example.com/agents/a1"));
+
+            AuthoritySupport.configureJdbcRegistry(null_datasource());
+
+            assertTrue(AuthoritySupport.registry() instanceof JdbcHostedEntityRegistry, "the durable registry was not pre-empted");
+        } finally {
+            AuthoritySupport.resetForTests();
+        }
+    }
+
+    @Test
+    void aDomainDefaultPolicyIsCheckedWhenItIsConfigured() {
+        try {
+            assertThrows(IllegalArgumentException.class, () -> AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client", "scope")));
+            assertThrows(IllegalArgumentException.class, () -> AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client",
+                    Map.of("scope", Map.of("value", "read", "one_of", List.of("write"))))));
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
+    }
+
+    @Test
+    void anEntityPolicyThatCannotComposeWithTheDomainDefaultIsRefusedBeforeItIsStored() {
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client", Map.of("token_endpoint_auth_method", Map.of("value", "private_key_jwt"))));
+        try {
+            HostedEntity conflicting = new HostedEntity("https://as.example.com/agents/a6", HostingMode.AUTHORITY_SIGNED, "k1",
+                    Map.of("oauth_client", Map.of()), Map.of("oauth_client", Map.of("token_endpoint_auth_method", Map.of("value", "none"))),
+                    EntityStatus.ACTIVE, false, null, Instant.now(), null);
+            HostedEntity compatible = HostedEntity.hosted("https://as.example.com/agents/a7", "k1", Map.of("oauth_client", Map.of()), null);
+
+            assertThrows(IllegalArgumentException.class, () -> AuthoritySupport.requireComposable(conflicting));
+            AuthoritySupport.requireComposable(compatible);
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
+    }
+
+    // ---- the Subordinate Statement claims for a hosted entity ----------------------------------------
+
+    private static final com.pingidentity.ps.oidf.jose.JwsSigner SIGNER = new com.pingidentity.ps.oidf.jose.JwsSigner() {
+        @Override
+        public String algorithm() {
+            return "ES256";
+        }
+
+        @Override
+        public String keyId() {
+            return "k1";
+        }
+
+        @Override
+        public Map<String, Object> publicJwk() {
+            return Map.of("kty", "EC", "kid", "k1");
+        }
+
+        @Override
+        public byte[] sign(byte[] signingInput) {
+            return new byte[64];
+        }
+    };
+
+    @Test
+    void aResolvableHostedEntityGetsItsKeyAndItsComposedPolicy() throws Exception {
+        AuthoritySupport.resetForTests();
+        try {
+            AuthoritySupport.configureSigning(entity -> {
+                if (entity.hostingKeyRef().equals("broken")) {
+                    throw new IllegalStateException("vault down");
+                }
+                return SIGNER;
+            }, "https://as.example.com");
+            String plain = "https://as.example.com/agents/plain";
+            String narrowed = "https://as.example.com/agents/narrowed";
+            AuthoritySupport.registry().register(HostedEntity.hosted(plain, "k1", Map.of("oauth_client", Map.of()), null));
+            AuthoritySupport.registry().register(new HostedEntity(narrowed, HostingMode.AUTHORITY_SIGNED, "k1", Map.of("oauth_client", Map.of()),
+                    Map.of("oauth_client", Map.of("scope", Map.of("subset_of", List.of("read")))), EntityStatus.ACTIVE, false, null, Instant.now(), null));
+            AuthoritySupport.registry().register(HostedEntity.hosted("https://as.example.com/agents/broken", "broken", Map.of("oauth_client", Map.of()),
+                    null));
+            AuthoritySupport.registry().register(HostedEntity.hosted("https://as.example.com/agents/gone", "k1", Map.of("oauth_client", Map.of()), null));
+            AuthoritySupport.registry().setStatus("https://as.example.com/agents/gone", EntityStatus.REVOKED, "test");
+
+            assertEquals(Map.of("jwks", Map.of("keys", List.of(SIGNER.publicJwk()))), AuthoritySupport.hostedSubordinateClaims(plain),
+                    "no policy anywhere, none carried");
+            assertEquals(Map.of("oauth_client", Map.of("scope", Map.of("subset_of", List.of("read")))),
+                    AuthoritySupport.hostedSubordinateClaims(narrowed).get("metadata_policy"));
+            assertNull(AuthoritySupport.hostedSubordinateClaims("https://as.example.com/agents/gone"));
+            assertNull(AuthoritySupport.hostedSubordinateClaims("https://as.example.com/agents/never"));
+            assertThrows(IllegalStateException.class, () -> AuthoritySupport.hostedSubordinateClaims("https://as.example.com/agents/broken"),
+                    "a fault is a fault, never read as 'not hosted'");
+        } finally {
+            AuthoritySupport.resetForTests();
+        }
+    }
+
+    @Test
+    void aRegistryThatFailsIsNeverReadAsNothingHosted() {
+        AuthoritySupport.resetForTests();
+        try {
+            AuthoritySupport.configureJdbcRegistry((javax.sql.DataSource) java.lang.reflect.Proxy.newProxyInstance(
+                    javax.sql.DataSource.class.getClassLoader(), new Class<?>[]{javax.sql.DataSource.class}, (proxy, method, args) -> {
+                        throw new java.sql.SQLException("connection refused");
+                    }));
+            AuthoritySupport.configureSigning(entity -> SIGNER, "https://as.example.com");
+
+            assertThrows(IllegalStateException.class, () -> AuthoritySupport.hostedEntityIds(null));
+            assertThrows(IllegalStateException.class, () -> AuthoritySupport.hostedSubordinateClaims("https://as.example.com/agents/a1"));
+        } finally {
+            AuthoritySupport.resetForTests();
+        }
+    }
+
+    @Test
+    void noDomainDefaultIsNoDomainDefault() {
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(null);
+        assertTrue(AuthoritySupport.composedMetadataPolicyFor(HostedEntity.hosted("https://as.example.com/agents/a8", "k1",
+                Map.of("oauth_client", Map.of()), null)).isEmpty());
     }
 }

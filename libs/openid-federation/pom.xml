@@ -292,6 +292,23 @@
                                         <include>com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport.store(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.historicalKeys(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.signingKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.inTransaction(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.registerIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.listIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.allIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.setStatusIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.auditTrailIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.updateMetadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.updateMetadataPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.JdbcHostedEntityRegistry.rotateHostingKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.all(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.updateMetadataPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.configureDomainDefaultMetadataPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.requireComposable(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.hostedEntityIds(*</include>
+                                        <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.hostedSubordinateClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.requireValid(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
