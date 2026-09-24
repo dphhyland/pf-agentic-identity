@@ -102,6 +102,35 @@ public final class AuthoritySupport {
         return local;
     }
 
+    /** True once {@link #configureSigning} has run: this deployment hosts entities and is their superior. */
+    public static boolean isHostingConfigured() {
+        return signer != null;
+    }
+
+    /**
+     * The signed Entity Configuration of a resolvable hosted entity, or {@code null} when hosting is not
+     * configured or {@code entityId} is not (or is no longer) hosted here - for this deployment's own
+     * resolver, which builds these in-process rather than fetching its own public URL.
+     *
+     * @throws IllegalStateException if the registry itself is unavailable
+     */
+    public static String hostedEntityConfiguration(String entityId) {
+        HostedEntityConfigurationBuilder builder = configurationBuilder;
+        if (builder == null) {
+            return null;
+        }
+        Optional<HostedEntity> found;
+        try {
+            found = registry().find(entityId);
+        } catch (AuthorityRegistryException e) {
+            throw new IllegalStateException("hosted-entity lookup failed for " + entityId, e);
+        }
+        if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
+            return null;
+        }
+        return builder.buildEntityConfiguration(found.get());
+    }
+
     /** The authority's own fixed entity id, as configured — never derived from a request's Host header. */
     public static String authorityEntityId() {
         String local = authorityEntityId;

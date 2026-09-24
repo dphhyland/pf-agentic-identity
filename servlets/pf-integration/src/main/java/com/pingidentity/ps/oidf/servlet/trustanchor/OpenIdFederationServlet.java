@@ -8,8 +8,9 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import java.io.IOException;
 import java.io.PrintWriter;
+import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.Set;
 import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
@@ -19,16 +20,22 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.jose4j.json.JsonUtil;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationService;
 import com.pingidentity.ps.oidf.federation.FederationConfiguration;
 import com.pingidentity.ps.oidf.federation.FederationError;
+import com.pingidentity.ps.oidf.federation.FederationException;
+import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.federation.ListRequest;
+import com.pingidentity.ps.oidf.federation.ResolveRequest;
+import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
+import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 
 /**
- * OpenID Federation entity servlet acting as a trust anchor / intermediate. Serves the entity
- * configuration at {@code /.well-known/openid-federation} and the federation entity, fetch, list
- * and resolve endpoints, delegating to {@link FederationService} and applying optional CORS headers.
+ * This deployment's federation endpoints (OpenID Federation 1.0 §8, §9): its Entity Configuration at
+ * {@code /.well-known/openid-federation}, and the fetch, list and resolve endpoints, delegating to
+ * {@link FederationService}. Every failure is answered as §8.9 says, through {@link FederationErrors}.
+ * {@code /federation/entity} is a non-standard endpoint kept for older callers; it is not advertised.
  */
 // loadOnStartup: init (and the subordinate prewarm it kicks off) must run at war deploy, not
 // lazily on first request — lazy init would put the prewarm INSIDE the first token exchange,
@@ -65,28 +72,36 @@ extends HttpServlet {
         }
         try {
             this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
+            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
             // The war's context path (e.g. "/oidf") — the entity's identity is PF's path-less OAuth
             // issuer, but the /federation/* endpoints it advertises live under this prefix. Without
             // it a peer following federation_fetch_endpoint gets a 404 at the root path.
             String contextPath = config.getServletContext() == null ? "" : config.getServletContext().getContextPath();
-            this.federationService = new FederationService(this.federationConfiguration,
-                new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()),
-                // The trust controller is operator configuration, so it is exempt from the outbound
-                // policy's address rules (it may legitimately be a private/internal host). Taken from
-                // FederationRuntimeConfig, the same OIDF_FEDERATION_TRUST_CONTROLLER_HOST this
-                // servlet's own FederationConfiguration reads - one source, per deployment.
-                new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
-                        .trusting(FederationRuntimeConfig.get().trustControllerHost(),
-                                  FederationRuntimeConfig.get().trustControllerBaseUrl())),
-                // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
-                // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
-                // if HostedEntityServlet is never configured, since AuthoritySupport.registry() then
-                // lazily defaults to an empty in-memory registry and every lookup simply returns null.
-                AuthoritySupport::hostedSubordinateClaims,
-                // Likewise for /federation/list — AuthoritySupport.hostedEntityIds already applies the
-                // listable/resolvable/type filtering, so this is unconditionally safe to wire in.
-                AuthoritySupport::hostedEntityIds,
-                contextPath);
+            // The trust controller is operator configuration, so it is exempt from the outbound policy's
+            // address rules (it may legitimately be a private/internal host). Everything else - a
+            // subordinate's configuration, whatever a resolved subject's hints point at - is screened.
+            JdkHttpGetClient http = new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
+                    .trusting(runtime.trustControllerHost(), runtime.trustControllerBaseUrl()));
+            FederationService.Builder service = FederationService.builder(this.federationConfiguration,
+                            new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()))
+                    .subordinateFetcher(http)
+                    // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
+                    // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
+                    // if HostedEntityServlet is never configured, since every lookup then returns null.
+                    .hostedSubordinateLookup(AuthoritySupport::hostedSubordinateClaims)
+                    .hostedSubordinateIds(AuthoritySupport::hostedEntityIds)
+                    .hostedConfiguration(AuthoritySupport::hostedEntityConfiguration)
+                    // Asked per request: HostedEntityServlet may be initialised after this servlet.
+                    .hosting(AuthoritySupport::isHostingConfigured)
+                    .federationBasePath(contextPath);
+            TrustAnchorSet anchors = resolverAnchors(runtime);
+            if (anchors != null) {
+                String base = runtime.trustControllerBaseUrl() != null ? runtime.trustControllerBaseUrl() : anchors.entityIds().get(0);
+                service.resolver(anchors, new HttpTrustControllerGateway(http, base), Set.of(), ValidatorOptions.defaults());
+                log.info("Federation resolve endpoint enabled for trust anchors " + anchors.entityIds() + " (discovery: "
+                        + this.federationConfiguration.resolveDiscovery().name().toLowerCase(java.util.Locale.ROOT) + ")");
+            }
+            this.federationService = service.build();
             // Fetch each configured subordinate's entity configuration off the request path —
             // a cold cache otherwise puts a live cross-network fetch inside the first token
             // exchange after every restart (see FederationService#prewarmSubordinatesAsync).
@@ -134,6 +149,22 @@ extends HttpServlet {
         }
     }
 
+    /**
+     * The anchors the resolve endpoint resolves against - the deployment's pinned anchor set - or null when
+     * none is configured, which leaves the endpoint unadvertised and answering {@code invalid_trust_anchor}.
+     */
+    static TrustAnchorSet resolverAnchors(FederationRuntimeConfig runtime) {
+        if (!runtime.isTrustControllerConfigured() && !TrustAnchorSet.looksLikeAnchorMap(runtime.trustAnchorJwks())) {
+            return null;
+        }
+        try {
+            return runtime.trustAnchors();
+        } catch (RuntimeException e) {
+            log.warn("Federation resolve endpoint disabled: " + e.getMessage());
+            return null;
+        }
+    }
+
     protected void doOptions(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         this.applyCorsHeaders(resp);
         resp.setStatus(204);
@@ -170,10 +201,9 @@ extends HttpServlet {
         }
     }
 
+    /** §8.1: {@code sub} is the parameter; {@code iss}, which draft-era clients send, is accepted when it names this entity. */
     private void handleFetch(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws Exception {
-        String iss = required(req, "iss");
-        String sub = required(req, "sub");
-        String jwt = this.federationService.fetchEntityStatement(iss, sub, oidcIssuer);
+        String jwt = this.federationService.fetchSubordinateStatement(optional(req, "iss"), optional(req, "sub"), oidcIssuer);
         resp.setStatus(200);
         resp.setContentType("application/entity-statement+jwt");
         try (PrintWriter out = resp.getWriter()) {
@@ -181,17 +211,43 @@ extends HttpServlet {
         }
     }
 
+    /** §8.2: {@code entity_type} may repeat and every one must match; the two booleans are true or false. */
     private void handleList(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws IOException {
-        String entityType = optional(req, "entity_type");
-        List<String> entities = this.federationService.listSubordinates(entityType);
+        ListRequest request = new ListRequest(repeated(req, "entity_type"), booleanParameter(req, "trust_marked"),
+                optional(req, "trust_mark_type"), booleanParameter(req, "intermediate"));
+        List<String> entities = this.federationService.listSubordinates(request);
         writeJson(resp, 200, toJsonStringArray(entities));
     }
 
+    /** §8.3: a signed {@code resolve-response+jwt}; {@code trust_anchor} and {@code entity_type} may repeat. */
     private void handleResolve(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws Exception {
-        String sub = required(req, "sub");
-        String trustAnchor = optional(req, "trust_anchor");
-        Map<String, Object> resolved = this.federationService.resolveTrustChain(sub, trustAnchor, oidcIssuer);
-        writeJson(resp, 200, JsonUtil.toJson(resolved));
+        ResolveRequest request = new ResolveRequest(optional(req, "sub"), repeated(req, "trust_anchor"), repeated(req, "entity_type"));
+        String jwt = this.federationService.resolve(request, oidcIssuer);
+        resp.setStatus(200);
+        resp.setContentType("application/resolve-response+jwt");
+        try (PrintWriter out = resp.getWriter()) {
+            out.write(jwt);
+        }
+    }
+
+    /** Every value of a repeatable parameter; the request records drop blank ones. */
+    private static List<String> repeated(HttpServletRequest req, String name) {
+        String[] values = req.getParameterValues(name);
+        return values == null ? List.of() : Arrays.asList(values);
+    }
+
+    private static Boolean booleanParameter(HttpServletRequest req, String name) {
+        String value = optional(req, name);
+        if (value == null) {
+            return null;
+        }
+        if ("true".equalsIgnoreCase(value.trim())) {
+            return Boolean.TRUE;
+        }
+        if ("false".equalsIgnoreCase(value.trim())) {
+            return Boolean.FALSE;
+        }
+        throw new FederationException(FederationError.INVALID_REQUEST, name + " must be true or false");
     }
 
     private static String required(HttpServletRequest req, String name) {

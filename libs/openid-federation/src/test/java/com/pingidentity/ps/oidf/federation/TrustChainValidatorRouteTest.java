@@ -402,14 +402,16 @@ class TrustChainValidatorRouteTest {
     }
 
     @Test
-    void aSubjectThatAnswersWithSomethingElseHasNoRoute() {
+    @Requirement("OIDFED §8.9")
+    void aSubjectThatAnswersWithSomethingElseIsNotFound() {
         Federation f = threeLevels();
         f.http().put(LEAF + "/.well-known/openid-federation", f.entityConfiguration(INT));
 
         TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
                 () -> f.validator(TA).validate(request().build()));
 
-        assertEquals(Kind.ROUTE, e.kind());
+        assertEquals(Kind.SUBJECT, e.kind());
+        assertEquals(FederationError.NOT_FOUND, e.error());
     }
 
     // ---- peer_trust_chain -----------------------------------------------------------------------------

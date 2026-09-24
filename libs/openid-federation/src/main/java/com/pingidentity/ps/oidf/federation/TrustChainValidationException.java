@@ -11,7 +11,9 @@ import java.util.Locale;
  * <p>The {@link Kind} is for logs, events and tests; the {@link FederationError} is what a federation
  * endpoint answers: {@code invalid_metadata} for a policy conflict (OpenID Federation 1.0 §8.9 "Metadata or
  * Metadata Policy values are invalid or conflict"), {@code invalid_trust_anchor} when no configured anchor
- * can be used, {@code invalid_trust_chain} for everything else.
+ * can be used, {@code not_found} when the subject's own Entity Configuration cannot be had,
+ * {@code temporarily_unavailable} when an entity could not be reached, {@code invalid_trust_chain} for
+ * everything else.
  */
 public final class TrustChainValidationException extends FederationException {
     private static final long serialVersionUID = 1L;
@@ -19,7 +21,7 @@ public final class TrustChainValidationException extends FederationException {
     /** What refused the chain. {@link #code()} is the lower-case name, for an event's {@code reason}. */
     public enum Kind {
         TYP, ALG, KID, MISSING_CLAIM, IAT, EXP, SIGNATURE, CRIT, SYNTAX, ROUTE, ANCHOR, CONSTRAINT, POLICY,
-        BUDGET, PEER_CHAIN, TRANSPORT;
+        BUDGET, PEER_CHAIN, TRANSPORT, SUBJECT;
 
         public String code() {
             return this.name().toLowerCase(Locale.ROOT);
@@ -50,6 +52,9 @@ public final class TrustChainValidationException extends FederationException {
         }
         if (kind == Kind.TRANSPORT) {
             return FederationError.TEMPORARILY_UNAVAILABLE;
+        }
+        if (kind == Kind.SUBJECT) {
+            return FederationError.NOT_FOUND;
         }
         return FederationError.INVALID_TRUST_CHAIN;
     }

@@ -143,7 +143,7 @@ public final class ClientAttestationAuthFilter implements Filter {
                             + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
                 } else {
                     try {
-                        runtime.trustAnchor();
+                        runtime.trustAnchors();
                     }
                     catch (RuntimeException e) {
                         throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);

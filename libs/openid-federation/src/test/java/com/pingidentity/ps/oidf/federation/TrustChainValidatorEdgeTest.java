@@ -183,7 +183,9 @@ class TrustChainValidatorEdgeTest {
             } else {
                 f.http().put(LEAF + "/.well-known/openid-federation", body);
             }
-            assertEquals(Kind.ROUTE, refused(f.validator(TA), request().build()).kind(), String.valueOf(body));
+            TrustChainValidationException e = refused(f.validator(TA), request().build());
+            assertEquals(Kind.SUBJECT, e.kind(), String.valueOf(body));
+            assertEquals(FederationError.NOT_FOUND, e.error());
         }
     }
 
@@ -246,7 +248,7 @@ class TrustChainValidatorEdgeTest {
             }
         };
 
-        assertEquals(Kind.ROUTE, refused(new TrustChainValidator(silent, f.trustAnchor(TA)), request().build()).kind());
+        assertEquals(Kind.SUBJECT, refused(new TrustChainValidator(silent, f.trustAnchor(TA)), request().build()).kind());
     }
 
     @Test

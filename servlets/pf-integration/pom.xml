@@ -106,7 +106,7 @@
                                              turns into a registration; isFederationRegistered is what later
                                              decides a client came from federation rather than by hand. -->
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.trustAnchor(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requireConfiguredAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requireConfiguredAnchors(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.explicitRegister(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireConstrainedByPolicy(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.isFederationRegistered(*</include>
@@ -144,6 +144,14 @@
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.withinSet(*</include>
                                         <!-- The admin read surface: what it will disclose, and to whom. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleFetch(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleList(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleResolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.booleanParameter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.repeated(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.resolverAnchors(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

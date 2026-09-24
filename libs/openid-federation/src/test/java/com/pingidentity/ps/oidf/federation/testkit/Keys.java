@@ -3,6 +3,9 @@
  */
 package com.pingidentity.ps.oidf.federation.testkit;
 
+import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
+import java.security.interfaces.RSAPrivateKey;
+import java.security.interfaces.RSAPublicKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -77,5 +80,25 @@ public final class Keys {
             list.add(publicJwk(key));
         }
         return Map.of("keys", list);
+    }
+
+    /** An RSA key as the {@link SigningKeyProvider} a {@code FederationService} signs its own statements with. */
+    public static SigningKeyProvider signingKeys(PublicJsonWebKey rsa) {
+        return new SigningKeyProvider() {
+            @Override
+            public String keyId() {
+                return rsa.getKeyId();
+            }
+
+            @Override
+            public RSAPrivateKey privateKey() {
+                return (RSAPrivateKey) rsa.getPrivateKey();
+            }
+
+            @Override
+            public RSAPublicKey publicKey() {
+                return (RSAPublicKey) rsa.getPublicKey();
+            }
+        };
     }
 }

@@ -7,10 +7,26 @@ import jakarta.servlet.ServletConfig;
 
 /**
  * Immutable configuration for the trust-anchor federation servlet: trust anchor issuers,
- * subordinates, trust controller host, signing algorithm, CORS settings and attestation
- * metadata. {@link #fromServletConfig} parses and validates these from servlet init parameters.
+ * subordinates, trust controller host, signing algorithm, CORS settings, attestation
+ * metadata, and what the entity advertises and resolves. {@link #fromServletConfig} parses and
+ * validates these from servlet init parameters, each falling back to an environment variable.
  */
 public final class FederationConfiguration {
+
+    /**
+     * Which subjects the resolve endpoint will resolve for an unauthenticated caller. OpenID Federation 1.0
+     * §18.1: without client authentication "the resolve endpoint should only respond ... with cached
+     * information about Entities that have already been evaluated", because each request would otherwise
+     * send this deployment fetching wherever the subject's hints point.
+     */
+    public enum ResolveDiscovery {
+        /** This entity, its configured subordinates and the entities it hosts. The default. */
+        KNOWN,
+        /** Any subject: discovery on demand, bounded only by the validator's fetch budget. */
+        ANY
+    }
+
+    static final List<String> DEFAULT_CLIENT_REGISTRATION_TYPES = List.of("automatic", "explicit");
     private static final String DEFAULT_CORS_ALLOW_ORIGIN = "*";
     private static final String DEFAULT_CORS_ALLOW_METHODS = "GET, OPTIONS";
     private static final String DEFAULT_CORS_ALLOW_HEADERS = "Accept, Content-Type";
@@ -29,6 +45,9 @@ public final class FederationConfiguration {
     private final String signingAlgorithm;
     private final AttestationMetadataConfig attestationMetadata;
     private final String attesterJwks;
+    private final String organizationName;
+    private final List<String> clientRegistrationTypes;
+    private final ResolveDiscovery resolveDiscovery;
 
     FederationConfiguration(List<String> trustAnchorIssuers, List<String> subordinates, String trustControllerHost, boolean ignoreSslErrors) {
         this(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, true, DEFAULT_CORS_ALLOW_ORIGIN, DEFAULT_CORS_ALLOW_METHODS, DEFAULT_CORS_ALLOW_HEADERS, 3600, DEFAULT_SIGNING_ALGORITHM);
@@ -47,6 +66,15 @@ public final class FederationConfiguration {
     }
 
     FederationConfiguration(List<String> trustAnchorIssuers, List<String> subordinates, String trustControllerHost, boolean ignoreSslErrors, boolean corsEnabled, String corsAllowOrigin, String corsAllowMethods, String corsAllowHeaders, int corsMaxAge, String signingAlgorithm, AttestationMetadataConfig attestationMetadata, String attesterJwks) {
+        this(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, corsEnabled, corsAllowOrigin, corsAllowMethods,
+                corsAllowHeaders, corsMaxAge, signingAlgorithm, attestationMetadata, attesterJwks, null, DEFAULT_CLIENT_REGISTRATION_TYPES,
+                ResolveDiscovery.KNOWN);
+    }
+
+    FederationConfiguration(List<String> trustAnchorIssuers, List<String> subordinates, String trustControllerHost, boolean ignoreSslErrors,
+                            boolean corsEnabled, String corsAllowOrigin, String corsAllowMethods, String corsAllowHeaders, int corsMaxAge,
+                            String signingAlgorithm, AttestationMetadataConfig attestationMetadata, String attesterJwks,
+                            String organizationName, List<String> clientRegistrationTypes, ResolveDiscovery resolveDiscovery) {
         this.trustAnchorIssuers = List.copyOf(trustAnchorIssuers);
         this.subordinates = List.copyOf(subordinates);
         this.ignoreSslErrors = ignoreSslErrors;
@@ -59,6 +87,9 @@ public final class FederationConfiguration {
         this.signingAlgorithm = signingAlgorithm;
         this.attestationMetadata = attestationMetadata != null ? attestationMetadata : AttestationMetadataConfig.defaults();
         this.attesterJwks = attesterJwks == null || attesterJwks.isBlank() ? null : attesterJwks;
+        this.organizationName = organizationName == null || organizationName.isBlank() ? null : organizationName.trim();
+        this.clientRegistrationTypes = List.copyOf(clientRegistrationTypes);
+        this.resolveDiscovery = resolveDiscovery;
     }
 
     /**
@@ -71,7 +102,7 @@ public final class FederationConfiguration {
         if (value == null || value.isBlank()) {
             value = System.getenv(envVar);
         }
-        return value;
+        return value == null || value.isBlank() ? null : value;
     }
 
     public static FederationConfiguration fromServletConfig(ServletConfig config) {
@@ -91,7 +122,14 @@ public final class FederationConfiguration {
             int corsMaxAge = parseInt(config.getInitParameter("corsMaxAge"), 3600);
             AttestationMetadataConfig attestationMetadata = AttestationMetadataConfig.fromServletConfig(config);
             String attesterJwks = setting(config, "attesterJwks", "OIDF_FEDERATION_ATTESTER_JWKS");
-            return new FederationConfiguration(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, corsEnabled, corsAllowOrigin, corsAllowMethods, corsAllowHeaders, corsMaxAge, signingAlgorithm, attestationMetadata, attesterJwks);
+            String organizationName = setting(config, "organizationName", "OIDF_FEDERATION_ORGANIZATION_NAME");
+            String registrationTypes = setting(config, "clientRegistrationTypes", "OIDF_FEDERATION_CLIENT_REGISTRATION_TYPES");
+            List<String> clientRegistrationTypes = registrationTypes == null ? DEFAULT_CLIENT_REGISTRATION_TYPES
+                    : parseCommaSeparated(registrationTypes);
+            ResolveDiscovery resolveDiscovery = parseResolveDiscovery(setting(config, "resolveDiscovery", "OIDF_FEDERATION_RESOLVE_DISCOVERY"));
+            return new FederationConfiguration(trustAnchorIssuers, subordinates, trustControllerHost, ignoreSslErrors, corsEnabled, corsAllowOrigin,
+                    corsAllowMethods, corsAllowHeaders, corsMaxAge, signingAlgorithm, attestationMetadata, attesterJwks, organizationName,
+                    clientRegistrationTypes, resolveDiscovery);
         }
         catch (Exception e) {
             throw new IllegalArgumentException("Invalid federation servlet configuration", e);
@@ -166,6 +204,17 @@ public final class FederationConfiguration {
         return trimmed;
     }
 
+    private static ResolveDiscovery parseResolveDiscovery(String value) {
+        if (value == null) {
+            return ResolveDiscovery.KNOWN;
+        }
+        try {
+            return ResolveDiscovery.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("resolveDiscovery must be known or any, got: " + value.trim());
+        }
+    }
+
     private static int parseInt(String value, int fallback) {
         if (value == null || value.isBlank()) {
             return fallback;
@@ -194,6 +243,33 @@ public final class FederationConfiguration {
 
     AttestationMetadataConfig attestationMetadata() {
         return this.attestationMetadata;
+    }
+
+    /** {@code organization_name} for the entity's {@code federation_entity} metadata (§5.1.1 RECOMMENDED), or null. */
+    public String organizationName() {
+        return this.organizationName;
+    }
+
+    /**
+     * {@code client_registration_types_supported} (§5.1.3): what this OP accepts - {@code automatic},
+     * {@code explicit}, both, or none. An empty list advertises neither and omits the registration endpoint.
+     */
+    public List<String> clientRegistrationTypes() {
+        return this.clientRegistrationTypes;
+    }
+
+    public ResolveDiscovery resolveDiscovery() {
+        return this.resolveDiscovery;
+    }
+
+    /** True when {@code entityId} is one of the configured subordinates, trailing slash aside. */
+    boolean isSubordinate(String entityId) {
+        for (String subordinate : this.subordinates) {
+            if (EntityId.same(subordinate, entityId)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     public boolean ignoreSslErrors() {

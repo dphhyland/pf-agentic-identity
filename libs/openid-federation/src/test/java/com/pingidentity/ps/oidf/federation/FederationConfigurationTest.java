@@ -117,4 +117,36 @@ class FederationConfigurationTest {
         badAge.put("corsMaxAge", "an hour");
         assertThrows(IllegalArgumentException.class, () -> FederationConfiguration.fromServletConfig(config(badAge)));
     }
+
+    @Test
+    void whatTheEntityAdvertisesAndResolvesIsConfigurable() {
+        FederationConfiguration defaults = FederationConfiguration.fromServletConfig(config(minimal()));
+        assertEquals(List.of("automatic", "explicit"), defaults.clientRegistrationTypes());
+        assertEquals(FederationConfiguration.ResolveDiscovery.KNOWN, defaults.resolveDiscovery());
+        assertNull(defaults.organizationName());
+
+        Map<String, String> params = minimal();
+        params.put("clientRegistrationTypes", "explicit");
+        params.put("resolveDiscovery", " Any ");
+        params.put("organizationName", " Example Pty Ltd ");
+        params.put("subordinates", "https://leaf.example/");
+        FederationConfiguration c = FederationConfiguration.fromServletConfig(config(params));
+        assertEquals(List.of("explicit"), c.clientRegistrationTypes());
+        assertEquals(FederationConfiguration.ResolveDiscovery.ANY, c.resolveDiscovery());
+        assertEquals("Example Pty Ltd", c.organizationName());
+        assertTrue(c.isSubordinate("https://leaf.example"), "trailing slash aside");
+        assertFalse(c.isSubordinate("https://other.example"));
+
+        Map<String, String> none = minimal();
+        none.put("clientRegistrationTypes", " , ");
+        assertEquals(List.of(), FederationConfiguration.fromServletConfig(config(none)).clientRegistrationTypes());
+
+        Map<String, String> blank = minimal();
+        blank.put("resolveDiscovery", " ");
+        assertEquals(FederationConfiguration.ResolveDiscovery.KNOWN, FederationConfiguration.fromServletConfig(config(blank)).resolveDiscovery());
+
+        Map<String, String> bad = minimal();
+        bad.put("resolveDiscovery", "everything");
+        assertThrows(IllegalArgumentException.class, () -> FederationConfiguration.fromServletConfig(config(bad)));
+    }
 }

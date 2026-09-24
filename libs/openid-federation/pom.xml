@@ -187,6 +187,26 @@
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.anchorConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.verifiedAnchorConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.entityConfigurationUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.fetchSubordinateStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.subordinateStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.listSubordinates(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.isKnown(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.isSuperior(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.resolveEnabled(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.selfMetadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.fetchSubordinateJwks(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.refreshSubordinateJwks(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.createEntityStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.createEntityConfigurationJwt(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.LocalStatements.entityConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.LocalStatements.subordinateStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.LocalFirstTrustControllerGateway.fetchEntityStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.LocalFirstTrustControllerGateway.fetchSubordinateStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.LocalFirstTrustControllerGateway.anchorConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.parseResolveDiscovery(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationConfiguration.isSubordinate(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.ListRequest.nonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.find(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.EntityStatus.canResolve(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.setStatus(*</include>

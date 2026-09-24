@@ -240,7 +240,7 @@ public final class TrustChainValidator {
                 }
                 subjectConfiguration = this.fetchConfiguration(subject);
                 if (subjectConfiguration == null) {
-                    throw new TrustChainValidationException(this.transportFailure ? Kind.TRANSPORT : Kind.ROUTE, subject, subject,
+                    throw new TrustChainValidationException(this.transportFailure ? Kind.TRANSPORT : Kind.SUBJECT, subject, subject,
                             "the subject's Entity Configuration was not presented and could not be fetched");
                 }
             }

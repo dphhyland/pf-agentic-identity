@@ -12,6 +12,8 @@ import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import com.pingidentity.ps.oidf.federation.SubordinateStatementCache;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidatorOptions;
+import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -51,13 +53,14 @@ final class RegistrationService {
     static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
 
     /**
-     * The production wiring. The anchor's keys come from {@link FederationRuntimeConfig#trustAnchor()}
+     * The production wiring. The anchors' keys come from {@link FederationRuntimeConfig#trustAnchors()}
      * - the same deployment-wide source the configuration's host came from - so a deployment that has
-     * not pinned them fails at init, here, rather than at the first chain.
+     * not pinned them fails at init, here, rather than at the first chain. A chain registers through
+     * whichever pinned anchor it reaches.
      */
     RegistrationService(RegistrationConfiguration configuration) {
         this(configuration, new TrustChainValidator(new HttpTrustControllerGateway(new JdkHttpGetClient(configuration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
-                        .trusting(configuration.trustControllerBaseUrl(), configuration.trustControllerHost())), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), FederationRuntimeConfig.get().trustAnchor(), configuration.acceptedSigningAlgorithms()), new PfMgmtClientStore(), null);
+                        .trusting(configuration.trustControllerBaseUrl(), configuration.trustControllerHost())), configuration.trustControllerBaseUrl(), configuration.trustControllerHost(), new SubordinateStatementCache(configuration.subordinateStatementCacheMaxEntries())), FederationRuntimeConfig.get().trustAnchors(), configuration.acceptedSigningAlgorithms(), ValidatorOptions.defaults()), new PfMgmtClientStore(), null);
     }
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore) {

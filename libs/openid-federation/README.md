@@ -45,10 +45,15 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`ClientEntityAuthorizer`** — the pure AS-side decision for a client that is itself a federation
   entity: member (chain resolves), status active, `oauth_client` metadata within registration policy,
   requested scopes within registered scopes. No I/O.
-- **`FederationService`** — builds and signs this entity's own artefacts: entity configuration,
-  subordinate statements (embedding the subordinate's own keys — fetched and cached for a foreign
-  subordinate, looked up uncached from the hosted registry so a revocation bites on the next call),
-  `list`, `fetch` and `resolve` responses. RS256/PS256 through `SigningKeyProvider`.
+- **`FederationService`** — this entity's statements and federation endpoints: its entity configuration
+  (advertising fetch and list only when it has subordinates, resolve only when a resolver is configured,
+  and the registration types it accepts), subordinate statements for `fetch` (§8.1, by `sub`, naming their
+  `source_endpoint`; the subordinate's own keys — fetched and cached for a foreign subordinate, looked up
+  uncached from the hosted registry so a revocation bites on the next call), `list` with its filters
+  (§8.2), and `resolve` (§8.3): a signed `resolve-response+jwt` whose chain ends with the anchor's
+  configuration. Its resolver answers for this entity's own statements in-process
+  (`LocalFirstTrustControllerGateway`) rather than fetching its own URL. RS256/PS256 through
+  `SigningKeyProvider`.
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).
   The latter is the `openid_provider` attestation capability set the entity configuration advertises:
   auth methods, per-JWT algorithm lists, `attestation_pop_jwt` + `dpop_combined`, challenge endpoint.
@@ -81,7 +86,12 @@ The anchor's pinned keys are not a `FederationConfiguration` setting: they are p
 `OIDF_FEDERATION_TRUST_ANCHORS` (required), `subordinates` / `OIDF_FEDERATION_SUBORDINATES`,
 `trustControllerHost` / `OIDF_FEDERATION_TRUST_CONTROLLER_HOST`, `ignoreSslErrors` /
 `OIDF_FEDERATION_IGNORE_SSL_ERRORS`, `signingAlgorithm` / `OIDF_FEDERATION_SIGNING_ALG` (RS256 or
-PS256), `attesterJwks` / `OIDF_FEDERATION_ATTESTER_JWKS`. Init-param only: CORS (`corsEnabled`,
+PS256), `attesterJwks` / `OIDF_FEDERATION_ATTESTER_JWKS`, `organizationName` /
+`OIDF_FEDERATION_ORGANIZATION_NAME`, `clientRegistrationTypes` / `OIDF_FEDERATION_CLIENT_REGISTRATION_TYPES`
+(what `client_registration_types_supported` advertises; default `automatic,explicit`), `resolveDiscovery` /
+`OIDF_FEDERATION_RESOLVE_DISCOVERY` (`known`, the default: resolve only this entity, its subordinates and
+the entities it hosts, as §18.1 advises for an unauthenticated resolver; `any`: discover on demand).
+Init-param only: CORS (`corsEnabled`,
 `corsAllowOrigin`, `corsAllowMethods`, `corsAllowHeaders`, `corsMaxAge`) and the
 `AttestationMetadataConfig` lists (`tokenEndpointAuthMethodsSupported`,
 `clientAttestationSigningAlgValuesSupported`, `clientAttestationPopSigningAlgValuesSupported`,
