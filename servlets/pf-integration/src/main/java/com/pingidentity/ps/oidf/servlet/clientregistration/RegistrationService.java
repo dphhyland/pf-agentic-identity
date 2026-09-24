@@ -7,9 +7,14 @@ import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.SubordinateStatementCache;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
+import com.pingidentity.ps.oidf.federation.TrustMarkValidator;
 import com.pingidentity.ps.oidf.federation.ValidationRequest;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.federation.event.LogSafe;
+import com.pingidentity.ps.oidf.jose.HttpPostClient;
+import com.pingidentity.ps.oidf.jose.JdkHttpClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
@@ -78,6 +83,8 @@ final class RegistrationService {
     private final RegistrationLifetime lifetime;
     private final RpKeyMaterial rpKeyMaterial;
     private final RegistrationCoordinator coordinator;
+    /** Asks a Trust Mark issuer's status endpoint (§8.4), when the deployment checks status. */
+    private final HttpPostClient trustMarkStatusClient;
     private final Channel tokenChannel = new TokenChannel();
     /**
      * Recent attempts: a failure under its client and hint, so a caller's bad chain never stands in for the client's
@@ -149,6 +156,13 @@ final class RegistrationService {
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore,
                         SigningKeyProvider signingKeyProvider, RegistrationLifetime lifetime, RpKeyMaterial rpKeyMaterial,
                         RegistrationCoordinator coordinator) {
+        this(configuration, trustChainValidator, clientStore, signingKeyProvider, lifetime, rpKeyMaterial, coordinator,
+                new JdkHttpClient(false, OutboundUrlPolicy.fromEnvironment()));
+    }
+
+    RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore,
+                        SigningKeyProvider signingKeyProvider, RegistrationLifetime lifetime, RpKeyMaterial rpKeyMaterial,
+                        RegistrationCoordinator coordinator, HttpPostClient trustMarkStatusClient) {
         this.configuration = Objects.requireNonNull(configuration, "configuration");
         this.trustChainValidator = Objects.requireNonNull(trustChainValidator, "trustChainValidator");
         this.clientStore = Objects.requireNonNull(clientStore, "clientStore");
@@ -156,6 +170,7 @@ final class RegistrationService {
         this.lifetime = Objects.requireNonNull(lifetime, "lifetime");
         this.rpKeyMaterial = Objects.requireNonNull(rpKeyMaterial, "rpKeyMaterial");
         this.coordinator = Objects.requireNonNull(coordinator, "coordinator");
+        this.trustMarkStatusClient = Objects.requireNonNull(trustMarkStatusClient, "trustMarkStatusClient");
     }
 
     static RegistrationCoordinator coordinatorFor(AutoRegistrationSettings settings) {
@@ -198,6 +213,7 @@ final class RegistrationService {
         // Deliberately after the 409: a client that is not ours to touch should be told so, rather than
         // told its chain lacks a policy - the first is the actionable answer and the more specific one.
         requireConstrainedByPolicy(validation, entityType, clientId);
+        this.requireTrustMarks(validation, entityType, clientId);
         long expiresAt = this.lifetime.expiresAt(validation);
 
         LinkedHashMap<String, Object> registered = new LinkedHashMap<String, Object>(leafMetadata);
@@ -362,6 +378,7 @@ final class RegistrationService {
         Map<String, Object> leafMetadata = federationClientMetadata(validation, entityType, clientId);
         requireRegistrationType(leafMetadata, clientId, "automatic");
         requireConstrainedByPolicy(validation, entityType, clientId);
+        this.requireTrustMarks(validation, entityType, clientId);
         long expiresAt = this.lifetime.expiresAt(validation);
         RpKeyMaterial.Keys keys = resolution.keys;
         if (keys == null) {
@@ -846,12 +863,47 @@ final class RegistrationService {
         if (validation.isPoliced(entityType) || !FederationRuntimeConfig.get().requireMetadataPolicy()) {
             return;
         }
+        FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("invalid_client_metadata").subject(clientId).role("OP").audit()
+                .field("entity_type", entityType).description("no metadata_policy constrains the entity type").emit();
         throw new RegistrationRejectedException(400, "invalid_client_metadata",
                 "no superior in the trust chain declares a metadata_policy for " + entityType + ", so "
                         + clientId + " would be registered with the scope, grant_types and response_types "
                         + "it published about itself. Publish a metadata_policy at the trust anchor (or an "
                         + "intermediate), or set " + FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV
                         + "=false to accept unconstrained federation metadata.", RegistrationRejectedException.Kind.POLICY, null);
+    }
+
+    /**
+     * The Trust Marks the deployment requires of an entity registered as {@code entityType}
+     * ({@link FederationRuntimeConfig#REQUIRED_TRUST_MARKS_ENV}), each verified against the anchor its chain reached
+     * (§7.3) and, when the deployment checks status, active at its issuer (§8.4). Nothing is validated when nothing is
+     * required: each issuer costs a chain resolution.
+     */
+    private void requireTrustMarks(TrustChainValidationResult validation, String entityType, String clientId) throws RegistrationRejectedException {
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        TrustMarkPolicy policy = runtime.requiredTrustMarks();
+        if (policy.requiredFor(entityType).isEmpty()) {
+            return;
+        }
+        TrustMarkValidator.Result marks = new TrustMarkValidator(this.trustChainValidator, this.configuration.acceptedSigningAlgorithms(),
+                this.lifetime.clock(), runtime.trustMarkStatusCheck() ? this.trustMarkStatusClient : null).validate(validation);
+        List<String> missing = policy.missing(marks, entityType);
+        if (missing.isEmpty()) {
+            return;
+        }
+        StringBuilder why = new StringBuilder();
+        for (TrustMarkValidator.Rejected rejected : marks.rejected()) {
+            why.append(" [").append(LogSafe.value(rejected.type())).append(" from ").append(LogSafe.value(rejected.issuer()))
+                    .append(": ").append(LogSafe.value(rejected.reason())).append(']');
+        }
+        LOGGER.info("Federation client " + LogSafe.value(clientId) + " lacks the Trust Marks " + missing + " required of "
+                + entityType + (why.length() == 0 ? "; it presents none of them" : "; rejected:" + why));
+        FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("invalid_client_metadata").subject(clientId).role("OP").audit()
+                .field("entity_type", entityType).field("missing_trust_marks", String.join(" ", missing))
+                .description("required Trust Marks missing").emit();
+        throw new RegistrationRejectedException(400, "invalid_client_metadata", clientId + " carries no valid Trust Mark of type "
+                + String.join(", ", missing) + ", which registering it as " + entityType + " requires",
+                RegistrationRejectedException.Kind.POLICY, null);
     }
 
     private static void requireRegistrationType(Map<String, Object> leafMetadata, String clientId, String type) throws RegistrationRejectedException {

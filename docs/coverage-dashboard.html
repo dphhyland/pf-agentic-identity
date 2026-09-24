@@ -117,10 +117,10 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><h1>Coverage and conformance</h1><p class="lede">Are the methods that decide something covered, and is what the docs claim also executed? Generated from jacoco, surefire and the <code>@Requirement</code> annotations; CI fails if this page drifts from the build.</p></div>
 </header>
 <section class="tiles">
-<div class="tile"><span class="label">Tests</span><span class="value">1892</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
-<div class="tile"><span class="label">Critical methods gated</span><span class="value">324</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
-<div class="tile"><span class="label">Requirements pinned</span><span class="value">369</span><span class="note">by 768 tests across 31 specifications</span></div>
-<div class="tile"><span class="label">Matrix rows pinned</span><span class="value">177<small> / 184</small></span><span class="note">96% of what the docs claim is checked by a test</span></div>
+<div class="tile"><span class="label">Tests</span><span class="value">1943</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
+<div class="tile"><span class="label">Critical methods gated</span><span class="value">349</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
+<div class="tile"><span class="label">Requirements pinned</span><span class="value">413</span><span class="note">by 830 tests across 31 specifications</span></div>
+<div class="tile"><span class="label">Matrix rows pinned</span><span class="value">189<small> / 196</small></span><span class="note">96% of what the docs claim is checked by a test</span></div>
 </section>
 <section>
 <h2>Critical-method gates</h2>
@@ -131,9 +131,9 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <tr><td><code>libs/app-attest</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">40</td></tr>
 <tr><td><code>libs/device-instance</code></td><td class="num">15</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:85%"></b></i><span>85%</span></span></td><td class="num">65</td></tr>
 <tr><td><code>libs/client-attestation</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:77%"></b></i><span>77%</span></span></td><td class="num">105</td></tr>
-<tr><td><code>libs/openid-federation</code></td><td class="num">94</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:94%"></b></i><span>94%</span></span></td><td class="num">373</td></tr>
+<tr><td><code>libs/openid-federation</code></td><td class="num">117</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:94%"></b></i><span>94%</span></span></td><td class="num">415</td></tr>
 <tr><td><code>libs/agent-registry</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:92%"></b></i><span>92%</span></span></td><td class="num">25</td></tr>
-<tr><td><code>servlets/pf-integration</code></td><td class="num">96</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:79%"></b></i><span>79%</span></span></td><td class="num">396</td></tr>
+<tr><td><code>servlets/pf-integration</code></td><td class="num">98</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:80%"></b></i><span>80%</span></span></td><td class="num">405</td></tr>
 <tr><td><code>servlets/attestation-issuer</code></td><td class="num">17</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:87%"></b></i><span>87%</span></span></td><td class="num">208</td></tr>
 <tr><td><code>servlets/ssf</code></td><td class="num">38</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:76%"></b></i><span>76%</span></span></td><td class="num">262</td></tr>
 <tr><td><code>plugins/rar-paz-plugin</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">54</td></tr>
@@ -247,7 +247,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <details class="spec"><summary><span>OIDC-CORE</span><span class="n">1</span><span class="n">3</span><span class="chev">›</span></summary><div class="ids">
 <div><code>OIDC-CORE §3.1.3.7</code><span class="t">LogoutSubjectVerificationTest#aTokenFromAnotherIssuerIsRefused, LogoutSubjectVerificationTest#aVerifierWithNoExpectedIssuerRefusesEveryToken, LogoutSubjectVerificationTest#theDeploymentVerifierEnforcesTheIssuerPfReportsForTheRequest</span></div>
 </div></details>
-<details class="spec"><summary><span>OIDFED</span><span class="n">247</span><span class="n">453</span><span class="chev">›</span></summary><div class="ids">
+<details class="spec"><summary><span>OIDFED</span><span class="n">291</span><span class="n">515</span><span class="chev">›</span></summary><div class="ids">
 <div><code>OIDFED §1.2</code><span class="t">FederationFoundationsTest#anEntityIdentifierIsAnHttpsUrlWithAHost, TrustChainValidatorFetchBoundsTest#aNonHttpsLeafIdentifierIsRefusedBeforeAnyFetch</span></div>
 <div><code>OIDFED §1.2(3.4)</code><span class="t">TrustChainValidatorEdgeTest#aHintThatIsNotAnEntityIdentifierIsNeverFetched</span></div>
 <div><code>OIDFED §10(1)</code><span class="t">TrustChainValidatorRouteTest#aRouteThatFailsValidationDoesNotStopTheSearch, TrustChainValidatorRouteTest#aSubjectInTwoFederationsResolvesThroughWhicheverValidates</span></div>
@@ -312,7 +312,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>OIDFED §12.3(1)</code><span class="t">FederationClientBuilderTest#anRpCarriesItsProvenance, OIDFederationUtilsTest#aClientPastItsRegistrationsExpiryIsRefusedAtIssuanceWhateverItsChainSays, RegistrationExpirySweeperTest#anExpiredRegistrationIsDisabledNotDeleted, RegistrationLifetimeTest#aChainAboutToExpireRegistersNothing, RegistrationLifetimeTest#aRegistrationEndsWithItsChain, RegistrationServiceAdmitTest#aRegistrationNearItsExpiryIsRenewed, RegistrationServiceAdmitTest#aRenewalThatFailsBeforeExpiryLeavesTheRegistrationStanding, RegistrationServiceAdmitTest#anExpiredExplicitRegistrationIsRefusedUntilItsRpRegistersAgain, RegistrationServiceAdmitTest#anExpiredRegistrationThatCannotBeRenewedIsRefused, RegistrationServiceAutomaticRegisterTest#theRegistrationRecordsWhenItEnds, RegistrationServiceExplicitRegisterTest#aChainThatExpiresSoonerThanARegistrationNeedsIsRefused, RegistrationServiceExplicitRegisterTest#registeringAgainEnablesAClientItsExpiryDisabled, RegistrationServiceExplicitRegisterTest#theResponseAndTheRegistrationExpireWithTheChain, TokenEndpointAutoRegistrationFilterTest#aRegistrationThatCannotStandIsInvalidClient</span></div>
 <div><code>OIDFED §12.5(2.1)</code><span class="t">RegistrationServiceAdmitTest#aNewerConfigurationWithOtherKeysRenewsTheRegistrationAtOnce</span></div>
 <div><code>OIDFED §13.4(1)</code><span class="t">EntityStatementChecksTest#aCriticalClaimThisImplementationDoesNotUnderstandRefusesTheStatement, EntityStatementChecksTest#critListsOnlyExtensionClaimsInANonEmptyArray</span></div>
-<div><code>OIDFED §18.1(3)</code><span class="t">RegistrationCoordinatorTest#aSecondRegistrationOfTheSameClientWaitsThenIsTurnedAway, RegistrationCoordinatorTest#onlySoManyRegistrationsAreResolvedAtOnce, TrustChainValidatorEdgeTest#aRouteDeeperThanTheLimitIsNotFollowed, TrustChainValidatorEdgeTest#onlySoManyRoutesAreVerifiedBeforeTheFirstFailureIsReported, TrustChainValidatorEdgeTest#presentedStatementsCannotMakeTheSearchUnbounded, TrustChainValidatorRouteTest#aRequestCanValidateThePresentedStatementsAlone, TrustChainValidatorRouteTest#theFetchBudgetStopsTheWholeValidation</span></div>
+<div><code>OIDFED §18.1(3)</code><span class="t">RegistrationCoordinatorTest#aSecondRegistrationOfTheSameClientWaitsThenIsTurnedAway, RegistrationCoordinatorTest#onlySoManyRegistrationsAreResolvedAtOnce, TrustChainValidatorEdgeTest#aRouteDeeperThanTheLimitIsNotFollowed, TrustChainValidatorEdgeTest#onlySoManyRoutesAreVerifiedBeforeTheFirstFailureIsReported, TrustChainValidatorEdgeTest#presentedStatementsCannotMakeTheSearchUnbounded, TrustChainValidatorRouteTest#aRequestCanValidateThePresentedStatementsAlone, TrustChainValidatorRouteTest#theFetchBudgetStopsTheWholeValidation, TrustMarkValidatorTest#onlySoManyIssuersAreResolved, TrustMarkValidatorTest#onlyTheFirstMarksAreExamined</span></div>
 <div><code>OIDFED §18.1(4)</code><span class="t">TrustChainValidatorRouteTest#onlyTheFirstHintsAreFollowedAndConfiguredAnchorsGoFirst</span></div>
 <div><code>OIDFED §18.1(5)</code><span class="t">RegistrationServiceAdmitTest#aPresentedChainIsValidatedOnItsOwnAndDiscoveryFromTheClientsOwnConfiguration, TrustChainValidatorRouteTest#aPresentedChainInSection4ShapeValidatesWithoutAFetch, TrustChainValidatorRouteTest#aRequestCanValidateThePresentedStatementsAlone</span></div>
 <div><code>OIDFED §18.1(7)</code><span class="t">FederationServiceEndpointsTest#anUnauthenticatedResolveDoesNotSendThisEntityDiscoveringStrangers</span></div>
@@ -328,7 +328,8 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>OIDFED §3.1.1(1.8)</code><span class="t">EntityStatementChecksTest#iatAndExpAreRequiredNumbers</span></div>
 <div><code>OIDFED §3.1.2(1.2)</code><span class="t">EntityStatementChecksTest#authorityHintsAreANonEmptyArrayOfEntityIdentifiers</span></div>
 <div><code>OIDFED §3.1.2(1.4)</code><span class="t">EntityStatementChecksTest#trustAnchorHintsAreANonEmptyArrayOfEntityIdentifiers</span></div>
-<div><code>OIDFED §3.1.2(1.6)</code><span class="t">EntityStatementChecksTest#eachTrustMarkNamesTheTypeItsJwtCarries</span></div>
+<div><code>OIDFED §3.1.2(1.6)</code><span class="t">EntityStatementChecksTest#eachTrustMarkNamesTheTypeItsJwtCarries, TrustMarkValidatorTest#aListedTypeTheMarkDoesNotCarryIsRefused</span></div>
+<div><code>OIDFED §3.1.2(1.8)</code><span class="t">TrustMarkValidatorTest#aTypeTheAnchorDoesNotListIsNotRecognised, TrustMarkValidatorTest#anEntityMaySignItsOwnMarkWhereAnyoneMayIssueTheType, TrustMarkValidatorTest#anIssuerTheAnchorDoesNotNameForTheTypeIsRefused</span></div>
 <div><code>OIDFED §3.1.3(1.6)</code><span class="t">EntityStatementChecksTest#metadataPolicyCritNamesOnlyAdditionalOperatorsAndThisImplementationUnderstandsNone, MetadataPolicyTest#aCriticalOperatorThisImplementationDoesNotUnderstandInvalidatesThePolicy, MetadataPolicyTest#aStandardOperatorListedAsCriticalIsASyntaxError</span></div>
 <div><code>OIDFED §3.1.3(1.8)</code><span class="t">FederationServiceEndpointsTest#aSubordinateStatementIsIssuedForSubAloneAndNamesItsSourceEndpoint</span></div>
 <div><code>OIDFED §3.2</code><span class="t">HostedEntityConfigurationBuilderTest#configurationIsGenuinelySelfSigned</span></div>
@@ -467,6 +468,40 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>OIDFED §6.2.2(3)</code><span class="t">ChainResolutionTest#theSubjectAndEveryIntermediateBelowTheSetterMustBeInsideThePermittedNames, ConstraintsTest#aLeadingDotIsASubtreeOfAtLeastOneMoreLabel, ConstraintsTest#aNameConstraintIsADomainNameNotAUrl, ConstraintsTest#namesAreCheckedOnTheHostCaseInsensitivelyAndExcludedWins</span></div>
 <div><code>OIDFED §6.2.3(1)</code><span class="t">ChainResolutionTest#allowedEntityTypesRemoveTheOthersButNeverFederationEntity, ChainResolutionTest#anEmptyAllowedEntityTypesLeavesOnlyFederationEntity, ConstraintsTest#allowedEntityTypesListsEntityTypesButNeverFederationEntity</span></div>
 <div><code>OIDFED §6.2.3(2)</code><span class="t">ChainResolutionTest#aTypeRemovedByConstraintIsNotPoliced, ChainResolutionTest#allowedEntityTypesRemoveTheOthersButNeverFederationEntity, ChainResolutionTest#twoAllowedEntityTypesConstraintsBothApply, ConstraintsTest#filteringKeepsFederationEntityAndReportsWhatWasRemoved</span></div>
+<div><code>OIDFED §7(2)</code><span class="t">TrustMarkValidatorTest#aMarkFromAnIssuerTheAnchorRecognisesValidates, TrustMarkValidatorTest#aTypeTheAnchorDoesNotListIsNotRecognised</span></div>
+<div><code>OIDFED §7(3)</code><span class="t">TrustMarkValidatorTest#aMarkFromAnIssuerTheAnchorRecognisesValidates</span></div>
+<div><code>OIDFED §7(4)</code><span class="t">TrustMarkValidatorTest#aMarkMustNameItsKey</span></div>
+<div><code>OIDFED §7(5)</code><span class="t">TrustMarkValidatorTest#anEntityMaySignItsOwnMarkWhereAnyoneMayIssueTheType</span></div>
+<div><code>OIDFED §7(6)</code><span class="t">TrustMarkValidatorTest#aMarkMustBeTypedAsOne</span></div>
+<div><code>OIDFED §7.1(2.12)</code><span class="t">TrustMarkValidatorTest#aMarkWithoutExpDoesNotExpire</span></div>
+<div><code>OIDFED §7.1(2.2)</code><span class="t">TrustMarkValidatorTest#aMarkCarriesItsRequiredClaims</span></div>
+<div><code>OIDFED §7.1(2.4)</code><span class="t">TrustMarkValidatorTest#aMarkCarriesItsRequiredClaims</span></div>
+<div><code>OIDFED §7.1(2.8)</code><span class="t">TrustMarkValidatorTest#aMarkCarriesItsRequiredClaims</span></div>
+<div><code>OIDFED §7.2.1(2)</code><span class="t">TrustMarkValidatorTest#aDelegationIsASignedTypedJwtThatNamesItsKey</span></div>
+<div><code>OIDFED §7.2.1(3)</code><span class="t">TrustMarkValidatorTest#aDelegationIsASignedTypedJwtThatNamesItsKey</span></div>
+<div><code>OIDFED §7.2.1(5.10)</code><span class="t">TrustMarkValidatorTest#aDelegationIsCurrent</span></div>
+<div><code>OIDFED §7.2.1(5.8)</code><span class="t">TrustMarkValidatorTest#aDelegationIsCurrent</span></div>
+<div><code>OIDFED §7.2.2(4.1)</code><span class="t">TrustMarkValidatorTest#aDelegationIsASignedTypedJwtThatNamesItsKey</span></div>
+<div><code>OIDFED §7.2.2(4.2)</code><span class="t">TrustMarkValidatorTest#aDelegationIsASignedTypedJwtThatNamesItsKey</span></div>
+<div><code>OIDFED §7.2.2(4.3)</code><span class="t">TrustMarkValidatorTest#aDelegationIsASignedTypedJwtThatNamesItsKey</span></div>
+<div><code>OIDFED §7.2.2(4.4)</code><span class="t">TrustMarkValidatorTest#aDelegationIsFromTheOwnerToThisIssuerForThisType</span></div>
+<div><code>OIDFED §7.2.2(4.5)</code><span class="t">TrustMarkValidatorTest#aDelegationIsFromTheOwnerToThisIssuerForThisType</span></div>
+<div><code>OIDFED §7.2.2(4.6)</code><span class="t">TrustMarkValidatorTest#aDelegationIsCurrent</span></div>
+<div><code>OIDFED §7.2.2(4.7)</code><span class="t">TrustMarkValidatorTest#aDelegationIsCurrent</span></div>
+<div><code>OIDFED §7.2.2(4.8)</code><span class="t">TrustMarkValidatorTest#aDelegationIsFromTheOwnerToThisIssuerForThisType</span></div>
+<div><code>OIDFED §7.2.2(4.9)</code><span class="t">TrustMarkValidatorTest#aDelegationMustBeSignedByTheOwnersKey</span></div>
+<div><code>OIDFED §7.3(2)</code><span class="t">TrustMarkValidatorTest#aMarkFromAnIssuerTheAnchorRecognisesValidates, TrustMarkValidatorTest#anIssuerThatDoesNotValidateToTheSameAnchorIsNotTrusted</span></div>
+<div><code>OIDFED §7.3(3)</code><span class="t">RegistrationTrustMarkRequirementTest#anAgentCarryingTheRequiredMarkIsRegistered, TrustMarkValidatorTest#aChainWithoutTheAnchorsConfigurationHasItResolved</span></div>
+<div><code>OIDFED §7.3(5.1)</code><span class="t">TrustMarkValidatorTest#aMarkMustBeSignedWithAnAcceptableAlgorithm, TrustMarkValidatorTest#aMarkThatIsNotAJwtIsRejectedAndNamesNoIssuer</span></div>
+<div><code>OIDFED §7.3(5.2)</code><span class="t">TrustMarkValidatorTest#aMarkMustBeTypedAsOne</span></div>
+<div><code>OIDFED §7.3(5.3)</code><span class="t">TrustMarkValidatorTest#aMarkMustBeSignedWithAnAcceptableAlgorithm</span></div>
+<div><code>OIDFED §7.3(5.4)</code><span class="t">TrustMarkValidatorTest#aMarkAboutAnotherEntityIsRefused</span></div>
+<div><code>OIDFED §7.3(5.5)</code><span class="t">TrustMarkValidatorTest#aMarkIsCurrent</span></div>
+<div><code>OIDFED §7.3(5.6)</code><span class="t">TrustMarkValidatorTest#aMarkIsCurrent</span></div>
+<div><code>OIDFED §7.3(5.7)</code><span class="t">RegistrationTrustMarkRequirementTest#aMarkThatDoesNotVerifyDoesNotCount, TrustMarkValidatorTest#aMarkFromAnIssuerTheAnchorRecognisesValidates, TrustMarkValidatorTest#aMarkMustBeSignedByTheIssuersKey</span></div>
+<div><code>OIDFED §7.3(5.8)</code><span class="t">TrustMarkValidatorTest#aTypeWithAnOwnerNeedsADelegationFromIt</span></div>
+<div><code>OIDFED §7.3(5.9)</code><span class="t">TrustMarkValidatorTest#aDelegationForATypeWithNoOwnerCannotValidate, TrustMarkValidatorTest#aTypeWithAnOwnerNeedsADelegationFromIt</span></div>
+<div><code>OIDFED §7.3(7)</code><span class="t">FederationServiceEndpointsTest#aMarkItsIssuerNoLongerVouchesForIsLeftOut, RegistrationTrustMarkRequirementTest#aMarkItsIssuerHasRevokedDoesNotCountWhenStatusIsChecked, TrustMarkValidatorTest#anActiveMarkPassesItsIssuersStatusCheck</span></div>
 <div><code>OIDFED §8(2)</code><span class="t">FederationServiceEndpointsTest#aSubordinateStatementIsIssuedForSubAloneAndNamesItsSourceEndpoint</span></div>
 <div><code>OIDFED §8.1.1(2.2)</code><span class="t">FederationServiceEndpointsTest#aSubordinateStatementIsIssuedForSubAloneAndNamesItsSourceEndpoint, OpenIdFederationServletTest#fetchAnswersASubordinateStatementForSubAlone</span></div>
 <div><code>OIDFED §8.1.2(1)</code><span class="t">FederationServiceEndpointsTest#fetchRefusesWithTheCodesSection8Recommends, OpenIdFederationServletTest#fetchAnswersASubordinateStatementForSubAlone, OpenIdFederationServletTest#fetchRefusalsAreJsonWithTheirStatus</span></div>
@@ -479,12 +514,21 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>OIDFED §8.3.1(2.2)</code><span class="t">FederationServiceEndpointsTest#resolveNeedsASubjectAndAnAnchorItTrusts</span></div>
 <div><code>OIDFED §8.3.1(2.4)</code><span class="t">FederationServiceEndpointsTest#resolveNeedsASubjectAndAnAnchorItTrusts, OpenIdFederationServletTest#resolveAnswersASignedResolveResponse, OpenIdFederationServletTest#resolveRefusalsAreJsonWithTheirStatus</span></div>
 <div><code>OIDFED §8.3.1(2.6)</code><span class="t">FederationServiceEndpointsTest#entityTypeNarrowsTheResolvedMetadata</span></div>
-<div><code>OIDFED §8.3.2(1)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration, OpenIdFederationServletTest#resolveAnswersASignedResolveResponse</span></div>
+<div><code>OIDFED §8.3.2(1)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseCarriesTheTrustMarksThatVerifiedAndExpiresWithTheSoonest, FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration, OpenIdFederationServletTest#resolveAnswersASignedResolveResponse</span></div>
 <div><code>OIDFED §8.3.2(2)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration</span></div>
 <div><code>OIDFED §8.3.2(3)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration</span></div>
 <div><code>OIDFED §8.3.2(4)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration</span></div>
 <div><code>OIDFED §8.3.2(9.12)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration</span></div>
-<div><code>OIDFED §8.3.2(9.8)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration</span></div>
+<div><code>OIDFED §8.3.2(9.14)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseCarriesTheTrustMarksThatVerifiedAndExpiresWithTheSoonest</span></div>
+<div><code>OIDFED §8.3.2(9.8)</code><span class="t">FederationServiceEndpointsTest#aResolveResponseCarriesTheTrustMarksThatVerifiedAndExpiresWithTheSoonest, FederationServiceEndpointsTest#aResolveResponseIsASignedChainEndingAtTheAnchorsConfiguration</span></div>
+<div><code>OIDFED §8.4(2)</code><span class="t">TrustMarkValidatorTest#anActiveMarkPassesItsIssuersStatusCheck</span></div>
+<div><code>OIDFED §8.4.1(1)</code><span class="t">TrustMarkValidatorTest#anActiveMarkPassesItsIssuersStatusCheck</span></div>
+<div><code>OIDFED §8.4.2(12)</code><span class="t">TrustMarkValidatorTest#anythingButActiveIsARejection</span></div>
+<div><code>OIDFED §8.4.2(2)</code><span class="t">TrustMarkValidatorTest#aStatusResponseMustBeTheIssuersSignedAnswerAboutThisMark</span></div>
+<div><code>OIDFED §8.4.2(3)</code><span class="t">TrustMarkValidatorTest#aStatusResponseMustBeTheIssuersSignedAnswerAboutThisMark</span></div>
+<div><code>OIDFED §8.4.2(5.2)</code><span class="t">TrustMarkValidatorTest#aStatusResponseMustBeTheIssuersSignedAnswerAboutThisMark</span></div>
+<div><code>OIDFED §8.4.2(5.6)</code><span class="t">TrustMarkValidatorTest#aStatusResponseMustBeTheIssuersSignedAnswerAboutThisMark</span></div>
+<div><code>OIDFED §8.4.2(5.8)</code><span class="t">RegistrationTrustMarkRequirementTest#aMarkItsIssuerHasRevokedDoesNotCountWhenStatusIsChecked, TrustMarkValidatorTest#anActiveMarkPassesItsIssuersStatusCheck, TrustMarkValidatorTest#anythingButActiveIsARejection</span></div>
 <div><code>OIDFED §8.9</code><span class="t">FederationFoundationsTest#everyErrorCodeCarriesTheStatusTheSpecificationGivesIt, TrustChainValidatorRouteTest#aSubjectThatAnswersWithSomethingElseIsNotFound</span></div>
 <div><code>OIDFED §8.9(1)</code><span class="t">OpenIdFederationServletTest#fetchRefusalsAreJsonWithTheirStatus</span></div>
 <div><code>OIDFED §8.9(2.2.2.4)</code><span class="t">OpenIdFederationServletTest#aServerFaultIsA500ThatShowsNothingOfTheFault</span></div>
@@ -591,11 +635,11 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><code>UNVERIFIED item 8</code><span class="t">ActChainTest#theLegacyStringFormIsParsedButFlagged, AttestationClaimSourceTest#theDelegationChainNamesTheVerifiedInstanceAndAttester, DelegatedTokenValidatorTest#theLegacyStringActIsSurfacedSoTheDeviationIsVisible, DelegationTest#readsANestedChainFromTheLegacyStringForm, DelegationTest#readsTheLegacyStringFormThisPlatformActuallyMints</span></div>
 </div></details>
 </div>
-<p class="legend">369 distinct requirements pinned by 768 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
+<p class="legend">413 distinct requirements pinned by 830 tests. <code>PF-SDK</code> names a vendor interface with no local javadoc to check against (unverified.md item 5): real, but a weaker claim than an RFC.</p>
 </div>
 <div>
 <h2>What the docs claim</h2>
-<p><strong>177 of 184</strong> conformance-matrix rows are pinned by a test. The denominator is the rows that declare an id in the architecture doc and the profile. A row written at section granularity is satisfied by a finer id beneath it, so <code>CAS §4</code> counts when a test pins <code>CAS §4.3</code>.</p>
+<p><strong>189 of 196</strong> conformance-matrix rows are pinned by a test. The denominator is the rows that declare an id in the architecture doc and the profile. A row written at section granularity is satisfied by a finer id beneath it, so <code>CAS §4</code> counts when a test pins <code>CAS §4.3</code>.</p>
 <p>Not a conformance score: a row is one line of prose somebody wrote, not a count of the clauses behind it, and rows with no verifiable id are outside the denominator. It measures whether what this repo <em>claims</em> is also <em>executed</em>.</p>
 <h3>Rows nothing pins</h3>
 <div class="queue">

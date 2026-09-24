@@ -6,6 +6,7 @@ import java.util.Objects;
 import java.util.function.Function;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
+import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
 
 /**
  * The deployment-wide federation settings, resolved once from the process environment.
@@ -103,6 +104,14 @@ public final class FederationRuntimeConfig {
     public static final String AUTO_REGISTRATION_LOCK_WAIT_MS_ENV = "OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS";
     /** A file holding the HTML page a refusal at the authorization endpoint is shown with; unset uses a built-in page. */
     public static final String FEDERATION_ERROR_PAGE_ENV = "OIDF_FEDERATION_ERROR_PAGE";
+    /**
+     * The Trust Marks an entity must carry before it is registered, by the Entity Type it is registered as:
+     * {@code {"*": ["<trust mark type>", ...], "openid_relying_party": [...]}}. Unset requires none; a value that is
+     * not such an object stops the deployment starting.
+     */
+    public static final String REQUIRED_TRUST_MARKS_ENV = "OIDF_FEDERATION_REQUIRED_TRUST_MARKS";
+    /** Whether a Trust Mark is also checked at its issuer's status endpoint (§8.4) before it counts (default false). */
+    public static final String TRUST_MARK_STATUS_CHECK_ENV = "OIDF_FEDERATION_TRUST_MARK_STATUS_CHECK";
 
     /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
@@ -143,6 +152,8 @@ public final class FederationRuntimeConfig {
     private static final String AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_PROP = "oidf.auto.registration.max.concurrent.resolutions";
     private static final String AUTO_REGISTRATION_LOCK_WAIT_MS_PROP = "oidf.auto.registration.lock.wait.ms";
     private static final String FEDERATION_ERROR_PAGE_PROP = "oidf.federation.error.page";
+    private static final String REQUIRED_TRUST_MARKS_PROP = "oidf.federation.required.trust.marks";
+    private static final String TRUST_MARK_STATUS_CHECK_PROP = "oidf.federation.trust.mark.status.check";
 
     /** What happens to an expired registration that cannot be renewed. */
     public enum ExpiryEnforcement {
@@ -225,14 +236,19 @@ public final class FederationRuntimeConfig {
     private final List<String> deprecationWarnings;
     private final RegistrationSettings registration;
     private final AutoRegistrationSettings autoRegistration;
+    private final TrustMarkPolicy requiredTrustMarks;
+    private final boolean trustMarkStatusCheck;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
-            RegistrationSettings registration, AutoRegistrationSettings autoRegistration) {
+            RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
+            boolean trustMarkStatusCheck) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
+        this.requiredTrustMarks = Objects.requireNonNull(requiredTrustMarks, "requiredTrustMarks");
+        this.trustMarkStatusCheck = trustMarkStatusCheck;
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -311,7 +327,17 @@ public final class FederationRuntimeConfig {
                 requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding),
                 deprecations,
                 registrationSettings(env, props),
-                autoRegistrationSettings(env, props));
+                autoRegistrationSettings(env, props),
+                requiredTrustMarks(env, props),
+                bool(env, props, TRUST_MARK_STATUS_CHECK_PROP, TRUST_MARK_STATUS_CHECK_ENV, false));
+    }
+
+    private static TrustMarkPolicy requiredTrustMarks(Function<String, String> env, Function<String, String> props) {
+        try {
+            return TrustMarkPolicy.parse(setting(env, props, REQUIRED_TRUST_MARKS_PROP, REQUIRED_TRUST_MARKS_ENV));
+        } catch (IllegalArgumentException e) {
+            throw new IllegalStateException(REQUIRED_TRUST_MARKS_ENV + ": " + e.getMessage());
+        }
     }
 
     private static AutoRegistrationSettings autoRegistrationSettings(Function<String, String> env, Function<String, String> props) {
@@ -527,6 +553,16 @@ public final class FederationRuntimeConfig {
 
     /** How long federation registrations live, and what happens when they end (§12.3). */
     /** Automatic registration at the front channel, and the limits on registration work. */
+    /** The Trust Marks registration requires ({@link #REQUIRED_TRUST_MARKS_ENV}); none when unset. */
+    public TrustMarkPolicy requiredTrustMarks() {
+        return this.requiredTrustMarks;
+    }
+
+    /** Whether a Trust Mark is also checked at its issuer's status endpoint ({@link #TRUST_MARK_STATUS_CHECK_ENV}). */
+    public boolean trustMarkStatusCheck() {
+        return this.trustMarkStatusCheck;
+    }
+
     public AutoRegistrationSettings autoRegistration() {
         return this.autoRegistration;
     }

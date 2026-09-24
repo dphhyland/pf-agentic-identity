@@ -202,4 +202,31 @@ class FederationRuntimeConfigTest {
         assertTrue(a.pageOnAuthorizationError());
         assertTrue(a.allowEncryptedRequestObjects());
     }
+
+    // ---- Trust Marks ---------------------------------------------------------------------------------------
+
+    @Test
+    void noTrustMarkIsRequiredAndNoStatusCheckedUnlessConfigured() {
+        FederationRuntimeConfig config = of(Map.of(), Map.of());
+
+        assertTrue(config.requiredTrustMarks().isEmpty());
+        assertFalse(config.trustMarkStatusCheck());
+    }
+
+    @Test
+    void requiredTrustMarksAndTheStatusCheckComeFromTheEnvironmentOrSystemProperties() {
+        FederationRuntimeConfig config = of(Map.of(FederationRuntimeConfig.REQUIRED_TRUST_MARKS_ENV,
+                "{\"*\": [\"https://ta.example.com/marks/certified\"]}"), Map.of("oidf.federation.trust.mark.status.check", "true"));
+
+        assertEquals(java.util.List.of("https://ta.example.com/marks/certified"), config.requiredTrustMarks().requiredFor("oauth_client"));
+        assertTrue(config.trustMarkStatusCheck());
+    }
+
+    /** A requirement the operator mistyped must stop the deployment, not register everyone without it. */
+    @Test
+    void aTrustMarkSettingThatIsNotWhatItShouldBeRefusesToStart() {
+        assertRefused(Map.of(FederationRuntimeConfig.REQUIRED_TRUST_MARKS_ENV, "[\"https://ta.example.com/marks/certified\"]"),
+                FederationRuntimeConfig.REQUIRED_TRUST_MARKS_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_STATUS_CHECK_ENV, "yes"), FederationRuntimeConfig.TRUST_MARK_STATUS_CHECK_ENV);
+    }
 }

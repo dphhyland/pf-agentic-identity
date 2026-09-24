@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.federation;
 
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
+import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import java.security.interfaces.RSAPublicKey;
@@ -64,6 +65,7 @@ public final class FederationService {
     private final TrustControllerGateway resolverGateway;
     private final Set<String> resolverAlgorithms;
     private final ValidatorOptions resolverOptions;
+    private final HttpPostClient trustMarkStatusClient;
     private final Clock clock;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
@@ -119,6 +121,7 @@ public final class FederationService {
         this.resolverGateway = b.resolverGateway;
         this.resolverAlgorithms = b.resolverAlgorithms == null ? Set.of() : Set.copyOf(b.resolverAlgorithms);
         this.resolverOptions = b.resolverOptions != null ? b.resolverOptions : ValidatorOptions.defaults();
+        this.trustMarkStatusClient = b.trustMarkStatusClient;
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
     }
 
@@ -353,8 +356,9 @@ public final class FederationService {
 
     /**
      * The resolve endpoint (§8.3): validates a chain from {@code sub} to one of the requested anchors and
-     * returns a signed {@code resolve-response+jwt} carrying the resolved metadata and the chain, which ends
-     * with the anchor's Entity Configuration. No Trust Marks are returned: §8.3 allows only verified ones.
+     * returns a signed {@code resolve-response+jwt} carrying the resolved metadata, the chain, which ends with the
+     * anchor's Entity Configuration, and the subject's Trust Marks that verified against that anchor (§8.3.2: "Only
+     * valid Trust Marks that have been issued by Trust Mark issuers trusted by the Trust Anchor").
      *
      * @throws FederationException {@code invalid_request} without {@code sub} or {@code trust_anchor};
      *                             {@code invalid_trust_anchor} when none of the requested anchors is trusted
@@ -383,6 +387,8 @@ public final class FederationService {
                 .requestedAnchors(request.trustAnchors())
                 .includeAnchorConfiguration(true)
                 .build());
+        TrustMarkValidator.Result marks = new TrustMarkValidator(validator, this.resolverAlgorithms, this.clock, this.trustMarkStatusClient)
+                .validate(result);
         Map<String, Object> metadata = new LinkedHashMap<>();
         for (Map.Entry<String, Object> type : result.resolvedMetadata().entrySet()) {
             if (request.entityTypes().isEmpty() || request.entityTypes().contains(type.getKey())) {
@@ -393,12 +399,17 @@ public final class FederationService {
         claims.setIssuer(oidcIssuer);
         claims.setSubject(subject);
         claims.setIssuedAt(NumericDate.fromSeconds(this.clock.instant().getEpochSecond()));
-        // §8.3.2: "the minimum of the exp value of the Trust Chain" (and of any Trust Mark, of which there are none).
-        claims.setExpirationTime(NumericDate.fromSeconds(result.expEpochSeconds()));
+        // §8.3.2: "the minimum of the exp value of the Trust Chain ..., as well as any Trust Mark included in the response".
+        long marksExpire = marks.earliestExpiry();
+        claims.setExpirationTime(NumericDate.fromSeconds(marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire)));
         claims.setClaim("metadata", metadata);
         claims.setClaim("trust_chain", result.trustChain());
+        if (!marks.verified().isEmpty()) {
+            claims.setClaim("trust_marks", marks.asClaim());
+        }
         LOGGER.info("Resolved " + subject + " to trust anchor " + result.trustAnchorIssuer() + " (" + result.trustChain().size()
-                + " statements, " + result.fetchesUsed() + " fetches)");
+                + " statements, " + result.fetchesUsed() + " fetches, " + marks.verified().size() + " of "
+                + (marks.verified().size() + marks.rejected().size()) + " Trust Marks verified)");
         return this.signClaims(claims, RESOLVE_RESPONSE_TYP);
     }
 
@@ -589,6 +600,7 @@ public final class FederationService {
         private TrustControllerGateway resolverGateway;
         private Set<String> resolverAlgorithms;
         private ValidatorOptions resolverOptions;
+        private HttpPostClient trustMarkStatusClient;
         private Clock clock;
 
         private Builder(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -646,6 +658,12 @@ public final class FederationService {
             this.resolverGateway = gateway;
             this.resolverAlgorithms = acceptedAlgorithms;
             this.resolverOptions = options;
+            return this;
+        }
+
+        /** Asks each Trust Mark issuer's status endpoint (§8.4) about a mark before a resolve response carries it. */
+        public Builder trustMarkStatus(HttpPostClient client) {
+            this.trustMarkStatusClient = client;
             return this;
         }
 

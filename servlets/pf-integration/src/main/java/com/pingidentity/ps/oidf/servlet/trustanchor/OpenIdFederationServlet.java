@@ -3,6 +3,7 @@ package com.pingidentity.ps.oidf.servlet.trustanchor;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.jose.JdkHttpClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
@@ -80,8 +81,8 @@ extends HttpServlet {
             // The trust controller is operator configuration, so it is exempt from the outbound policy's
             // address rules (it may legitimately be a private/internal host). Everything else - a
             // subordinate's configuration, whatever a resolved subject's hints point at - is screened.
-            JdkHttpGetClient http = new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()
-                    .trusting(runtime.trustControllerHost(), runtime.trustControllerBaseUrl()));
+            OutboundUrlPolicy outbound = OutboundUrlPolicy.fromEnvironment().trusting(runtime.trustControllerHost(), runtime.trustControllerBaseUrl());
+            JdkHttpGetClient http = new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), outbound);
             FederationService.Builder service = FederationService.builder(this.federationConfiguration,
                             new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()))
                     .subordinateFetcher(http)
@@ -98,6 +99,10 @@ extends HttpServlet {
             if (anchors != null) {
                 String base = runtime.trustControllerBaseUrl() != null ? runtime.trustControllerBaseUrl() : anchors.entityIds().get(0);
                 service.resolver(anchors, new HttpTrustControllerGateway(http, base), Set.of(), ValidatorOptions.defaults());
+                if (runtime.trustMarkStatusCheck()) {
+                    // §8.4 is POST-only; the same outbound policy screens it.
+                    service.trustMarkStatus(new JdkHttpClient(this.federationConfiguration.ignoreSslErrors(), outbound));
+                }
                 log.info("Federation resolve endpoint enabled for trust anchors " + anchors.entityIds() + " (discovery: "
                         + this.federationConfiguration.resolveDiscovery().name().toLowerCase(java.util.Locale.ROOT) + ")");
             }

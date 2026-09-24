@@ -38,6 +38,18 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   each operator's action, order, merge rule, allowed combinations and JSON types; `scope` as an array;
   additional operators ignored unless critical. The §6.1.5 worked example reproduces the specification's
   own results. [docs/unverified.md](../../docs/unverified.md) §11 records what an earlier version got wrong.
+- **`TrustMarkValidator`** — which of an entity's Trust Marks are valid (§7.3), against the anchor its chain
+  reached. A mark counts when it is a signed `trust-mark+jwt` naming its key, it is about this entity, the
+  anchor's `trust_mark_issuers` accepts its issuer for its type (`[]` lets anyone, the entity included), the
+  issuer's own chain reaches the same anchor, its signature verifies with the issuer's key, it is current (no
+  `exp` means it does not expire, §7.1), and - where the anchor's `trust_mark_owners` names an owner for the
+  type - it carries a delegation from that owner that validates (§7.2.2). Given a POST client it also asks
+  the issuer's status endpoint (§8.4), and anything but `active` rejects the mark. A rejected mark never
+  costs the entity its chain. The anchor's configuration comes from the end of the chain, or is resolved
+  against the pinned keys when the chain stops short of it. Each issuer is resolved once per validation, at
+  most eight of them, and at most sixteen marks are examined (§18.1).
+- **`TrustMarkPolicy`** — the marks a deployment requires before it registers an entity, by Entity Type
+  (`{"*": [...], "openid_relying_party": [...]}`); every mark listed is required, and only a verified one counts.
 - **`TrustControllerGateway` / `HttpTrustControllerGateway`** — fetch entity configurations, member lists
   and subordinate statements (resolving each authority's `federation_fetch_endpoint`), over a bounded LRU
   **`SubordinateStatementCache`** with expiry-buffer and max-age eviction; writes are staged as
@@ -53,7 +65,8 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   `source_endpoint`; the subordinate's own keys — fetched and cached for a foreign subordinate, looked up
   uncached from the hosted registry so a revocation bites on the next call), `list` with its filters
   (§8.2), and `resolve` (§8.3): a signed `resolve-response+jwt` whose chain ends with the anchor's
-  configuration. Its resolver answers for this entity's own statements in-process
+  configuration, carrying the subject's verified Trust Marks and expiring with the first of them if that is
+  sooner than the chain (§8.3.2). Its resolver answers for this entity's own statements in-process
   (`LocalFirstTrustControllerGateway`) rather than fetching its own URL. RS256/PS256 through
   `SigningKeyProvider`.
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).

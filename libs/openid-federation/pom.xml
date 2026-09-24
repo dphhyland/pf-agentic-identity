@@ -211,6 +211,29 @@
                                         <include>com.pingidentity.ps.oidf.authority.EntityStatus.canResolve(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.setStatus(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.HostedEntityConfigurationBuilder.buildEntityConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.validateOne(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.recognised(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.issuerConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.resolveIssuer(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.resolveAnchorConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.delegation(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.federationEntity(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.signedHeader(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.federationKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.unverifiedClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.requiredString(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.requiredNumber(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.unverifiedIssuer(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.anchorConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.Result.has(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkValidator.Result.earliestExpiry(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.isEmpty(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.requiredFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustMarkPolicy.missing(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

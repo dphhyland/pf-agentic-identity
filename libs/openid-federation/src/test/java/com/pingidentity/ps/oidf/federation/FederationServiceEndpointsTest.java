@@ -7,9 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
+import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.federation.testkit.ServingMap;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
+import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import java.io.IOException;
 import java.time.Clock;
@@ -217,8 +220,71 @@ class FederationServiceEndpointsTest {
         }
         assertEquals(earliest, response.getExpirationTime().getValue());
         assertEquals(Set.of("oauth_client", "openid_relying_party"), ((Map<?, ?>) response.getClaimValue("metadata")).keySet());
-        assertFalse(response.hasClaim("trust_marks"), "only verified Trust Marks may appear, and none are verified yet");
+        assertFalse(response.hasClaim("trust_marks"), "the subject carries none");
         assertEquals(List.of(), http.requests(), "this entity's own statements are produced in-process, not fetched");
+    }
+
+    /** A federation PF resolves into but does not anchor: TA recognises TMI's marks of one type, and RP carries two. */
+    private static final String TA = "https://ta.example.com";
+    private static final String RP = "https://rp.example.com";
+    private static final String TMI = "https://tmi.example.com";
+    private static final String CERTIFIED = "https://ta.example.com/marks/certified";
+    private static final PublicJsonWebKey TMI_KEY = Keys.ec("tmi-1");
+
+    private static FederationService resolverFor(Federation f, MutableClock clock, HttpPostClient status) {
+        return FederationService.builder(configuration(List.of(), FederationConfiguration.DEFAULT_CLIENT_REGISTRATION_TYPES,
+                        FederationConfiguration.ResolveDiscovery.ANY, null), Keys.signingKeys(PF_KEY))
+                .resolver(f.trustAnchors(), f.gateway(TA), Set.of(), ValidatorOptions.defaults().withClock(clock))
+                .trustMarkStatus(status)
+                .clock(clock)
+                .build();
+    }
+
+    private static Federation markedFederation(MutableClock clock, String... marks) {
+        List<Map<String, Object>> entries = new java.util.ArrayList<>();
+        for (String mark : marks) {
+            entries.add(Map.of("trust_mark_type", CERTIFIED, "trust_mark", mark));
+        }
+        return Federation.builder(clock).anchor(TA).leaf(RP, TA).leaf(TMI, TA).keys(TMI, TMI_KEY)
+                .metadata(TMI, "federation_entity", Map.of("federation_trust_mark_status_endpoint", TMI + "/status"))
+                .entityConfiguration(TA, s -> s.claim("trust_mark_issuers", Map.of(CERTIFIED, List.of(TMI))))
+                .entityConfiguration(RP, s -> s.claim("trust_marks", entries))
+                .build();
+    }
+
+    private static String certified(PublicJsonWebKey signer, MutableClock clock, long exp) {
+        return Statements.spec(TrustMarkValidator.TRUST_MARK_TYP).claim("iss", TMI).claim("sub", RP).claim("trust_mark_type", CERTIFIED)
+                .exp(exp).sign(signer, clock);
+    }
+
+    @Test
+    @Requirement({"OIDFED §8.3.2(1)", "OIDFED §8.3.2(9.8)", "OIDFED §8.3.2(9.14)"})
+    void aResolveResponseCarriesTheTrustMarksThatVerifiedAndExpiresWithTheSoonest() throws Exception {
+        MutableClock clock = MutableClock.startingNow();
+        long soon = clock.epochSecond() + 600;
+        String good = certified(TMI_KEY, clock, soon);
+        String forged = certified(Keys.ec("tmi-1"), clock, clock.epochSecond() + 60);
+
+        JwtClaims response = claims(resolverFor(markedFederation(clock, good, forged), clock, null)
+                .resolve(new ResolveRequest(RP, List.of(TA), List.of()), PF));
+
+        assertEquals(List.of(Map.of("trust_mark_type", CERTIFIED, "trust_mark", good)), response.getClaimValue("trust_marks"),
+                "only the mark whose signature verified");
+        assertEquals(soon, response.getExpirationTime().getValue(), "the mark expires before the chain");
+    }
+
+    @Test
+    @Requirement("OIDFED §7.3(7)")
+    void aMarkItsIssuerNoLongerVouchesForIsLeftOut() throws Exception {
+        MutableClock clock = MutableClock.startingNow();
+        long chainExpiry = clock.epochSecond() + 3600;
+        Federation f = markedFederation(clock, certified(TMI_KEY, clock, clock.epochSecond() + 600));
+
+        JwtClaims response = claims(resolverFor(f, clock, (url, contentType, body, headers, accept) -> new HttpPostClient.Response(404, "", Map.of()))
+                .resolve(new ResolveRequest(RP, List.of(TA), List.of()), PF));
+
+        assertFalse(response.hasClaim("trust_marks"));
+        assertTrue(response.getExpirationTime().getValue() >= chainExpiry - 60, "no mark shortens the response");
     }
 
     @Test

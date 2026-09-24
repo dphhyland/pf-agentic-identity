@@ -16,6 +16,8 @@ import static org.mockito.Mockito.when;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.ValidationRequest;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import java.util.HashMap;
@@ -114,12 +116,16 @@ class RegistrationMetadataPolicyRequirementTest {
         when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(result(Map.of("oauth_client", GREEDY_METADATA), Set.of()));
 
-        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
-                () -> service(validator, store).explicitRegister(
-                        new ExplicitRegistrationRequest(CLIENT_ID, CLIENT_ID, TRUST_CHAIN, Map.of()), OP_ISSUER));
+        try (EventCapture events = EventCapture.install()) {
+            RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
+                    () -> service(validator, store).explicitRegister(
+                            new ExplicitRegistrationRequest(CLIENT_ID, CLIENT_ID, TRUST_CHAIN, Map.of()), OP_ISSUER));
 
-        assertEquals(400, e.status());
-        verify(store, never()).add(any());
+            assertEquals(400, e.status());
+            verify(store, never()).add(any());
+            assertEquals(CLIENT_ID, events.only(FederationEvents.REGISTRATION_REFUSED).subject(), "the refusal is audited");
+            assertEquals("oauth_client", events.only(FederationEvents.REGISTRATION_REFUSED).fields().get("entity_type"));
+        }
     }
 
     @Test
