@@ -9,12 +9,14 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwt.JwtClaims;
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.Claims;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 
 /**
  * HTTP-backed {@link TrustControllerGateway}. Fetches entity configurations, member lists and
@@ -31,8 +33,12 @@ implements TrustControllerGateway {
     private final String trustControllerBaseUrl;
     private final String selfIssuer;
     private final SubordinateStatementCache subordinateStatementCache;
-    private volatile TrustAnchor trustAnchor;
-    private volatile Set<String> acceptedSigningAlgorithms = Set.of();
+    /** The bound anchors, by {@link EntityId#comparable} identifier. */
+    private final Map<String, Binding> anchors = new ConcurrentHashMap<>();
+
+    /** An anchor and the algorithms its statements may use. */
+    private record Binding(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms) {
+    }
 
     public HttpTrustControllerGateway(HttpGetClient http, String trustControllerBaseUrl) {
         this(http, trustControllerBaseUrl, null, new SubordinateStatementCache());
@@ -122,24 +128,32 @@ implements TrustControllerGateway {
      * URL rather than appending .well-known to the bare identity string — see selfIssuer javadoc.
      */
     private String entityConfigurationUrl(String issuer) {
-        String fetchBase = Objects.equals(issuer, this.selfIssuer) ? this.trustControllerBaseUrl : issuer;
-        return fetchBase + "/.well-known/openid-federation";
+        if (this.selfIssuer != null && EntityId.same(issuer, this.selfIssuer)) {
+            return this.trustControllerBaseUrl + "/.well-known/openid-federation";
+        }
+        // §9: a trailing "/" is removed before /.well-known/openid-federation is appended.
+        return EntityId.wellKnownUrl(issuer);
     }
 
+    /**
+     * Adds an anchor, or replaces the one bound under the same Entity Identifier. Several validators, or one
+     * validator with several anchors, can share this gateway and its cache: an anchor's Entity Configuration
+     * is only ever verified with the keys bound for the identifier it claims, so one anchor's keys never vouch
+     * for another's configuration.
+     */
     @Override
     public void bindTrustAnchor(TrustAnchor trustAnchor, Set<String> acceptedSigningAlgorithms) {
         Objects.requireNonNull(trustAnchor, "trustAnchor");
-        synchronized (this) {
-            TrustAnchor bound = this.trustAnchor;
-            if (bound != null && bound != trustAnchor && !bound.entityId().equals(trustAnchor.entityId())) {
-                // One gateway, one cache, one anchor. Two validators anchored differently sharing this
-                // gateway would each verify the other's anchor with the wrong keys.
-                throw new IllegalStateException("gateway already bound to trust anchor " + bound.entityId()
-                        + "; refusing to rebind it to " + trustAnchor.entityId());
-            }
-            this.trustAnchor = trustAnchor;
-            this.acceptedSigningAlgorithms = acceptedSigningAlgorithms == null ? Set.of() : Set.copyOf(acceptedSigningAlgorithms);
-        }
+        this.anchors.put(EntityId.comparable(trustAnchor.entityId()), new Binding(trustAnchor,
+                acceptedSigningAlgorithms == null ? Set.of() : Set.copyOf(acceptedSigningAlgorithms)));
+    }
+
+    /** The anchor's Entity Configuration, verified against its configured keys (see {@link #authorityConfiguration}). */
+    @Override
+    public String anchorConfiguration(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms,
+            SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        return this.verifiedAnchorConfiguration(new Binding(anchor, acceptedSigningAlgorithms == null ? Set.of()
+                : Set.copyOf(acceptedSigningAlgorithms)), pendingWrites);
     }
 
     /**
@@ -162,16 +176,24 @@ implements TrustControllerGateway {
      * is a Subordinate Statement that the chain verifies against the keys its own superior asserts.
      */
     private JwtClaims authorityConfiguration(String authorityIssuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        TrustAnchor anchor = this.trustAnchor;
-        if (anchor == null || !anchor.entityId().equals(authorityIssuer)) {
+        Binding binding = this.anchors.get(EntityId.comparable(authorityIssuer));
+        if (binding == null) {
             return this.fetchEntityConfigurationOf(authorityIssuer, pendingWrites);
         }
+        return JwtCodec.parseUnverifiedClaims(this.verifiedAnchorConfiguration(binding, pendingWrites));
+    }
+
+    /** The anchor's Entity Configuration as a JWT, verified against its configured keys, with the §11.3 retry. */
+    private String verifiedAnchorConfiguration(Binding binding, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        TrustAnchor anchor = binding.anchor();
+        String authorityIssuer = anchor.entityId();
         String jwt = this.fetchEntityStatement(authorityIssuer, -1L, pendingWrites);
         // §3 before §10.2: an untyped configuration is refused outright, not retried - a retry could
         // only return the same wrong type, and no key should be tried on it.
         EntityStatementType.require(jwt, "iss=sub=" + authorityIssuer);
         try {
-            return anchor.verify(jwt, this.acceptedSigningAlgorithms);
+            anchor.verify(jwt, binding.acceptedSigningAlgorithms(), VerificationPolicy.entityStatement());
+            return jwt;
         }
         catch (Exception first) {
             LOGGER.warn("Trust anchor " + authorityIssuer + " entity configuration did not verify against the configured keys ("
@@ -179,9 +201,8 @@ implements TrustControllerGateway {
             this.subordinateStatementCache.evict(authorityIssuer, authorityIssuer);
             String again = this.http.get(this.entityConfigurationUrl(authorityIssuer), ENTITY_STATEMENT_ACCEPT);
             EntityStatementType.require(again, "iss=sub=" + authorityIssuer);
-            JwtClaims verified;
             try {
-                verified = anchor.verify(again, this.acceptedSigningAlgorithms);
+                anchor.verify(again, binding.acceptedSigningAlgorithms(), VerificationPolicy.entityStatement());
             }
             catch (Exception second) {
                 throw new IllegalStateException("Trust anchor " + authorityIssuer + " entity configuration does not verify against the"
@@ -192,7 +213,7 @@ implements TrustControllerGateway {
             // Staged writes are read newest-first and committed in order, so this verified copy
             // supersedes the one that failed, both for the rest of this walk and in the shared cache.
             this.recordCacheWrite(authorityIssuer, authorityIssuer, again, pendingWrites);
-            return verified;
+            return again;
         }
     }
 
@@ -244,7 +265,8 @@ implements TrustControllerGateway {
             throw new IllegalStateException("Authority " + authorityIssuer + " does not publish a federation_fetch_endpoint and cannot resolve subordinate statements");
         }
         endpoint = (String)endpointValue;
-        // Per OpenID Federation 1.0 §8.1, federation_fetch_endpoint requires both iss and sub.
+        // §8.1.1 defines sub alone. iss is sent too, for fetch endpoints built to earlier drafts that required
+        // it; §8 says a parameter an endpoint does not understand "MUST be ignored", so a Final one is unaffected.
         String url = endpoint + (endpoint.contains("?") ? "&" : "?")
                 + "sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8)
                 + "&iss=" + URLEncoder.encode(authorityIssuer, StandardCharsets.UTF_8);

@@ -118,6 +118,13 @@
                                     <element>METHOD</element>
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.composeWith(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.mergeOperators(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.checkOperandType(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.checkCombinations(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.jsonEquals(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.MetadataPolicy.isStringOrNumberArray(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustAnchor.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustAnchor.of(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustAnchor.verify(*</include>
@@ -128,6 +135,58 @@
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityConfigurationOf(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.FetchBudget.spend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.FetchBudget.trySpend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.execute(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.extend(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.step(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.attempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.indexPresented(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.presentedConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.presentedAbout(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.fetchConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.fetchSubordinateStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.parseFetched(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.noteFetchFailure(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.fresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.candidate(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.orderedHints(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.checkIntermediate(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.verifyWithAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.verifyInline(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.anchorConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.resolveMetadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.applyPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Resolution.peerChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Statement.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Statement.authorityHints(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Statement.hasAuthorityHint(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.entityId(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.requireNumber(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkKeySet(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkCrit(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkEntityIdArray(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkMetadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkMetadataPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkTrustMarks(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkTrustMarkIssuers(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkTrustMarkOwners(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.checkChainHeaders(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EntityStatementChecks.isHttpUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.names(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.checkPathLength(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.checkNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.matches(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.filterEntityTypes(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.Constraints.isEmpty(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.anchorConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.verifiedAnchorConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.entityConfigurationUrl(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.SubordinateStatementCache.PendingWrites.find(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.EntityStatus.canResolve(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry.setStatus(*</include>

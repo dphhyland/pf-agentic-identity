@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.federation;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -165,8 +166,10 @@ class TrustChainValidatorRejectionTest {
         };
 
         TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
                 () -> validator.validate(List.of(), LEAF, LEAF));
+        assertEquals(TrustChainValidationException.Kind.ROUTE, e.kind(), e.getMessage());
+        assertEquals(FederationError.INVALID_TRUST_CHAIN, e.error());
         assertTrue(e.getMessage().contains(ANCHOR), e.getMessage());
     }
 
@@ -219,8 +222,26 @@ class TrustChainValidatorRejectionTest {
         };
         TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
                 () -> validator.validate(List.of(configA, configB), LEAF, LEAF));
+        assertEquals(TrustChainValidationException.Kind.SYNTAX, e.kind(), e.getMessage());
         assertTrue(e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("ambiguous"), e.getMessage());
+    }
+
+    @Test
+    void theLeafOfAPresentedChainIsTheSelfIssuedStatementNobodyElseIsSubjectTo() throws Exception {
+        PublicJsonWebKey leafKey = ec("leaf-1");
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+        String leafConfig = statement(leafKey, LEAF, LEAF, Map.of("jwks", jwks(leafKey), "authority_hints", List.of(ANCHOR)));
+        String anchorConfig = statement(anchorKey, ANCHOR, ANCHOR, Map.of("jwks", jwks(anchorKey)));
+        String subordinate = statement(anchorKey, ANCHOR, LEAF, Map.of("jwks", jwks(leafKey)));
+
+        assertEquals(LEAF, TrustChainValidator.selectLeafEntityStatement(List.of(subordinate, anchorConfig, leafConfig)).getSubject());
+        assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(List.of()));
+        assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(null));
+        assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(List.of(subordinate, anchorConfig)));
+        String otherLeaf = statement(leafKey, "https://other.example", "https://other.example",
+                Map.of("jwks", jwks(leafKey), "authority_hints", List.of(ANCHOR)));
+        assertThrows(IllegalArgumentException.class, () -> TrustChainValidator.selectLeafEntityStatement(List.of(leafConfig, otherLeaf)));
     }
 }

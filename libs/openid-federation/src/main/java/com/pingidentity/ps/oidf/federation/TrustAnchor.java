@@ -13,6 +13,7 @@ import org.jose4j.lang.JoseException;
 import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 
 /**
@@ -149,16 +150,17 @@ public final class TrustAnchor {
      * or its own Entity Configuration — against the configured keys and nothing else. {@code iss} must
      * be this anchor's identifier.
      *
-     * @throws Exception when the signature does not verify against any configured key, the issuer is
-     *                   not this anchor, the algorithm is not accepted, or the statement is expired or
-     *                   malformed
+     * @throws JwtVerificationException when the signature does not verify against any configured key, the
+     *                                  issuer is not this anchor, the algorithm is not accepted, or the
+     *                                  statement is expired or malformed
+     * @throws IllegalArgumentException  when a {@link #live} anchor's key set is not usable
      */
-    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms) throws Exception {
+    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms) throws JwtVerificationException {
         return JwtCodec.verifyAgainstKeys(jwt, this.keys(), this.entityId, acceptedSigningAlgorithms);
     }
 
     /** As {@link #verify(String, Set)}, under the given verification policy (kid, iat, typ, clock). */
-    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms, VerificationPolicy policy) throws Exception {
+    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms, VerificationPolicy policy) throws JwtVerificationException {
         return JwtCodec.verifyAgainstKeys(jwt, this.keys(), this.entityId, acceptedSigningAlgorithms, policy);
     }
 

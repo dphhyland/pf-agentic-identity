@@ -213,7 +213,7 @@ public final class AuthoritySupport {
                 MetadataPolicy entityPolicy = MetadataPolicy.parse(asPolicyMap(entity.metadataPolicy().get(type)), null);
                 MetadataPolicy result = domainPolicy.composeWith(entityPolicy);
                 if (!result.isEmpty()) {
-                    composed.put(type, asRawMap(result));
+                    composed.put(type, result.toRawMap());
                 }
             } catch (MetadataPolicy.PolicyException e) {
                 throw new IllegalStateException("metadata_policy composition failed for hosted entity "
@@ -226,14 +226,5 @@ public final class AuthoritySupport {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> asPolicyMap(Object raw) {
         return raw instanceof Map ? (Map<String, Object>) raw : Map.of();
-    }
-
-    /** Reconstructs the raw {@code metadata_policy.<type>} shape from a composed {@link MetadataPolicy}. */
-    private static Map<String, Object> asRawMap(MetadataPolicy policy) {
-        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
-        for (String parameter : policy.parameters()) {
-            out.put(parameter, policy.operatorsFor(parameter));
-        }
-        return out;
     }
 }

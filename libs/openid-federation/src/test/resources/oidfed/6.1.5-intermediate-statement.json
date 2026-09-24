@@ -1,0 +1,27 @@
+{
+  "metadata_policy": {
+    "openid_relying_party": {
+      "grant_types": {
+        "subset_of": [
+          "authorization_code"
+        ]
+      },
+      "token_endpoint_auth_method": {
+        "one_of": [
+          "self_signed_tls_client_auth"
+        ]
+      },
+      "contacts": {
+        "add": [
+          "helpdesk@org.example.org"
+        ]
+      }
+    }
+  },
+  "metadata": {
+    "openid_relying_party": {
+      "sector_identifier_uri": "https://org.example.org/sector-ids.json",
+      "policy_uri": "https://org.example.org/policy.html"
+    }
+  }
+}

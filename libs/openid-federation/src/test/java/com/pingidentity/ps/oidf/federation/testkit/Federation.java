@@ -7,6 +7,7 @@ import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import java.time.Clock;
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -182,6 +183,15 @@ public final class Federation {
 
     public TrustChainValidator validator(String anchor, Set<String> acceptedAlgorithms) {
         return new TrustChainValidator(this.gateway(anchor), this.trustAnchor(anchor), acceptedAlgorithms);
+    }
+
+    /** A validator pinned to several anchors (in the given order), with the given options. */
+    public TrustChainValidator validator(ValidatorOptions options, String... anchors) {
+        List<TrustAnchor> pinned = new ArrayList<>();
+        for (String anchor : anchors) {
+            pinned.add(this.trustAnchor(anchor));
+        }
+        return new TrustChainValidator(this.gateway(anchors[0]), TrustAnchorSet.of(pinned), Set.of(), options);
     }
 
     public Role role(String id) {

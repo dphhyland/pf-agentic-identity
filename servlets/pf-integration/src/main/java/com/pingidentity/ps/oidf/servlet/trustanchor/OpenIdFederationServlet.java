@@ -23,7 +23,7 @@ import org.jose4j.json.JsonUtil;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationService;
 import com.pingidentity.ps.oidf.federation.FederationConfiguration;
-import com.pingidentity.ps.oidf.federation.FederationEntityNotFoundException;
+import com.pingidentity.ps.oidf.federation.FederationError;
 
 /**
  * OpenID Federation entity servlet acting as a trust anchor / intermediate. Serves the entity
@@ -124,19 +124,13 @@ extends HttpServlet {
                     break;
                 }
                 default: {
-                    writeError(resp, 404, "not_found", "Unknown endpoint", new Exception("endpoint not supported"));
+                    FederationErrors.write(resp, FederationError.NOT_FOUND, "unknown endpoint", null);
                     break;
                 }
             }
         }
-        catch (FederationEntityNotFoundException e) {
-            writeError(resp, 404, "not_found", e.getMessage(), e);
-        }
-        catch (IllegalArgumentException e) {
-            writeError(resp, 400, "invalid_request", e.getMessage(), e);
-        }
         catch (Exception e) {
-            writeError(resp, 500, "server_error", e.getMessage(), e);
+            FederationErrors.write(resp, e);
         }
     }
 
@@ -285,11 +279,6 @@ extends HttpServlet {
         }
         sb.append('\"');
         return sb.toString();
-    }
-
-    private static void writeError(HttpServletResponse resp, int status, String error, String description, Throwable t) throws IOException {
-        log.error("error:", t);
-        writeJson(resp, status, JsonUtil.toJson(Map.of("error", error, "error_description", description)));
     }
 }
 

@@ -17,24 +17,31 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   Federation Entity Keys, supplied out of band (§4). Public keys only, each with a unique `kid`
   (§3.1.1); a private or symmetric key is refused. There is no constructor that takes an identifier
   alone - an anchor without pinned keys is whoever answers HTTPS at that URL.
-- **`TrustChainValidator`** — validates a (possibly partial) `trust_chain` from a leaf to its
-  `TrustAnchor`: locates the leaf (fetching its entity configuration if absent), walks
-  `authority_hints`, refreshes stale or expiring statements through the gateway, verifies each statement
-  with a key from the `jwks` of the statement above it (§4, optionally algorithm-constrained) and the
-  anchor's own statement with the pinned keys, then composes every superior's `metadata_policy` and
-  applies it to the leaf. Returns a `TrustChainValidationResult` carrying the leaf's
-  full per-entity-type `metadata` (`oauth_client`, `oauth_resource`, `openid_relying_party`, ...).
-- **`MetadataPolicy`** — `metadata_policy` composition and application: `value`, `add`, `default`,
-  `one_of`, `subset_of`, `superset_of`, `essential`, applied in the spec's order, with
-  `metadata_policy_crit` honoured. Every ambiguous merge refuses rather than widens — the choices made
-  where §6.1.4's merge table could not be read are in the class javadoc and
-  [docs/unverified.md](../../docs/unverified.md) §11.
+- **`TrustAnchorSet`** — the anchors a validator trusts, in preference order, each with its own pinned
+  keys. A caller may ask for particular anchors (the resolve endpoint's `trust_anchor`) but can never add
+  one the deployment does not trust.
+- **`TrustChainValidator`** — establishes trust in an entity (§10): collects the statements linking it to
+  one of the configured anchors, starting from any it was handed, then validates the chain and resolves
+  the entity's metadata. The search tries the configured anchors first, follows at most ten
+  `authority_hints` per entity, never revisits an entity on the path, and spends one fetch budget across
+  the whole validation (§18.1). Every statement passes the §3.2 checks (`EntityStatementChecks`: claims,
+  `crit`, which claims may appear where, key sets, `aud`, chain headers) and is verified with the keys the
+  statement above it asserts; the anchor's own statement with its pinned keys; the subject's configuration
+  with its own keys as well. A route that fails does not end the search, so an entity in two federations
+  resolves through whichever validates. Resolution applies the immediate superior's `metadata`, then every
+  statement's `constraints` (`Constraints`, §6.2), then the merged `metadata_policy`. The result carries the
+  chain in §4 shape, when it expires (§10.4), and the resolved metadata per entity type. Every refusal is a
+  `TrustChainValidationException` naming the check and the statement, with the §8.9 error it maps to.
+- **`MetadataPolicy`** — `metadata_policy` merging and application exactly as the Final text defines them:
+  each operator's action, order, merge rule, allowed combinations and JSON types; `scope` as an array;
+  additional operators ignored unless critical. The §6.1.5 worked example reproduces the specification's
+  own results. [docs/unverified.md](../../docs/unverified.md) §11 records what an earlier version got wrong.
 - **`TrustControllerGateway` / `HttpTrustControllerGateway`** — fetch entity configurations, member lists
   and subordinate statements (resolving each authority's `federation_fetch_endpoint`), over a bounded LRU
   **`SubordinateStatementCache`** with expiry-buffer and max-age eviction; writes are staged as
-  `PendingWrites` and committed only once a chain validates. The validator binds its `TrustAnchor` to the
-  gateway, which verifies the anchor's entity configuration against the pinned keys before using its
-  fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3).
+  `PendingWrites` and committed only once a chain validates. The validator binds its anchors to the
+  gateway, which verifies each anchor's entity configuration against that anchor's pinned keys before
+  using its fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3).
 - **`ClientEntityAuthorizer`** — the pure AS-side decision for a client that is itself a federation
   entity: member (chain resolves), status active, `oauth_client` metadata within registration policy,
   requested scopes within registered scopes. No I/O.

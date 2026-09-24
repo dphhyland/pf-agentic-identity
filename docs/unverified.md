@@ -152,29 +152,32 @@ accepts a captured proof for as long as it stays fresh, so the HTTP layer must w
 `AttestationReplayCache` (which already exists in `libs/client-attestation`) before it is used for
 anything real.
 
-## 11. The OpenID Federation metadata_policy merge table
+## 11. The OpenID Federation metadata_policy merge table - resolved 2026-09-24
 
-**Assumed:** rules chosen to be *no more permissive than any plausible reading*, and refusal wherever
-the direction is ambiguous.
+**Resolved.** The Final text (17 February 2026) was read in full and `MetadataPolicy` now follows it. Two
+things this entry used to say were wrong:
 
-Verified and implemented exactly: the operator set (§6.1.3.1), the application order — quoted, *"The
-operators MUST be applied in this order: value, default, one_of, subset_of, superset_of, add,
-essential"* (§6.1.4.1), note `add` runs near the **end** — and `metadata_policy_crit` invalidating a
-statement that names an operator the implementation does not understand (§3.1.3).
+- The per-operator merge table was never missing. It is not a table in §6.1.4: each operator's own
+  definition in §6.1.3.1 ends with its "Operator value merge" rule.
+- The order this entry quoted - *"value, default, one_of, subset_of, superset_of, add, essential"* - is
+  not in the Final text at all. Each operator states its own "Order of application", and they chain to
+  `value`, `add`, `default`, `one_of`, `subset_of`, `superset_of`, `essential`. The difference shows when
+  `default` and `add` both apply to an absent parameter: `add` runs first, so `default` has nothing to fill.
 
-**Not verified:** the normative per-operator merge table in §6.1.4. Both published renderings —
-`openid.net/specs/openid-federation-1_0-final.html` and `openid.github.io/federation/main.html` —
-truncate before that section, anchors included, so it could not be read.
+What the code does now, each rule pinned by a tagged test in `MetadataPolicyTest`:
 
-`MetadataPolicy.composeWith` therefore implements: intersection for `one_of` and `subset_of`, union
-for `superset_of`, logical OR for `essential`, exact match or refusal for `value` and `default`, and —
-the genuinely ambiguous one — a subordinate `add` accepted only when it introduces nothing the
-superior did not already have. Adding to `grant_types` would widen where adding to `contacts` would
-not, and nothing in what could be read distinguishes them.
-
-Where these are stricter than the specification the cost is a chain refused that ought to resolve.
-That is recoverable; the opposite error is the one the brief names as the worst outcome in this build.
-**Confirm against §6.1.4 before this is relied on in production.**
+- Merge: `value` and `default` only when equal; `add` and `superset_of` the union; `one_of` the
+  intersection, an empty one being an error; `subset_of` the intersection, which may be empty; `essential`
+  logical OR. The two rules this entry had made stricter than the text (`add`, an empty `subset_of`) now
+  match it. An empty `subset_of` narrows to "nothing permitted", never to "no restriction".
+- Combinations checked on every parsed and every merged policy, as each operator declares them.
+- Types: only the JSON types each operator supports; `null` is a value, not an absence (`value: null`
+  removes the parameter); `scope` is processed as an array and written back as a string.
+- An additional operator is ignored unless `metadata_policy_crit` names it, and that claim is a flat array
+  of operator names (§3.1.3) - the validator used to read it nested per Entity Type and so never saw a
+  real one. This implementation understands no additional operator, so any listed refuses the statement.
+- The §6.1.5 worked example merges and resolves to the specification's own results, byte for byte after
+  sorting keys (`theWorkedExample*` in `MetadataPolicyTest`, fixtures extracted from the Final text).
 
 ## 12. Whether PingOne emits CAEP device-compliance-change at all
 

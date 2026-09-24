@@ -189,10 +189,11 @@ class AuthoritySupportTest {
     }
 
     @Test
-    void completelyDisjointPoliciesFailClosedRatherThanResolvingToUnrestricted() {
-        // Nothing satisfies both the domain default and the entity's own policy — an empty intersection
-        // must refuse, not silently resolve to "no restriction" (which an empty array could be misread
-        // as), matching MetadataPolicy's own documented rule for exactly this case.
+    void completelyDisjointPoliciesComposeToAnEmptySubsetThatIsStillEmitted() {
+        // Nothing satisfies both the domain default and the entity's own policy. The Final text merges two
+        // subset_of operators to their intersection and says it "may thus be an empty array" (§6.1.3.1.5), so
+        // composition succeeds - and the statement must carry subset_of: [] (nothing permitted), never drop
+        // it, which would read as "no restriction".
         AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client",
                 Map.of("grant_types", Map.of("subset_of", List.of("client_credentials")))));
         try {
@@ -200,7 +201,25 @@ class AuthoritySupportTest {
                     HostingMode.AUTHORITY_SIGNED, "k1", Map.of("oauth_client", Map.of()),
                     Map.of("oauth_client", Map.of("grant_types", Map.of("subset_of", List.of("implicit")))),
                     EntityStatus.ACTIVE, false, null, Instant.now(), null);
-            assertThrows(IllegalStateException.class, () -> AuthoritySupport.composedMetadataPolicyFor(entity));
+            Map<String, Object> composed = AuthoritySupport.composedMetadataPolicyFor(entity);
+            assertEquals(Map.of("oauth_client", Map.of("grant_types", Map.of("subset_of", List.of()))), composed);
+        } finally {
+            AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
+        }
+    }
+
+    @Test
+    void policiesThatCannotBeMergedFailClosed() {
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of("oauth_client",
+                Map.of("token_endpoint_auth_method", Map.of("one_of", List.of("private_key_jwt")))));
+        try {
+            HostedEntity entity = new HostedEntity("https://as.example.com/agents/a6",
+                    HostingMode.AUTHORITY_SIGNED, "k1", Map.of("oauth_client", Map.of()),
+                    Map.of("oauth_client", Map.of("token_endpoint_auth_method", Map.of("one_of", List.of("tls_client_auth")))),
+                    EntityStatus.ACTIVE, false, null, Instant.now(), null);
+            IllegalStateException e = assertThrows(IllegalStateException.class,
+                    () -> AuthoritySupport.composedMetadataPolicyFor(entity));
+            assertTrue(e.getMessage().contains("token_endpoint_auth_method"), e.getMessage());
         } finally {
             AuthoritySupport.configureDomainDefaultMetadataPolicy(Map.of());
         }

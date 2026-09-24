@@ -60,11 +60,11 @@ public final class JwtCodec {
         }
     }
 
-    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer) throws Exception {
+    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer) throws JwtVerificationException {
         return verifyAgainstInlineJwks(jwt, jwks, expectedIssuer, Set.of());
     }
 
-    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer, Set<String> acceptedAlgorithms) throws Exception {
+    public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer, Set<String> acceptedAlgorithms) throws JwtVerificationException {
         return verifyAgainstInlineJwks(jwt, jwks, expectedIssuer, acceptedAlgorithms, VerificationPolicy.legacy());
     }
 
@@ -75,7 +75,7 @@ public final class JwtCodec {
      * anyone who can read the set forge an HMAC-signed statement.
      */
     public static JwtClaims verifyAgainstInlineJwks(String jwt, Map<String, Object> jwks, String expectedIssuer,
-            Set<String> acceptedAlgorithms, VerificationPolicy policy) throws Exception {
+            Set<String> acceptedAlgorithms, VerificationPolicy policy) throws JwtVerificationException {
         VerificationPolicy effective = policy == null ? VerificationPolicy.legacy() : policy;
         List<JsonWebKey> keys;
         try {
@@ -92,7 +92,7 @@ public final class JwtCodec {
      * resolved set of issuer keys. Requires {@code iss}/{@code sub}/{@code exp} (as entity statements
      * and client attestations do) and applies a 60s clock skew. Audience is not validated here.
      */
-    public static JwtClaims verifyAgainstKeys(String jwt, List<JsonWebKey> keys, String expectedIssuer, Set<String> acceptedAlgorithms) throws Exception {
+    public static JwtClaims verifyAgainstKeys(String jwt, List<JsonWebKey> keys, String expectedIssuer, Set<String> acceptedAlgorithms) throws JwtVerificationException {
         return verifyAgainstKeys(jwt, keys, expectedIssuer, acceptedAlgorithms, VerificationPolicy.legacy());
     }
 
@@ -104,7 +104,7 @@ public final class JwtCodec {
      * signature is looked at.
      */
     public static JwtClaims verifyAgainstKeys(String jwt, List<JsonWebKey> keys, String expectedIssuer,
-            Set<String> acceptedAlgorithms, VerificationPolicy policy) throws Exception {
+            Set<String> acceptedAlgorithms, VerificationPolicy policy) throws JwtVerificationException {
         VerificationPolicy effective = policy == null ? VerificationPolicy.legacy() : policy;
         Map<String, Object> headers = null;
         if (effective.expectedTyp() != null || effective.requireKid()) {

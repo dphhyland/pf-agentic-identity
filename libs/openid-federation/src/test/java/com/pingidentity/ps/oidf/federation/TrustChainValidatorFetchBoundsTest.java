@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.federation;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -77,7 +78,13 @@ class TrustChainValidatorFetchBoundsTest {
 
         TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
-        assertThrows(IllegalArgumentException.class, () -> validator.validate(List.of(), LEAF, LEAF));
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
+                () -> validator.validate(List.of(), LEAF, LEAF));
+        assertEquals(TrustChainValidationException.Kind.ROUTE, e.kind(), e.getMessage());
+        // Two HTTP requests per hint at most (the authority's configuration, then its fetch endpoint), and
+        // only the first ValidatorOptions.DEFAULT_MAX_AUTHORITY_HINTS hints are followed at all.
+        assertTrue(fetches.get() <= 1 + 2 * ValidatorOptions.DEFAULT_MAX_AUTHORITY_HINTS,
+                "only the capped number of hints may be followed, made " + fetches.get() + " fetches");
         assertTrue(fetches.get() <= TrustChainValidator.DEFAULT_MAX_FETCHES_PER_VALIDATION + 2,
                 "fan-out must be bounded by the fetch budget, made " + fetches.get() + " fetches");
     }
@@ -94,7 +101,9 @@ class TrustChainValidatorFetchBoundsTest {
         TrustChainValidator validator = new TrustChainValidator(new HttpTrustControllerGateway(http, ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
         for (String bad : new String[] { "file:///etc/passwd", "gopher://x/1", "not-a-url" }) {
-            assertThrows(IllegalArgumentException.class, () -> validator.validate(List.of(), bad, bad), bad);
+            TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
+                    () -> validator.validate(List.of(), bad, bad), bad);
+            assertEquals(TrustChainValidationException.Kind.SYNTAX, e.kind(), bad);
         }
         assertTrue(fetches.get() == 0, "a non-https entity identifier must be refused before any fetch");
     }

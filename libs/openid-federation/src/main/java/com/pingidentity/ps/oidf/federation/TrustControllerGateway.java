@@ -62,6 +62,26 @@ public interface TrustControllerGateway {
     default public void bindTrustAnchor(TrustAnchor trustAnchor, java.util.Set<String> acceptedSigningAlgorithms) {
     }
 
+    /**
+     * {@link #bindTrustAnchor} for every anchor of a validator's set. Keys are always chosen by the issuer a
+     * configuration claims, so binding several anchors never lets one verify another's statements.
+     */
+    default public void bindTrustAnchors(TrustAnchorSet trustAnchors, java.util.Set<String> acceptedSigningAlgorithms) {
+        for (TrustAnchor anchor : trustAnchors.anchors()) {
+            this.bindTrustAnchor(anchor, acceptedSigningAlgorithms);
+        }
+    }
+
+    /**
+     * An anchor's Entity Configuration, for a chain that should end with it (OpenID Federation 1.0 §4). The
+     * caller verifies it against the anchor's configured keys; a gateway that already does (retrying once
+     * on a mismatch, §11.3) may say so, but must never return a configuration it could not verify.
+     */
+    default public String anchorConfiguration(TrustAnchor anchor, java.util.Set<String> acceptedSigningAlgorithms,
+            SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        return this.fetchEntityStatement(anchor.entityId(), -1L, pendingWrites);
+    }
+
     default public SubordinateStatementCache.PendingWrites newPendingWrites() {
         return SubordinateStatementCache.disabledPendingWrites();
     }
