@@ -173,26 +173,28 @@ draft (§6.2) names three sources and ranks them by who vouches for the metadata
 and **local registration** (the operator vouches). The spec says try them in that order, first hit wins.
 
 What the code does
-([`AttesterResolvers:40-58`](../servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttesterResolvers.java#L40)):
+([`AttesterResolvers.fromEnvironment`](../servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttesterResolvers.java)):
 
 | Order | Source | Enabled by | Produces config via | Vouched by, in practice |
 |---|---|---|---|---|
-| 1 | CIMD | `OIDF_ATTESTER_CIMD_URL` | `CimdClientResolver` → `CimdMapping.toConfig` | TLS + control of the URL. **Nothing else** — see §6 |
-| 2 | OpenID Federation entity | `OIDF_ATTESTER_FEDERATION_ENTITY` | `OpenIdFederationClientResolver` → `CimdMapping.toConfig` | The entity's **own self-signature**. Not the anchor — no trust chain is walked |
+| 1 | OpenID Federation entity | `OIDF_ATTESTER_FEDERATION_ENTITY` | `OpenIdFederationClientResolver` → `CimdMapping.toConfig` | The **trust anchor**: the entity's chain is validated to one of the pinned anchors (`OIDF_FEDERATION_TRUST_ANCHOR_JWKS`) and the bindings are read from its verified configuration. Since 2026-09-25; before that, its own self-signature only |
+| 2 | CIMD | `OIDF_ATTESTER_CIMD_URL` | `CimdClientResolver` → `CimdMapping.toConfig` | TLS + control of the URL. **Nothing else** — see §6 |
 | 3 | PF client store | always | `PfIssuanceClientResolver` → `AttestationIssuanceConfig.fromProperties` | The operator, via `attestation_*` extended properties; `isEnabled()` filtered |
 
 Three things to know about the chain, all of which shape §6:
 
-- **The order is inverted against the spec.** CIMD — the lowest-assurance source — is tried first.
-  Resolution is first-match per client id with no field-level merge (`ChainClientResolver:48-67`), so
-  a client id present in both CIMD and the PF store yields the CIMD copy, whole.
+- **The order follows the spec** since 2026-09-25: federation, then CIMD, then the PF store. Resolution is
+  first-match per client id with no field-level merge (`ChainClientResolver`), so a client id present in
+  two sources yields the higher-assurance copy, whole. (CIMD used to be tried first.)
 - **Both external sources funnel through `CimdMapping.toConfig`**, which builds a config with exactly
   one binding and **never sets a client-level ceiling** — so the instance-⊆-client containment rule
   in `AttestationIssuanceConfig:292-300`, which is guarded on a non-empty client ceiling, is a no-op
   for them.
 - **Registration status is a PF-store concept only.** `PfIssuanceClientResolver:77` drops disabled
-  clients before they can match. CIMD and federation have no status: presence in the document is the
-  whole gate, and the 300 s cache serves stale indefinitely on fetch failure. There is no check on any
+  clients before they can match. CIMD and federation have no status of their own: presence in the document
+  is the gate. For federation the anchor is the status - an entity it stops vouching for loses its clients
+  within the 300 s TTL, and only an outage serves the last answer. CIMD's cache serves stale indefinitely on
+  fetch failure. There is no check on any
   path that the client is registered for `attest_jwt_client_auth` — on PF the bridge means every
   working client is registered as `private_key_jwt`, so a naive check would reject all of them; the
   signal `PfIssuanceClientResolver:82` actually uses is the presence of `attestation_issuer`.
@@ -434,7 +436,7 @@ Does the implementation match the text it published?
 | `CAS §3` | §3 instance authentication requirements | Implemented |
 | `CAS §4` | §4 issuance API — challenge endpoint, attestation endpoint, instance-key proof, processing rules, errors | Implemented |
 | `CAS §5` | §5 discovery metadata | Implemented — and `ClientAttestationServiceMetadataServlet` reads the same config the issuance servlet enforces, so the document cannot drift from behaviour |
-| `CAS §6` | §6 associating instance identity with a client id | **Partial** — resolution is by evidence rather than by a supplied `client_id` (good), and all three metadata sources exist. But §6.2 rule 1 (federation → CIMD → registration order) is inverted; rule 2 (federation MUST chain-validate to the anchor) is **not met** — self-signature only; rule 3 (CIMD MUST NOT supply instance trust roots) is **violated** — see the next row |
+| `CAS §6` | §6 associating instance identity with a client id | **Partial** — resolution is by evidence rather than by a supplied `client_id` (good), and all three metadata sources exist. §6.2 rule 1 (federation → CIMD → registration order) and rule 2 (federation MUST chain-validate to the anchor, and revocation lands within one cache lifetime) are met since 2026-09-25 (`AttesterResolversTest`, `OpenIdFederationClientResolverTest`). Rule 3 (CIMD MUST NOT supply instance trust roots) is still **violated** — see the next row |
 | `CAS §6.2` | §6.2 rule 3 — CIMD trust roots | **Not implemented.** `CimdMapping.toConfig:29-30` copies `bundle` and `bundle_url` straight out of the unsigned document. `OIDF_CIMD_TRUST_BUNDLES` exists but is read only to *advertise* `cimd` in the CAS metadata; nothing enforces it. Whoever controls the CIMD URL can publish a bundle they hold the keys to and mint attestations for arbitrary subjects |
 | `CAS §7` | §7 down-scoping at issuance | **Partial** — rules 1–3 (subset semantics, empty request = full ceiling, `narrowing_behavior: reject`) are met. Rule 4 (a PDP or context-dependent narrowing) is not; the selector-conditioned downscoping the code comments describe is comment-only (§3.3); and the registration-time `instances[i].entitlement ⊆ entitlement` check is inert for CIMD/federation-sourced clients because they never carry a client ceiling |
 | `CAS §8` | §8 lifetime / rotation / revocation | Partial — lifetime and rotation yes; revocation depends on the CAEP loop, which is not closed (`unverified.md` items 7 and 12); and a federation client's revocation at the anchor does not revoke issuance because no chain is walked |
@@ -515,7 +517,7 @@ are the thin part.
 | No end-to-end test spanning issuance → token endpoint | Every test is unit-level. `AttestationMinterTest` does verify a minted attestation through `ClientAttestationVerifier`, which is the closest thing to a seam test, but nothing exercises the HTTP path |
 | `MiniRedisClient` `rediss://` (TLS) | The plain path is well covered by `FakeRedisServer`; the TLS path is not |
 | ~~Signature verification in the OGNL claim hooks~~ **Half-closed.** `attestationClaim` no longer base64-decodes the header — it reads `VERIFIED_ATTESTATION_ATTRIBUTE`, published only once the filter has verified (see [the design doc](attestation-client-auth-design.md), Change 3). `delegationActChain`'s `act` claim is still an unverified read of the caller's `subject_token`, by design: the token-exchange processor validates that token separately, before any issuance | The one remaining unverified read is deliberate and documented, not an oversight |
-| **`OpenIdFederationClientResolver` — statement checks only** | `OpenIdFederationClientResolverTest` pins what is checked on the fetched entity configuration — `typ`, a `jwks`, the self-signature, the issuer — and one binding read; `verifiedEntityConfiguration` is in the coverage gate. The cache, stale-on-error and malformed-binding paths are still unexercised, and nothing here validates a chain (§6). `AttesterResolvers` — the env-driven resolver chain — still has no tests |
+| **`OpenIdFederationClientResolver`** | `OpenIdFederationClientResolverTest` runs a real federation from the test kit: a chain that validates to the pinned anchor resolves; an entity the anchor does not vouch for, or a configuration that is not an entity statement, is refused; the answer is kept for its TTL; an outage serves the last answer; an entity the anchor stops vouching for loses its clients within one TTL; malformed bindings are skipped. `attestationClients` and `parse` are gated. `AttesterResolversTest` pins the federation → CIMD → PF order and that a federation entity with no pinned anchor stops the attester starting |
 | ~~`PfIssuanceClientResolver` — no test class~~ **CLOSED** | `PfIssuanceClientResolverTest` (8 tests): unknown/disabled clients excluded, a client missing `attestation_issuer` skipped, one misconfigured client doesn't take the rest of the store down with it |
 | Selector-conditioned downscoping | `spireSelectorsAreIntrospectedIntoWorkloadAttributes` asserts the selectors appear in the payload; nothing asserts the granted ceiling changes — because it does not (§3.3) |
 | Issuance driven through CIMD or federation | `AttestationIssuanceServletTest` injects prebuilt configs via `setClientResolver`; no test runs `issue()` behind a real external resolver |
@@ -548,15 +550,13 @@ allowlist keyed by `trust_domain`, a document that carries `bundle`/`bundle_url`
 and the fetch enforces HTTPS-only, no private/loopback resolution, a size cap, and `client_id` equal to
 the fetched URL. Slice 0 in §8.
 
-**Federation-resolved clients are not chain-validated.**
-`OpenIdFederationClientResolver.verifiedEntityConfiguration` checks the entity configuration's `typ` and
-verifies it against its **own inline `jwks`** — tamper-evidence, not trust. No `TrustChainValidator` runs on this path (the only one in the issuer is for wallet-provider keys). Spec
-§6.2 rule 2 says the CAS MUST validate the chain to a configured anchor and SHOULD resolve live so that
-revoking the entity's membership revokes issuance within one cache lifetime. Today revocation at the
-anchor changes nothing at the attester. `FederationAttesterKeyResolver:43-46` on the AS side already
-does the right thing and is the pattern to copy. *Closes when:* the chain is validated to
-`OIDF_FEDERATION_TRUST_ANCHORS`, bindings are read from the validated leaf, and stale-on-error is
-limited to transport failures — never a failed chain. Slice 1 in §8.
+**Federation-resolved clients are chain-validated - CLOSED 2026-09-25.** `OpenIdFederationClientResolver` used
+to verify the entity configuration against its **own inline `jwks`** - tamper-evidence, not trust - so revoking
+the entity at the anchor changed nothing at the attester. It now validates the entity's chain to one of the
+pinned anchors (`FederationRuntimeConfig.trustAnchors()`, the same set every other federation check uses),
+reads `spiffe_client_bindings` from the verified configuration, fetches statements older than its 300 s TTL
+afresh, serves the last answer on a transport failure only, and drops it on a failed chain - so revocation
+at the anchor stops issuance within one TTL (§6.2 rule 2). Slice 1 in §8.
 
 **~~The shipped image trusts static attester keys.~~ CLOSED.** The Dockerfile used to ship
 `oidf-mock-attesters.json` and write `oidf.mock.attesters` into `run.properties.subst.default`
@@ -735,7 +735,9 @@ rule 4 is a MAY) — but it is the one that delivers the stage the design always
 
 ### Slice 1 — Federation trust-chain validation for federation-resolved clients
 
-*Blocking.*
+**Done 2026-09-25** — as below, with one addition: statements older than the resolver's TTL are fetched
+afresh rather than served from the validator's cache, or revocation would wait for the anchor's last
+statement to expire. The wallet-provider path reads the same anchor set.
 
 - `OpenIdFederationClientResolver`: after the entity-configuration fetch, validate the chain to the
   anchor via `TrustChainValidator` — the pattern is `FederationAttesterKeyResolver:43-46`; anchor from
@@ -791,9 +793,9 @@ rule 4 is a MAY) — but it is the one that delivers the stage the design always
   taking the rest of the store down with it.
 - ~~`ClientAttestationUtils`: `validateClientAttestation` happy and deny paths via a stubbed
   request.~~ **Already covered** — `VerifyOnceTest` predates this slice.
-- Still open: `AttesterResolvers` has no test file at all, and `OpenIdFederationClientResolverTest`
-  covers only the statement checks (see §5.2 and slice 1, which extends it with the chain cases); `MiniRedisClient`'s
-  `rediss://` path is untested; no test spans issuance → token endpoint end to end.
+- ~~`AttesterResolvers` has no test file at all, and `OpenIdFederationClientResolverTest` covers only the
+  statement checks.~~ **Done** with slice 1.
+- Still open: `MiniRedisClient`'s `rediss://` path is untested; no test spans issuance → token endpoint end to end.
 
 ### Slice 5 — Deploy hygiene
 

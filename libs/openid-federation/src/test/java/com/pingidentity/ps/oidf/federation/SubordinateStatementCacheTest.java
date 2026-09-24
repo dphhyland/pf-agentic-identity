@@ -52,6 +52,23 @@ class SubordinateStatementCacheTest {
         assertEquals("jwt-2", cache.get(ISS, SUB, 300, 1), "an entry with no iat cannot be judged by age");
     }
 
+    /** Age and expiry are judged by the cache's own clock, so a test (or a caller) can move time without waiting. */
+    @Test
+    void entriesAgeAgainstTheCachesClock() {
+        com.pingidentity.ps.oidf.federation.testkit.MutableClock clock = com.pingidentity.ps.oidf.federation.testkit.MutableClock.startingNow();
+        SubordinateStatementCache cache = new SubordinateStatementCache(8, clock);
+        cache.put(ISS, SUB, "jwt-1", clock.epochSecond() + 3600, clock.epochSecond());
+
+        assertEquals("jwt-1", cache.get(ISS, SUB, 300, 600));
+        clock.advance(java.time.Duration.ofSeconds(601));
+        assertNull(cache.get(ISS, SUB, 300, 600), "601 s later it is past the 600 s bound");
+
+        cache.put(ISS, SUB, "jwt-2", clock.epochSecond() + 400, clock.epochSecond());
+        clock.advance(java.time.Duration.ofSeconds(101));
+        assertNull(cache.get(ISS, SUB, 300), "299 s left is inside the 300 s buffer");
+        assertThrows(NullPointerException.class, () -> new SubordinateStatementCache(8, null));
+    }
+
     @Test
     void theSizeBoundEvictsTheLeastRecentlyUsed() {
         SubordinateStatementCache cache = new SubordinateStatementCache(2);

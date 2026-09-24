@@ -113,7 +113,13 @@
                                         <include>com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.with(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.RemoteJwksCache.get(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver.fromJson(*</include>
-                                        <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.verifiedEntityConfiguration(*</include>
+                                        <!-- CAS §6.2: a federation entity's clients are believed only through a chain to a
+                                             pinned anchor, an outage keeps the last answer, and revocation lands within
+                                             one TTL; and the sources are consulted federation first. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.attestationClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.federationValidator(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
