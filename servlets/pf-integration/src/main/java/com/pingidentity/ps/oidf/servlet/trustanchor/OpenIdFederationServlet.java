@@ -32,6 +32,9 @@ import com.pingidentity.ps.oidf.federation.ListRequest;
 import com.pingidentity.ps.oidf.federation.ResolveRequest;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
+import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
+import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
+import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 
@@ -45,7 +48,7 @@ import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 // lazily on first request — lazy init would put the prewarm INSIDE the first token exchange,
 // which is the exact cold-fetch-on-the-request-path problem it exists to remove.
 @WebServlet(urlPatterns={"/.well-known/openid-federation", "/federation/entity", "/federation/fetch", "/federation/list", "/federation/resolve",
-        "/federation/trust_mark", "/federation/trust_mark_status", "/federation/trust_marked_list"}, loadOnStartup=1)
+        "/federation/trust_mark", "/federation/trust_mark_status", "/federation/trust_marked_list", "/federation/historical_keys"}, loadOnStartup=1)
 public class OpenIdFederationServlet
 extends HttpServlet {
     private static final long serialVersionUID = 1L;
@@ -122,7 +125,19 @@ extends HttpServlet {
                         java.time.Clock.systemUTC()));
                 log.info("Issuing Trust Marks of types " + marks.types().keySet());
             }
+            FederationRuntimeConfig.KeyHistorySettings keyHistory = runtime.keyHistory();
+            KeyHistory history = null;
+            if (keyHistory.enabled()) {
+                if (!KeyHistorySupport.isConfigured()) {
+                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
+                }
+                history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
+                service.historicalKeys(history);
+            }
             this.federationService = service.build();
+            if (history != null) {
+                recordSigningKey(history, this.federationService.signingKey());
+            }
             FederationService issuing = this.federationService;
             if (issuing.issuesTrustMarks()) {
                 // A hosted entity's configuration carries the marks this entity issues it, signed as the authority.
@@ -174,6 +189,15 @@ extends HttpServlet {
                     this.handleTrustMark(req, resp, oidcIssuer);
                     break;
                 }
+                case "/federation/historical_keys": {
+                    String jwt = this.federationService.historicalKeys(oidcIssuer);
+                    resp.setStatus(200);
+                    resp.setContentType("application/jwk-set+jwt");
+                    try (PrintWriter out = resp.getWriter()) {
+                        out.write(jwt);
+                    }
+                    break;
+                }
                 case "/federation/trust_marked_list": {
                     writeJson(resp, 200, toJsonStringArray(this.federationService.trustMarkedEntities(optional(req, "trust_mark_type"),
                             optional(req, "sub"))));
@@ -192,6 +216,24 @@ extends HttpServlet {
         }
         catch (Exception e) {
             FederationErrors.write(resp, e);
+        }
+    }
+
+    /**
+     * Notices a rotation of this entity's Federation Entity Key since it last started - PingFederate's signing key is
+     * read once, at start-up - and publishes the key it replaced (§8.7). Signing with a key revoked as compromised stops
+     * the federation endpoints starting; a history that cannot be written only loses that rotation.
+     */
+    static void recordSigningKey(KeyHistory history, java.util.Map<String, Object> signingKey) throws ServletException {
+        try {
+            history.observe(signingKey).ifPresent(retired -> log.info("Federation Entity Key " + retired.kid() + " retired; this entity now signs with "
+                    + signingKey.get("kid")));
+        } catch (AuthorityRegistryException e) {
+            if (AuthorityRegistryException.STALE_UPDATE.equals(e.reason())) {
+                throw new ServletException("This entity signs with a Federation Entity Key that was revoked: " + e.getMessage()
+                        + ". Rotate PingFederate's signing key before starting it again.", e);
+            }
+            log.error("Could not record this entity's signing key in its history; a rotation since the last start goes unpublished", e);
         }
     }
 

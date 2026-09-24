@@ -72,7 +72,8 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   endpoint (§8.6), the status endpoint (§8.4) and the Trust Marked Entities Listing (§8.5), advertised in its
   `federation_entity` metadata, the list endpoint's `trust_marked` and `trust_mark_type` filters, and the marks it
   issues itself in its own `trust_marks`. As a trust anchor it publishes `trust_mark_issuers` (naming itself for
-  the types it issues) and `trust_mark_owners`.
+  the types it issues) and `trust_mark_owners`. Given **`HistoricalKeys`** it answers the historical keys endpoint (§8.7):
+  a signed `jwk-set+jwt` of the keys it signed with before.
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).
   The latter is the `openid_provider` attestation capability set the entity configuration advertises:
   auth methods, per-JWT algorithm lists, `attestation_pop_jwt` + `dpop_combined`, challenge endpoint.
@@ -111,6 +112,20 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`TrustMarkClaims`** — the claims an operator has this entity publish (`trust_marks` it carries from other
   issuers, `trust_mark_issuers`, `trust_mark_owners`), held to the shape a receiving entity's statement checks
   demand.
+
+## `keyhistory` — the keys this entity signed with before
+
+- **`HistoricalKey`** — a retired key: its public JWK, when it began to be used, its `exp`, and when and why it was revoked
+  (§8.7.3's `unspecified`, `compromised`, `superseded`), rendered as §8.7.2 wants it.
+- **`KeyHistoryStore`** — the key in use and the retired ones: `InMemoryKeyHistoryStore` or **`JdbcKeyHistoryStore`** over
+  `db/migration/V103__federation_key_history.sql`. A rotation - the old key retired, the new one recorded - is one step;
+  a retired key that signs again is no longer history, and a revoked one is refused. **`KeyHistorySupport`** holds the
+  process-wide store.
+- **`KeyHistory`** — what the endpoint publishes, the rotation check made at start-up (a retired key stays valid for a
+  grace period, so what it signed can be checked until it expires), and revocation.
+
+This entity publishes its history; it does not read other entities'. A chain this validator checks is live, and a
+statement signed with a key since rotated is fetched again rather than checked against a historical key.
 
 ## Configuration
 

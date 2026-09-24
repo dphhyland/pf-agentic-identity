@@ -263,4 +263,15 @@ class FederationRuntimeConfigTest {
         assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_ISSUERS_ENV, "[]"), FederationRuntimeConfig.TRUST_MARK_ISSUERS_ENV);
         assertRefused(Map.of(FederationRuntimeConfig.TRUST_MARK_OWNERS_ENV, "[]"), FederationRuntimeConfig.TRUST_MARK_OWNERS_ENV);
     }
+
+    @Test
+    void noKeyHistoryIsKeptUnlessAskedForAndARetiredKeyStaysValidForADay() {
+        assertEquals(FederationRuntimeConfig.KeyHistorySettings.DEFAULTS, of(Map.of(), Map.of()).keyHistory());
+        FederationRuntimeConfig.KeyHistorySettings on = of(Map.of(FederationRuntimeConfig.HISTORICAL_KEYS_ENV, "true"),
+                Map.of("oidf.federation.key.history.grace.seconds", "3600")).keyHistory();
+        assertTrue(on.enabled());
+        assertEquals(3600L, on.graceSeconds());
+        assertRefused(Map.of(FederationRuntimeConfig.HISTORICAL_KEYS_ENV, "yes"), FederationRuntimeConfig.HISTORICAL_KEYS_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.KEY_HISTORY_GRACE_ENV, "-1"), FederationRuntimeConfig.KEY_HISTORY_GRACE_ENV);
+    }
 }

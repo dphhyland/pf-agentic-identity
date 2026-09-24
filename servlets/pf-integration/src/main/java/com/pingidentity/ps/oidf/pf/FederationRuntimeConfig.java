@@ -126,6 +126,10 @@ public final class FederationRuntimeConfig {
     public static final String TRUST_MARK_ISSUERS_ENV = "OIDF_FEDERATION_TRUST_MARK_ISSUERS";
     /** As a trust anchor, who owns which Trust Mark type: {@code {"<type>": {"sub": "<entity id>", "jwks": {...}}}}. */
     public static final String TRUST_MARK_OWNERS_ENV = "OIDF_FEDERATION_TRUST_MARK_OWNERS";
+    /** Whether this entity records its key rotations and publishes the keys it signed with before (§8.7; default false). */
+    public static final String HISTORICAL_KEYS_ENV = "OIDF_FEDERATION_HISTORICAL_KEYS";
+    /** How long a retired key stays valid for what it signed before it was retired, in seconds (default 86400). */
+    public static final String KEY_HISTORY_GRACE_ENV = "OIDF_FEDERATION_KEY_HISTORY_GRACE_SECONDS";
 
     /**
      * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
@@ -172,6 +176,8 @@ public final class FederationRuntimeConfig {
     private static final String TRUST_MARKS_PROP = "oidf.federation.trust.marks";
     private static final String TRUST_MARK_ISSUERS_PROP = "oidf.federation.trust.mark.issuers";
     private static final String TRUST_MARK_OWNERS_PROP = "oidf.federation.trust.mark.owners";
+    private static final String HISTORICAL_KEYS_PROP = "oidf.federation.historical.keys";
+    private static final String KEY_HISTORY_GRACE_PROP = "oidf.federation.key.history.grace.seconds";
 
     /**
      * What this entity publishes and issues as a Trust Mark Issuer and, when it is one, as a trust anchor.
@@ -184,6 +190,22 @@ public final class FederationRuntimeConfig {
     public record TrustMarkIssuingSettings(Map<String, TrustMarkType> types, List<Map<String, Object>> carried,
                                            Map<String, List<String>> issuers, Map<String, Object> owners) {
         public static final TrustMarkIssuingSettings NONE = new TrustMarkIssuingSettings(Map.of(), List.of(), Map.of(), Map.of());
+    }
+
+    /**
+     * Whether this entity keeps and publishes its key history (§8.7), and how long a retired key stays valid.
+     *
+     * @param enabled      whether rotations are recorded and the historical keys endpoint answers
+     * @param graceSeconds how long after it is retired a key still vouches for what it signed before
+     */
+    public record KeyHistorySettings(boolean enabled, long graceSeconds) {
+        public static final KeyHistorySettings DEFAULTS = new KeyHistorySettings(false, 86_400L);
+
+        public KeyHistorySettings {
+            if (graceSeconds < 0) {
+                throw new IllegalStateException(KEY_HISTORY_GRACE_ENV + " must not be negative");
+            }
+        }
     }
 
     /** What happens to an expired registration that cannot be renewed. */
@@ -270,18 +292,20 @@ public final class FederationRuntimeConfig {
     private final TrustMarkPolicy requiredTrustMarks;
     private final boolean trustMarkStatusCheck;
     private final TrustMarkIssuingSettings trustMarkIssuing;
+    private final KeyHistorySettings keyHistory;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
             RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
-            boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing) {
+            boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory) {
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
         this.requiredTrustMarks = Objects.requireNonNull(requiredTrustMarks, "requiredTrustMarks");
         this.trustMarkStatusCheck = trustMarkStatusCheck;
         this.trustMarkIssuing = Objects.requireNonNull(trustMarkIssuing, "trustMarkIssuing");
+        this.keyHistory = Objects.requireNonNull(keyHistory, "keyHistory");
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -369,7 +393,9 @@ public final class FederationRuntimeConfig {
                         strictly(TRUST_MARK_ISSUERS_ENV, () -> TrustMarkClaims.parseIssuers(setting(env, props, TRUST_MARK_ISSUERS_PROP,
                                 TRUST_MARK_ISSUERS_ENV))),
                         strictly(TRUST_MARK_OWNERS_ENV, () -> TrustMarkClaims.parseOwners(setting(env, props, TRUST_MARK_OWNERS_PROP,
-                                TRUST_MARK_OWNERS_ENV)))));
+                                TRUST_MARK_OWNERS_ENV)))),
+                new KeyHistorySettings(bool(env, props, HISTORICAL_KEYS_PROP, HISTORICAL_KEYS_ENV, KeyHistorySettings.DEFAULTS.enabled()),
+                        seconds(env, props, KEY_HISTORY_GRACE_PROP, KEY_HISTORY_GRACE_ENV, KeyHistorySettings.DEFAULTS.graceSeconds())));
     }
 
     /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting. */
@@ -606,6 +632,11 @@ public final class FederationRuntimeConfig {
     /** Whether a Trust Mark is also checked at its issuer's status endpoint ({@link #TRUST_MARK_STATUS_CHECK_ENV}). */
     public boolean trustMarkStatusCheck() {
         return this.trustMarkStatusCheck;
+    }
+
+    /** Whether this entity keeps and publishes its key history (§8.7). */
+    public KeyHistorySettings keyHistory() {
+        return this.keyHistory;
     }
 
     /** What this entity issues and publishes as a Trust Mark Issuer, and as an anchor; {@link TrustMarkIssuingSettings#NONE} when unset. */

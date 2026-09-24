@@ -57,6 +57,7 @@ public final class FederationService {
     private static final Log LOGGER = LogFactory.getLog(FederationService.class);
     static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
     static final String RESOLVE_RESPONSE_TYP = "resolve-response+jwt";
+    static final String JWK_SET_TYP = "jwk-set+jwt";
     private static final String ENTITY_STATEMENT_ACCEPT = "application/entity-statement+jwt, application/json";
     private static final long STATEMENT_LIFETIME_SECONDS = 3600L;
     // Refresher period — under the lifetime a verifier would accept a stale key for, so entries are
@@ -77,6 +78,7 @@ public final class FederationService {
     private final ValidatorOptions resolverOptions;
     private final HttpPostClient trustMarkStatusClient;
     private final TrustMarkIssuing trustMarkIssuing;
+    private final HistoricalKeys historicalKeys;
     private final List<Map<String, Object>> ownTrustMarks;
     private final Map<String, List<String>> trustMarkIssuers;
     private final Map<String, Object> trustMarkOwners;
@@ -146,6 +148,7 @@ public final class FederationService {
         this.resolverOptions = b.resolverOptions != null ? b.resolverOptions : ValidatorOptions.defaults();
         this.trustMarkStatusClient = b.trustMarkStatusClient;
         this.trustMarkIssuing = b.trustMarkIssuing;
+        this.historicalKeys = b.historicalKeys;
         this.ownTrustMarks = List.copyOf(b.ownTrustMarks);
         this.trustMarkIssuers = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkIssuers));
         this.trustMarkOwners = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkOwners));
@@ -254,6 +257,9 @@ public final class FederationService {
         }
         if (this.resolveEnabled()) {
             federationEntity.put("federation_resolve_endpoint", fedBase + "/federation/resolve");
+        }
+        if (this.historicalKeys != null) {
+            federationEntity.put("federation_historical_keys_endpoint", fedBase + "/federation/historical_keys");
         }
         if (this.issuesTrustMarks()) {
             federationEntity.put("federation_trust_mark_endpoint", fedBase + "/federation/trust_mark");
@@ -431,6 +437,25 @@ public final class FederationService {
         }
         List<String> distinct = List.copyOf(new LinkedHashSet<>(listed));
         return markFilter ? distinct.stream().filter(s -> this.trustMarkIssuing.isMarked(s, request.trustMarkType())).toList() : distinct;
+    }
+
+    // ---- historical keys (§8.7) ---------------------------------------------------------------------
+
+    /**
+     * The historical keys endpoint (§8.7): the Federation Entity Keys this entity signed with before, as a signed
+     * {@code jwk-set+jwt} - each key with its {@code exp}, and {@code revoked} when it was revoked.
+     *
+     * @throws FederationException {@code not_found} when this entity publishes no key history
+     */
+    public String historicalKeys(String oidcIssuer) throws JoseException {
+        if (this.historicalKeys == null) {
+            throw new FederationException(FederationError.NOT_FOUND, "this entity publishes no historical keys");
+        }
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer(oidcIssuer);
+        claims.setIssuedAt(NumericDate.fromSeconds(this.clock.instant().getEpochSecond()));
+        claims.setClaim("keys", this.historicalKeys.keys());
+        return this.signClaims(claims, JWK_SET_TYP);
     }
 
     // ---- Trust Marks (§7, §8.4-§8.6) -----------------------------------------------------------------
@@ -790,6 +815,12 @@ public final class FederationService {
         return jws.getCompactSerialization();
     }
 
+    /** The public JWK of the Federation Entity Key this entity signs with now. */
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> signingKey() throws JoseException {
+        return ((List<Map<String, Object>>) this.buildInlineJwks().get("keys")).get(0);
+    }
+
     private Map<String, Object> buildInlineJwks() throws JoseException {
         RSAPublicKey pub = this.signingKeyProvider.publicKey();
         Objects.requireNonNull(pub, "signingKeys.publicKey()");
@@ -817,6 +848,7 @@ public final class FederationService {
         private ValidatorOptions resolverOptions;
         private HttpPostClient trustMarkStatusClient;
         private TrustMarkIssuing trustMarkIssuing;
+        private HistoricalKeys historicalKeys;
         private List<Map<String, Object>> ownTrustMarks = List.of();
         private Map<String, List<String>> trustMarkIssuers = Map.of();
         private Map<String, Object> trustMarkOwners = Map.of();
@@ -877,6 +909,12 @@ public final class FederationService {
             this.resolverGateway = gateway;
             this.resolverAlgorithms = acceptedAlgorithms;
             this.resolverOptions = options;
+            return this;
+        }
+
+        /** Publishes the keys this entity signed with before at the historical keys endpoint (§8.7). */
+        public Builder historicalKeys(HistoricalKeys keys) {
+            this.historicalKeys = keys;
             return this;
         }
 

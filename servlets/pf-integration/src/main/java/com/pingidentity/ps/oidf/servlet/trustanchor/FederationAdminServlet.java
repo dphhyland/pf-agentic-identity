@@ -1,5 +1,5 @@
 /*
- * The operator's API for the Trust Marks this entity issues.
+ * The operator's API for what this entity issues and signs with.
  */
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
@@ -11,6 +11,9 @@ import com.pingidentity.ps.oidf.federation.event.LogSafe;
 import com.pingidentity.ps.oidf.pf.AdminBearer;
 import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.keyhistory.HistoricalKey;
+import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
+import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
@@ -29,6 +32,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HexFormat;
 import java.util.LinkedHashMap;
@@ -40,8 +44,9 @@ import java.util.function.Predicate;
 import org.jose4j.json.JsonUtil;
 
 /**
- * Grants and revokes the Trust Marks this entity issues (OpenID Federation 1.0 §7), behind the authority's admin bearer
- * token ({@code OIDF_AUTHORITY_ADMIN_TOKEN}, compared in constant time; with none set every request is a 401).
+ * The Trust Marks this entity issues (OpenID Federation 1.0 §7) and the keys it signed with before (§8.7), behind the
+ * authority's admin bearer token ({@code OIDF_AUTHORITY_ADMIN_TOKEN}, compared in constant time; with none set every
+ * request is a 401).
  *
  * <ul>
  *   <li>{@code GET /federation/admin/trust-marks?sub=...} or {@code ?trust_mark_type=...}: the grants, whatever their status.</li>
@@ -49,6 +54,11 @@ import org.jose4j.json.JsonUtil;
  *       the type, or grants it again - which revokes every mark minted under the grant before; 201.</li>
  *   <li>{@code POST /federation/admin/trust-marks/revoke} with {@code {"trust_mark_type", "sub", "reason"?}}: revokes; 200.</li>
  *   <li>{@code GET /federation/admin/trust-marks/audit?trust_mark_type=...&sub=...}: one grant's history.</li>
+ *   <li>{@code GET /federation/admin/keys}: the keys this entity signed with before, as its historical keys endpoint
+ *       publishes them.</li>
+ *   <li>{@code POST /federation/admin/keys/revoke} with {@code {"kid", "reason"?}}: revokes a retired key - with a §8.7.3
+ *       reason ({@code unspecified}, {@code compromised}, {@code superseded}) or none. The key in use is not history:
+ *       rotate PingFederate's signing key first. A revoked key must never sign again.</li>
  * </ul>
  *
  * <p>Only a type this entity is configured to issue can be granted ({@code OIDF_FEDERATION_TRUST_MARK_TYPES}), and one
@@ -56,7 +66,7 @@ import org.jose4j.json.JsonUtil;
  * eight hex digits of the token's SHA-256, with the {@code X-Federation-Actor} header after it when one is sent (for
  * accountability; it grants nothing) - in the grant's history and in PingFederate's audit log.
  */
-@WebServlet(urlPatterns = {"/federation/admin/trust-marks", "/federation/admin/trust-marks/*"})
+@WebServlet(urlPatterns = {"/federation/admin/*"})
 public class FederationAdminServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final int MAX_ACTOR_LENGTH = 128;
@@ -66,18 +76,20 @@ public class FederationAdminServlet extends HttpServlet {
     private transient TrustMarkRegistry registry;
     private transient Predicate<String> activeHostedEntity;
     private transient Clock clock;
+    private transient KeyHistory keyHistory;
 
     public FederationAdminServlet() {
     }
 
     /** Test seam: everything the servlet otherwise resolves from the deployment at init. */
     FederationAdminServlet(String adminToken, Map<String, TrustMarkType> types, TrustMarkRegistry registry, Predicate<String> activeHostedEntity,
-                           Clock clock) {
+                           Clock clock, KeyHistory keyHistory) {
         this.adminToken = adminToken;
         this.types = types;
         this.registry = registry;
         this.activeHostedEntity = activeHostedEntity;
         this.clock = clock;
+        this.keyHistory = keyHistory;
     }
 
     @Override
@@ -88,13 +100,20 @@ public class FederationAdminServlet extends HttpServlet {
             return;
         }
         this.adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-        this.types = FederationRuntimeConfig.get().trustMarkIssuing().types();
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        this.types = runtime.trustMarkIssuing().types();
         if (!TrustMarkSupport.isConfigured()) {
             AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
         }
         this.registry = TrustMarkSupport.shared();
         this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
         this.clock = Clock.systemUTC();
+        if (runtime.keyHistory().enabled()) {
+            if (!KeyHistorySupport.isConfigured()) {
+                AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
+            }
+            this.keyHistory = new KeyHistory(KeyHistorySupport.shared(), this.clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
+        }
     }
 
     @Override
@@ -104,8 +123,9 @@ public class FederationAdminServlet extends HttpServlet {
         }
         try {
             switch (route(req)) {
-                case "" -> this.list(req, resp);
-                case "/audit" -> this.audit(req, resp);
+                case "/trust-marks" -> this.list(req, resp);
+                case "/trust-marks/audit" -> this.audit(req, resp);
+                case "/keys" -> this.keys(resp);
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
@@ -127,8 +147,9 @@ public class FederationAdminServlet extends HttpServlet {
         }
         try {
             switch (route(req)) {
-                case "" -> this.grant(req, resp, body);
-                case "/revoke" -> this.revoke(req, resp, body);
+                case "/trust-marks" -> this.grant(req, resp, body);
+                case "/trust-marks/revoke" -> this.revoke(req, resp, body);
+                case "/keys/revoke" -> this.revokeKey(req, resp, body);
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
@@ -136,9 +157,13 @@ public class FederationAdminServlet extends HttpServlet {
         }
     }
 
+    /** The path under {@code /federation/admin}, without a trailing slash. */
     private static String route(HttpServletRequest req) {
         String path = req.getPathInfo();
-        return path == null || "/".equals(path) ? "" : path;
+        if (path == null) {
+            return "";
+        }
+        return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
 
     private boolean authorized(HttpServletRequest req, HttpServletResponse resp) throws IOException {
@@ -222,6 +247,39 @@ public class FederationAdminServlet extends HttpServlet {
         FederationEvents.event(FederationEvents.TRUST_MARK_REVOKED).subject(subject).role("TMI").audit().field("trust_mark_type", type)
                 .field("actor", actor).description(reason).emit();
         writeJson(resp, 200, json(revoked));
+    }
+
+    private void keys(HttpServletResponse resp) throws IOException, AuthorityRegistryException {
+        if (this.keyHistory == null) {
+            writeError(resp, 404, "not_found", "this entity keeps no key history (OIDF_FEDERATION_HISTORICAL_KEYS)");
+            return;
+        }
+        writeJson(resp, 200, this.keyHistory.retired().stream().map(HistoricalKey::asJwk).toList());
+    }
+
+    private void revokeKey(HttpServletRequest req, HttpServletResponse resp, Map<String, Object> body) throws IOException, AuthorityRegistryException {
+        if (this.keyHistory == null) {
+            writeError(resp, 404, "not_found", "this entity keeps no key history (OIDF_FEDERATION_HISTORICAL_KEYS)");
+            return;
+        }
+        String kid = text(body, "kid");
+        String reason = text(body, "reason");
+        if (kid == null) {
+            writeError(resp, 400, "invalid_request", "name the kid of the retired key");
+            return;
+        }
+        if (reason != null && !HistoricalKey.REASONS.contains(reason)) {
+            writeError(resp, 400, "invalid_request", "the reason must be unspecified, compromised or superseded (§8.7.3), or none");
+            return;
+        }
+        try {
+            writeJson(resp, 200, this.keyHistory.revoke(kid, reason, actor(this.adminToken, req.getHeader("X-Federation-Actor"))).asJwk());
+        } catch (AuthorityRegistryException e) {
+            if (!AuthorityRegistryException.NOT_FOUND.equals(e.reason())) {
+                throw e;
+            }
+            writeError(resp, 404, "not_found", "no retired key has that kid; the key in use is revoked by rotating it first");
+        }
     }
 
     /** {@code admin:<first 8 hex of SHA-256(token)>}, and the caller's own name for itself after it when it gives one. */

@@ -277,6 +277,21 @@
                                         <include>com.pingidentity.ps.oidf.trustmark.TrustMarkSupport.registry(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.isActiveHostedEntity(*</include>
                                         <include>com.pingidentity.ps.oidf.authority.AuthoritySupport.trustMarksFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.HistoricalKey.asJwk(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.InMemoryKeyHistoryStore.rotateTo(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.InMemoryKeyHistoryStore.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.JdbcKeyHistoryStore.inTransaction(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.JdbcKeyHistoryStore.rotateIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.JdbcKeyHistoryStore.revokeIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.JdbcKeyHistoryStore.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.JdbcKeyHistoryStore.jwk(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.KeyHistory.observe(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.KeyHistory.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.KeyHistory.keys(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport.configureJdbcStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport.store(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.historicalKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.signingKey(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
