@@ -105,6 +105,20 @@ class BuiltClientFieldsTest {
 
     // ---- the approval page ------------------------------------------------------------------------
 
+    /**
+     * PingFederate consults a client's restricted scope and response-type lists only when the matching
+     * restriction flag is set. Registration used to fill the lists and leave the flags off, so a federation
+     * client could request any scope the server defines - the policy-constrained {@code scope} in its
+     * metadata was recorded and never applied.
+     */
+    @Test
+    void theScopeAndResponseTypeListsAreActuallyEnforced() throws Exception {
+        Client c = register(bareMetadata("scope", "read_accounts"));
+        assertTrue(c.isRestrictScopes(), "restrictScopes must be on or the scope list is ignored");
+        assertTrue(c.isRestrictResponseTypes(), "restrictResponseTypes must be on or the list is ignored");
+        assertTrue(register(bareMetadata()).isRestrictScopes(), "no declared scope means no scopes, not every scope");
+    }
+
     @Test
     void aClientCredentialsOnlyClientBypassesTheApprovalPage() throws Exception {
         Client c = register(bareMetadata());

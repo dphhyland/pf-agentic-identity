@@ -417,25 +417,13 @@ citation, not in the code, and it is left visible rather than filled with a plau
 
 ### 4.3 OpenID Federation 1.0 (Final, 17 Feb 2026)
 
+The clause-by-clause OpenID Federation rows live in [federation/conformance-matrix.md](federation/conformance-matrix.md), which the coverage report reads alongside this file. The rows here are where attestation and federation meet.
+
 | Id | Requirement | Where | Status |
 |---|---|---|---|
 | `CLAIM-DICT divergence 1` | Attester keys resolved through a trust chain to the anchor | `FederationAttesterKeyResolver` | Extension — ABCA puts attester trust out of scope at §9.8 |
 | — | Wallet-provider keys likewise | `FederationWalletProviderKeyResolver` | Implemented, unconfigured by default |
 | `ABCA-10 §8` | AS advertises `attest_jwt_client_auth` / `attest_jwt_client_auth_dpop`, PoP methods, alg lists, `challenge_endpoint` | `AttestationMetadataConfig` | Implemented |
-| `OIDFED §1.2` | A non-HTTPS entity identifier is refused before any fetch | `TrustChainValidator` | Implemented |
-| `OIDFED §3(2)` | An entity statement without `typ: entity-statement+jwt` is rejected — every statement in a route, every entity configuration the gateway reads for a fetch endpoint (including the pinned anchor's, before its signature is checked), the explicit-registration request body, and the entity configuration the attester reads its client bindings from | `EntityStatementType`, `TrustChainValidator`, `HttpTrustControllerGateway`, `ExplicitRegistrationRequest`, `OpenIdFederationClientResolver` | Implemented — `(2)` is §3's second paragraph (`#section-3-2`); a bare `OIDFED §3` row would count the `§3.1.x`/`§3.2` pins as covering it |
-| `OIDFED §3.2` | An entity configuration is genuinely self-signed | `TrustChainValidator` | Implemented |
-| `OIDFED §2.1` | Web PKI / TLS is not the basis of signing-key trust: a key the anchor serves over HTTPS is not trusted unless it was pinned | `TrustAnchor`, `TrustChainValidator` | Implemented |
-| `OIDFED §3.1.1` | `jwks` is required: a superior statement without one cannot vouch for the statement below it, and pinned anchor keys each need a unique `kid` | `TrustChainValidator`, `TrustAnchor` | Implemented |
-| `OIDFED §4` | The Trust Anchor's keys are distributed out of band, and verify its Subordinate Statement (ES[i-1]); each other statement is verified with a key from the `jwks` of the statement above it | `TrustAnchor`, `TrustChainValidator`, `FederationRuntimeConfig` | Implemented |
-| `OIDFED §10.2` | ES[i], the anchor's entity configuration, validates with a public key of the Trust Anchor | `HttpTrustControllerGateway` | Implemented — checked where the gateway reads it for the fetch endpoint; a pushed chain's copy of it is not part of the route, so is not separately verified |
-| `OIDFED §11.3` | A mismatch between the out-of-band keys and the anchor's entity configuration is retrieved again before it is treated as a problem | `HttpTrustControllerGateway` | Partial — compares by verifying the configuration's signature with a pinned key rather than by key-set equality, so an in-progress §11.2 rollover is not a mismatch; the remediation on a second failure is refusal |
-| `OIDFED §3.1.3` | `metadata_policy_crit` invalidates a statement naming an unknown operator | `MetadataPolicy` | Implemented |
-| `OIDFED §6.1.3.1` | The metadata-policy operator set | `MetadataPolicy` | Implemented |
-| `OIDFED §6.1.4.1` | Operators applied in the specified order | `MetadataPolicy` | Implemented |
-| `UNVERIFIED item 11` | `metadata_policy` merge outcomes — narrow-only, fails closed | `MetadataPolicy.composeWith` | Partial — the §6.1.4 merge table truncates in both published renderings |
-| `OIDFED §12.1` | Automatic registration against the trust controller | `RegistrationService` | Implemented |
-| `OIDFED §12.2` | Explicit registration against the trust controller | `ExplicitRegistrationRequest`, `RegistrationService` | Implemented |
 
 ### 4.4 CAS 1.0 draft-00 — this repo's own spec
 

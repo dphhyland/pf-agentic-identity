@@ -42,6 +42,7 @@
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId></dependency>
         <!-- Trust-chain validation for federation-backed wallet-provider trust (was only transitive). -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>agent-registry</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>

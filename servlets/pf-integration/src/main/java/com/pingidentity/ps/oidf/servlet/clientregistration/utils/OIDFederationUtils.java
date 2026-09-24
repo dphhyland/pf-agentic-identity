@@ -3,17 +3,23 @@ package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.jose.HttpGetClient;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.TrustChainValidationException;
 import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.jose.JwtVerificationException;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -35,6 +41,16 @@ public final class OIDFederationUtils {
     private static volatile String configuredTrustControllerHost;
     private static volatile String configuredTrustControllerBaseUrl;
     private static final Object LOCK = new Object();
+    private static final Function<HttpServletRequest, String> PF_ISSUER = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+    /** Test seam: PF's issuer resolver needs a booted PingFederate. */
+    private static volatile Function<HttpServletRequest, String> issuerResolver = PF_ISSUER;
+    /** Test seam: the transport the gateway fetches through; null means a screened JDK client. */
+    private static volatile HttpGetClient httpClientOverride;
+
+    static {
+        // The OGNL criteria run on PF's engine classloader, which has its own copy of FederationEvents.
+        PfAuditEventSink.install();
+    }
 
     private OIDFederationUtils() {
     }
@@ -60,8 +76,9 @@ public final class OIDFederationUtils {
                 // The host an OGNL expression passes has to be that anchor; a different one would
                 // otherwise be validated against keys that are not its own.
                 TrustAnchor trustAnchor = requireConfiguredAnchor(trustControllerHost);
-                gateway = local = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors, OutboundUrlPolicy.fromEnvironment()
-                        .trusting(effectiveBaseUrl, trustControllerHost)), effectiveBaseUrl, trustControllerHost);
+                HttpGetClient http = httpClientOverride != null ? httpClientOverride : new JdkHttpGetClient(ignoreSslErrors,
+                        OutboundUrlPolicy.fromEnvironment().trusting(effectiveBaseUrl, trustControllerHost));
+                gateway = local = new HttpTrustControllerGateway(http, effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
                 configuredTrustControllerBaseUrl = effectiveBaseUrl;
@@ -130,36 +147,83 @@ public final class OIDFederationUtils {
         Map inParameters = (Map)inObj;
         String rpEntityId = ((AttributeValue)inParameters.get("context.ClientId")).getValue();
         HttpServletRequest request = (HttpServletRequest)((AttributeValue)inParameters.get("context.HttpRequest")).getObjectValue();
-        String opEntityId = OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        String opEntityId = issuerResolver.apply(request);
         List<String> trustChainList = extractTrustChainFromClientAssertion(request);
-        int maxLeafNodeTime = -1;
-        if (inParameters.containsKey("extproperties.trust_chain_leaf_max_time")) {
-            String value = String.valueOf(inParameters.get("extproperties.trust_chain_leaf_max_time"));
-            maxLeafNodeTime = Integer.parseInt(value);
-        }
-        int maxTrustAnchorNodeTime = -1;
-        if (inParameters.containsKey("extproperties.trust_chain_trustanchor_max_time")) {
-            String value = String.valueOf(inParameters.get("extproperties.trust_chain_trustanchor_max_time"));
-            maxTrustAnchorNodeTime = Integer.parseInt(value);
-        }
-        long maxTrustChainEntryAgeSeconds = 60L;
-        if (inParameters.containsKey("extproperties.trust_chain_request_max_age")) {
-            String value = String.valueOf(inParameters.get("extproperties.trust_chain_request_max_age"));
-            try {
-                maxTrustChainEntryAgeSeconds = Long.parseLong(value);
-            }
-            catch (NumberFormatException e) {
-                LOGGER.warn("extproperties.trust_chain_entry_max_age is not a valid integer (\"" + value + "\"); disabling the trust-chain pre-filter for this request", e);
-                maxTrustChainEntryAgeSeconds = 60L;
-            }
-        }
+        long maxLeafNodeTime = longSetting(inParameters, "extproperties.trust_chain_leaf_max_time", -1L);
+        long maxTrustAnchorNodeTime = longSetting(inParameters, "extproperties.trust_chain_trustanchor_max_time", -1L);
+        long maxTrustChainEntryAgeSeconds = longSetting(inParameters, "extproperties.trust_chain_request_max_age", 60L);
         try {
             validator.validate(trustChainList, rpEntityId, opEntityId, maxLeafNodeTime, maxTrustAnchorNodeTime, maxTrustChainEntryAgeSeconds);
+            FederationEvents.event(FederationEvents.CHAIN_VALIDATED).subject(rpEntityId).partner(configuredTrustControllerHost)
+                    .field("endpoint", "token").field("presented", trustChainList.size()).emit();
             return true;
         }
         catch (Exception e) {
-            LOGGER.info("Trust chain validation failed", e);
+            FederationEvents.event(FederationEvents.CHAIN_REFUSED).failure(refusalReason(e)).subject(rpEntityId)
+                    .partner(configuredTrustControllerHost).role("OP").field("endpoint", "token").audit()
+                    .description(e instanceof TrustChainValidationException || e instanceof JwtVerificationException
+                            ? e.getMessage() : "trust chain did not validate").emit();
+            if (LOGGER.isDebugEnabled()) {
+                LOGGER.debug("trust chain refused for " + rpEntityId + ": " + e.getClass().getSimpleName());
+            }
             return false;
+        }
+    }
+
+    /** A short machine reason for a refusal, for the event's {@code reason}. */
+    static String refusalReason(Exception e) {
+        if (e instanceof TrustChainValidationException tcve) {
+            return tcve.kind().code();
+        }
+        if (e instanceof JwtVerificationException jve) {
+            return jve.code();
+        }
+        return "invalid";
+    }
+
+    /**
+     * A numeric per-client setting from the criteria map. PF maps an extended property into the map even
+     * when the client has no value for it, so a blank, {@code "null"} or non-numeric value falls back to
+     * {@code fallback} with a warning naming the key - it never throws out of the criterion.
+     */
+    static long longSetting(Map inParameters, String key, long fallback) {
+        if (!inParameters.containsKey(key)) {
+            return fallback;
+        }
+        Object raw = inParameters.get(key);
+        String value = raw == null ? null : String.valueOf(raw instanceof AttributeValue ? ((AttributeValue) raw).getValue() : raw);
+        if (value == null || value.isBlank() || "null".equals(value)) {
+            return fallback;
+        }
+        try {
+            return Long.parseLong(value.trim());
+        }
+        catch (NumberFormatException e) {
+            LOGGER.warn(key + " is not a whole number; using " + fallback + " for this request");
+            return fallback;
+        }
+    }
+
+    /** Test seam: resolve the OP issuer without a booted PingFederate. */
+    static void useIssuerResolver(Function<HttpServletRequest, String> resolver) {
+        issuerResolver = resolver == null ? PF_ISSUER : resolver;
+    }
+
+    /** Test seam: fetch through this client instead of a screened JDK client. Takes effect after {@link #resetForTests}. */
+    static void useHttpClient(HttpGetClient client) {
+        httpClientOverride = client;
+    }
+
+    /** Test seam: forget the memoised gateway and validator and every override. */
+    static void resetForTests() {
+        synchronized (LOCK) {
+            gateway = null;
+            validator = null;
+            configuredIgnoreSslErrors = null;
+            configuredTrustControllerHost = null;
+            configuredTrustControllerBaseUrl = null;
+            issuerResolver = PF_ISSUER;
+            httpClientOverride = null;
         }
     }
 

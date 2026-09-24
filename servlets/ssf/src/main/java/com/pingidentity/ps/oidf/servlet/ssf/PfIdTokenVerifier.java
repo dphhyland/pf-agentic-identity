@@ -108,8 +108,16 @@ final class PfIdTokenVerifier implements LogoutEventFilter.IdTokenVerifier {
                     ? SubjectId.opaque(sub)
                     : SubjectId.issSub(iss, sub);
         }
+        catch (org.jose4j.jwt.consumer.InvalidJwtException e) {
+            // jose4j's own message carries the whole id_token_hint - a token naming the user - so only the
+            // reason is logged, never the text.
+            LOGGER.info((Object) ("logout: token did not verify against PF's signing keys ("
+                    + com.pingidentity.ps.oidf.jose.JwtCodec.safe(e).code() + ")"));
+            return null;
+        }
         catch (Exception e) {
-            LOGGER.info((Object) ("logout: token did not verify against PF's signing keys: " + e.getMessage()));
+            LOGGER.info((Object) ("logout: token did not verify against PF's signing keys ("
+                    + e.getClass().getSimpleName() + ")"));
             return null;
         }
     }

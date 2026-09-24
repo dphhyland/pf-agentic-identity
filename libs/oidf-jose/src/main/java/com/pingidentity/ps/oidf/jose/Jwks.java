@@ -73,6 +73,51 @@ public final class Jwks {
         }
     }
 
+    /**
+     * Reads a JWK Set of Federation Entity Keys (OpenID Federation 1.0 §3.1.1): a non-empty {@code keys}
+     * array whose members are all public, asymmetric keys, each with a unique non-empty {@code kid}.
+     *
+     * <p>Applied to the {@code jwks} of every Entity Statement before any of its keys is trusted. Without
+     * it, an inline {@code oct} key would verify an HMAC-signed statement for anyone who can read the
+     * set, and a repeated {@code kid} would leave the verifier to guess which key a signature meant.
+     *
+     * @throws IllegalArgumentException naming the first problem; the message never contains key material
+     */
+    public static java.util.List<JsonWebKey> parseFederationKeySet(Map<String, Object> jwks) {
+        Object rawKeys = jwks == null ? null : jwks.get("keys");
+        if (!(rawKeys instanceof java.util.List) || ((java.util.List<?>) rawKeys).isEmpty()) {
+            throw new IllegalArgumentException("JWK Set carries no keys: expected {\"keys\":[...]}");
+        }
+        java.util.List<JsonWebKey> keys = new java.util.ArrayList<>();
+        java.util.Set<String> kids = new java.util.HashSet<>();
+        for (Object raw : (java.util.List<?>) rawKeys) {
+            if (!(raw instanceof Map)) {
+                throw new IllegalArgumentException("JWK Set entry is not a JWK object");
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> jwk = (Map<String, Object>) raw;
+            Object kid = jwk.get("kid");
+            if (!(kid instanceof String) || ((String) kid).isBlank()) {
+                throw new IllegalArgumentException("JWK Set key has no kid: every Federation Entity Key needs a unique one (OpenID Federation 1.0 §3.1.1)");
+            }
+            if (!kids.add((String) kid)) {
+                throw new IllegalArgumentException("JWK Set has a duplicate kid '" + kid + "' (OpenID Federation 1.0 §3.1.1)");
+            }
+            assertPublicOnly(jwk);
+            JsonWebKey parsed;
+            try {
+                parsed = fromMap(jwk);
+            } catch (JoseException e) {
+                throw new IllegalArgumentException("JWK Set key '" + kid + "' does not parse as a JWK", e);
+            }
+            if (!(parsed instanceof PublicJsonWebKey)) {
+                throw new IllegalArgumentException("JWK Set key '" + kid + "' is not an asymmetric key");
+            }
+            keys.add(parsed);
+        }
+        return java.util.List.copyOf(keys);
+    }
+
     /** Returns the {@link Key} (public) for an asymmetric JWK map, rejecting symmetric keys. */
     public static Key publicKey(Map<String, Object> jwk) throws JoseException {
         JsonWebKey parsed = Jwks.fromMap(jwk);

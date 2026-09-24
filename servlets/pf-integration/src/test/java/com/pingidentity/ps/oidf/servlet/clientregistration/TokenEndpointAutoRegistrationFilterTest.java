@@ -51,9 +51,7 @@ class TokenEndpointAutoRegistrationFilterTest {
     void resetRuntimeConfig() throws Exception {
         System.clearProperty(HOST_PROP);
         System.clearProperty(ANCHOR_JWKS_PROP);
-        java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
-        instance.setAccessible(true);
-        instance.set(null, null);
+        FederationRuntimeConfig.resetForTests();
     }
 
     // ---- init: the anchor's keys are pinned, or the filter does not start ---------------------------

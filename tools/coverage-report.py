@@ -64,7 +64,8 @@ PREFIX_RE = re.compile(r"^[A-Z][A-Z0-9.-]*$")
 NOT_A_PREFIX = {"SPEC", "RUNTIME"}
 
 MATRIX_DOCS = ("docs/client-attestation-architecture.md",
-               "docs/ai-agent-attestation-profile-1_0.md")
+               "docs/ai-agent-attestation-profile-1_0.md",
+               "docs/federation/conformance-matrix.md")
 # A matrix row declares its id as the first cell, backticked and nothing else. Restricting to that
 # shape keeps ids cited in prose out of the denominator.
 MATRIX_ROW_RE = re.compile(r"^\|\s*`([^`]+)`\s*\|", re.M)
@@ -415,8 +416,8 @@ def render_md(d):
             unpinned = [(rid, doc) for rid, doc, p in matrix if not p]
             covered = len(matrix) - len(unpinned)
             w(f"**{covered} of {len(matrix)} conformance-matrix rows are pinned by a test.** The")
-            w("denominator is the rows that declare an id in `docs/client-attestation-architecture.md`")
-            w("and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is")
+            w("denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,")
+            w("`docs/ai-agent-attestation-profile-1_0.md` and `docs/federation/conformance-matrix.md`. A row written at section granularity is")
             w("satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins")
             w("`CAS §4.3`.")
             w("")

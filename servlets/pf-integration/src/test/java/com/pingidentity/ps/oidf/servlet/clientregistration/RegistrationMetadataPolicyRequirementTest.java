@@ -58,9 +58,7 @@ class RegistrationMetadataPolicyRequirementTest {
     @AfterEach
     void clearConfig() throws Exception {
         System.clearProperty(REQUIRE_PROP);
-        java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
-        instance.setAccessible(true);
-        instance.set(null, null);
+        FederationRuntimeConfig.resetForTests();
     }
 
     private RegistrationService service(TrustChainValidator validator, ClientStore store) {
@@ -189,9 +187,7 @@ class RegistrationMetadataPolicyRequirementTest {
     @Test
     void theRequirementCanBeTurnedOffDeliberately() throws Exception {
         System.setProperty(REQUIRE_PROP, "false");
-        java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
-        instance.setAccessible(true);
-        instance.set(null, null);
+        FederationRuntimeConfig.resetForTests();
 
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);

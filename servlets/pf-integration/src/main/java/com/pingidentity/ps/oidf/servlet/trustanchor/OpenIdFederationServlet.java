@@ -4,11 +4,13 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -37,10 +39,30 @@ extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private FederationService federationService;
     private FederationConfiguration federationConfiguration;
+    private final Function<HttpServletRequest, String> issuerResolver;
     private static final Log log = LogFactory.getLog(OpenIdFederationServlet.class);
+
+    public OpenIdFederationServlet() {
+        this.issuerResolver = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+    }
+
+    /**
+     * Test seam: a ready service and configuration, and an issuer resolver, so the servlet runs without a
+     * booted PingFederate ({@link OAuthIssuerUtils} and PF's signing keys need one).
+     */
+    OpenIdFederationServlet(FederationService service, FederationConfiguration configuration,
+                            Function<HttpServletRequest, String> issuerResolver) {
+        this.federationService = service;
+        this.federationConfiguration = configuration;
+        this.issuerResolver = issuerResolver;
+    }
 
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        PfAuditEventSink.install();
+        if (this.federationService != null) {
+            return;
+        }
         try {
             this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
             // The war's context path (e.g. "/oidf") — the entity's identity is PF's path-less OAuth
@@ -78,7 +100,7 @@ extends HttpServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getServletPath();
         this.applyCorsHeaders(resp);
-        String oidcIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        String oidcIssuer = this.issuerResolver.apply(req);
         try {
             switch (path) {
                 case "/.well-known/openid-federation": {

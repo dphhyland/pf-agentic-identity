@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**1392 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**1494 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -18,13 +18,13 @@ which says nothing about whether the security paths are the covered ones.
 
 | Module | Gated methods | Gate | Module instructions | Tests |
 |---|---:|---|---:|---:|
-| `libs/oidf-jose` | 10 | green | 82% | 87 |
+| `libs/oidf-jose` | 10 | green | 88% | 128 |
 | `libs/app-attest` | 8 | green | 82% | 40 |
 | `libs/device-instance` | 15 | green | 85% | 65 |
 | `libs/client-attestation` | 8 | green | 77% | 105 |
-| `libs/openid-federation` | 15 | green | 72% | 159 |
+| `libs/openid-federation` | 15 | green | 81% | 197 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 24 | green | 57% | 164 |
+| `servlets/pf-integration` | 24 | green | 62% | 187 |
 | `servlets/attestation-issuer` | 14 | green | 85% | 202 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |
@@ -71,7 +71,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
 | OIDC-CORE | 1 | 3 |
-| OIDFED | 13 | 67 |
+| OIDFED | 21 | 89 |
 | PF-SDK *(vendor interface, see below)* | 3 | 6 |
 | PROFILE | 12 | 35 |
 | RFC6749 | 1 | 1 |
@@ -90,11 +90,11 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 16 | 55 |
 | UNVERIFIED | 2 | 10 |
 
-**136 distinct requirements pinned by 380 tests.**
+**144 distinct requirements pinned by 402 tests.**
 
-**72 of 79 conformance-matrix rows are pinned by a test.** The
-denominator is the rows that declare an id in `docs/client-attestation-architecture.md`
-and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is
+**80 of 87 conformance-matrix rows are pinned by a test.** The
+denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,
+`docs/ai-agent-attestation-profile-1_0.md` and `docs/federation/conformance-matrix.md`. A row written at section granularity is
 satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins
 `CAS §4.3`.
 

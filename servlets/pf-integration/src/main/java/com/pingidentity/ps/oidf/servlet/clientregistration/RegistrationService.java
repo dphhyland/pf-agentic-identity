@@ -290,6 +290,10 @@ final class RegistrationService {
         client.setRedirectUris(redirectUris != null ? redirectUris : new ArrayList<>());
         List responseTypes = (List)oidcRPMetadata.get("response_types");
         client.setRestrictedResponseTypes(responseTypes != null ? responseTypes : new ArrayList<>());
+        // The list alone restricts nothing: PingFederate consults restrictedResponseTypes only when
+        // restrictResponseTypes is set. Until this flag was set a federation client could use any response
+        // type the server allows, whatever its (policy-constrained) metadata said.
+        client.setRestrictResponseTypes(true);
         List grantTypes = (List)oidcRPMetadata.get("grant_types");
         client.setGrantTypes(grantTypes != null ? new HashSet(grantTypes) : new HashSet());
         client.setTokenEndpointAuthSigningAlgorithm(metadataString(oidcRPMetadata, "token_endpoint_auth_signing_alg"));
@@ -299,6 +303,10 @@ final class RegistrationService {
         List<String> scopes = scope == null ? List.of()
                 : Arrays.stream(scope.trim().split(" +")).filter(s -> !s.isBlank()).toList();
         client.setRestrictedScopes(scopes);
+        // Likewise for scopes: without the flag PF ignores the list and the client may request any scope the
+        // server defines - exactly what a superior's metadata_policy on `scope` exists to prevent. With it, a
+        // leaf that declares no scope may request none.
+        client.setRestrictScopes(true);
         client.setBypassApprovalPage(bypassApprovalPage(grantTypes));
         HashMap<String, ParamValues> extendedParams = new HashMap<String, ParamValues>();
         // Every name written here must be declared in extended-properties.tf or PF rejects/drops it -

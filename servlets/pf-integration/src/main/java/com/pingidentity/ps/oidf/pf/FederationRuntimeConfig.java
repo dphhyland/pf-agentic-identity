@@ -1,8 +1,11 @@
 package com.pingidentity.ps.oidf.pf;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import java.util.function.Function;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
+import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 
 /**
  * The deployment-wide federation settings, resolved once from the process environment.
@@ -55,6 +58,20 @@ public final class FederationRuntimeConfig {
      */
     public static final String REQUIRE_METADATA_POLICY_ENV = "OIDF_REQUIRE_METADATA_POLICY";
 
+    /**
+     * Superseded names for the settings above. The attestation issuer's wallet-provider trust read the same
+     * three concepts under these names, so one deployment could name two different trust controllers without
+     * noticing. They are still accepted, with a warning naming the replacement; setting an old and a new
+     * name to different values refuses to start, because two anchors for one concept is the mistake the
+     * rename exists to prevent.
+     */
+    public static final String DEPRECATED_HOST_ENV = "OIDF_TRUST_CONTROLLER_HOST";
+    public static final String DEPRECATED_TRUST_ANCHOR_JWKS_ENV = "OIDF_TRUST_ANCHOR_JWKS";
+    public static final String DEPRECATED_IGNORE_SSL_ENV = "OIDF_TRUST_CONTROLLER_IGNORE_SSL";
+    private static final String DEPRECATED_HOST_PROP = "oidf.trust.controller.host";
+    private static final String DEPRECATED_TRUST_ANCHOR_JWKS_PROP = "oidf.trust.anchor.jwks";
+    private static final String DEPRECATED_IGNORE_SSL_PROP = "oidf.trust.controller.ignore.ssl";
+
     private static final String HOST_PROP = "oidf.federation.trust.controller.host";
     private static final String BASE_URL_PROP = "oidf.federation.trust.controller.base.url";
     private static final String TRUST_ANCHOR_JWKS_PROP = "oidf.federation.trust.anchor.jwks";
@@ -76,10 +93,12 @@ public final class FederationRuntimeConfig {
     private final boolean requireBridgeKey;
     private final boolean requireMetadataPolicy;
     private final boolean requireAttesterBinding;
+    private final List<String> deprecationWarnings;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
-            boolean requireMetadataPolicy, boolean requireAttesterBinding) {
+            boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings) {
+        this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.trustAnchorJwks = blankToNull(trustAnchorJwks);
         this.bridgePrivateJwk = blankToNull(bridgePrivateJwk);
         this.bridgePreviousPublicJwk = blankToNull(bridgePreviousPublicJwk);
@@ -109,18 +128,42 @@ public final class FederationRuntimeConfig {
         return local;
     }
 
-    /** Test seam: resolve from supplied lookups instead of the real process environment. */
+    /**
+     * Installs {@code config} as the process-wide configuration. Tests use it in place of reflection; a
+     * deployment never needs it, since {@link #get()} resolves from the environment on first use.
+     */
+    public static void install(FederationRuntimeConfig config) {
+        synchronized (FederationRuntimeConfig.class) {
+            instance = Objects.requireNonNull(config, "config");
+        }
+    }
+
+    /** Tests only: forget the resolved configuration so the next {@link #get()} resolves again. */
+    public static void resetForTests() {
+        synchronized (FederationRuntimeConfig.class) {
+            instance = null;
+        }
+    }
+
+    /**
+     * Test seam: resolve from supplied lookups instead of the real process environment.
+     *
+     * @throws IllegalStateException when a superseded name and its replacement are both set to different values
+     */
     public static FederationRuntimeConfig from(Function<String, String> env, Function<String, String> props) {
         Objects.requireNonNull(env, "env");
         Objects.requireNonNull(props, "props");
+        List<String> deprecations = new ArrayList<>();
         String requireBridge = setting(env, props, REQUIRE_BRIDGE_KEY_PROP, REQUIRE_BRIDGE_KEY_ENV);
         String requirePolicy = setting(env, props, REQUIRE_METADATA_POLICY_PROP, REQUIRE_METADATA_POLICY_ENV);
         String requireBinding = setting(env, props, REQUIRE_ATTESTER_BINDING_PROP, REQUIRE_ATTESTER_BINDING_ENV);
         return new FederationRuntimeConfig(
-                setting(env, props, HOST_PROP, HOST_ENV),
+                aliased(env, props, HOST_PROP, HOST_ENV, DEPRECATED_HOST_PROP, DEPRECATED_HOST_ENV, deprecations),
                 setting(env, props, BASE_URL_PROP, BASE_URL_ENV),
-                setting(env, props, TRUST_ANCHOR_JWKS_PROP, TRUST_ANCHOR_JWKS_ENV),
-                Boolean.parseBoolean(setting(env, props, IGNORE_SSL_PROP, IGNORE_SSL_ENV)),
+                aliased(env, props, TRUST_ANCHOR_JWKS_PROP, TRUST_ANCHOR_JWKS_ENV, DEPRECATED_TRUST_ANCHOR_JWKS_PROP,
+                        DEPRECATED_TRUST_ANCHOR_JWKS_ENV, deprecations),
+                Boolean.parseBoolean(aliased(env, props, IGNORE_SSL_PROP, IGNORE_SSL_ENV, DEPRECATED_IGNORE_SSL_PROP,
+                        DEPRECATED_IGNORE_SSL_ENV, deprecations)),
                 setting(env, props, BRIDGE_KEY_PROP, BRIDGE_KEY_ENV),
                 setting(env, props, BRIDGE_PREVIOUS_PUBLIC_KEY_PROP, BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
                 // Default TRUE: an absent bridge key makes attestation authentication a no-op, which
@@ -131,7 +174,31 @@ public final class FederationRuntimeConfig {
                 requirePolicy == null || requirePolicy.isBlank() || Boolean.parseBoolean(requirePolicy),
                 // Default TRUE: a client anyone trusted may vouch for is a client anyone trusted may
                 // impersonate at the bridge.
-                requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding));
+                requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding),
+                deprecations);
+    }
+
+    /**
+     * {@link #setting} for a name with a superseded spelling: the new name wins; the old one is used only
+     * when the new one is unset, and leaves a warning; both set to different values is a refusal.
+     */
+    private static String aliased(Function<String, String> env, Function<String, String> props, String prop, String var,
+            String oldProp, String oldVar, List<String> deprecations) {
+        String current = blankToNull(setting(env, props, prop, var));
+        String old = blankToNull(setting(env, props, oldProp, oldVar));
+        if (old == null) {
+            return current;
+        }
+        if (current == null) {
+            deprecations.add(oldVar + " is deprecated; set " + var + " instead (the value was taken from " + oldVar + ")");
+            return old;
+        }
+        if (!current.equals(old)) {
+            throw new IllegalStateException(var + " and its superseded name " + oldVar + " are both set, to different values."
+                    + " They name one thing - set only " + var);
+        }
+        deprecations.add(oldVar + " is deprecated and redundant beside " + var + "; remove it");
+        return current;
     }
 
     private static String blankToNull(String value) {
@@ -188,7 +255,35 @@ public final class FederationRuntimeConfig {
                     + " its .well-known over HTTPS: capture the jwks claim of " + this.trustControllerHost
                     + "/.well-known/openid-federation once, from a position you trust, and set it as " + TRUST_ANCHOR_JWKS_ENV);
         }
+        if (TrustAnchorSet.looksLikeAnchorMap(this.trustAnchorJwks)) {
+            return TrustAnchorSet.parseJson(this.trustAnchorJwks).find(this.trustControllerHost).orElseThrow(() ->
+                    new IllegalStateException(HOST_ENV + " names " + this.trustControllerHost + " but the anchor map in "
+                            + TRUST_ANCHOR_JWKS_ENV + " has no entry for it"));
+        }
         return TrustAnchor.parse(this.trustControllerHost, this.trustAnchorJwks);
+    }
+
+    /**
+     * Every Trust Anchor this deployment validates chains against, in preference order.
+     *
+     * <p>{@link #TRUST_ANCHOR_JWKS_ENV} holds either one JWK Set - the anchor named by {@link #HOST_ENV}, as
+     * before - or a map of anchors, {@code {"<anchor entity id>": {"keys":[...]}, ...}}, whose member order is
+     * the preference order (OpenID Federation 1.0 §10.3). In map form the controller host need not be an
+     * anchor at all.
+     *
+     * @throws IllegalStateException when nothing is configured, or a host is named without keys
+     * @throws IllegalArgumentException when a configured key set is not usable
+     */
+    public TrustAnchorSet trustAnchors() {
+        if (TrustAnchorSet.looksLikeAnchorMap(this.trustAnchorJwks)) {
+            return TrustAnchorSet.parseJson(this.trustAnchorJwks);
+        }
+        return TrustAnchorSet.of(this.trustAnchor());
+    }
+
+    /** Warnings about superseded setting names in use, for logging once at start-up. */
+    public List<String> deprecationWarnings() {
+        return this.deprecationWarnings;
     }
 
     /**

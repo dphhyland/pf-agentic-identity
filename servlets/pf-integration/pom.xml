@@ -40,10 +40,15 @@
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
+        <!-- PfTracking reads and sets PingFederate's own "trackingid" in the log4j2 ThreadContext, so event lines
+             written off a request thread (the subordinate refresher, the registration sweeper) still correlate.
+             PF ships log4j-api; as in servlets/ssf, it is provided. -->
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>

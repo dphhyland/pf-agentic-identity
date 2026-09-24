@@ -60,6 +60,7 @@
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>agent-registry</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId><version>${version.internal}</version></dependency>

@@ -30,9 +30,7 @@ class ConfiguredAnchorAgreementTest {
     void reset() throws Exception {
         System.clearProperty(HOST_PROP);
         System.clearProperty(JWKS_PROP);
-        java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
-        instance.setAccessible(true);
-        instance.set(null, null);
+        FederationRuntimeConfig.resetForTests();
     }
 
     private static void configure(String host) throws Exception {

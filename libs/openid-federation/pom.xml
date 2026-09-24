@@ -57,6 +57,18 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <!-- The federation test kit (testkit package: keys, statements, a whole signed federation served
+                 through the HttpGetClient seam, a movable clock, an event capture) is reused by pf-integration's
+                 and attestation-issuer's tests. Publishing it as a test-jar, as app-attest does, beats three
+                 modules each growing their own chain builder. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <executions>
+                    <execution><goals><goal>test-jar</goal></goals></execution>
+                </executions>
+            </plugin>
 
             <!--
               Coverage gate on the trust decisions this module makes: which staged statement a
