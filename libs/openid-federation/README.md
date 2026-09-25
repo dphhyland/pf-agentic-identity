@@ -73,7 +73,12 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   `federation_entity` metadata, the list endpoint's `trust_marked` and `trust_mark_type` filters, and the marks it
   issues itself in its own `trust_marks`. As a trust anchor it publishes `trust_mark_issuers` (naming itself for
   the types it issues) and `trust_mark_owners`. Given **`HistoricalKeys`** it answers the historical keys endpoint (§8.7):
-  a signed `jwk-set+jwt` of the keys it signed with before.
+  a signed `jwk-set+jwt` of the keys it signed with before. Given an **`EndpointAuthPolicy`** (§8.8: each endpoint
+  `none`, `optional` or `required`, published as its `_auth_methods`) it tells its caller who a request's client is:
+  **`EndpointClientAuthentication`** checks a `private_key_jwt` assertion - `iss` = `sub` = the client, `aud` this
+  entity and nothing else, an `exp` at most ten minutes off, a `jti` spent once and remembered until then - against the
+  keys the client's Entity Configuration publishes, once its chain has validated to an anchor the resolver trusts,
+  eight look-ups at a time. So client authentication needs a resolver.
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).
   The latter is the `openid_provider` attestation capability set the entity configuration advertises:
   auth methods, per-JWT algorithm lists, `attestation_pop_jwt` + `dpop_combined`, challenge endpoint.

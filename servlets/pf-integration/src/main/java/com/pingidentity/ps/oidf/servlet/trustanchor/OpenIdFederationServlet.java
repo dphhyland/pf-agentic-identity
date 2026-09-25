@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
@@ -24,6 +25,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
+import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.federation.EndpointAuthPolicy;
+import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.FederationService;
 import com.pingidentity.ps.oidf.federation.FederationConfiguration;
 import com.pingidentity.ps.oidf.federation.FederationError;
@@ -59,6 +63,18 @@ extends HttpServlet {
     /** PingFederate's own discovery documents, which this entity's openid_provider and AS metadata start from. */
     private final PfProviderMetadata providerMetadata;
     private static final Log log = LogFactory.getLog(OpenIdFederationServlet.class);
+    private static final String TRUST_MARK_STATUS = "/federation/trust_mark_status";
+    /** Where a client's spent endpoint-assertion {@code jti} values are kept, apart from every other replay cache user. */
+    private static final String ENDPOINT_REPLAY_NAMESPACE = "oidf-endpoint-auth:";
+    /** Each federation endpoint this servlet serves, by the §5.1.1 metadata name §8.8.1 builds its {@code _auth_methods} from. */
+    static final Map<String, String> ENDPOINTS = Map.of(
+            "/federation/fetch", "federation_fetch_endpoint",
+            "/federation/list", "federation_list_endpoint",
+            "/federation/resolve", "federation_resolve_endpoint",
+            "/federation/trust_mark", "federation_trust_mark_endpoint",
+            TRUST_MARK_STATUS, "federation_trust_mark_status_endpoint",
+            "/federation/trust_marked_list", "federation_trust_mark_list_endpoint",
+            "/federation/historical_keys", "federation_historical_keys_endpoint");
 
     public OpenIdFederationServlet() {
         this.issuerResolver = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
@@ -154,6 +170,19 @@ extends HttpServlet {
                 history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
                 service.historicalKeys(history);
             }
+            EndpointAuthPolicy endpointAuth = runtime.endpointAuth();
+            // A spent jti is kept where attestation keeps its own - Redis when configured - so a replay is caught on any node.
+            service.endpointAuth(endpointAuth, (client, jti, ttl) -> AttestationSupport.replayCache().firstSeen(ENDPOINT_REPLAY_NAMESPACE + client, jti, ttl));
+            if (endpointAuth.anyEnabled()) {
+                java.util.Map<String, String> modes = new java.util.TreeMap<>();
+                for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
+                    if (endpointAuth.mode(endpoint) != EndpointAuthPolicy.Mode.NONE) {
+                        modes.put(endpoint, endpointAuth.mode(endpoint).name().toLowerCase(java.util.Locale.ROOT));
+                    }
+                }
+                log.info("Client authentication at the federation endpoints (OpenID Federation 1.0 §8.8): " + modes + ", signed with "
+                        + endpointAuth.signingAlgorithms());
+            }
             this.federationService = service.build();
             if (history != null) {
                 recordSigningKey(history, this.federationService.signingKey());
@@ -185,58 +214,85 @@ extends HttpServlet {
         String oidcIssuer = this.issuerResolver.apply(req);
         this.providerMetadata.refresh(oidcIssuer, req);
         try {
-            switch (path) {
-                case "/.well-known/openid-federation": {
-                    this.handleFederationMetadata(resp, oidcIssuer);
-                    break;
+            String endpoint = ENDPOINTS.get(path);
+            if (endpoint != null && !TRUST_MARK_STATUS.equals(path)) {
+                if (req.getParameter("client_assertion") != null || req.getParameter("client_assertion_type") != null) {
+                    throw new FederationException(FederationError.INVALID_REQUEST, "a client authenticates with a POST, its assertion"
+                            + " in the body, never in a query string (OpenID Federation 1.0 §8.8)");
                 }
-                case "/federation/entity": {
-                    this.handleEntityStatement(req, resp, oidcIssuer);
-                    break;
+                // An endpoint that requires client authentication refuses a GET here.
+                this.federationService.authenticateClient(endpoint, null, null, oidcIssuer);
+            }
+            this.serve(path, req, resp, oidcIssuer, null, false);
+        }
+        catch (Exception e) {
+            FederationErrors.write(resp, e);
+        }
+    }
+
+    /**
+     * One endpoint's answer to a request that has been let through: a POST when {@code post}, from {@code client} when it
+     * authenticated (§8.8).
+     */
+    private void serve(String path, HttpServletRequest req, HttpServletResponse resp, String oidcIssuer, String client, boolean post)
+            throws Exception {
+        switch (path) {
+            case "/.well-known/openid-federation": {
+                this.handleFederationMetadata(resp, oidcIssuer);
+                break;
+            }
+            case "/federation/entity": {
+                this.handleEntityStatement(req, resp, oidcIssuer);
+                break;
+            }
+            case "/federation/fetch": {
+                this.handleFetch(req, resp, oidcIssuer);
+                break;
+            }
+            case "/federation/list": {
+                this.handleList(req, resp, oidcIssuer);
+                break;
+            }
+            case "/federation/resolve": {
+                this.handleResolve(req, resp, oidcIssuer, client);
+                break;
+            }
+            case "/federation/trust_mark": {
+                this.handleTrustMark(req, resp, oidcIssuer, client);
+                break;
+            }
+            case "/federation/historical_keys": {
+                String jwt = this.federationService.historicalKeys(oidcIssuer);
+                resp.setStatus(200);
+                resp.setContentType("application/jwk-set+jwt");
+                try (PrintWriter out = resp.getWriter()) {
+                    out.write(jwt);
                 }
-                case "/federation/fetch": {
-                    this.handleFetch(req, resp, oidcIssuer);
-                    break;
-                }
-                case "/federation/list": {
-                    this.handleList(req, resp, oidcIssuer);
-                    break;
-                }
-                case "/federation/resolve": {
-                    this.handleResolve(req, resp, oidcIssuer);
-                    break;
-                }
-                case "/federation/trust_mark": {
-                    this.handleTrustMark(req, resp, oidcIssuer);
-                    break;
-                }
-                case "/federation/historical_keys": {
-                    String jwt = this.federationService.historicalKeys(oidcIssuer);
-                    resp.setStatus(200);
-                    resp.setContentType("application/jwk-set+jwt");
-                    try (PrintWriter out = resp.getWriter()) {
-                        out.write(jwt);
-                    }
-                    break;
-                }
-                case "/federation/trust_marked_list": {
-                    writeJson(resp, 200, toJsonStringArray(this.federationService.trustMarkedEntities(optional(req, "trust_mark_type"),
-                            optional(req, "sub"))));
-                    break;
-                }
-                case "/federation/trust_mark_status": {
+                break;
+            }
+            case "/federation/trust_marked_list": {
+                writeJson(resp, 200, toJsonStringArray(this.federationService.trustMarkedEntities(optional(req, "trust_mark_type"),
+                        optional(req, "sub"))));
+                break;
+            }
+            case TRUST_MARK_STATUS: {
+                if (!post) {
                     resp.setHeader("Allow", "POST");
                     FederationErrors.write(resp, 405, "invalid_request", "the Trust Mark Status endpoint takes POST (OpenID Federation 1.0 §8.4.1)", null);
                     break;
                 }
-                default: {
-                    FederationErrors.write(resp, FederationError.NOT_FOUND, "unknown endpoint", null);
-                    break;
+                String jwt = this.federationService.trustMarkStatus(optional(req, "trust_mark"), oidcIssuer);
+                resp.setStatus(200);
+                resp.setContentType("application/trust-mark-status-response+jwt");
+                try (PrintWriter out = resp.getWriter()) {
+                    out.write(jwt);
                 }
+                break;
             }
-        }
-        catch (Exception e) {
-            FederationErrors.write(resp, e);
+            default: {
+                FederationErrors.write(resp, FederationError.NOT_FOUND, "unknown endpoint", null);
+                break;
+            }
         }
     }
 
@@ -258,31 +314,59 @@ extends HttpServlet {
         }
     }
 
-    /** Only the Trust Mark Status endpoint takes POST (§8.4.1); client authentication (§8.8) will add the others. */
+    /**
+     * POST is how the Trust Mark Status endpoint is asked (§8.4.1), and how a client that authenticates asks any endpoint that
+     * takes client authentication (§8.8): the assertion and the endpoint's own parameters in the body, none in the query
+     * string. Anywhere else a POST that doesn't authenticate is refused - the endpoint takes GET.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         this.applyCorsHeaders(resp);
-        if (!"/federation/trust_mark_status".equals(req.getServletPath())) {
+        String path = req.getServletPath();
+        String endpoint = ENDPOINTS.get(path);
+        if (endpoint == null) {
             resp.setHeader("Allow", "GET");
             FederationErrors.write(resp, 405, "invalid_request", "this endpoint takes GET", null);
             return;
         }
         try {
-            String jwt = this.federationService.trustMarkStatus(optional(req, "trust_mark"), this.issuerResolver.apply(req));
-            resp.setStatus(200);
-            resp.setContentType("application/trust-mark-status-response+jwt");
-            try (PrintWriter out = resp.getWriter()) {
-                out.write(jwt);
+            String oidcIssuer = this.issuerResolver.apply(req);
+            String assertion = optional(req, "client_assertion");
+            String assertionType = optional(req, "client_assertion_type");
+            boolean authenticating = assertion != null || assertionType != null;
+            EndpointAuthPolicy.Mode mode = this.federationService.endpointAuth().mode(endpoint);
+            if (!authenticating && !TRUST_MARK_STATUS.equals(path) && mode != EndpointAuthPolicy.Mode.REQUIRED) {
+                if (mode == EndpointAuthPolicy.Mode.NONE) {
+                    resp.setHeader("Allow", "GET");
+                    FederationErrors.write(resp, 405, "invalid_request", "this endpoint takes GET", null);
+                    return;
+                }
+                throw new FederationException(FederationError.INVALID_REQUEST, "a POST here authenticates the client: send"
+                        + " client_assertion and client_assertion_type in the body, or ask with a GET (OpenID Federation 1.0 §8.8)");
             }
+            if (authenticating && req.getQueryString() != null) {
+                throw new FederationException(FederationError.INVALID_REQUEST, "an authenticated request carries its parameters in"
+                        + " the POST body, not the query string (OpenID Federation 1.0 §8.8)");
+            }
+            String client = this.federationService.authenticateClient(endpoint, assertionType, assertion, oidcIssuer);
+            this.serve(path, req, resp, oidcIssuer, client, true);
         }
         catch (Exception e) {
             FederationErrors.write(resp, e);
         }
     }
 
-    /** §8.6: the mark of {@code trust_mark_type} this entity issues to {@code sub}, as {@code application/trust-mark+jwt}. */
-    private void handleTrustMark(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws Exception {
-        String jwt = this.federationService.trustMark(optional(req, "trust_mark_type"), optional(req, "sub"), oidcIssuer);
+    /**
+     * §8.6: the mark of {@code trust_mark_type} this entity issues to {@code sub}, as {@code application/trust-mark+jwt}. A client
+     * that authenticated asks only for its own: §8.6.1 lets an endpoint serve it another entity's, and this one doesn't.
+     */
+    private void handleTrustMark(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer, String client) throws Exception {
+        String subject = optional(req, "sub");
+        if (client != null && subject != null && !EntityId.same(client, subject)) {
+            throw new FederationException(FederationError.INVALID_REQUEST, "an authenticated client is given its own Trust Marks"
+                    + " here, not another entity's (OpenID Federation 1.0 §8.6.1)");
+        }
+        String jwt = this.federationService.trustMark(optional(req, "trust_mark_type"), subject, oidcIssuer);
         resp.setStatus(200);
         resp.setContentType("application/trust-mark+jwt");
         try (PrintWriter out = resp.getWriter()) {
@@ -360,10 +444,13 @@ extends HttpServlet {
         writeJson(resp, 200, toJsonStringArray(entities));
     }
 
-    /** §8.3: a signed {@code resolve-response+jwt}; {@code trust_anchor} and {@code entity_type} may repeat. */
-    private void handleResolve(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws Exception {
+    /**
+     * §8.3: a signed {@code resolve-response+jwt}; {@code trust_anchor} and {@code entity_type} may repeat. A client that
+     * authenticated is its audience (§8.3.2).
+     */
+    private void handleResolve(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer, String client) throws Exception {
         ResolveRequest request = new ResolveRequest(optional(req, "sub"), repeated(req, "trust_anchor"), repeated(req, "entity_type"));
-        String jwt = this.federationService.resolve(request, oidcIssuer);
+        String jwt = this.federationService.resolve(request, oidcIssuer, client);
         resp.setStatus(200);
         resp.setContentType("application/resolve-response+jwt");
         try (PrintWriter out = resp.getWriter()) {

@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2189 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2226 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -22,9 +22,9 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/app-attest` | 8 | green | 82% | 40 |
 | `libs/device-instance` | 15 | green | 85% | 65 |
 | `libs/client-attestation` | 8 | green | 77% | 105 |
-| `libs/openid-federation` | 210 | green | 97% | 534 |
+| `libs/openid-federation` | 217 | green | 97% | 560 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 173 | green | 87% | 532 |
+| `servlets/pf-integration` | 175 | green | 87% | 543 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |
@@ -34,7 +34,7 @@ which says nothing about whether the security paths are the covered ones.
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 37% | 83 |
 
-**517 methods gated across the reactor, all green.**
+**526 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -70,8 +70,8 @@ the three ways to get an id wrong, are documented on the annotation itself
 | FAPI2-SP | 2 | 16 |
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
-| OIDC-CORE | 1 | 3 |
-| OIDFED | 336 | 610 |
+| OIDC-CORE | 2 | 9 |
+| OIDFED | 349 | 655 |
 | PF-SDK *(vendor interface, see below)* | 3 | 6 |
 | PROFILE | 12 | 35 |
 | RFC6749 | 1 | 3 |
@@ -90,9 +90,9 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 16 | 55 |
 | UNVERIFIED | 1 | 5 |
 
-**466 distinct requirements pinned by 978 tests.**
+**480 distinct requirements pinned by 1029 tests.**
 
-**206 of 213 conformance-matrix rows are pinned by a test.** The
+**209 of 216 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,
 `docs/ai-agent-attestation-profile-1_0.md` and `docs/federation/conformance-matrix.md`. A row written at section granularity is
 satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins

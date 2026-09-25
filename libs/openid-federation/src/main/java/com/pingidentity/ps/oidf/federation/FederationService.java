@@ -84,6 +84,9 @@ public final class FederationService {
     private final Map<String, List<String>> trustMarkIssuers;
     private final Map<String, Object> trustMarkOwners;
     private final ProviderMetadata providerMetadata;
+    private final EndpointAuthPolicy endpointAuth;
+    /** Null when no endpoint takes client authentication. */
+    private final EndpointClientAuthentication clientAuthentication;
     /** Marks minted, by issuer, type and subject: served again until half their life is gone or their grant changes. */
     private final Map<String, Minted> minted = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
         private static final long serialVersionUID = 1L;
@@ -158,6 +161,15 @@ public final class FederationService {
         this.trustMarkOwners = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkOwners));
         this.providerMetadata = b.providerMetadata;
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
+        this.endpointAuth = b.endpointAuth;
+        if (this.endpointAuth.anyEnabled() && !this.resolveEnabled()) {
+            // A client is known by its chain, and a chain needs an anchor to end at.
+            throw new IllegalStateException("client authentication at the federation endpoints needs the trust anchors a"
+                    + " client's chain validates to, and none is configured (OpenID Federation 1.0 §8.8)");
+        }
+        this.clientAuthentication = this.endpointAuth.anyEnabled()
+                ? new EndpointClientAuthentication(Set.copyOf(this.endpointAuth.signingAlgorithms()), this.clock, b.endpointJtiGuard)
+                : null;
     }
 
     public static Builder builder(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -270,6 +282,18 @@ public final class FederationService {
             federationEntity.put("federation_trust_mark_endpoint", fedBase + "/federation/trust_mark");
             federationEntity.put("federation_trust_mark_status_endpoint", fedBase + "/federation/trust_mark_status");
             federationEntity.put("federation_trust_mark_list_endpoint", fedBase + "/federation/trust_marked_list");
+        }
+        boolean authenticates = false;
+        for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
+            List<String> methods = this.endpointAuth.authMethods(endpoint);
+            if (methods != null && federationEntity.containsKey(endpoint)) {
+                // §8.8.1: absent means ["none"], so only an endpoint that takes authentication says so.
+                federationEntity.put(endpoint + "_auth_methods", methods);
+                authenticates = true;
+            }
+        }
+        if (authenticates) {
+            federationEntity.put("endpoint_auth_signing_alg_values_supported", this.endpointAuth.signingAlgorithms());
         }
         if (this.configuration.organizationName() != null) {
             federationEntity.put("organization_name", this.configuration.organizationName());
@@ -600,6 +624,61 @@ public final class FederationService {
         return this.trustMarkIssuing.marked(type, subject == null || subject.isBlank() ? null : subject);
     }
 
+    // ---- client authentication (§8.8) ----------------------------------------------------------------
+
+    /** Which federation endpoints take client authentication (§8.8); {@link EndpointAuthPolicy#none()} unless configured. */
+    public EndpointAuthPolicy endpointAuth() {
+        return this.endpointAuth;
+    }
+
+    /**
+     * §8.8 for one request to {@code endpoint} (its §5.1.1 metadata name): who the client is, when it authenticated.
+     * An endpoint that requires authentication refuses a request without it; one that takes none refuses a request with
+     * it (§8.8.1: {@code ["none"]} means "only unauthenticated requests are accepted").
+     *
+     * @param assertionType the request's {@code client_assertion_type}, or null
+     * @param assertion     the request's {@code client_assertion}, or null
+     * @return the authenticated client's Entity Identifier, or null for a request that did not authenticate and did not
+     *         have to
+     * @throws FederationException {@code invalid_client} (401) when the client does not authenticate, or has to and
+     *                             didn't; {@code invalid_request} when it authenticated at an endpoint that takes none;
+     *                             {@code temporarily_unavailable} when its federation could not be reached to check it
+     */
+    public String authenticateClient(String endpoint, String assertionType, String assertion, String oidcIssuer) {
+        EndpointAuthPolicy.Mode mode = this.endpointAuth.mode(endpoint);
+        if (assertionType == null && assertion == null) {
+            if (mode == EndpointAuthPolicy.Mode.REQUIRED) {
+                throw this.clientRefused(endpoint, null, "missing", new FederationException(FederationError.INVALID_CLIENT,
+                        "this endpoint requires client authentication: POST a client_assertion signed with one of the client's"
+                                + " Federation Entity Keys (OpenID Federation 1.0 §8.8)"));
+            }
+            return null;
+        }
+        if (mode == EndpointAuthPolicy.Mode.NONE) {
+            throw this.clientRefused(endpoint, null, "not_accepted", new FederationException(FederationError.INVALID_REQUEST,
+                    "client authentication is not used at this endpoint; it takes only unauthenticated requests"
+                            + " (OpenID Federation 1.0 §8.8.1)"));
+        }
+        TrustChainValidator validator = new TrustChainValidator(
+                new LocalFirstTrustControllerGateway(this.resolverGateway, this.localStatements(oidcIssuer)),
+                this.resolverAnchors, this.resolverAlgorithms, this.resolverOptions);
+        String client;
+        try {
+            client = this.clientAuthentication.authenticate(validator, assertionType, assertion, oidcIssuer);
+        } catch (FederationException e) {
+            throw this.clientRefused(endpoint, null, e.error() == FederationError.TEMPORARILY_UNAVAILABLE ? "transport" : "invalid", e);
+        }
+        FederationEvents.event(FederationEvents.CLIENT_AUTHENTICATED).subject(client).role("federation_entity")
+                .field("endpoint", endpoint).emit();
+        return client;
+    }
+
+    private FederationException clientRefused(String endpoint, String client, String reason, FederationException e) {
+        FederationEvents.event(FederationEvents.CLIENT_REFUSED).failure(reason).subject(client).role("federation_entity").audit()
+                .field("endpoint", endpoint).description(e.description()).emit();
+        return e;
+    }
+
     // ---- resolve (§8.3) ------------------------------------------------------------------------------
 
     /**
@@ -614,6 +693,15 @@ public final class FederationService {
      *                             resolves unauthenticated (§18.1); and every chain refusal with its own code
      */
     public String resolve(ResolveRequest request, String oidcIssuer) throws JoseException {
+        return this.resolve(request, oidcIssuer, null);
+    }
+
+    /**
+     * {@link #resolve(ResolveRequest, String)} for a client that authenticated (§8.8): the response is addressed to it
+     * alone (§8.3.2: "the value MUST be the Entity Identifier of the requesting party and MUST NOT include any other
+     * values"). With {@code client} null, as for an unauthenticated request, it carries no {@code aud}.
+     */
+    public String resolve(ResolveRequest request, String oidcIssuer, String client) throws JoseException {
         String subject = request.subject();
         if (subject == null || subject.isBlank()) {
             throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
@@ -650,6 +738,9 @@ public final class FederationService {
         // §8.3.2: "the minimum of the exp value of the Trust Chain ..., as well as any Trust Mark included in the response".
         long marksExpire = marks.earliestExpiry();
         claims.setExpirationTime(NumericDate.fromSeconds(marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire)));
+        if (client != null) {
+            claims.setAudience(client);
+        }
         claims.setClaim("metadata", metadata);
         claims.setClaim("trust_chain", result.trustChain());
         if (!marks.verified().isEmpty()) {
@@ -883,6 +974,8 @@ public final class FederationService {
         private Map<String, List<String>> trustMarkIssuers = Map.of();
         private Map<String, Object> trustMarkOwners = Map.of();
         private ProviderMetadata providerMetadata = ProviderMetadata.NONE;
+        private EndpointAuthPolicy endpointAuth = EndpointAuthPolicy.none();
+        private EndpointClientAuthentication.JtiGuard endpointJtiGuard;
         private Clock clock;
 
         private Builder(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -989,6 +1082,19 @@ public final class FederationService {
         /** As a trust anchor: who owns which Trust Mark type ({@code trust_mark_owners}, §3.1.2). */
         public Builder trustMarkOwners(Map<String, Object> owners) {
             this.trustMarkOwners = owners == null ? Map.of() : owners;
+            return this;
+        }
+
+        /**
+         * Client authentication at this entity's federation endpoints (§8.8): which endpoints take it, and where each
+         * client's spent {@code jti} values are recorded.
+         *
+         * @throws IllegalStateException at {@link #build} when an endpoint takes it and no {@link #resolver} is configured:
+         *                               a client is known by its chain
+         */
+        public Builder endpointAuth(EndpointAuthPolicy policy, EndpointClientAuthentication.JtiGuard spent) {
+            this.endpointAuth = Objects.requireNonNull(policy, "policy");
+            this.endpointJtiGuard = Objects.requireNonNull(spent, "spent");
             return this;
         }
 

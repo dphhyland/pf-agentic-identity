@@ -58,6 +58,8 @@ public final class FederationEvents {
     public static final String FETCH = "federation.fetch.made";
     public static final String KEY_RETIRED = "federation.key.retired";
     public static final String KEY_REVOKED = "federation.key.revoked";
+    public static final String CLIENT_AUTHENTICATED = "federation.client.authenticated";
+    public static final String CLIENT_REFUSED = "federation.client.refused";
     public static final String ATTESTATION_VERIFIED = "attestation.client.verified";
     public static final String ATTESTATION_REFUSED = "attestation.client.refused";
 

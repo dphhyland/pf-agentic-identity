@@ -207,6 +207,8 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revoke(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.actor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.serve(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.endpointAuth(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleTrustMark(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.keys(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revokeKey(*</include>

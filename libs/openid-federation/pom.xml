@@ -195,6 +195,13 @@
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.isSuperior(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.resolveEnabled(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.selfMetadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.authenticateClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EndpointClientAuthentication.authenticate(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EndpointClientAuthentication.federationKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EndpointClientAuthentication.onlyAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EndpointAuthPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EndpointAuthPolicy.mode(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.EndpointAuthPolicy.authMethods(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.fetchSubordinateJwks(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.refreshSubordinateJwks(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.FederationService.createEntityStatement(*</include>

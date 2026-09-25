@@ -6,6 +6,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import com.pingidentity.ps.oidf.federation.Constraints;
+import com.pingidentity.ps.oidf.federation.EndpointAuthPolicy;
 import com.pingidentity.ps.oidf.federation.MetadataPolicy;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
@@ -145,6 +146,16 @@ public final class FederationRuntimeConfig {
     public static final String AUTHORITY_METADATA_POLICY_ENV = "OIDF_AUTHORITY_METADATA_POLICY";
     /** The {@code constraints} (§6.2) every Subordinate Statement this entity issues carries. */
     public static final String SUBORDINATE_CONSTRAINTS_ENV = "OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS";
+    /**
+     * Client authentication at this entity's federation endpoints (OpenID Federation 1.0 §8.8), as JSON naming each endpoint
+     * that takes it: {@code {"federation_fetch_endpoint": "required", "federation_resolve_endpoint": "optional"}}. An endpoint
+     * not named takes none, and unset none does - §8.8's default.
+     */
+    public static final String ENDPOINT_AUTH_ENV = "OIDF_FEDERATION_ENDPOINT_AUTH";
+    /** What a client may sign its endpoint client assertion with; default {@code RS256 PS256 ES256}. */
+    public static final String ENDPOINT_AUTH_SIGNING_ALGS_ENV = "OIDF_FEDERATION_ENDPOINT_AUTH_SIGNING_ALGS";
+    /** §5.1.1: "Servers SHOULD support RS256." */
+    static final List<String> DEFAULT_ENDPOINT_AUTH_SIGNING_ALGS = List.of("RS256", "PS256", "ES256");
     /** Which policy decides federation requests: {@code off}, {@code local} (the default) or {@code authzen}. */
     public static final String PDP_MODE_ENV = "OIDF_PDP_MODE";
     /** The AuthZEN PDP's base URL; its evaluation endpoint is {@code /access/v1/evaluation} under it unless discovered. */
@@ -409,14 +420,17 @@ public final class FederationRuntimeConfig {
     private final Map<String, Object> authorityMetadataPolicy;
     private final Map<String, Object> subordinateConstraints;
     private final PdpSettings pdp;
+    private final EndpointAuthPolicy endpointAuth;
 
     private FederationRuntimeConfig(String trustControllerHost, String trustControllerBaseUrl, String trustAnchorJwks,
             boolean ignoreSslErrors, String bridgePrivateJwk, String bridgePreviousPublicJwk, boolean requireBridgeKey,
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
             RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
             boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory,
-            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp, String selfAnchor) {
+            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp, String selfAnchor,
+            EndpointAuthPolicy endpointAuth) {
         this.selfAnchor = selfAnchor;
+        this.endpointAuth = Objects.requireNonNull(endpointAuth, "endpointAuth");
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
@@ -523,7 +537,18 @@ public final class FederationRuntimeConfig {
                 strictly(SUBORDINATE_CONSTRAINTS_ENV, () -> constraints(jsonObject(
                         setting(env, props, SUBORDINATE_CONSTRAINTS_PROP, SUBORDINATE_CONSTRAINTS_ENV)))),
                 pdpSettings(env, props),
-                selfAnchor(env, props));
+                selfAnchor(env, props),
+                endpointAuth(env, props));
+    }
+
+    /** {@link #ENDPOINT_AUTH_ENV} with the algorithms {@link #ENDPOINT_AUTH_SIGNING_ALGS_ENV} accepts. */
+    private static EndpointAuthPolicy endpointAuth(Function<String, String> env, Function<String, String> props) {
+        java.util.Set<String> named = words(ENDPOINT_AUTH_SIGNING_ALGS_ENV, setting(env, props, prop(ENDPOINT_AUTH_SIGNING_ALGS_ENV),
+                ENDPOINT_AUTH_SIGNING_ALGS_ENV));
+        List<String> algorithms = named == null ? DEFAULT_ENDPOINT_AUTH_SIGNING_ALGS
+                : strictly(ENDPOINT_AUTH_SIGNING_ALGS_ENV, () -> EndpointAuthPolicy.asymmetric(List.copyOf(named)));
+        return strictly(ENDPOINT_AUTH_ENV, () -> EndpointAuthPolicy.parse(setting(env, props, prop(ENDPOINT_AUTH_ENV), ENDPOINT_AUTH_ENV),
+                algorithms));
     }
 
     /** {@link #SELF_ANCHOR_ENV}: an https Entity Identifier (OpenID Federation 1.0 §1.2), or null. */
@@ -960,6 +985,11 @@ public final class FederationRuntimeConfig {
     /** The {@code constraints} on every Subordinate Statement ({@link #SUBORDINATE_CONSTRAINTS_ENV}); null when unset. */
     public Map<String, Object> subordinateConstraints() {
         return this.subordinateConstraints;
+    }
+
+    /** Which federation endpoints take client authentication (§8.8); {@link EndpointAuthPolicy#none()} unless configured. */
+    public EndpointAuthPolicy endpointAuth() {
+        return this.endpointAuth;
     }
 
     /** Who decides federation requests beyond the federation's own checks. */
