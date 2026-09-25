@@ -27,8 +27,13 @@
 #                   "conformance"). Another name runs a second rig beside the first - another checkout's -
 #                   instead of replacing it; give it its own PF_PORT_* and PF_AUTHOR_*_PORT too.
 #   PF_PROFILE      federation: PF is its own Trust Anchor (vars.federation.env), for the suite's
-#                   OpenID Federation plans. Unset: federation stays inert, as the FAPI, SSF and CIBA
-#                   plans want it.
+#                   deployed-entity plan. federation-op: that, and PF joined to the suite's own federation
+#                   (vars.federation-op.env) with PAR optional and the suite's CA trusted, for the OP plan -
+#                   run the suite with suite/suite-compose.yml. Unset: federation stays inert, as the FAPI,
+#                   SSF and CIBA plans want it.
+#   SUITE_PORT      federation-op: the port suite/suite-compose.yml publishes the suite on (default 9643).
+#   SUITE_BASE_URL  federation-op: the suite's origin as its compose file gives it (default
+#                   https://host.docker.internal:$SUITE_PORT). SUITE_ALIAS: the plan's alias.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
 export PF_AGENTIC_IDENTITY_HOME="$REPO"
@@ -48,6 +53,13 @@ export PF_PORT_HTTPS="${PF_PORT_HTTPS:-9031}" PF_PORT_HTTP="${PF_PORT_HTTP:-9080
 export PF_BASE_URL="${PF_BASE_URL:-https://localhost:$PF_PORT_HTTPS}"
 LOCAL="https://localhost:$PF_PORT_HTTPS"
 export TF_VAR_pf_base_url="$PF_BASE_URL"
+case "${PF_PROFILE:-}" in
+  "" | federation | federation-op) ;;
+  *) echo "ERROR: PF_PROFILE=$PF_PROFILE is not a profile this rig has (federation, federation-op)" >&2; exit 1 ;;
+esac
+SUITE_PORT="${SUITE_PORT:-9643}"
+SUITE_BASE_URL="${SUITE_BASE_URL:-https://host.docker.internal:$SUITE_PORT}"
+SUITE_ALIAS="${SUITE_ALIAS:-pf-agentic-identity-federation-op}"
 
 PING_CONFIG="${PING_DEVOPS_CONFIG:-$HOME/.pingidentity/config}"
 [[ -f "$PING_CONFIG" ]] || {
@@ -74,8 +86,17 @@ fi
 
 if [[ "${SKIP_AUTHOR:-0}" != 1 ]]; then
   "$HERE/gen-keys.sh"
+  if [[ "${PF_PROFILE:-}" == federation-op ]]; then
+    # The OP plan's RP sends its request object by value at the authorization endpoint, which PAR REQUIRED
+    # refuses; and PF fetches the suite RP's jwks_uri itself, over TLS it checks against its trusted CAs.
+    export TF_VAR_par_status=ENABLED
+    TF_VAR_trusted_ca_file_data="$(openssl x509 -in "$HERE/keys/suite-tls-ca.crt" -outform DER | base64 | tr -d '\n')"
+    export TF_VAR_trusted_ca_file_data
+  fi
   "$HERE/author.sh"
-  "$HERE/apply.sh" apply -auto-approve
+  # One resource at a time: in parallel, PingFederate has twice read back its server settings as the defaults straight
+  # after they were written, and the provider fails the apply ("inconsistent result after apply").
+  "$HERE/apply.sh" apply -auto-approve -parallelism=1
   "$HERE/export.sh"
   docker rm -f "$PF_AUTHOR_NAME" >/dev/null 2>&1 || true
 else
@@ -87,15 +108,20 @@ CTX="$("$HERE/compose-context.sh")"
 # The running PF's environment: vars.env with the issuer substituted on the lines that carry it (the
 # introspection endpoint is the container's own loopback and stays), plus the one generated secret the
 # servlet needs (its other half is in the archive). Rendered into the git-ignored context.
-# A profile adds variables after vars.env's; it sets names vars.env leaves unset.
-PROFILE_VARS=""
+# A profile adds variables after vars.env's; it sets names vars.env leaves unset. {{SUITE_BASE_URL}},
+# {{SUITE_ALIAS}} and {{PUBLIC_JWKS:name}} (keys/name.public.jwks.json, on one line) are filled in.
+PROFILE_VARS=()
 case "${PF_PROFILE:-}" in
-  "") ;;
-  federation) PROFILE_VARS="$HERE/vars.federation.env" ;;
-  *) echo "ERROR: PF_PROFILE=$PF_PROFILE is not a profile this rig has (federation)" >&2; exit 1 ;;
+  federation) PROFILE_VARS=("$HERE/vars.federation.env") ;;
+  federation-op) PROFILE_VARS=("$HERE/vars.federation.env" "$HERE/vars.federation-op.env") ;;
 esac
-cat "$HERE/vars.env" ${PROFILE_VARS:+"$PROFILE_VARS"} \
-  | sed -E "/^(OIDF_SSF_ISSUER|OIDF_FEDERATION_[A-Z_]+)=/ s#https://localhost:9031#$PF_BASE_URL#" > "$CTX/vars.env"
+cat "$HERE/vars.env" ${PROFILE_VARS[@]+"${PROFILE_VARS[@]}"} \
+  | sed -E "/^(OIDF_SSF_ISSUER|OIDF_FEDERATION_[A-Z_]+)=/ s#https://localhost:9031#$PF_BASE_URL#" \
+  | KEYS="$HERE/keys" SUITE_BASE_URL="$SUITE_BASE_URL" SUITE_ALIAS="$SUITE_ALIAS" python3 -c '
+import json, os, re, sys
+text = sys.stdin.read().replace("{{SUITE_BASE_URL}}", os.environ["SUITE_BASE_URL"]).replace("{{SUITE_ALIAS}}", os.environ["SUITE_ALIAS"])
+public = lambda m: json.dumps(json.load(open(os.path.join(os.environ["KEYS"], m.group(1) + ".public.jwks.json"))), separators=(",", ":"))
+sys.stdout.write(re.sub(r"\{\{PUBLIC_JWKS:([a-z0-9-]+)\}\}", public, text))' > "$CTX/vars.env"
 sed -n 's/^TF_VAR_ssf_introspection_client_secret=/OIDF_SSF_INTROSPECTION_CLIENT_SECRET=/p' "$HERE/secrets.env" >> "$CTX/vars.env"
 chmod 600 "$CTX/vars.env"
 

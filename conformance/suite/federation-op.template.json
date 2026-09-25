@@ -1,0 +1,438 @@
+{
+  "alias": "pf-agentic-identity-federation-op",
+  "description": "pf-agentic-identity rig, PF_PROFILE=federation-op: PingFederate as an OP in the suite's own federation, registering its RP automatically (OpenID Federation 1.0 \u00a712.1)",
+  "federation": {
+    "entity_identifier": "{{PF_BASE_URL}}",
+    "rp_ec_jwks": "{{JWKS:suite-rp-ec}}",
+    "rp_client_jwks": "{{JWKS:suite-rp-client}}"
+  },
+  "federation_trust_anchor": {
+    "trust_anchor_jwks": "{{JWKS:suite-trust-anchor}}"
+  },
+  "internal": {
+    "op_to_rp_mode": false
+  },
+  "browser": [
+    {
+      "comment": "PingFederate's stock HTML form, then its stock consent page (an automatically registered RP gets no approval bypass), then the suite's own callback. Selectors are the ids in html.form.login.template.html and oauth.approval.page.template.html.",
+      "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+      "tasks": [
+        {
+          "task": "Sign in",
+          "optional": true,
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "commands": [
+            [
+              "text",
+              "id",
+              "username",
+              "suite-user"
+            ],
+            [
+              "text",
+              "id",
+              "password",
+              "{{TEST_USER_PASSWORD}}"
+            ],
+            [
+              "click",
+              "id",
+              "signOnButton"
+            ]
+          ]
+        },
+        {
+          "task": "Consent",
+          "optional": true,
+          "match": "{{PF_BASE_URL}}/as/*/resume/as/authorization.ping*",
+          "commands": [
+            [
+              "click",
+              "id",
+              "allowButton"
+            ]
+          ]
+        },
+        {
+          "task": "Back at the suite",
+          "match": "*/test/a/*/callback*",
+          "commands": [
+            [
+              "wait",
+              "id",
+              "submission_complete",
+              10
+            ]
+          ]
+        }
+      ]
+    }
+  ],
+  "override": {
+    "openid-federation-automatic-client-registration-invalid-client-id-in-request-object": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-client-id-in-query-parameters": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-signature-on-request-object": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-signature-with-other-keys-on-request-object": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-request-object-exp": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-request-object-iss": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-request-object-aud": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-request-object-sub": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-missing-request-object-jti": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-missing-request-object-exp": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-missing-request-object-iss": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-missing-request-object-aud": {
+      "browser": [
+        {
+          "comment": "PingFederate refuses the request with its own page and does not redirect - OpenID Federation 1.0 \u00a712.1.3: the redirection URI is treated as invalid. The page is attached for review.",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "openid-federation-automatic-client-registration-invalid-duplicate-request-object-jti": {
+      "browser": [
+        {
+          "comment": "Twice: the first request signs in and comes back with a code; the second, reusing the first request object's jti, is refused with PingFederate's own page (\u00a712.1.1.1: a request object is used once).",
+          "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+          "tasks": [
+            {
+              "task": "Sign in",
+              "optional": true,
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "text",
+                  "id",
+                  "username",
+                  "suite-user",
+                  "optional"
+                ],
+                [
+                  "text",
+                  "id",
+                  "password",
+                  "{{TEST_USER_PASSWORD}}",
+                  "optional"
+                ],
+                [
+                  "click",
+                  "id",
+                  "signOnButton",
+                  "optional"
+                ]
+              ]
+            },
+            {
+              "task": "Consent",
+              "optional": true,
+              "match": "{{PF_BASE_URL}}/as/*/resume/as/authorization.ping*",
+              "commands": [
+                [
+                  "click",
+                  "id",
+                  "allowButton"
+                ]
+              ]
+            },
+            {
+              "task": "The refusal page",
+              "match": "{{PF_BASE_URL}}/as/authorization.oauth2*",
+              "commands": [
+                [
+                  "wait",
+                  "xpath",
+                  "//h1",
+                  10,
+                  "could not continue",
+                  "update-image-placeholder"
+                ]
+              ],
+              "optional": true
+            },
+            {
+              "task": "Back at the suite",
+              "match": "*/test/a/*/callback*",
+              "commands": [
+                [
+                  "wait",
+                  "id",
+                  "submission_complete",
+                  10
+                ]
+              ],
+              "optional": true
+            }
+          ]
+        }
+      ]
+    }
+  }
+}
