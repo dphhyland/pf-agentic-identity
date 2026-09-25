@@ -23,7 +23,7 @@ final class RegistrationRejectedException extends Exception {
         POLICY,
         /** An entity in the chain could not be reached: worth retrying, and no evidence against the client. */
         TRANSPORT,
-        /** A fault of ours. */
+        /** A fault of ours - a store that lost what was written to it, say. Nothing about the client, and no chain would change it. */
         INTERNAL,
         /**
          * The request itself - its request object, or the proof it offers - not the client's federation. Never held
@@ -94,6 +94,6 @@ final class RegistrationRejectedException extends Exception {
 
     /** True when the failure says something about the client's federation, so is worth remembering against it. */
     boolean concernsTheClient() {
-        return this.kind != Kind.REQUEST && this.kind != Kind.BUSY;
+        return this.kind != Kind.REQUEST && this.kind != Kind.BUSY && this.kind != Kind.INTERNAL;
     }
 }

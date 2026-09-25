@@ -249,4 +249,32 @@ class RpKeyMaterialTest {
 
         assertTrue(this.refused(Map.of("jwks_uri", "https:///jwks")).getMessage().contains("https"));
     }
+
+    @Test
+    void aRegisteredClientsKeysAreItsJwkSetOrWhatItsJwksUriServes() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger fetches = new java.util.concurrent.atomic.AtomicInteger();
+        org.jose4j.jwk.EllipticCurveJsonWebKey key = org.jose4j.jwk.EcJwkGenerator.generateJwk(org.jose4j.keys.EllipticCurves.P256);
+        key.setKeyId("k1");
+        String jwks = org.jose4j.json.JsonUtil.toJson(java.util.Map.of("keys", java.util.List.of(key.toParams(
+                org.jose4j.jwk.JsonWebKey.OutputControlLevel.PUBLIC_ONLY))));
+        RpKeyMaterial material = new RpKeyMaterial((url, accept) -> {
+            fetches.incrementAndGet();
+            if (url.endsWith("/down")) {
+                throw new java.io.IOException("down");
+            }
+            return jwks;
+        }, java.time.Clock.systemUTC());
+
+        assertEquals("k1", material.registered(jwks, null).get(0).getKeyId());
+        assertEquals(0, fetches.get(), "a JWK Set by value needs no fetch");
+        assertEquals("k1", material.registered(null, "https://rp.example/jwks").get(0).getKeyId());
+        assertEquals("k1", material.registered(" ", "https://rp.example/jwks").get(0).getKeyId());
+        assertEquals(1, fetches.get(), "kept a minute");
+        assertEquals(401, org.junit.jupiter.api.Assertions.assertThrows(RegistrationRejectedException.class,
+                () -> material.registered(null, " ")).status(), "registered with no keys: nothing can prove it");
+        assertEquals(401, org.junit.jupiter.api.Assertions.assertThrows(RegistrationRejectedException.class,
+                () -> material.registered(null, null)).status());
+        assertEquals(503, org.junit.jupiter.api.Assertions.assertThrows(RegistrationRejectedException.class,
+                () -> material.registered(null, "https://rp.example/down")).status());
+    }
 }

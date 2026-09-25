@@ -41,8 +41,21 @@ final class RpKeyMaterial {
     record Keys(List<JsonWebKey> verificationKeys, String jwks, String jwksUri, String source) {
     }
 
+    /** How long a registered client's jwks_uri answer is used, so a stream of requests in its name costs one fetch. */
+    static final long REGISTERED_KEYS_SECONDS = 60L;
+    private static final int REGISTERED_KEYS_KEPT = 256;
+
+    private record Fetched(List<JsonWebKey> keys, long at) {
+    }
+
     private final HttpGetClient http;
     private final java.time.Clock clock;
+    private final Map<String, Fetched> fetched = java.util.Collections.synchronizedMap(new java.util.LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Fetched> eldest) {
+            return this.size() > REGISTERED_KEYS_KEPT;
+        }
+    });
 
     RpKeyMaterial(HttpGetClient http, java.time.Clock clock) {
         this.http = Objects.requireNonNull(http, "http");
@@ -103,6 +116,31 @@ final class RpKeyMaterial {
             throw metadata("the RP's signed JWK Set is not its own, or is not current");
         }
         return claims.getClaimsMap();
+    }
+
+    /**
+     * The keys a client this module registered checks with, as it was registered: its JWK Set ({@code jwks}), or what
+     * its {@code jwks_uri} serves now, kept {@value #REGISTERED_KEYS_SECONDS} seconds.
+     *
+     * @throws RegistrationRejectedException {@code invalid_client} when it was registered with neither, or with keys
+     *                                       that are no longer usable; {@code temporarily_unavailable} when they cannot
+     *                                       be fetched
+     */
+    List<JsonWebKey> registered(String jwks, String jwksUri) throws RegistrationRejectedException {
+        if (jwks != null && !jwks.isBlank()) {
+            return signingKeys(parseJson(jwks, "registered jwks"), "registered jwks");
+        }
+        if (jwksUri == null || jwksUri.isBlank()) {
+            throw RegistrationRejectedException.request(401, "invalid_client", "the client is registered with no keys to check its request with");
+        }
+        long now = this.clock.instant().getEpochSecond();
+        Fetched kept = this.fetched.get(jwksUri);
+        if (kept != null && now - kept.at() < REGISTERED_KEYS_SECONDS) {
+            return kept.keys();
+        }
+        List<JsonWebKey> keys = signingKeys(parseJson(this.fetch(jwksUri, "application/json"), "jwks_uri"), "jwks_uri");
+        this.fetched.put(jwksUri, new Fetched(keys, now));
+        return keys;
     }
 
     private String fetch(String uri, String accept) throws RegistrationRejectedException {

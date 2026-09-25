@@ -152,7 +152,8 @@ final class RegistrationService {
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore,
                         SigningKeyProvider signingKeyProvider, RegistrationLifetime lifetime) {
         this(configuration, trustChainValidator, clientStore, signingKeyProvider, lifetime,
-                new RpKeyMaterial(new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment()), lifetime.clock()),
+                // An RP's own key set is a federation fetch like its statements, under the same TLS setting.
+                new RpKeyMaterial(new JdkHttpGetClient(configuration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()), lifetime.clock()),
                 coordinatorFor(FederationRuntimeConfig.get().autoRegistration()));
     }
 
@@ -312,10 +313,18 @@ final class RegistrationService {
                     "the client's explicit registration has expired; its RP renews it by registering again (OpenID Federation 1.0 §12.3)",
                     RegistrationRejectedException.Kind.TRUST, null));
         }
+        if (!channel.renews(existing)) {
+            if (!expired) {
+                return this.admitted(channel, existing, Admission.CURRENT);
+            }
+            return this.admitted(channel, existing, this.enforceExpiry(existing, clientId, new RegistrationRejectedException(401,
+                    "invalid_client", "the client's registration has expired; an RP registered at the authorization or PAR endpoint renews it"
+                    + " there, with its next request (OpenID Federation 1.0 §12.3)", RegistrationRejectedException.Kind.TRUST, null)));
+        }
         boolean changed = presentsChange(presented, existing, clientId);
         boolean due = this.lifetime.isDueForRenewal(expiresAt);
         if (!expired && !changed && (!due || this.renewedRecently(clientId))) {
-            return Admission.CURRENT;
+            return this.admitted(channel, existing, Admission.CURRENT);
         }
         List<String> renewFrom = predatesRegistration(presented, existing, clientId) ? List.of() : presented;
         boolean known = this.recentFailure(clientId, renewFrom) != null;
@@ -331,10 +340,19 @@ final class RegistrationService {
                     FederationEvents.event(FederationEvents.REGISTRATION_REFRESH_DEFERRED).failure(kindCode(e)).subject(clientId)
                             .role("OP").field("endpoint", channel.endpoint()).description(e.getMessage()).emit();
                 }
-                return Admission.DEFERRED;
+                return this.admitted(channel, existing, Admission.DEFERRED);
             }
-            return this.enforceExpiry(existing, clientId, e);
+            return this.admitted(channel, existing, this.enforceExpiry(existing, clientId, e));
         }
+    }
+
+    /**
+     * An automatic registration's request going ahead on the registration it has - nothing was registered for it now -
+     * which the channel still holds to what every request owes ({@link Channel#admitted}).
+     */
+    private Admission admitted(Channel channel, Client existing, Admission admission) throws RegistrationRejectedException {
+        channel.admitted(existing);
+        return admission;
     }
 
     /**
@@ -610,6 +628,12 @@ final class RegistrationService {
 
         /** The last check before the store is written. */
         void beforeStore(RpKeyMaterial.Keys keys) throws RegistrationRejectedException;
+
+        /** What a request owes when it goes ahead on the registration its client already has. */
+        void admitted(Client existing) throws RegistrationRejectedException;
+
+        /** Whether this endpoint renews {@code existing}'s registration - only one it could have made in that shape. */
+        boolean renews(Client existing);
     }
 
     /**
@@ -649,6 +673,21 @@ final class RegistrationService {
 
         @Override
         public void beforeStore(RpKeyMaterial.Keys keys) {
+        }
+
+        /** Nothing: PingFederate authenticates the client next, with the keys it is registered with. */
+        @Override
+        public void admitted(Client existing) {
+        }
+
+        /**
+         * Not an RP registered at the authorization or PAR endpoint: rebuilt here it would lose what that endpoint gave it -
+         * its default grant, its signed requests, its PAR - and fail every request after. It is renewed where it was
+         * registered, with its next authorization request.
+         */
+        @Override
+        public boolean renews(Client existing) {
+            return !FederationClientBuilder.registeredAtTheFrontChannel(existing);
         }
     }
 
@@ -698,8 +737,8 @@ final class RegistrationService {
                 throw this.unreadableProof;
             }
             if (this.proof == null) {
-                throw RegistrationRejectedException.request(400, "invalid_request", "registering a client here needs a signed request object"
-                        + " or, at the PAR endpoint, a client assertion, to show it holds the RP's keys (OpenID Federation 1.0 §12.1.1)");
+                throw RegistrationRejectedException.request(400, "invalid_request", "an OpenID Federation RP's request here needs a signed"
+                        + " request object or, at the PAR endpoint, a client assertion, to show it holds the RP's keys (OpenID Federation 1.0 §12.1.1)");
             }
             if (this.proof.encrypted() && !this.settings.allowEncryptedRequestObjects()) {
                 throw RegistrationRejectedException.request(400, "invalid_request_object",
@@ -732,6 +771,24 @@ final class RegistrationService {
         @Override
         public void beforeStore(RpKeyMaterial.Keys keys) throws RegistrationRejectedException {
             this.proof.verify(keys.verificationKeys(), this.clientId, this.replay, RegistrationService.this.lifetime.now());
+        }
+
+        /**
+         * §12.1.1: "Authentication requests MUST demonstrate that the requesting Entity controls the Entity's RP keys" -
+         * every one, not only the one that registered the RP. So a request on the registration the RP already has is held
+         * to §12.1.1.1 as the first was: its proof there, to the profile, signed with a key it is registered with, and its
+         * {@code jti} spent.
+         */
+        @Override
+        public boolean renews(Client existing) {
+            return true;
+        }
+
+        @Override
+        public void admitted(Client existing) throws RegistrationRejectedException {
+            this.precheck();
+            this.proof.verify(RegistrationService.this.rpKeyMaterial.registered(existing.getJwks(), existing.getJwksUrl()), this.clientId,
+                    this.replay, RegistrationService.this.lifetime.now());
         }
     }
 
@@ -766,7 +823,12 @@ final class RegistrationService {
      * expired comes back enabled; one disabled by anyone else - an operator - stays disabled. A new client that
      * another server registered first is left as that server wrote it.
      */
-    private void store(Client client, Client existing) {
+    private void store(Client client, Client existing) throws RegistrationRejectedException {
+        this.write(client, existing);
+        this.requireMarksKept(client.getClientId());
+    }
+
+    private void write(Client client, Client existing) {
         if (existing == null) {
             try {
                 this.clientStore.add(client);
@@ -787,6 +849,27 @@ final class RegistrationService {
             }
         }
         this.clientStore.update(client);
+    }
+
+    /**
+     * PingFederate drops an extended property it has not been told about, silently, and {@code status} is the only
+     * thing that marks a client as this module's (docs/extended-properties.json). A federation client stored without it
+     * would look like one an administrator made: never expired, never renewed, its requests held to nothing. So the
+     * client is read back, and one that lost its marks is disabled and the registration refused - a deployment that has
+     * not declared the properties registers nobody, rather than clients no one manages.
+     */
+    private void requireMarksKept(String clientId) throws RegistrationRejectedException {
+        Client stored = this.clientStore.get(clientId);
+        if (stored == null || extendedParamValue(stored, FederationClientParams.STATUS) != null) {
+            return;
+        }
+        this.clientStore.disable(stored);
+        LOGGER.error((Object)("PingFederate stored federation client " + LogSafe.value(clientId) + " without this module's extended"
+                + " properties, so it is disabled: declare every name in docs/extended-properties.json as an extended property"));
+        FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("extended_properties_undeclared").subject(clientId).role("OP")
+                .audit().description("PingFederate dropped the federation client's extended properties").emit();
+        throw new RegistrationRejectedException(500, "server_error", "the client could not be registered",
+                RegistrationRejectedException.Kind.INTERNAL, null);
     }
 
     /**

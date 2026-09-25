@@ -1,9 +1,11 @@
 {
   "_comment": [
     "The PingFederate extended-property names the OIDF module writes onto a federation-registered",
-    "client. PF REJECTS an extended_parameters entry whose name is not declared server-side, so every",
-    "PF that runs these modules must declare all of them - typically as a pingfederate_extended_properties",
-    "resource in that deployment's own Terraform.",
+    "client. PF drops an extended parameter whose name is not declared server-side - silently, when the",
+    "module stores the client in-process - so every PF that runs these modules must declare all of them,",
+    "typically as a pingfederate_extended_properties resource in that deployment's own Terraform",
+    "(conformance/terraform/extended-properties.tf reads this file). A registration whose client comes back",
+    "without 'status' is refused and the client disabled.",
     "",
     "This file is the contract between the capability and whoever deploys it. It is generated from",
     "FederationClientParams.EXTENDED_PARAM_NAMES and asserted against it by FederationClientParamsTest,",
@@ -23,7 +25,6 @@
     "application_type",
     "subject_type",
     "contacts",
-    "token_endpoint_auth_method",
     "attestation_required",
     "federation_registration_expires_at",
     "federation_trust_anchor",

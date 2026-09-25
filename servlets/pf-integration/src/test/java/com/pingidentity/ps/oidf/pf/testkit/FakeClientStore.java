@@ -16,6 +16,23 @@ import org.sourceid.oauth20.domain.Client;
 public final class FakeClientStore implements ClientStore {
     private final Map<String, Client> clients = new LinkedHashMap<>();
     private final List<String> writes = new ArrayList<>();
+    private boolean dropsExtendedParams;
+
+    /**
+     * A store that keeps no extended parameters - what PingFederate does with a property it has not been told about
+     * (docs/extended-properties.json), silently.
+     */
+    public FakeClientStore droppingExtendedParams() {
+        this.dropsExtendedParams = true;
+        return this;
+    }
+
+    private Client kept(Client client) {
+        if (this.dropsExtendedParams) {
+            client.setExtendedParams(new java.util.HashMap<>());
+        }
+        return client;
+    }
 
     public FakeClientStore with(Client client) {
         this.clients.put(client.getClientId(), client);
@@ -27,7 +44,7 @@ public final class FakeClientStore implements ClientStore {
         if (this.clients.containsKey(client.getClientId())) {
             throw new IllegalStateException("client " + client.getClientId() + " already exists");
         }
-        this.clients.put(client.getClientId(), client);
+        this.clients.put(client.getClientId(), this.kept(client));
         this.writes.add("add " + client.getClientId());
     }
 
@@ -36,7 +53,7 @@ public final class FakeClientStore implements ClientStore {
         if (!this.clients.containsKey(client.getClientId())) {
             throw new IllegalStateException("client " + client.getClientId() + " does not exist");
         }
-        this.clients.put(client.getClientId(), client);
+        this.clients.put(client.getClientId(), this.kept(client));
         this.writes.add("update " + client.getClientId());
     }
 

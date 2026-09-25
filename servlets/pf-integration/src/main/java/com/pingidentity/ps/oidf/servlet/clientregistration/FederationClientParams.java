@@ -37,7 +37,6 @@ final class FederationClientParams {
             "application_type",
             "subject_type",
             "contacts",
-            "token_endpoint_auth_method",
             "attestation_required",
             EXPIRES_AT,
             TRUST_ANCHOR,

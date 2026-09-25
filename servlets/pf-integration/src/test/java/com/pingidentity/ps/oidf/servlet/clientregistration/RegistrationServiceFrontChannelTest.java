@@ -139,6 +139,17 @@ class RegistrationServiceFrontChannelTest {
         return this.admit(service, proof, AutoRegistrationSettings.DEFAULTS);
     }
 
+    /** The RP as an earlier request registered it automatically: its public key as its JWK Set, ending at {@code expiresAt}. */
+    private Client registered(long expiresAt) {
+        Client client = federationClient(RP, "auto_registered", expiresAt, this.chain);
+        client.setJwks(JsonUtil.toJson(Map.of("keys", List.of(this.rpKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY)))));
+        return client;
+    }
+
+    private String refusal(RegistrationService service, RequestObject proof) {
+        return assertThrows(RegistrationRejectedException.class, () -> this.admit(service, proof)).getMessage();
+    }
+
     @Test
     @Requirement({"OIDFED §12.1.1.1.2(1)", "OIDFED §12.1.1.1.2(7)", "OIDFED §12.1.1.2.1(2)"})
     void anRpIsRegisteredWithItsOwnKeysOnceItsRequestObjectVerifies() throws Exception {
@@ -267,11 +278,89 @@ class RegistrationServiceFrontChannelTest {
     }
 
     @Test
-    void anRpWithACurrentRegistrationGoesStraightThrough() throws Exception {
-        this.store.with(federationClient(RP, "auto_registered", this.clock.epochSecond() + 3600, this.chain));
+    @Requirement({"OIDFED §12.1.1(2)", "OIDFED §12.1.1.1(2.8)", "OIDFED §12.1.1.1(2.10)", "OIDFED §12.1.1.1(2.12)",
+            "OIDFED §12.1.1.1(2.6)", "OIDFED §12.1.1.1.2(7)"})
+    void anRpWithACurrentRegistrationStillProvesItselfOnEveryRequest() throws Exception {
+        this.store.with(this.registered(this.clock.epochSecond() + 3600));
+        RegistrationService service = this.service();
+        String good = this.requestObject(this.rpKey, c -> { }, null);
 
-        assertEquals(Admission.CURRENT, this.admit(this.service(), null));
+        assertEquals(Admission.CURRENT, this.admit(service, this.proof(good)));
         verifyNoInteractions(this.validator);
+
+        assertTrue(this.refusal(service, null).contains("needs a signed request object"), "every request, not only the first");
+        assertTrue(this.refusal(service, this.proof(good)).contains("used before"), "a request object is used once (§12.1.1.1)");
+        assertTrue(this.refusal(service, this.proof(this.requestObject(this.rpKey, c -> c.put("sub", RP), null))).contains("sub"));
+        assertTrue(this.refusal(service, this.proof(this.requestObject(this.rpKey, c -> c.remove("jti"), null))).contains("jti"));
+        assertTrue(this.refusal(service, this.proof(this.requestObject(this.rpKey, c -> c.remove("exp"), null))).contains("exp"));
+        assertTrue(this.refusal(service, this.proof(this.requestObject(this.rpKey, c -> c.remove("iss"), null))).contains("iss"));
+        assertTrue(this.refusal(service, this.proof(this.requestObject(this.rpKey, c -> c.remove("aud"), null))).contains("aud"));
+        EllipticCurveJsonWebKey stranger = EcJwkGenerator.generateJwk(EllipticCurves.P256);
+        stranger.setKeyId("rp-1");
+        assertTrue(this.refusal(service, this.proof(this.requestObject(stranger, c -> { }, null))).contains("not signed by a key"),
+                "the keys it is registered with, not whatever the request claims");
+        verifyNoInteractions(this.validator);
+    }
+
+    @Test
+    void anRpRegisteredWithItsJwksUriIsCheckedAgainstWhatItServesKeptAMinute() throws Exception {
+        java.util.concurrent.atomic.AtomicInteger fetches = new java.util.concurrent.atomic.AtomicInteger();
+        String jwks = JsonUtil.toJson(Map.of("keys", List.of(this.rpKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY))));
+        RegistrationService service = new RegistrationService(new RegistrationConfiguration(ANCHOR, false), this.validator, this.store, null,
+                new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock), new RpKeyMaterial((url, accept) -> {
+                    fetches.incrementAndGet();
+                    return jwks;
+                }, this.clock), new RegistrationCoordinator(8, 0L));
+        Client client = federationClient(RP, "auto_registered", this.clock.epochSecond() + 3600, this.chain);
+        client.setJwksUrl(RP + "/jwks");
+        this.store.with(client);
+
+        this.admit(service, this.proof(this.requestObject(this.rpKey, c -> { }, null)));
+        this.admit(service, this.proof(this.requestObject(this.rpKey, c -> { }, null)));
+        assertEquals(1, fetches.get(), "a stream of requests in one RP's name costs its key server one fetch");
+
+        this.clock.advance(java.time.Duration.ofSeconds(RpKeyMaterial.REGISTERED_KEYS_SECONDS));
+        this.admit(service, this.proof(this.requestObject(this.rpKey, c -> { }, null)));
+        assertEquals(2, fetches.get());
+    }
+
+    /**
+     * Found by the suite's OP plan, whose trust anchor's statements live five minutes: the RP's first token request found
+     * its registration due, renewed it at the token endpoint in an agent's shape - no default grant, no signed requests,
+     * no PAR - and every request after failed. A registration is renewed where it was made.
+     */
+    @Test
+    @Requirement("OIDFED §12.3(1)")
+    void anRpRegisteredAtTheAuthorizationEndpointIsNotReshapedAtTheTokenEndpoint() throws Exception {
+        Client rp = this.registered(this.clock.epochSecond() + 100);
+        rp.setRequireSignedRequests(true);
+        this.store.with(rp);
+        RegistrationService service = this.service();
+
+        assertEquals(Admission.CURRENT, service.admit(RP, List.of(), OP), "due, and left for its next authorization request to renew");
+        verifyNoInteractions(this.validator);
+
+        this.clock.advance(java.time.Duration.ofSeconds(200));
+        RegistrationRejectedException expired = assertThrows(RegistrationRejectedException.class, () -> service.admit(RP, List.of(), OP));
+        assertEquals(401, expired.status());
+        assertTrue(expired.getMessage().contains("renews it there"), expired.getMessage());
+        assertTrue(this.store.writes().isEmpty(), "nothing rewritten in the wrong shape");
+
+        RegistrationService logging = RegistrationFixtures.service(this.validator, this.store, this.clock,
+                com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement.LOG);
+        assertEquals(Admission.EXPIRED_ALLOWED, logging.admit(RP, List.of(), OP), "where expiry is only logged, logged");
+
+        Client parOnly = this.registered(this.clock.epochSecond() + 100);
+        parOnly.setRequirePushedAuthorizationRequests(true);
+        assertFalse(FederationClientBuilder.registeredAtTheFrontChannel(this.registered(0L)));
+        assertTrue(FederationClientBuilder.registeredAtTheFrontChannel(parOnly), "one that proved itself at PAR is held to PAR");
+    }
+
+    @Test
+    void anExplicitRegistrationIsNotHeldToWhatAutomaticRegistrationAsks() throws Exception {
+        this.store.with(federationClient(RP, "registered", this.clock.epochSecond() + 3600, this.chain));
+
+        assertEquals(Admission.CURRENT, this.admit(this.service(), null), "§12.1.1 is how an automatically registered RP asks");
     }
 
     @Test
@@ -343,7 +432,7 @@ class RegistrationServiceFrontChannelTest {
         assertEquals(RegistrationRejectedException.Kind.BUSY, assertThrows(RegistrationRejectedException.class,
                 () -> this.admit(service, this.proof(this.requestObject(this.rpKey, c -> { }, null)))).kind());
 
-        this.store.with(federationClient(RP, "auto_registered", this.clock.epochSecond() + 100, this.chain));
+        this.store.with(this.registered(this.clock.epochSecond() + 100));
         assertEquals(Admission.DEFERRED, this.admit(service, this.proof(this.requestObject(this.rpKey, c -> { }, null))),
                 "due, not expired: its registration stands");
         assertFalse(this.events.codes().contains(FederationEvents.REGISTRATION_REFRESH_DEFERRED), "busy is nobody's fault");

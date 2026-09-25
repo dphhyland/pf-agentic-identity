@@ -135,6 +135,8 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.entityConfiguration(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.issuedAt(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.store(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireMarksKept(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.immediateSuperior(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.buildSignedRegistrationResponse(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.validate(*</include>
@@ -180,6 +182,9 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.precheck(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.entityType(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.beforeStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.admitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.admitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.registered(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration.forFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.write(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.escape(*</include>
@@ -281,6 +286,7 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.verifiedTypes(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrow(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.registeredAtTheFrontChannel(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.askPolicy(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.build(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.authHeaders(*</include>

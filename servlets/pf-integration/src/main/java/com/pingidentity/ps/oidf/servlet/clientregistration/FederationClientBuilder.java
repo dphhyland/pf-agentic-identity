@@ -90,6 +90,14 @@ final class FederationClientBuilder {
     }
 
     /**
+     * Whether {@code client} was registered at the authorization or PAR endpoint: {@link #relyingParty} holds it to
+     * signed requests or to PAR, whichever it proved itself with, and {@link #agent} to neither.
+     */
+    static boolean registeredAtTheFrontChannel(Client client) {
+        return client.isRequireSignedRequests() || client.isRequirePushedAuthorizationRequests();
+    }
+
+    /**
      * {@code client} narrowed by a permit's obligations: only the scopes, grant types and response types they allow, of
      * those it has - defaults included, so narrowing only ever takes away. Its end, {@code expiresAt}, is already the
      * policy's ({@link RegistrationLifetime#expiresAt(com.pingidentity.ps.oidf.federation.TrustChainValidationResult, Long)}).
@@ -203,7 +211,8 @@ final class FederationClientBuilder {
         addParamValue(params, FederationClientParams.TRUST_ANCHOR, provenance.trustAnchor());
         addParamValue(params, FederationClientParams.ENTITY_TYPE, provenance.entityType());
         if (attestationMethod != null) {
-            addParamValue(params, "token_endpoint_auth_method", attestationMethod);
+            // Not token_endpoint_auth_method as well: PingFederate 13.1 counts that name as standard client metadata and
+            // will not have it declared as an extended property, so it was never kept.
             addParamValue(params, "attestation_required", "true");
         }
         return params;

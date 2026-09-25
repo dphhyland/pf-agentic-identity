@@ -71,8 +71,9 @@ class FederationClientBuilderTest {
     void anAttestingRpIsMarkedForTheBridge() throws Exception {
         Client client = build(rp("token_endpoint_auth_method", "attest_jwt_client_auth_dpop"), RequestObject.Kind.REQUEST_OBJECT);
 
-        assertEquals("attest_jwt_client_auth_dpop", RegistrationFixtures.param(client, "token_endpoint_auth_method"));
         assertEquals("true", RegistrationFixtures.param(client, "attestation_required"));
+        assertNull(RegistrationFixtures.param(client, "token_endpoint_auth_method"),
+                "PingFederate 13.1 will not have that name declared as an extended property, so it is not written");
         assertNull(RegistrationFixtures.param(build(rp("token_endpoint_auth_method", "private_key_jwt"), RequestObject.Kind.REQUEST_OBJECT),
                 "attestation_required"));
     }
@@ -166,7 +167,6 @@ class FederationClientBuilderTest {
                 "grant_types", List.of("client_credentials")), INLINE, PROVENANCE);
 
         assertEquals(ClientAuthenticationType.PRIVATE_KEY_JWT, agent.getClientAuthnType());
-        assertEquals("attest_jwt_client_auth", RegistrationFixtures.param(agent, "token_endpoint_auth_method"));
         assertEquals("true", RegistrationFixtures.param(agent, "attestation_required"));
         assertTrue(agent.isBypassApprovalPage(), "client_credentials alone: nobody to ask");
         Client byReference = FederationClientBuilder.agent(RP, Map.of(), BY_REFERENCE, PROVENANCE);
