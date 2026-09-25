@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2226 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2232 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -22,9 +22,9 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/app-attest` | 8 | green | 82% | 40 |
 | `libs/device-instance` | 15 | green | 85% | 65 |
 | `libs/client-attestation` | 8 | green | 77% | 105 |
-| `libs/openid-federation` | 217 | green | 97% | 560 |
+| `libs/openid-federation` | 217 | green | 97% | 561 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 175 | green | 87% | 543 |
+| `servlets/pf-integration` | 175 | green | 87% | 548 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |

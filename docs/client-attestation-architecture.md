@@ -125,11 +125,14 @@ registered by web.xml surgery in the deploy image, and the assemble script asser
 present or fails the build
 ([`assemble-pf-runtime-war.sh:136-140`](../build/pingfederate/assemble-pf-runtime-war.sh#L136)).
 
-**Why it is verified twice.** The filter runs on the webapp classloader; the OGNL criterion runs on
-the engine classloader. They cannot share a replay cache unless Redis is configured, so each sees a
-given PoP `jti` exactly once per request and a genuine replay fails in both. This is deliberate, and
-documented at
-[`ClientAttestationAuthFilter:50-55`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/ClientAttestationAuthFilter.java#L50).
+**Why it is verified once.** The filter runs on the webapp classloader and the OGNL criterion on the
+engine classloader, and either can verify an attestation. Verifying spends the PoP `jti` and any
+challenge, so a second verification of the same request would report a replay as soon as both
+classloaders share a Redis store. The filter therefore publishes what it verified as a server-side
+request attribute and the criterion reuses it; only a deployment without the filter has the criterion
+verify for itself
+([`ClientAttestationAuthFilter:58-63`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/ClientAttestationAuthFilter.java#L58),
+[`ClientAttestationUtils:128-138`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/utils/ClientAttestationUtils.java#L128)).
 
 **Fail-closed, and the one way it is not.** An invalid attestation is rejected at the filter with the
 draft's error codes and never reaches PF; an internal error returns 500 rather than falling through

@@ -45,6 +45,17 @@ error` on and TLS verification skipped.
 
 ## Keeping it current
 
-The page is generated from the code, READMEs and Terraform, then audited claim by claim. It does not
-follow later code changes. Rebuild it, or edit `index.html` and re-check the line references, when
-the code moves.
+The page was generated from the code, READMEs and Terraform, then audited claim by claim. Two parts of that
+are now mechanical, and CI checks both:
+
+- **The documents.** `node tools/build-showcase-docs.mjs` renders every tracked Markdown file into the page's
+  `DOCS_HTML` (run `npm ci --prefix tools` once first; the renderer is pinned). Run it after changing any
+  document - the coverage dashboard included - or `--check` fails the build.
+- **The source links.** `python3 tools/check-showcase-links.py` fails when a boxed link names a file that isn't
+  tracked or a line past its end, on this page or on `federation.html`.
+
+Neither can tell whether a statement still says what the code does. When the code behind one moves, re-read
+the statement, not just the line numbers.
+
+`federation.html` is a page of its own: the OpenID Federation story in plain language, with the file behind each
+part. The index links to it from the sidebar.

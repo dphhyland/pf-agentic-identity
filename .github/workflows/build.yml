@@ -83,6 +83,14 @@ jobs:
         # it here is what stops it drifting from the code the way a hand-maintained status table
         # does - which is the failure this repo has already had to correct once.
         run: python3 tools/coverage-report.py --check
+      - name: the showcase carries the documents as they are, and its source links resolve
+        # The showcase inlines every tracked document and cites a file and lines under each statement; both drift
+        # the moment the docs or the code move. These fail the build instead: regenerate with
+        # node tools/build-showcase-docs.mjs, and fix a reference check-showcase-links.py names.
+        run: |
+          npm ci --prefix tools --no-audit --no-fund
+          node tools/build-showcase-docs.mjs --check
+          python3 tools/check-showcase-links.py
       - name: every PingFederate and servlet member the artifacts link resolves on this image
         # The assemble script's namespace guard catches a jar built for the other servlet line; this
         # catches the member-level break (OAuthIssuerUtils went jakarta with no overload in 13.1) and
