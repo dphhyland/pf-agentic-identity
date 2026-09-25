@@ -48,4 +48,14 @@ public interface HostedEntityRegistry {
 
     /** The audit trail for one entity, oldest first. */
     List<AuthorityAuditEntry> auditTrail(String entityId) throws AuthorityRegistryException;
+
+    /**
+     * Stores the Entity Configuration a SELF_SIGNED entity signed and published. The caller has validated
+     * it ({@link SelfSignedEntityConfigurations#validate}); the registry stores and returns it verbatim.
+     * Registries that cannot yet persist self-signed entities refuse rather than drop it.
+     */
+    default void publishEntityConfiguration(String entityId, String entityConfiguration) throws AuthorityRegistryException {
+        throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE,
+                getClass().getSimpleName() + " does not store self-signed entity configurations");
+    }
 }

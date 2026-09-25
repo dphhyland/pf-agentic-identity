@@ -93,6 +93,20 @@ public final class PingOneIdTokenVerifier implements UserAuthenticationVerifier 
 
     @Override
     public UserAuthentication verify(String idToken) throws EnrolmentException {
+        return verifyToken(idToken, null);
+    }
+
+    /**
+     * As {@link #verify(String)}, and the ID token's {@code nonce} must equal {@code expectedNonce}. The
+     * enrolling client set that nonce to a hash over the enrolment challenge and the keys it is binding,
+     * so a passkey ceremony behind this token cannot be replayed onto different keys.
+     */
+    @Override
+    public UserAuthentication verify(String idToken, String expectedNonce) throws EnrolmentException {
+        return verifyToken(idToken, expectedNonce);
+    }
+
+    private UserAuthentication verifyToken(String idToken, String expectedNonce) throws EnrolmentException {
         if (idToken == null || idToken.isBlank()) {
             throw EnrolmentException.userAuthenticationFailed("no ID token presented");
         }
@@ -175,6 +189,16 @@ public final class PingOneIdTokenVerifier implements UserAuthenticationVerifier 
         }
         if (authenticatedAt.isAfter(Instant.now().plusSeconds(this.allowedClockSkewSeconds))) {
             throw EnrolmentException.userAuthenticationFailed("ID token 'auth_time' is in the future");
+        }
+
+        if (expectedNonce != null) {
+            String nonce = claims.getClaimValueAsString("nonce");
+            if (nonce == null || !java.security.MessageDigest.isEqual(
+                    nonce.getBytes(java.nio.charset.StandardCharsets.UTF_8),
+                    expectedNonce.getBytes(java.nio.charset.StandardCharsets.UTF_8))) {
+                throw EnrolmentException.userAuthenticationFailed(
+                        "ID token 'nonce' does not bind this enrolment (its challenge and keys)");
+            }
         }
 
         String subject = claims.getClaimValueAsString("sub");

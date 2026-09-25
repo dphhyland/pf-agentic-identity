@@ -32,6 +32,22 @@ public final class InstanceIdentifiers {
         return random();
     }
 
+    /**
+     * A new instance identifier that is also a valid OpenID Federation path segment - lowercase hex, 128
+     * bits - for agents the platform hosts as federation entities at {@code <authority>/federation/agents/<id>}.
+     * The hosted-entity slug rule is {@code ^[a-z0-9][a-z0-9-]{0,63}$}, which base64url ids break. Still
+     * random and never derived from the user or the device (attestation profile §6).
+     */
+    public static String newFederationSafeInstanceId() {
+        byte[] bytes = new byte[16];
+        RANDOM.nextBytes(bytes);
+        StringBuilder hex = new StringBuilder(32);
+        for (byte b : bytes) {
+            hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
+        }
+        return hex.toString();
+    }
+
     /** A new device identifier. Registry-internal; never leaves the platform. */
     public static String newDeviceId() {
         return random();

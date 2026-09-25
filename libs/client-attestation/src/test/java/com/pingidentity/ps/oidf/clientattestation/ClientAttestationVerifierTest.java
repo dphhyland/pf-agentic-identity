@@ -141,11 +141,25 @@ class ClientAttestationVerifierTest {
         assertEquals(ClientAttestationException.USE_FRESH_ATTESTATION, ex.error());
     }
 
+    /**
+     * draft-ietf-oauth-attestation-based-client-auth-11 §5.2: a DPoP proof alongside the PoP JWT is not
+     * combined mode. Its key need not match cnf, and the AS validates it under RFC 9449, not this verifier.
+     */
     @Test
-    void bothPopAndDpopRejected() throws Exception {
-        ClientAttestationException ex = assertThrows(ClientAttestationException.class,
-                () -> verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", null), dpop(instanceKey, "d1", null), "POST", TOKEN_ENDPOINT, CLIENT_ID));
-        assertEquals(ClientAttestationException.INVALID_CLIENT, ex.error());
+    void popWithAnIndependentDpopKeyAuthenticatesInPopMode() throws Exception {
+        PublicJsonWebKey dpopKey = TestJwts.ec("dpop-1");
+        ClientAttestationResult result = verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", null),
+                dpop(dpopKey, "d1", null), "POST", TOKEN_ENDPOINT, CLIENT_ID);
+        assertEquals(ClientAttestationResult.Mode.POP_JWT, result.mode());
+        assertEquals(CLIENT_ID, result.clientId());
+    }
+
+    @Test
+    void anIndependentDpopProofDoesNotRescueABadPop() throws Exception {
+        PublicJsonWebKey dpopKey = TestJwts.ec("dpop-1");
+        assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(validAttestation(), pop("https://someone-else.example.com", "p1", null),
+                        dpop(dpopKey, "d1", null), "POST", TOKEN_ENDPOINT, CLIENT_ID));
     }
 
     @Test

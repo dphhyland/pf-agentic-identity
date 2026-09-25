@@ -8,6 +8,8 @@ import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
+import com.pingidentity.ps.oidf.authority.HostedEntityConfigurationBuilder;
+import com.pingidentity.ps.oidf.authority.SelfSignedEntityConfigurations;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner;
@@ -18,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.regex.Pattern;
@@ -54,6 +57,7 @@ public class HostedEntityServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(HostedEntityServlet.class);
     private static final String WELL_KNOWN_SUFFIX = "/.well-known/openid-federation";
+    private static final String PUBLISH_SUFFIX = "/entity-configuration";
     /** Mirrors the lighthouse trust anchor's own enrolment slug shape (harness/ui/server.py's SLUG_RE). */
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
 
@@ -124,6 +128,9 @@ public class HostedEntityServlet extends HttpServlet {
         String jwt;
         try {
             jwt = AuthoritySupport.configurationBuilder().buildEntityConfiguration(found.get());
+        } catch (HostedEntityConfigurationBuilder.NotPublishedException e) {
+            writeError(resp, 404, "not_found", "entity configuration not published");
+            return;
         } catch (RuntimeException e) {
             LOGGER.error("failed to sign entity configuration for " + entityId, e);
             writeError(resp, 500, "server_error", e.getMessage());
@@ -186,18 +193,54 @@ public class HostedEntityServlet extends HttpServlet {
             writeError(resp, 400, "invalid_request", "'id' must match ^[a-z0-9][a-z0-9-]{0,63}$");
             return;
         }
-        String hostingKeyRef = stringField(body, "hostingKeyRef");
-        if (hostingKeyRef == null) {
-            writeError(resp, 400, "invalid_request", "'hostingKeyRef' is required");
+        String mode = stringField(body, "hostingMode");
+        HostingMode hostingMode;
+        if (mode == null || "AUTHORITY_SIGNED".equals(mode)) {
+            hostingMode = HostingMode.AUTHORITY_SIGNED;
+        } else if ("SELF_SIGNED".equals(mode)) {
+            hostingMode = HostingMode.SELF_SIGNED;
+        } else {
+            writeError(resp, 400, "invalid_request", "'hostingMode' must be AUTHORITY_SIGNED or SELF_SIGNED");
             return;
         }
+        String hostingKeyRef = stringField(body, "hostingKeyRef");
+        Map<String, Object> federationJwks = null;
+        if (hostingMode == HostingMode.AUTHORITY_SIGNED) {
+            if (hostingKeyRef == null) {
+                writeError(resp, 400, "invalid_request", "'hostingKeyRef' is required");
+                return;
+            }
+        } else {
+            // SELF_SIGNED: the entity holds its own Federation Entity Key (a Secure Enclave, a YubiKey) and
+            // signs its own configuration; the authority holds no key for it, only its public keys.
+            if (hostingKeyRef != null) {
+                writeError(resp, 400, "invalid_request", "'hostingKeyRef' must be absent for SELF_SIGNED");
+                return;
+            }
+            try {
+                federationJwks = publicFederationJwks(body.get("federationJwks"));
+            } catch (IllegalArgumentException e) {
+                writeError(resp, 400, "invalid_request", e.getMessage());
+                return;
+            }
+        }
         Object metadataRaw = body.get("metadata");
+        if (hostingMode == HostingMode.SELF_SIGNED && metadataRaw == null) {
+            metadataRaw = Map.of();   // the entity's own configuration carries its metadata
+        }
         if (!(metadataRaw instanceof Map)) {
             writeError(resp, 400, "invalid_request", "'metadata' is required and must be an object");
             return;
         }
         @SuppressWarnings("unchecked")
         Map<String, Object> metadata = (Map<String, Object>) metadataRaw;
+        Object policyRaw = body.get("metadataPolicy");
+        if (policyRaw != null && !(policyRaw instanceof Map)) {
+            writeError(resp, 400, "invalid_request", "'metadataPolicy' must be an object");
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadataPolicy = policyRaw == null ? Map.of() : (Map<String, Object>) policyRaw;
         boolean listable = Boolean.TRUE.equals(body.get("listable"));
         String ownerRef = stringField(body, "ownerRef");
         Instant notAfter = null;
@@ -208,8 +251,9 @@ public class HostedEntityServlet extends HttpServlet {
         String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + slug;
         HostedEntity entity;
         try {
-            entity = new HostedEntity(entityId, HostingMode.AUTHORITY_SIGNED, hostingKeyRef, metadata,
-                    Map.of(), EntityStatus.ACTIVE, listable, ownerRef, Instant.now(), notAfter);
+            entity = new HostedEntity(entityId, hostingMode, hostingKeyRef, metadata,
+                    metadataPolicy, EntityStatus.ACTIVE, listable, ownerRef, Instant.now(), notAfter,
+                    federationJwks, null);
         } catch (IllegalArgumentException e) {
             writeError(resp, 400, "invalid_request", e.getMessage());
             return;
@@ -226,11 +270,134 @@ public class HostedEntityServlet extends HttpServlet {
         LinkedHashMap<String, Object> out = new LinkedHashMap<>();
         out.put("entityId", entityId);
         out.put("entityConfigurationUrl", entityId + WELL_KNOWN_SUFFIX);
+        if (hostingMode == HostingMode.SELF_SIGNED) {
+            out.put("publishUrl", entityId + PUBLISH_SUFFIX);
+        }
         resp.setStatus(201);
         resp.setContentType("application/json");
         try (PrintWriter w = resp.getWriter()) {
             w.write(JsonUtil.toJson(out));
         }
+    }
+
+    /**
+     * {@code PUT <collection>/<id>/entity-configuration}: a SELF_SIGNED entity publishes the Entity
+     * Configuration it signed. No bearer token - the signature, by the federation key the authority
+     * registered for this entity, is the authorisation; see {@link SelfSignedEntityConfigurations}.
+     */
+    @Override
+    protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        Optional<String> idSegment = parsePublishSegment(req.getPathInfo());
+        if (idSegment.isEmpty()) {
+            writeError(resp, 404, "not_found", "PUT <collection>/<id>/entity-configuration");
+            return;
+        }
+        String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + idSegment.get();
+        HostedEntityRegistry registry = AuthoritySupport.registry();
+        Optional<HostedEntity> found;
+        try {
+            found = registry.find(entityId);
+        } catch (Exception e) {
+            writeError(resp, 500, "server_error", e.getMessage());
+            return;
+        }
+        if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
+            writeError(resp, 404, "not_found", "unknown entity");
+            return;
+        }
+        String validated;
+        try {
+            validated = SelfSignedEntityConfigurations.validate(readBody(req), found.get(),
+                    AuthoritySupport.authorityEntityId(), Instant.now());
+        } catch (SelfSignedEntityConfigurations.InvalidConfigurationException e) {
+            writeError(resp, 400, "invalid_entity_configuration", e.getMessage());
+            return;
+        }
+        try {
+            registry.publishEntityConfiguration(entityId, validated);
+        } catch (AuthorityRegistryException e) {
+            writeError(resp, 500, e.reason(), e.getMessage());
+            return;
+        }
+        LOGGER.info("self-signed entity configuration published for " + entityId);
+        resp.setStatus(204);
+    }
+
+    /**
+     * {@code DELETE <collection>/<id>}: revoke a hosted entity (admin bearer token). Revocation is
+     * permanent; the entity stops resolving and the authority stops issuing a Subordinate Statement about
+     * it, so every trust chain through it fails at the next resolution.
+     */
+    @Override
+    protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (!authorized(req)) {
+            resp.setHeader("WWW-Authenticate", "Bearer");
+            writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
+            return;
+        }
+        String pathInfo = req.getPathInfo();
+        String slug = pathInfo == null ? null : pathInfo.replaceFirst("^/", "");
+        if (slug == null || !SLUG.matcher(slug).matches()) {
+            writeError(resp, 404, "not_found", "DELETE <collection>/<id>");
+            return;
+        }
+        String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + slug;
+        try {
+            AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, "revoked via the hosted-entity API");
+        } catch (AuthorityRegistryException e) {
+            int status = AuthorityRegistryException.NOT_FOUND.equals(e.reason()) ? 404 : 500;
+            writeError(resp, status, e.reason(), e.getMessage());
+            return;
+        }
+        LOGGER.info("hosted entity revoked: " + entityId);
+        resp.setStatus(204);
+    }
+
+    /**
+     * The SELF_SIGNED registration's keys: public only, each with a kid (its RFC 7638 thumbprint when the
+     * caller gave none, which is also what OpenID Federation recommends).
+     */
+    @SuppressWarnings("unchecked")
+    static Map<String, Object> publicFederationJwks(Object raw) {
+        if (!(raw instanceof Map) || !(((Map<String, Object>) raw).get("keys") instanceof List)) {
+            throw new IllegalArgumentException("'federationJwks' must be a JWK Set for SELF_SIGNED");
+        }
+        List<Object> keys = (List<Object>) ((Map<String, Object>) raw).get("keys");
+        if (keys.isEmpty()) {
+            throw new IllegalArgumentException("'federationJwks' must hold at least one key");
+        }
+        List<Map<String, Object>> out = new java.util.ArrayList<>();
+        for (Object k : keys) {
+            if (!(k instanceof Map)) {
+                throw new IllegalArgumentException("every federation key must be a JWK object");
+            }
+            Map<String, Object> jwk = new LinkedHashMap<>((Map<String, Object>) k);
+            for (String privateMember : List.of("d", "p", "q", "dp", "dq", "qi", "k")) {
+                if (jwk.containsKey(privateMember)) {
+                    throw new IllegalArgumentException("federation keys must be public keys");
+                }
+            }
+            try {
+                org.jose4j.jwk.JsonWebKey parsed = org.jose4j.jwk.JsonWebKey.Factory.newJwk(jwk);
+                if (!jwk.containsKey("kid")) {
+                    jwk.put("kid", parsed.calculateBase64urlEncodedThumbprint("SHA-256"));
+                }
+            } catch (Exception e) {
+                throw new IllegalArgumentException("not a usable JWK: " + e.getMessage());
+            }
+            out.add(jwk);
+        }
+        return Map.of("keys", out);
+    }
+
+    /** {@code "/<id>/entity-configuration"} -> {@code <id>}, or empty. */
+    static Optional<String> parsePublishSegment(String pathInfo) {
+        if (pathInfo == null || !pathInfo.startsWith("/") || !pathInfo.endsWith(PUBLISH_SUFFIX)
+                || pathInfo.length() <= PUBLISH_SUFFIX.length() + 1) {
+            return Optional.empty();
+        }
+        String id = pathInfo.substring(1, pathInfo.length() - PUBLISH_SUFFIX.length());
+        return SLUG.matcher(id).matches() ? Optional.of(id) : Optional.empty();
     }
 
     /** Constant-time comparison against the configured admin token — a timing side channel on this check

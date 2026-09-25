@@ -61,9 +61,14 @@ class HostedEntityConfigurationBuilderTest {
     @Test
     void selfSignedHostingModeHasNoAuthorityHeldSigner() {
         HostedEntitySigner signer = new RegistryHostedEntitySigner("http://bao", "t");
+        // A SELF_SIGNED entity carries its own public federation keys (it signs its own configuration);
+        // the authority still holds no private key for it, so its signer must refuse.
         HostedEntity entity = new HostedEntity("https://as.example.com/agents/self-hosted",
                 HostingMode.SELF_SIGNED, null, Map.of("oauth_client", Map.of()), Map.of(),
-                EntityStatus.ACTIVE, false, null, Instant.now(), null);
+                EntityStatus.ACTIVE, false, null, Instant.now(), null,
+                Map.of("keys", List.of(Map.of("kty", "EC", "crv", "P-256", "kid", "agent-1",
+                        "x", "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+                        "y", "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"))), null);
         assertThrows(IllegalStateException.class, () -> signer.signerFor(entity));
     }
 
@@ -87,5 +92,61 @@ class HostedEntityConfigurationBuilderTest {
             // Same hostingKeyRef -> same signer instance, not a fresh vault round trip per entity.
             org.junit.jupiter.api.Assertions.assertSame(signer.signerFor(a), signer.signerFor(b));
         }
+    }
+
+    // ---------------------------------------------------------------- SELF_SIGNED: stored bytes, never re-signed
+
+    /** The authority must never sign for a self-signed entity: any attempt fails the test. */
+    private static final HostedEntitySigner NEVER = entity -> {
+        throw new AssertionError("a self-signed entity's configuration is never signed by the authority");
+    };
+
+    private static String selfSignedConfiguration(String entityId, long exp) throws Exception {
+        org.jose4j.jwk.EllipticCurveJsonWebKey key = org.jose4j.jwk.EcJwkGenerator.generateJwk(org.jose4j.keys.EllipticCurves.P256);
+        JwtClaims claims = new JwtClaims();
+        claims.setIssuer(entityId);
+        claims.setSubject(entityId);
+        claims.setIssuedAt(org.jose4j.jwt.NumericDate.fromSeconds(exp - 3600));
+        claims.setExpirationTime(org.jose4j.jwt.NumericDate.fromSeconds(exp));
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setPayload(claims.toJson());
+        jws.setAlgorithmHeaderValue("ES256");
+        jws.setHeader("typ", "entity-statement+jwt");
+        jws.setKey(key.getPrivateKey());
+        return jws.getCompactSerialization();
+    }
+
+    private static HostedEntity selfSigned(String entityId, String configuration) throws Exception {
+        // A self-signed entity always carries its own federation keys; the builder never looks at them.
+        Map<String, Object> fedKey = org.jose4j.jwk.EcJwkGenerator.generateJwk(org.jose4j.keys.EllipticCurves.P256)
+                .toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY);
+        return new HostedEntity(entityId, HostingMode.SELF_SIGNED, null, Map.of("oauth_client", Map.of()), Map.of(),
+                EntityStatus.ACTIVE, false, "operator:dave", Instant.now(), null,
+                Map.of("keys", List.of(fedKey)), configuration);
+    }
+
+    @Test
+    void selfSignedConfigurationIsServedVerbatim() throws Exception {
+        String entityId = AUTHORITY + "/federation/agents/a1";
+        String published = selfSignedConfiguration(entityId, Instant.now().getEpochSecond() + 3600);
+        assertEquals(published, new HostedEntityConfigurationBuilder(NEVER, AUTHORITY).buildEntityConfiguration(selfSigned(entityId, published)));
+    }
+
+    @Test
+    void selfSignedEntityThatHasNotPublishedIsNotServed() throws Exception {
+        String entityId = AUTHORITY + "/federation/agents/a1";
+        HostedEntity unpublished = selfSigned(entityId, null);
+        HostedEntityConfigurationBuilder.NotPublishedException e = assertThrows(HostedEntityConfigurationBuilder.NotPublishedException.class,
+                () -> new HostedEntityConfigurationBuilder(NEVER, AUTHORITY).buildEntityConfiguration(unpublished));
+        assertTrue(e.getMessage().contains("has not published"), e.getMessage());
+    }
+
+    @Test
+    void selfSignedConfigurationPastItsExpiryIsNotServed() throws Exception {
+        String entityId = AUTHORITY + "/federation/agents/a1";
+        HostedEntity stale = selfSigned(entityId, selfSignedConfiguration(entityId, Instant.now().getEpochSecond() - 1));
+        HostedEntityConfigurationBuilder.NotPublishedException e = assertThrows(HostedEntityConfigurationBuilder.NotPublishedException.class,
+                () -> new HostedEntityConfigurationBuilder(NEVER, AUTHORITY).buildEntityConfiguration(stale));
+        assertTrue(e.getMessage().contains("has expired"), e.getMessage());
     }
 }

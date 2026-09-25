@@ -11,6 +11,7 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
+import com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry;
 import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -65,42 +66,105 @@ public final class Main {
 
     public static void main(String[] args) throws Exception {
         String issuer = required("ENROLMENT_ISSUER");
-        String teamId = required("APPLE_TEAM_ID");
-        String bundleId = required("APPLE_BUNDLE_ID");
-        boolean allowDevelopment = Boolean.parseBoolean(env("APPLE_ALLOW_DEVELOPMENT", "false"));
         int port = Integer.parseInt(env("PORT", "8080"));
         long uvMaxAge = Long.parseLong(env("UV_MAX_AGE_SECONDS", "300"));
         boolean requireCompliant = Boolean.parseBoolean(env("REQUIRE_COMPLIANT_DEVICE", "true"));
 
-        AppAttestConfig appAttestConfig = allowDevelopment
-                ? AppAttestConfig.allowingDevelopment(teamId, bundleId)
-                : AppAttestConfig.production(teamId, bundleId);
-        if (allowDevelopment) {
-            // Loud on purpose: this weakens the strongest assertion the service makes.
-            LOGGER.warn((Object) "APPLE_ALLOW_DEVELOPMENT is set — development App Attest objects will "
-                    + "be accepted. Every such enrolment is flagged in the registry, but this must not "
-                    + "be set in production.");
+        // App Attest is optional now: a deployment that only enrols connector agents with YubiKey or
+        // self-asserted evidence needs no Apple configuration. Set both or neither.
+        AppAttestVerifier appAttest = null;
+        String teamId = System.getenv("APPLE_TEAM_ID");
+        String bundleId = System.getenv("APPLE_BUNDLE_ID");
+        if (teamId != null && !teamId.isBlank() && bundleId != null && !bundleId.isBlank()) {
+            boolean allowDevelopment = Boolean.parseBoolean(env("APPLE_ALLOW_DEVELOPMENT", "false"));
+            appAttest = new AppAttestVerifier(allowDevelopment
+                    ? AppAttestConfig.allowingDevelopment(teamId, bundleId)
+                    : AppAttestConfig.production(teamId, bundleId));
+            if (allowDevelopment) {
+                // Loud on purpose: this weakens the strongest assertion the service makes.
+                LOGGER.warn((Object) "APPLE_ALLOW_DEVELOPMENT is set — development App Attest objects will "
+                        + "be accepted. Every such enrolment is flagged in the registry, but this must not "
+                        + "be set in production.");
+            }
+        } else if ((teamId == null) != (bundleId == null)) {
+            throw new IllegalStateException("set both APPLE_TEAM_ID and APPLE_BUNDLE_ID, or neither");
         }
 
-        DataSource dataSource = dataSource(requireIdmUrl());
-        InstanceRegistry registry = new IomInstanceRegistry(dataSource);
+        InstanceRegistry registry;
+        if ("memory".equalsIgnoreCase(env("REGISTRY", "iom"))) {
+            LOGGER.warn((Object) "REGISTRY=memory: enrolments live in this process only and are lost on restart (dev only)");
+            registry = new InMemoryInstanceRegistry();
+        } else {
+            registry = new IomInstanceRegistry(dataSource(requireIdmUrl()));
+        }
 
         JwsSigner signer = new LocalJwkSigner(parseJwk(required("ENROLMENT_SIGNING_JWK")));
-        DeviceAttestationMinter minter = new DeviceAttestationMinter(issuer, subjectClientId());
+        String subjectClientId = subjectClientId();
+        DeviceAttestationMinter minter = new DeviceAttestationMinter(issuer, subjectClientId);
 
         EnrolmentService service = new EnrolmentService(
-                new AppAttestVerifier(appAttestConfig),
+                appAttest,
                 pingOneVerifier(),
                 registry, minter,
                 new InMemoryAttestationChallengeService(),
                 new InMemoryAttestationReplayCache(),
-                signer, issuer, Duration.ofSeconds(uvMaxAge), requireCompliant);
+                signer, issuer, Duration.ofSeconds(uvMaxAge), requireCompliant,
+                BindingNotifier.logOnly(), agentOptions(subjectClientId));
 
         EnrolmentHttpServer server = new EnrolmentHttpServer(service, signer, port);
         Runtime.getRuntime().addShutdownHook(new Thread(server::stop));
         server.start();
-        LOGGER.info((Object) ("issuer=" + issuer + " appId=" + teamId + "." + bundleId
+        LOGGER.info((Object) ("issuer=" + issuer + " appAttest=" + (appAttest == null ? "off" : teamId + "." + bundleId)
                 + " uvMaxAge=" + uvMaxAge + "s requireCompliantDevice=" + requireCompliant));
+    }
+
+    /**
+     * The connector-agent path (Mac connector experiment). Everything is off unless configured:
+     *
+     * <pre>
+     *   YUBICO_PIV_ROOTS            PEM bundle of pinned Yubico PIV roots: accept yubikey-piv evidence
+     *   ALLOW_SELF_ASSERTED_KEYS    "true" to accept secure-enclave-self-asserted evidence (no key_storage claim)
+     *   AGENT_AUTHORIZATION_DETAILS JSON array: the RFC 9396 ceiling every connector attestation carries
+     *   PF_AUTHORITY_ENTITY_ID      the federation authority (PingFederate's issuer) hosting agent entities
+     *   PF_AUTHORITY_URL            where to reach it from here (defaults to the entity id)
+     *   PF_AUTHORITY_ADMIN_TOKEN    its hosted-entity admin bearer token (OIDF_AUTHORITY_ADMIN_TOKEN over there)
+     *   PF_AUTHORITY_INSECURE_TLS   "true" to trust its self-signed listener (dev only)
+     * </pre>
+     */
+    private static EnrolmentService.AgentOptions agentOptions(String clientId) throws Exception {
+        PivAttestationVerifier piv = null;
+        String roots = System.getenv("YUBICO_PIV_ROOTS");
+        if (roots != null && !roots.isBlank()) {
+            piv = PivAttestationVerifier.fromPemFile(java.nio.file.Path.of(roots));
+        }
+        boolean selfAsserted = Boolean.parseBoolean(env("ALLOW_SELF_ASSERTED_KEYS", "false"));
+        if (selfAsserted) {
+            LOGGER.warn((Object) "ALLOW_SELF_ASSERTED_KEYS=true: keys whose storage nobody can verify will be attested"
+                    + " (without a key_storage claim)");
+        }
+        java.util.List<Map<String, Object>> authz = null;
+        String authzJson = System.getenv("AGENT_AUTHORIZATION_DETAILS");
+        if (authzJson != null && !authzJson.isBlank()) {
+            authz = new com.fasterxml.jackson.databind.ObjectMapper().readValue(authzJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.List<Map<String, Object>>>() { });
+        }
+        HostedEntityRegistrar federation = HostedEntityRegistrar.disabled();
+        String authority = System.getenv("PF_AUTHORITY_ENTITY_ID");
+        if (authority != null && !authority.isBlank()) {
+            federation = new HostedEntityRegistrar.PingFederate(authority, env("PF_AUTHORITY_URL", authority),
+                    required("PF_AUTHORITY_ADMIN_TOKEN"), Boolean.parseBoolean(env("PF_AUTHORITY_INSECURE_TLS", "false")));
+        }
+        String software = clientId == null ? "claude-bank-connector" : clientId;
+        Map<String, Object> oauthClient = new java.util.LinkedHashMap<>();
+        oauthClient.put("client_name", "Claude bank connector");
+        oauthClient.put("software_id", software);
+        oauthClient.put("token_endpoint_auth_method", "attest_jwt_client_auth");
+        // The authority's lever on a self-signed configuration: whatever the agent writes, these hold.
+        Map<String, Object> policy = Map.of("oauth_client", Map.of(
+                "software_id", Map.of("value", software),
+                "token_endpoint_auth_method", Map.of("value", "attest_jwt_client_auth")));
+        return new EnrolmentService.AgentOptions(federation, piv, selfAsserted, authz,
+                Map.of("oauth_client", oauthClient), policy);
     }
 
     /**

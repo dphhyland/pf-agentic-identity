@@ -155,9 +155,12 @@ extends HttpServlet {
     }
 
     private void handleFetch(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer) throws Exception {
-        String iss = required(req, "iss");
+        // OpenID Federation 1.0 section 8.1.1 defines only `sub`: the issuer is the entity whose fetch endpoint
+        // this is. `iss` is still honoured when sent (earlier drafts, and this module's own gateway), and
+        // fetchEntityStatement refuses an issuer this server does not speak for.
         String sub = required(req, "sub");
-        String jwt = this.federationService.fetchEntityStatement(iss, sub, oidcIssuer);
+        String iss = optional(req, "iss");
+        String jwt = this.federationService.fetchEntityStatement(iss != null ? iss : oidcIssuer, sub, oidcIssuer);
         resp.setStatus(200);
         resp.setContentType("application/entity-statement+jwt");
         try (PrintWriter out = resp.getWriter()) {

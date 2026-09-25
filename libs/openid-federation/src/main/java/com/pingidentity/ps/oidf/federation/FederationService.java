@@ -156,6 +156,10 @@ public final class FederationService {
         openidProvider.put("issuer", oidcIssuer);
         openidProvider.put("authorization_endpoint", oidcIssuer + "/as/authorization.oauth2");
         openidProvider.put("token_endpoint", oidcIssuer + "/as/token.oauth2");
+        // The protocol keys, reachable THROUGH the chain: without a jwks_uri (or jwks) here, a federation
+        // member that resolves this entity learns its endpoints but not the keys its tokens are signed with,
+        // and has to fall back to discovery over TLS - trust the chain was meant to replace.
+        openidProvider.put("jwks_uri", oidcIssuer + "/pf/JWKS");
         openidProvider.put("pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2");
         openidProvider.put("client_registration_types_supported", List.of("explicit"));
         openidProvider.put("federation_registration_endpoint", fedBase + "/federation/register");
@@ -172,7 +176,7 @@ public final class FederationService {
             openidProvider.put("challenge_endpoint", fedBase + "/federation/attestation-challenge");
         }
         metadata.put("openid_provider", openidProvider);
-        metadata.put("oauth_authorization_server", Map.of("issuer", oidcIssuer, "authorization_endpoint", oidcIssuer + "/as/authorization.oauth2", "token_endpoint", oidcIssuer + "/as/token.oauth2", "pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2"));
+        metadata.put("oauth_authorization_server", Map.of("issuer", oidcIssuer, "authorization_endpoint", oidcIssuer + "/as/authorization.oauth2", "token_endpoint", oidcIssuer + "/as/token.oauth2", "pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2", "jwks_uri", oidcIssuer + "/pf/JWKS"));
         String attesterJwks = this.configuration.attesterJwks();
         if (attesterJwks != null) {
             // Publish the co-hosted Client Attester's signing keys so a remote AS can trust

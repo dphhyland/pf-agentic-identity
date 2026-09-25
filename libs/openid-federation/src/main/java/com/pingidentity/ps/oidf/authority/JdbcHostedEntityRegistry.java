@@ -40,6 +40,12 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
 
     @Override
     public HostedEntity register(HostedEntity entity) throws AuthorityRegistryException {
+        if (entity.hostingMode() == HostingMode.SELF_SIGNED) {
+            // The hosted_entity schema has no column for the entity's own keys or its published
+            // configuration; storing the row without them would host an entity nobody can verify.
+            throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE,
+                    "the JDBC registry cannot persist SELF_SIGNED entities yet (no federation-key column)");
+        }
         try (Connection c = this.dataSource.getConnection()) {
             if (find(c, entity.entityId()).isPresent()) {
                 throw new AuthorityRegistryException(AuthorityRegistryException.DUPLICATE,

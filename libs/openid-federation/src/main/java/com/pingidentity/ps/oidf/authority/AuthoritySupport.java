@@ -92,6 +92,21 @@ public final class AuthoritySupport {
         return local;
     }
 
+    /**
+     * The registry, but only if something has already configured or created it - never the in-memory
+     * fallback. For readers outside the authority servlet (the attestation filter) that must not, by being
+     * first, decide that this deployment's registry is the in-memory one: {@link #configureJdbcRegistry}
+     * ignores any configuration that arrives after {@link #registry()} has created the fallback.
+     */
+    public static Optional<HostedEntityRegistry> registryIfConfigured() {
+        return Optional.ofNullable(registry);
+    }
+
+    /** The authority's own entity id, only once the authority servlet has configured it. */
+    public static Optional<String> authorityEntityIdIfConfigured() {
+        return Optional.ofNullable(authorityEntityId);
+    }
+
     public static HostedEntityConfigurationBuilder configurationBuilder() {
         HostedEntityConfigurationBuilder local = configurationBuilder;
         if (local == null) {
@@ -176,15 +191,20 @@ public final class AuthoritySupport {
         }
         HostedEntity entity = found.get();
 
-        JwsSigner jwsSigner;
-        try {
-            jwsSigner = hostedEntitySigner().signerFor(entity);
-        } catch (RuntimeException e) {
-            throw new IllegalStateException("could not resolve signer for hosted entity " + subject, e);
-        }
-
         LinkedHashMap<String, Object> claims = new LinkedHashMap<>();
-        claims.put("jwks", Map.of("keys", List.of(jwsSigner.publicJwk())));
+        if (entity.hostingMode() == HostingMode.SELF_SIGNED) {
+            // The keys the ENTITY holds. This is what lets a resolver verify a configuration the authority
+            // could not have written: ES[0] must be signed by a key in ES[1].jwks (§4).
+            claims.put("jwks", entity.federationJwks());
+        } else {
+            JwsSigner jwsSigner;
+            try {
+                jwsSigner = hostedEntitySigner().signerFor(entity);
+            } catch (RuntimeException e) {
+                throw new IllegalStateException("could not resolve signer for hosted entity " + subject, e);
+            }
+            claims.put("jwks", Map.of("keys", List.of(jwsSigner.publicJwk())));
+        }
         Map<String, Object> policy = composedMetadataPolicyFor(entity);
         if (!policy.isEmpty()) {
             claims.put("metadata_policy", policy);

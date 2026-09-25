@@ -44,6 +44,12 @@ import java.util.Map;
  *                        client id it was registered for) — accountability, not an access-control field
  * @param registeredAt    when this row was created
  * @param notAfter        an optional hard expiry; {@code null} means no expiry beyond {@code status}
+ * @param federationJwks  {@link HostingMode#SELF_SIGNED} only: the entity's OWN Federation Entity Keys, which
+ *                        the authority vouches for in its Subordinate Statement and verifies every
+ *                        configuration the entity publishes against; {@code null} otherwise
+ * @param entityConfiguration {@link HostingMode#SELF_SIGNED} only: the Entity Configuration the entity signed
+ *                        and published through {@code PUT <entityId>/entity-configuration}, served verbatim;
+ *                        {@code null} until the first publication
  */
 public record HostedEntity(
         String entityId,
@@ -55,7 +61,17 @@ public record HostedEntity(
         boolean listable,
         String ownerRef,
         Instant registeredAt,
-        Instant notAfter) {
+        Instant notAfter,
+        Map<String, Object> federationJwks,
+        String entityConfiguration) {
+
+    /** The pre-SELF_SIGNED shape: an authority-signed entity has neither own keys nor a stored configuration. */
+    public HostedEntity(String entityId, HostingMode hostingMode, String hostingKeyRef, Map<String, Object> metadata,
+                        Map<String, Object> metadataPolicy, EntityStatus status, boolean listable, String ownerRef,
+                        Instant registeredAt, Instant notAfter) {
+        this(entityId, hostingMode, hostingKeyRef, metadata, metadataPolicy, status, listable, ownerRef, registeredAt,
+                notAfter, null, null);
+    }
 
     public HostedEntity {
         if (entityId == null || entityId.isBlank()) {
@@ -71,6 +87,14 @@ public record HostedEntity(
             throw new IllegalArgumentException("hostingKeyRef must be null when hostingMode is SELF_SIGNED — "
                     + "the authority holds no key for a self-signed entity");
         }
+        if (hostingMode == HostingMode.SELF_SIGNED) {
+            Object keys = federationJwks == null ? null : federationJwks.get("keys");
+            if (!(keys instanceof java.util.List) || ((java.util.List<?>) keys).isEmpty()) {
+                throw new IllegalArgumentException("a SELF_SIGNED entity needs its own federation keys (federationJwks)");
+            }
+        } else if ((federationJwks != null && !federationJwks.isEmpty()) || entityConfiguration != null) {
+            throw new IllegalArgumentException("federationJwks and entityConfiguration are for SELF_SIGNED entities only");
+        }
         if (status == null) {
             throw new IllegalArgumentException("status must not be null");
         }
@@ -79,6 +103,7 @@ public record HostedEntity(
         }
         metadata = metadata == null ? Map.of() : Map.copyOf(metadata);
         metadataPolicy = metadataPolicy == null ? Map.of() : Map.copyOf(metadataPolicy);
+        federationJwks = federationJwks == null ? null : Map.copyOf(federationJwks);
     }
 
     /** Convenience constructor for the common case: authority-signed, not listable, no expiry. */
@@ -90,17 +115,27 @@ public record HostedEntity(
 
     public HostedEntity withStatus(EntityStatus newStatus) {
         return new HostedEntity(this.entityId, this.hostingMode, this.hostingKeyRef, this.metadata,
-                this.metadataPolicy, newStatus, this.listable, this.ownerRef, this.registeredAt, this.notAfter);
+                this.metadataPolicy, newStatus, this.listable, this.ownerRef, this.registeredAt, this.notAfter,
+                this.federationJwks, this.entityConfiguration);
     }
 
     public HostedEntity withMetadata(Map<String, Object> newMetadata) {
         return new HostedEntity(this.entityId, this.hostingMode, this.hostingKeyRef, newMetadata,
-                this.metadataPolicy, this.status, this.listable, this.ownerRef, this.registeredAt, this.notAfter);
+                this.metadataPolicy, this.status, this.listable, this.ownerRef, this.registeredAt, this.notAfter,
+                this.federationJwks, this.entityConfiguration);
     }
 
     public HostedEntity withHostingKeyRef(String newHostingKeyRef) {
         return new HostedEntity(this.entityId, this.hostingMode, newHostingKeyRef, this.metadata,
-                this.metadataPolicy, this.status, this.listable, this.ownerRef, this.registeredAt, this.notAfter);
+                this.metadataPolicy, this.status, this.listable, this.ownerRef, this.registeredAt, this.notAfter,
+                this.federationJwks, this.entityConfiguration);
+    }
+
+    /** A SELF_SIGNED entity's newly published (already validated) Entity Configuration. */
+    public HostedEntity withEntityConfiguration(String newEntityConfiguration) {
+        return new HostedEntity(this.entityId, this.hostingMode, this.hostingKeyRef, this.metadata,
+                this.metadataPolicy, this.status, this.listable, this.ownerRef, this.registeredAt, this.notAfter,
+                this.federationJwks, newEntityConfiguration);
     }
 
     /** Whether the entity holds the named metadata type at all (e.g. {@code "oauth_client"}). */

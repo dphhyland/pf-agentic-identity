@@ -94,23 +94,53 @@ public final class EnrolmentHttpServer {
 
     private Map<String, Object> enrol(HttpExchange exchange) throws Exception {
         JsonNode body = readJson(exchange);
+        // The connector path adds federation_public_jwk, key_proofs and evidence; instance_public_jwk is
+        // accepted as the neutral name for the key the attestation's cnf will carry.
+        boolean connector = body.hasNonNull("federation_public_jwk");
         EnrolmentService.Enrolled enrolled = this.service.enrol(new EnrolmentService.EnrolmentRequest(
-                binary(body, "appattest_object"),
+                connector && !body.hasNonNull("appattest_object") ? null : binary(body, "appattest_object"),
                 body.hasNonNull("appattest_key_id") ? binary(body, "appattest_key_id") : null,
-                object(body, "enclave_public_jwk"),
+                object(body, body.hasNonNull("instance_public_jwk") ? "instance_public_jwk" : "enclave_public_jwk"),
                 text(body, "challenge"),
                 text(body, "user_authentication"),
                 text(body, "platform"),
                 text(body, "model"),
                 text(body, "os_version"),
-                text(body, "agent_build")));
+                text(body, "agent_build"),
+                connector ? object(body, "federation_public_jwk") : null,
+                body.hasNonNull("key_proofs") ? stringMap(body, "key_proofs") : null,
+                body.hasNonNull("evidence") ? object(body, "evidence") : null));
 
         Map<String, Object> response = new LinkedHashMap<>();
         response.put("instance_id", enrolled.instanceId());
         response.put("attestation", enrolled.attestation());
         response.put("expires_in", enrolled.expiresInSeconds());
         response.put("appattest_key_id", enrolled.appAttestKeyId());
+        if (connector) {
+            response.put("agent_id", enrolled.instanceId());
+            response.put("entity_id", enrolled.entityId());
+            response.put("authority", enrolled.authorityEntityId());
+            response.put("evidence", enrolled.evidence());
+        }
         return response;
+    }
+
+    private static Map<String, String> stringMap(JsonNode body, String field) throws EnrolmentException {
+        JsonNode node = body.get(field);
+        if (node == null || !node.isObject()) {
+            throw EnrolmentException.invalidRequest("'" + field + "' must be a JSON object of strings");
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        var names = node.fieldNames();
+        while (names.hasNext()) {
+            String name = names.next();
+            JsonNode value = node.get(name);
+            if (!value.isTextual()) {
+                throw EnrolmentException.invalidRequest("'" + field + "." + name + "' must be a string");
+            }
+            out.put(name, value.asText());
+        }
+        return out;
     }
 
     private Map<String, Object> attestation(HttpExchange exchange) throws Exception {

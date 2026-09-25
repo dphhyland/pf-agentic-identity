@@ -295,6 +295,10 @@ fi
 # OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false says the operator meant to run without it - in which case
 # attestation headers pass through and PF enforces each client's own configured authentication.
 # Mapped AFTER OidfAutoRegistration - see the ordering note there.
+# Also over /as/par.oauth2: FAPI 2.0 requires PAR, and PAR requires client authentication (RFC 9126
+# §2.1), so a client whose only credential is its attestation must be able to present it at PAR too.
+# draft -11 §7.6 shows exactly that request. The filter is endpoint-agnostic: the PoP aud is the OP
+# issuer, and the bridge assertion it mints names both the issuer and the request URL.
 if grep -q "ClientAttestationAuth" "$WEBXML"; then
   echo "web.xml: ClientAttestationAuth already registered — leaving as is"
 else
@@ -307,13 +311,14 @@ else
       print "  <filter-mapping>"
       print "    <filter-name>ClientAttestationAuth</filter-name>"
       print "    <url-pattern>/as/token.oauth2</url-pattern>"
+      print "    <url-pattern>/as/par.oauth2</url-pattern>"
       print "  </filter-mapping>"
       ins=1
     }
     { print }
   ' "$WEBXML" > "$WEBXML.new" && mv "$WEBXML.new" "$WEBXML"
   ( cd "$work" && zip -q "$OUT_WAR" WEB-INF/web.xml )
-  echo "web.xml: registered ClientAttestationAuth over /as/token.oauth2"
+  echo "web.xml: registered ClientAttestationAuth over /as/token.oauth2 and /as/par.oauth2"
 fi
 
 

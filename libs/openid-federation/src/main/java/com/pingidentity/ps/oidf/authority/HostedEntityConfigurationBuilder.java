@@ -33,8 +33,30 @@ public final class HostedEntityConfigurationBuilder {
         this.authorityEntityId = Claims.requireNonBlank(authorityEntityId, "authorityEntityId");
     }
 
-    /** Builds and signs {@code entity}'s Entity Configuration JWT. */
+    /** A SELF_SIGNED entity that has not published (or whose publication expired): nothing to serve. */
+    public static final class NotPublishedException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+
+        NotPublishedException(String message) {
+            super(message);
+        }
+    }
+
+    /**
+     * Builds and signs {@code entity}'s Entity Configuration JWT - or, for a SELF_SIGNED entity, returns the
+     * configuration the entity signed itself, verbatim.
+     */
     public String buildEntityConfiguration(HostedEntity entity) {
+        if (entity.hostingMode() == HostingMode.SELF_SIGNED) {
+            String stored = entity.entityConfiguration();
+            if (stored == null) {
+                throw new NotPublishedException("entity " + entity.entityId() + " has not published its configuration");
+            }
+            if (SelfSignedEntityConfigurations.expired(stored, Instant.now())) {
+                throw new NotPublishedException("entity " + entity.entityId() + "'s published configuration has expired");
+            }
+            return stored;
+        }
         JwsSigner jwsSigner = this.signer.signerFor(entity);
 
         Map<String, Object> header = new LinkedHashMap<>();

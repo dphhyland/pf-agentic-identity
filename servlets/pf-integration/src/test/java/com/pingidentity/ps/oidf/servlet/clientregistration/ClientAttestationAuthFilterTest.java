@@ -441,6 +441,13 @@ class ClientAttestationAuthFilterTest {
                         java.nio.charset.StandardCharsets.UTF_8));
         assertEquals(DOFILTER_CLIENT_ID, assertionClaims.get("iss"));
         assertEquals(DOFILTER_CLIENT_ID, assertionClaims.get("sub"));
+        // PingFederate 13.1 refuses anything else: one audience, the issuer, as a string, and an explicit
+        // client-authentication+jwt typ (draft-ietf-oauth-rfc7523bis; FAPI 2.0 §5.3.2.1).
+        assertEquals(OP_ISSUER, assertionClaims.get("aud"), "aud must be the issuer as a single string");
+        Map<String, Object> assertionHeader = org.jose4j.json.JsonUtil.parseJson(
+                new String(java.util.Base64.getUrlDecoder().decode(assertion.split("\\.")[0]),
+                        java.nio.charset.StandardCharsets.UTF_8));
+        assertEquals("client-authentication+jwt", assertionHeader.get("typ"));
     }
 
     @Test
@@ -748,5 +755,97 @@ class ClientAttestationAuthFilterTest {
 
         assertTrue(body.contains("invalid_client"), body);
         verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
+    }
+
+    // ---------------------------------------------------------------- the agent's standing at this authority
+
+    private static final String AUTHORITY = "https://bank.example";
+
+    private static com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry registryWith(String slug,
+            com.pingidentity.ps.oidf.authority.EntityStatus status, java.time.Instant notAfter) throws Exception {
+        var registry = new com.pingidentity.ps.oidf.authority.InMemoryHostedEntityRegistry();
+        String entityId = AUTHORITY + ClientAttestationAuthFilter.AGENTS_PATH + slug;
+        registry.register(new com.pingidentity.ps.oidf.authority.HostedEntity(entityId,
+                com.pingidentity.ps.oidf.authority.HostingMode.AUTHORITY_SIGNED, "hosting-key", Map.of(), Map.of(),
+                com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE, false, "owner", java.time.Instant.now(), notAfter));
+        if (status != com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE) {
+            registry.setStatus(entityId, status, "test");
+        }
+        return registry;
+    }
+
+    private static String standing(String agentId, com.pingidentity.ps.oidf.authority.HostedEntityRegistry registry,
+            boolean requireHosted) throws Exception {
+        return ClientAttestationAuthFilter.agentStandingProblem(agentId, java.util.Optional.of(AUTHORITY),
+                java.util.Optional.ofNullable(registry), requireHosted, java.time.Instant.now());
+    }
+
+    @Test
+    void anActiveHostedAgentAuthenticates() throws Exception {
+        var registry = registryWith("a1", com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE, null);
+        assertEquals(null, standing("a1", registry, true));
+    }
+
+    @Test
+    void aRevokedOrSuspendedHostedAgentIsRefusedHereNotOnlyAtPartners() throws Exception {
+        String revoked = standing("a1", registryWith("a1", com.pingidentity.ps.oidf.authority.EntityStatus.REVOKED, null), false);
+        assertEquals("agent https://bank.example/federation/agents/a1 is revoked at this authority", revoked);
+        String suspended = standing("a1", registryWith("a1", com.pingidentity.ps.oidf.authority.EntityStatus.SUSPENDED, null), false);
+        assertTrue(suspended.endsWith("is suspended at this authority"), suspended);
+    }
+
+    @Test
+    void anExpiredMembershipIsRefused() throws Exception {
+        var registry = registryWith("a1", com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE, java.time.Instant.now().minusSeconds(5));
+        assertTrue(standing("a1", registry, false).endsWith("federation membership has expired"));
+    }
+
+    @Test
+    void anAgentThisAuthorityDoesNotHostPassesUnlessMembershipIsRequired() throws Exception {
+        var registry = registryWith("a1", com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE, null);
+        assertEquals(null, standing("someone-else", registry, false));
+        assertEquals("agent https://bank.example/federation/agents/someone-else is not a member of this authority's federation",
+                standing("someone-else", registry, true));
+    }
+
+    @Test
+    void nothingIsJudgedWithoutAnAgentIdOrAConfiguredAuthority() throws Exception {
+        var registry = registryWith("a1", com.pingidentity.ps.oidf.authority.EntityStatus.REVOKED, null);
+        assertEquals(null, standing(null, registry, true)); // a workload or device attestation, not a hosted agent
+        assertEquals(null, standing("a1", null, true)); // nobody has configured the registry yet
+        assertEquals(null, ClientAttestationAuthFilter.agentStandingProblem("a1", java.util.Optional.empty(),
+                java.util.Optional.of(registry), true, java.time.Instant.now()));
+    }
+
+    @Test
+    void readingTheStandingNeverCreatesTheRegistry() {
+        // registryIfConfigured() must not install the in-memory fallback that registry() would, or a JDBC
+        // registry configured later by the authority servlet would be ignored.
+        java.util.Optional<com.pingidentity.ps.oidf.authority.HostedEntityRegistry> before =
+                com.pingidentity.ps.oidf.authority.AuthoritySupport.registryIfConfigured();
+        if (before.isEmpty()) {
+            com.pingidentity.ps.oidf.authority.AuthoritySupport.registryIfConfigured();
+            assertTrue(com.pingidentity.ps.oidf.authority.AuthoritySupport.registryIfConfigured().isEmpty());
+        }
+    }
+
+    @Test
+    void membershipRequirementIsReadFromThePropertyThenTheEnvironment() throws Exception {
+        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting("true", null));
+        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(" ", "true")); // a blank property defers
+        assertTrue(ClientAttestationAuthFilter.requireHostedAgentSetting(null, "true"));
+        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting("false", "true"));
+        assertEquals(false, ClientAttestationAuthFilter.requireHostedAgentSetting(null, null));
+
+        System.setProperty(REQUIRE_PROP, "false");
+        System.setProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP, "true");
+        resetSingletons();
+        try {
+            ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter();
+            filter.init(null);
+            assertTrue(filter.requiresHostedAgent());
+        } finally {
+            System.clearProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP);
+        }
     }
 }
