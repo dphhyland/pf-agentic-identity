@@ -34,7 +34,7 @@ and deliberately absent from `stage-modules.sh`, so nothing it carries reaches t
 |---|---|---|
 | `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-0.1.4.jar` |
 | `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-0.1.4.jar` |
-| `libs/openid-federation` | **OpenID Federation** core: trust-chain validation, entity statements, trust-controller gateway, client entity authorizer (draft-10 metadata) | `openid-federation-0.1.4.jar` |
+| `libs/openid-federation` | **OpenID Federation 1.0** (Final): trust-chain validation against pinned anchors, metadata policy, constraints, Trust Marks (verify and issue), the federation endpoints' logic, hosted entities and their key history, the AuthZEN policy decision client, and the event API - no PingFederate code | `openid-federation-0.1.4.jar` |
 | `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-0.1.4.jar` |
 | `libs/device-instance` | The **agent instance registry** — the only place an opaque instance id resolves to a human — and the **device Client Attestation minter** (subject = that id, never the user). Owns the Postgres schema | `device-instance-0.1.4.jar` |
 | `libs/agent-registry` | Mints/resolves **`agent_id`**: a random, never-derived per-running-instance identifier, for runtimes with no enrolment step of their own (a SPIFFE workload) | `agent-registry-0.1.4.jar` |
@@ -43,7 +43,7 @@ and deliberately absent from `stage-modules.sh`, so nothing it carries reaches t
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `servlets/pf-integration` | The PF glue: **federation servlet** + §12.1 automatic / §12.2 explicit **registration against the trust controller**, OGNL hooks, client store, and the filters over PF's own endpoints — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential), **`TokenEndpointAutoRegistrationFilter`**, and **`Fapi2ProfileFilter`** (the two FAPI 2.0 rules PF 13.0 has no setting for — issuer-only `aud` on client assertions, PS256/ES256/EdDSA-only DPoP proofs; applied only to the clients `OIDF_FAPI2_CLIENTS` lists) — registered by the deploy image's `web.xml` surgery (`build/pingfederate/assemble-pf-runtime-war.sh`) | `oidf.jar` |
+| `servlets/pf-integration` | The PF glue: **federation servlets** (entity configuration, fetch, list, resolve, Trust Mark and historical keys endpoints, hosted-entity admin) + §12.1 automatic registration at the token, authorization and PAR endpoints and §12.2 explicit **registration**, OGNL hooks, client store, and the filters over PF's own endpoints — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential), **`TokenEndpointAutoRegistrationFilter`**, and **`Fapi2ProfileFilter`** (the two FAPI 2.0 rules PF 13.0 has no setting for — issuer-only `aud` on client assertions, PS256/ES256/EdDSA-only DPoP proofs; applied only to the clients `OIDF_FAPI2_CLIENTS` lists) — registered by the deploy image's `web.xml` surgery (`build/pingfederate/assemble-pf-runtime-war.sh`) | `oidf.jar` |
 | `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (platform evidence — SPIFFE SVID, GKE/EKS/AKS, AWS, Azure — → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer-0.1.4.jar` |
 | `servlets/oidf-war` | The **`oidf.war` assembly**: pf-integration + attestation-issuer with their libraries in `WEB-INF/lib` (jose4j excluded — PF ships it; a second copy is a `LinkageError`). Its own module so it can depend on every servlet module without a reactor cycle | `oidf.war` |
 | `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf-0.1.4.jar` |
@@ -72,7 +72,9 @@ configures and runs it (below). What this repo does not do is **deploy**: every 
 **Client attestation
 end to end** — how issuance, verification, the PF token-endpoint filter and the RAR consumer fit
 together, what is implemented, standards alignment, test coverage and the open gaps:
-[docs/client-attestation-architecture.md](docs/client-attestation-architecture.md). **Demos:**
+[docs/client-attestation-architecture.md](docs/client-attestation-architecture.md). **OpenID Federation** -
+what PingFederate does in a federation, how, how to run it and how it is tested, in plain language:
+[docs/federation](docs/federation/README.md). **Demos:**
 [docs/DEMOS.md](docs/DEMOS.md) indexes every demo and how to bring it up. The demo UI / harness lives
 in [pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules); the cross-platform rigs — the
 GKE/EKS/Azure legs, the cross-cloud chain, the phone simulator — in
@@ -87,7 +89,7 @@ conformance/up.sh
 
 One command from a clone to a PingFederate 13.1.3 with every module in it on `https://localhost:9031`,
 configured as code (Terraform) to pass the OpenID Foundation conformance suite's FAPI 2.0 and Shared
-Signals plans. You bring your own licence details - your Ping DevOps credentials in
+Signals plans - and, with `PF_PROFILE=federation` or `federation-op`, its OpenID Federation plans. You bring your own licence details - your Ping DevOps credentials in
 `~/.pingidentity/config`; the image bakes no licence and the repo commits nothing licensed or secret.
 What it does, what it configures, how to point a conformance suite at it and what the suite says:
 [conformance/README.md](conformance/README.md).

@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
@@ -11,12 +12,25 @@ import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
+import com.pingidentity.ps.oidf.federation.policy.FederationPolicyDecisionPoint;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecision;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecisionException;
+import com.pingidentity.ps.oidf.federation.policy.PolicyDecisionRequest;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
+import com.pingidentity.ps.oidf.pf.PfTracking;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfDataSources;
+import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -24,7 +38,6 @@ import java.util.regex.Pattern;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
@@ -50,7 +63,7 @@ import org.jose4j.json.JsonUtil;
  * every statement this authority ever issued about it.
  */
 @WebServlet(urlPatterns = {"/federation/agents/*", "/federation/resources/*"})
-public class HostedEntityServlet extends HttpServlet {
+public class HostedEntityServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(HostedEntityServlet.class);
     private static final String WELL_KNOWN_SUFFIX = "/.well-known/openid-federation";
@@ -59,41 +72,90 @@ public class HostedEntityServlet extends HttpServlet {
 
     private String adminToken;
 
+    public HostedEntityServlet() {
+    }
+
+    /** Test seam: the servlet with its admin token, and hosting configured by the test through {@link AuthoritySupport}. */
+    HostedEntityServlet(String adminToken) {
+        this.adminToken = adminToken;
+    }
+
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        PfAuditEventSink.install();
         try {
             // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
             // not, and a servlet that refuses to boot just because enrolment isn't configured would take
             // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
-            this.adminToken = optionalInitParam(config, "adminToken",
-                    "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-            String authorityEntityId = requireInitParam(config, "authorityEntityId",
-                    "oidf.authority.entity_id", "OIDF_AUTHORITY_ENTITY_ID");
-            String baoUrl = optionalInitParam(config, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
-            String baoToken = optionalInitParam(config, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
-            AuthoritySupport.configureSigning(
-                    baoUrl != null && baoToken != null
-                            ? new RegistryHostedEntitySigner(baoUrl, baoToken)
-                            : RegistryHostedEntitySigner.fromEnvironment(),
-                    authorityEntityId);
-
-            String jdbcUrl = optionalInitParam(config, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
-            if (jdbcUrl != null) {
-                String jdbcUser = optionalInitParam(config, "jdbcUsername", "oidf.authority.jdbc.username", "OIDF_AUTHORITY_JDBC_USERNAME");
-                String jdbcPassword = optionalInitParam(config, "jdbcPassword", "oidf.authority.jdbc.password", "OIDF_AUTHORITY_JDBC_PASSWORD");
-                AuthoritySupport.configureJdbcRegistry(PfDataSources.direct(jdbcUrl, jdbcUser, jdbcPassword));
-            } else {
-                String dataStoreId = optionalInitParam(config, "dataStoreId", "oidf.authority.data_store_id", "OIDF_AUTHORITY_DATA_STORE_ID");
-                if (dataStoreId != null) {
-                    AuthoritySupport.configureJdbcRegistry(PfDataSources.pfManaged(dataStoreId));
-                }
-                // Neither set: AuthoritySupport.registry() falls back to an in-memory registry with its
-                // own loud warning the first time it is actually used — nothing to configure here.
+            this.adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+            if (!configureAuthority(config::getInitParameter)) {
+                throw new IllegalStateException("HostedEntityServlet requires 'authorityEntityId' (init-param, oidf.authority.entity_id,"
+                        + " or OIDF_AUTHORITY_ENTITY_ID)");
             }
         } catch (RuntimeException e) {
             throw new ServletException("Failed to initialize HostedEntityServlet", e);
         }
+    }
+
+    /**
+     * Configures this deployment as a domain authority - its durable stores, the domain default {@code metadata_policy},
+     * then its signer - from init-params, system properties or the environment. The federation servlet and the admin API
+     * call this too, so hosting is ready before this servlet's first request; the first configuration wins.
+     *
+     * <p>The stores come first: hosted lookups begin once signing is configured, and one that found no store would fall
+     * back to memory for good.
+     *
+     * @param initParams an init-param by name, or null
+     * @return false when no authority entity id is configured: this deployment hosts nothing
+     */
+    static boolean configureAuthority(java.util.function.Function<String, String> initParams) {
+        String authorityEntityId = setting(initParams, "authorityEntityId", "oidf.authority.entity_id", "OIDF_AUTHORITY_ENTITY_ID");
+        if (authorityEntityId == null) {
+            return false;
+        }
+        javax.sql.DataSource store = null;
+        String jdbcUrl = setting(initParams, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
+        if (jdbcUrl != null) {
+            store = PfDataSources.direct(jdbcUrl, setting(initParams, "jdbcUsername", "oidf.authority.jdbc.username", "OIDF_AUTHORITY_JDBC_USERNAME"),
+                    setting(initParams, "jdbcPassword", "oidf.authority.jdbc.password", "OIDF_AUTHORITY_JDBC_PASSWORD"));
+        } else {
+            String dataStoreId = setting(initParams, "dataStoreId", "oidf.authority.data_store_id", "OIDF_AUTHORITY_DATA_STORE_ID");
+            if (dataStoreId != null) {
+                store = PfDataSources.pfManaged(dataStoreId);
+            }
+        }
+        if (store != null) {
+            AuthoritySupport.configureJdbcRegistry(store);
+            // Trust Mark grants live beside the hosted entities they are mostly given to.
+            if (!TrustMarkSupport.isConfigured()) {
+                TrustMarkSupport.configureJdbcRegistry(store);
+            }
+        }
+        // Neither set: AuthoritySupport.registry() falls back to an in-memory registry with its own loud warning the first
+        // time it is actually used.
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
+        String baoUrl = setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
+        String baoToken = setting(initParams, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
+        AuthoritySupport.configureSigning(baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken)
+                : RegistryHostedEntitySigner.fromEnvironment(), authorityEntityId);
+        return true;
+    }
+
+    /** An init-param, else a system property, else an environment variable; blank counts as unset at every level. */
+    private static String setting(java.util.function.Function<String, String> initParams, String initParam, String sysProp, String envVar) {
+        String value = initParams == null ? null : blankToNull(initParams.apply(initParam));
+        if (value == null) {
+            value = blankToNull(System.getProperty(sysProp));
+        }
+        if (value == null) {
+            value = blankToNull(System.getenv(envVar));
+        }
+        return value;
+    }
+
+    private static String blankToNull(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     @Override
@@ -111,7 +173,7 @@ public class HostedEntityServlet extends HttpServlet {
             found = registry.find(entityId);
         } catch (Exception e) {
             LOGGER.error("hosted entity lookup failed for " + entityId, e);
-            writeError(resp, 500, "server_error", e.getMessage());
+            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
             return;
         }
         // A revoked or expired entity is refused identically to one that was never hosted — its status
@@ -126,7 +188,7 @@ public class HostedEntityServlet extends HttpServlet {
             jwt = AuthoritySupport.configurationBuilder().buildEntityConfiguration(found.get());
         } catch (RuntimeException e) {
             LOGGER.error("failed to sign entity configuration for " + entityId, e);
-            writeError(resp, 500, "server_error", e.getMessage());
+            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
             return;
         }
         resp.setStatus(200);
@@ -150,7 +212,8 @@ public class HostedEntityServlet extends HttpServlet {
      *   "metadata": { "oauth_client": {...} },   // required, one block per entity type this entity holds
      *   "listable": false,                       // optional, default false
      *   "ownerRef": "operator:dave",              // optional, free-form accountability field
-     *   "notAfterSeconds": null                   // optional TTL from now; omit/null for no expiry
+     *   "notAfterSeconds": null,                  // optional TTL from now; omit/null for no expiry
+     *   "metadataPolicy": { "oauth_client": {...} } // optional; narrows the domain default, never widens it
      * }
      * }</pre>
      *
@@ -205,23 +268,45 @@ public class HostedEntityServlet extends HttpServlet {
             notAfter = Instant.now().plusSeconds(n.longValue());
         }
 
+        Object policyRaw = body.get("metadataPolicy");
+        if (policyRaw != null && !(policyRaw instanceof Map)) {
+            writeError(resp, 400, "invalid_request", "'metadataPolicy' must be an object, one block per entity type");
+            return;
+        }
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadataPolicy = policyRaw == null ? Map.of() : (Map<String, Object>) policyRaw;
+
         String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + slug;
         HostedEntity entity;
         try {
             entity = new HostedEntity(entityId, HostingMode.AUTHORITY_SIGNED, hostingKeyRef, metadata,
-                    Map.of(), EntityStatus.ACTIVE, listable, ownerRef, Instant.now(), notAfter);
+                    metadataPolicy, EntityStatus.ACTIVE, listable, ownerRef, Instant.now(), notAfter);
+            AuthoritySupport.requireComposable(entity);
         } catch (IllegalArgumentException e) {
             writeError(resp, 400, "invalid_request", e.getMessage());
             return;
         }
 
-        try {
-            AuthoritySupport.registry().register(entity);
-        } catch (AuthorityRegistryException e) {
-            int status = AuthorityRegistryException.DUPLICATE.equals(e.reason()) ? 409 : 500;
-            writeError(resp, status, e.reason(), e.getMessage());
+        String actor = FederationAdminServlet.actor(this.adminToken, req.getHeader("X-Federation-Actor"));
+        Refusal refusal = askPolicy(FederationPolicySupport.decisionPointFor(DecisionPoint.HOSTED_ENTITY_ENROL), FederationPolicySupport.settings(),
+                entity, AuthoritySupport.authorityEntityId(), actor);
+        if (refusal != null) {
+            writeError(resp, refusal.status(), refusal.error(), refusal.description());
             return;
         }
+        try {
+            AuthoritySupport.registry().register(entity, actor);
+        } catch (AuthorityRegistryException e) {
+            if (AuthorityRegistryException.DUPLICATE.equals(e.reason())) {
+                writeError(resp, 409, e.reason(), e.getMessage());
+            } else {
+                LOGGER.error("hosted entity enrolment failed for " + entityId, e);
+                writeError(resp, 500, "server_error", "the entity could not be enrolled");
+            }
+            return;
+        }
+        FederationEvents.event(FederationEvents.HOSTED_ENTITY_ENROLLED).subject(entityId).role("authority").audit().field("actor", actor)
+                .field("listable", listable).emit();
 
         LinkedHashMap<String, Object> out = new LinkedHashMap<>();
         out.put("entityId", entityId);
@@ -231,6 +316,64 @@ public class HostedEntityServlet extends HttpServlet {
         try (PrintWriter w = resp.getWriter()) {
             w.write(JsonUtil.toJson(out));
         }
+    }
+
+    /** Why an enrolment may not go ahead. */
+    record Refusal(int status, String error, String description) {
+    }
+
+    /**
+     * Asks whoever decides enrolments in this deployment ({@code OIDF_PDP_DECISION_POINTS} naming
+     * {@code hosted_entity_enrol}) whether {@code entity} may be enrolled: null when it may, or when nobody decides. A
+     * denial is 403 {@code access_denied}, with the PDP's {@code reason_user} only when the deployment surfaces it. No
+     * decision is 503, never a permit (AuthZEN 1.0 §10.1.2), unless the deployment fails open.
+     *
+     * <p>The PDP hears the entity's identifier, its Entity Types and the metadata it is to be enrolled with, whether it is
+     * listed, and who is enrolling it (the admin token's fingerprint, never the token).
+     */
+    static Refusal askPolicy(FederationPolicyDecisionPoint pdp, PdpSettings settings, HostedEntity entity, String authority, String actor) {
+        if (pdp == null) {
+            return null;
+        }
+        Map<String, Object> subject = new LinkedHashMap<>();
+        subject.put("entity_types", new ArrayList<>(entity.metadata().keySet()));
+        subject.put("listable", entity.listable());
+        Map<String, Object> context = new LinkedHashMap<>();
+        context.put("metadata", entity.metadata());
+        context.put("actor", actor);
+        String trackingId = PfTracking.trackingId();
+        if (trackingId != null) {
+            context.put(PolicyDecisionRequest.REQUEST_CONTEXT, Map.of("tracking_id", trackingId));
+        }
+        PolicyDecisionRequest request = new PolicyDecisionRequest(DecisionPoint.HOSTED_ENTITY_ENROL, entity.entityId(), subject,
+                "federation_authority", authority, Map.of(), context, trackingId);
+        PolicyDecision decision;
+        try {
+            decision = pdp.decide(request);
+        } catch (PolicyDecisionException e) {
+            FederationEvents.event(FederationEvents.PDP_CONSULTED).failure("no_decision").subject(entity.entityId()).role("authority").audit()
+                    .field("action", DecisionPoint.HOSTED_ENTITY_ENROL.action()).field("actor", actor).description(e.getMessage()).emit();
+            if (settings.failOpen()) {
+                FederationEvents.event(FederationEvents.PDP_FAIL_OPEN).failure("no_decision").subject(entity.entityId()).role("authority").audit()
+                        .field("action", DecisionPoint.HOSTED_ENTITY_ENROL.action()).description("enrolled without a policy decision: OIDF_PDP_FAIL_OPEN=true")
+                        .emit();
+                return null;
+            }
+            return new Refusal(503, "temporarily_unavailable", "the policy decision this enrolment needs could not be obtained; try again shortly");
+        }
+        FederationEvents.event(FederationEvents.PDP_CONSULTED).subject(entity.entityId()).role("authority").audit()
+                .field("action", DecisionPoint.HOSTED_ENTITY_ENROL.action()).field("actor", actor)
+                .field("decision", decision.permitted() ? "permit" : "deny").field("latency_ms", decision.latencyMs())
+                .field("pdp_request_id", decision.pdpRequestId())
+                .field("ignored_context", decision.ignoredContextKeys().isEmpty() ? null : decision.ignoredContextKeys())
+                .description(decision.reasonAdmin()).emit();
+        if (decision.permitted()) {
+            return null;
+        }
+        FederationEvents.event(FederationEvents.HOSTED_ENTITY_REFUSED).failure("policy_denied").subject(entity.entityId()).role("authority").audit()
+                .field("actor", actor).description("the policy decision point refused the enrolment").emit();
+        return new Refusal(403, "access_denied", settings.surfaceUserReason() && decision.reasonUser() != null ? decision.reasonUser()
+                : "this deployment's policy does not allow " + entity.entityId() + " to be enrolled");
     }
 
     /** Constant-time comparison against the configured admin token — a timing side channel on this check
@@ -298,30 +441,5 @@ public class HostedEntityServlet extends HttpServlet {
         try (PrintWriter out = resp.getWriter()) {
             out.write(JsonUtil.toJson(body));
         }
-    }
-
-    private static String requireInitParam(ServletConfig config, String initParam, String sysProp, String envVar) {
-        String value = resolveInitParam(config, initParam, sysProp, envVar);
-        if (value == null) {
-            throw new IllegalStateException("HostedEntityServlet requires '" + initParam + "' (init-param, "
-                    + sysProp + ", or " + envVar + ")");
-        }
-        return value;
-    }
-
-    private static String optionalInitParam(ServletConfig config, String initParam, String sysProp, String envVar) {
-        return resolveInitParam(config, initParam, sysProp, envVar);
-    }
-
-    /** init-param, then system property, then environment variable — the layering this module uses throughout. */
-    private static String resolveInitParam(ServletConfig config, String initParam, String sysProp, String envVar) {
-        String value = config.getInitParameter(initParam);
-        if (value == null || value.isBlank()) {
-            value = System.getProperty(sysProp);
-        }
-        if (value == null || value.isBlank()) {
-            value = System.getenv(envVar);
-        }
-        return value == null || value.isBlank() ? null : value.trim();
     }
 }

@@ -1,0 +1,35 @@
+# A conformance suite of this rig's own: dev mode (no login), release-v5.3.1 - the version every plan in
+# ../README.md was run with. Its TLS certificate is keys/suite-tls.crt (gen-keys.sh), issued by a CA the
+# federation-op profile has PingFederate trust, so PF can fetch what the suite publishes in the OpenID
+# Federation OP plan - PF checks that certificate itself, as it would any relying party's. Any suite does
+# for the other plans.
+#
+#   SUITE_PORT=49643 docker compose -f suite/suite-compose.yml -p pfai-suite up -d
+#
+# BASE_URL is the origin the suite writes into everything it publishes - its RP's and trust anchor's entity
+# identifiers, its redirect URIs - so it is one a container reaches this machine by. The API answers on
+# https://localhost:$SUITE_PORT as well, which is what suite/run-plan.py uses.
+services:
+  mongodb:
+    image: mongo:6.0.13
+    volumes: [ "suite-db:/data/db" ]
+  server:
+    image: registry.gitlab.com/openid/conformance-suite:release-v5.3.1
+    environment:
+      BASE_URL: https://host.docker.internal:${SUITE_PORT:-9643}
+      MONGODB_HOST: mongodb
+      SPRING_PROFILES_ACTIVE: dev
+      OIDC_GOOGLE_CLIENTID: unused
+      OIDC_GOOGLE_SECRET: unused
+      OIDC_GITLAB_CLIENTID: unused
+      OIDC_GITLAB_SECRET: unused
+    depends_on: [ mongodb ]
+  nginx:
+    image: registry.gitlab.com/openid/conformance-suite/nginx:release-v5.3.1
+    ports: [ "127.0.0.1:${SUITE_PORT:-9643}:8443" ]
+    volumes:
+      - ../keys/suite-tls.crt:/etc/ssl/certs/nginx-selfsigned.crt:ro
+      - ../keys/suite-tls.key:/etc/ssl/private/nginx-selfsigned.key:ro
+    depends_on: [ server ]
+volumes:
+  suite-db:

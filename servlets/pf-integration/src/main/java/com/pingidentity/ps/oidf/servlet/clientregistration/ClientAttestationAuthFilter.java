@@ -136,14 +136,14 @@ public final class ClientAttestationAuthFilter implements Filter {
             // its keys can be captured - so say so once, loudly, here.
             FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
             if (runtime.isTrustControllerConfigured()) {
-                if (runtime.trustAnchorJwks() == null) {
+                if (!runtime.hasTrustAnchors()) {
                     LOGGER.error((Object) ("attest_jwt_client_auth: " + FederationRuntimeConfig.HOST_ENV + " names "
                             + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
                             + " is unset - every attester resolved through the federation is refused until the trust"
                             + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
                 } else {
                     try {
-                        runtime.trustAnchor();
+                        runtime.trustAnchors();
                     }
                     catch (RuntimeException e) {
                         throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);

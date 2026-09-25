@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "openid_relying_party": {
+      "redirect_uris": [
+        "https://rp.example.org/callback"
+      ],
+      "response_types": [
+        "code"
+      ],
+      "token_endpoint_auth_method": "self_signed_tls_client_auth",
+      "contacts": [
+        "rp_admins@rp.example.org"
+      ]
+    }
+  }
+}

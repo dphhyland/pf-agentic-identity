@@ -28,7 +28,7 @@ class FederationServiceListSubordinatesTest {
                 List.of("https://static.example.com"),
                 entityType -> List.of("https://anchor.example.com/agents/hosted-1"));
 
-        List<String> listed = anchor.listSubordinates(null);
+        List<String> listed = anchor.listSubordinates(ListRequest.all());
         assertEquals(Set.of("https://static.example.com", "https://anchor.example.com/agents/hosted-1"),
                 Set.copyOf(listed));
     }
@@ -55,7 +55,7 @@ class FederationServiceListSubordinatesTest {
                 null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
 
-        assertEquals(List.of("https://static.example.com"), anchor.listSubordinates(null));
+        assertEquals(List.of("https://static.example.com"), anchor.listSubordinates(ListRequest.all()));
         assertEquals(List.of(), anchor.listSubordinates("oauth_client"));
     }
 

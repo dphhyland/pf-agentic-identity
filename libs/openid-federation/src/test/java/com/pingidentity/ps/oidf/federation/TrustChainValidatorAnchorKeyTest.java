@@ -195,8 +195,9 @@ class TrustChainValidatorAnchorKeyTest {
         TrustChainValidator validator = new TrustChainValidator(
                 new HttpTrustControllerGateway(stub(responses, new ArrayList<>()), ANCHOR), TrustAnchor.of(ANCHOR, jwks(anchorKey)));
 
-        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
                 () -> validator.validate(List.of(leafConfig, intermediateAboutLeaf, intermediateConfig), LEAF, LEAF));
+        assertEquals(TrustChainValidationException.Kind.MISSING_CLAIM, e.kind(), e.getMessage());
         assertTrue(e.getMessage().contains("jwks"), e.getMessage());
     }
 }

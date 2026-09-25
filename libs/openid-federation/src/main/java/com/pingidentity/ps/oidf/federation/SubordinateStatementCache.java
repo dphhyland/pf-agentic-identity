@@ -1,6 +1,6 @@
 package com.pingidentity.ps.oidf.federation;
 
-import java.time.Instant;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -22,6 +22,7 @@ public final class SubordinateStatementCache {
     public static final long DEFAULT_EXPIRY_BUFFER_SECONDS = 300L;
     public static final long NO_MAX_AGE_LIMIT = -1L;
     private final int maxEntries;
+    private final Clock clock;
     private final LinkedHashMap<Key, CachedEntry> entries;
 
     public SubordinateStatementCache() {
@@ -29,6 +30,12 @@ public final class SubordinateStatementCache {
     }
 
     public SubordinateStatementCache(int maxEntries) {
+        this(maxEntries, Clock.systemUTC());
+    }
+
+    /** As {@link #SubordinateStatementCache(int)}, ageing entries against {@code clock}. */
+    public SubordinateStatementCache(int maxEntries, Clock clock) {
+        this.clock = java.util.Objects.requireNonNull(clock, "clock");
         if (maxEntries != -1 && maxEntries <= 0) {
             throw new IllegalArgumentException("maxEntries must be > 0 or -1 for unbounded, got " + maxEntries);
         }
@@ -59,7 +66,7 @@ public final class SubordinateStatementCache {
             LOGGER.debug("cache MISS for iss=" + authorityIssuer + " sub=" + subject + " (size=" + this.entries.size() + ")");
             return null;
         }
-        long now = Instant.now().getEpochSecond();
+        long now = this.clock.instant().getEpochSecond();
         long remaining = entry.expEpochSeconds - now;
         if (remaining <= expiryBufferSeconds) {
             this.entries.remove(key);
@@ -81,7 +88,7 @@ public final class SubordinateStatementCache {
 
     public synchronized void put(String authorityIssuer, String subject, String jwt, long expEpochSeconds, long iatEpochSeconds) {
         this.entries.put(new Key(authorityIssuer, subject), new CachedEntry(jwt, expEpochSeconds, iatEpochSeconds));
-        long now = Instant.now().getEpochSecond();
+        long now = this.clock.instant().getEpochSecond();
         LOGGER.debug("cache PUT  for iss=" + authorityIssuer + " sub=" + subject + " (exp=" + expEpochSeconds + ", iat=" + iatEpochSeconds + ", now=" + now + ", lifetimeSeconds=" + (expEpochSeconds - now) + ", size=" + this.entries.size() + ")");
     }
 
@@ -131,10 +138,6 @@ public final class SubordinateStatementCache {
             this.iatEpochSeconds = iatEpochSeconds;
         }
 
-        private boolean isExpiringWithin(long bufferSeconds) {
-            long now = Instant.now().getEpochSecond();
-            return this.expEpochSeconds - now <= bufferSeconds;
-        }
     }
 
     private static final class Key {
@@ -212,7 +215,7 @@ public final class SubordinateStatementCache {
                 }
             }
             if (LOGGER.isDebugEnabled()) {
-                long now = Instant.now().getEpochSecond();
+                long now = this.cache.clock.instant().getEpochSecond();
                 LOGGER.debug("cache COMMIT applied " + this.writes.size() + " staged write(s) (cacheSize=" + this.cache.size() + ", now=" + now + ")");
             }
             this.writes.clear();

@@ -13,6 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.function.Function;
 import javax.sql.DataSource;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -44,6 +45,8 @@ public final class AuthoritySupport {
     /** One block per entity type, the same shape as {@link HostedEntity#metadataPolicy()}. Empty (no
      *  domain-wide constraint) unless {@link #configureDomainDefaultMetadataPolicy} is called. */
     private static volatile Map<String, Object> domainDefaultMetadataPolicy = Map.of();
+    /** Entity id -> the {@code trust_marks} this authority issues it; none until the federation servlet configures it. */
+    private static volatile Function<String, List<Map<String, Object>>> trustMarks;
 
     private AuthoritySupport() {
     }
@@ -73,7 +76,7 @@ public final class AuthoritySupport {
             signer = Objects.requireNonNull(hostedEntitySigner, "hostedEntitySigner");
             authorityEntityId = com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(
                     configuredAuthorityEntityId, "authorityEntityId");
-            configurationBuilder = new HostedEntityConfigurationBuilder(signer, authorityEntityId);
+            configurationBuilder = new HostedEntityConfigurationBuilder(signer, authorityEntityId, AuthoritySupport::trustMarksFor);
         }
     }
 
@@ -102,6 +105,78 @@ public final class AuthoritySupport {
         return local;
     }
 
+    /**
+     * Sets where hosted entities' Trust Marks come from: the federation servlet, which issues them. The latest call
+     * wins - it is a lookup, like the domain default policy, not a resource.
+     */
+    public static void configureTrustMarks(Function<String, List<Map<String, Object>>> issuedTo) {
+        trustMarks = issuedTo;
+    }
+
+    /** The {@code trust_marks} this authority issues {@code entityId}; empty when it issues none. */
+    public static List<Map<String, Object>> trustMarksFor(String entityId) {
+        Function<String, List<Map<String, Object>>> local = trustMarks;
+        return local == null ? List.of() : local.apply(entityId);
+    }
+
+    /**
+     * Whether {@code entityId} is an entity this authority hosts that resolves now - the only kind a Trust Mark issued
+     * to hosted entities alone may be held by.
+     *
+     * @throws IllegalStateException if the registry itself is unavailable
+     */
+    public static boolean isActiveHostedEntity(String entityId) {
+        if (!isHostingConfigured()) {
+            return false;
+        }
+        try {
+            return registry().find(entityId).map(e -> e.resolvable(Instant.now())).orElse(false);
+        } catch (AuthorityRegistryException e) {
+            throw new IllegalStateException("hosted-entity lookup failed for " + entityId, e);
+        }
+    }
+
+    /** Tests only: forget every configuration, so a test can see the unconfigured state. */
+    public static void resetForTests() {
+        synchronized (LOCK) {
+            registry = null;
+            signer = null;
+            authorityEntityId = null;
+            configurationBuilder = null;
+            domainDefaultMetadataPolicy = Map.of();
+            trustMarks = null;
+        }
+    }
+
+    /** True once {@link #configureSigning} has run: this deployment hosts entities and is their superior. */
+    public static boolean isHostingConfigured() {
+        return signer != null;
+    }
+
+    /**
+     * The signed Entity Configuration of a resolvable hosted entity, or {@code null} when hosting is not
+     * configured or {@code entityId} is not (or is no longer) hosted here - for this deployment's own
+     * resolver, which builds these in-process rather than fetching its own public URL.
+     *
+     * @throws IllegalStateException if the registry itself is unavailable
+     */
+    public static String hostedEntityConfiguration(String entityId) {
+        HostedEntityConfigurationBuilder builder = configurationBuilder;
+        if (builder == null) {
+            return null;
+        }
+        Optional<HostedEntity> found;
+        try {
+            found = registry().find(entityId);
+        } catch (AuthorityRegistryException e) {
+            throw new IllegalStateException("hosted-entity lookup failed for " + entityId, e);
+        }
+        if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
+            return null;
+        }
+        return builder.buildEntityConfiguration(found.get());
+    }
+
     /** The authority's own fixed entity id, as configured — never derived from a request's Host header. */
     public static String authorityEntityId() {
         String local = authorityEntityId;
@@ -120,7 +195,33 @@ public final class AuthoritySupport {
      * hazard in an operator updating it without a restart.
      */
     public static void configureDomainDefaultMetadataPolicy(Map<String, Object> policy) {
-        domainDefaultMetadataPolicy = policy == null ? Map.of() : Map.copyOf(policy);
+        Map<String, Object> checked = policy == null ? Map.of() : Map.copyOf(policy);
+        for (Map.Entry<String, Object> type : checked.entrySet()) {
+            if (!(type.getValue() instanceof Map)) {
+                throw new IllegalArgumentException("the domain default metadata_policy for " + type.getKey() + " is not a JSON object");
+            }
+            try {
+                MetadataPolicy.parse(asPolicyMap(type.getValue()), null);
+            } catch (MetadataPolicy.PolicyException | RuntimeException e) {
+                throw new IllegalArgumentException("the domain default metadata_policy for " + type.getKey() + " is not a policy: "
+                        + e.getMessage(), e);
+            }
+        }
+        domainDefaultMetadataPolicy = checked;
+    }
+
+    /**
+     * Refuses a hosted entity whose own {@code metadata_policy} would not compose with the domain default - before it is
+     * stored, rather than in every Subordinate Statement about it afterwards.
+     *
+     * @throws IllegalArgumentException naming the type and the conflict
+     */
+    public static void requireComposable(HostedEntity candidate) {
+        try {
+            composedMetadataPolicyFor(candidate);
+        } catch (IllegalStateException e) {
+            throw new IllegalArgumentException(e.getMessage(), e);
+        }
     }
 
     public static HostedEntitySigner hostedEntitySigner() {
@@ -142,6 +243,11 @@ public final class AuthoritySupport {
      * @throws IllegalStateException if the registry itself is unavailable
      */
     public static List<String> hostedEntityIds(String entityType) {
+        // Nothing is hosted before hosting is configured - and asking the registry now would create the in-memory
+        // fallback, which the durable registry configured moments later could then never replace.
+        if (!isHostingConfigured()) {
+            return List.of();
+        }
         try {
             return registry().list(entityType).stream().map(HostedEntity::entityId).toList();
         } catch (AuthorityRegistryException e) {
@@ -165,6 +271,9 @@ public final class AuthoritySupport {
      *                                faults, not "subject not hosted"
      */
     public static Map<String, Object> hostedSubordinateClaims(String subject) {
+        if (!isHostingConfigured()) {
+            return null;
+        }
         Optional<HostedEntity> found;
         try {
             found = registry().find(subject);
@@ -213,7 +322,7 @@ public final class AuthoritySupport {
                 MetadataPolicy entityPolicy = MetadataPolicy.parse(asPolicyMap(entity.metadataPolicy().get(type)), null);
                 MetadataPolicy result = domainPolicy.composeWith(entityPolicy);
                 if (!result.isEmpty()) {
-                    composed.put(type, asRawMap(result));
+                    composed.put(type, result.toRawMap());
                 }
             } catch (MetadataPolicy.PolicyException e) {
                 throw new IllegalStateException("metadata_policy composition failed for hosted entity "
@@ -226,14 +335,5 @@ public final class AuthoritySupport {
     @SuppressWarnings("unchecked")
     private static Map<String, Object> asPolicyMap(Object raw) {
         return raw instanceof Map ? (Map<String, Object>) raw : Map.of();
-    }
-
-    /** Reconstructs the raw {@code metadata_policy.<type>} shape from a composed {@link MetadataPolicy}. */
-    private static Map<String, Object> asRawMap(MetadataPolicy policy) {
-        LinkedHashMap<String, Object> out = new LinkedHashMap<>();
-        for (String parameter : policy.parameters()) {
-            out.put(parameter, policy.operatorsFor(parameter));
-        }
-        return out;
     }
 }

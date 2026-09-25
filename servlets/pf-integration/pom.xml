@@ -40,10 +40,15 @@
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
+        <!-- PfTracking reads and sets PingFederate's own "trackingid" in the log4j2 ThreadContext, so event lines
+             written off a request thread (the subordinate refresher, the registration sweeper) still correlate.
+             PF ships log4j-api; as in servlets/ssf, it is provided. -->
+        <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
@@ -101,10 +106,130 @@
                                              turns into a registration; isFederationRegistered is what later
                                              decides a client came from federation rather than by hand. -->
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.trustAnchor(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requireConfiguredAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requireConfiguredAnchors(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.explicitRegister(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireConstrainedByPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireTrustMarks(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.isFederationRegistered(*</include>
+                                        <!-- A registration's life (§12.3) and who may renew it. admit is every
+                                             token request naming a client, unauthenticated: what it renews, when,
+                                             from whose chain, and what it refuses. presentsChange and
+                                             predatesRegistration are the only reads of a presented chain before it
+                                             is validated; recentFailure is the backoff that keeps a caller's bad
+                                             chain from standing in for the client's own; store is who may enable a
+                                             client again. The response claims are §12.2.3's. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.attempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.registerFrom(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.resolution(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.sameRecord(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.keysFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.enforceExpiry(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.disableExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.renewedRecently(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.recentFailure(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.failureKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.presentsChange(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.predatesRegistration(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.entityConfiguration(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.issuedAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.store(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.requireMarksKept(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.immediateSuperior(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.buildSignedRegistrationResponse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.clientEntityType(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.sameKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.expiresAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.storedExpiry(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.isExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime.isDueForRenewal(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationExpirySweeper.sweepOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationRejectedException.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest.presentedChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest.isOwnConfiguration(*</include>
+                                        <!-- The token endpoint in front of PingFederate: which client a request names,
+                                             and what it is told when the answer is no. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.extractTrustChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(*</include>
+                                        <!-- Registration at the authorization and PAR endpoints (§12.1.1): which requests
+                                             are touched, what the request must prove before anything is fetched or
+                                             written, which keys an RP is registered with, what it is held to, and how
+                                             a refusal is answered - never with a redirect. The coordinator is the bound
+                                             on the work any unauthenticated request can start. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter.refuse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.trustChain(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.checkProfile(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.onlyAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.verifiedSignedJwks(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.signingKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.httpsUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.agent(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.relyingParty(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.bypassApprovalPage(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.strings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.precheck(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.entityType(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.beforeStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.FrontChannel.admitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.admitted(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.registered(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration.forFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage.escape(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.autoRegistrationSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.bool(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.OpenIdRegistrationServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.registrationExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.registrationSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictBoolean(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.requiredTrustMarks(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.strictly(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.AuthorityDataSource.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.route(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.authorized(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.grant(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revoke(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.actor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.serve(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.endpointAuth(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleTrustMark(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.keys(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revokeKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.recordSigningKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.change(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.metadata(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.metadataPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.rotateKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityAdmin.isObjectOfObjects(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.configureAuthority(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.setting(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.blankToNull(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doPost(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.jsonObject(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.metadataPolicyByType(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.constraints(*</include>
                                         <!-- The explicit-registration body itself: typed as an Entity Statement
                                              (OpenID Federation 1.0 §3) and signed by its own jwks. The chain
                                              validator never sees this statement, so nothing downstream repeats it. -->
@@ -139,10 +264,81 @@
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter.withinSet(*</include>
                                         <!-- The admin read surface: what it will disclose, and to whom. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleFetch(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleList(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.handleResolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.booleanParameter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.repeated(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.resolverAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.noDecision(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.request(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.obligationNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.nullIfEmpty(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.permits(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.unmet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.request(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.values(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.value(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.federationPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.validated(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.verifiedTypes(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrow(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.registeredAtTheFrontChannel(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.askPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.build(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.authHeaders(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.trustedUrls(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.policies(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationPolicySupport.Policies.forPoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.pdpSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.choice(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.words(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.decisionPoints(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings.asksExternally(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.trustAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.selfAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.selfTrustAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.hasTrustAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.hasHost(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.refresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.capture(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.emptyAnswer(*</include>
+                                        <!-- Whose address an audit record carries: the scope every request enters and
+                                             leaves, the request the OGNL criterion reads, and the servlets' way in. A
+                                             scope left behind puts a pooled thread's next request down to this caller. -->
+                                        <include>com.pingidentity.ps.oidf.pf.PfRequestScope.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfRequestScope.exit(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.RequestScopedServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requestOf(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
                                         <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                    <!-- The floor is the whole module: it stops the total falling while the gate above holds the
+                         decisions at 100%. Set just under what the tests reach, raised as they reach further, never
+                         lowered to let a change through. The dashboard reads it from here. -->
+                    <execution>
+                        <id>coverage-floor</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit><counter>INSTRUCTION</counter><value>COVEREDRATIO</value><minimum>0.85</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit>
                                     </limits>
                                 </rule>
                             </rules>
@@ -165,4 +361,66 @@
             <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
         </repository>
     </distributionManagement>
+    <!-- Mutation testing (mvn -Pmutation verify): pitest changes the decision classes one small way at a time -
+         a condition negated, a boundary moved, a return value swapped - and a mutant no test notices is a check
+         the tests only appear to make. The registration, lifetime and policy decisions and the filters that make
+         them; not the servlets' PingFederate wiring, which only a running PingFederate exercises. Opt-in, and
+         weekly in CI (.github/workflows/mutation.yml), never on a push. Held at 85% killed; the report is
+         target/pit-reports. -->
+    <profiles>
+        <profile>
+            <id>mutation</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <version>1.17.1</version>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.pitest</groupId>
+                                <artifactId>pitest-junit5-plugin</artifactId>
+                                <version>1.2.1</version>
+                            </dependency>
+                        </dependencies>
+                        <configuration>
+                            <targetClasses>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationExpirySweeper*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy*</param>
+                                <param>com.pingidentity.ps.oidf.pf.FederationPolicySupport*</param>
+                                <param>com.pingidentity.ps.oidf.pf.AdminBearer*</param>
+                            </targetClasses>
+                            <targetTests>
+                                <param>com.pingidentity.ps.oidf.*</param>
+                            </targetTests>
+                            <mutationThreshold>85</mutationThreshold>
+                            <threads>4</threads>
+                            <timestampedReports>false</timestampedReports>
+                            <outputFormats>
+                                <param>HTML</param>
+                                <param>XML</param>
+                            </outputFormats>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>mutation</id>
+                                <phase>verify</phase>
+                                <goals><goal>mutationCoverage</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

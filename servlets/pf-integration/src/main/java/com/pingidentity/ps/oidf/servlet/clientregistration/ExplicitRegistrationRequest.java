@@ -34,12 +34,21 @@ final class ExplicitRegistrationRequest {
     private final String sub;
     private final List<String> trustChain;
     private final Map<String, Object> metadata;
+    private final String requestJwt;
+    private final List<String> peerTrustChain;
 
     ExplicitRegistrationRequest(String issuer, String sub, List<String> trustChain, Map<String, Object> metadata) {
+        this(issuer, sub, trustChain, metadata, null, List.of());
+    }
+
+    ExplicitRegistrationRequest(String issuer, String sub, List<String> trustChain, Map<String, Object> metadata,
+                                String requestJwt, List<String> peerTrustChain) {
         this.issuer = issuer;
         this.sub = sub;
         this.trustChain = trustChain != null ? List.copyOf(trustChain) : List.of();
         this.metadata = metadata != null ? metadata : Map.of();
+        this.requestJwt = requestJwt;
+        this.peerTrustChain = peerTrustChain != null ? List.copyOf(peerTrustChain) : List.of();
     }
 
     /**
@@ -61,15 +70,10 @@ final class ExplicitRegistrationRequest {
         Map<String, Object> headers = JwtCodec.getJwtHeaders(jwt);
         try {
             Map<String, Object> root = verified.getClaimsMap();
-            List<String> trustChain = List.of();
-            Object trustChainRaw = headers.get("trust_chain");
-            if (trustChainRaw instanceof List) {
-                List<?> list = (List<?>) trustChainRaw;
-                trustChain = list.stream().map(String::valueOf).toList();
-            }
+            List<String> trustChain = header(headers, "trust_chain");
             Object metadataRaw = root.get("metadata");
             Map<String, Object> metadata = metadataRaw instanceof Map ? asStringObjectMap(metadataRaw) : Map.of();
-            return new ExplicitRegistrationRequest(verified.getIssuer(), sub, trustChain, metadata);
+            return new ExplicitRegistrationRequest(verified.getIssuer(), sub, trustChain, metadata, jwt, header(headers, "peer_trust_chain"));
         }
         catch (Exception e) {
             throw new IllegalArgumentException("Invalid explicit registration request JSON", e);
@@ -127,6 +131,47 @@ final class ExplicitRegistrationRequest {
         String rpIssuer = Claims.requireNonBlank(leafClaims.getIssuer(), "iss");
         String leafSubject = Claims.requireNonBlank(leafClaims.getSubject(), "sub");
         return new ExplicitRegistrationRequest(rpIssuer, leafSubject, trustChain, Map.of());
+    }
+
+    private static List<String> header(Map<String, Object> headers, String name) {
+        Object raw = headers.get(name);
+        return raw instanceof List<?> list ? list.stream().map(String::valueOf).toList() : List.of();
+    }
+
+    /**
+     * The statements to validate. For an Entity Configuration body that is the posted configuration itself
+     * plus whatever its {@code trust_chain} header carries - minus the RP's own configuration in that header:
+     * §12.2.2 says the header only shows there is a path, and "it is the metadata, etc. in the request
+     * Entity Configuration ... that is used". The posted configuration also means an RP that publishes no
+     * configuration of its own (§9 allows that for explicit registration) is not fetched. For a Trust Chain
+     * body, the chain as sent.
+     */
+    List<String> presentedChain() {
+        if (this.requestJwt == null) {
+            return this.trustChain;
+        }
+        List<String> presented = new java.util.ArrayList<>();
+        presented.add(this.requestJwt);
+        for (String statement : this.trustChain) {
+            if (!this.isOwnConfiguration(statement)) {
+                presented.add(statement);
+            }
+        }
+        return List.copyOf(presented);
+    }
+
+    private boolean isOwnConfiguration(String statement) {
+        try {
+            JwtClaims claims = JwtCodec.parseUnverifiedClaims(statement);
+            return Objects.equals(claims.getIssuer(), this.issuer) && Objects.equals(claims.getSubject(), this.issuer);
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** The {@code peer_trust_chain} header of an Entity Configuration body (§12.2.1), or empty. */
+    List<String> peerTrustChain() {
+        return this.peerTrustChain;
     }
 
     String issuer() {

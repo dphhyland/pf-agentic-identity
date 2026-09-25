@@ -16,8 +16,10 @@ final class RegisteredClient {
     private final Map<String, Object> metadata;
     private final String status;
     private final String signedJwt;
+    private final long expiresAt;
 
-    RegisteredClient(String clientId, String issuer, String trustAnchor, List<String> trustChain, Map<String, Object> metadata, String status, String signedJwt) {
+    RegisteredClient(String clientId, String issuer, String trustAnchor, List<String> trustChain, Map<String, Object> metadata, String status,
+                     String signedJwt, long expiresAt) {
         this.clientId = clientId;
         this.issuer = issuer;
         this.trustAnchor = trustAnchor;
@@ -25,6 +27,12 @@ final class RegisteredClient {
         this.metadata = metadata != null ? metadata : Map.of();
         this.status = status;
         this.signedJwt = signedJwt;
+        this.expiresAt = expiresAt;
+    }
+
+    /** When the registration ends, in epoch seconds (§12.3). */
+    long expiresAt() {
+        return this.expiresAt;
     }
 
     String clientId() {

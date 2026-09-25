@@ -75,7 +75,8 @@ class FederationServiceSubordinateTest {
         // federation_fetch_endpoint, and subordinate resolution had nowhere to go. Both paths now share
         // one metadata builder, so they can no longer drift apart.
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
-        String attesterJwks = "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"mock-attester-1\",\"k\":\"c2VjcmV0\"}]}";
+        String attesterJwks = JsonUtil.toJson(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwks(
+                com.pingidentity.ps.oidf.federation.testkit.Keys.ec("mock-attester-1")));
         FederationConfiguration anchorConfig = new FederationConfiguration(
                 List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null, attesterJwks);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
@@ -187,7 +188,8 @@ class FederationServiceSubordinateTest {
     @Test
     void configuredAttesterJwksIsPublishedInEntityConfiguration() throws Exception {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
-        String attesterJwks = "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"mock-attester-1\",\"k\":\"c2VjcmV0\"}]}";
+        String attesterJwks = JsonUtil.toJson(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwks(
+                com.pingidentity.ps.oidf.federation.testkit.Keys.ec("mock-attester-1")));
         FederationConfiguration anchorConfig = new FederationConfiguration(
                 List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null, attesterJwks);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);

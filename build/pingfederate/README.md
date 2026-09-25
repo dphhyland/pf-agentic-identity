@@ -1,6 +1,6 @@
 # The PingFederate image build
 
-PF 13.0.3 plus this repo's modules, assembled into a runnable image. This is the **capability made
+PF 13.1.3 plus this repo's modules, assembled into a runnable image. This is the **capability made
 runnable** - it belongs here, beside the code it packages. To run it on this machine, configured,
 use [`../conformance/up.sh`](../../conformance/README.md); this page is about the image itself.
 
@@ -21,7 +21,7 @@ Tracked:
 
 | Path | Purpose |
 |---|---|
-| `Dockerfile` | stock `pingidentity/pingfederate:13.0.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with the SSF logout filter registered in its `web.xml` |
+| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `assemble-pf-runtime-war.sh` |
 | `stage-modules.sh` | copies the reactor's eight module jars into `modules/` and writes `MANIFEST` |
 | `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war; also used inside the image build |
 | `overlay/config-store/` | plain ForceImport config - not secret |

@@ -1,0 +1,20 @@
+{
+  "redirect_uris": [
+    "https://rp.example.org/callback"
+  ],
+  "grant_types": [
+    "authorization_code"
+  ],
+  "response_types": [
+    "code"
+  ],
+  "token_endpoint_auth_method": "self_signed_tls_client_auth",
+  "subject_type": "pairwise",
+  "sector_identifier_uri": "https://org.example.org/sector-ids.json",
+  "policy_uri": "https://org.example.org/policy.html",
+  "contacts": [
+    "rp_admins@rp.example.org",
+    "helpdesk@federation.example.org",
+    "helpdesk@org.example.org"
+  ]
+}

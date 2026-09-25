@@ -192,4 +192,40 @@ abstract class HostedEntityRegistryContract {
                 HostingMode.SELF_SIGNED, "should-not-have-a-key", Map.of(), Map.of(), EntityStatus.ACTIVE,
                 false, null, Instant.now(), null));
     }
+
+    @Test
+    void everyChangeRecordsWhoMadeIt() throws Exception {
+        String other = "https://as.example.com/agents/agent-2";
+        Map<String, Object> policy = Map.of("oauth_client", Map.of("scope", Map.of("subset_of", List.of("read"))));
+        this.registry.register(newEntity(other), "admin:1");
+        this.registry.updateMetadata(other, Map.of("oauth_client", Map.of()), "admin:2");
+        this.registry.updateMetadataPolicy(other, policy, "admin:3");
+        this.registry.rotateHostingKey(other, "openbao-key-ref-2", "admin:4");
+        this.registry.setStatus(other, EntityStatus.SUSPENDED, "review", "admin:5");
+
+        List<AuthorityAuditEntry> trail = this.registry.auditTrail(other);
+
+        assertEquals(List.of("admin:1", "admin:2", "admin:3", "admin:4", "admin:5"), trail.stream().map(AuthorityAuditEntry::actor).toList());
+        assertEquals(AuthorityAuditEntry.ENTITY_METADATA_POLICY_UPDATED, trail.get(2).eventCode());
+        assertEquals(policy, this.registry.find(other).orElseThrow().metadataPolicy());
+        assertEquals(null, this.registry.auditTrail(this.entityId).get(0).actor(), "no one named, no one recorded");
+    }
+
+    @Test
+    void aPolicyForAnEntityThatIsNotHostedIsNotFound() {
+        AuthorityRegistryException e = assertThrows(AuthorityRegistryException.class,
+                () -> this.registry.updateMetadataPolicy("https://as.example.com/agents/nobody", Map.of(), null));
+        assertEquals(AuthorityRegistryException.NOT_FOUND, e.reason());
+    }
+
+    @Test
+    void theOperatorSeesEveryEntityWhateverItsStatusOrListing() throws Exception {
+        String suspended = "https://as.example.com/agents/agent-0";
+        this.registry.register(newEntity(suspended));
+        this.registry.setStatus(suspended, EntityStatus.SUSPENDED, "review");
+
+        assertEquals(List.of(suspended, this.entityId), this.registry.all().stream().map(HostedEntity::entityId).toList(),
+                "in entity id order, not listable, one suspended");
+        assertEquals(List.of(), this.registry.list(null), "which a resolver never sees");
+    }
 }

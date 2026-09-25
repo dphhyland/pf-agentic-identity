@@ -1,0 +1,9 @@
+{
+  "alias": "pf-agentic-identity-federation",
+  "description": "pf-agentic-identity rig, PF_PROFILE=federation: PingFederate as its own Trust Anchor",
+  "federation": {
+    "entity_identifier": "{{PF_BASE_URL}}",
+    "de_trust_anchor": "{{PF_BASE_URL}}",
+    "de_trust_anchor_jwks": "{{PF_FEDERATION_JWKS}}"
+  }
+}

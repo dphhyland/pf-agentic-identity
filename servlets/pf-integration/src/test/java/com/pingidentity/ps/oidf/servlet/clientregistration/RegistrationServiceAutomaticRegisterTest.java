@@ -1,124 +1,96 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.ANCHOR;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.OP_ISSUER;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.agentMetadata;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.chain;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.federationClient;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.param;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.result;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.ArgumentMatchers.anyLong;
-import static org.mockito.ArgumentMatchers.anyList;
-import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
-import com.pingidentity.ps.oidf.pf.ClientStore;
-import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
-import java.util.HashMap;
+import com.pingidentity.ps.oidf.federation.ValidationRequest;
+import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import org.jose4j.jwt.JwtClaims;
-import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.sourceid.oauth20.domain.Client;
-import org.sourceid.oauth20.domain.ParamValues;
+import org.sourceid.oauth20.domain.ClientAuthenticationType;
 
 /**
- * Unit tests for OpenID Federation §12.1 automatic (transparent) client registration.
+ * OpenID Federation §12.1 automatic registration, as the token endpoint drives it through
+ * {@link RegistrationService#admit}: a client the OP has never seen, named by its Entity Identifier, is
+ * provisioned from its validated chain before PingFederate authenticates the request.
  *
- * <p>Ported from pf-oidf-modules (2026-08-15) when that repo was reduced to the demo. Adapted to the
- * unwound packages ({@code ...oidf.federation}) and to {@link TrustChainValidationResult} now carrying
- * resolved metadata keyed BY ENTITY TYPE rather than a single flat leaf block.
+ * <p>Ported from pf-oidf-modules (2026-08-15) when that repo was reduced to the demo; moved from the retired
+ * {@code automaticRegister} onto {@code admit} with the registration lifetime.
  */
 class RegistrationServiceAutomaticRegisterTest {
 
     private static final String CLIENT_ID = "https://rp.example.com/e/agent-42";
-    private static final String OP_ISSUER = "https://as.example.com";
-    private static final List<String> TRUST_CHAIN = List.of("leafJwt", "anchorJwt");
+    private final MutableClock clock = MutableClock.startingNow();
+    private final List<String> presented = chain(CLIENT_ID, ANCHOR, this.clock);
 
-    private RegistrationService service(TrustChainValidator validator, ClientStore store) {
-        return new RegistrationService(new RegistrationConfiguration("https://tc.example", false), validator, store);
+    private RegistrationService service(TrustChainValidator validator, ClientStore store) throws Exception {
+        return RegistrationFixtures.service(validator, store, this.clock, ExpiryEnforcement.REFUSE);
     }
 
-    /** A validation result whose leaf holds {@code metadata} under the given entity type. */
-    private TrustChainValidationResult resultWith(String entityType, Map<String, Object> metadata) {
-        JwtClaims leaf = new JwtClaims();
-        leaf.setClaim("jwks", Map.of("keys", List.of(
-                Map.of("kty", "EC", "crv", "P-256", "x", "abc", "y", "def", "kid", "k1"))));
-        // Policed: a superior declared a metadata_policy for this entity type. That is the normal case
-        // and the one registration requires by default - see requireConstrainedByPolicy.
-        return new TrustChainValidationResult(
-                "https://tc.example", CLIENT_ID, Map.of(entityType, metadata), TRUST_CHAIN, leaf, Set.of(entityType));
-    }
-
-    /** As {@link #resultWith} but with NO superior policy for the type - a chain that constrains nothing. */
-    private TrustChainValidationResult unpolicedResultWith(String entityType, Map<String, Object> metadata) {
-        JwtClaims leaf = new JwtClaims();
-        leaf.setClaim("jwks", Map.of("keys", List.of(
-                Map.of("kty", "EC", "crv", "P-256", "x", "abc", "y", "def", "kid", "k1"))));
-        return new TrustChainValidationResult(
-                "https://tc.example", CLIENT_ID, Map.of(entityType, metadata), TRUST_CHAIN, leaf, Set.of());
-    }
-
-    private static Client clientWithStatus(String status) {
-        Client client = new Client();
-        ParamValues values = new ParamValues();
-        values.setElements(List.of(status));
-        Map<String, ParamValues> params = new HashMap<>();
-        params.put("status", values);
-        client.setExtendedParams(params);
-        return client;
-    }
-
-    @Test
-    @Requirement("OIDFED §12.1")
-    void autoRegistersWhenClientAdvertisesAutomatic() throws Exception {
+    private Client registeredFrom(String entityType, Map<String, Object> metadata) throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
-        when(store.get(CLIENT_ID)).thenReturn(null);
-        Map<String, Object> meta = Map.of(
-                "client_registration_types", List.of("automatic"),
-                "grant_types", List.of("client_credentials"),
-                "token_endpoint_auth_method", "private_key_jwt",
-                "scope", "read_accounts create_opportunity",
-                "client_name", "Agent 42");
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
-                .thenReturn(resultWith("openid_relying_party", meta));
+        when(validator.validate(any(ValidationRequest.class)))
+                .thenReturn(result(CLIENT_ID, this.presented, Map.of(entityType, metadata), Set.of(entityType), -1L));
 
-        RegisteredClient registered = service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER);
+        assertEquals(RegistrationService.Admission.REGISTERED, service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER));
 
-        assertNotNull(registered);
-        assertEquals("auto_registered", registered.toMap().get("status"));
         ArgumentCaptor<Client> captor = ArgumentCaptor.forClass(Client.class);
         verify(store).add(captor.capture());
-        Client provisioned = captor.getValue();
-        assertEquals(CLIENT_ID, provisioned.getClientId());
-        assertEquals("auto_registered", provisioned.getExtendedParams().get("status").getElements().get(0));
+        return captor.getValue();
     }
 
-    /**
-     * An agent leaf carries its client metadata as {@code oauth_client}, not {@code openid_relying_party}.
-     * Reading only the latter (the deprecated {@code leafMetadata()}) made every agent unregisterable.
-     */
     @Test
-    void autoRegistersALeafCarryingOauthClientMetadata() throws Exception {
-        TrustChainValidator validator = mock(TrustChainValidator.class);
-        ClientStore store = mock(ClientStore.class);
-        when(store.get(CLIENT_ID)).thenReturn(null);
-        Map<String, Object> meta = Map.of(
-                "client_registration_types", List.of("automatic"),
-                "grant_types", List.of("client_credentials"),
-                "token_endpoint_auth_method", "private_key_jwt",
-                "scope", "read_accounts");
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
-                .thenReturn(resultWith("oauth_client", meta));
+    @Requirement("OIDFED §12.1(4.1)")
+    void aClientNamedByItsEntityIdentifierIsRegisteredUnderIt() throws Exception {
+        Client provisioned = registeredFrom("openid_relying_party", agentMetadata("automatic"));
 
-        assertNotNull(service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
-        verify(store).add(org.mockito.ArgumentMatchers.any());
+        assertEquals(CLIENT_ID, provisioned.getClientId());
+        assertEquals("auto_registered", param(provisioned, FederationClientParams.STATUS));
+        assertEquals(ANCHOR, param(provisioned, FederationClientParams.TRUST_ANCHOR));
+        assertEquals("openid_relying_party", param(provisioned, FederationClientParams.ENTITY_TYPE));
+        assertEquals(this.presented, provisioned.getExtendedParams().get("trust_chain").getElements(),
+                "the chain stored is the one validated, so the next request can tell a newer one from it");
+    }
+
+    @Test
+    @Requirement("OIDFED §12.1(4.2)")
+    void anAutomaticallyRegisteredClientAuthenticatesWithItsKeys() throws Exception {
+        Client provisioned = registeredFrom("oauth_client", agentMetadata("automatic"));
+
+        assertEquals(ClientAuthenticationType.PRIVATE_KEY_JWT, provisioned.getClientAuthnType());
+        assertEquals("oauth_client", param(provisioned, FederationClientParams.ENTITY_TYPE));
+    }
+
+    @Test
+    @Requirement("OIDFED §12.3(1)")
+    void theRegistrationRecordsWhenItEnds() throws Exception {
+        Client provisioned = registeredFrom("oauth_client", agentMetadata("automatic"));
+
+        long expiresAt = Long.parseLong(param(provisioned, FederationClientParams.EXPIRES_AT));
+        assertEquals(this.clock.epochSecond() + 86_400L, expiresAt, "a chain of unknown expiry lives the deployment's maximum");
     }
 
     /**
@@ -127,90 +99,112 @@ class RegistrationServiceAutomaticRegisterTest {
      */
     @Test
     void buildsUsableClientWhenRedirectAndResponseMetadataAreAbsent() throws Exception {
-        TrustChainValidator validator = mock(TrustChainValidator.class);
-        ClientStore store = mock(ClientStore.class);
-        when(store.get(CLIENT_ID)).thenReturn(null);
-        Map<String, Object> meta = Map.of(
-                "client_registration_types", List.of("automatic"),
-                "grant_types", List.of("client_credentials"),
-                "token_endpoint_auth_method", "private_key_jwt",
-                "scope", "read_accounts");
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
-                .thenReturn(resultWith("oauth_client", meta));
+        Client provisioned = registeredFrom("oauth_client", agentMetadata("automatic"));
 
-        service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER);
-
-        ArgumentCaptor<Client> captor = ArgumentCaptor.forClass(Client.class);
-        verify(store).add(captor.capture());
-        Client provisioned = captor.getValue();
         assertNotNull(provisioned.getRedirectUris(), "redirect URIs must be an empty list, never null");
         assertNotNull(provisioned.getRestrictedResponseTypes(), "response types must be an empty list, never null");
         assertEquals(0, provisioned.getRedirectUris().size());
     }
 
     @Test
-    void isIdempotentForAnAlreadyRegisteredClient() throws Exception {
+    void anUnknownClientWithNoChainIsLeftToPingFederate() throws Exception {
+        TrustChainValidator validator = mock(TrustChainValidator.class);
+        ClientStore store = mock(ClientStore.class);
+
+        assertEquals(RegistrationService.Admission.NOT_FEDERATION, service(validator, store).admit(CLIENT_ID, List.of(), OP_ISSUER));
+        assertEquals(RegistrationService.Admission.NOT_FEDERATION, service(validator, store).admit(CLIENT_ID, null, OP_ISSUER));
+
+        verifyNoInteractions(validator);
+        verify(store, never()).add(any());
+    }
+
+    /** A console or Terraform client - no {@code status} - is never touched, whatever chain the request carries. */
+    @Test
+    void leavesAClientItDidNotRegisterAlone() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
         when(store.get(CLIENT_ID)).thenReturn(new Client());
 
-        assertNull(service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
+        assertEquals(RegistrationService.Admission.NOT_FEDERATION, service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER));
 
-        verify(store, never()).add(org.mockito.ArgumentMatchers.any());
         verifyNoInteractions(validator);
+        verify(store, never()).update(any());
     }
 
-    /**
-     * An auto-registered client is wholly derived from its trust chain, so a chain presenting new keys
-     * must refresh the stored record — otherwise a re-keyed entity is locked out for good (its
-     * client_assertion no longer verifies against the stale stored jwks).
-     */
+    /** An explicit registration is its RP's to renew: automatic registration never rewrites a current one. */
     @Test
-    void refreshesAnAutoRegisteredClientWhenTheChainRevalidates() throws Exception {
+    void leavesACurrentExplicitRegistrationAlone() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
-        when(store.get(CLIENT_ID)).thenReturn(clientWithStatus("auto_registered"));
-        Map<String, Object> meta = Map.of(
-                "client_registration_types", List.of("automatic"),
-                "grant_types", List.of("client_credentials"),
-                "token_endpoint_auth_method", "private_key_jwt",
-                "scope", "read_accounts");
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
-                .thenReturn(resultWith("oauth_client", meta));
+        when(store.get(CLIENT_ID)).thenReturn(federationClient(CLIENT_ID, "registered", this.clock.epochSecond() + 3600L, this.presented));
 
-        assertNotNull(service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
+        assertEquals(RegistrationService.Admission.CURRENT, service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER));
 
-        verify(store).update(org.mockito.ArgumentMatchers.any());
-        verify(store, never()).add(org.mockito.ArgumentMatchers.any());
-    }
-
-    /** A manually registered client is never touched by automatic registration. */
-    @Test
-    void leavesAManuallyRegisteredClientAlone() throws Exception {
-        TrustChainValidator validator = mock(TrustChainValidator.class);
-        ClientStore store = mock(ClientStore.class);
-        when(store.get(CLIENT_ID)).thenReturn(clientWithStatus("registered"));
-
-        assertNull(service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
-
-        verify(store, never()).add(org.mockito.ArgumentMatchers.any());
-        verify(store, never()).update(org.mockito.ArgumentMatchers.any());
         verifyNoInteractions(validator);
+        verify(store, never()).update(any());
     }
 
     @Test
-    @Requirement("OIDFED §12.1")
-    void refusesClientThatDoesNotAdvertiseAutomatic() throws Exception {
+    @Requirement("OIDFED §5.1.2(4.2)")
+    void refusesAClientThatDoesNotAdvertiseAutomatic() throws Exception {
         TrustChainValidator validator = mock(TrustChainValidator.class);
         ClientStore store = mock(ClientStore.class);
-        when(store.get(CLIENT_ID)).thenReturn(null);
-        Map<String, Object> meta = Map.of(
-                "grant_types", List.of("client_credentials"), "scope", "read_accounts");
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
-                .thenReturn(resultWith("oauth_client", meta));
+        when(validator.validate(any(ValidationRequest.class)))
+                .thenReturn(result(CLIENT_ID, this.presented, Map.of("oauth_client", agentMetadata("explicit")), Set.of("oauth_client"), -1L));
 
-        assertThrows(IllegalStateException.class,
-                () -> service(validator, store).automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER));
-        verify(store, never()).add(org.mockito.ArgumentMatchers.any());
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
+                () -> service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER));
+
+        assertEquals(400, e.status());
+        assertEquals("invalid_client_metadata", e.error());
+        assertEquals(RegistrationRejectedException.Kind.METADATA, e.kind());
+        verify(store, never()).add(any());
+    }
+
+    @Test
+    void refusesAChainThatHasNoClientMetadataAtAll() throws Exception {
+        TrustChainValidator validator = mock(TrustChainValidator.class);
+        ClientStore store = mock(ClientStore.class);
+        when(validator.validate(any(ValidationRequest.class)))
+                .thenReturn(result(CLIENT_ID, this.presented, Map.of("federation_entity", Map.of("organization_name", "x")), Set.of(), -1L));
+
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
+                () -> service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER));
+
+        assertEquals("invalid_client_metadata", e.error());
+        verify(store, never()).add(any());
+    }
+
+    /** The token endpoint is where agents arrive: a leaf that is both is registered from its oauth_client metadata. */
+    @Test
+    @Requirement("OIDFED §12(3)")
+    void automaticRegistrationPrefersTheOauthClientMetadata() throws Exception {
+        TrustChainValidator validator = mock(TrustChainValidator.class);
+        ClientStore store = mock(ClientStore.class);
+        Map<String, Object> asRp = Map.of("client_registration_types", List.of("automatic"), "client_name", "as an RP");
+        when(validator.validate(any(ValidationRequest.class))).thenReturn(result(CLIENT_ID, this.presented,
+                Map.of("oauth_client", agentMetadata("automatic"), "openid_relying_party", asRp), Set.of("oauth_client", "openid_relying_party"), -1L));
+
+        service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER);
+
+        ArgumentCaptor<Client> captor = ArgumentCaptor.forClass(Client.class);
+        verify(store).add(captor.capture());
+        assertEquals("oauth_client", param(captor.getValue(), FederationClientParams.ENTITY_TYPE));
+        assertEquals("Agent", captor.getValue().getName());
+    }
+
+    /** An empty oauth_client block says nothing: the RP metadata beside it is what registers. */
+    @Test
+    void anEmptyOauthClientBlockDefersToTheRelyingPartyMetadata() throws Exception {
+        TrustChainValidator validator = mock(TrustChainValidator.class);
+        ClientStore store = mock(ClientStore.class);
+        when(validator.validate(any(ValidationRequest.class))).thenReturn(result(CLIENT_ID, this.presented,
+                Map.of("oauth_client", Map.of(), "openid_relying_party", agentMetadata("automatic")), Set.of("openid_relying_party"), -1L));
+
+        service(validator, store).admit(CLIENT_ID, this.presented, OP_ISSUER);
+
+        ArgumentCaptor<Client> captor = ArgumentCaptor.forClass(Client.class);
+        verify(store).add(captor.capture());
+        assertEquals("openid_relying_party", param(captor.getValue(), FederationClientParams.ENTITY_TYPE));
     }
 }

@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**1392 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2253 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -18,14 +18,14 @@ which says nothing about whether the security paths are the covered ones.
 
 | Module | Gated methods | Gate | Module instructions | Tests |
 |---|---:|---|---:|---:|
-| `libs/oidf-jose` | 10 | green | 82% | 87 |
+| `libs/oidf-jose` | 11 | green | 88% | 135 |
 | `libs/app-attest` | 8 | green | 82% | 40 |
 | `libs/device-instance` | 15 | green | 85% | 65 |
 | `libs/client-attestation` | 8 | green | 77% | 105 |
-| `libs/openid-federation` | 15 | green | 72% | 159 |
+| `libs/openid-federation` | 217 | green | 97% | 561 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 24 | green | 57% | 164 |
-| `servlets/attestation-issuer` | 14 | green | 85% | 202 |
+| `servlets/pf-integration` | 179 | green | 87% | 569 |
+| `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
@@ -34,10 +34,12 @@ which says nothing about whether the security paths are the covered ones.
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 37% | 83 |
 
-**169 methods gated across the reactor, all green.**
+**530 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
+
+Some modules also have a floor under the whole module, and the build fails below it: `libs/openid-federation` 95% of instructions, 92% of branches; `servlets/pf-integration` 85% of instructions, 80% of branches; `servlets/attestation-issuer` 85% of instructions, 70% of branches.
 
 ### Not yet gated
 
@@ -60,21 +62,21 @@ the three ways to get an id wrong, are documented on the annotation itself
 |---|---:|---:|
 | ABCA-10 | 6 | 14 |
 | APPLE-APPATTEST | 8 | 18 |
-| AUTHZEN-1.0 | 11 | 15 |
+| AUTHZEN-1.0 | 19 | 68 |
 | CAEP | 5 | 14 |
 | CAEPIOP | 8 | 19 |
-| CAS | 10 | 30 |
+| CAS | 10 | 35 |
 | CIBA | 3 | 3 |
 | CLAIM-DICT | 4 | 5 |
 | FAPI1-BASE | 2 | 3 |
 | FAPI2-SP | 2 | 16 |
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
-| OIDC-CORE | 1 | 3 |
-| OIDFED | 13 | 67 |
+| OIDC-CORE | 2 | 9 |
+| OIDFED | 349 | 655 |
 | PF-SDK *(vendor interface, see below)* | 3 | 6 |
 | PROFILE | 12 | 35 |
-| RFC6749 | 1 | 1 |
+| RFC6749 | 1 | 3 |
 | RFC6750 | 3 | 7 |
 | RFC7515 | 1 | 2 |
 | RFC7518 | 1 | 4 |
@@ -88,13 +90,13 @@ the three ways to get an id wrong, are documented on the annotation itself
 | RFC9449 | 5 | 9 |
 | RFC9493 | 4 | 6 |
 | SSF | 16 | 55 |
-| UNVERIFIED | 2 | 10 |
+| UNVERIFIED | 1 | 5 |
 
-**136 distinct requirements pinned by 380 tests.**
+**480 distinct requirements pinned by 1029 tests.**
 
-**72 of 79 conformance-matrix rows are pinned by a test.** The
-denominator is the rows that declare an id in `docs/client-attestation-architecture.md`
-and `docs/ai-agent-attestation-profile-1_0.md`. A row written at section granularity is
+**209 of 216 conformance-matrix rows are pinned by a test.** The
+denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,
+`docs/ai-agent-attestation-profile-1_0.md` and `docs/federation/conformance-matrix.md`. A row written at section granularity is
 satisfied by a finer id beneath it, so `CAS §4` counts as pinned when a test pins
 `CAS §4.3`.
 

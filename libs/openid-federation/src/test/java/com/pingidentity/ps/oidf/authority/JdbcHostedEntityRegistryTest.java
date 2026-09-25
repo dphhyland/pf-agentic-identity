@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.authority;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,14 +43,15 @@ class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
     }
 
     private static void applyMigration(DataSource dataSource) throws Exception {
-        String ddl;
-        try (InputStream in = JdbcHostedEntityRegistryTest.class
-                .getResourceAsStream("/db/migration/V100__hosted_entity.sql")) {
-            assertNotNull(in, "the migration must ship on the classpath");
-            ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
-            s.execute(ddl);
+        for (String migration : new String[]{"/db/migration/V100__hosted_entity.sql", "/db/migration/V101__hosted_entity_actor.sql"}) {
+            String ddl;
+            try (InputStream in = JdbcHostedEntityRegistryTest.class.getResourceAsStream(migration)) {
+                assertNotNull(in, "the migration must ship on the classpath: " + migration);
+                ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+            }
+            try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
+                s.execute(ddl);
+            }
         }
     }
 
@@ -116,5 +118,22 @@ class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
         }
         assertThrows(IllegalStateException.class,
                 () -> registry.find("https://as.example.com/agents/a1"));
+    }
+
+    /** A change whose audit line cannot be written is not made: the dispute record never disagrees with the registry. */
+    @Test
+    void aChangeAndItsAuditLineAreOneTransaction() throws Exception {
+        HostedEntityRegistry registry = newRegistry();
+        String id = "https://as.example.com/agents/a1";
+        registry.register(HostedEntity.hosted(id, "k1", Map.of("oauth_client", Map.of("client_name", "before")), null));
+        try (Connection c = this.dataSource.getConnection(); Statement s = c.createStatement()) {
+            s.execute("DROP TABLE hosted_entity_audit_log");
+        }
+
+        AuthorityRegistryException e = assertThrows(AuthorityRegistryException.class,
+                () -> registry.updateMetadata(id, Map.of("oauth_client", Map.of("client_name", "after")), "admin:1"));
+
+        assertEquals(AuthorityRegistryException.STORAGE_FAILURE, e.reason());
+        assertEquals(Map.of("client_name", "before"), registry.find(id).orElseThrow().metadata().get("oauth_client"), "rolled back");
     }
 }
