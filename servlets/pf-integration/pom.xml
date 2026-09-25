@@ -270,6 +270,13 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.request(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.obligationNames(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy.nullIfEmpty(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.permits(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.unmet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.request(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.values(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.value(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.federationPolicy(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.validated(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService.PresentedMarks.verifiedTypes(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.narrow(*</include>

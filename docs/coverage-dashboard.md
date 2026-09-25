@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2160 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2172 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -24,7 +24,7 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/client-attestation` | 8 | green | 77% | 105 |
 | `libs/openid-federation` | 209 | green | 97% | 533 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 151 | green | 86% | 504 |
+| `servlets/pf-integration` | 158 | green | 87% | 516 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |
@@ -34,7 +34,7 @@ which says nothing about whether the security paths are the covered ones.
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 37% | 83 |
 
-**494 methods gated across the reactor, all green.**
+**501 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -60,7 +60,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 |---|---:|---:|
 | ABCA-10 | 6 | 14 |
 | APPLE-APPATTEST | 8 | 18 |
-| AUTHZEN-1.0 | 19 | 59 |
+| AUTHZEN-1.0 | 19 | 68 |
 | CAEP | 5 | 14 |
 | CAEPIOP | 8 | 19 |
 | CAS | 10 | 35 |
@@ -90,7 +90,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 16 | 55 |
 | UNVERIFIED | 1 | 5 |
 
-**464 distinct requirements pinned by 954 tests.**
+**464 distinct requirements pinned by 963 tests.**
 
 **206 of 213 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,

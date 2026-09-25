@@ -9,7 +9,8 @@ import java.util.Locale;
 public enum DecisionPoint {
     EXPLICIT_REGISTRATION("federation.register.explicit"),
     AUTOMATIC_REGISTRATION("federation.register.automatic"),
-    HOSTED_ENTITY_ENROL("federation.hosted_entity.enrol");
+    HOSTED_ENTITY_ENROL("federation.hosted_entity.enrol"),
+    TOKEN_ISSUANCE("federation.token.issue");
 
     private final String action;
 

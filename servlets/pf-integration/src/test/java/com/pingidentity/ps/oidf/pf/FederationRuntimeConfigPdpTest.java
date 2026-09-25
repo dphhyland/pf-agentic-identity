@@ -117,7 +117,9 @@ class FederationRuntimeConfigPdpTest {
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CONNECT_TIMEOUT_ENV, "0")).contains("positive"));
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_REQUEST_TIMEOUT_ENV, "0")).contains("positive"));
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CACHE_TTL_ENV, "soon")).contains("whole number"));
-        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_DECISION_POINTS_ENV, "token_issuance")).contains("token_issuance"));
+        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_DECISION_POINTS_ENV, "resolve")).contains("resolve"));
+        assertEquals(Set.of(DecisionPoint.TOKEN_ISSUANCE), pdp(Map.of(FederationRuntimeConfig.PDP_DECISION_POINTS_ENV, "token_issuance"))
+                .decisionPoints());
     }
 
     @Test

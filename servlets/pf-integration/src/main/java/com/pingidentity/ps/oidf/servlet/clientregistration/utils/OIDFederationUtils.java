@@ -12,6 +12,9 @@ import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationException;
 import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
+import com.pingidentity.ps.oidf.federation.policy.FederationPolicyDecisionPoint;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
@@ -165,7 +168,6 @@ public final class OIDFederationUtils {
             validator.validate(trustChainList, rpEntityId, opEntityId, maxLeafNodeTime, maxTrustAnchorNodeTime, maxTrustChainEntryAgeSeconds);
             FederationEvents.event(FederationEvents.CHAIN_VALIDATED).subject(rpEntityId).partner(configuredTrustControllerHost)
                     .field("endpoint", "token").field("presented", trustChainList.size()).emit();
-            return true;
         }
         catch (Exception e) {
             FederationEvents.event(FederationEvents.CHAIN_REFUSED).failure(refusalReason(e)).subject(rpEntityId)
@@ -175,6 +177,31 @@ public final class OIDFederationUtils {
             if (LOGGER.isDebugEnabled()) {
                 LOGGER.debug("trust chain refused for " + rpEntityId + ": " + e.getClass().getSimpleName());
             }
+            return false;
+        }
+        // The chain stands; whether this token may be issued is the policy decision point's to say, when it is asked.
+        return TokenIssuancePolicy.permits(inParameters, rpEntityId, opEntityId, request,
+                FederationPolicySupport.decisionPointFor(DecisionPoint.TOKEN_ISSUANCE), FederationPolicySupport.settings());
+    }
+
+    /**
+     * The token-issuance decision point on its own, for an access token mapping that does not validate the chain: true
+     * unless the deployment asks a policy decision point about tokens ({@code token_issuance} in
+     * {@code OIDF_PDP_DECISION_POINTS}) and it refuses. {@link #validateTrustChain(Object)} asks it too, once the chain
+     * validates - so a mapping needs one or the other, not both. Fails closed on anything unexpected.
+     */
+    public static boolean federationPolicy(Object inObj) {
+        try {
+            FederationPolicyDecisionPoint pdp = FederationPolicySupport.decisionPointFor(DecisionPoint.TOKEN_ISSUANCE);
+            if (pdp == null) {
+                return true;
+            }
+            Map<?, ?> criteria = (Map<?, ?>) inObj;
+            String clientId = ((AttributeValue) criteria.get("context.ClientId")).getValue();
+            HttpServletRequest request = (HttpServletRequest) ((AttributeValue) criteria.get("context.HttpRequest")).getObjectValue();
+            return TokenIssuancePolicy.permits(criteria, clientId, issuerResolver.apply(request), request, pdp, FederationPolicySupport.settings());
+        } catch (Throwable t) {
+            LOGGER.error("The token-issuance policy check failed", t);
             return false;
         }
     }

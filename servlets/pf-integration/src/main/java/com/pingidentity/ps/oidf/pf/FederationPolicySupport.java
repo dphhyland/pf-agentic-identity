@@ -44,8 +44,8 @@ public final class FederationPolicySupport {
                 return null;
             }
             boolean external = this.settings.asksExternally(point);
-            if (point == DecisionPoint.HOSTED_ENTITY_ENROL) {
-                // The local policy is about what a client may ask for; an enrolment asks for nothing it narrows.
+            if (point != DecisionPoint.EXPLICIT_REGISTRATION && point != DecisionPoint.AUTOMATIC_REGISTRATION) {
+                // The local policy is about what a client may register with; an enrolment or a token asks for nothing it narrows.
                 return external ? this.external : null;
             }
             if (!external) {

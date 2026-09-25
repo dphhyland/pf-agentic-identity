@@ -165,8 +165,8 @@ public final class FederationRuntimeConfig {
     public static final String PDP_SURFACE_USER_REASON_ENV = "OIDF_PDP_SURFACE_USER_REASON";
     /**
      * Which decisions the PDP is asked for: {@code explicit_registration}, {@code automatic_registration},
-     * {@code hosted_entity_enrol}. Default the two registrations; enrolment is asked only when listed, so a PDP with no
-     * policy for it does not start refusing enrolments the day it is switched on.
+     * {@code hosted_entity_enrol}, {@code token_issuance}. Default the two registrations; the others are asked only when
+     * listed, so a PDP with no policy for them does not start refusing enrolments or tokens the day it is switched on.
      */
     public static final String PDP_DECISION_POINTS_ENV = "OIDF_PDP_DECISION_POINTS";
     /** The scopes a federation client may keep, whatever its metadata asks (space or comma separated; unset: no limit). */

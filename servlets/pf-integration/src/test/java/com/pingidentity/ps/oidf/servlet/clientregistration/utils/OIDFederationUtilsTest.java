@@ -14,11 +14,18 @@ import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
+import com.pingidentity.ps.oidf.federation.policy.DecisionPoint;
+import com.pingidentity.ps.oidf.jose.HttpPostClient;
+import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import org.jose4j.json.JsonUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,7 +55,17 @@ class OIDFederationUtilsTest {
     void tearDown() {
         OIDFederationUtils.resetForTests();
         FederationRuntimeConfig.resetForTests();
+        FederationPolicySupport.resetForTests();
         this.events.close();
+    }
+
+    /** An AuthZEN PDP asked about tokens, answering {@code decision} to every question. */
+    private static void pdpAnswering(boolean decision) {
+        PdpSettings d = PdpSettings.DEFAULTS;
+        FederationPolicySupport.configure(new PdpSettings(PdpMode.AUTHZEN, "https://pdp.example.com", null, false, PdpAuth.NONE, null,
+                d.authHeader(), false, false, 0L, d.connectTimeoutMs(), d.requestTimeoutMs(), false, null, Set.of(DecisionPoint.TOKEN_ISSUANCE)),
+                (url, contentType, body, headers, accept) -> new HttpPostClient.Response(200, "{\"decision\": " + decision + "}", Map.of()),
+                null, java.time.Clock.systemUTC());
     }
 
     private Federation federation() {
@@ -199,5 +216,33 @@ class OIDFederationUtilsTest {
 
         assertFalse(OIDFederationUtils.registrationExpired(expiringAt(1L), RP));
         assertEquals("log", this.events.only(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE).fields().get("enforcement"));
+    }
+
+    // ---- the token-issuance decision point ----------------------------------------------------------
+
+    @Test
+    void aChainThatStandsStillNeedsThePolicyDecisionWhenTokensAreAskedAbout() {
+        Federation f = federation();
+        Map<String, Object> criteria = criteria(RP, assertionCarrying(f, f.chain(RP, TA)), Map.of());
+
+        pdpAnswering(false);
+        assertFalse(OIDFederationUtils.validateTrustChain(criteria));
+        assertEquals("policy_denied", this.events.only(FederationEvents.TOKEN_REFUSED).reason());
+
+        pdpAnswering(true);
+        assertTrue(OIDFederationUtils.validateTrustChain(criteria));
+    }
+
+    @Test
+    void theDecisionPointOnItsOwnSaysYesUnlessSomebodyDecidesAndRefuses() {
+        Map<String, Object> criteria = criteria(RP, null, Map.of());
+        OIDFederationUtils.useIssuerResolver(req -> OP);
+
+        assertTrue(OIDFederationUtils.federationPolicy(criteria), "nobody decides tokens by default");
+        pdpAnswering(false);
+        assertFalse(OIDFederationUtils.federationPolicy(criteria));
+        pdpAnswering(true);
+        assertTrue(OIDFederationUtils.federationPolicy(criteria));
+        assertFalse(OIDFederationUtils.federationPolicy("not a criteria map"), "anything unexpected fails closed");
     }
 }

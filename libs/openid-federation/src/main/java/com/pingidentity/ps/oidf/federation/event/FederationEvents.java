@@ -52,6 +52,7 @@ public final class FederationEvents {
     public static final String TRUST_MARK_REVOKED = "federation.trust_mark.revoked";
     public static final String TRUST_MARK_VERIFIED = "federation.trust_mark.verified";
     public static final String PDP_CONSULTED = "federation.pdp.consulted";
+    public static final String TOKEN_REFUSED = "federation.token.refused";
     public static final String PDP_FAIL_OPEN = "federation.pdp.failopen";
     public static final String ANCHOR_LOADED = "federation.anchor.loaded";
     public static final String FETCH = "federation.fetch.made";
