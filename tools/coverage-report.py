@@ -46,6 +46,9 @@ NOT_GATED = {
 JACOCO_BLOCK_RE = re.compile(
     r"<artifactId>jacoco-maven-plugin</artifactId>(.*?)</plugin>", re.S)
 INCLUDE_RE = re.compile(r"<include>([^<]+)</include>")
+# A module's floor: the jacoco check execution with this id, holding one BUNDLE rule.
+FLOOR_RE = re.compile(r"<id>coverage-floor</id>(.*?)</execution>", re.S)
+LIMIT_RE = re.compile(r"<counter>([A-Z]+)</counter>\s*<value>COVEREDRATIO</value>\s*<minimum>([0-9.]+)</minimum>")
 # (Lcom/foo/Bar;I)V -> ['com.foo.Bar', 'int'] — enough to tell two overloads apart.
 DESC_RE = re.compile(r"\[*(?:L([^;]+);|([BCDFIJSZ]))")
 PRIMITIVES = {"B": "byte", "C": "char", "D": "double", "F": "float",
@@ -94,6 +97,26 @@ def modules():
     """Every reactor module, in the order the root pom lists them."""
     root_pom = (ROOT / "pom.xml").read_text()
     return re.findall(r"<module>([^<]+)</module>", root_pom)
+
+
+def floor(module):
+    """The whole-module minimums a module's `coverage-floor` check enforces, by counter; empty when it has none."""
+    pom = ROOT / module / "pom.xml"
+    if not pom.is_file():
+        return {}
+    block = FLOOR_RE.search(pom.read_text())
+    return {counter: float(minimum) for counter, minimum in LIMIT_RE.findall(block.group(1))} if block else {}
+
+
+def floor_sentence(mods):
+    """One sentence naming each module's floor, or None when no module has one."""
+    floored = [m for m in mods if m.get("floor")]
+    if not floored:
+        return None
+    counted = {"INSTRUCTION": "instructions", "BRANCH": "branches", "LINE": "lines", "METHOD": "methods"}
+    parts = [f"`{m['name']}` " + ", ".join(f"{v * 100:.0f}% of {counted.get(c, c.lower())}" for c, v in m["floor"].items())
+             for m in floored]
+    return "Some modules also have a floor under the whole module, and the build fails below it: " + "; ".join(parts) + "."
 
 
 def gate_includes(module):
@@ -295,6 +318,7 @@ def collect():
                 failing.append(f"{pattern} ({line_missed} line, {branch_missed} branch missed)")
         entry.update({
             "gated": len(includes),
+            "floor": floor(module),
             "failing": failing,
             "instruction": (pct(*totals["INSTRUCTION"])
                             if totals and "INSTRUCTION" in totals else None),
@@ -373,6 +397,10 @@ def render_md(d):
     w("Module instruction coverage is context, not a target. A module can sit at 30% with every")
     w("decision method gated, and that is the intended shape.")
     w("")
+    floors = floor_sentence(d["modules"])
+    if floors:
+        w(floors)
+        w("")
 
     if ungated:
         w("### Not yet gated")
@@ -721,6 +749,9 @@ def render_html(d):
     w("</tbody></table></div>")
     w('<p class="legend">Module instruction coverage is context, not a target. A module can sit at '
       '30% with every decision method gated, and that is the intended shape.</p>')
+    floors = floor_sentence(d["modules"])
+    if floors:
+        w('<p class="legend">' + re.sub(r"`([^`]+)`", r"<code>\1</code>", e(floors)) + "</p>")
     if ungated:
         w("<h3>Not yet gated</h3><ul class=\"plain\">")
         for module in ungated:

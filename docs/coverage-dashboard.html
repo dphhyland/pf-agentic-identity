@@ -144,6 +144,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <tr><td><code>services/gm-api/servlet</code></td><td class="num">10</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:37%"></b></i><span>37%</span></span></td><td class="num">83</td></tr>
 </tbody></table></div>
 <p class="legend">Module instruction coverage is context, not a target. A module can sit at 30% with every decision method gated, and that is the intended shape.</p>
+<p class="legend">Some modules also have a floor under the whole module, and the build fails below it: <code>libs/openid-federation</code> 95% of instructions, 92% of branches; <code>servlets/pf-integration</code> 85% of instructions, 80% of branches; <code>servlets/attestation-issuer</code> 85% of instructions, 70% of branches.</p>
 <h3>Not yet gated</h3><ul class="plain">
 <li><code>libs/conformance</code></li>
 </ul>

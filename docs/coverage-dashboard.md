@@ -39,6 +39,8 @@ which says nothing about whether the security paths are the covered ones.
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
 
+Some modules also have a floor under the whole module, and the build fails below it: `libs/openid-federation` 95% of instructions, 92% of branches; `servlets/pf-integration` 85% of instructions, 80% of branches; `servlets/attestation-issuer` 85% of instructions, 70% of branches.
+
 ### Not yet gated
 
 - `libs/conformance`

@@ -217,6 +217,11 @@ re-export, and run the ping plan against that image.
 
 ## Testing it
 
+**In CI**, `.github/workflows/conformance-federation.yml` builds a PF from the clone with `PF_PROFILE=federation`
+and runs the deployed-entity plan against it, weekly and on demand. It needs your licence as the repository
+secrets `PING_IDENTITY_DEVOPS_USER` and `PING_IDENTITY_DEVOPS_KEY`, and it keeps the plan's output. The other
+plans are run by hand, below.
+
 `suite/render.sh` turns `suite/*.template.json` into the configurations a suite wants, with the
 clients' private keys and the test user's password filled in. The rendered files are git-ignored.
 

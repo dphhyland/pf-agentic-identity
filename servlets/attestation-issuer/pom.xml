@@ -129,6 +129,25 @@
                             </rules>
                         </configuration>
                     </execution>
+                    <!-- The floor is the whole module: it stops the total falling while the gate above holds the
+                         decisions at 100%. Set just under what the tests reach, raised as they reach further, never
+                         lowered to let a change through. The dashboard reads it from here. -->
+                    <execution>
+                        <id>coverage-floor</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit><counter>INSTRUCTION</counter><value>COVEREDRATIO</value><minimum>0.85</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.70</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
         </plugins>

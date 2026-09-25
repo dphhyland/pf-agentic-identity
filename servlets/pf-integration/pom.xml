@@ -318,6 +318,25 @@
                             </rules>
                         </configuration>
                     </execution>
+                    <!-- The floor is the whole module: it stops the total falling while the gate above holds the
+                         decisions at 100%. Set just under what the tests reach, raised as they reach further, never
+                         lowered to let a change through. The dashboard reads it from here. -->
+                    <execution>
+                        <id>coverage-floor</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit><counter>INSTRUCTION</counter><value>COVEREDRATIO</value><minimum>0.85</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>0.80</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
                 </executions>
             </plugin>
             <!-- oidf.war is assembled by the servlets/oidf-war aggregation module (it can depend on every
@@ -335,4 +354,66 @@
             <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
         </repository>
     </distributionManagement>
+    <!-- Mutation testing (mvn -Pmutation verify): pitest changes the decision classes one small way at a time -
+         a condition negated, a boundary moved, a return value swapped - and a mutant no test notices is a check
+         the tests only appear to make. The registration, lifetime and policy decisions and the filters that make
+         them; not the servlets' PingFederate wiring, which only a running PingFederate exercises. Opt-in, and
+         weekly in CI (.github/workflows/mutation.yml), never on a push. Held at 85% killed; the report is
+         target/pit-reports. -->
+    <profiles>
+        <profile>
+            <id>mutation</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <version>1.17.1</version>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.pitest</groupId>
+                                <artifactId>pitest-junit5-plugin</artifactId>
+                                <version>1.2.1</version>
+                            </dependency>
+                        </dependencies>
+                        <configuration>
+                            <targetClasses>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationService*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationLifetime*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationPolicy*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationExpirySweeper*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.ExplicitRegistrationRequest*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.FrontChannelAutoRegistrationFilter*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter*</param>
+                                <param>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy*</param>
+                                <param>com.pingidentity.ps.oidf.pf.FederationPolicySupport*</param>
+                                <param>com.pingidentity.ps.oidf.pf.AdminBearer*</param>
+                            </targetClasses>
+                            <targetTests>
+                                <param>com.pingidentity.ps.oidf.*</param>
+                            </targetTests>
+                            <mutationThreshold>85</mutationThreshold>
+                            <threads>4</threads>
+                            <timestampedReports>false</timestampedReports>
+                            <outputFormats>
+                                <param>HTML</param>
+                                <param>XML</param>
+                            </outputFormats>
+                        </configuration>
+                        <executions>
+                            <execution>
+                                <id>mutation</id>
+                                <phase>verify</phase>
+                                <goals><goal>mutationCoverage</goal></goals>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
