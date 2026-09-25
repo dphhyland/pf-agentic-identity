@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
@@ -91,6 +92,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
 
     @Override
     public void init(FilterConfig config) throws ServletException {
+        PfAuditEventSink.install();
         if (this.service != null) {
             return;
         }

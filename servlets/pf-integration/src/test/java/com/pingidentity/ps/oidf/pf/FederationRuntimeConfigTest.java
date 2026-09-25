@@ -117,6 +117,25 @@ class FederationRuntimeConfigTest {
                 FederationRuntimeConfig.REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV);
     }
 
+    /** The switches that guard something are true or false as well: a typo stops the deployment, never switches one off. */
+    @Test
+    void theGuardingSwitchesAreTrueOrFalseAndNothingElse() {
+        for (String guard : java.util.List.of(FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV,
+                FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV, FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV)) {
+            assertRefused(Map.of(guard, "yes"), guard);
+            assertRefused(Map.of(guard, "1"), guard);
+        }
+        FederationRuntimeConfig off = of(Map.of(FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV, " False ",
+                FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV, "false", FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV, "FALSE"), Map.of());
+        assertFalse(off.requireMetadataPolicy());
+        assertFalse(off.requireBridgeKey());
+        assertFalse(off.requireAttesterBinding());
+        FederationRuntimeConfig unset = of(Map.of(FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV, " "), Map.of());
+        assertTrue(unset.requireMetadataPolicy(), "blank is the default: on");
+        assertTrue(unset.requireBridgeKey());
+        assertTrue(unset.requireAttesterBinding());
+    }
+
     /** A typo in a security switch must not quietly mean "off": {@code yes} is refused, not read as false. */
     @Test
     void failClosedIsTrueOrFalseAndNothingElse() {

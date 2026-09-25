@@ -119,6 +119,17 @@ class PfAuditEventSinkTest {
         assertTrue(((PfAuditEventSink) FederationEvents.sink()).auditEnabled(), "audit is on unless switched off");
     }
 
+    @Test
+    void anAuditSwitchThatIsNeitherTrueNorFalseLeavesAuditOn() {
+        assertTrue(PfAuditEventSink.auditSwitch(null));
+        assertTrue(PfAuditEventSink.auditSwitch(" "));
+        assertTrue(PfAuditEventSink.auditSwitch(" TRUE "));
+        assertFalse(PfAuditEventSink.auditSwitch("False"));
+        assertTrue(PfAuditEventSink.auditSwitch("yes"), "a typo must not be what turns security auditing off");
+        assertTrue(PfAuditEventSink.auditSwitch("off"));
+        assertTrue(PfAuditEventSink.auditSwitch("0"));
+    }
+
     // ---- tracking and request scope --------------------------------------------------------------
 
     @Test

@@ -201,7 +201,7 @@ public final class RegistrationConfiguration {
             throw new IllegalArgumentException("trustChainEntryMaxAgeSeconds must be an integer (seconds), got \"" + raw + "\"", e);
         }
         if (parsed <= 0L) {
-            return 60L;
+            throw new IllegalArgumentException("trustChainEntryMaxAgeSeconds must be positive (seconds), got " + parsed);
         }
         return parsed;
     }

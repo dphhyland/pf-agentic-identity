@@ -54,8 +54,8 @@ public final class PfAuditEventSink implements FederationEventSink {
     }
 
     /**
-     * Installs the PF sink for this classloader if nothing has been installed yet. Called from every servlet
-     * and filter {@code init} and from the OGNL helpers' static initialisers; the first call wins.
+     * Installs the PF sink for this classloader if nothing has been installed yet. Called from the {@code init} of
+     * every servlet and filter that emits events and from the OGNL helpers' static initialiser; the first call wins.
      */
     public static void install() {
         install(System::getenv, System::getProperty);
@@ -77,8 +77,23 @@ public final class PfAuditEventSink implements FederationEventSink {
                 LOGGER.warn(MAX_VALUE_LENGTH_ENV + " is not a number; keeping " + LogSafe.maxValueLength());
             }
         }
-        boolean auditEnabled = audit == null || audit.isBlank() || Boolean.parseBoolean(audit.trim());
+        boolean auditEnabled = auditSwitch(audit);
         FederationEvents.configure(new PfAuditEventSink(new LoggingEventSink(), new LoggingUtilAuditWriter(), auditEnabled));
+    }
+
+    /**
+     * {@code OIDF_EVENTS_AUDIT}: on unless it says {@code false}. A value that is neither {@code true} nor {@code false}
+     * leaves audit on and says so - a typo must not be what turns security auditing off.
+     */
+    static boolean auditSwitch(String value) {
+        if (value == null || value.isBlank() || "true".equalsIgnoreCase(value.trim())) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(value.trim())) {
+            return false;
+        }
+        LOGGER.warn(AUDIT_ENV + " is neither true nor false; federation events still go to PingFederate's audit log");
+        return true;
     }
 
     @Override

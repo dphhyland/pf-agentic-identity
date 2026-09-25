@@ -159,16 +159,17 @@ question for a policy engine, and this package is how one is asked - with no Pin
 
 ## Configuration
 
-The anchor's pinned keys are not a `FederationConfiguration` setting: they are passed to
-`TrustChainValidator` as a `TrustAnchor`, which `servlets/pf-integration` builds from
-`OIDF_FEDERATION_TRUST_ANCHOR_JWKS` (see its README) and `servlets/attestation-issuer` from
-`OIDF_TRUST_ANCHOR_JWKS`. `tools/pin-trust-anchor.py` captures them.
+The anchors' pinned keys are not a `FederationConfiguration` setting: they are passed to
+`TrustChainValidator` as a `TrustAnchorSet`, which `servlets/pf-integration` and `servlets/attestation-issuer` both
+build from `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` (`OIDF_TRUST_ANCHOR_JWKS` is its superseded name).
+`tools/pin-trust-anchor.py` captures them. Every setting the federation reads, with its default and what happens
+when it's wrong, is in [docs/federation/configuration.md](../../docs/federation/configuration.md).
 
 `FederationConfiguration.fromServletConfig` reads init-params with env fallbacks: `trustAnchorIssuers` /
 `OIDF_FEDERATION_TRUST_ANCHORS` (required), `subordinates` / `OIDF_FEDERATION_SUBORDINATES`,
-`trustControllerHost` / `OIDF_FEDERATION_TRUST_CONTROLLER_HOST`, `ignoreSslErrors` /
-`OIDF_FEDERATION_IGNORE_SSL_ERRORS`, `signingAlgorithm` / `OIDF_FEDERATION_SIGNING_ALG` (RS256 or
-PS256), `attesterJwks` / `OIDF_FEDERATION_ATTESTER_JWKS`, `organizationName` /
+`ignoreSslErrors` / `OIDF_FEDERATION_IGNORE_SSL_ERRORS`, `signingAlgorithm` / `OIDF_FEDERATION_SIGNING_ALG` (RS256 or
+PS256), `attesterJwks` / `OIDF_FEDERATION_ATTESTER_JWKS` (public keys only - it is published, so anything else is
+refused), `organizationName` /
 `OIDF_FEDERATION_ORGANIZATION_NAME`, `clientRegistrationTypes` / `OIDF_FEDERATION_CLIENT_REGISTRATION_TYPES`
 (what `client_registration_types_supported` advertises; default `automatic,explicit`), `resolveDiscovery` /
 `OIDF_FEDERATION_RESOLVE_DISCOVERY` (`known`, the default: resolve only this entity, its subordinates and
@@ -177,8 +178,9 @@ Init-param only: CORS (`corsEnabled`,
 `corsAllowOrigin`, `corsAllowMethods`, `corsAllowHeaders`, `corsMaxAge`) and the
 `AttestationMetadataConfig` lists (`tokenEndpointAuthMethodsSupported`,
 `clientAttestationSigningAlgValuesSupported`, `clientAttestationPopSigningAlgValuesSupported`,
-`dpopSigningAlgValuesSupported`, `clientAttestationFormatsSupported`,
-`clientAttestationPopMethodsSupported`, `attestationChallengeEndpointEnabled`).
+`dpopSigningAlgValuesSupported`, `clientAttestationPopMethodsSupported`, `attestationChallengeEndpointEnabled`).
+Two more are read and have no effect: `trustControllerHost` (the controller is `FederationRuntimeConfig`'s) and
+`clientAttestationFormatsSupported`.
 
 `RegistryHostedEntitySigner.fromEnvironment()` resolves the vault from `oidf.openbao.url` /
 `OIDF_OPENBAO_URL` / `OPENBAO_ADDR` / `BAO_ADDR` / `VAULT_ADDR` and `oidf.openbao.token` /

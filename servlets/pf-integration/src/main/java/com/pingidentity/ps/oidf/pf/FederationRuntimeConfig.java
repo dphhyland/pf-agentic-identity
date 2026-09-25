@@ -13,6 +13,8 @@ import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkClaims;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * The deployment-wide federation settings, resolved once from the process environment.
@@ -32,6 +34,7 @@ import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
  * the codebase uses, so a JVM flag can override a container variable without a redeploy.
  */
 public final class FederationRuntimeConfig {
+    private static final Log LOGGER = LogFactory.getLog(FederationRuntimeConfig.class);
 
     /** The trust controller's bare federation identity, for {@code knownTrustAnchor} matching. */
     public static final String HOST_ENV = "OIDF_FEDERATION_TRUST_CONTROLLER_HOST";
@@ -110,7 +113,10 @@ public final class FederationRuntimeConfig {
     public static final String AUTO_REGISTRATION_REQUIRE_PKCE_ENV = "OIDF_AUTO_REGISTRATION_REQUIRE_PKCE";
     /** The largest request object or client assertion read for registration, in bytes (default 65536). */
     public static final String AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES_ENV = "OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES";
-    /** How many registrations may be resolved at once across all clients (default 8); more are answered 503. */
+    /**
+     * How many registrations each registration filter resolves at once, across all clients (default 8); more are answered
+     * 503. The token-endpoint and front-channel filters have a pool each.
+     */
     public static final String AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS_ENV = "OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS";
     /** How long a request waits for another registration of the same client to finish, in ms (default 2000). */
     public static final String AUTO_REGISTRATION_LOCK_WAIT_MS_ENV = "OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS";
@@ -463,6 +469,7 @@ public final class FederationRuntimeConfig {
                 local = instance;
                 if (local == null) {
                     local = from(System::getenv, System::getProperty);
+                    local.deprecationWarnings().forEach(LOGGER::warn);
                     instance = local;
                 }
             }
@@ -510,14 +517,15 @@ public final class FederationRuntimeConfig {
                 setting(env, props, BRIDGE_KEY_PROP, BRIDGE_KEY_ENV),
                 setting(env, props, BRIDGE_PREVIOUS_PUBLIC_KEY_PROP, BRIDGE_PREVIOUS_PUBLIC_KEY_ENV),
                 // Default TRUE: an absent bridge key makes attestation authentication a no-op, which
-                // is exactly the failure that should be loud rather than silent.
-                requireBridge == null || requireBridge.isBlank() || Boolean.parseBoolean(requireBridge),
+                // is exactly the failure that should be loud rather than silent. Strict, like the three below:
+                // each guards something, and a typo must stop the deployment rather than quietly switch it off.
+                requireBridge == null || requireBridge.isBlank() || strictBoolean(requireBridge, REQUIRE_BRIDGE_KEY_ENV),
                 // Default TRUE for the same reason: a chain with no metadata_policy constrains nothing,
                 // so the leaf's self-published scope and grant_types are simply granted. Silently.
-                requirePolicy == null || requirePolicy.isBlank() || Boolean.parseBoolean(requirePolicy),
+                requirePolicy == null || requirePolicy.isBlank() || strictBoolean(requirePolicy, REQUIRE_METADATA_POLICY_ENV),
                 // Default TRUE: a client anyone trusted may vouch for is a client anyone trusted may
                 // impersonate at the bridge.
-                requireBinding == null || requireBinding.isBlank() || Boolean.parseBoolean(requireBinding),
+                requireBinding == null || requireBinding.isBlank() || strictBoolean(requireBinding, REQUIRE_ATTESTER_BINDING_ENV),
                 deprecations,
                 registrationSettings(env, props),
                 autoRegistrationSettings(env, props),

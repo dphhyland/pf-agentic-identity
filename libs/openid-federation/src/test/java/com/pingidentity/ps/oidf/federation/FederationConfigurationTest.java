@@ -52,6 +52,24 @@ class FederationConfigurationTest {
     }
 
     @Test
+    void theAttesterKeysAreOnlyEverPublicKeys() {
+        String ecPrivate = "{\"kty\":\"EC\",\"crv\":\"P-256\",\"kid\":\"a\",\"x\":\"x\",\"y\":\"y\",\"d\":\"secret\"}";
+        for (String jwks : List.of("{\"keys\":[" + ecPrivate + "]}", "{\"keys\":[{\"kty\":\"oct\",\"kid\":\"a\",\"k\":\"c2VjcmV0\"}]}",
+                "not json", "[]", "{\"keys\": {}}", "{\"keys\": [7]}")) {
+            Map<String, String> params = minimal();
+            params.put("attesterJwks", jwks);
+            IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                    () -> FederationConfiguration.fromServletConfig(config(params)), jwks);
+            assertTrue(e.getCause().getMessage().startsWith("attesterJwks "), e.getCause().getMessage());
+            assertFalse(e.getCause().getMessage().contains("secret"), "the message never carries key material");
+        }
+        String ecPublic = "{\"keys\":[{\"kty\":\"EC\",\"crv\":\"P-256\",\"kid\":\"a\",\"x\":\"x\",\"y\":\"y\"}]}";
+        Map<String, String> params = minimal();
+        params.put("attesterJwks", ecPublic);
+        assertEquals(ecPublic, FederationConfiguration.fromServletConfig(config(params)).attesterJwks());
+    }
+
+    @Test
     void readsAnchorsSubordinatesAndDefaults() {
         Map<String, String> params = minimal();
         params.put("subordinates", "https://leaf-a.example,https://leaf-b.example");

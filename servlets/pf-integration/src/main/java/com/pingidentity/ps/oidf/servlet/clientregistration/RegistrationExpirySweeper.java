@@ -5,6 +5,8 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
+import com.pingidentity.ps.oidf.pf.PfTracking;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -22,7 +24,8 @@ import org.sourceid.oauth20.domain.Client;
  *
  * <p>A client registered before expiries were recorded has none to check and is left to the token endpoint,
  * which renews or refuses it on its next request; disabling every such client at once on upgrade would be a
- * surprise nobody asked for.
+ * surprise nobody asked for. Nor does it touch anything while {@code OIDF_REGISTRATION_EXPIRY_ENFORCEMENT} is
+ * {@code log}: that setting records expiries and enforces none, so disabling clients here would enforce them anyway.
  */
 final class RegistrationExpirySweeper {
     private static final Log LOGGER = LogFactory.getLog(RegistrationExpirySweeper.class);
@@ -40,6 +43,9 @@ final class RegistrationExpirySweeper {
     /** One pass: disables every enabled federation client whose recorded expiry has passed, and names them. */
     List<String> sweepOnce() {
         List<String> disabled = new ArrayList<>();
+        if (this.lifetime.settings().expiryEnforcement() == ExpiryEnforcement.LOG) {
+            return disabled;
+        }
         for (Client client : this.clientStore.getAll()) {
             String status = RegistrationService.extendedParamValue(client, FederationClientParams.STATUS);
             boolean federation = RegistrationService.STATUS_AUTO.equals(status) || RegistrationService.STATUS_REGISTERED.equals(status);
@@ -58,12 +64,23 @@ final class RegistrationExpirySweeper {
         return disabled;
     }
 
+    /** One pass as the sweeper thread runs it: under a tracking id of its own. */
+    Runnable pass() {
+        return PfTracking.decorate("oidf-sweep", this::sweepOnce);
+    }
+
     /**
-     * Starts the sweep on a daemon thread every {@code intervalSeconds}, unless it is 0 or a sweeper already runs
-     * in this JVM. Returns whether this call started it.
+     * Starts the sweep on a daemon thread every {@code intervalSeconds}, unless it is 0, expiries are only logged, or
+     * a sweeper already runs in this JVM. Returns whether this call started it. Each pass logs under a tracking id of
+     * its own ({@code oidf-sweep-<8 hex>}), as a request's lines do under PingFederate's.
      */
     boolean startOnce(long intervalSeconds) {
         if (intervalSeconds <= 0) {
+            return false;
+        }
+        if (this.lifetime.settings().expiryEnforcement() == ExpiryEnforcement.LOG) {
+            LOGGER.info("Federation registration sweeper not started: OIDF_REGISTRATION_EXPIRY_ENFORCEMENT=log records expiries"
+                    + " and enforces none");
             return false;
         }
         synchronized (System.class) {
@@ -72,11 +89,12 @@ final class RegistrationExpirySweeper {
             }
             System.setProperty(OWNER_PROPERTY, Integer.toHexString(System.identityHashCode(this)));
         }
+        Runnable pass = this.pass();
         Thread sweeper = new Thread(() -> {
             while (!Thread.currentThread().isInterrupted()) {
                 try {
                     Thread.sleep(intervalSeconds * 1000L);
-                    this.sweepOnce();
+                    pass.run();
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                 } catch (RuntimeException e) {

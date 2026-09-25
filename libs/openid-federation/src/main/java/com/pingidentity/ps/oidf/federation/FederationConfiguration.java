@@ -1,7 +1,9 @@
 package com.pingidentity.ps.oidf.federation;
 
+import com.pingidentity.ps.oidf.jose.Jwks;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import jakarta.servlet.ServletConfig;
 
@@ -86,7 +88,7 @@ public final class FederationConfiguration {
         this.corsMaxAge = corsMaxAge;
         this.signingAlgorithm = signingAlgorithm;
         this.attestationMetadata = attestationMetadata != null ? attestationMetadata : AttestationMetadataConfig.defaults();
-        this.attesterJwks = attesterJwks == null || attesterJwks.isBlank() ? null : attesterJwks;
+        this.attesterJwks = attesterJwks == null || attesterJwks.isBlank() ? null : publicKeySet(attesterJwks);
         this.organizationName = organizationName == null || organizationName.isBlank() ? null : organizationName.trim();
         this.clientRegistrationTypes = List.copyOf(clientRegistrationTypes);
         this.resolveDiscovery = resolveDiscovery;
@@ -237,6 +239,37 @@ public final class FederationConfiguration {
      * resolve the attestation-signing keys through the federation trust chain instead of a locally
      * pinned attester file. Null when this entity hosts no attester.
      */
+    /**
+     * The co-hosted attester's key set, which this entity's configuration publishes as it stands: a JSON object whose
+     * {@code keys} are public, asymmetric keys. A private or symmetric key here would be handed to anyone who asks.
+     *
+     * @throws IllegalArgumentException for anything else, naming what is wrong but never the key material
+     */
+    static String publicKeySet(String jwks) {
+        Object parsed;
+        try {
+            parsed = org.jose4j.json.JsonUtil.parseJson(jwks);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("attesterJwks is not a JSON object");
+        }
+        if (!(parsed instanceof Map<?, ?> set) || !(set.get("keys") instanceof List<?> keys)) {
+            throw new IllegalArgumentException("attesterJwks is not a JWK Set: expected {\"keys\": [...]}");
+        }
+        for (Object key : keys) {
+            if (!(key instanceof Map<?, ?> jwk)) {
+                throw new IllegalArgumentException("attesterJwks holds something other than a JWK");
+            }
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> typed = (Map<String, Object>) jwk;
+                Jwks.assertPublicOnly(typed);
+            } catch (IllegalArgumentException e) {
+                throw new IllegalArgumentException("attesterJwks would publish a key that is not public: " + e.getMessage());
+            }
+        }
+        return jwks;
+    }
+
     String attesterJwks() {
         return this.attesterJwks;
     }

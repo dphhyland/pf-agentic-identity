@@ -5,6 +5,7 @@ import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
@@ -80,6 +81,7 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
 
     @Override
     public void init(FilterConfig config) throws ServletException {
+        PfAuditEventSink.install();
         if (this.service != null) {
             return;
         }

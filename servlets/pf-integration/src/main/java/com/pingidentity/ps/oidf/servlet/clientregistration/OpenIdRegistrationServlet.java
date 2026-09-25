@@ -13,6 +13,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationError;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
 
 /**
@@ -39,6 +40,7 @@ extends HttpServlet {
     }
 
     public void init(ServletConfig config) throws ServletException {
+        PfAuditEventSink.install();
         super.init(config);
         if (this.RegistrationService != null) {
             return;

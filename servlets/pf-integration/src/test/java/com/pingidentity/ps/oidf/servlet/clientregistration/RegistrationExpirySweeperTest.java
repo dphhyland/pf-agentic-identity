@@ -5,15 +5,19 @@ import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFi
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.RegistrationSettings;
+import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.pf.testkit.FakeClientStore;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -88,6 +92,31 @@ class RegistrationExpirySweeperTest {
         assertNotNull(System.getProperty(RegistrationExpirySweeper.OWNER_PROPERTY));
         assertFalse(new RegistrationExpirySweeper(this.store, new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock))
                 .startOnce(3600), "a second filter instance, or the other classloader's, finds it running");
+    }
+
+    @Test
+    void whileExpiriesAreOnlyLoggedNothingIsDisabledAndNoSweeperStarts() {
+        RegistrationExpirySweeper logging = new RegistrationExpirySweeper(this.store, new RegistrationLifetime(
+                new RegistrationSettings(86_400L, 60L, 300L, ExpiryEnforcement.LOG, 300L, true), this.clock));
+        this.store.with(federationClient("https://agent.example/1", "auto_registered", this.in(-1), null));
+
+        assertEquals(List.of(), logging.sweepOnce(), "log records expiries and enforces none, here included");
+        assertTrue(this.store.getAll().iterator().next().isEnabled());
+        assertFalse(logging.startOnce(3600));
+        assertNull(System.getProperty(RegistrationExpirySweeper.OWNER_PROPERTY));
+    }
+
+    @Test
+    void eachPassLogsUnderATrackingIdOfItsOwn() {
+        AtomicReference<String> seen = new AtomicReference<>();
+        FederationEvents.reset();
+        FederationEvents.configure(event -> seen.set(PfTracking.trackingId()));
+        this.store.with(federationClient("https://agent.example/1", "auto_registered", this.in(-1), null));
+
+        this.sweeper.pass().run();
+
+        assertTrue(seen.get().startsWith("oidf-sweep-"), seen.get());
+        assertNull(PfTracking.trackingId(), "and gives it back");
     }
 
     @Test

@@ -10,7 +10,7 @@ import org.apache.commons.logging.LogFactory;
  * Holds the one {@link FederationEventSink} for this classloader and names the event codes.
  *
  * <p>Same contract as {@code AuthoritySupport}: the first {@link #configure} wins and a later one is
- * ignored with a warning, because the servlets, the filters and the OGNL helpers all reach for the sink
+ * ignored, because the servlets, the filters and the OGNL helpers all reach for the sink
  * and the order they initialise in is not under anyone's control. Until something configures one, events
  * go to a {@link LoggingEventSink}. The engine classloader (OGNL issuance criteria) and the webapp
  * classloader each hold their own copy of this class, and each configures its own sink.
@@ -66,7 +66,7 @@ public final class FederationEvents {
     private FederationEvents() {
     }
 
-    /** Installs the sink for this classloader. The first call wins; later calls are ignored with a warning. */
+    /** Installs the sink for this classloader. The first call wins; later calls are ignored (a different sink at DEBUG). */
     public static void configure(FederationEventSink newSink) {
         synchronized (LOCK) {
             if (configured) {

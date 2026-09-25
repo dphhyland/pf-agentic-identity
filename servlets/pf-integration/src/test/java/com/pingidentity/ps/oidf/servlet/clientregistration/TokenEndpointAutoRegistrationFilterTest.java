@@ -328,6 +328,10 @@ class TokenEndpointAutoRegistrationFilterTest {
 
         ServletException e = assertThrows(ServletException.class, () -> new TokenEndpointAutoRegistrationFilter().init(config));
         assertTrue(e.getMessage().contains("trustChainEntryMaxAgeSeconds"), e.getMessage());
+
+        when(config.getInitParameter("trustChainEntryMaxAgeSeconds")).thenReturn("0");
+        ServletException zero = assertThrows(ServletException.class, () -> new TokenEndpointAutoRegistrationFilter().init(config));
+        assertTrue(zero.getMessage().contains("must be positive"), "it used to mean 60, quietly: " + zero.getMessage());
     }
 
     @Test

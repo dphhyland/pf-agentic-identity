@@ -161,7 +161,8 @@ final class RegistrationService {
                         SigningKeyProvider signingKeyProvider, RegistrationLifetime lifetime, RpKeyMaterial rpKeyMaterial,
                         RegistrationCoordinator coordinator) {
         this(configuration, trustChainValidator, clientStore, signingKeyProvider, lifetime, rpKeyMaterial, coordinator,
-                new JdkHttpClient(false, OutboundUrlPolicy.fromEnvironment()));
+                // A Trust Mark issuer's status endpoint is a federation fetch too, under the same TLS setting.
+                new JdkHttpClient(configuration.ignoreSslErrors(), OutboundUrlPolicy.fromEnvironment()));
     }
 
     RegistrationService(RegistrationConfiguration configuration, TrustChainValidator trustChainValidator, ClientStore clientStore,
