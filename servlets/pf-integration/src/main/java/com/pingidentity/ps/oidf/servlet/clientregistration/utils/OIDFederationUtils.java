@@ -17,6 +17,7 @@ import com.pingidentity.ps.oidf.federation.policy.FederationPolicyDecisionPoint;
 import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -137,14 +138,26 @@ public final class OIDFederationUtils {
      * the inner method's own try/catch (e.g. during lazy gateway initialization) would otherwise
      * surface at the OGNL boundary as an opaque "Method failed" with no logged detail — this shell
      * catches and logs it. Mirrors ClientAttestationUtils.validateClientAttestation's identical shell.
+     *
+     * <p>The criterion runs on the token request's thread but on PF's engine classloader, whose copy of PfRequestScope
+     * the token-endpoint filter never enters. So it enters its own, and what it audits carries the caller's address.
      */
     public static boolean validateTrustChain(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        PfRequestScope.Context outer = PfRequestScope.enter(requestOf(inObj));
         try {
             return validateTrustChainInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
         } catch (Throwable t) {
             LOGGER.error("Trust chain validation failed with a non-Exception throwable", t);
             return false;
+        } finally {
+            PfRequestScope.exit(outer);
         }
+    }
+
+    /** The request the criteria describe ({@code context.HttpRequest}), or null when they carry none. */
+    static HttpServletRequest requestOf(Object criteria) {
+        return criteria instanceof Map<?, ?> map && map.get("context.HttpRequest") instanceof AttributeValue value
+                && value.getObjectValue() instanceof HttpServletRequest request ? request : null;
     }
 
     private static boolean validateTrustChainInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
@@ -191,6 +204,7 @@ public final class OIDFederationUtils {
      * validates - so a mapping needs one or the other, not both. Fails closed on anything unexpected.
      */
     public static boolean federationPolicy(Object inObj) {
+        PfRequestScope.Context outer = PfRequestScope.enter(requestOf(inObj));
         try {
             FederationPolicyDecisionPoint pdp = FederationPolicySupport.decisionPointFor(DecisionPoint.TOKEN_ISSUANCE);
             if (pdp == null) {
@@ -203,6 +217,8 @@ public final class OIDFederationUtils {
         } catch (Throwable t) {
             LOGGER.error("The token-issuance policy check failed", t);
             return false;
+        } finally {
+            PfRequestScope.exit(outer);
         }
     }
 

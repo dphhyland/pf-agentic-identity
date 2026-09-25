@@ -12,6 +12,7 @@ import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -19,13 +20,17 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
 import jakarta.servlet.ServletException;
@@ -315,6 +320,44 @@ class FrontChannelAutoRegistrationFilterTest {
 
         verify(this.chain).doFilter(this.request, this.response);
         verify(this.response, never()).setStatus(anyInt());
+    }
+
+    // ---- whose request an audit record names ------------------------------------------------------------
+
+    @Test
+    void whatTheRegistrationAuditsCarriesTheCallersAddressAndTheScopeEndsWithTheRequest() throws Exception {
+        try (AuditCapture audit = AuditCapture.install()) {
+            this.par();
+            when(this.request.getParameter("client_id")).thenReturn(RP);
+            when(this.request.getRemoteAddr()).thenReturn("198.51.100.30");
+            when(this.service.admit(anyString(), anyList(), anyString(), any())).thenAnswer(call -> {
+                FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("invalid_trust_chain").subject(RP).audit().emit();
+                throw new RegistrationRejectedException(400, "invalid_trust_chain", "no route to a trusted anchor",
+                        RegistrationRejectedException.Kind.TRUST, null);
+            });
+
+            this.filter().doFilter(this.request, this.response, this.chain);
+
+            verify(this.response).setStatus(400);
+            assertEquals("198.51.100.30", audit.only(FederationEvents.REGISTRATION_REFUSED).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
+    }
+
+    @Test
+    void pingFederatesHandlingIsInsideTheScopeAndAFailureThereStillEndsIt() throws Exception {
+        when(this.request.getParameter("client_id")).thenReturn(RP);
+        when(this.request.getRemoteAddr()).thenReturn("198.51.100.30");
+        AtomicReference<PfRequestScope.Context> during = new AtomicReference<>();
+        doAnswer(call -> {
+            during.set(PfRequestScope.current());
+            throw new ServletException("PingFederate failed");
+        }).when(this.chain).doFilter(this.request, this.response);
+
+        assertThrows(ServletException.class, () -> this.filter().doFilter(this.request, this.response, this.chain));
+
+        assertEquals("198.51.100.30", during.get().remoteAddress());
+        assertNull(PfRequestScope.current(), "a pooled thread must not carry this caller's address into its next request");
     }
 
     // ---- init ------------------------------------------------------------------------------------------

@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -13,6 +14,8 @@ import com.pingidentity.ps.oidf.federation.testkit.Keys;
 import com.pingidentity.ps.oidf.keyhistory.InMemoryKeyHistoryStore;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
@@ -44,6 +47,7 @@ class FederationAdminServletTest {
     private static final String HOSTED_ONLY = "https://pf.example/marks/hosted";
     private static final String RP = "https://rp.example";
     private static final String AGENT = "https://pf.example/federation/agents/a1";
+    private static final String CALLER = "192.0.2.77";
 
     private final MutableClock clock = new MutableClock(Instant.ofEpochSecond(1_800_000_000L));
     private final InMemoryTrustMarkRegistry registry = new InMemoryTrustMarkRegistry(this.clock);
@@ -74,18 +78,15 @@ class FederationAdminServletTest {
         Exchange(TrustMarkRegistry registry, String method, String path, String token, String json, Map<String, String> params,
                  String actor) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
+            when(request.getMethod()).thenReturn(method);
+            when(request.getRemoteAddr()).thenReturn(CALLER);
             when(request.getPathInfo()).thenReturn(path);
             when(request.getHeader("Authorization")).thenReturn(token == null ? null : "Bearer " + token);
             when(request.getHeader("X-Federation-Actor")).thenReturn(actor);
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             params.forEach((name, value) -> when(request.getParameter(name)).thenReturn(value));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            FederationAdminServlet servlet = FederationAdminServletTest.this.servlet(registry);
-            if ("POST".equals(method)) {
-                servlet.doPost(request, this.response);
-            } else {
-                servlet.doGet(request, this.response);
-            }
+            FederationAdminServletTest.this.servlet(registry).service(request, this.response);
         }
 
         Map<String, Object> json(int status) throws Exception {
@@ -105,6 +106,16 @@ class FederationAdminServletTest {
 
     private Exchange get(String path, Map<String, String> params) throws Exception {
         return new Exchange(this.registry, "GET", path, TOKEN, null, params, null);
+    }
+
+    @Test
+    void aGrantsAuditRecordCarriesTheOperatorsAddressAndTheScopeEndsWithTheRequest() throws Exception {
+        try (AuditCapture audit = AuditCapture.install()) {
+            this.post("/trust-marks", "{\"trust_mark_type\": \"" + OPEN + "\", \"sub\": \"" + RP + "\"}").json(201);
+
+            assertEquals(CALLER, audit.only(FederationEvents.TRUST_MARK_GRANTED).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
     }
 
     @Test

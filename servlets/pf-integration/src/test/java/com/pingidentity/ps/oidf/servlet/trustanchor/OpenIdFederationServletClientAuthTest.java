@@ -11,11 +11,14 @@ import com.pingidentity.ps.oidf.federation.EndpointAuthPolicy;
 import com.pingidentity.ps.oidf.federation.FederationConfiguration;
 import com.pingidentity.ps.oidf.federation.FederationService;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.Federation;
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
@@ -47,6 +50,7 @@ class OpenIdFederationServletClientAuthTest {
     private static final String HOSTED = "https://pf.example/agents/a1";
     private static final String OPEN = "https://pf.example/marks/open";
     private static final String TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+    private static final String CALLER = "192.0.2.10";
     private static final PublicJsonWebKey PF_KEY = Keys.rsa("pf-1");
     private static final PublicJsonWebKey HOSTED_KEY = Keys.ec("a1-1");
 
@@ -97,13 +101,15 @@ class OpenIdFederationServletClientAuthTest {
                 .exp(this.clock.instant().getEpochSecond() + 60).sign(this.federation.key(CLIENT), this.clock);
     }
 
-    /** One request, answered. */
+    /** One request from {@link #CALLER}, answered, sent as the container sends it. */
     private static final class Exchange {
         final HttpServletResponse response = mock(HttpServletResponse.class);
         final StringWriter body = new StringWriter();
 
         Exchange(OpenIdFederationServlet servlet, String method, String path, Map<String, String> params, String queryString) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
+            when(request.getMethod()).thenReturn(method);
+            when(request.getRemoteAddr()).thenReturn(CALLER);
             when(request.getServletPath()).thenReturn(path);
             when(request.getQueryString()).thenReturn(queryString);
             for (Map.Entry<String, String> param : params.entrySet()) {
@@ -111,11 +117,7 @@ class OpenIdFederationServletClientAuthTest {
                 when(request.getParameterValues(param.getKey())).thenReturn(new String[] {param.getValue()});
             }
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            if ("POST".equals(method)) {
-                servlet.doPost(request, this.response);
-            } else {
-                servlet.doGet(request, this.response);
-            }
+            servlet.service(request, this.response);
         }
 
         Map<String, Object> error(int status) throws Exception {
@@ -149,6 +151,18 @@ class OpenIdFederationServletClientAuthTest {
         assertEquals("invalid_client", exchange.error(401).get("error"));
         assertEquals("invalid_client", this.post("{\"federation_fetch_endpoint\": \"required\"}", "/federation/fetch", Map.of("sub", HOSTED))
                 .error(401).get("error"), "nor does a POST without an assertion get through");
+    }
+
+    @Test
+    void whatARefusedClientAuditsCarriesItsAddressWhetherItAskedWithAGetOrAPost() throws Exception {
+        try (AuditCapture audit = AuditCapture.install()) {
+            this.get("{\"federation_fetch_endpoint\": \"required\"}", "/federation/fetch", Map.of("sub", HOSTED)).error(401);
+            this.post("{\"federation_fetch_endpoint\": \"required\"}", "/federation/fetch", Map.of("sub", HOSTED)).error(401);
+
+            assertEquals(List.of(CALLER, CALLER), audit.records().stream().filter(r -> r.event().code().equals(FederationEvents.CLIENT_REFUSED))
+                    .map(AuditCapture.Record::remoteAddress).toList());
+            assertNull(PfRequestScope.current());
+        }
     }
 
     @Test

@@ -11,6 +11,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -18,11 +19,16 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
+import java.io.IOException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Function;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -416,6 +422,43 @@ class TokenEndpointAutoRegistrationFilterTest {
         } finally {
             System.clearProperty("oidf.auto.registration.fail.closed");
         }
+    }
+
+    // ---- whose request an audit record names ------------------------------------------------------------
+
+    @Test
+    void whatTheRegistrationAuditsCarriesTheCallersAddressAndTheScopeEndsWithTheRequest() throws Exception {
+        try (AuditCapture audit = AuditCapture.install()) {
+            when(this.request.getParameter("client_id")).thenReturn(CLIENT_ID);
+            when(this.request.getRemoteAddr()).thenReturn("203.0.113.7");
+            when(this.service.admit(anyString(), anyList(), anyString())).thenAnswer(call -> {
+                FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("invalid_trust_chain").subject(CLIENT_ID).audit().emit();
+                throw new RegistrationRejectedException(401, "invalid_client", "the trust chain did not validate",
+                        RegistrationRejectedException.Kind.TRUST, null);
+            });
+
+            this.filter(true).doFilter(this.request, this.response, this.chain);
+
+            verify(this.response).setStatus(401);
+            assertEquals("203.0.113.7", audit.only(FederationEvents.REGISTRATION_REFUSED).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
+    }
+
+    @Test
+    void pingFederatesHandlingIsInsideTheScopeAndAFailureThereStillEndsIt() throws Exception {
+        when(this.request.getParameter("client_id")).thenReturn(CLIENT_ID);
+        when(this.request.getRemoteAddr()).thenReturn("203.0.113.7");
+        AtomicReference<PfRequestScope.Context> during = new AtomicReference<>();
+        doAnswer(call -> {
+            during.set(PfRequestScope.current());
+            throw new IOException("the client went away");
+        }).when(this.chain).doFilter(this.request, this.response);
+
+        assertThrows(IOException.class, () -> this.filter(true).doFilter(this.request, this.response, this.chain));
+
+        assertEquals("203.0.113.7", during.get().remoteAddress());
+        assertNull(PfRequestScope.current(), "a pooled thread must not carry this caller's address into its next request");
     }
 
     // ---- the client id a request names, directly --------------------------------------------------------

@@ -6,6 +6,7 @@ import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
@@ -122,43 +123,49 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
             chain.doFilter(request, response);
             return;
         }
-        String uri = http.getRequestURI();
-        boolean par = uri != null && uri.endsWith(PAR_PATH);
-        String requestUri = http.getParameter("request_uri");
-        if (par && !"POST".equalsIgnoreCase(http.getMethod()) || !par && requestUri != null && requestUri.startsWith(PAR_REQUEST_URI_PREFIX)) {
-            // PAR takes POST only - PingFederate says so. A pushed request_uri was registered for when it was pushed.
-            chain.doFilter(request, response);
-            return;
-        }
-        String assertion = par ? http.getParameter("client_assertion") : null;
-        String clientId = clientIdOf(http, assertion);
-        if (clientId == null) {
-            chain.doFilter(request, response);
-            return;
-        }
-        String requestObject = http.getParameter("request");
-        RequestObject proof = null;
-        RegistrationRejectedException unreadable = null;
+        // What this request raises reaches PingFederate's audit log with the caller's address.
+        PfRequestScope.Context outer = PfRequestScope.enter(http);
         try {
-            proof = requestObject != null && !requestObject.isBlank() ? RequestObject.read(RequestObject.Kind.REQUEST_OBJECT, requestObject)
-                    : assertion != null && !assertion.isBlank() ? RequestObject.read(RequestObject.Kind.CLIENT_ASSERTION, assertion) : null;
-        } catch (RegistrationRejectedException e) {
-            unreadable = e;
+            String uri = http.getRequestURI();
+            boolean par = uri != null && uri.endsWith(PAR_PATH);
+            String requestUri = http.getParameter("request_uri");
+            if (par && !"POST".equalsIgnoreCase(http.getMethod()) || !par && requestUri != null && requestUri.startsWith(PAR_REQUEST_URI_PREFIX)) {
+                // PAR takes POST only - PingFederate says so. A pushed request_uri was registered for when it was pushed.
+                chain.doFilter(request, response);
+                return;
+            }
+            String assertion = par ? http.getParameter("client_assertion") : null;
+            String clientId = clientIdOf(http, assertion);
+            if (clientId == null) {
+                chain.doFilter(request, response);
+                return;
+            }
+            String requestObject = http.getParameter("request");
+            RequestObject proof = null;
+            RegistrationRejectedException unreadable = null;
+            try {
+                proof = requestObject != null && !requestObject.isBlank() ? RequestObject.read(RequestObject.Kind.REQUEST_OBJECT, requestObject)
+                        : assertion != null && !assertion.isBlank() ? RequestObject.read(RequestObject.Kind.CLIENT_ASSERTION, assertion) : null;
+            } catch (RegistrationRejectedException e) {
+                unreadable = e;
+            }
+            String issuer = this.issuerResolver.apply(http);
+            RegistrationService.Channel channel = this.service.frontChannel(par ? "par" : "authorization", clientId, issuer, proof, unreadable,
+                    this.replay, this.settings);
+            try {
+                this.service.admit(clientId, proof == null ? List.of() : proof.trustChain(), issuer, channel);
+            } catch (RegistrationRejectedException e) {
+                this.refuse(http, httpResponse, chain, par, e.status(), e.error(), e.getMessage(), e.isRetryable() ? retryAfter(e) : null);
+                return;
+            } catch (Exception e) {
+                LOGGER.error((Object)("Federation registration at the " + (par ? "PAR" : "authorization") + " endpoint failed"), e);
+                this.refuse(http, httpResponse, chain, par, 500, "server_error", "the federation registration could not be completed", null);
+                return;
+            }
+            chain.doFilter(request, response);
+        } finally {
+            PfRequestScope.exit(outer);
         }
-        String issuer = this.issuerResolver.apply(http);
-        RegistrationService.Channel channel = this.service.frontChannel(par ? "par" : "authorization", clientId, issuer, proof, unreadable,
-                this.replay, this.settings);
-        try {
-            this.service.admit(clientId, proof == null ? List.of() : proof.trustChain(), issuer, channel);
-        } catch (RegistrationRejectedException e) {
-            this.refuse(http, httpResponse, chain, par, e.status(), e.error(), e.getMessage(), e.isRetryable() ? retryAfter(e) : null);
-            return;
-        } catch (Exception e) {
-            LOGGER.error((Object)("Federation registration at the " + (par ? "PAR" : "authorization") + " endpoint failed"), e);
-            this.refuse(http, httpResponse, chain, par, 500, "server_error", "the federation registration could not be completed", null);
-            return;
-        }
-        chain.doFilter(request, response);
     }
 
     /**

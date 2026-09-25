@@ -206,8 +206,14 @@ refusal, WARN for a 503, ERROR for a fault of ours), and it never reaches the au
 refusals that happen before any chain is checked - a client an administrator made, a request object that breaks
 the rules - which the filters log on their own loggers.
 
-The audit records carry no host or IP address from these modules. Lines the sweeper writes carry a tracking id
-of their own, `oidf-sweep-` and eight hex digits.
+Each audit record carries the caller's address in `ip`. The servlets, both filters and the OGNL criterion enter a
+request scope as each request starts and leave it when the request ends, however it ends, so a pooled thread never
+carries one caller's address into its next request. The address is the one PingFederate records for its own
+events: behind a proxy it is the proxy's, unless PingFederate's incoming proxy settings name the header that carries
+the client's (`forwarded_ip_address_header_name` on `pingfederate_incoming_proxy_settings`). `host` is PingFederate's
+own - the name of the node that wrote the record - and `protocol` is `OpenID Federation`. A record written off a
+request, by the sweeper or for a key rotation noticed at start-up, has no `ip`. The sweeper's lines carry a
+tracking id of their own, `oidf-sweep-` and eight hex digits.
 
 **Turning events into Shared Signals.** The SSF transmitter can listen to the same audit logger and send CAEP
 events for the ones you map, for example

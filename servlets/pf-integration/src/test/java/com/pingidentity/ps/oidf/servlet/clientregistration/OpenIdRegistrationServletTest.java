@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -11,8 +12,13 @@ import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.federation.TrustChainValidationException;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidationRequest;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.PrintWriter;
@@ -208,6 +214,27 @@ class OpenIdRegistrationServletTest {
         verify(resp.mock).setStatus(409);
         assertTrue(resp.body.toString().contains("\"invalid_client_metadata\""), resp.body.toString());
         assertTrue(resp.body.toString().contains("administered outside"), resp.body.toString());
+    }
+
+    @Test
+    void whatARefusedRegistrationAuditsCarriesTheCallersAddressAndTheScopeEndsWithTheRequest() throws Exception {
+        try (AuditCapture audit = AuditCapture.install()) {
+            TrustChainValidator validator = mock(TrustChainValidator.class);
+            when(validator.validate(any(ValidationRequest.class))).thenThrow(new TrustChainValidationException(
+                    TrustChainValidationException.Kind.SIGNATURE, EXISTING_CLIENT, EXISTING_CLIENT, "the leaf's signature does not verify"));
+            RegistrationService service = new RegistrationService(new RegistrationConfiguration("https://tc.example", false), validator,
+                    mock(ClientStore.class));
+            HttpServletRequest req = post("application/trust-chain+json", trustChainBody());
+            when(req.getMethod()).thenReturn("POST");
+            when(req.getRemoteAddr()).thenReturn("192.0.2.44");
+            Response resp = new Response();
+
+            new OpenIdRegistrationServlet(service, r -> OP_ISSUER).service(req, resp.mock);
+
+            assertTrue(resp.body.toString().contains("invalid_trust_chain"), resp.body.toString());
+            assertEquals("192.0.2.44", audit.only(FederationEvents.REGISTRATION_REFUSED).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
     }
 
     @Test

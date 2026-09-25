@@ -24,6 +24,7 @@ import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfDataSources;
+import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -37,7 +38,6 @@ import java.util.regex.Pattern;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
@@ -63,7 +63,7 @@ import org.jose4j.json.JsonUtil;
  * every statement this authority ever issued about it.
  */
 @WebServlet(urlPatterns = {"/federation/agents/*", "/federation/resources/*"})
-public class HostedEntityServlet extends HttpServlet {
+public class HostedEntityServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(HostedEntityServlet.class);
     private static final String WELL_KNOWN_SUFFIX = "/.well-known/openid-federation";

@@ -8,12 +8,12 @@ import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
 
 /**
@@ -24,7 +24,7 @@ import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
  */
 @WebServlet(urlPatterns = {"/federation/register"})
 public class OpenIdRegistrationServlet
-extends HttpServlet {
+extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private RegistrationService RegistrationService;
     private final Function<HttpServletRequest, String> issuerResolver;

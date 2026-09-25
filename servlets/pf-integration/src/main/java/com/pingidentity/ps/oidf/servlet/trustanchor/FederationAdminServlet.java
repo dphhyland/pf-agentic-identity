@@ -15,6 +15,7 @@ import com.pingidentity.ps.oidf.keyhistory.HistoricalKey;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkRegistry;
@@ -23,7 +24,6 @@ import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
@@ -72,7 +72,7 @@ import org.jose4j.json.JsonUtil;
  * accountability; it grants nothing) - in the grant's history and in PingFederate's audit log.
  */
 @WebServlet(urlPatterns = {"/federation/admin/*"})
-public class FederationAdminServlet extends HttpServlet {
+public class FederationAdminServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private static final int MAX_ACTOR_LENGTH = 128;
 

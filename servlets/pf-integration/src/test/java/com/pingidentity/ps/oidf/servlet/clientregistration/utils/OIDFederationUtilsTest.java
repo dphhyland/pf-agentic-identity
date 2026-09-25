@@ -2,6 +2,8 @@ package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -21,6 +23,8 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.HashMap;
 import java.util.List;
@@ -42,6 +46,7 @@ class OIDFederationUtilsTest {
     private static final String INT = "https://int.example.com";
     private static final String RP = "https://rp.example.com";
     private static final String OP = "https://op.example.com";
+    private static final String CALLER = "203.0.113.50";
 
     private EventCapture events;
 
@@ -86,6 +91,7 @@ class OIDFederationUtilsTest {
     private static Map<String, Object> criteria(String clientId, String clientAssertion, Map<String, Object> extra) {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getParameter("client_assertion")).thenReturn(clientAssertion);
+        when(request.getRemoteAddr()).thenReturn(CALLER);
         AttributeValue requestValue = mock(AttributeValue.class);
         when(requestValue.getObjectValue()).thenReturn(request);
         AttributeValue clientValue = mock(AttributeValue.class);
@@ -244,5 +250,68 @@ class OIDFederationUtilsTest {
         pdpAnswering(true);
         assertTrue(OIDFederationUtils.federationPolicy(criteria));
         assertFalse(OIDFederationUtils.federationPolicy("not a criteria map"), "anything unexpected fails closed");
+    }
+
+    // ---- whose request an audit record names ------------------------------------------------------------
+    //
+    // In PingFederate the criterion's PfRequestScope is the engine classloader's copy, which the token-endpoint filter's
+    // scope never reaches; here both are one class, which is the case the nesting has to survive.
+
+    @Test
+    void whatTheCriterionAuditsCarriesTheCallersAddressAndTheScopeEndsWithIt() {
+        Federation f = federation();
+        try (AuditCapture audit = AuditCapture.install()) {
+            assertFalse(OIDFederationUtils.validateTrustChain(criteria(RP, assertionCarrying(f, f.chain(RP, TA)),
+                    expiringAt(java.time.Instant.now().getEpochSecond() - 1))));
+
+            assertEquals(CALLER, audit.only(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
+    }
+
+    @Test
+    void whatTheTokenDecisionPointAuditsCarriesTheCallersAddress() {
+        OIDFederationUtils.useIssuerResolver(req -> OP);
+        pdpAnswering(false);
+        try (AuditCapture audit = AuditCapture.install()) {
+            assertFalse(OIDFederationUtils.federationPolicy(criteria(RP, null, Map.of())));
+
+            assertEquals(CALLER, audit.only(FederationEvents.TOKEN_REFUSED).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
+    }
+
+    @Test
+    void theCriterionPutsBackTheScopeItFoundOpen() {
+        Federation f = federation();
+        HttpServletRequest filtered = mock(HttpServletRequest.class);
+        when(filtered.getRemoteAddr()).thenReturn("198.51.100.1");
+        PfRequestScope.Context none = PfRequestScope.enter(filtered);
+        PfRequestScope.Context filters = PfRequestScope.current();
+        try (AuditCapture audit = AuditCapture.install()) {
+            assertFalse(OIDFederationUtils.validateTrustChain(criteria(RP, assertionCarrying(f, f.chain(RP, TA)),
+                    expiringAt(java.time.Instant.now().getEpochSecond() - 1))));
+            assertTrue(OIDFederationUtils.federationPolicy("not a criteria map"));
+
+            assertEquals(CALLER, audit.only(FederationEvents.REGISTRATION_EXPIRED_AT_ISSUANCE).remoteAddress());
+            assertSame(filters, PfRequestScope.current(), "the filter's events after the criterion keep their address");
+        } finally {
+            PfRequestScope.exit(none);
+        }
+    }
+
+    @Test
+    void theRequestIsTakenFromTheCriteriaOnlyWhenTheyCarryOne() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        AttributeValue holdsRequest = mock(AttributeValue.class);
+        when(holdsRequest.getObjectValue()).thenReturn(request);
+        AttributeValue holdsSomethingElse = mock(AttributeValue.class);
+        when(holdsSomethingElse.getObjectValue()).thenReturn("not a request");
+
+        assertSame(request, OIDFederationUtils.requestOf(Map.of("context.HttpRequest", holdsRequest)));
+        assertNull(OIDFederationUtils.requestOf(Map.of("context.HttpRequest", holdsSomethingElse)));
+        assertNull(OIDFederationUtils.requestOf(Map.of("context.HttpRequest", "not an attribute")));
+        assertNull(OIDFederationUtils.requestOf(Map.of()));
+        assertNull(OIDFederationUtils.requestOf("not a criteria map"));
     }
 }

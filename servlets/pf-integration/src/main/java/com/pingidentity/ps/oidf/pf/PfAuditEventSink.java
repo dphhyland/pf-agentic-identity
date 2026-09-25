@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.function.Function;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
+import org.apache.logging.log4j.ThreadContext;
 
 /**
  * The PingFederate sink for {@link FederationEvent}s.
@@ -24,7 +25,9 @@ import org.apache.commons.logging.LogFactory;
  * database or Splunk variants of that log). The audit record fills PF's own columns: {@code event} (the
  * event code), {@code status} ({@code success}/{@code failure}), {@code subject}, {@code connectionid}
  * (the partner: the trust anchor or attester), {@code protocol} ({@code OpenID Federation}), {@code role},
- * {@code host}, {@code ip} and a description that carries the event's reason and fields.
+ * {@code ip} (the caller's address, from the {@link PfRequestScope} the event was emitted in) and a description
+ * that carries the event's reason and fields. PingFederate fills {@code host} itself, with this node's name, as it
+ * does for its own records.
  *
  * <p>Nothing here can fail a request: an audit write that throws is noted at DEBUG and dropped. Setting
  * {@code OIDF_EVENTS_AUDIT=false} keeps events in {@code server.log} only.
@@ -128,8 +131,14 @@ public final class PfAuditEventSink implements FederationEventSink {
         return next < 0 ? "" : line.substring(next + 1);
     }
 
-    /** Writes through {@link LoggingUtil}: PingFederate's audit hook for extensions. */
+    /**
+     * Writes through {@link LoggingUtil}: PingFederate's audit hook for extensions. Its {@code init} fills what PF fills
+     * for its own records, {@code host} among them, and its {@code cleanup} empties every audit column again.
+     */
     static final class LoggingUtilAuditWriter implements AuditWriter {
+        /** The ThreadContext key of the audit log's {@code protocol} column, as PF's own AuditLogger writes it. */
+        private static final String PROTOCOL_KEY = "protocol";
+
         @Override
         public void write(FederationEvent event, PfRequestScope.Context request) {
             LoggingUtil.init();
@@ -142,17 +151,14 @@ public final class PfAuditEventSink implements FederationEventSink {
                 if (event.partner() != null) {
                     LoggingUtil.setPartnerId(LogSafe.value(event.partner()));
                 }
-                LoggingUtil.setProtocol(PROTOCOL);
+                // Not LoggingUtil.setProtocol: in PingFederate 13.0 and 13.1 the SDK implements it by writing the ip
+                // column. This is the key PF's own AuditLogger.setProtocol writes, and cleanup empties it.
+                ThreadContext.put(PROTOCOL_KEY, PROTOCOL);
                 if (event.role() != null) {
                     LoggingUtil.setRole(event.role());
                 }
-                if (request != null) {
-                    if (request.host() != null) {
-                        LoggingUtil.setHost(LogSafe.value(request.host()));
-                    }
-                    if (request.remoteAddress() != null) {
-                        LoggingUtil.setRemoteAddress(LogSafe.value(request.remoteAddress()));
-                    }
+                if (request != null && request.remoteAddress() != null) {
+                    LoggingUtil.setRemoteAddress(LogSafe.value(request.remoteAddress()));
                 }
                 if (event.requestJti() != null) {
                     LoggingUtil.setRequestJti(LogSafe.value(event.requestJti()));

@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -21,6 +22,8 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpAuth;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpMode;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -38,6 +41,7 @@ import org.junit.jupiter.api.Test;
 class HostedEntityServletEnrolTest {
     private static final String TOKEN = "admin-token";
     private static final String AUTHORITY = "https://pf.example";
+    private static final String CALLER = "192.0.2.61";
 
     private EventCapture events;
 
@@ -98,18 +102,15 @@ class HostedEntityServletEnrolTest {
 
         Exchange(String servletToken, String method, String pathInfo, String json) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
+            when(request.getMethod()).thenReturn(method);
+            when(request.getRemoteAddr()).thenReturn(CALLER);
             when(request.getServletPath()).thenReturn("/federation/agents");
             when(request.getPathInfo()).thenReturn(pathInfo);
             when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
             when(request.getHeader("X-Federation-Actor")).thenReturn("dave");
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            HostedEntityServlet servlet = new HostedEntityServlet(servletToken);
-            if ("POST".equals(method)) {
-                servlet.doPost(request, this.response);
-            } else {
-                servlet.doGet(request, this.response);
-            }
+            new HostedEntityServlet(servletToken).service(request, this.response);
         }
 
         Map<String, Object> json(int status) throws Exception {
@@ -136,6 +137,17 @@ class HostedEntityServletEnrolTest {
         assertTrue(AuthoritySupport.registry().auditTrail(id).get(0).actor().endsWith("(dave)"));
         assertEquals(id, this.events.only(FederationEvents.HOSTED_ENTITY_ENROLLED).subject());
         assertEquals("duplicate", new Exchange("POST", "/", enrolment("")).json(409).get("error"));
+    }
+
+    @Test
+    void anEnrolmentsAuditRecordCarriesTheCallersAddressAndTheScopeEndsWithTheRequest() throws Exception {
+        host(SIGNER);
+        try (AuditCapture audit = AuditCapture.install()) {
+            new Exchange("POST", null, enrolment("")).json(201);
+
+            assertEquals(CALLER, audit.only(FederationEvents.HOSTED_ENTITY_ENROLLED).remoteAddress());
+            assertNull(PfRequestScope.current());
+        }
     }
 
     @Test

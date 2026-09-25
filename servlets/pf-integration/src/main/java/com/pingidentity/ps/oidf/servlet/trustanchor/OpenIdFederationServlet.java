@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import com.pingidentity.ps.oidf.pf.PfProviderMetadata;
+import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -19,7 +20,6 @@ import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
@@ -55,7 +55,7 @@ import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 @WebServlet(urlPatterns={"/.well-known/openid-federation", "/federation/entity", "/federation/fetch", "/federation/list", "/federation/resolve",
         "/federation/trust_mark", "/federation/trust_mark_status", "/federation/trust_marked_list", "/federation/historical_keys"}, loadOnStartup=1)
 public class OpenIdFederationServlet
-extends HttpServlet {
+extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private FederationService federationService;
     private FederationConfiguration federationConfiguration;

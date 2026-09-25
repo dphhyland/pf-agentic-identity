@@ -5,31 +5,38 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.mockStatic;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.federation.event.FederationEvent;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.event.LogSafe;
+import com.pingidentity.sdk.logging.LoggingUtil;
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.logging.log4j.ThreadContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.MockedStatic;
 
 /**
  * The PingFederate sink: every event reaches {@code server.log}; audit events also reach the audit
- * writer, with the request's host and address; nothing an audit write does can fail a request.
+ * writer, with the caller's address; nothing an audit write does can fail a request.
  */
 class PfAuditEventSinkTest {
 
     @AfterEach
     void reset() {
         FederationEvents.reset();
-        PfRequestScope.exit();
+        PfRequestScope.exit(null);
         ThreadContext.remove(PfTracking.TRACKING_ID_KEY);
         LogSafe.configureMaxValueLength(LogSafe.DEFAULT_MAX_VALUE_LENGTH);
     }
@@ -43,7 +50,6 @@ class PfAuditEventSinkTest {
         List<Written> audit = new ArrayList<>();
         PfAuditEventSink sink = new PfAuditEventSink(serverLog::add, (e, r) -> audit.add(new Written(e, r)), true);
         HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getServerName()).thenReturn("pf.example");
         when(request.getRemoteAddr()).thenReturn("203.0.113.9");
         PfRequestScope.enter(request);
 
@@ -52,9 +58,18 @@ class PfAuditEventSinkTest {
 
         assertEquals(2, serverLog.size());
         assertEquals(1, audit.size());
-        assertEquals("pf.example", audit.get(0).request().host());
         assertEquals("203.0.113.9", audit.get(0).request().remoteAddress());
         assertTrue(sink.auditEnabled());
+    }
+
+    @Test
+    void anAuditEventOffARequestHasNoAddress() {
+        List<Written> audit = new ArrayList<>();
+        PfAuditEventSink sink = new PfAuditEventSink(e -> { }, (e, r) -> audit.add(new Written(e, r)), true);
+
+        sink.emit(FederationEvents.event(FederationEvents.REGISTRATION_DISABLED).subject("https://rp.example").audit().build());
+
+        assertNull(audit.get(0).request(), "a daemon's audit record names no caller");
     }
 
     @Test
@@ -82,13 +97,59 @@ class PfAuditEventSinkTest {
         List<FederationEvent> serverLog = new ArrayList<>();
         PfAuditEventSink sink = new PfAuditEventSink(serverLog::add, new PfAuditEventSink.LoggingUtilAuditWriter(), true);
         HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getServerName()).thenReturn("pf.example");
+        when(request.getRemoteAddr()).thenReturn("203.0.113.9");
         PfRequestScope.enter(request);
 
         sink.emit(FederationEvents.event(FederationEvents.HOSTED_ENTITY_REVOKED).subject("https://pf.example/federation/agents/a")
                 .partner("https://pf.example").role("TA").requestJti("j").description("revoked").audit().build());
 
         assertEquals(1, serverLog.size());
+    }
+
+    /**
+     * What the real writer asks of PingFederate's SDK. In PF 13.0 and 13.1 the SDK's {@code setProtocol} writes the
+     * {@code ip} column, so the writer never calls it and puts the protocol where PF's own AuditLogger does; the address
+     * is the request's; the host is left to PF, which fills it with this node's name.
+     */
+    @Test
+    void theRealWriterFillsIpFromTheRequestAndProtocolWithoutTheSdksSetProtocol() {
+        FederationEvent full = FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("invalid_trust_chain")
+                .subject("https://rp.example").partner("https://ta.example").role("OP").requestJti("j-1").audit().build();
+        FederationEvent bare = FederationEvents.event(FederationEvents.KEY_RETIRED).audit().build();
+        Map<String, String> atLog = new HashMap<>();
+        try (MockedStatic<LoggingUtil> sdk = mockStatic(LoggingUtil.class)) {
+            sdk.when(() -> LoggingUtil.log(anyString())).thenAnswer(call -> {
+                atLog.putAll(ThreadContext.getImmutableContext());
+                return null;
+            });
+
+            new PfAuditEventSink.LoggingUtilAuditWriter().write(full, new PfRequestScope.Context("203.0.113.9"));
+
+            sdk.verify(() -> LoggingUtil.setRemoteAddress("203.0.113.9"));
+            sdk.verify(() -> LoggingUtil.setProtocol(anyString()), never());
+            sdk.verify(() -> LoggingUtil.setHost(anyString()), never());
+            sdk.verify(() -> LoggingUtil.setStatus(LoggingUtil.FAILURE));
+            sdk.verify(() -> LoggingUtil.setUserName("https://rp.example"));
+            sdk.verify(() -> LoggingUtil.setPartnerId("https://ta.example"));
+            sdk.verify(() -> LoggingUtil.setRole("OP"));
+            sdk.verify(() -> LoggingUtil.setRequestJti("j-1"));
+            sdk.verify(LoggingUtil::cleanup);
+            assertEquals(PfAuditEventSink.PROTOCOL, atLog.get("protocol"));
+
+            sdk.clearInvocations();
+            new PfAuditEventSink.LoggingUtilAuditWriter().write(bare, null);
+            new PfAuditEventSink.LoggingUtilAuditWriter().write(bare, new PfRequestScope.Context(null));
+
+            sdk.verify(() -> LoggingUtil.setRemoteAddress(anyString()), never());
+            sdk.verify(() -> LoggingUtil.setStatus(LoggingUtil.SUCCESS), times(2));
+            sdk.verify(() -> LoggingUtil.setUserName(anyString()), never());
+            sdk.verify(() -> LoggingUtil.setPartnerId(anyString()), never());
+            sdk.verify(() -> LoggingUtil.setRole(anyString()), never());
+            sdk.verify(() -> LoggingUtil.setRequestJti(anyString()), never());
+        } finally {
+            // The SDK's cleanup, which empties the protocol column in PingFederate, was mocked.
+            ThreadContext.remove("protocol");
+        }
     }
 
     @Test
@@ -130,7 +191,7 @@ class PfAuditEventSinkTest {
         assertTrue(PfAuditEventSink.auditSwitch("0"));
     }
 
-    // ---- tracking and request scope --------------------------------------------------------------
+    // ---- tracking ----------------------------------------------------------------------------------
 
     @Test
     void aDaemonRunGetsItsOwnTrackingIdAndGivesItBack() {
@@ -149,17 +210,5 @@ class PfAuditEventSinkTest {
         assertEquals("req-1", PfTracking.trackingIdOr("x"));
         ThreadContext.remove(PfTracking.TRACKING_ID_KEY);
         assertTrue(PfTracking.trackingIdOr("x").startsWith("x-"));
-    }
-
-    @Test
-    void theRequestScopeIsPerThreadAndClearedOnExit() {
-        PfRequestScope.enter(null);
-        assertNull(PfRequestScope.current());
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getRemoteAddr()).thenReturn("198.51.100.1");
-        PfRequestScope.enter(request);
-        assertEquals("198.51.100.1", PfRequestScope.current().remoteAddress());
-        PfRequestScope.exit();
-        assertNull(PfRequestScope.current());
     }
 }

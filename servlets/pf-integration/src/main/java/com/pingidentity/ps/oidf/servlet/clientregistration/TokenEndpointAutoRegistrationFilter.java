@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
@@ -145,44 +146,51 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
             chain.doFilter(request, response);
             return;
         }
-        String clientAssertion = http.getParameter("client_assertion");
-        String clientId = clientIdOf(http, clientAssertion);
-        if (clientId == null) {
-            chain.doFilter(request, response);
-            return;
-        }
+        // What this request raises reaches PingFederate's audit log with the caller's address.
+        PfRequestScope.Context outer = PfRequestScope.enter(http);
         try {
-            this.service.admit(clientId, extractTrustChain(clientAssertion), this.issuerResolver.apply(http));
-        }
-        catch (RegistrationRejectedException e) {
-            if (!this.failClosed) {
-                LOGGER.info((Object)("Automatic registration skipped (" + e.error() + "): " + e.getMessage()));
+            String clientAssertion = http.getParameter("client_assertion");
+            String clientId = clientIdOf(http, clientAssertion);
+            if (clientId == null) {
                 chain.doFilter(request, response);
                 return;
             }
-            // RFC 6749 §5.2: a client whose federation registration cannot stand has failed client
-            // authentication; one whose federation cannot be reached right now, or that arrived while this
-            // server was busy registering, may try again.
-            boolean retryable = e.isRetryable();
-            if (retryable) {
-                httpResponse.setHeader("Retry-After", e.kind() == RegistrationRejectedException.Kind.BUSY ? "2"
-                        : Long.toString(RegistrationService.TRANSPORT_FAILURE_BACKOFF_SECONDS));
+            try {
+                this.service.admit(clientId, extractTrustChain(clientAssertion), this.issuerResolver.apply(http));
             }
-            OAuthErrorWriter.write(httpResponse, retryable ? 503 : 401, retryable ? "temporarily_unavailable" : "invalid_client",
-                    e.getMessage());
-            return;
-        }
-        catch (Exception e) {
-            if (!this.failClosed) {
-                LOGGER.info((Object)("Automatic registration skipped: " + e.getClass().getSimpleName()));
-                chain.doFilter(request, response);
+            catch (RegistrationRejectedException e) {
+                if (!this.failClosed) {
+                    LOGGER.info((Object)("Automatic registration skipped (" + e.error() + "): " + e.getMessage()));
+                    chain.doFilter(request, response);
+                    return;
+                }
+                // RFC 6749 §5.2: a client whose federation registration cannot stand has failed client
+                // authentication; one whose federation cannot be reached right now, or that arrived while this
+                // server was busy registering, may try again.
+                boolean retryable = e.isRetryable();
+                if (retryable) {
+                    httpResponse.setHeader("Retry-After", e.kind() == RegistrationRejectedException.Kind.BUSY ? "2"
+                            : Long.toString(RegistrationService.TRANSPORT_FAILURE_BACKOFF_SECONDS));
+                }
+                OAuthErrorWriter.write(httpResponse, retryable ? 503 : 401, retryable ? "temporarily_unavailable" : "invalid_client",
+                        e.getMessage());
                 return;
             }
-            LOGGER.error((Object)"Federation registration at the token endpoint failed", e);
-            OAuthErrorWriter.write(httpResponse, 500, "server_error", "the federation registration could not be completed");
-            return;
+            catch (Exception e) {
+                if (!this.failClosed) {
+                    LOGGER.info((Object)("Automatic registration skipped: " + e.getClass().getSimpleName()));
+                    chain.doFilter(request, response);
+                    return;
+                }
+                LOGGER.error((Object)"Federation registration at the token endpoint failed", e);
+                OAuthErrorWriter.write(httpResponse, 500, "server_error", "the federation registration could not be completed");
+                return;
+            }
+            chain.doFilter(request, response);
         }
-        chain.doFilter(request, response);
+        finally {
+            PfRequestScope.exit(outer);
+        }
     }
 
     /**

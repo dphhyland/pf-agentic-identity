@@ -309,6 +309,13 @@
                                         <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.of(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.capture(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.emptyAnswer(*</include>
+                                        <!-- Whose address an audit record carries: the scope every request enters and
+                                             leaves, the request the OGNL criterion reads, and the servlets' way in. A
+                                             scope left behind puts a pooled thread's next request down to this caller. -->
+                                        <include>com.pingidentity.ps.oidf.pf.PfRequestScope.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfRequestScope.exit(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.RequestScopedServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requestOf(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
