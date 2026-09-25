@@ -83,6 +83,7 @@ public final class FederationService {
     private final List<Map<String, Object>> ownTrustMarks;
     private final Map<String, List<String>> trustMarkIssuers;
     private final Map<String, Object> trustMarkOwners;
+    private final ProviderMetadata providerMetadata;
     /** Marks minted, by issuer, type and subject: served again until half their life is gone or their grant changes. */
     private final Map<String, Minted> minted = Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
         private static final long serialVersionUID = 1L;
@@ -155,6 +156,7 @@ public final class FederationService {
         this.ownTrustMarks = List.copyOf(b.ownTrustMarks);
         this.trustMarkIssuers = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkIssuers));
         this.trustMarkOwners = Collections.unmodifiableMap(new LinkedHashMap<>(b.trustMarkOwners));
+        this.providerMetadata = b.providerMetadata;
         this.clock = b.clock != null ? b.clock : Clock.systemUTC();
     }
 
@@ -274,11 +276,10 @@ public final class FederationService {
         }
         metadata.put("federation_entity", federationEntity);
         AttestationMetadataConfig attestationMetadata = this.configuration.attestationMetadata();
-        LinkedHashMap<String, Object> openidProvider = new LinkedHashMap<String, Object>();
-        openidProvider.put("issuer", oidcIssuer);
-        openidProvider.put("authorization_endpoint", oidcIssuer + "/as/authorization.oauth2");
-        openidProvider.put("token_endpoint", oidcIssuer + "/as/token.oauth2");
-        openidProvider.put("pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2");
+        // What the OP's own discovery document says (§5.1.3: every OpenID Connect Discovery parameter applies, and
+        // the REQUIRED ones - jwks_uri, response_types_supported, subject_types_supported,
+        // id_token_signing_alg_values_supported - have to be here), then what federation and attestation add.
+        LinkedHashMap<String, Object> openidProvider = this.discovered("openid_provider", oidcIssuer);
         List<String> registrationTypes = this.configuration.clientRegistrationTypes();
         if (!registrationTypes.isEmpty()) {
             openidProvider.put("client_registration_types_supported", registrationTypes);
@@ -300,7 +301,7 @@ public final class FederationService {
             openidProvider.put("challenge_endpoint", fedBase + "/federation/attestation-challenge");
         }
         metadata.put("openid_provider", openidProvider);
-        metadata.put("oauth_authorization_server", Map.of("issuer", oidcIssuer, "authorization_endpoint", oidcIssuer + "/as/authorization.oauth2", "token_endpoint", oidcIssuer + "/as/token.oauth2", "pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2"));
+        metadata.put("oauth_authorization_server", this.discovered("oauth_authorization_server", oidcIssuer));
         String attesterJwks = this.configuration.attesterJwks();
         if (attesterJwks != null) {
             // Publish the co-hosted Client Attester's signing keys so a remote AS can trust
@@ -829,12 +830,33 @@ public final class FederationService {
     }
 
     private Map<String, Object> buildInlineJwks() throws JoseException {
-        RSAPublicKey pub = this.signingKeyProvider.publicKey();
+        return publishedJwks(this.signingKeyProvider, this.configuration.signingAlgorithm());
+    }
+
+    /**
+     * {@code entityType}'s metadata as this entity's discovery document has it, with its issuer and the endpoints PingFederate
+     * always has - a document that is unavailable, or that leaves one out, still gets those.
+     */
+    private LinkedHashMap<String, Object> discovered(String entityType, String oidcIssuer) {
+        LinkedHashMap<String, Object> metadata = new LinkedHashMap<>(this.providerMetadata.of(entityType, oidcIssuer));
+        metadata.put("issuer", oidcIssuer);
+        metadata.putIfAbsent("authorization_endpoint", oidcIssuer + "/as/authorization.oauth2");
+        metadata.putIfAbsent("token_endpoint", oidcIssuer + "/as/token.oauth2");
+        metadata.putIfAbsent("pushed_authorization_request_endpoint", oidcIssuer + "/as/par.oauth2");
+        return metadata;
+    }
+
+    /**
+     * The {@code jwks} an entity signing with {@code signingKeys} publishes in its Entity Configuration: its public key,
+     * for signing with {@code algorithm}. What a deployment that is its own Trust Anchor trusts itself with.
+     */
+    public static Map<String, Object> publishedJwks(SigningKeyProvider signingKeys, String algorithm) throws JoseException {
+        RSAPublicKey pub = signingKeys.publicKey();
         Objects.requireNonNull(pub, "signingKeys.publicKey()");
         RsaJsonWebKey jwk = new RsaJsonWebKey(pub);
         jwk.setUse("sig");
-        jwk.setAlgorithm(this.configuration.signingAlgorithm());
-        jwk.setKeyId(this.signingKeyProvider.keyId());
+        jwk.setAlgorithm(algorithm);
+        jwk.setKeyId(signingKeys.keyId());
         String jwksJson = new JsonWebKeySet(new JsonWebKey[]{jwk}).toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY);
         return JsonUtil.parseJson(jwksJson);
     }
@@ -860,6 +882,7 @@ public final class FederationService {
         private List<Map<String, Object>> ownTrustMarks = List.of();
         private Map<String, List<String>> trustMarkIssuers = Map.of();
         private Map<String, Object> trustMarkOwners = Map.of();
+        private ProviderMetadata providerMetadata = ProviderMetadata.NONE;
         private Clock clock;
 
         private Builder(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -933,6 +956,12 @@ public final class FederationService {
         /** Publishes the keys this entity signed with before at the historical keys endpoint (§8.7). */
         public Builder historicalKeys(HistoricalKeys keys) {
             this.historicalKeys = keys;
+            return this;
+        }
+
+        /** What this entity's own discovery documents say, which its {@code openid_provider} and AS metadata start from. */
+        public Builder providerMetadata(ProviderMetadata metadata) {
+            this.providerMetadata = Objects.requireNonNull(metadata, "metadata");
             return this;
         }
 

@@ -8,6 +8,7 @@ import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
+import com.pingidentity.ps.oidf.pf.PfProviderMetadata;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -55,10 +56,13 @@ extends HttpServlet {
     private FederationService federationService;
     private FederationConfiguration federationConfiguration;
     private final Function<HttpServletRequest, String> issuerResolver;
+    /** PingFederate's own discovery documents, which this entity's openid_provider and AS metadata start from. */
+    private final PfProviderMetadata providerMetadata;
     private static final Log log = LogFactory.getLog(OpenIdFederationServlet.class);
 
     public OpenIdFederationServlet() {
         this.issuerResolver = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        this.providerMetadata = new PfProviderMetadata();
     }
 
     /**
@@ -67,9 +71,16 @@ extends HttpServlet {
      */
     OpenIdFederationServlet(FederationService service, FederationConfiguration configuration,
                             Function<HttpServletRequest, String> issuerResolver) {
+        this(service, configuration, issuerResolver, new PfProviderMetadata((type, req) -> "{}", java.time.Clock.systemUTC()));
+    }
+
+    /** Test seam, as above, reading discovery documents from {@code providerMetadata}. */
+    OpenIdFederationServlet(FederationService service, FederationConfiguration configuration,
+                            Function<HttpServletRequest, String> issuerResolver, PfProviderMetadata providerMetadata) {
         this.federationService = service;
         this.federationConfiguration = configuration;
         this.issuerResolver = issuerResolver;
+        this.providerMetadata = providerMetadata;
     }
 
     public void init(ServletConfig config) throws ServletException {
@@ -92,6 +103,7 @@ extends HttpServlet {
             JdkHttpGetClient http = new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), outbound);
             FederationService.Builder service = FederationService.builder(this.federationConfiguration,
                             new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()))
+                    .providerMetadata(this.providerMetadata)
                     .subordinateFetcher(http)
                     // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
                     // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
@@ -171,6 +183,7 @@ extends HttpServlet {
         String path = req.getServletPath();
         this.applyCorsHeaders(resp);
         String oidcIssuer = this.issuerResolver.apply(req);
+        this.providerMetadata.refresh(oidcIssuer, req);
         try {
             switch (path) {
                 case "/.well-known/openid-federation": {
@@ -282,7 +295,7 @@ extends HttpServlet {
      * none is configured, which leaves the endpoint unadvertised and answering {@code invalid_trust_anchor}.
      */
     static TrustAnchorSet resolverAnchors(FederationRuntimeConfig runtime) {
-        if (!runtime.isTrustControllerConfigured() && !TrustAnchorSet.looksLikeAnchorMap(runtime.trustAnchorJwks())) {
+        if (!runtime.isTrustControllerConfigured() && !TrustAnchorSet.looksLikeAnchorMap(runtime.trustAnchorJwks()) && runtime.selfAnchor() == null) {
             return null;
         }
         try {

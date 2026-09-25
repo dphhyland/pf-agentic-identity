@@ -90,7 +90,7 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
                     + " authorization or PAR endpoints"));
             return;
         }
-        if (runtime.isTrustControllerConfigured() && runtime.trustAnchorJwks() == null) {
+        if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
             // As at the token endpoint: refuse, but keep the web app - and this entity's own /.well-known - serving.
             LOGGER.error((Object)("FrontChannelAutoRegistrationFilter: " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
                     + " is unset - automatic registration at the authorization and PAR endpoints (OpenID Federation 1.0 §12.1.1)"

@@ -44,6 +44,45 @@ class FederationServiceMetadataTest {
                 "draft-10 §8: the array MUST NOT be empty when the parameter is present");
     }
 
+    /**
+     * §5.1.3 and §5.1.4: every OpenID Connect Discovery / RFC 8414 parameter applies to these blocks, so they are the OP's
+     * own discovery documents - what the suite checked, and found missing, was jwks_uri and the three REQUIRED
+     * *_supported lists - with what federation and attestation add on top, and the issuer always the entity's.
+     */
+    @Test
+    @Requirement({"OIDFED §5.1.3(2)", "OIDFED §5.1.4(2)"})
+    void theProviderMetadataIsTheOpsOwnDiscoveryWithWhatFederationAdds() throws Exception {
+        ProviderMetadata discovery = (type, issuer) -> "openid_provider".equals(type)
+                ? Map.of("issuer", "https://elsewhere.example", "jwks_uri", ISSUER + "/pf/JWKS", "response_types_supported", List.of("code"),
+                        "subject_types_supported", List.of("public"), "id_token_signing_alg_values_supported", List.of("RS256"),
+                        "authorization_endpoint", ISSUER + "/custom/authorize", "client_registration_types_supported", List.of("stale"))
+                : Map.of("introspection_endpoint", ISSUER + "/as/introspect.oauth2");
+        FederationConfiguration configuration = new FederationConfiguration(
+                List.of(ISSUER), List.of(), null, false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults());
+        FederationService service = FederationService.builder(configuration, testSigningKeys()).providerMetadata(discovery).build();
+
+        Map<String, Object> metadata = metadataOf(service.createEntityConfigurationJwt(ISSUER));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> op = (Map<String, Object>) metadata.get("openid_provider");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> as = (Map<String, Object>) metadata.get("oauth_authorization_server");
+
+        assertEquals(ISSUER + "/pf/JWKS", op.get("jwks_uri"));
+        assertEquals(List.of("public"), op.get("subject_types_supported"));
+        assertEquals(ISSUER, op.get("issuer"), "the entity's issuer, whatever the document says");
+        assertEquals(ISSUER + "/custom/authorize", op.get("authorization_endpoint"), "the document's endpoints over derived ones");
+        assertEquals(List.of("automatic", "explicit"), op.get("client_registration_types_supported"), "what federation says of itself wins");
+        assertEquals(ISSUER + "/as/introspect.oauth2", as.get("introspection_endpoint"));
+        assertEquals(ISSUER + "/as/token.oauth2", as.get("token_endpoint"), "an endpoint the document leaves out is still there");
+    }
+
+    private static Map<String, Object> metadataOf(String jwt) throws Exception {
+        String payload = new String(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]), StandardCharsets.UTF_8);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> metadata = (Map<String, Object>) JsonUtil.parseJson(payload).get("metadata");
+        return metadata;
+    }
+
     private static Map<String, Object> openidProviderMetadata(AttestationMetadataConfig attestationMetadata)
             throws Exception {
         FederationConfiguration configuration = new FederationConfiguration(

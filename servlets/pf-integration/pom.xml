@@ -292,6 +292,15 @@
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.words(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.decisionPoints(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.PdpSettings.asksExternally(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.trustAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.selfAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.selfTrustAnchor(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.hasTrustAnchors(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.hasHost(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.refresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.capture(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.PfProviderMetadata.emptyAnswer(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

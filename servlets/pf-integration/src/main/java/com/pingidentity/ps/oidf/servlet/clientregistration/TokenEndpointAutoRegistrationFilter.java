@@ -100,7 +100,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
         // registration servlet had established. Only the per-component sizing knobs come from
         // init-params now.
         FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-        if (runtime.isTrustControllerConfigured() && runtime.trustAnchorJwks() == null) {
+        if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
             // Refuse, but do not take the web app down. The modules are merged into pf-runtime.war, so a
             // failed init here would also stop this entity's own /.well-known/openid-federation - and a
             // PF that is its own trust anchor has to serve that before anyone can capture the keys to

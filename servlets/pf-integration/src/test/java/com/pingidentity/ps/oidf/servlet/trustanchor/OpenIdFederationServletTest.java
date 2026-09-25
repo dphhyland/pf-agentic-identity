@@ -115,6 +115,25 @@ class OpenIdFederationServletTest {
         }
     }
 
+    @Test
+    @Requirement("OIDFED §5.1.3(2)")
+    void theOpenidProviderMetadataIsWhatPingFederatesOwnDiscoverySaysAtTheTime() throws Exception {
+        Map<String, String> params = new HashMap<>();
+        params.put("trustAnchorIssuers", PF);
+        FederationConfiguration configuration = FederationConfiguration.fromServletConfig(servletConfig(params));
+        com.pingidentity.ps.oidf.pf.PfProviderMetadata discovery = new com.pingidentity.ps.oidf.pf.PfProviderMetadata((type, request) ->
+                "openid_provider".equals(type) ? "{\"jwks_uri\": \"" + PF + "/pf/JWKS\", \"subject_types_supported\": [\"public\"]}" : "{}",
+                Clock.systemUTC());
+        FederationService service = FederationService.builder(configuration, Keys.signingKeys(PF_KEY)).providerMetadata(discovery).build();
+
+        Exchange exchange = new Exchange(new OpenIdFederationServlet(service, configuration, req -> PF, discovery), "/.well-known/openid-federation",
+                Map.of());
+
+        Map<?, ?> metadata = (Map<?, ?>) JwtCodec.parseUnverifiedClaims(exchange.body.toString()).getClaimValue("metadata");
+        assertEquals(PF + "/pf/JWKS", ((Map<?, ?>) metadata.get("openid_provider")).get("jwks_uri"),
+                "the request that asked for the Entity Configuration read PingFederate's discovery first");
+    }
+
     private static Exchange get(String path, Map<String, String[]> params) throws Exception {
         return new Exchange(servlet(false), path, params);
     }
@@ -263,5 +282,8 @@ class OpenIdFederationServletTest {
         assertEquals(null, OpenIdFederationServlet.resolverAnchors(com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.from(
                 name -> "OIDF_FEDERATION_TRUST_CONTROLLER_HOST".equals(name) ? PF : null, name -> null)),
                 "a controller named without pinned keys leaves the resolver off rather than trusting whoever answers");
+        assertEquals(List.of(PF), OpenIdFederationServlet.resolverAnchors(com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.from(
+                name -> "OIDF_FEDERATION_SELF_ANCHOR".equals(name) ? PF : null, name -> null)).entityIds(),
+                "a deployment that is its own anchor resolves against itself, with nothing pinned");
     }
 }

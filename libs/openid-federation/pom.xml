@@ -326,6 +326,7 @@
                                         <include>com.pingidentity.ps.oidf.federation.policy.CachingPolicyDecisionPoint.decide(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.policy.CompositePolicyDecisionPoint.decide(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.policy.LocalFederationPolicyDecisionPoint.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.FederationService.discovered(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

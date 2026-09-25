@@ -43,6 +43,12 @@ public final class FederationRuntimeConfig {
      * band, and until this existed the anchor was whoever answered HTTPS at the host.
      */
     public static final String TRUST_ANCHOR_JWKS_ENV = "OIDF_FEDERATION_TRUST_ANCHOR_JWKS";
+    /**
+     * This deployment's own Entity Identifier, when it is a Trust Anchor itself: chains that end at it are checked with
+     * the keys it signs with, read from its own key store every time, so nothing is pinned and a rotation needs no
+     * change here.
+     */
+    public static final String SELF_ANCHOR_ENV = "OIDF_FEDERATION_SELF_ANCHOR";
     public static final String IGNORE_SSL_ENV = "OIDF_FEDERATION_IGNORE_SSL_ERRORS";
     /** The bridge private JWK: what {@code attest_jwt_client_auth} is translated INTO for PF. */
     public static final String BRIDGE_KEY_ENV = "OIDF_BRIDGE_PRIVATE_JWK";
@@ -189,6 +195,7 @@ public final class FederationRuntimeConfig {
     private static final String HOST_PROP = "oidf.federation.trust.controller.host";
     private static final String BASE_URL_PROP = "oidf.federation.trust.controller.base.url";
     private static final String TRUST_ANCHOR_JWKS_PROP = "oidf.federation.trust.anchor.jwks";
+    private static final String SELF_ANCHOR_PROP = "oidf.federation.self.anchor";
     private static final String IGNORE_SSL_PROP = "oidf.federation.ignore.ssl.errors";
     private static final String BRIDGE_KEY_PROP = "oidf.bridge.private.jwk";
     private static final String BRIDGE_PREVIOUS_PUBLIC_KEY_PROP = "oidf.bridge.previous.public.jwk";
@@ -385,6 +392,7 @@ public final class FederationRuntimeConfig {
     private final String trustControllerHost;
     private final String trustControllerBaseUrl;
     private final String trustAnchorJwks;
+    private final String selfAnchor;
     private final boolean ignoreSslErrors;
     private final String bridgePrivateJwk;
     private final String bridgePreviousPublicJwk;
@@ -407,7 +415,8 @@ public final class FederationRuntimeConfig {
             boolean requireMetadataPolicy, boolean requireAttesterBinding, List<String> deprecationWarnings,
             RegistrationSettings registration, AutoRegistrationSettings autoRegistration, TrustMarkPolicy requiredTrustMarks,
             boolean trustMarkStatusCheck, TrustMarkIssuingSettings trustMarkIssuing, KeyHistorySettings keyHistory,
-            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp) {
+            Map<String, Object> authorityMetadataPolicy, Map<String, Object> subordinateConstraints, PdpSettings pdp, String selfAnchor) {
+        this.selfAnchor = selfAnchor;
         this.deprecationWarnings = List.copyOf(deprecationWarnings);
         this.registration = Objects.requireNonNull(registration, "registration");
         this.autoRegistration = Objects.requireNonNull(autoRegistration, "autoRegistration");
@@ -461,6 +470,7 @@ public final class FederationRuntimeConfig {
     public static void resetForTests() {
         synchronized (FederationRuntimeConfig.class) {
             instance = null;
+            ownKeys = FederationRuntimeConfig::pfSigningJwks;
         }
     }
 
@@ -512,7 +522,18 @@ public final class FederationRuntimeConfig {
                         setting(env, props, AUTHORITY_METADATA_POLICY_PROP, AUTHORITY_METADATA_POLICY_ENV)))),
                 strictly(SUBORDINATE_CONSTRAINTS_ENV, () -> constraints(jsonObject(
                         setting(env, props, SUBORDINATE_CONSTRAINTS_PROP, SUBORDINATE_CONSTRAINTS_ENV)))),
-                pdpSettings(env, props));
+                pdpSettings(env, props),
+                selfAnchor(env, props));
+    }
+
+    /** {@link #SELF_ANCHOR_ENV}: an https Entity Identifier (OpenID Federation 1.0 §1.2), or null. */
+    private static String selfAnchor(Function<String, String> env, Function<String, String> props) {
+        String entityId = blankToNull(setting(env, props, SELF_ANCHOR_PROP, SELF_ANCHOR_ENV));
+        if (entityId != null && !(entityId.startsWith("https://") && hasHost(entityId))) {
+            throw new IllegalStateException(SELF_ANCHOR_ENV + " must be this deployment's Entity Identifier, an https URL"
+                    + " (OpenID Federation 1.0 §1.2), not " + entityId);
+        }
+        return entityId;
     }
 
     private static PdpSettings pdpSettings(Function<String, String> env, Function<String, String> props) {
@@ -835,10 +856,52 @@ public final class FederationRuntimeConfig {
      * @throws IllegalArgumentException when a configured key set is not usable
      */
     public TrustAnchorSet trustAnchors() {
-        if (TrustAnchorSet.looksLikeAnchorMap(this.trustAnchorJwks)) {
-            return TrustAnchorSet.parseJson(this.trustAnchorJwks);
+        if (this.selfAnchor != null && this.trustAnchorJwks == null) {
+            return TrustAnchorSet.of(this.selfTrustAnchor());
         }
-        return TrustAnchorSet.of(this.trustAnchor());
+        TrustAnchorSet pinned = TrustAnchorSet.looksLikeAnchorMap(this.trustAnchorJwks) ? TrustAnchorSet.parseJson(this.trustAnchorJwks)
+                : TrustAnchorSet.of(this.trustAnchor());
+        if (this.selfAnchor == null) {
+            return pinned;
+        }
+        if (pinned.contains(this.selfAnchor)) {
+            throw new IllegalStateException(SELF_ANCHOR_ENV + " names " + this.selfAnchor + ", which " + TRUST_ANCHOR_JWKS_ENV
+                    + " also pins. Trust it one way: pinned keys go stale when this deployment's own key rotates");
+        }
+        return pinned.plus(this.selfTrustAnchor());
+    }
+
+    /** This deployment as a Trust Anchor, with the keys it signs with as they are when a chain is checked. */
+    private TrustAnchor selfTrustAnchor() {
+        java.util.function.Supplier<Map<String, Object>> keys = ownKeys;
+        return TrustAnchor.live(this.selfAnchor, keys);
+    }
+
+    /** How this deployment's own keys are read for {@link #SELF_ANCHOR_ENV}; a test supplies its own. */
+    private static volatile java.util.function.Supplier<Map<String, Object>> ownKeys = FederationRuntimeConfig::pfSigningJwks;
+
+    /** PingFederate's signing key as its Entity Configuration publishes it, without an {@code alg}: any it signs with. */
+    private static Map<String, Object> pfSigningJwks() {
+        try {
+            return com.pingidentity.ps.oidf.federation.FederationService.publishedJwks(new PfJwksSigningKeyProvider(), null);
+        } catch (org.jose4j.lang.JoseException e) {
+            throw new IllegalStateException("this deployment's own signing key could not be read", e);
+        }
+    }
+
+    /** Test seam: this deployment's own keys, for {@link #SELF_ANCHOR_ENV}. */
+    static void useOwnKeys(java.util.function.Supplier<Map<String, Object>> keys) {
+        ownKeys = Objects.requireNonNull(keys, "keys");
+    }
+
+    /** This deployment's Entity Identifier when it is its own Trust Anchor ({@link #SELF_ANCHOR_ENV}), or null. */
+    public String selfAnchor() {
+        return this.selfAnchor;
+    }
+
+    /** Whether any Trust Anchor is configured to validate chains against: pinned keys, or this deployment itself. */
+    public boolean hasTrustAnchors() {
+        return this.trustAnchorJwks != null || this.selfAnchor != null;
     }
 
     /** Warnings about superseded setting names in use, for logging once at start-up. */
