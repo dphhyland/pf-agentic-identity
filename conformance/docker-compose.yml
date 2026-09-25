@@ -9,13 +9,14 @@
 # Ports are bound to 127.0.0.1: the archive's admin password is in .author.env and this is not a rig
 # to expose. 9031 is PF's HTTPS runtime (the issuer), 9080 an HTTP runtime listener for anything that
 # terminates TLS itself, 9999 the admin console and API. PF_PORT_* move the host side when another PF
-# already has them; up.sh then makes the issuer match.
+# already has them; up.sh then makes the issuer match. PF_RIG_NAME names the container and the image, so
+# a second rig - another checkout's, say - runs beside the first instead of replacing it.
 services:
   pingfederate:
     build:
       context: .context
-    image: pf-agentic-identity/pingfederate:local
-    container_name: pf-agentic-identity
+    image: ${PF_RIG_NAME:-pf-agentic-identity}/pingfederate:local
+    container_name: ${PF_RIG_NAME:-pf-agentic-identity}
     ports:
       - "127.0.0.1:${PF_PORT_HTTPS:-9031}:9031"
       - "127.0.0.1:${PF_PORT_HTTP:-9080}:9080"

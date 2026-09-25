@@ -23,11 +23,25 @@
 #                   to that origin - it is baked into the archive at step 3.
 #   SKIP_AUTHOR=1   reuse an existing data.zip (steps 1-4 skipped); rebuild the image only.
 #   SKIP_BUILD=1    reuse the staged module jars (step 5 skipped).
+#   PF_RIG_NAME     the container, image and compose project (default pf-agentic-identity, project
+#                   "conformance"). Another name runs a second rig beside the first - another checkout's -
+#                   instead of replacing it; give it its own PF_PORT_* and PF_AUTHOR_*_PORT too.
+#   PF_PROFILE      federation: PF is its own Trust Anchor (vars.federation.env), for the suite's
+#                   OpenID Federation plans. Unset: federation stays inert, as the FAPI, SSF and CIBA
+#                   plans want it.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
 export PF_AGENTIC_IDENTITY_HOME="$REPO"
-# The authoring container: named and ported for this repo, so it never collides with another rig's.
-export PF_AUTHOR_NAME="${PF_AUTHOR_NAME:-pf-agentic-identity-author}"
+export PF_RIG_NAME="${PF_RIG_NAME:-pf-agentic-identity}"
+# The default rig keeps the project name docker compose always gave it (this directory's), so an existing
+# one is still this project's to stop; any other name is a project of its own.
+if [[ "$PF_RIG_NAME" == pf-agentic-identity ]]; then
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-conformance}"
+else
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$PF_RIG_NAME}"
+fi
+# The authoring container: named and ported for this rig, so it never collides with another rig's.
+export PF_AUTHOR_NAME="${PF_AUTHOR_NAME:-$PF_RIG_NAME-author}"
 export PF_AUTHOR_ADMIN_PORT="${PF_AUTHOR_ADMIN_PORT:-29999}" PF_AUTHOR_RUNTIME_PORT="${PF_AUTHOR_RUNTIME_PORT:-29031}"
 export PF_ADMIN_HOST="https://localhost:$PF_AUTHOR_ADMIN_PORT"
 export PF_PORT_HTTPS="${PF_PORT_HTTPS:-9031}" PF_PORT_HTTP="${PF_PORT_HTTP:-9080}" PF_PORT_ADMIN="${PF_PORT_ADMIN:-9999}"
@@ -73,7 +87,15 @@ CTX="$("$HERE/compose-context.sh")"
 # The running PF's environment: vars.env with the issuer substituted on the lines that carry it (the
 # introspection endpoint is the container's own loopback and stays), plus the one generated secret the
 # servlet needs (its other half is in the archive). Rendered into the git-ignored context.
-sed -E "/^(OIDF_SSF_ISSUER|OIDF_FEDERATION_[A-Z_]+)=/ s#https://localhost:9031#$PF_BASE_URL#" "$HERE/vars.env" > "$CTX/vars.env"
+# A profile adds variables after vars.env's; it sets names vars.env leaves unset.
+PROFILE_VARS=""
+case "${PF_PROFILE:-}" in
+  "") ;;
+  federation) PROFILE_VARS="$HERE/vars.federation.env" ;;
+  *) echo "ERROR: PF_PROFILE=$PF_PROFILE is not a profile this rig has (federation)" >&2; exit 1 ;;
+esac
+cat "$HERE/vars.env" ${PROFILE_VARS:+"$PROFILE_VARS"} \
+  | sed -E "/^(OIDF_SSF_ISSUER|OIDF_FEDERATION_[A-Z_]+)=/ s#https://localhost:9031#$PF_BASE_URL#" > "$CTX/vars.env"
 sed -n 's/^TF_VAR_ssf_introspection_client_secret=/OIDF_SSF_INTROSPECTION_CLIENT_SECRET=/p' "$HERE/secrets.env" >> "$CTX/vars.env"
 chmod 600 "$CTX/vars.env"
 
@@ -86,7 +108,7 @@ for _ in $(seq 1 60); do
     echo "PingFederate is up (issuer $PF_BASE_URL):"
     echo "  OAuth/OIDC discovery  $LOCAL/.well-known/openid-configuration"
     echo "  SSF transmitter       $LOCAL/.well-known/ssf-configuration"
-    echo "  OpenID Federation     $LOCAL/.well-known/openid-federation"
+    echo "  OpenID Federation     $LOCAL/.well-known/openid-federation${PF_PROFILE:+  (profile $PF_PROFILE)}"
     echo "  plain HTTP listener   http://localhost:$PF_PORT_HTTP/"
     echo "  admin console         https://localhost:$PF_PORT_ADMIN/pingfederate  (administrator / the password in $PF_AUTHOR_ENV)"
     echo
