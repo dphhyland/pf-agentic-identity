@@ -133,6 +133,22 @@ public final class DeviceAttestationMinter {
      */
     public Minted mint(AgentInstance instance, Map<String, Object> instancePublicJwk,
                        String authenticatorRef, long uvReuseSeconds, JwsSigner signer) {
+        return this.mint(instance, instancePublicJwk, authenticatorRef, uvReuseSeconds, signer, this.defaultProfile());
+    }
+
+    /** The deployment-wide profile this minter was built with. */
+    public MintProfile defaultProfile() {
+        return new MintProfile(this.keyStorage, this.userAuthentication, null, null);
+    }
+
+    /**
+     * As {@link #mint(AgentInstance, Map, String, long, JwsSigner)}, with the evidence-dependent claims
+     * supplied per enrolment: one platform can attest keys whose storage it proved (App Attest's
+     * commitment, a YubiKey's manufacturer-signed PIV attestation) next to keys it merely took on trust.
+     */
+    public Minted mint(AgentInstance instance, Map<String, Object> instancePublicJwk,
+                       String authenticatorRef, long uvReuseSeconds, JwsSigner signer, MintProfile profile) {
+        Objects.requireNonNull(profile, "profile");
         Objects.requireNonNull(instance, "instance");
         Objects.requireNonNull(signer, "signer");
         if (instancePublicJwk == null || instancePublicJwk.isEmpty()) {
@@ -176,8 +192,21 @@ public final class DeviceAttestationMinter {
         claims.setClaim("cnf", cnf);
 
         // OpenID4VCI Appendix D vocabulary rather than invented claims.
-        claims.setClaim("key_storage", this.keyStorage.claimValue());
-        claims.setClaim("user_authentication", this.userAuthentication.claimValue());
+        // A null level OMITS the claim: the honest encoding of "no evidence", never a default level.
+        if (profile.keyStorage() != null) {
+            claims.setClaim("key_storage", profile.keyStorage().claimValue());
+        }
+        if (profile.userAuthentication() != null) {
+            claims.setClaim("user_authentication", profile.userAuthentication().claimValue());
+        }
+        if (profile.keyStorageEvidence() != null) {
+            // Extension claim: what the key_storage level rests on, so a verifier can weigh it.
+            claims.setClaim("key_storage_evidence", profile.keyStorageEvidence());
+        }
+        if (!profile.authorizationDetails().isEmpty()) {
+            // RFC 9396 entitlement ceiling the attester vouches for (profile §7): requested ⊆ attested.
+            claims.setClaim("authorization_details", profile.authorizationDetails());
+        }
 
         if (authenticatorRef != null && !authenticatorRef.isBlank()) {
             claims.setClaim("authenticator_ref", authenticatorRef);
@@ -189,6 +218,21 @@ public final class DeviceAttestationMinter {
 
         String jwt = CompactJws.sign(TYP, claims.toJson(), signer);
         return new Minted(jwt, expiresAt, this.lifetime.toSeconds());
+    }
+
+    /**
+     * The claims that depend on what an enrolment proved. {@code HIGH} is refused here as in the
+     * constructor: no evidence this platform accepts supports it.
+     */
+    public record MintProfile(KeyStorageLevel keyStorage, KeyStorageLevel userAuthentication,
+                              String keyStorageEvidence, java.util.List<Map<String, Object>> authorizationDetails) {
+        public MintProfile {
+            if (keyStorage == KeyStorageLevel.HIGH || userAuthentication == KeyStorageLevel.HIGH) {
+                throw new IllegalArgumentException(KeyStorageLevel.HIGH.claimValue()
+                        + " is not supportable by any evidence this platform accepts");
+            }
+            authorizationDetails = authorizationDetails == null ? java.util.List.of() : java.util.List.copyOf(authorizationDetails);
+        }
     }
 
     public Duration lifetime() {

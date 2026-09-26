@@ -43,7 +43,8 @@ import org.jose4j.lang.JoseException;
  * checks the subordinate's own configuration against the keys this entity asserts, so those keys must be
  * the subordinate's. A subordinate <em>hosted</em> here (an agent with no HTTPS endpoint of its own, see
  * {@code com.pingidentity.ps.oidf.authority}) is looked up uncached, ahead of the foreign path: a revoked
- * hosted entity stops resolving on the very next call.
+ * hosted entity stops resolving on the very next call. Its statement carries the keys, and what this
+ * authority vouches for and caps about it ({@code metadata}, {@code metadata_policy}).
  *
  * <p>The entity configuration advertises what is actually enabled: the fetch and list endpoints only when
  * this entity has subordinates (§5.1.1: "Leaf Entities MUST NOT" publish them), the resolve endpoint only
@@ -396,6 +397,12 @@ public final class FederationService {
         Map<String, Object> hosted = this.hostedSubordinateLookup == null ? null : this.hostedSubordinateLookup.apply(subject);
         if (hosted != null) {
             claims.setClaim("jwks", hosted.get("jwks"));
+            // What the authority vouches for about the hosted entity: applied before policy by every
+            // resolver, so for those members it replaces the entity's own words.
+            Object vouched = hosted.get("metadata");
+            if (vouched != null) {
+                claims.setClaim("metadata", vouched);
+            }
             Object metadataPolicy = hosted.get("metadata_policy");
             if (metadataPolicy != null) {
                 claims.setClaim("metadata_policy", metadataPolicy);

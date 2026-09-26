@@ -19,12 +19,16 @@ import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InstanceIdentifiers;
 import com.pingidentity.ps.oidf.device.InstanceRegistry;
 import com.pingidentity.ps.oidf.device.InstanceStatus;
+import com.pingidentity.ps.oidf.device.KeyStorageLevel;
 import com.pingidentity.ps.oidf.device.OwnerUser;
 import com.pingidentity.ps.oidf.device.RegistryException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import org.apache.commons.logging.Log;
@@ -71,6 +75,10 @@ public final class EnrolmentService {
     private final Duration userVerificationMaxAge;
     private final boolean requireCompliantDevice;
     private final BindingNotifier notifier;
+    private final AgentOptions agents;
+
+    /** Environment prefix marking a device enrolled for a federation-hosted connector agent (the Mac path). */
+    static final String CONNECTOR_PREFIX = "connector:";
 
     public EnrolmentService(AppAttestVerifier appAttest, UserAuthenticationVerifier userAuthentication,
                             InstanceRegistry registry, DeviceAttestationMinter minter,
@@ -109,7 +117,23 @@ public final class EnrolmentService {
                             AttestationChallengeService challenges, AttestationReplayCache replayCache,
                             JwsSigner signer, String audience, Duration userVerificationMaxAge,
                             boolean requireCompliantDevice, BindingNotifier notifier) {
-        this.appAttest = Objects.requireNonNull(appAttest, "appAttest");
+        this(Objects.requireNonNull(appAttest, "appAttest"), userAuthentication, registry, minter, challenges,
+                replayCache, signer, audience, userVerificationMaxAge, requireCompliantDevice, notifier,
+                AgentOptions.none());
+    }
+
+    /**
+     * With the connector-agent path enabled: an agent whose owner authenticated with a passkey, bound by a
+     * nonce to its keys, onboarded as a hosted entity in the bank's federation. {@code appAttest} may be null
+     * here, in which case App Attest evidence is refused and the other evidence types still work.
+     */
+    public EnrolmentService(AppAttestVerifier appAttest, UserAuthenticationVerifier userAuthentication,
+                            InstanceRegistry registry, DeviceAttestationMinter minter,
+                            AttestationChallengeService challenges, AttestationReplayCache replayCache,
+                            JwsSigner signer, String audience, Duration userVerificationMaxAge,
+                            boolean requireCompliantDevice, BindingNotifier notifier, AgentOptions agents) {
+        this.appAttest = appAttest;
+        this.agents = Objects.requireNonNull(agents, "agents");
         this.userAuthentication = Objects.requireNonNull(userAuthentication, "userAuthentication");
         this.registry = Objects.requireNonNull(registry, "registry");
         this.minter = Objects.requireNonNull(minter, "minter");
@@ -139,13 +163,26 @@ public final class EnrolmentService {
         Objects.requireNonNull(request, "request");
         require(request.enclavePublicJwk() != null && !request.enclavePublicJwk().isEmpty(),
                 "enclave_public_jwk is required");
-        require(request.appAttestObject() != null && request.appAttestObject().length > 0,
-                "appattest_object is required");
         require(notBlank(request.challenge()), "challenge is required");
+        // The connector path: the enrolling client also brings a Federation Entity Key, because the agent
+        // is about to become a hosted Leaf Entity whose Entity Configuration it signs itself.
+        boolean hostedAgent = request.federationPublicJwk() != null && !request.federationPublicJwk().isEmpty();
+        if (!hostedAgent) {
+            require(request.appAttestObject() != null && request.appAttestObject().length > 0,
+                    "appattest_object is required");
+        }
+        String enclaveJkt = thumbprint(request.enclavePublicJwk());
+        String federationJkt = hostedAgent ? thumbprint(request.federationPublicJwk()) : null;
+        if (hostedAgent && enclaveJkt.equals(federationJkt)) {
+            throw EnrolmentException.invalidRequest("the federation key and the instance key must be different keys");
+        }
 
-        // 1. The human. Verified first so a failure writes nothing.
-        UserAuthentication authentication =
-                this.userAuthentication.verify(request.userAuthenticationEvidence());
+        // 1. The human. Verified first so a failure writes nothing. On the connector path the IdP evidence
+        //    must carry a nonce binding THIS challenge and THESE keys: the passkey ceremony behind it cannot
+        //    then be spent on some other key pair, which a browser passkey (signing a random challenge)
+        //    otherwise would allow.
+        UserAuthentication authentication = this.userAuthentication.verify(request.userAuthenticationEvidence(),
+                hostedAgent ? enrolmentNonce(request.challenge(), enclaveJkt, federationJkt) : null);
         if (!authentication.meetsAssurance(REQUIRED_ASSURANCE)) {
             throw EnrolmentException.insufficientAssurance(
                     "binding a signing key requires " + REQUIRED_ASSURANCE + " but the user reached "
@@ -157,53 +194,52 @@ public final class EnrolmentService {
             throw EnrolmentException.invalidChallenge("challenge is unknown, expired, or already used");
         }
 
-        // 3. The app and the device — and, through clientDataHash, the enclave key.
-        String enclaveJkt = thumbprint(request.enclavePublicJwk());
-        byte[] clientDataHash = clientDataHash(enclaveJkt, request.challenge());
-        AppAttestAttestation attested;
-        try {
-            attested = this.appAttest.verifyAttestation(
-                    request.appAttestObject(), clientDataHash, request.appAttestKeyId());
-        } catch (AppAttestException e) {
-            // The nonce check failing here is the interesting case: it means the app committed to some
-            // other key, so the enclave key we were handed is not the one Apple's attestation covers.
-            throw new EnrolmentException(EnrolmentException.INVALID_ATTESTATION, 401,
-                    "App Attest verification failed (" + e.reason() + "): " + e.getMessage(), e);
+        // 3. Possession of every key being bound (connector path). Evidence about a key is not proof that
+        //    the caller holds it - a PIV attestation certificate carries no nonce at all.
+        if (hostedAgent) {
+            this.verifyEnrolmentKeyProof(request.keyProofs(), "instance", enclaveJkt, request.challenge());
+            this.verifyEnrolmentKeyProof(request.keyProofs(), "federation", federationJkt, request.challenge());
         }
 
-        // 4. Record. The owner is the only row naming a person.
+        // 4. What the device can show about where the instance key lives.
+        VerifiedEvidence evidence = this.verifyEvidence(request.evidenceType(), request, enclaveJkt, hostedAgent);
+
+        // 5. Record, onboard, mint. The owner is the only row naming a person.
         try {
             OwnerUser owner = this.registry.upsertOwner(authentication.subject());
             String deviceId = InstanceIdentifiers.newDeviceId();
             this.registry.registerDevice(new Device(deviceId, request.platform(), request.model(),
-                    request.osVersion(), attested.keyIdBase64Url(), attested.environment().name()
-                    .equals("DEVELOPMENT") ? "appattestdevelop" : "appattest",
+                    request.osVersion(), evidence.deviceKeyRef(), evidence.environment(),
                     0L, ComplianceState.UNKNOWN, null, owner.id()));
 
             this.registry.bindAuthenticator(new BoundAuthenticator(
                     InstanceIdentifiers.newOwnerUserId(), deviceId, authentication.credentialId(),
                     authentication.aaguid(), "passkey", authentication.authenticatedAt()));
 
+            String instanceId = hostedAgent ? InstanceIdentifiers.newFederationSafeInstanceId()
+                    : InstanceIdentifiers.newInstanceId();
+            String entityId = null;
+            if (hostedAgent) {
+                entityId = this.agents.federation().register(instanceId, request.federationPublicJwk(),
+                        this.agents.federationMetadata(), this.agents.metadataPolicy(), "owner:" + owner.id());
+            }
             AgentInstance instance = new AgentInstance(
-                    InstanceIdentifiers.newInstanceId(), this.minterPlatform(), request.agentBuild(),
+                    instanceId, this.minterPlatform(), request.agentBuild(),
                     enclaveJkt, InstanceStatus.ACTIVE, deviceId, Instant.now(), null,
                     authentication.authenticatedAt());
             this.registry.register(instance);
 
             DeviceAttestationMinter.Minted minted = this.minter.mint(instance,
                     request.enclavePublicJwk(), authentication.credentialId(),
-                    this.userVerificationMaxAge.toSeconds(), this.signer);
+                    this.userVerificationMaxAge.toSeconds(), this.signer, this.profileFor(evidence.environment()));
             this.registry.recordAttestationExpiry(instance.id(), minted.expiresAt());
 
-            LOGGER.info((Object) ("Enrolled agent instance " + instance.id()
-                    + " on a " + attested.environment() + " device"
+            LOGGER.info((Object) ("Enrolled agent instance " + instance.id() + " (" + evidence.environment() + ")"
+                    + (entityId == null ? "" : " as federation entity " + entityId)
                     + " (owner is recorded in the registry only)"));
 
             // NIST SP 800-63B §6.1.2.1: tell the owner, through a channel independent of this
-            // transaction. Deliberately after the binding is durable and never fatal — refusing to
-            // enrol because email is down is worse than enrolling without the message — but the
-            // default implementation is loud so an unwired deployment cannot stay quietly
-            // non-compliant.
+            // transaction. Deliberately after the binding is durable and never fatal.
             try {
                 this.notifier.authenticatorBound(authentication.subject(),
                         describe(request), instance.id());
@@ -213,10 +249,167 @@ public final class EnrolmentService {
             }
 
             return new Enrolled(instance.id(), minted.attestation(), minted.expiresInSeconds(),
-                    attested.keyIdBase64Url());
+                    evidence.deviceKeyRef(), entityId, this.agents.federation().authorityEntityId(), evidence.facts());
         } catch (RegistryException e) {
             throw EnrolmentException.serverError("could not record the enrolment: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * The OIDC nonce a connector enrolment is bound by: {@code base64url(SHA-256(challenge "|" instance-jkt
+     * "|" federation-jkt))}. The client computes it before sending the owner to the IdP; this recomputes it
+     * from what the request carries.
+     */
+    static String enrolmentNonce(String challenge, String instanceJkt, String federationJkt) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256")
+                    .digest((challenge + "|" + instanceJkt + "|" + federationJkt).getBytes(StandardCharsets.UTF_8));
+            return Base64.getUrlEncoder().withoutPadding().encodeToString(digest);
+        } catch (Exception e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    private void verifyEnrolmentKeyProof(Map<String, String> proofs, String which, String expectedJkt, String challenge)
+            throws EnrolmentException {
+        String proof = proofs == null ? null : proofs.get(which);
+        if (!notBlank(proof)) {
+            throw EnrolmentException.invalidKeyProof("key_proofs." + which + " is required: prove possession of the "
+                    + which + " key by signing the challenge");
+        }
+        EnclaveKeyProofValidator.Result result = this.keyProofs.validate(proof, expectedJkt, this.audience);
+        if (!challenge.equals(result.challenge())) {
+            throw EnrolmentException.invalidKeyProof("key_proofs." + which + " does not answer this enrolment's challenge");
+        }
+        if (!this.replayCache.firstSeen("enrol:" + expectedJkt, result.jti(), 300L)) {
+            throw EnrolmentException.invalidKeyProof("key_proofs." + which + " has already been used (replay)");
+        }
+    }
+
+    /** Verifies the evidence for the instance key and says what it supports. */
+    private VerifiedEvidence verifyEvidence(String type, EnrolmentRequest request, String enclaveJkt, boolean hostedAgent)
+            throws EnrolmentException {
+        String prefix = hostedAgent ? CONNECTOR_PREFIX : "";
+        switch (type) {
+            case "app-attest": {
+                if (this.appAttest == null) {
+                    throw EnrolmentException.invalidAttestation("App Attest is not configured on this attester");
+                }
+                require(request.appAttestObject() != null && request.appAttestObject().length > 0,
+                        "appattest_object is required for app-attest evidence");
+                // The app and the device - and, through clientDataHash, the enclave key. App Attest cannot
+                // attest a key the app generated itself, so the app committed SHA-256(jkt | challenge).
+                byte[] clientDataHash = clientDataHash(enclaveJkt, request.challenge());
+                AppAttestAttestation attested;
+                try {
+                    attested = this.appAttest.verifyAttestation(
+                            request.appAttestObject(), clientDataHash, request.appAttestKeyId());
+                } catch (AppAttestException e) {
+                    // The nonce check failing here is the interesting case: it means the app committed to some
+                    // other key, so the enclave key we were handed is not the one Apple's attestation covers.
+                    throw new EnrolmentException(EnrolmentException.INVALID_ATTESTATION, 401,
+                            "App Attest verification failed (" + e.reason() + "): " + e.getMessage(), e);
+                }
+                String env = attested.environment().name().equals("DEVELOPMENT") ? "appattestdevelop" : "appattest";
+                Map<String, Object> facts = new LinkedHashMap<>();
+                facts.put("type", "app-attest");
+                facts.put("environment", env);
+                return new VerifiedEvidence(attested.keyIdBase64Url(), prefix + env, facts);
+            }
+            case "yubikey-piv": {
+                if (!hostedAgent) {
+                    throw EnrolmentException.invalidRequest("yubikey-piv evidence is accepted only on the connector path");
+                }
+                if (this.agents.piv() == null) {
+                    throw EnrolmentException.invalidAttestation(
+                            "YubiKey PIV attestation is not configured on this attester (YUBICO_PIV_ROOTS)");
+                }
+                Map<String, Object> ev = request.evidence();
+                String f9 = stringField(ev, "f9");
+                List<String> intermediates = stringList(ev.get("intermediates"));
+                PivAttestationVerifier.Attested instanceKey = this.agents.piv().verify(
+                        stringField(mapField(ev, "instance"), "leaf"), f9, intermediates, request.enclavePublicJwk());
+                PivAttestationVerifier.Attested federationKey = this.agents.piv().verify(
+                        stringField(mapField(ev, "federation"), "leaf"), f9, intermediates, request.federationPublicJwk());
+                if (instanceKey.serial() != federationKey.serial()) {
+                    throw EnrolmentException.invalidAttestation("the instance and federation keys are on different YubiKeys");
+                }
+                Map<String, Object> facts = new LinkedHashMap<>();
+                facts.put("type", "yubikey-piv");
+                facts.put("serial", instanceKey.serial());
+                facts.put("firmware", instanceKey.firmware());
+                facts.put("pin_policy", instanceKey.pinPolicy().name().toLowerCase());
+                facts.put("touch_policy", instanceKey.touchPolicy().name().toLowerCase());
+                facts.put("form_factor", instanceKey.formFactor());
+                facts.put("fips", instanceKey.fips());
+                facts.put("cspn", instanceKey.cspn());
+                return new VerifiedEvidence("piv:" + instanceKey.serial(),
+                        prefix + "yubikey-piv" + (instanceKey.userPresencePerUse() ? ":presence" : ""), facts);
+            }
+            case "secure-enclave-self-asserted": {
+                if (!hostedAgent) {
+                    throw EnrolmentException.invalidRequest("self-asserted evidence is accepted only on the connector path");
+                }
+                if (!this.agents.allowSelfAssertedKeys()) {
+                    throw EnrolmentException.invalidAttestation("this attester does not accept self-asserted key storage");
+                }
+                return new VerifiedEvidence("self:" + enclaveJkt, prefix + "secure-enclave-self-asserted",
+                        Map.of("type", "secure-enclave-self-asserted"));
+            }
+            default:
+                throw EnrolmentException.invalidRequest("unsupported evidence type: " + type);
+        }
+    }
+
+    /**
+     * The evidence-dependent attestation claims for a device, read back from how it was enrolled - so a
+     * re-mint says exactly what the enrolment proved, never more.
+     */
+    DeviceAttestationMinter.MintProfile profileFor(String environment) {
+        if (environment == null || !environment.startsWith(CONNECTOR_PREFIX)) {
+            return this.minter.defaultProfile();
+        }
+        String kind = environment.substring(CONNECTOR_PREFIX.length());
+        List<Map<String, Object>> authz = this.agents.authorizationDetails();
+        if (kind.startsWith("appattest")) {
+            return new DeviceAttestationMinter.MintProfile(KeyStorageLevel.MODERATE, KeyStorageLevel.MODERATE,
+                    "app-attest", authz);
+        }
+        if (kind.startsWith("yubikey-piv")) {
+            return new DeviceAttestationMinter.MintProfile(KeyStorageLevel.MODERATE,
+                    kind.endsWith(":presence") ? KeyStorageLevel.MODERATE : KeyStorageLevel.BASIC,
+                    "yubikey-piv-attestation", authz);
+        }
+        // Self-asserted: no key_storage and no user_authentication claim. Absent is the honest value.
+        return new DeviceAttestationMinter.MintProfile(null, null, "self-asserted", authz);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> mapField(Map<String, Object> map, String name) throws EnrolmentException {
+        Object v = map == null ? null : map.get(name);
+        if (!(v instanceof Map)) {
+            throw EnrolmentException.invalidRequest("evidence." + name + " must be an object");
+        }
+        return (Map<String, Object>) v;
+    }
+
+    private static String stringField(Map<String, Object> map, String name) throws EnrolmentException {
+        Object v = map == null ? null : map.get(name);
+        if (!(v instanceof String) || ((String) v).isBlank()) {
+            throw EnrolmentException.invalidRequest("evidence field '" + name + "' is required");
+        }
+        return (String) v;
+    }
+
+    private static List<String> stringList(Object v) {
+        if (!(v instanceof List)) {
+            return List.of();
+        }
+        return ((List<?>) v).stream().filter(String.class::isInstance).map(String.class::cast).toList();
+    }
+
+    /** What verified evidence establishes: the device record's key reference and environment, and facts to return. */
+    record VerifiedEvidence(String deviceKeyRef, String environment, Map<String, Object> facts) {
     }
 
     /**
@@ -262,7 +455,8 @@ public final class EnrolmentService {
 
         try {
             DeviceAttestationMinter.Minted minted = this.minter.mint(instance, proof.publicJwk(),
-                    null, this.userVerificationMaxAge.toSeconds(), this.signer);
+                    null, this.userVerificationMaxAge.toSeconds(), this.signer,
+                    this.profileFor(device.appAttestEnvironment()));
             this.registry.recordAttestationExpiry(instance.id(), minted.expiresAt());
             return new Reissued(minted.attestation(), minted.expiresInSeconds());
         } catch (RegistryException e) {
@@ -424,12 +618,57 @@ public final class EnrolmentService {
             String platform,
             String model,
             String osVersion,
-            String agentBuild) {
+            String agentBuild,
+            Map<String, Object> federationPublicJwk,
+            Map<String, String> keyProofs,
+            Map<String, Object> evidence) {
+
+        /** The iOS request: App Attest over one enclave key, no federation key. */
+        public EnrolmentRequest(byte[] appAttestObject, byte[] appAttestKeyId, Map<String, Object> enclavePublicJwk,
+                                String challenge, String userAuthenticationEvidence, String platform, String model,
+                                String osVersion, String agentBuild) {
+            this(appAttestObject, appAttestKeyId, enclavePublicJwk, challenge, userAuthenticationEvidence, platform,
+                    model, osVersion, agentBuild, null, null, null);
+        }
+
+        /** {@code evidence.type} when given; App Attest otherwise (the iOS request carries no evidence object). */
+        public String evidenceType() {
+            Object type = this.evidence == null ? null : this.evidence.get("type");
+            return type instanceof String && !((String) type).isBlank() ? (String) type : "app-attest";
+        }
     }
 
     /** The instance identifier is the client's handle from here on; it never learns the device id. */
     public record Enrolled(String instanceId, String attestation, long expiresInSeconds,
-                           String appAttestKeyId) {
+                           String appAttestKeyId, String entityId, String authorityEntityId,
+                           Map<String, Object> evidence) {
+
+        public Enrolled(String instanceId, String attestation, long expiresInSeconds, String appAttestKeyId) {
+            this(instanceId, attestation, expiresInSeconds, appAttestKeyId, null, null, Map.of());
+        }
+    }
+
+    /**
+     * The connector-agent path's configuration. Everything defaults to off: no federation onboarding, no
+     * PIV evidence, no self-asserted keys, no entitlement ceiling.
+     *
+     * @param authorizationDetails the RFC 9396 ceiling every connector attestation carries (profile §7)
+     * @param federationMetadata the metadata the authority records for the hosted entity
+     * @param metadataPolicy what the authority's Subordinate Statement imposes on the agent's own metadata
+     */
+    public record AgentOptions(HostedEntityRegistrar federation, PivAttestationVerifier piv, boolean allowSelfAssertedKeys,
+                               List<Map<String, Object>> authorizationDetails, Map<String, Object> federationMetadata,
+                               Map<String, Object> metadataPolicy) {
+        public AgentOptions {
+            federation = federation == null ? HostedEntityRegistrar.disabled() : federation;
+            authorizationDetails = authorizationDetails == null ? List.of() : List.copyOf(authorizationDetails);
+            federationMetadata = federationMetadata == null ? Map.of() : federationMetadata;
+            metadataPolicy = metadataPolicy == null ? Map.of() : metadataPolicy;
+        }
+
+        public static AgentOptions none() {
+            return new AgentOptions(null, null, false, null, null, null);
+        }
     }
 
     public record ReissueRequest(String instanceId, String keyProof) {

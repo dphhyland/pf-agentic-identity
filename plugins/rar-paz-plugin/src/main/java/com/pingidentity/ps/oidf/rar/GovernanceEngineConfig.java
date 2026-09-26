@@ -23,6 +23,7 @@ public final class GovernanceEngineConfig {
     private final boolean denyOnNonPermit;
     private final boolean failOpenOnError;
     private final boolean allowClientAssertedPrincipal;
+    private final boolean trustAgentMarker;
     private final boolean insecureTls;
     private final int timeoutMillis;
 
@@ -38,6 +39,7 @@ public final class GovernanceEngineConfig {
         this.denyOnNonPermit = b.denyOnNonPermit;
         this.failOpenOnError = b.failOpenOnError;
         this.allowClientAssertedPrincipal = b.allowClientAssertedPrincipal;
+        this.trustAgentMarker = b.trustAgentMarker;
         this.insecureTls = b.insecureTls;
         this.timeoutMillis = b.timeoutMillis;
     }
@@ -64,6 +66,7 @@ public final class GovernanceEngineConfig {
      * decide about that person.
      */
     public boolean isAllowClientAssertedPrincipal() { return allowClientAssertedPrincipal; }
+    public boolean isTrustAgentMarker() { return trustAgentMarker; }
     public boolean isInsecureTls() { return insecureTls; }
     public int getTimeoutMillis() { return timeoutMillis; }
 
@@ -82,6 +85,7 @@ public final class GovernanceEngineConfig {
         private boolean denyOnNonPermit = true;
         private boolean failOpenOnError = false;
         private boolean allowClientAssertedPrincipal = false;
+        private boolean trustAgentMarker = false;
         private boolean insecureTls = false;
         private int timeoutMillis = 10_000;
 
@@ -96,6 +100,7 @@ public final class GovernanceEngineConfig {
         public Builder denyOnNonPermit(boolean v) { this.denyOnNonPermit = v; return this; }
         public Builder failOpenOnError(boolean v) { this.failOpenOnError = v; return this; }
         public Builder allowClientAssertedPrincipal(boolean v) { this.allowClientAssertedPrincipal = v; return this; }
+        public Builder trustAgentMarker(boolean v) { this.trustAgentMarker = v; return this; }
         public Builder insecureTls(boolean v) { this.insecureTls = v; return this; }
         public Builder timeoutMillis(int v) { if (v > 0) this.timeoutMillis = v; return this; }
 

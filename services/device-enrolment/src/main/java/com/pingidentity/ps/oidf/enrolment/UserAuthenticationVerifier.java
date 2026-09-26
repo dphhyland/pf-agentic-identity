@@ -29,4 +29,17 @@ public interface UserAuthenticationVerifier {
      * @throws EnrolmentException {@code user_authentication_failed} if it cannot be verified
      */
     UserAuthentication verify(String evidence) throws EnrolmentException;
+
+    /**
+     * As {@link #verify(String)}, and the evidence must be bound to {@code expectedNonce} - for an OIDC ID
+     * token, its {@code nonce} claim. A verifier that cannot check a binding refuses rather than ignoring
+     * it: an unchecked binding is indistinguishable from no binding.
+     */
+    default UserAuthentication verify(String evidence, String expectedNonce) throws EnrolmentException {
+        if (expectedNonce != null) {
+            throw EnrolmentException.userAuthenticationFailed(
+                    "this user-authentication verifier cannot check a nonce binding");
+        }
+        return verify(evidence);
+    }
 }

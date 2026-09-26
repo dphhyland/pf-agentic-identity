@@ -101,6 +101,15 @@ public final class InMemoryHostedEntityRegistry implements HostedEntityRegistry 
     }
 
     @Override
+    public synchronized void publishEntityConfiguration(String entityId, String entityConfiguration)
+            throws AuthorityRegistryException {
+        HostedEntity current = require(entityId);
+        this.entities.put(entityId, current.withEntityConfiguration(entityConfiguration));
+        // The entity published it, authorised by its own signature: it is the actor, not an administrator.
+        appendAudit(entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "self-signed entity configuration published", entityId);
+    }
+
+    @Override
     public synchronized void audit(String entityId, String eventCode, String detail) {
         appendAudit(entityId, eventCode, detail, null);
     }

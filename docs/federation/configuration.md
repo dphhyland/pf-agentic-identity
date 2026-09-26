@@ -171,6 +171,7 @@ The same modules carry client attestation and a FAPI 2.0 filter. Their settings,
 |---|---|---|---|
 | `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY` | `true` | The attestation filter doesn't start without bridge signing configured | Not `true` or `false`: PingFederate doesn't start |
 | `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING` | `true` | A client whose bridge-key entry names no `attesters` is refused (401) | Not `true` or `false`: PingFederate doesn't start |
+| `OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT` | `false` | An agent this authority hosts must be active and inside its `notAfter` to authenticate - a revoked one is refused (401) whatever this says. `true` refuses an attested agent the authority does not host at all | Anything but `true` counts as `false` |
 | `OIDF_BRIDGE_SIGNER_BACKING`, `OIDF_BRIDGE_SIGNING_KEYS`, `OIDF_BRIDGE_VAULT_ADDR`, `OIDF_BRIDGE_VAULT_TOKEN` | Unset | Per-client bridge keys: `vault` (OpenBao transit keys) or `config` (inline JWKs, development only), from the JSON file `OIDF_BRIDGE_SIGNING_KEYS` names | Wrong or unreadable: per request (500) |
 | `OIDF_BRIDGE_PRIVATE_JWK`, `OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK` | - | **Superseded** - bridge keys are per client now | Set at all: the attestation filter doesn't start |
 | `OIDF_FAPI2_CLIENTS` | Unset | The clients the FAPI 2.0 filter holds to issuer-only assertion audiences and PS256/ES256/EdDSA DPoP proofs | - |

@@ -8,6 +8,11 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.jose.CompactJws;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.BridgeSigners;
+import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
+import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.EntityStatus;
+import com.pingidentity.ps.oidf.authority.HostedEntity;
+import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
@@ -17,7 +22,11 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.Locale;
+import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Function;
 import jakarta.servlet.Filter;
@@ -80,8 +89,16 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final String POP_HEADER = "OAuth-Client-Attestation-PoP";
     private static final String ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
     private static final long ASSERTION_TTL_SECONDS = 60L;
+    /** draft-ietf-oauth-rfc7523bis explicit typing; PingFederate 13.1 rejects a client assertion without it. */
+    static final String BRIDGE_ASSERTION_TYP = "client-authentication+jwt";
+
+    /** Where this authority hosts agents as federation entities (HostedEntityServlet). */
+    static final String AGENTS_PATH = "/federation/agents/";
+    static final String REQUIRE_HOSTED_AGENT_ENV = "OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT";
+    static final String REQUIRE_HOSTED_AGENT_PROP = "oidf.attestation.require_hosted_agent";
 
     private volatile boolean bridgeConfigured;
+    private volatile boolean requireHostedAgent;
     private final Function<HttpServletRequest, String> issuerResolver;
 
     public ClientAttestationAuthFilter() {
@@ -104,6 +121,8 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
+        this.requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
+                System.getenv(REQUIRE_HOSTED_AGENT_ENV));
         // Signing keys are per client and resolved per request, so what is checked here is whether bridge
         // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
         // signing configured is one where this filter passes everything through and those clients are
@@ -216,6 +235,18 @@ public final class ClientAttestationAuthFilter implements Filter {
                 ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client", unbound);
                 return;
             }
+            // Revoking an agent at the bank must stop it HERE, at the bank's own authorization server, and not
+            // only at partners that resolve its trust chain: an attestation stays valid for its whole lifetime,
+            // so an agent this authority hosts as a federation entity is checked against that entity's
+            // standing on every PAR and token request (refresh included).
+            String standing = ClientAttestationAuthFilter.agentStandingProblem(result.agentId(),
+                    AuthoritySupport.authorityEntityIdIfConfigured(), AuthoritySupport.registryIfConfigured(),
+                    this.requireHostedAgent, Instant.now());
+            if (standing != null) {
+                LOGGER.warn((Object) ("attest_jwt_client_auth: " + standing));
+                ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client", standing);
+                return;
+            }
             // Publish what we just verified, so the issuance criterion does not verify the same request a
             // second time. verify() consumes the challenge and burns the PoP jti; doing it twice destroys
             // the first result. BridgeAuthRequest wraps this request and HttpServletRequestWrapper
@@ -249,7 +280,7 @@ public final class ClientAttestationAuthFilter implements Filter {
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
                         + "; authenticating to PF via bridge private_key_jwt"));
             }
-            chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion), response);
+            chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, result.agentId()), response);
         } catch (ClientAttestationException e) {
             LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()));
             int status = ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error()) ? 400 : 401;
@@ -263,6 +294,83 @@ public final class ClientAttestationAuthFilter implements Filter {
         }
     }
 
+    /** Each authorization_details entry's agent marker - the name the RAR processor reads (AGENT_DETAIL_KEY). */
+    static final String AGENT_MARKER = "_agent_id";
+
+    /**
+     * {@code authorization_details} with every entry carrying the agent instance this filter verified, and
+     * nothing a client wrote under the marker's name. PingFederate stores a PAR request's parameters and
+     * consults its RAR processor later, from the authorisation endpoint, where the attestation is gone; the
+     * entries themselves are the only thing that survives. An unverified request carries no marker at all.
+     * A value that is not a JSON array is returned untouched: PingFederate refuses it anyway.
+     */
+    @SuppressWarnings("unchecked")
+    static String markAgent(String authorizationDetails, String agentId) {
+        Object parsed;
+        try {
+            parsed = org.jose4j.json.JsonUtil.parseJson("{\"v\":" + authorizationDetails + "}").get("v");
+        } catch (org.jose4j.lang.JoseException e) {
+            return authorizationDetails;
+        }
+        if (!(parsed instanceof List)) {
+            return authorizationDetails;
+        }
+        List<Object> marked = new java.util.ArrayList<>();
+        for (Object entry : (List<Object>) parsed) {
+            if (entry instanceof Map) {
+                Map<String, Object> copy = new LinkedHashMap<>((Map<String, Object>) entry);
+                copy.remove(AGENT_MARKER);
+                if (agentId != null && !agentId.isBlank()) {
+                    copy.put(AGENT_MARKER, agentId);
+                }
+                marked.add(copy);
+            } else {
+                marked.add(entry);
+            }
+        }
+        return org.jose4j.json.internal.json_simple.JSONValue.toJSONString(marked);
+    }
+
+    /**
+     * Why an attested agent may not authenticate here, or {@code null} when it may.
+     *
+     * <p>Only agents this authority hosts are judged: an attestation without {@code agent_id}, a deployment
+     * with no hosted-entity authority, or a registry nobody has configured yet (the authority servlet
+     * initialises on first use, and reading the registry first would install the in-memory fallback) all
+     * pass. A hosted agent must be ACTIVE and inside its {@code notAfter}. One that is not hosted at all passes
+     * unless {@code requireHosted} ({@value #REQUIRE_HOSTED_AGENT_ENV}=true) says every attested agent must
+     * be a member. A registry that cannot answer throws, and the filter fails closed.
+     */
+    /** The system property wins when set; otherwise the environment variable; otherwise false. */
+    static boolean requireHostedAgentSetting(String property, String environment) {
+        return Boolean.parseBoolean(property != null && !property.isBlank() ? property : environment);
+    }
+
+    /** For tests: whether every attested agent must be a hosted member of this authority. */
+    boolean requiresHostedAgent() {
+        return this.requireHostedAgent;
+    }
+
+    static String agentStandingProblem(String agentId, Optional<String> authorityEntityId,
+            Optional<HostedEntityRegistry> registry, boolean requireHosted, Instant now) throws AuthorityRegistryException {
+        if (agentId == null || agentId.isBlank() || authorityEntityId.isEmpty() || registry.isEmpty()) {
+            return null;
+        }
+        String entityId = authorityEntityId.get() + AGENTS_PATH + agentId;
+        Optional<HostedEntity> hosted = registry.get().find(entityId);
+        if (hosted.isEmpty()) {
+            return requireHosted ? "agent " + entityId + " is not a member of this authority's federation" : null;
+        }
+        HostedEntity entity = hosted.get();
+        if (entity.status() != EntityStatus.ACTIVE) {
+            return "agent " + entityId + " is " + entity.status().name().toLowerCase(Locale.ROOT) + " at this authority";
+        }
+        if (!entity.resolvable(now)) {
+            return "agent " + entityId + "'s federation membership has expired";
+        }
+        return null;
+    }
+
     /**
      * A {@code private_key_jwt} client assertion for {@code clientId}, signed with that client's own key.
      *
@@ -270,19 +378,27 @@ public final class ClientAttestationAuthFilter implements Filter {
      * vault: {@code OpenBaoTransitSigner} returns signature bytes without ever exposing the key, and
      * {@code CompactJws} assembles them. That is the same seam the attestation minter uses on the
      * issuing side.
+     *
+     * <p>Shaped the way PingFederate 13.1 requires, which is also what the specs ask for: explicitly typed
+     * {@code client-authentication+jwt} and ONE audience, the issuer, as a string (draft-ietf-oauth-
+     * rfc7523bis; FAPI 2.0 §5.3.2.1). This used to be {@code typ: JWT} with {@code aud: [issuer, request
+     * URL]}, which 13.0.3 accepted and 13.1.3 refuses with "Invalid typ header parameter value 'JWT'" and
+     * "Audience (aud) claim must contain only one value" - so on 13.1 every bridged request failed after
+     * the attestation had verified. The issuer is the one audience PF accepts at every endpoint it is
+     * mapped over (token and PAR); {@code requestUri} no longer needs to be in it.
      */
     private String mintBridgeAssertion(JwsSigner signer, String clientId, String opIssuer,
                                        String requestUri) throws Exception {
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(clientId);
         claims.setSubject(clientId);
-        claims.setAudience(opIssuer, requestUri);
+        claims.setAudience(opIssuer);
         claims.setJwtId(UUID.randomUUID().toString());
         claims.setIssuedAtToNow();
         claims.setExpirationTimeMinutesInTheFuture(ASSERTION_TTL_SECONDS / 60.0f);
         Map<String, Object> header = new LinkedHashMap<>();
         header.put("alg", signer.algorithm());
-        header.put("typ", "JWT");
+        header.put("typ", BRIDGE_ASSERTION_TYP);
         if (signer.keyId() != null) {
             header.put("kid", signer.keyId());
         }
@@ -351,10 +467,14 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final class BridgeAuthRequest extends HttpServletRequestWrapper {
         private final Map<String, String[]> parameters;
 
-        BridgeAuthRequest(HttpServletRequest request, String clientId, String assertion) {
+        BridgeAuthRequest(HttpServletRequest request, String clientId, String assertion, String agentId) {
             super(request);
             Map<String, String[]> merged = new LinkedHashMap<>(request.getParameterMap());
             merged.remove("client_secret");
+            String details = request.getParameter("authorization_details");
+            if (details != null && !details.isBlank()) {
+                merged.put("authorization_details", new String[]{markAgent(details, agentId)});
+            }
             merged.put("client_id", new String[]{clientId});
             merged.put("client_assertion_type", new String[]{ASSERTION_TYPE});
             merged.put("client_assertion", new String[]{assertion});

@@ -94,10 +94,14 @@ public final class ClientAttestationVerifier {
             }
             boolean hasPop = popHeader != null && !popHeader.isBlank();
             boolean hasDpop = dpopHeader != null && !dpopHeader.isBlank();
-            if (hasPop && hasDpop) {
-                throw ClientAttestationException.invalidClient(
-                        "Both OAuth-Client-Attestation-PoP and DPoP present; combined mode forbids a separate PoP header");
-            }
+            // A PoP JWT present means PoP mode, even when a DPoP proof rides along. draft-ietf-oauth-
+            // attestation-based-client-auth-11 §5.2: "DPoP can also be used alongside the Client Attestation
+            // PoP JWT without this combined mode. In this case, the DPoP proof is validated according to
+            // [RFC9449] independently of this specification and its public key is not required to match the
+            // key in the cnf claim." Combined mode is the DPoP proof standing in for a missing PoP JWT. This
+            // used to reject the pair outright, which left a client that keeps its client-authentication key
+            // and its token-binding (DPoP) key apart - as the three-key rule asks - unable to obtain a
+            // sender-constrained token at all. The DPoP header stays on the request for the AS to process.
             if (!hasPop && !hasDpop) {
                 throw ClientAttestationException.invalidClient(
                         "Missing proof of possession: provide OAuth-Client-Attestation-PoP or DPoP");
