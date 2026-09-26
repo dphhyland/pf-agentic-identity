@@ -1,5 +1,5 @@
 /*
- * The two FAPI 2.0 rules PingFederate 13.0 cannot be configured to enforce, as decisions on a request.
+ * The two FAPI 2.0 rules PingFederate cannot be configured to enforce per client, as decisions on a request.
  */
 package com.pingidentity.ps.oidf.servlet.fapi2;
 
@@ -19,7 +19,7 @@ import org.jose4j.jwx.CompactSerializer;
  * to that is to refuse whatever cannot be read, rather than wave it through for PingFederate to read its
  * own way. A request reaches PingFederate only if this class could parse the JWT and liked what it saw.
  *
- * <p>The parsing is jose4j's, on purpose. In {@code pf-protocolengine} 13.0.3 both
+ * <p>The parsing is jose4j's, on purpose. In {@code pf-protocolengine} 13.0.3 and 13.1.3 both
  * {@code org.sourceid.oauth20.dpop.DpopUtil} and {@code ...validate.ClientPrivateKeyJwtValidator}
  * reference {@code org.jose4j} (read from their constant pools; PingFederate's source is not available
  * to read), so the two sides are, as far as that shows, reading the same bytes with the same library.
@@ -50,9 +50,21 @@ final class Fapi2RequestPolicy {
      *
      * <p>Observed on PingFederate 13.0.3, at the PAR endpoint, with the OpenID conformance suite: an
      * {@code aud} of the token endpoint URL is accepted, so is one of the PAR endpoint URL, and so is the
-     * array {@code [issuer, token endpoint]}. 13.1 has a switch for this, off on an upgraded server
-     * ({@code Rfc7523bisCompliantAudienceVerification} in {@code AuthzServerManagerImpl.xml}); the
-     * name appears in none of 13.0.3's jars, so there it cannot be configured and is enforced here.
+     * array {@code [issuer, token endpoint]}. 13.0.3 has no setting for this.
+     *
+     * <p>13.1 adds {@code Rfc7523bisCompliantAudienceVerification} ({@code AuthzServerManagerImpl.xml}), on
+     * in a fresh 13.1.3 install and off in an archive upgraded from 13.0. It does not replace this rule, for
+     * two reasons (read with javap from 13.1.3's {@code pf-protocolengine}, 2026-09-26):
+     * <ul>
+     *   <li>It is one switch for the whole server: {@code AuthzServerManager} reads it with no client in
+     *       view. An ordinary client may address the token endpoint, as OpenID Connect Core §9 tells it to -
+     *       the conformance suite's Shared Signals client does - and a server-wide rule refuses it; the
+     *       conformance rig keeps the switch off for that reason.</li>
+     *   <li>Even on, it is wider than §5.3.2.1. It accepts any single audience from its own list - the
+     *       base URL, the issuer, any additional allowed audience, and the token endpoint base URL when one
+     *       is set - and it reads the claim with jose4j's {@code getAudience()}, which gives a one-member
+     *       array and a string alike. draft-ietf-oauth-rfc7523bis-11 allows that array; FAPI 2.0 does not.</li>
+     * </ul>
      *
      * @return the refusal, or {@code null} if the assertion's audience is the issuer and only the issuer
      */
@@ -71,11 +83,11 @@ final class Fapi2RequestPolicy {
 
     /**
      * FAPI 2.0 Security Profile §5.4.1, applied to a DPoP proof. Observed on PingFederate 13.0.3 and
-     * 13.1.3: an RS256-signed proof is accepted at the UserInfo endpoint. In 13.0.3 the list is a constant
-     * - {@code DpopUtil.SUPPORTED_SIGNING_ALGORITHMS}, RS, ES and PS at 256, 384 and 512 - and the only
-     * keys that class reads from its config file are {@code MaxJtiLength} and {@code DpopClockSkewSeconds},
-     * so it cannot be narrowed by configuration. 13.1's new per-client DPoP settings are replay, lifetime
-     * and nonce; no algorithm list was found there either.
+     * 13.1.3: an RS256-signed proof is accepted at the UserInfo endpoint. In 13.0.3 and 13.1.3 the list is a
+     * constant - {@code DpopUtil.SUPPORTED_SIGNING_ALGORITHMS}, RS, ES and PS at 256, 384 and 512 - and the
+     * only keys that class reads from its config file are {@code MaxJtiLength} and {@code DpopClockSkewSeconds},
+     * so it cannot be narrowed by configuration (13.1.3 re-read with javap, 2026-09-26). 13.1's new per-client
+     * DPoP settings are replay, lifetime and nonce; no algorithm list was found there either.
      *
      * @return the refusal, or {@code null} if the proof is signed with a permitted algorithm
      */

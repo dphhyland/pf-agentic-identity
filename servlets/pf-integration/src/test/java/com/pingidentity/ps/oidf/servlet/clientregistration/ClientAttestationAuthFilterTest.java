@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -400,6 +401,7 @@ class ClientAttestationAuthFilterTest {
     }
 
     @Test
+    @Requirement("FAPI2-SP §5.3.3.1(2.5)")
     void aValidAttestationIsVerifiedAndForwardedAsPrivateKeyJwt(@TempDir Path dir) throws Exception {
         configureKeysFor(dir, DOFILTER_CLIENT_ID);
         PublicJsonWebKey attesterKey = ecKey("attester-1");
@@ -439,8 +441,10 @@ class ClientAttestationAuthFilterTest {
                         java.nio.charset.StandardCharsets.UTF_8));
         assertEquals(DOFILTER_CLIENT_ID, assertionClaims.get("iss"));
         assertEquals(DOFILTER_CLIENT_ID, assertionClaims.get("sub"));
-        // PingFederate 13.1 refuses anything else: one audience, the issuer, as a string, and an explicit
-        // client-authentication+jwt typ (draft-ietf-oauth-rfc7523bis; FAPI 2.0 §5.3.2.1).
+        // One audience, the issuer PF resolves for the request, as a JSON string and not an array of one:
+        // FAPI 2.0 §5.3.3.1, and what 13.1.3 with Rfc7523bisCompliantAudienceVerification on accepts. The
+        // request URL is not in it, as it was when the bridge sent [issuer, request URL].
+        assertInstanceOf(String.class, assertionClaims.get("aud"), "aud must be a JSON string, not an array");
         assertEquals(OP_ISSUER, assertionClaims.get("aud"), "aud must be the issuer as a single string");
         Map<String, Object> assertionHeader = org.jose4j.json.JsonUtil.parseJson(
                 new String(java.util.Base64.getUrlDecoder().decode(assertion.split("\\.")[0]),
