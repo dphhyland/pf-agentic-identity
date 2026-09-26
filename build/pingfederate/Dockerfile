@@ -1,16 +1,11 @@
-# OIDF demo AS — stock PingFederate 13.1.3 (jakarta.servlet) + the pf-oidf-modules attestation/federation module ONLY.
+# The capability's PingFederate image: stock PingFederate 13.1.3 (jakarta.servlet) + this repo's module set,
+# merged into pf-runtime.war, and nothing else. No RAR->PingAuthorize plugin, no consent page, no agentic
+# clients: those belong to a consumer's own image, built FROM the same base with its own archive.
 #
-# This is the ISOLATED deploy context for pingfederate-runtime (Railway project 2a226db6). It is the
-# minus-RAR variant of idp-paz-authzen-adapter/demo/pingfederate/Dockerfile: it drops the agentic
-# RFC 9396 RAR->PingAuthorize plugin, the RAR consent page, and the PingAuthorize-TLS workaround, and
-# it bakes THIS repo's own OIDF-only data.zip (produced by terraform/ Phase 2) — so no agentic
-# urn:agent:* clients or token-exchange plane ride along.
-#
-# Build-context artifacts required here before `railway up` (see terraform/README.md Step 6):
-#   data.zip                         <- terraform Phase-2 export (OIDF-only configArchive)
-#   overlay/pf.jwk                   <- prod master key           (SECRET, git-ignored)
-#   overlay/pingfederate-system-keys.xml                          (SECRET, git-ignored)
+# Build-context artifacts required here (see README.md in this directory):
+#   data.zip.age (preferred) or data.zip  <- the config archive (produced by terraform/ export)
 #   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
+#   overlay/pf.jwk, overlay/pingfederate-system-keys.xml   only under the plaintext scheme (SECRET, git-ignored)
 #   modules/                         <- stage-modules.sh output of this repo's reactor (merged into
 #                                       pf-runtime.war AND copied to server/default/deploy; see below)
 #   (no jose4j: the assemble call passes "-" and relies on PF's own copy in server/default/lib)
@@ -24,22 +19,26 @@
 # run over PF's own `/idp/init_logout.openid`. Repoint any `/oidf/*` consumers (e.g. the demo UI PF_BASE) to root.
 #
 # Licensing is DevOps-fetched — NO pingfederate.lic is baked. The base image's boot hook
-# 17-check-license.sh pulls a fresh evaluation license when these RUNTIME env vars are set (as Railway
-# service vars / GitHub Actions secrets — see vars.<env>.env + the deploy workflow):
+# 17-check-license.sh pulls a fresh evaluation license when these RUNTIME env vars are set (as the
+# deployment's secrets - see vars.<env>.env):
 #   PING_IDENTITY_ACCEPT_EULA=YES            (baked below; non-secret)
 #   PING_IDENTITY_DEVOPS_USER=<devops email> (SECRET — never in git)
 #   PING_IDENTITY_DEVOPS_KEY=<devops key>    (SECRET — never in git)
 # Trade-off: DevOps eval licenses are short-lived (~7 days) and re-fetched only at container start.
 
-FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest
+# The tag and digest are the ones build/pf-version.env records (PF_IMAGE, PF_IMAGE_DIGEST), written out as a
+# literal so Dependabot can bump them here; tools/pf-version-check.py fails when the two disagree, and
+# tools/pf-version-sync.py rewrites the env file from this line after a bump.
+FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest@sha256:0d559261d658222179b07de8b2c84a8aea3cb30c7be107970686f58ea9dd3a4a
 USER root
 
 # Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that
 # actually authenticate the fetch are supplied as runtime secrets, never baked).
 ENV PING_IDENTITY_ACCEPT_EULA=YES
 
-# age, for the encrypted config archive (see pf-entrypoint.sh). Verified available from the community
-# repo this base image already enables: alpine 3.23.4, age 1.2.1. No static-binary fallback needed.
+# age, for the encrypted config archive (see pf-entrypoint.sh). Available from the community repo this
+# base image already enables: alpine 3.24.1, age 1.3.1 (verified 2026-09-26 on the 13.1.3 image). No
+# static-binary fallback needed.
 RUN apk add --no-cache age
 
 # Config restore via PF's native drop-in-deployer: the DataDeployer timer imports data.zip on boot
@@ -75,11 +74,12 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, the webapp
 # classloader — the same jars are ALSO copied to server/default/deploy below, so the engine classloader
 # gets its own copy: two classloaders, deliberately, and without Redis the filter and the OGNL criterion
-# therefore keep separate in-memory challenge/replay stores), and register the four filters
-# (SsfLogoutSignal, Fapi2Profile, OidfAutoRegistration, ClientAttestationAuth) in its web.xml — via the same assemble
-# script a consumer's CI would use. modules/ holds the monorepo reactor's modular jars (oidf.jar +
-# attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance)
-# — staged by stage-modules.sh.
+# therefore keep separate in-memory challenge/replay stores), and register the seven filters the
+# assemble script names (SsfLogoutSignal, Fapi2Profile, FapiResourceServer, OAuthErrorDescription,
+# OidfFrontChannelAutoRegistration, OidfAutoRegistration, ClientAttestationAuth) in its web.xml - via the
+# same assemble script a consumer's CI would use. modules/ holds the reactor's modular jars (oidf.jar +
+# attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance +
+# the CIBA simulator), staged by stage-modules.sh, which writes the MANIFEST the assemble script checks.
 # (No pf-rar-paz-plugin — that's agentic.)
 COPY assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
 COPY modules/ /tmp/modules/
@@ -109,8 +109,8 @@ RUN cp /tmp/modules/*.jar /opt/in/instance/server/default/deploy/ \
  && chown 9031:0 /opt/in/instance/server/default/deploy/*.jar \
  && rm -rf /tmp/modules
 
-# Railway terminates TLS at its edge and forwards plain HTTP to the target port; PF's 9031 is HTTPS-only,
-# so expose an HTTP runtime listener on 9080 for the service's HTTP domain.
+# A platform that terminates TLS at its edge forwards plain HTTP to the target port; PF's 9031 is
+# HTTPS-only, so expose an HTTP runtime listener on 9080 for that path.
 RUN sed -i 's/^pf.http.port=-1/pf.http.port=9080/' /opt/staging/instance/bin/run.properties.subst.default
 # Activate the static mock-attester resolver ONLY if the consumer supplied one — PF loads
 # run.properties entries as sys props. Unconditional activation would mean the image always resolves

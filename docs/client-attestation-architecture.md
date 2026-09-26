@@ -2,8 +2,9 @@
 
 What the client attestation pipeline is, what it does today, which standards it meets, what proves
 that, and what is still missing. Written from the source on 2026-08-17, refreshed 2026-08-22 (§5, §6
-and §8's test-coverage claims), not recalled: every claim below was read at the file it describes, and
-every test count came from a surefire run, not a grep.
+and §8's test-coverage claims) and 2026-09-26 (PingFederate 13.1.3: §2.1, §4.2, §5.3 and three §6 items),
+not recalled: every claim below was read at the file it describes, and every test count came from a
+surefire run, not a grep.
 
 This is the map. It does not restate the specs (see
 [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md)), the claim
@@ -42,14 +43,14 @@ repo wrote the missing half up as its own spec draft, published in
 
 | Position | Module | Role | Artifact |
 |---|---|---|---|
-| Issue | `servlets/attestation-issuer` | The Client Attester: issuance endpoint, evidence validators, discovery, minting, per-client signing keys | `attestation-issuer-0.1.0.jar` |
-| Issue (device) | `libs/device-instance`, `libs/app-attest`, `services/device-enrolment` | The device-resident path: App Attest → enrolment → instance registry → device attestation minter | `device-instance-0.1.0.jar`, `app-attest-0.1.0.jar`, `device-enrolment-0.1.0.jar` |
-| Identity | `libs/agent-registry` | Mints/resolves `agent_id`, the per-running-instance pseudonym | `agent-registry-0.1.0.jar` |
-| Verify | `libs/client-attestation` | The AS-side verifier, DPoP validation, challenge + replay stores, RAR containment | `client-attestation-0.1.0.jar` |
-| Verify (trust) | `libs/openid-federation` | Attester trust via OpenID Federation trust chains; AS capability advertisement | `openid-federation-0.1.0.jar` |
+| Issue | `servlets/attestation-issuer` | The Client Attester: issuance endpoint, evidence validators, discovery, minting, per-client signing keys | `attestation-issuer-<version>.jar` |
+| Issue (device) | `libs/device-instance`, `libs/app-attest`, `services/device-enrolment` | The device-resident path: App Attest → enrolment → instance registry → device attestation minter | `device-instance-<version>.jar`, `app-attest-<version>.jar`, `device-enrolment-<version>.jar` |
+| Identity | `libs/agent-registry` | Mints/resolves `agent_id`, the per-running-instance pseudonym | `agent-registry-<version>.jar` |
+| Verify | `libs/client-attestation` | The AS-side verifier, DPoP validation, challenge + replay stores, RAR containment | `client-attestation-<version>.jar` |
+| Verify (trust) | `libs/openid-federation` | Attester trust via OpenID Federation trust chains; AS capability advertisement | `openid-federation-<version>.jar` |
 | Enforce | `servlets/pf-integration` | The `/as/token.oauth2` filter, the OGNL issuance criterion and claim hooks, PF client store | `oidf.jar` |
 | Consume | `plugins/rar-paz-plugin` | Bounds the PingAuthorize RAR decision by the attested ceiling | `pf.plugins.pf-rar-paz-plugin.jar` |
-| Consume (RS) | `services/demo-rs` | Resource-server side: AS signature, DPoP proof, `cnf.jkt` equality, RFC 8693 `act` chain | `demo-rs-0.1.0.jar` |
+| Consume (RS) | `services/demo-rs` | Resource-server side: AS signature, DPoP proof, `cnf.jkt` equality, RFC 8693 `act` chain | `demo-rs-<version>.jar` |
 
 Three of these load into PingFederate and the classloader they land on matters. `oidf.jar`,
 `attestation-issuer` and their libraries are merged into `pf-runtime.war` at root context by
@@ -417,8 +418,8 @@ citation, not in the code, and it is left visible rather than filled with a plau
 | `RFC7662 §2.2` | Introspection response: `active`, space-separated `scope` | `PfIntrospectionReceiverAuthenticator` | Implemented |
 | — | RFC 7517 / 7519 / 7638 | `libs/oidf-jose` throughout | Implemented, no clause-level id |
 | — | RFC 8705 mTLS client authentication | — | Not implemented |
-| — | RFC 9126 PAR | — | Not implemented |
-| — | FAPI 2.0 Security Profile | — | **Not assessed.** No FAPI reference exists anywhere in the repo |
+| — | RFC 9126 PAR | `ClientAttestationAuthFilter` over `/as/par.oauth2` (PAR itself is PF's) | Implemented - an attestation authenticates its client at PAR as at the token endpoint |
+| — | FAPI 2.0 Security Profile | `Fapi2ProfileFilter`; the `conformance/` rig | Assessed for PF with ordinary FAPI clients (`private_key_jwt`, DPoP, PAR): the suite's plan 50 PASSED, 0 FAILED on 13.1.3 (2026-09-24, and 2026-09-25 on a fresh archive). Attestation clients were not in that run - see §6 |
 
 ### 4.3 OpenID Federation 1.0 (Final, 17 Feb 2026)
 
@@ -531,10 +532,11 @@ are the thin part.
 ### 5.3 How they run
 
 `mvn package` at the repo root, tests on. Two `provided` PF jars (`pf-protocolengine`,
-`pingfederate-sdk` 13.0.0.3) must be `install:install-file`d first — see
-[`.github/workflows/build.yml`](../.github/workflows/build.yml) for the exact steps. CI runs the full
-reactor with tests on every push to `main` and every pull request. The three deploy workflows do
-**not** run tests (`deploy-pingfederate.yml` builds with `-DskipTests`).
+`pingfederate-sdk` 13.1.3.0) must be `install:install-file`d first — see
+[`.github/actions/pf-provided-jars/action.yml`](../.github/actions/pf-provided-jars/action.yml) for the
+exact steps. CI ([`build.yml`](../.github/workflows/build.yml)) runs the full reactor with tests and
+coverage gates (`mvn verify`) on every push to `main` and every pull request. This repo has no deploy
+workflow.
 
 ---
 
@@ -659,22 +661,29 @@ it is removed.
 captured proof for as long as it stays fresh. `AttestationReplayCache` already exists and is the thing
 to wire. (`unverified.md` item 10.)
 
-**No FAPI 2.0 assessment.** This deployment is exactly the shape FAPI 2.0 targets — sender-constrained
-tokens, high-assurance clients, fine-grained authorisation — and FAPI is not referenced anywhere in the
-repo. That is a gap in the *claim*, not necessarily in the behaviour. *Closes when:* someone reads FAPI
-2.0 Security Profile against §4 above and records which clauses hold. It will surface PAR and mTLS as
-real absences.
+**~~No FAPI 2.0 assessment.~~ Half-closed, 2026-09-24.** PingFederate itself is assessed: the
+conformance rig runs the suite's FAPI 2.0 Security Profile plan against PF 13.1.3 with ordinary FAPI
+clients (`private_key_jwt`, DPoP, PAR, PKCE) - 50 PASSED, 0 FAILED, the REVIEW and WARNING modules
+explained in [conformance/README.md](../conformance/README.md) - and `Fapi2ProfileFilter` supplies the two
+rules PF can't apply per client. PAR turned out not to be an absence: PF implements it, and the
+attestation filter is mapped over it. The mTLS sender constraint is one - PF 13.x issues no
+certificate-bound access tokens (RFC 8705 §3) - so DPoP is the sender constraint used. What is still
+open is the attestation path: the rig runs with attestation inert, so no FAPI 2.0 plan has seen an
+`attest_jwt_client_auth` client. *Closes when:* that path is run through the plan, or the reasons it
+cannot be are written down.
 
 **Whether PF can emit `act` as a JSON object is unresolved.** RFC 8693 defines `act` as an object; the
 existing mapping emits a JSON *string* for consumers to decode. `ActChain` parses both and reports the
 legacy form so the deviation stays visible. This directly affects the delegation claim the pipeline
 produces. (`unverified.md` item 8.)
 
-**The OGNL claim hooks trust an unverified decode.** `attestationClaim` and `delegationActChain`
-base64-decode the attestation without checking the signature, arguing that
-`validateClientAttestation` gates issuance on the same mapping. That is true today and invisible
-tomorrow — remove the criterion from a mapping and the claim hooks become unauthenticated. *Closes
-when:* the coupling is either enforced in code or documented at both call sites.
+**~~The OGNL claim hooks trust an unverified decode.~~ Half-closed, 2026-08-22 (`146df7b`).**
+`attestationClaim` no longer decodes the header: it reads the context the token-endpoint filter publishes
+once it has verified (`VERIFIED_ATTESTATION_ATTRIBUTE`), and with no verified context it returns nothing
+rather than unverified claims. `delegationActChain` still reads the `act` claim of the caller's
+`subject_token` without checking its signature, by design and documented at the method: the
+token-exchange processor validates that token before any token issues. *Closes when:* that remaining
+coupling is enforced in code, or accepted in writing.
 
 **`RarContainment` duplicates `RarEntitlement`.** The PAZ plugin shades its own copy; the file carries
 the repo's one literal `TODO: consolidate the two into a shared library`. Two implementations of a
@@ -682,10 +691,10 @@ containment rule will drift, and the drift is a privilege-escalation shape.
 
 ### Nice to have
 
-- The metadata resolution chain runs CIMD → federation → PF store; the spec says federation → CIMD →
-  registration, descending assurance. First-match-per-client-id means the lowest-assurance source
-  currently wins a collision. Reordering is a one-line change once slice 0 and 1 make both external
-  sources safe.
+- ~~The metadata resolution chain runs CIMD → federation → PF store.~~ **Closed 2026-09-25 (`13bd3fa`).**
+  It now runs federation → CIMD → PF store, descending assurance as the spec says, and the first source
+  that knows a client wins, so the highest-assurance source wins a collision. Pinned by
+  `AttesterResolversTest.aFederationEntityComesFirstThenCimdThenThePingFederateStore`.
 - `ClientAttestationServiceMetadataServlet:138` advertises `cimd` as an active metadata source off
   `OIDF_CIMD_TRUST_BUNDLES`; the resolver chain is enabled by `OIDF_ATTESTER_CIMD_URL`. Two variables,
   and the discovery document can claim a source that is not wired, or omit one that is.
@@ -712,7 +721,7 @@ containment rule will drift, and the drift is a privilege-escalation shape.
 | [servlets/attestation-issuer/README.md](../servlets/attestation-issuer/README.md) | The issuer module in detail |
 | [servlets/pf-integration/README.md](../servlets/pf-integration/README.md) | The PF glue: filters, OGNL hooks, key resolvers |
 | [services/device-enrolment/README.md](../services/device-enrolment/README.md) | The device path and its enrolment ceremony |
-| [build/pingfederate/README.md](../build/pingfederate/README.md) | How the AS image is built, and what each consumer supplies |
+| [build/pingfederate/README.md](../build/pingfederate/README.md) | How the AS image is built, and what a deployment supplies |
 | [DEMOS.md](DEMOS.md) | Which demos exercise this pipeline and how to bring them up |
 
 ---

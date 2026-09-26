@@ -36,7 +36,7 @@ for j in pingfederate-sdk jose4j commons-logging commons-lang3 \
   src=$(docker exec $PF sh -c "find /opt/out/instance/server/default/lib /opt/out/instance/lib -iname '${j}*.jar' | head -1")
   docker cp "$PF:$src" lib/
 done
-docker cp $PF:/opt/out/instance/lib/jetty-servlet-api-4.0.9.jar lib/   # servlets only
+docker cp $PF:/opt/out/instance/lib/jetty-jakarta-servlet-api-5.0.2.jar lib/   # servlets only (PF 13.1)
 chmod u+w lib/*.jar
 ```
 
@@ -45,9 +45,9 @@ reference parents which do not resolve offline — installing them verbatim brea
 
 ```bash
 mvn install:install-file -Dfile=lib/pingfederate-sdk.jar \
-  -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.0.3 \
+  -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3 \
   -Dpackaging=jar -DgeneratePom=true
-# repeat per jar (servlet-api, jose4j, commons-*, jackson-*)
+# repeat per jar (jakarta-servlet-api, jose4j, commons-*, jackson-*)
 ```
 
 Everything is `<scope>provided</scope>`. **Bundle nothing.**
@@ -123,11 +123,12 @@ the record, so it unit-tests without PF.
 - **`getPathInfo()` has the context AND servlet path stripped.** Mapped at `/grants/*`, a
   request to `/gm-api/grants/{id}/evaluate` yields pathInfo `/{id}/evaluate` — not the full
   path. Getting this wrong 404s every well-formed request.
-- **Match the container's servlet spec.** PF 13's WARs declare Servlet 3.1 with the
-  `javax.servlet` namespace (jetty-servlet-api 4.0.9), not jakarta. Copy the version from
-  `pf-ws.war`'s own `web.xml`.
+- **Match the container's servlet spec.** PF 13.1's WARs declare Servlet 5.0 in the
+  `jakarta.servlet` namespace (jetty-jakarta-servlet-api 5.0.2); 13.0.x's declare Servlet 3.1
+  in `javax.servlet` (jetty-servlet-api 4.0.9). Build for the one you deploy to, and copy the
+  version from `pf-ws.war`'s own `web.xml`.
 - **Compile to the container's bytecode or lower.** `maven.compiler.release` ≤ the
-  container JDK (PF 13.0.3 runs Java 21; release 17 is safe).
+  container JDK (PF 13.1.3 runs Java 21; release 17 is safe).
 
 ## Deploy loop
 

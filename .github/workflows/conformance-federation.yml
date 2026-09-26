@@ -15,7 +15,6 @@ on:
     - cron: '17 3 * * 1'   # Mondays, 03:17 UTC
 
 env:
-  PF_IMAGE: pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest
   # The suite reaches PF by its container name, over the rig's network (see "the suite, on PF's network"): on
   # Linux a port published on 127.0.0.1 can't be reached from another container through the host gateway.
   PF_BASE_URL: https://pf-agentic-identity:9031
@@ -33,13 +32,15 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7
+      - name: the PingFederate version, from build/pf-version.env
+        # The one place the version is written down; the composite action reads the same file itself.
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17', cache: maven }
       - uses: hashicorp/setup-terraform@v3
         with: { terraform_wrapper: false }
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
-        with: { image: "${{ env.PF_IMAGE }}" }
       - name: licence details, from the repository's secrets
         env:
           DEVOPS_USER: ${{ secrets.PING_IDENTITY_DEVOPS_USER }}

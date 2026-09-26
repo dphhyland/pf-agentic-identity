@@ -19,7 +19,7 @@ import java.util.Map;
  * this phase fixes in {@link AuthZenRequestBuilder}.
  *
  * <p>The client-attestation issuance hook publishes this as a {@code Map} request attribute under
- * {@link #REQUEST_ATTRIBUTE}; this processor reads it back via {@code AuthorizationDetailContext.getRequest()}.
+ * {@link #REQUEST_ATTRIBUTE}; this processor reads it back via {@code AuthorizationDetailContext.getJakartaRequest()}.
  * Kept servlet-free (takes the raw attribute value) so it is unit-testable without a container.
  */
 public final class AttestationSubject {

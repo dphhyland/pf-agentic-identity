@@ -8,9 +8,6 @@ on:
     branches: [main]
   pull_request:
 
-env:
-  PF_IMAGE: pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest
-
 permissions:
   contents: read
 
@@ -65,15 +62,37 @@ jobs:
           fi
           echo "clean: no age identity or private key is tracked"
 
+  # The versions this repo writes down agree with each other: every pom carries one project version
+  # (tools/set-version.py), and every reference to a PingFederate matches build/pf-version.env
+  # (tools/pf-version-check.py). Both are plain Python with unit tests of their own, run here first, so a
+  # tool that has stopped checking cannot pass the build.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: the tools' own tests
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: one project version across the reactor
+        run: python3 tools/set-version.py --check
+      - name: one PingFederate version across the repo
+        run: python3 tools/pf-version-check.py
+
   java:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: the PingFederate version, from build/pf-version.env
+        # The one place the version is written down; the composite action reads the same file itself.
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
       - uses: actions/setup-java@v5
         with: { distribution: temurin, java-version: '17', cache: maven }
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
-        with: { image: "${{ env.PF_IMAGE }}" }
+      - name: the PF-provided libraries the BOM compiles against are the ones the image ships
+        # PF names its jars without a version; the check reads each jar's manifest and compares it with the
+        # BOM's version.pf.* properties. A module compiled against a different jackson or commons-logging
+        # than the one on PF's classpath links at build and may not at run time.
+        run: python3 tools/pf-provided-versions.py --lib pf-lib --bom bom/pom.xml
       - name: reactor build (tests on, coverage gates enforced)
         # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
         # stopping at package builds the artifacts and silently skips every gate.

@@ -1,6 +1,6 @@
 # gm-api — Grant Management & Evaluation API for PingFederate
 
-> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Absorbed with history from the local `idp-gm-api` repo; the AS-agnostic Go service was extracted from it to **grant-evaluation-api** (sibling checkout, not yet published). See [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Absorbed with history from the local `idp-gm-api` repo; the AS-agnostic Go service was extracted from it to **grant-evaluation-api** (a private repo, checked out as a sibling). See [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
 The proposed **Grant Evaluation API** (an extension to the OpenID Grant Management API) running
 **inside PingFederate** as a servlet war (`gm-api.war`), plus an `/mcp` add-on so an AI agent can ask
@@ -26,24 +26,25 @@ what a token introspection cannot see.
 - [`docs/INTEGRATING.md`](docs/INTEGRATING.md) — how another project calls this: the question it answers, which endpoint, getting a token (user present / client credentials / agent delegation), the four operations, reading the answer, gotchas.
 - [`docs/GMAPI-Extension.md`](docs/GMAPI-Extension.md) — the proposed spec text: §3.8 use case, §6.7 Grant Evaluation endpoint and its scopes, §7.1 metadata, §8.4 implementation considerations, privacy and security.
 - [`docs/authzen-oauth-profile.md`](docs/authzen-oauth-profile.md) — AuthZEN profile for OAuth 2.0 / OIDC: how scopes, claims and RAR map onto the AuthZEN information model.
-- [`docs/pingfederate-gm-api-gaps.md`](docs/pingfederate-gm-api-gaps.md) — the implementer's report against PF 13.0.3: §6 and §7.1 can be added from outside the product, §5 cannot; what PF supports natively (nothing, verified).
+- [`docs/pingfederate-gm-api-gaps.md`](docs/pingfederate-gm-api-gaps.md) — the implementer's report, written against PF 13.0.3 and not re-run on 13.1.3: §6 and §7.1 can be added from outside the product, §5 cannot; what PF supports natively (nothing, verified then).
 - [`docs/MCP.md`](docs/MCP.md) — the MCP server: tools (`evaluate_grant`, `list_entitlements`, `describe_grant`), transport, why it holds no credential of its own.
 
 ## Build — this module is different
 
 `services/gm-api/servlet` is a **vendored tree** and deliberately not a consumer of the repo BOM: groupId
-`au.com.idpartners`, artifact `gm-api` 1.0.0, and every dependency `provided` under the
-`local.pingfederate:*` coordinate convention (`pingfederate-sdk` 13.0.3, `servlet-api` 4.0.9, `jose4j`
-1.x, `jackson-*` 2.x, `commons-lang3` 3.x, `commons-logging` 1.x). Those coordinates exist in `~/.m2`
-only after the `install:install-file` lines in `.github/workflows/build.yml` have run — CI extracts the
-jars from the public `pingidentity/pingfederate` image; locally, run those lines once (or copy the jars
-out of a running PF as [`servlet/README.md`](servlet/README.md) shows). Without them the root
+`au.com.idpartners`, artifact `gm-api` on the reactor's version (`tools/set-version.py` keeps it in step),
+and every dependency `provided` under the `local.pingfederate:*` coordinate convention (`pingfederate-sdk`
+13.1.3, `jakarta-servlet-api` 5.0.2, `jose4j` 1.x, `jackson-*` 2.x, `commons-lang3` 3.x,
+`commons-logging` 1.x). Those coordinates exist in `~/.m2` only after the `install:install-file` lines in
+`.github/actions/pf-provided-jars/action.yml` have run — CI extracts the jars from the public
+`pingidentity/pingfederate` image; locally, run those lines once (or copy the jars out of a running PF as
+[`servlet/README.md`](servlet/README.md) shows). Without them the root
 `mvn package` fails on this module. Bundling any of them into the war would break linkage: PF isolates
 each deploy-dir artifact on its own classloader.
 
 ## Related
 
-- **AS-agnostic Go reference:** **grant-evaluation-api** - a sibling checkout under `~/Source/`, not yet published to GitHub
+- **AS-agnostic Go reference:** **grant-evaluation-api** - a private repo, checked out as a sibling under `~/Source/`
   — the same API over a pluggable grant source (PF, or any RFC 7662 introspection endpoint), plus the
   demo AuthZEN PDP (`cmd/pdp`) and the grant-creation script (`scripts/authcode.py`) the servlet's
   verification steps use.

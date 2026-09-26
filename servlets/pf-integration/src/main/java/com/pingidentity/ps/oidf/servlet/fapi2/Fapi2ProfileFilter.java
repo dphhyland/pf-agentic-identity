@@ -1,5 +1,5 @@
 /*
- * Enforces, in front of PingFederate's own endpoints, the FAPI 2.0 rules it has no setting for.
+ * Enforces, in front of PingFederate's own endpoints, the FAPI 2.0 rules it cannot be set to enforce per client.
  */
 package com.pingidentity.ps.oidf.servlet.fapi2;
 
@@ -25,10 +25,14 @@ import org.jose4j.json.JsonUtil;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
- * A FAPI 2.0 authorization server does two things PingFederate 13.0 cannot be configured to do: accept
- * only its own issuer, as a string, as the audience of a client assertion (Security Profile §5.3.2.1),
- * and accept only PS256, ES256 and EdDSA on a JWT it processes (§5.4.1) - which a client's DPoP proof
- * is. Everything else the profile asks for is PingFederate configuration. These two are here.
+ * A FAPI 2.0 authorization server does two things PingFederate cannot be configured to do for its FAPI
+ * clients alone: accept only its own issuer, as a string, as the audience of a client assertion (Security
+ * Profile §5.3.2.1), and accept only PS256, ES256 and EdDSA on a JWT it processes (§5.4.1) - which a
+ * client's DPoP proof is. Everything else the profile asks for is PingFederate configuration. These two
+ * are here. 13.0.3 has no setting for either. 13.1 adds one for the audience,
+ * {@code Rfc7523bisCompliantAudienceVerification}, but it applies to the whole server and still accepts
+ * more than §5.3.2.1 does, so the rule stays here, per client ({@link Fapi2RequestPolicy#checkClientAssertion}
+ * has the detail). Neither version has one for the DPoP algorithm.
  *
  * <p><b>Per client, and off unless asked for.</b> {@code OIDF_FAPI2_CLIENTS} (or the
  * {@code oidf.fapi2.clients} system property, or a {@code clients} init-param) lists the client ids

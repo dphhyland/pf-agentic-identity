@@ -1,6 +1,6 @@
 {
   "alias": "pf-agentic-identity",
-  "description": "PingFederate 13.0.3 + pf-agentic-identity modules. FAPI 2.0 Security Profile Final: private_key_jwt, DPoP, plain_fapi, OpenID Connect.",
+  "description": "PingFederate 13.1.3 + pf-agentic-identity modules. FAPI 2.0 Security Profile Final: private_key_jwt, DPoP, plain_fapi, OpenID Connect.",
   "server": {
     "discoveryUrl": "{{PF_BASE_URL}}/.well-known/openid-configuration"
   },

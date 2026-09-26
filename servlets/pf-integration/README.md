@@ -11,7 +11,7 @@ filter and the OGNL hooks sit in the wider attestation pipeline - with standards
 coverage and the open gaps - is
 [docs/client-attestation-architecture.md](../../docs/client-attestation-architecture.md).
 
-Everything here is a plain `@WebServlet` / `javax.servlet.Filter`, not a PF-INF plugin: the jar sits in
+Everything here is a plain `@WebServlet` / `jakarta.servlet.Filter`, not a PF-INF plugin: the jar sits in
 a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp classloader. The
 `finalName` is `oidf`, so this module produces **`oidf.jar`** - the war is assembled by
 [`oidf-war`](../oidf-war) (its own module, to avoid a reactor cycle with `attestation-issuer`).
@@ -44,10 +44,34 @@ Filters - not annotated (an annotation would bind them to the module's own conte
 
 | Filter name | Class | Over | Does |
 |---|---|---|---|
-| `ClientAttestationAuth` | `ClientAttestationAuthFilter` | `/as/token.oauth2` | `attest_jwt_client_auth`: verifies `OAuth-Client-Attestation` (+`-PoP` or `DPoP`), publishes the verified context for the issuance criterion and the token attribute mapping, then forwards a wrapped request that authenticates to PF as native `private_key_jwt` - a `client_assertion` signed with **that client's own key**, whose public half is already in the client's registered JWKS. Fail-closed on a bad attestation; **no attestation header = pass-through untouched**, so it can never widen access. Keys from `OIDF_BRIDGE_SIGNING_KEYS` + `OIDF_BRIDGE_SIGNER_BACKING`; **nothing configured = the filter refuses to start**, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`. |
+| `Fapi2Profile` | `…servlet.fapi2.Fapi2ProfileFilter` | `/as/par.oauth2`, `/as/token.oauth2`, `/as/introspect.oauth2`, `/as/revoke_token.oauth2`, `/as/bc-auth.ciba`, `/idp/userinfo.openid` | FAPI 2.0 for the clients `OIDF_FAPI2_CLIENTS` names (`*` for every client; unset, none): a client assertion's `aud` is this server's issuer as one string (§5.3.2.1), and a DPoP proof is signed with PS256, ES256 or EdDSA (§5.4.1). It can only refuse. Mapped first of this module's filters, so an assertion it refuses registers nobody, and it judges the client's own assertion before `ClientAttestationAuth` replaces it. See [the PingFederate audience switch](#the-pingfederate-audience-switch) below. |
+| `FapiResourceServer` | `…servlet.fapi1.FapiResourceServerFilter` | `/idp/userinfo.openid` | FAPI 1.0 Baseline §6.2.1 at UserInfo, the one resource PF serves itself: echoes a UUID `x-fapi-interaction-id` or mints one, and refuses an access token in the query. |
+| `OAuthErrorDescription` | `…servlet.oauth.OAuthErrorDescriptionFilter` | `/as/bc-auth.ciba`, `/as/token.oauth2`, `/as/par.oauth2` | Keeps a 4xx JSON `error_description` inside RFC 6749 §5.2's character set. It sees only what runs after it - PF's servlets and the filters mapped below it - so it is mapped before those and after `Fapi2Profile`, whose refusals are inside the set already. |
+| `ClientAttestationAuth` | `ClientAttestationAuthFilter` | `/as/token.oauth2`, `/as/par.oauth2` | `attest_jwt_client_auth`: verifies `OAuth-Client-Attestation` (+`-PoP` or `DPoP`), publishes the verified context for the issuance criterion and the token attribute mapping, then forwards a wrapped request that authenticates to PF as native `private_key_jwt` - a `client_assertion` signed with **that client's own key**, whose public half is already in the client's registered JWKS, typed `client-authentication+jwt` and addressed to the issuer alone, as a string. Fail-closed on a bad attestation; **no attestation header = pass-through untouched**, so it can never widen access. Keys from `OIDF_BRIDGE_SIGNING_KEYS` + `OIDF_BRIDGE_SIGNER_BACKING`; **nothing configured = the filter refuses to start**, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`. |
 | `OidfAutoRegistration` | `TokenEndpointAutoRegistrationFilter` | `/as/token.oauth2` | §12.1 and §12.3, before PF authenticates the request. The client is the `client_assertion`'s `sub`, else `client_id`. One PF doesn't know is registered from the chain in the assertion's `trust_chain` header (leaf must advertise `client_registration_types` ⊇ `automatic`), checked as it stands - nothing is fetched on a presented chain's say-so - and otherwise by discovery from the client's own configuration. An RP that publishes keys for `openid_relying_party` is registered with them. An `auto_registered` one is renewed in its last `OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS`, or at once when the request presents a newer entity configuration with other keys or metadata (§12.5 - how key rotation works); an older one is never used. Past its expiry it is renewed from the presented chain or by discovery, or refused: **401 `invalid_client`**, or **503 `temporarily_unavailable`** (with `Retry-After`) when the federation can't be reached or too many registrations are under way. An explicit registration is only ever renewed by its RP registering again. Clients this module didn't register are never touched. **Fail-closed** from 0.3.0 (`OIDF_AUTO_REGISTRATION_FAIL_CLOSED=false` restores 0.2.0's pass-through). Starts the expiry sweeper. |
 | `OidfFrontChannelAutoRegistration` | `FrontChannelAutoRegistrationFilter` | `/as/authorization.oauth2`, `/as/par.oauth2` | §12.1.1: an RP PF doesn't know sends its request with its Entity Identifier as `client_id` and proves it holds its keys - a signed request object, or at PAR a `private_key_jwt` assertion. The request object is held to §12.1.1.1 before anything is fetched (`aud` this OP alone, `iss` and `client_id` the RP, no `sub`, `jti`, `exp`); the RP's chain is resolved (its `trust_chain` header tried as it stands, else discovery); it is registered from its `openid_relying_party` metadata with the keys it publishes for that type (`jwks`, `signed_jwks_uri` or `jwks_uri`), once the proof verifies against them, and its `jti` is spent. Registered with signed requests required (or PAR-only, if it proved itself at PAR), PKCE, its redirect URIs, and `code` / `openid` unless it declared otherwise. Every later request from it is held to the same: §12.1.1 says *every* authentication request demonstrates control of the RP's keys, so its proof is checked against §12.1.1.1 again, verified with the keys it is registered with (a `jwks_uri` is fetched at most once a minute) and its `jti` spent. A `request_uri` is never dereferenced here. Refusals: JSON at PAR, an error page - never a redirect - at the authorization endpoint (§12.1.3). Mapped after `Fapi2Profile` and `OAuthErrorDescription` (checked by the assemble script). |
 | `SsfLogoutSignal` | `…servlet.ssf.LogoutEventFilter` | `/idp/init_logout.openid` | Lives in [`ssf`](../ssf); listed here because the same script registers it. |
+
+### The PingFederate audience switch
+
+PingFederate 13.1 added `Rfc7523bisCompliantAudienceVerification`, one item in
+`AuthzServerManagerImpl.xml`. When it is on, a client assertion must carry exactly one audience, one PF
+accepts - its issuer, or a value the server's settings add (additional allowed audiences, a token endpoint
+base URL) - and a `typ`, if it has one, of `client-authentication+jwt`. A new 13.1 install has it on; an
+archive upgraded from 13.0 has it off (the item is `defaultForUpgrade="false"`). Read from the 13.1.3 image
+and its `pf-protocolengine` jar (`ClientJwtValidator`, `Rfc7523bisCompliantAudienceProvider`), 2026-09-26.
+
+- **Turn it on in production.** It holds every client to draft RFC 7523bis. Check your clients first:
+  OpenID Connect Core §9 tells a client to address its assertion to the token endpoint, and PF refuses
+  that once the switch is on. The bridge assertion `ClientAttestationAuth` mints already meets it.
+- **The conformance rig keeps it off**, only because of the Shared Signals suite: its client addresses the
+  token endpoint, and on an archive authored fresh on 13.1.3 the SSF plan failed 18 of 19 modules until
+  `conformance/config-store/` turned the switch off (2026-09-25).
+- **`Fapi2Profile` keeps its own rule either way.** The switch is one setting for the whole server, so it
+  can't hold the FAPI 2.0 clients to their issuer while an ordinary client keeps its token-endpoint
+  audience; the filter can. It is also stricter: PF counts audience values (`Rfc7523bisCompliantAudienceValidator`
+  checks the size of the list jose4j's `getAudience()` returns, which is the same for `"issuer"` and
+  `["issuer"]`), so a one-element array passes, where FAPI 2.0 §5.3.2.1 asks for a string.
 
 ## OGNL hooks (engine classloader)
 

@@ -4,16 +4,22 @@ PF 13.1.3 plus this repo's modules, assembled into a runnable image. This is the
 runnable** - it belongs here, beside the code it packages. To run it on this machine, configured,
 use [`../conformance/up.sh`](../../conformance/README.md); this page is about the image itself.
 
-Consumers, and where they run it:
+This directory builds an image; it deploys nothing. [`conformance/`](../../conformance/README.md) is the
+one consumer in this repo: it authors the PF configuration as Terraform, exports the archive, composes
+the build context and runs the image with `docker compose`. A deployment elsewhere composes its own
+context from this directory plus its own archive and variables, and keeps whatever its platform needs in
+its own repo.
 
-| Consumer | What it does with this | Where it runs |
-|---|---|---|
-| [`conformance/`](../../conformance/README.md) (this repo) | authors the PF config as Terraform, exports the archive, composes the context, runs the image | this machine (`docker compose`) |
-| [`pf-oidf-modules`](https://github.com/dphhyland/pf-oidf-modules) | composes a deploy context from this + its own `railway.json`/vars/archive | Railway project `2a226db6` (recreated 2026-09-02; was `e02a8e2f`) |
-| [`idp-agentic-demo`](https://github.com/dphhyland/idp-agentic-demo) | builds its own agentic-banking PF; consumes the module jars | Railway project `ac9af096` |
-| [`pf-agentic-identity-domain-authority`](https://github.com/dphhyland/pf-agentic-identity-domain-authority) | builds this context and pushes the image to **ECR** for the EKS/GKE rigs | AWS / GCP |
+## The PingFederate version
 
-That third one is why the image build is not a Railway artefact and does not live in a deploy repo.
+`build/pf-version.env` is the one place the PingFederate version is written down: the image tag and its
+digest, the SDK version the reactor compiles against, and the product version the Terraform provider is
+told. `tools/pf-version-check.py` checks that the other places which name the version agree with it -
+the Dockerfile's `FROM` line among them, which has to stay a literal. Moving to another PingFederate
+release starts with that file, and the modules move with it: build them against the new SDK and stage
+them again. `assemble-pf-runtime-war.sh` refuses jars built for the other servlet namespace, and
+`tools/pf-linkcheck.py` finds a PingFederate member the new release no longer has - both before
+anything boots.
 
 ## What is here, and what you must supply
 
@@ -22,7 +28,7 @@ Tracked:
 | Path | Purpose |
 |---|---|
 | `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `assemble-pf-runtime-war.sh` |
-| `stage-modules.sh` | copies the reactor's eight module jars into `modules/` and writes `MANIFEST` |
+| `stage-modules.sh` | copies the reactor's nine module jars into `modules/` and writes `MANIFEST` |
 | `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war; also used inside the image build |
 | `overlay/config-store/` | plain ForceImport config - not secret |
 
@@ -48,12 +54,15 @@ authentication even for public reads, so the release assets are the auth-free pa
 with none of the security work in it, and nothing anywhere recording that it was behind.
 
 ```sh
-gh release download v0.1.0 -R dphhyland/pf-agentic-identity -D vendor/
+gh release download v<version> -R dphhyland/pf-agentic-identity -D vendor/
 ( cd vendor && sha256sum -c SHA256SUMS )      # verify before use
 grep -E '^(commit|tag):' vendor/PROVENANCE.txt >> VENDORED.txt   # record it
 ```
 
-`modules/` is **eight separate jars**. If you are copying a single `pf-oidf-modules.jar`, you are on
+For PingFederate 13.1.3 that is v0.3.0 or later. Every v0.1.x release is a `javax.servlet` build for
+13.0.x, and moving from one means moving PingFederate in the same change.
+
+`modules/` is **nine separate jars**. If you are copying a single `pf-oidf-modules.jar`, you are on
 the pre-unwind artifact shape that this build no longer produces.
 
 ## Building
@@ -82,7 +91,7 @@ the running container.
 
 ```sh
 # once per environment, by whoever owns the deployment:
-age-keygen -o identity.txt          # keep the identity in a password manager + a sealed Railway var
+age-keygen -o identity.txt          # keep the identity in a password manager + a sealed service secret
 age -r "$(grep -o 'age1[a-z0-9]*' identity.txt)" -o data.zip.age data.zip
 shred -u data.zip                   # the plaintext has no further use
 
@@ -95,11 +104,13 @@ after decryption, so the running key is by construction the one the archive was 
 Supplying them separately is how an archive and a key drift apart, and a PF whose key does not match
 its archive fails in a way that reads like data corruption.
 
-**Verified**, not assumed: alpine 3.23.4 in the base image has the community repo enabled and installs
-`age` 1.2.1 (no static-binary fallback needed); the entrypoint fails closed with a missing identity and
-with a wrong one; and a `docker save` layer scan of an image built this way finds **no** key material,
-against a plaintext-built control that finds four files. That control matters — an earlier version of
-the same scan reported "clean" for both images and was simply broken.
+**Verified**, not assumed, on 2026-08-21 against the 13.0.3 base image (alpine 3.23.4): its community repo
+installs `age` 1.2.1 (no static-binary fallback needed); the entrypoint fails closed with a missing
+identity and with a wrong one; and a `docker save` layer scan of an image built this way finds **no** key
+material, against a plaintext-built control that finds four files. That control matters — an earlier
+version of the same scan reported "clean" for both images and was simply broken. Checked again on
+2026-09-26 on 13.1.3: the base image is alpine 3.24.1, and an image built from this Dockerfile has `age`
+1.3.1. The entrypoint and layer-scan checks have not been repeated on 13.1.3.
 
 **The layer trap.** Staging the key and deleting it in a later `RUN` does *not* remove it: the earlier
 layer still carries it and `docker save` yields it. The plaintext path demonstrably does this. Only

@@ -7,8 +7,10 @@ The rule that produced this file: anything from a published spec is verified by 
 anything about the PingFederate SDK is verified by enumerating the SDK jar on disk. Where neither was
 possible, it lands here rather than being quietly assumed.
 
-Last reviewed: 2026-07-31, against PingFederate 13.0.3. Item 13 added 2026-08-24, against
-draft-ietf-oauth-spiffe-client-auth-02.
+Last reviewed: 2026-09-26, against the PingFederate 13.1.3 jars - items 4, 5 and 9, the ones that name a
+PingFederate version. First written 2026-07-31 against 13.0.3; item 13 added 2026-08-24, against
+draft-ietf-oauth-spiffe-client-auth-02; item 11 resolved 2026-09-24. The findings register planned for
+v0.4.0 (`docs/findings/`) is to take these over as `U-` entries.
 
 ---
 
@@ -63,23 +65,31 @@ A `strings` scan of `pf-protocolengine-13.0.0.3.jar` recovered only five (`authe
 `connection-module-runtime-descriptor`, `custom-drivers`, `idp-authn-adapters`, `sp-authn-adapters`),
 and a broader scan across ~200 jars in a 12.1.3 install added only a handful more. Yet
 `plugins/rar-paz-plugin` demonstrably works via `PF-INF/authorization-detail-processors`, which
-appears in neither scan.
+appeared in neither scan. This entry used to conclude that no scan of the names could be authoritative.
 
-**Conclusion: the PF-INF names are constructed dynamically and no scan of them is authoritative.**
-The SDK *class* enumeration (item 5) is reliable; the PF-INF list is not.
+**Re-checked 2026-09-26, and that conclusion was wrong.** Unzipped and read with `javap`,
+`pf-protocolengine.jar` shows how the names are made: `PluginManagementSupport` builds the path as
+`PF-INF/` plus a base name each plugin manager hands it, so the names are constants in the managers. All
+three this repo uses are there in 13.1.3: `authorization-detail-processors`
+(`AuthorizationDetailProcessorsPluginManagerImpl.BASE_NAME`, in the 13.0.0.3 jar as well),
+`oob-auth-plugins`, and `PF-INF/custom-drivers` (`DataSourceManagerImpl`).
+
+**Still assumed:** nothing beyond those three. A complete list was not compiled, and nothing here needs one.
 
 ## 5. No PingFederate 13.x javadoc or SDK developer's guide on this machine
 
 **Assumed:** interface shapes read directly from the compiled jar are correct.
 
-The only 13.0.3 SDK artifact present is
-`~/.m2/repository/com/pingidentity/pingfederate/pingfederate-sdk/13.0.0.3/pingfederate-sdk-13.0.0.3.jar`
-(396,035 bytes, 455 classes, no `PF-INF`, no resources). There is no `*-javadoc.jar` for any PF
-artifact anywhere, and no PF 13.x install directory.
+Re-checked 2026-09-26. The 13.x SDK artefacts present are two jars under
+`~/.m2/repository/com/pingidentity/pingfederate/pingfederate-sdk/`, both extracted from the public image:
+`13.0.0.3` (396,035 bytes, 455 classes) and `13.1.3.0` (433,677 bytes, 485 classes, the one the reactor
+compiles against). Neither has `PF-INF` or resources. There is still no `*-javadoc.jar` for any PF
+artifact anywhere, no PF 13.x install directory, and no `/opt/server/sdk` in the 13.1.3 image.
 
 Full SDK trees — with `doc/` javadoc HTML and 18 `plugin-src/` examples — exist only for **12.x**, at
 `~/Source/pingfederate-12.1.3/pingfederate/sdk` and several sibling checkouts. Those were used for
-orientation only; every interface named in the plan was confirmed against the 13.0.3 jar itself.
+orientation only; every interface named in the plan was confirmed against the 13.0.3 jar at the time, and
+the code now compiles against 13.1.3.0.
 
 **Consequence:** method *semantics* (as opposed to signatures) are inferred. Where behaviour matters —
 notably `CustomDataSourceDriver.retrieveValues` and the `DynamicClientRegistrationPlugin.processPlugin`
@@ -134,13 +144,15 @@ rather than permanent.
 
 **Assumed:** the `CustomDataSourceDriver` contract as compiled, nothing about how PF drives it.
 
-`InstanceRegistryDataSource` implements the interface exactly as it appears in the 13.0.3 SDK jar, and
-`InstanceLookup` — all the actual logic — is unit tested with no PF on the classpath. What is
-**unverified** is the surrounding configuration: that `PF-INF/custom-drivers` is the right descriptor
-name for this plugin type (see item 4), that a filter field reaches `retrieveValues` the way the GUI
-descriptor implies, and that an issuance criterion can gate on the returned booleans.
+`InstanceRegistryDataSource` implements the interface as it appears in the 13.1.3.0 SDK jar, which it
+compiles against; `javap` shows `CustomDataSourceDriver`, its descriptor and `SourceDescriptor`
+unchanged from 13.0.0.3 (2026-09-26). `InstanceLookup` — all the actual logic — is unit tested with no PF
+on the classpath. The descriptor name is settled: `PF-INF/custom-drivers` is the constant PF reads (item
+4). What is **unverified** is the rest of the surrounding configuration: that a filter field reaches
+`retrieveValues` the way the GUI descriptor implies, and that an issuance criterion can gate on the
+returned booleans. Neither has been run in a PingFederate.
 
-Symptom to expect if the descriptor name is wrong: PF ignores the jar silently, with no error.
+Symptom to expect if PF does not pick the plugin up: it ignores the jar silently, with no error.
 
 ## 10. demo-rs has no HTTP surface or replay cache yet
 

@@ -31,7 +31,7 @@ listener on 9080 and the admin console on 9999 (`administrator`, password in `.a
 
 | Step | Script | Produces |
 |---|---|---|
-| 1 | `gen-keys.sh` | `keys/` - key pairs for the suite's three clients (PF gets the public halves; the suite gets the private); `secrets.env` - a test-user password and two client secrets |
+| 1 | `gen-keys.sh` | `keys/` - eight key pairs: the suite's five clients (two FAPI 2.0, the SSF receiver, two CIBA) and, for the OpenID Federation OP plan, the suite's own trust anchor and its relying party's entity and client keys - PF is only ever given public halves; plus an mTLS CA and two client certificates the FAPI-CIBA plan's configuration insists on, and a CA and certificate for a suite run with `suite/suite-compose.yml`; `secrets.env` - a test-user password and two client secrets |
 | 2 | `author.sh` | a **stock** PF 13.1.3 container with its admin API on `localhost:29999`, the cipher-list overlay and the CIBA plugin staged |
 | 3 | `apply.sh apply` | `terraform/` applied to it: OAuth server settings, a JWT access token manager and mappings, an OIDC policy, a login form and test user, the clients (below) |
 | 4 | `export.sh` | `data.zip` - PF's config archive, its whole saved state; refused if it would fail the suite |
@@ -92,9 +92,9 @@ PF_BASE_URL=https://your.host:port ./up.sh     # substitutes it into the archive
 The suite opens its own TLS handshakes against the token, authorization and userinfo endpoints and fails
 anything it does not like about the listener, so the listener has to be PF's own 9031, reached through
 a TLS-passthrough TCP proxy and not an HTTP edge that terminates TLS. `.context/` is the build context
-a deploy tool wants (`docker build .context`, or `railway up .context --path-as-root`); the deployed
-service needs `.context/vars.env`'s values plus your DevOps credentials as its variables. The demo repo
-`pf-oidf-modules` deploys one such PF (project `pf-conformance`) and keeps the Railway-specific pieces.
+a deploy tool wants (`docker build .context`, or your platform's equivalent); the deployed service needs
+`.context/vars.env`'s values plus your DevOps credentials as its variables. The demo repo
+`pf-oidf-modules` deploys one such PF (project `pf-conformance`) and keeps the platform-specific pieces.
 
 ## Why it is shaped like this
 
@@ -117,17 +117,19 @@ Connect Core §9 says to, and on an archive authored fresh on 13.1.3 the SSF pla
 the token endpoint. `config-store/org.sourceid.oauth20.domain.AuthzServerManagerImpl.xml` turns the check off,
 overlay and archive like the cipher list, and `export.sh` refuses an archive without it. The FAPI 2.0 clients
 are still held to their issuer by the filter below, and a federation RP's assertion at PAR by the
-front-channel registration filter.
+front-channel registration filter. That is a rig's choice, made for one suite: a production PF should have
+the check on - see [the pf-integration README](../servlets/pf-integration/README.md#the-pingfederate-audience-switch).
 
-**Two FAPI 2.0 rules are enforced by a filter, not by PingFederate.** 13.0.3 accepts a client
-assertion addressed to its token endpoint (or the PAR endpoint, or an array) where the profile says
-issuer-only, as a string; and it accepts an RS256-signed DPoP proof where the profile says PS256, ES256
-or EdDSA. Neither can be configured away on 13.0 - the first has a switch in 13.1
-(`Rfc7523bisCompliantAudienceVerification`), the second has none in either. This repo's
-`Fapi2ProfileFilter` enforces both for the clients `OIDF_FAPI2_CLIENTS` names, which is the two FAPI
-clients and deliberately not `*`: the suite's SSF client is an ordinary OAuth client that addresses its
-assertion to the token endpoint, and with the rules applied to everyone the SSF plan went from 19 of
-19 to 1 of 19.
+**Two FAPI 2.0 rules are enforced by a filter, not by PingFederate.** 13.1.3 accepts an RS256-signed
+DPoP proof where the profile says PS256, ES256 or EdDSA, and cannot be told otherwise: its algorithm list
+is a constant (`DpopUtil`, read with `javap` 2026-09-26). The profile says a client assertion's audience is
+the issuer alone, as a string; 13.1's one control for that, `Rfc7523bisCompliantAudienceVerification`, is
+for the whole server - off here, above - and counts audience values, so even on it lets a one-element
+array through. (13.0.3 had neither: it accepted the token endpoint, the PAR endpoint or an array as an
+audience.) This repo's `Fapi2ProfileFilter` enforces both rules for the clients `OIDF_FAPI2_CLIENTS`
+names, which is the two FAPI clients and deliberately not `*`: the suite's SSF client is an ordinary
+OAuth client that addresses its assertion to the token endpoint, and with the rules applied to everyone
+the SSF plan went from 19 of 19 to 1 of 19.
 
 **CIBA has an authentication device that is a directory.** PingFederate implements CIBA itself, but
 the only out-of-band authenticator it ships wants a PingOne tenant and a phone. `plugins/ciba-sim` is
@@ -142,8 +144,9 @@ because this is a rig. `author.sh` stages the jar into the authoring PF, which i
 before it authors: `terraform/ciba.tf` can only instantiate a plugin PF can see.
 
 **Three more small filters close what the FAPI-CIBA plan measures and PF does not do.** The signed
-request object's `exp`/`nbf` window is 720 minutes in 13.0.3 and the profile wants 60: a config-store
-file (`org.sourceid.openid.ciba.handlers.CibaHelper.xml`, overlay and archive like the cipher list).
+request object's `exp`/`nbf` window is 720 minutes in 13.0.3 and 13.1.3 alike - compiled in, with no file
+shipped for it - and the profile wants 60: a config-store file
+(`org.sourceid.openid.ciba.handlers.CibaHelper.xml`, overlay and archive like the cipher list).
 UserInfo, the one resource PF serves itself, sends no `x-fapi-interaction-id` and accepts
 `?access_token=`, both of which FAPI 1.0 Baseline §6.2.1 forbids: `FapiResourceServerFilter`. And a
 refused request object's `error_description` is jose4j's whole explanation with a Java-formatted date
@@ -151,10 +154,12 @@ in it - U+202F, the narrow no-break space, before "PM" - which RFC 6749 §5.2's 
 `OAuthErrorDescriptionFilter` brings a 4xx's description inside the set and touches nothing else.
 
 **13.1.3 is the base, and it is `jakarta.servlet`.** The modules moved with it (0.2.0;
-[docs/pf-13_1-jakarta-migration-plan.md](../docs/pf-13_1-jakarta-migration-plan.md)). Two things that
-were true of 13.0.3 still are: it has no certificate-bound access tokens, and it accepts RS256 on a
-DPoP proof. 13.1 does add `Rfc7523bisCompliantAudienceVerification`, off on an upgraded archive; it is
-not set here, and `Fapi2ProfileFilter` still carries the audience rule until it is.
+[docs/pf-13_1-jakarta-migration-plan.md](../docs/pf-13_1-jakarta-migration-plan.md)); the version is
+pinned in `build/pf-version.env`. Two things that were true of 13.0.3 still are: it has no
+certificate-bound access tokens, and it accepts RS256 on a DPoP proof. 13.1 does add
+`Rfc7523bisCompliantAudienceVerification`, on for a new install and off on an upgraded archive; the rig
+sets it off (above), and `Fapi2ProfileFilter` keeps the audience rule for the FAPI clients whatever it is
+set to, because the switch is server-wide.
 
 ## What the suite says, and what it does not
 
@@ -163,7 +168,7 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 | Plan | Variant | Result |
 |---|---|---|
 | `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED (again 2026-09-25, on an archive authored fresh on 13.1.3 - 1 of 19 before the audience overlay below) |
-| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet from branch `conformance/caep-interop`) |
+| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet, `SsfEventEmitServlet`, on `main` as `d4a4219`) |
 | `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3; the same on 2026-09-25 on an archive authored fresh on 13.1.3) |
 | `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike) - all three on one PingFederate 13.x product gap, below |
 | `openid-federation-deployed-entity-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation`, PF its own trust anchor | 5 modules: 5 WARNING, 0 FAILED (2026-09-25, 13.1.3) - the warning is PF's vendor metadata, below |
@@ -280,8 +285,7 @@ failure didn't happen, so a fix gets recorded as one.
 
 `trigger-caep-events.py` takes the emitter client's secret from `secrets.env` and PF's origin from
 `terraform/variables.tf` (`--base` to override). It exits non-zero if any of the three events reached
-no stream. It needs the `/ssf/events:emit` servlet, which is on branch `conformance/caep-interop`
-until that merges.
+no stream. It needs the `/ssf/events:emit` servlet (`SsfEventEmitServlet` in `servlets/ssf`).
 
 **Against the hosted suite**, for a run that counts: sign in at certification.openid.net, create the
 plan with the same variants, and paste the rendered configuration. The redirect URIs for both suites

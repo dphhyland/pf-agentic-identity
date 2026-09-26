@@ -20,8 +20,9 @@ import org.mockito.ArgumentCaptor;
 /**
  * Who the PDP decides <em>about</em>.
  *
- * <p>PingFederate's {@code AuthorizationDetailContext} exposes no authenticated resource owner, so the
- * processor reads the principal out-of-band. One source is trustworthy — a request attribute an authn
+ * <p>PingFederate's {@code AuthorizationDetailContext} carries no resource owner that holds in every flow
+ * (13.1's {@code getUserKey()} is the client id under client credentials), so the processor reads the
+ * principal out-of-band. One source is trustworthy — a request attribute an authn
  * hook set server-side. Two are not: the {@code login_hint} request parameter and the
  * {@code _principal_sub} marker a BFF folds into {@code authorization_details}. Both are simply what
  * the caller sent, and the resolution treated all three alike.
@@ -60,7 +61,7 @@ class ClientAssertedPrincipalTest {
         when(request.getParameter("login_hint")).thenReturn(loginHint);
         when(request.getAttribute("com.pingidentity.ps.oidf.rar.resource_owner_sub"))
                 .thenReturn(authenticatedAttribute);
-        // A jakarta request goes in; the plugin's javax code reads it through PF's own ee8 bridge.
+        // The way PingFederate 13.1 builds it: a jakarta request, which the plugin reads with getJakartaRequest().
         return new AuthorizationDetailContext.Builder().withRequest(request).withClientId("agent-client").build();
     }
 

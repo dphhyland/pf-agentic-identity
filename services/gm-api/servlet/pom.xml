@@ -6,7 +6,9 @@
 
   <groupId>au.com.idpartners</groupId>
   <artifactId>gm-api</artifactId>
-  <version>1.0.0</version>
+  <!-- The reactor's version (tools/set-version.py moves it with the other poms); the coordinates stay
+       au.com.idpartners:gm-api. It joined the lockstep at 0.2.0, from a standalone 1.0.0. -->
+  <version>0.2.0</version>
   <packaging>war</packaging>
   <name>Grant Evaluation API (PingFederate servlet)</name>
 
@@ -22,6 +24,7 @@
         <maven.deploy.skip>true</maven.deploy.skip>
     <maven.compiler.release>17</maven.compiler.release>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <!-- PF_VERSION in build/pf-version.env; tools/pf-version-check.py holds this to it. -->
     <pingfederate.version>13.1.3</pingfederate.version>
   </properties>
 
@@ -103,6 +106,15 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-war-plugin</artifactId>
         <version>3.4.0</version>
+        <!-- Implementation-Version in the war's manifest: McpServlet reports it as the MCP server version,
+             so the version an agent sees is the one the pom says, not a literal that stops being true. -->
+        <configuration>
+          <archive>
+            <manifest>
+              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+            </manifest>
+          </archive>
+        </configuration>
       </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>

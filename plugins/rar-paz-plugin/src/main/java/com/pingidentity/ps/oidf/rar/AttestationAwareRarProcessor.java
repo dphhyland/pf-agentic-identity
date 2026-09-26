@@ -18,7 +18,7 @@ import org.sourceid.saml20.adapter.gui.CheckBoxFieldDescriptor;
 import org.sourceid.saml20.adapter.gui.TextFieldDescriptor;
 import org.sourceid.saml20.adapter.gui.validation.impl.RequiredFieldValidator;
 
-import javax.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -41,12 +41,21 @@ import java.util.logging.Logger;
  * </ul>
  *
  * <p>The attestation context is published by the client-attestation issuance hook as a request attribute
- * (see {@link AttestationSubject#REQUEST_ATTRIBUTE}) and read here via {@code context.getRequest()}. All I/O
- * and mapping logic lives in framework-agnostic collaborators so it is unit-tested without the SDK.
+ * (see {@link AttestationSubject#REQUEST_ATTRIBUTE}) and read here via {@code context.getJakartaRequest()}.
+ * All I/O and mapping logic lives in framework-agnostic collaborators so it is unit-tested without the SDK.
  */
 public class AttestationAwareRarProcessor implements AuthorizationDetailProcessor {
 
-    private static final String VERSION = "0.1.0";
+    /** The version shown for classes loaded from a directory (a unit test, an IDE), which have no manifest. */
+    static final String DEVELOPMENT_VERSION = "development";
+
+    /**
+     * The version PingFederate shows for this plugin: the {@code Implementation-Version} the build writes into
+     * the jar's manifest from the pom. It used to be the literal "0.1.0", so v0.1.1 to v0.1.5 all said 0.1.0.
+     */
+    private static final String VERSION =
+            versionOf(AttestationAwareRarProcessor.class.getPackage().getImplementationVersion());
+
     private static final String TYPE_NAME = "Attestation-aware RAR to PingAuthorize";
 
     /** Request attribute an authn hook may set with the authenticated resource owner's {@code sub}. */
@@ -86,6 +95,15 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String INSECURE_TLS = "Skip TLS verification (dev only)";
     private static final String TIMEOUT_MS = "Request timeout (ms)";
 
+    // What each switch reads as when its field is missing from the stored configuration, which is also what
+    // the admin console offers: the secure value in every case, so a missing field never relaxes a check.
+    private static final boolean PDP_ATTR_TYPE_PREFIX_DEFAULT = true;
+    private static final boolean DENY_ON_NON_PERMIT_DEFAULT = true;
+    private static final boolean FAIL_OPEN_DEFAULT = false;
+    private static final boolean ALLOW_CLIENT_ASSERTED_PRINCIPAL_DEFAULT = false;
+    private static final boolean TRUST_AGENT_MARKER_DEFAULT = false;
+    private static final boolean INSECURE_TLS_DEFAULT = false;
+
     private static final Set<String> SUPPORTED_TYPES =
             new LinkedHashSet<>(Arrays.asList("sales_agent", "payment_initiation", "account_information"));
 
@@ -117,22 +135,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
 
     @Override
     public void configure(Configuration configuration) {
-        this.config = GovernanceEngineConfig.builder()
-                .pdpUrl(configuration.getFieldValue(PDP_URL))
-                .domainPrefix(configuration.getFieldValue(PDP_DOMAIN_PREFIX))
-                .service(configuration.getFieldValue(PDP_SERVICE))
-                .action(configuration.getFieldValue(PDP_ACTION))
-                .attributePrefix(configuration.getFieldValue(PDP_ATTRIBUTE_PREFIX))
-                .prefixAttributesWithType(configuration.getBooleanFieldValue(PDP_ATTR_TYPE_PREFIX))
-                .secretHeader(configuration.getFieldValue(PDP_SECRET_HEADER))
-                .secret(configuration.getFieldValue(PDP_SECRET))
-                .denyOnNonPermit(configuration.getBooleanFieldValue(DENY_ON_NON_PERMIT))
-                .failOpenOnError(configuration.getBooleanFieldValue(FAIL_OPEN))
-                .allowClientAssertedPrincipal(configuration.getBooleanFieldValue(ALLOW_CLIENT_ASSERTED_PRINCIPAL))
-                .trustAgentMarker(configuration.getBooleanFieldValue(TRUST_AGENT_MARKER))
-                .insecureTls(configuration.getBooleanFieldValue(INSECURE_TLS))
-                .timeoutMillis(parseInt(configuration.getFieldValue(TIMEOUT_MS), 10_000))
-                .build();
+        this.config = settings(configuration);
         HttpTransport transport = new JdkHttpTransport(config.isInsecureTls(), config.getTimeoutMillis());
         String dialect = configuration.getFieldValue(PDP_DIALECT);
         if (DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim())) {
@@ -142,6 +145,44 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         }
         log.info("Configured AttestationAwareRarProcessor (" + (this.client instanceof AuthZenPdpClient
                 ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl());
+    }
+
+    /**
+     * The settings an instance's configuration holds.
+     *
+     * <p>Every switch is read with its secure default, which is also the default the admin console offers. A
+     * field can be missing from a stored configuration: an instance saved before the field existed, or one
+     * written through the admin API or an archive that left it out. PingFederate 13.1.3 hands an instance with
+     * no parent its stored configuration as it is, and fills a child instance's missing fields from the
+     * descriptor's defaults ({@code ConfigurationUtil.createCompositeConfiguration}, read with javap,
+     * 2026-09-26). The two defaults are the same, so either way a missing switch is the secure value. The
+     * one-argument {@code getBooleanFieldValue} read a missing field as false, so a missing "Deny unless
+     * PERMIT" used to turn the check off.
+     */
+    static GovernanceEngineConfig settings(Configuration configuration) {
+        return GovernanceEngineConfig.builder()
+                .pdpUrl(configuration.getFieldValue(PDP_URL))
+                .domainPrefix(configuration.getFieldValue(PDP_DOMAIN_PREFIX))
+                .service(configuration.getFieldValue(PDP_SERVICE))
+                .action(configuration.getFieldValue(PDP_ACTION))
+                .attributePrefix(configuration.getFieldValue(PDP_ATTRIBUTE_PREFIX))
+                .prefixAttributesWithType(configuration.getBooleanFieldValue(PDP_ATTR_TYPE_PREFIX, PDP_ATTR_TYPE_PREFIX_DEFAULT))
+                .secretHeader(configuration.getFieldValue(PDP_SECRET_HEADER))
+                .secret(configuration.getFieldValue(PDP_SECRET))
+                .denyOnNonPermit(configuration.getBooleanFieldValue(DENY_ON_NON_PERMIT, DENY_ON_NON_PERMIT_DEFAULT))
+                .failOpenOnError(configuration.getBooleanFieldValue(FAIL_OPEN, FAIL_OPEN_DEFAULT))
+                .allowClientAssertedPrincipal(configuration.getBooleanFieldValue(ALLOW_CLIENT_ASSERTED_PRINCIPAL,
+                        ALLOW_CLIENT_ASSERTED_PRINCIPAL_DEFAULT))
+                .trustAgentMarker(configuration.getBooleanFieldValue(TRUST_AGENT_MARKER, TRUST_AGENT_MARKER_DEFAULT))
+                .insecureTls(configuration.getBooleanFieldValue(INSECURE_TLS, INSECURE_TLS_DEFAULT))
+                .timeoutMillis(parseInt(configuration.getFieldValue(TIMEOUT_MS), 10_000))
+                .build();
+    }
+
+    /** A manifest's {@code Implementation-Version}, or {@value #DEVELOPMENT_VERSION} when there is none. */
+    static String versionOf(String implementationVersion) {
+        return implementationVersion == null || implementationVersion.isBlank()
+                ? DEVELOPMENT_VERSION : implementationVersion.trim();
     }
 
     @Override
@@ -155,20 +196,20 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         addText(gui, PDP_SERVICE, "PDP service", "Authorization", false);
         addText(gui, PDP_ACTION, "PDP action", "authorize", false);
         addText(gui, PDP_ATTRIBUTE_PREFIX, "Attribute prefix", "idp", false);
-        addCheck(gui, PDP_ATTR_TYPE_PREFIX, "Prefix attributes with detail type", true);
+        addCheck(gui, PDP_ATTR_TYPE_PREFIX, "Prefix attributes with detail type", PDP_ATTR_TYPE_PREFIX_DEFAULT);
         addText(gui, PDP_SECRET_HEADER, "Shared-secret header name", "CLIENT-TOKEN", false);
         addText(gui, PDP_SECRET, "Shared-secret value", "", true);
-        addCheck(gui, DENY_ON_NON_PERMIT, "Deny unless the decision is PERMIT", true);
-        addCheck(gui, FAIL_OPEN, "Fail open if the governance engine is unreachable", false);
+        addCheck(gui, DENY_ON_NON_PERMIT, "Deny unless the decision is PERMIT", DENY_ON_NON_PERMIT_DEFAULT);
+        addCheck(gui, FAIL_OPEN, "Fail open if the governance engine is unreachable", FAIL_OPEN_DEFAULT);
         addCheck(gui, ALLOW_CLIENT_ASSERTED_PRINCIPAL,
                 "Use login_hint / _principal_sub as the decision subject when no authenticated principal is present "
                         + "(the caller chooses who the decision is about - leave off unless a trusted BFF is the only caller)",
-                false);
+                ALLOW_CLIENT_ASSERTED_PRINCIPAL_DEFAULT);
         addCheck(gui, TRUST_AGENT_MARKER,
                 "Where the attestation is not in the request (the authorisation endpoint), take the agent instance from the "
                         + AGENT_DETAIL_KEY + " the attestation filter put in each entry at PAR - only for clients that must use PAR",
-                false);
-        addCheck(gui, INSECURE_TLS, "Skip TLS verification (dev only)", false);
+                TRUST_AGENT_MARKER_DEFAULT);
+        addCheck(gui, INSECURE_TLS, "Skip TLS verification (dev only)", INSECURE_TLS_DEFAULT);
         addText(gui, TIMEOUT_MS, "Request timeout (ms)", "10000", false);
 
         AuthorizationDetailProcessorDescriptor descriptor =
@@ -317,7 +358,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private AttestationSubject readSubject(AuthorizationDetailContext context) {
         try {
             if (context != null) {
-                HttpServletRequest request = context.getRequest();
+                HttpServletRequest request = context.getJakartaRequest();
                 if (request != null) {
                     return AttestationSubject.fromAttribute(request.getAttribute(AttestationSubject.REQUEST_ATTRIBUTE));
                 }
@@ -329,16 +370,19 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     }
 
     /**
-     * The authenticated principal's {@code sub}. PingFederate's {@code AuthorizationDetailContext} has no
-     * resource-owner accessor (verified through SDK 13.0.0.3), so we look for it out-of-band: a request
-     * attribute a future authn hook may set ({@link #RESOURCE_OWNER_ATTRIBUTE}), else the {@code login_hint}
-     * the front-end BFF asserts for its interactively-authenticated user. Returns {@code null} if neither is
-     * present, in which case the builder falls back to the attestation subject / client id.
+     * The authenticated principal's {@code sub}: the request attribute an authn hook may set
+     * ({@link #RESOURCE_OWNER_ATTRIBUTE}), or {@code null}, in which case the builder falls back to the
+     * attestation subject or the client id. The {@code login_hint} is read separately, by {@link #readLoginHint}.
+     *
+     * <p>PingFederate 13.1 adds {@code AuthorizationDetailContext.getUserKey()}, but it is not a principal in
+     * every flow. Read with javap from 13.1.3's {@code pf-protocolengine} (2026-09-26), the client credentials
+     * grant passes the client id as the user key and token exchange passes none. Taken as the principal, it
+     * would have the PDP decide about a client as though it were a user, so it is not read here yet.
      */
     private String readAuthenticatedPrincipal(AuthorizationDetailContext context) {
         try {
             if (context != null) {
-                HttpServletRequest request = context.getRequest();
+                HttpServletRequest request = context.getJakartaRequest();
                 if (request != null) {
                     Object attr = request.getAttribute(RESOURCE_OWNER_ATTRIBUTE);
                     if (attr != null && !String.valueOf(attr).isBlank()) {
@@ -360,7 +404,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private String readLoginHint(AuthorizationDetailContext context) {
         try {
             if (context != null) {
-                HttpServletRequest request = context.getRequest();
+                HttpServletRequest request = context.getJakartaRequest();
                 if (request != null) {
                     String hint = request.getParameter("login_hint");
                     if (hint != null && !hint.isBlank()) {

@@ -3,14 +3,17 @@ package au.com.idpartners.gm.servlet;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import jakarta.servlet.ServletConfig;
+import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.jar.Manifest;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -52,7 +55,9 @@ public class McpServlet extends HttpServlet {
      */
     private static final String PROTOCOL_VERSION = "2025-06-18";
     private static final String SERVER_NAME = "grant-management";
-    private static final String SERVER_VERSION = "1.0.0";
+
+    /** The version shown when the war has no manifest to read (a unit test, an IDE, an exploded directory). */
+    static final String DEVELOPMENT_VERSION = "development";
 
     // JSON-RPC 2.0 error codes.
     private static final int PARSE_ERROR = -32700;
@@ -65,10 +70,13 @@ public class McpServlet extends HttpServlet {
     private final Logger log = Logger.getLogger(getClass().getName());
 
     private GrantOperations ops;
+    /** The version {@code initialize} reports: the war's Implementation-Version, read once at init. */
+    private String serverVersion = DEVELOPMENT_VERSION;
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        serverVersion = versionOf(config.getServletContext());
         ServletConfigs cfg = ServletConfigs.of(config);
         this.ops = new GrantOperations(
                 new PfTokenVerifier(cfg.audience()),
@@ -118,11 +126,34 @@ public class McpServlet extends HttpServlet {
         }
     }
 
+    /**
+     * The war's version, so the MCP server reports the version the pom built rather than a literal that
+     * stops being true. It used to say "1.0.0" whatever the war was. Read from the war's own
+     * {@code META-INF/MANIFEST.MF} (the {@code Implementation-Version} maven-war-plugin writes from the
+     * pom): classes under WEB-INF/classes have no jar manifest, so the package's implementation version
+     * is null here, and the servlet context is the one place the war's manifest can be read from. Falls
+     * back to {@link #DEVELOPMENT_VERSION} when there is no manifest or no entry.
+     */
+    static String versionOf(ServletContext context) {
+        if (context == null) {
+            return DEVELOPMENT_VERSION;
+        }
+        try (InputStream in = context.getResourceAsStream("/META-INF/MANIFEST.MF")) {
+            if (in == null) {
+                return DEVELOPMENT_VERSION;
+            }
+            String version = new Manifest(in).getMainAttributes().getValue("Implementation-Version");
+            return version == null || version.isBlank() ? DEVELOPMENT_VERSION : version.trim();
+        } catch (IOException e) {
+            return DEVELOPMENT_VERSION;
+        }
+    }
+
     private Map<String, Object> initialize() {
         return Map.of(
                 "protocolVersion", PROTOCOL_VERSION,
                 "capabilities", Map.of("tools", Map.of()),
-                "serverInfo", Map.of("name", SERVER_NAME, "version", SERVER_VERSION),
+                "serverInfo", Map.of("name", SERVER_NAME, "version", serverVersion),
                 "instructions",
                 "Ask before you act. These tools tell you whether a user's existing consent "
                         + "still permits an operation -- which is not the same as your token being "

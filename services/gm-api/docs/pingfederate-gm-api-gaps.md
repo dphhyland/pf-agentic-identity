@@ -2,7 +2,8 @@
 
 An implementer's report against **PingFederate 13.0.3**, testing the OIDF
 [Grant Management API](https://openid.net/specs/oauth-v2-grant-management-1_0.html) draft
-plus the proposed Grant Evaluation extension (`docs/GMAPI-Extension.md`).
+plus the proposed Grant Evaluation extension (`docs/GMAPI-Extension.md`). The servlet now builds for
+PingFederate 13.1.3; the checks below have not been repeated there (noted 2026-09-26).
 
 The short version: **§6 and §7.1 can be added from outside the product. §5 cannot.** That
 line is not about effort — it is where the spec stops describing endpoints and starts

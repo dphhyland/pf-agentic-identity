@@ -21,6 +21,10 @@ TF_VAR_pf_admin_password="$(sed -n 's/^PING_IDENTITY_PASSWORD=//p' "$PF_AUTHOR_E
 [[ -n "$TF_VAR_pf_admin_password" ]] || { echo "ERROR: no PING_IDENTITY_PASSWORD in $PF_AUTHOR_ENV" >&2; exit 1; }
 export TF_VAR_pf_admin_password
 export TF_VAR_pf_admin_host="${PF_ADMIN_HOST:-https://localhost:19999}"
+# The product version the provider is told, from the one place the PingFederate version is written down.
+# shellcheck disable=SC1091
+. "$HERE/../build/pf-version.env"
+export TF_VAR_pf_product_version="${PF_TERRAFORM_PRODUCT_VERSION:?}"
 
 cd "$HERE/terraform"
 [[ -d .terraform ]] || terraform init -input=false
