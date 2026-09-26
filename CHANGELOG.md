@@ -10,7 +10,12 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 ## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Nothing has landed yet.
+hygiene.
+
+- **CI hygiene** (R-CI1 to R-CI4) - every action pinned to a commit with least-privilege tokens; actionlint,
+  zizmor, shellcheck and `terraform validate` in the lint job; the secrets guard's content scan extended to private
+  JWKs and every PEM kind, with gitleaks beside it; CodeQL for Java, Actions, Python and JavaScript; Dependabot;
+  the rig's Terraform lock file committed; CODEOWNERS.
 
 ## [0.3.0] - 2026-09-27
 
