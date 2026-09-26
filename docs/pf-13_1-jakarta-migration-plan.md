@@ -509,7 +509,12 @@ entries; this list stays as the record.
 - **Whether a throwing OGNL criterion denies or permits.** On 13.1.3 the un-migrated
   `ClientAttestationUtils` throws `ClassCastException` on its first line. `idp-agentic-demo` runs
   that criterion as its only gate on the token endpoint. Find out which way it fails before anyone
-  bumps that repo's `FROM` line - and do not bump it without re-vendoring.
+  bumps that repo's `FROM` line - and do not bump it without re-vendoring. *Settled 2026-09-26 on the
+  rig, 13.1.3.0: it denies. A criterion whose expression or method call throws answers 400 `invalid_grant`
+  with its Error Result, logs `Actual Value(s): false (Exception)` from
+  `TokenAuthorizationIssuanceCriteriaChecker`, and audits a failure - [docs/unverified.md](unverified.md)
+  item 15. So a `FROM` bumped without re-vendoring refuses every gated token, loudly, rather than issuing
+  them.*
 - **The demo's PingOne MFA integration kit on 13.1.** It is an SDK plugin, so it should ride the
   same bridged seam as this repo's plugin. Not tested.
 - **Rollback.** A 13.0.3 archive imports into 13.1.3 (observed in the original finding). The reverse

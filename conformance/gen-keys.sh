@@ -1,10 +1,15 @@
 #!/usr/bin/env bash
-# Generate the conformance suite's client keys and the rig's two generated secrets.
+# Generate the conformance suite's key pairs and certificates, and the rig's three generated secrets.
 #
-# The suite authenticates to PingFederate as three clients, each by private_key_jwt: two FAPI 2.0
-# clients (the plan needs a second one to prove a code or a token is bound to the first) and one SSF
-# receiver. PF holds only the PUBLIC half (terraform/clients.tf reads keys/*.public.jwks.json); the
-# private half goes into the suite configuration and nowhere else. Nothing written here is committed.
+# Eight key pairs: the suite's five clients, each authenticating by private_key_jwt - two FAPI 2.0
+# clients (the plan needs a second one to prove a code or a token is bound to the first), one SSF
+# receiver and two CIBA clients - and, for the OpenID Federation OP plan, the suite's own trust anchor,
+# its relying party's entity keys and that RP's client keys. PF holds only the PUBLIC half
+# (terraform/clients.tf reads keys/*.public.jwks.json; the federation-op profile pins the anchor's); the
+# private half goes into the suite configuration and nowhere else. Then an mTLS CA with two client
+# certificates the FAPI-CIBA plan's configuration insists on, a TLS CA and certificate for a suite run
+# with suite/suite-compose.yml, and secrets.env: the test user's password and two client secrets (the SSF
+# introspection client's and the event operator's). Nothing written here is committed.
 #
 # Idempotent: an existing key or secret is kept, because regenerating one silently invalidates the
 # archive already exported with its public half in it. Delete keys/ or secrets.env to rotate, then
