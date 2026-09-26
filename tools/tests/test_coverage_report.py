@@ -1,7 +1,7 @@
 """tools/coverage-report.py on a fixture reactor: a complete build renders clean and exits 0; a build that
 left a module without its surefire or jacoco report, or a gate that includes nothing, is written up as
-incomplete and exits 1 (0 with --no-strict); a failing gate is reported, not treated as a gap; --check is
-gone."""
+incomplete and exits 1 (0 with --no-strict); a failing gate is reported, not treated as a gap; a module whose
+tests are all @ParameterizedTest counts as tested; --check is gone."""
 import io
 import pathlib
 import tempfile
@@ -72,6 +72,17 @@ class GateTest {
     @Test
     @Requirement("RFC9999 §1.2")
     void accepts() { }
+}
+"""
+
+# JUnit 5's other test annotations: nothing in this file contains "@Test".
+CASES_TEST = """package com.example;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
+class CasesTest {
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "b"})
+    void accepts(String s) { }
 }
 """
 
@@ -152,7 +163,7 @@ class CoverageReportTest(unittest.TestCase):
         self.assertIn("**1 of 2 conformance-matrix rows are pinned by a test.**", md)
         self.assertIn("- `RFC9999 §2` — client-attestation-architecture.md", md)
         self.assertNotIn("- `RFC9999 §1` —", md)
-        self.assertIn("Not tracked: CI regenerates it from every Build run", md)
+        self.assertIn("Not tracked: CI regenerates it from every Build run whose reactor build", md)
 
     def test_a_missed_line_is_a_failing_gate_not_a_gap(self):
         fixture(self.root, decide_missed=1)
@@ -198,6 +209,18 @@ class CoverageReportTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("libs/decide: its jacoco check includes no method, so it gates nothing", err)
         self.assertEqual(len([line for line in err.splitlines() if line.startswith("incomplete build:")]), 1)
+
+    def test_a_parameterized_test_alone_is_a_test_that_needs_a_report(self):
+        fixture(self.root)
+        write(self.root, "pom.xml",
+              ROOT_POM.replace("</modules>", "    <module>libs/cases</module>\n    </modules>"))
+        write(self.root, "libs/cases/pom.xml", "<project/>\n")
+        write(self.root, "libs/cases/src/test/java/com/example/CasesTest.java", CASES_TEST)
+        code, _, err = self.run_main()
+        self.assertEqual(code, 1)
+        self.assertIn("incomplete build: libs/cases: has test sources and no surefire report", err)
+        cases = next(m for m in cr.collect()["modules"] if m["name"] == "libs/cases")
+        self.assertTrue(cases["has_tests"])
 
     def test_a_helper_without_a_test_needs_no_report(self):
         fixture(self.root)

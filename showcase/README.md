@@ -47,16 +47,16 @@ error` on and TLS verification skipped.
 ## Keeping it current
 
 The page was generated from the code, READMEs and Terraform, then audited claim by claim. Two parts of that
-are mechanical, and CI runs both on every Build:
+are mechanical, and CI runs both on every Build whose reactor build completes:
 
 - **The documents.** `node tools/build-showcase-docs.mjs` renders every tracked Markdown file - and the
   coverage dashboard, when `python3 tools/coverage-report.py` has left one at `docs/coverage-dashboard.md` -
   into `showcase/docs.js`, which `index.html` loads before its own script (run `npm ci --prefix tools` once
   first; the renderer is pinned). Until 2026-09-27 the documents were a line of `index.html`, which every
   documentation change regenerated and which conflicted whenever two such changes met; `docs.js` is git-ignored
-  instead, the same decision as the dashboard (plan decision 18). CI builds it after the reactor and uploads `showcase/` as the
-  `showcase` artefact of the run. Locally, rebuild it after changing a document; there is no `--check`, because
-  nothing is committed to compare with.
+  instead, the same decision as the dashboard (plan decision 18). CI builds it once the reactor build and the
+  dashboard have passed, and uploads `showcase/` as the run's `showcase` artefact. Locally, rebuild it after
+  changing a document; there is no `--check`, because nothing is committed to compare with.
 - **The source links.** `python3 tools/check-showcase-links.py` fails when a boxed link names a file that isn't
   tracked or a line past its end, on this page or on `federation.html`, and when a `#doc:` link or the
   documentation index names a document `docs.js` does not carry - so build `docs.js` first. A citation of the

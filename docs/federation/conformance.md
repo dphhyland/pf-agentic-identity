@@ -74,4 +74,5 @@ Three more measures:
 
 To run them: `mvn verify` from the repository root, then `python3 tools/coverage-report.py` to write the
 dashboard to `docs/coverage-dashboard.md` (not tracked; CI publishes it as the `coverage-dashboard` artefact of
-every Build run). [`docs/federation/conformance-matrix.md`](conformance-matrix.md) says how the ids are written.
+every Build run whose reactor build completes). [`docs/federation/conformance-matrix.md`](conformance-matrix.md)
+says how the ids are written.

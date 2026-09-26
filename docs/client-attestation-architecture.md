@@ -369,9 +369,9 @@ implemented** — stated so it is not mistaken for coverage.
 The **Id** column is the join key. A test pins a row by carrying that id in a `@Requirement`
 annotation, and the coverage dashboard reports which rows nothing pins (`docs/coverage-dashboard.md` - not
 tracked: `python3 tools/coverage-report.py` writes it after `mvn verify`, and CI publishes it as the
-`coverage-dashboard` artefact of every Build run). A row reads `—` where no clause id could be verified
-against the document itself; that is a gap in the citation, not in the code, and it is left visible rather
-than filled with a plausible guess.
+`coverage-dashboard` artefact of every Build run whose reactor build completes). A row reads `—` where no
+clause id could be verified against the document itself; that is a gap in the citation, not in the code, and
+it is left visible rather than filled with a plausible guess.
 
 ### 4.1 `draft-ietf-oauth-attestation-based-client-auth-10`
 
@@ -483,11 +483,11 @@ Does the implementation match the text it published?
 Counts are no longer written down here. They went stale twice — this paragraph reported six modules
 from a run on 2026-08-22 long after the reactor had grown to fifteen — so the numbers now live on the
 coverage dashboard, which `tools/coverage-report.py` generates from the jacoco reports and the
-`@Requirement` annotations. It is not tracked (from 2026-09-27): CI generates it on every Build run and
-publishes it as the `coverage-dashboard` artefact, and the generator exits 1 when a module that has tests
-left no report, so a build that skipped them cannot pass as green. Locally, `python3 tools/coverage-report.py`
-after `mvn verify` writes `docs/coverage-dashboard.md`. Read the totals, the gate status and the
-pinned-requirement inventory there.
+`@Requirement` annotations. It is not tracked (from 2026-09-27): CI generates it on every Build run whose
+reactor build completes and publishes it as the `coverage-dashboard` artefact, and the generator exits 1 when
+a module that has tests left no report, so a build that skipped them cannot pass as green. Locally,
+`python3 tools/coverage-report.py` after `mvn verify` writes `docs/coverage-dashboard.md`. Read the totals,
+the gate status and the pinned-requirement inventory there.
 
 The tables below say which tests pin which §4 row. They are about *what* is asserted, not how many —
 which is why they survive a module count changing and the paragraph above them did not.

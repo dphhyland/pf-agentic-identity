@@ -9,9 +9,10 @@
 // 2026-09-27, which every documentation change regenerated and which conflicted whenever two met). It declares
 // `const DOCS_HTML = {...}`, one entry per document, and index.html loads it with a script tag before its own
 // script; when it is missing the page still works and its Documentation view says how to build it. CI builds it
-// after the reactor on every Build run and uploads showcase/ as the `showcase` artefact. The coverage dashboard,
-// which tools/coverage-report.py writes after `mvn verify` and which is not tracked either, is rendered too when
-// the last build left one, so the artefact carries the dashboard of the run that built it.
+// after the reactor and the dashboard on every Build run that gets that far, and uploads showcase/ as the
+// `showcase` artefact. The coverage dashboard, which tools/coverage-report.py writes after `mvn verify` and which
+// is not tracked either, is rendered too when the last build left one, so the artefact carries the dashboard of
+// the run that built it.
 //
 // The page loads no libraries, so this renders the way it expects: headings carry ids (lower case, anything that
 // isn't a letter or digit turned into one hyphen), a Mermaid block is shown as its source in pre.mermaid-src, a
