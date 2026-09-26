@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2286 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2307 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -20,7 +20,7 @@ which says nothing about whether the security paths are the covered ones.
 |---|---:|---|---:|---:|
 | `libs/oidf-jose` | 11 | green | 88% | 135 |
 | `libs/app-attest` | 8 | green | 82% | 40 |
-| `libs/device-instance` | 15 | green | 42% | 44 |
+| `libs/device-instance` | 15 | green | 83% | 65 |
 | `libs/client-attestation` | 8 | green | 77% | 106 |
 | `libs/openid-federation` | 217 | green | 96% | 577 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
