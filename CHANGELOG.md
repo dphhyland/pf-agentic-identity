@@ -10,7 +10,13 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 ## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Nothing has landed yet.
+hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+
+- **Generated files leave git** (plan decision 18; R-CI5's publish step, brought forward from Phase 2):
+  `docs/coverage-dashboard.md` and `.html` and the showcase's rendered documents (now `showcase/docs.js`) are
+  generated and git-ignored, and every CI Build publishes them as its `coverage-dashboard` and `showcase`
+  artefacts; `tools/coverage-report.py` is strict by default and exits 1 for a build that left a module without
+  its reports; the Build's `java` job runs device-instance's Postgres suite against a service container.
 
 ## [0.3.0] - 2026-09-27
 

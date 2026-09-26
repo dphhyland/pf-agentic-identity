@@ -9,6 +9,12 @@ that moved and the line past the end. A reference into a sibling repository (`pf
 checked here. Every `#doc:` link, and every document the documentation index lists, must name a document the
 page carries.
 
+The documents come from showcase/docs.js, which `node tools/build-showcase-docs.mjs` writes and git ignores, so
+build that first. A reference to a generated file - the coverage dashboard, which tools/coverage-report.py
+writes after `mvn verify` and nothing tracks - is checked against the copy the last build left, and noted rather
+than failed when there is none: CI always has one by the time this runs, and a checkout that has not built can
+still check everything hand-written.
+
     python3 tools/check-showcase-links.py
 """
 import json
@@ -19,7 +25,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "showcase" / "index.html"
+DOCS_JS = ROOT / "showcase" / "docs.js"
 PAGES = [ROOT / "showcase" / "federation.html"]
+# Written by the build and never tracked. A citation of one is checked when the file is here and noted when not;
+# a `#doc:` link to the .md is a failure only when docs.js carries no copy and the document is not one of these.
+GENERATED = {"docs/coverage-dashboard.md", "docs/coverage-dashboard.html"}
 HREF_RE = re.compile(r'<a\b[^>]*\bhref="([^"]+)"[^>]*>')
 LINES_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 DOC_LINK_RE = re.compile(r"#doc:([^\s\"'()#`<>\]]+)")
@@ -49,8 +59,11 @@ def sources(node):
             yield from sources(value)
 
 
-def problems(reference, tracked, directories, sibling_repos, line_counts):
-    """What is wrong with one `src` value, which may name several files separated by semicolons."""
+def problems(reference, tracked, directories, sibling_repos, line_counts, unbuilt=frozenset(), skipped=None):
+    """What is wrong with one `src` value, which may name several files separated by semicolons.
+
+    A segment naming a file in `unbuilt` - generated, and not here to read - is appended to `skipped` instead
+    of being judged."""
     found = []
     for segment in (s.strip() for s in reference.split(";")):
         if not segment:
@@ -64,6 +77,10 @@ def problems(reference, tracked, directories, sibling_repos, line_counts):
         rest = segment[len(path):]
         lines = re.split(r"\s", rest[1:], maxsplit=1)[0] if rest.startswith(":") else ""
         if path not in tracked:
+            if path in unbuilt:
+                if skipped is not None:
+                    skipped.append(segment)
+                continue
             if path.rstrip("/") in directories and not lines:
                 continue
             found.append(f"{segment}: {path} is not a tracked file")
@@ -82,7 +99,18 @@ def problems(reference, tracked, directories, sibling_repos, line_counts):
     return found
 
 
-def page_links(page, docs, tracked, directories, sibling_repos, line_counts):
+def doc_missing(target, docs, label, failures, skipped):
+    """A `#doc:` target or documentation-index entry that docs.js does not carry: a failure, unless it is a
+    generated document that had not been built when docs.js was, which is noted."""
+    if target in docs:
+        return
+    if target in GENERATED:
+        skipped.append(label)
+    else:
+        failures.append(f"{label}: the page carries no such document")
+
+
+def page_links(page, docs, tracked, directories, sibling_repos, line_counts, unbuilt=frozenset(), skipped=None):
     """The links from another showcase page: into the repository (with any data-lines), and into index.html's documents."""
     found = []
     name = page.relative_to(ROOT)
@@ -91,20 +119,28 @@ def page_links(page, docs, tracked, directories, sibling_repos, line_counts):
         lines = re.search(r'\bdata-lines="([^"]+)"', tag.group(0))
         if href.startswith("index.html#doc:"):
             target = href[len("index.html#doc:"):].split("#")[0]
-            if target not in docs:
-                found.append(f"{href} (in {name}): the page carries no such document")
+            doc_missing(target, docs, f"{href} (in {name})", found, skipped if skipped is not None else [])
         elif href.startswith("../"):
             reference = href[3:].split("#")[0] + (":" + lines.group(1) if lines else "")
-            found.extend(f"{problem} (in {name})" for problem in problems(reference, tracked, directories, sibling_repos, line_counts))
+            found.extend(f"{problem} (in {name})"
+                         for problem in problems(reference, tracked, directories, sibling_repos, line_counts, unbuilt, skipped))
     return found
 
 
 def main():
     page = PAGE.read_text(encoding="utf-8")
+    if not DOCS_JS.is_file():
+        print("showcase/docs.js is not built, so the documents cannot be checked: run `npm ci --prefix tools` and "
+              "`node tools/build-showcase-docs.mjs`, then this again", file=sys.stderr)
+        return 1
     data = constant(page, "DATA")
-    docs = constant(page, "DOCS_HTML")
+    docs = constant(DOCS_JS.read_text(encoding="utf-8"), "DOCS_HTML")
     tracked = set(subprocess.run(["git", "ls-files"], cwd=ROOT, capture_output=True, text=True, check=True).stdout.split("\n"))
     tracked.discard("")
+    # A generated file the last build left is checked like a tracked one; one that is absent is noted.
+    built = {p for p in GENERATED if (ROOT / p).is_file()}
+    unbuilt = GENERATED - built
+    tracked |= built
     directories = {str(Path(p).parent) for p in tracked}
     directories |= {str(parent) for p in tracked for parent in Path(p).parents}
     sibling_repos = siblings(page)
@@ -116,23 +152,21 @@ def main():
         return counts[path]
 
     failures = []
+    skipped = []
     references = list(sources(data))
     for reference in references:
-        failures.extend(problems(reference, tracked, directories, sibling_repos, line_counts))
+        failures.extend(problems(reference, tracked, directories, sibling_repos, line_counts, unbuilt, skipped))
     for group in data.get("docs", []):
         for item in group.get("items", []):
-            if item.get("path") not in docs:
-                failures.append(f"{item.get('path')} (in the documentation index): the page carries no such document")
+            doc_missing(item.get("path"), docs, f"{item.get('path')} (in the documentation index)", failures, skipped)
     for other in PAGES:
-        failures.extend(page_links(other, docs, tracked, directories, sibling_repos, line_counts))
+        failures.extend(page_links(other, docs, tracked, directories, sibling_repos, line_counts, unbuilt, skipped))
     data_text = json.dumps(data)
     for target in sorted(set(DOC_LINK_RE.findall(data_text))):
-        if target not in docs:
-            failures.append(f"#doc:{target} (in DATA): the page carries no such document")
+        doc_missing(target, docs, f"#doc:{target} (in DATA)", failures, skipped)
     for doc, rendered in docs.items():
         for target in sorted(set(DOC_LINK_RE.findall(rendered["html"]))):
-            if target not in docs:
-                failures.append(f"#doc:{target} (in {doc}): the page carries no such document")
+            doc_missing(target, docs, f"#doc:{target} (in {doc})", failures, skipped)
 
     if failures:
         print(f"showcase/index.html: {len(failures)} of its references point nowhere:", file=sys.stderr)
@@ -140,6 +174,11 @@ def main():
             print(f"  {failure}", file=sys.stderr)
         return 1
     print(f"showcase/index.html: all {len(references)} source references and every #doc: link resolve")
+    if skipped:
+        print(f"not checked - {len(skipped)} reference(s) name a generated file that is not built here: "
+              + "; ".join(sorted(set(skipped)))
+              + ". Build it (mvn verify, python3 tools/coverage-report.py, node tools/build-showcase-docs.mjs) "
+              "to check those too.")
     return 0
 
 

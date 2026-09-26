@@ -92,7 +92,9 @@ pipeline (`context.statements` verbatim, every other member becoming one stateme
 mvn -pl plugins/rar-paz-plugin -am package   # from the repo root → target/pf.plugins.pf-rar-paz-plugin.jar
 ```
 JDK 17+ (the pom targets release 17). Jacoco gates the decision methods at 100%; the test
-count is in `docs/coverage-dashboard.md`. Versions come from the repo BOM (`bom/pom.xml`).
+count is on the coverage dashboard (`python3 tools/coverage-report.py` after `mvn verify` writes
+`docs/coverage-dashboard.md`, not tracked; CI publishes it as the `coverage-dashboard` artefact of
+every Build run). Versions come from the repo BOM (`bom/pom.xml`).
 The PF SDK is not on Maven Central - `pf-protocolengine` + `pingfederate-sdk` 13.1.3.0 are
 extracted from the public PF image into `~/.m2` by
 `.github/actions/pf-provided-jars/action.yml`; run its `install:install-file` lines once.

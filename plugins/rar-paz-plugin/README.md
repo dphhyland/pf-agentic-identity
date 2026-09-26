@@ -13,7 +13,9 @@ reference read only `statements` and could never deny), maps a real principal ra
 `"joe"`, passes the attested entitlement so policy can enforce `requested ⊆ attested`, scopes the
 insecure-TLS switch to a dev flag, and implements a real `isEqualOrSubset` for refresh-time narrowing.
 
-Status: unit-tested (the count is in [the coverage dashboard](../../docs/coverage-dashboard.md)). Verified
+Status: unit-tested (the count is on the coverage dashboard: `python3 tools/coverage-report.py` after
+`mvn verify` writes `docs/coverage-dashboard.md`, not tracked, and CI publishes it as the `coverage-dashboard`
+artefact of every Build run). Verified
 live against PingAuthorize, as recorded on 2026-08-15, on the agentic demo's PingFederate 13.0.3 with the
 `javax.servlet` build: it governed payment consent end-to-end (PERMIT ≤ limit / DENY over-limit),
 attributed the decision to the authenticated principal (`UserID` / AuthZEN `subject`) with the agent
