@@ -1,7 +1,10 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -16,22 +19,27 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletRequest;
 import jakarta.servlet.ServletResponse;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.jose4j.jwt.JwtClaims;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
- * OpenID Federation §12.1 Automatic Registration, realised transparently at the OAuth token endpoint.
+ * OpenID Federation §12.1 Automatic Registration, and §12.3 registration lifetime, at the OAuth token endpoint.
  *
  * <p>A federation client that has never called {@code /federation/register} can still obtain a token: it
  * presents its Trust Chain inline in the {@code trust_chain} header of its {@code client_assertion}, and the
  * Authorization Server validates the chain and derives the client's metadata on the fly. Because PingFederate
  * must have a persisted client record to authenticate a token request, this filter runs <b>before</b> PF's
  * token-endpoint client authentication: it just-in-time materialises the client from its resolved federation
- * metadata (marking it {@code auto_registered}) so the very same request then authenticates normally. It is
- * idempotent — an already-registered client is left untouched — and fail-open: any provisioning error is
- * logged and the request proceeds unchanged (PF then rejects the unknown/unauthenticated client as usual).
+ * metadata (marking it {@code auto_registered}) so the very same request then authenticates normally.
+ *
+ * <p>Every federation registration also has an end (§12.3). A request naming a federation client whose
+ * registration is due is where it is renewed or, past its expiry, refused - see
+ * {@link RegistrationService#admit}. Refusal is the default: a registration that fails, or an expired one that
+ * cannot be renewed, is answered here with an RFC 6749 error and the reason, instead of being passed on for
+ * PingFederate to refuse without one - or to accept, for a client registered before.
+ * {@code OIDF_AUTO_REGISTRATION_FAIL_CLOSED=false} restores the old pass-through.
  *
  * <p>Deployment: map this filter over the PF token endpoint in the runtime web application, e.g.
  * <pre>{@code
@@ -51,6 +59,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     private static final Log LOGGER = LogFactory.getLog(TokenEndpointAutoRegistrationFilter.class);
     private volatile RegistrationService service;
     private final Function<HttpServletRequest, String> issuerResolver;
+    private volatile boolean failClosed = true;
 
     public TokenEndpointAutoRegistrationFilter() {
         this.issuerResolver = TokenEndpointAutoRegistrationFilter::defaultIssuer;
@@ -63,8 +72,19 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
 
     /** Test seam: inject the registration service and the OP-issuer resolver (avoids the PF runtime singleton). */
     TokenEndpointAutoRegistrationFilter(RegistrationService service, Function<HttpServletRequest, String> issuerResolver) {
+        this(service, issuerResolver, true);
+    }
+
+    /** Test seam: as above, choosing whether a failed registration refuses the request. */
+    TokenEndpointAutoRegistrationFilter(RegistrationService service, Function<HttpServletRequest, String> issuerResolver, boolean failClosed) {
         this.service = service;
         this.issuerResolver = issuerResolver;
+        this.failClosed = failClosed;
+    }
+
+    /** Whether a registration that fails refuses the request ({@code OIDF_AUTO_REGISTRATION_FAIL_CLOSED}). */
+    boolean isFailClosed() {
+        return this.failClosed;
     }
 
     private static String defaultIssuer(HttpServletRequest request) {
@@ -73,6 +93,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
 
     @Override
     public void init(FilterConfig config) throws ServletException {
+        PfAuditEventSink.install();
         if (this.service != null) {
             return;
         }
@@ -82,7 +103,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
         // registration servlet had established. Only the per-component sizing knobs come from
         // init-params now.
         FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-        if (runtime.isTrustControllerConfigured() && runtime.trustAnchorJwks() == null) {
+        if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
             // Refuse, but do not take the web app down. The modules are merged into pf-runtime.war, so a
             // failed init here would also stop this entity's own /.well-known/openid-federation - and a
             // PF that is its own trust anchor has to serve that before anyone can capture the keys to
@@ -94,24 +115,26 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
                     + " trust anchor's keys are pinned (§4: they are distributed out of band, not fetched)"));
             return;
         }
-        int cacheMaxEntries = parseInt(config.getInitParameter("subordinateStatementCacheMaxEntries"), 256);
-        long trustChainEntryMaxAge = parseLong(config.getInitParameter("trustChainEntryMaxAgeSeconds"), 60L);
-        Set<String> acceptedSigningAlgorithms = parseCsv(config.getInitParameter("acceptedSigningAlgorithms"));
-        RegistrationConfiguration configuration = new RegistrationConfiguration(runtime.trustControllerHost(),
-                runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(), cacheMaxEntries, trustChainEntryMaxAge,
-                "RS256", acceptedSigningAlgorithms);
         // Building the service builds the validator, and the validator needs the anchor's out-of-band
         // keys (FederationRuntimeConfig.trustAnchor). No trust controller at all, or a JWKS that is set
         // but is not a usable public key set, is a deployment error that no request can fix: refuse to
         // start, naming what to set. (The "no trust controller" case already failed init before the
         // anchor keys existed - the old validator constructor threw on a blank anchor - but as an
-        // unchecked exception, which a container does not reliably surface from init.)
+        // unchecked exception, which a container does not reliably surface from init.) So is an init-param
+        // that does not parse: it used to mean the default, quietly.
         try {
-            this.service = new RegistrationService(configuration);
+            this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
         }
         catch (RuntimeException e) {
             throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
         }
+        this.failClosed = runtime.registration().failClosed();
+        if (!this.failClosed) {
+            LOGGER.warn((Object)(FederationRuntimeConfig.AUTO_REGISTRATION_FAIL_CLOSED_ENV + "=false: a token request whose federation"
+                    + " registration fails, or whose registration has expired, is passed on to PingFederate rather than refused"));
+        }
+        new RegistrationExpirySweeper(new com.pingidentity.ps.oidf.pf.PfMgmtClientStore(), this.service.lifetime())
+                .startOnce(runtime.registration().sweepIntervalSeconds());
         LOGGER.info((Object)("TokenEndpointAutoRegistrationFilter initialised (trust controller "
                 + runtime.trustControllerHost() + ")"));
     }
@@ -119,37 +142,81 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
         // No service means init refused automatic registration (no pinned anchor keys); pass through.
-        if (request instanceof HttpServletRequest && this.service != null) {
+        if (!(request instanceof HttpServletRequest http) || !(response instanceof HttpServletResponse httpResponse) || this.service == null) {
+            chain.doFilter(request, response);
+            return;
+        }
+        // What this request raises reaches PingFederate's audit log with the caller's address.
+        PfRequestScope.Context outer = PfRequestScope.enter(http);
+        try {
+            String clientAssertion = http.getParameter("client_assertion");
+            String clientId = clientIdOf(http, clientAssertion);
+            if (clientId == null) {
+                chain.doFilter(request, response);
+                return;
+            }
             try {
-                this.maybeAutoRegister((HttpServletRequest)request);
+                this.service.admit(clientId, extractTrustChain(clientAssertion), this.issuerResolver.apply(http));
+            }
+            catch (RegistrationRejectedException e) {
+                if (!this.failClosed) {
+                    LOGGER.info((Object)("Automatic registration skipped (" + e.error() + "): " + e.getMessage()));
+                    chain.doFilter(request, response);
+                    return;
+                }
+                // RFC 6749 §5.2: a client whose federation registration cannot stand has failed client
+                // authentication; one whose federation cannot be reached right now, or that arrived while this
+                // server was busy registering, may try again.
+                boolean retryable = e.isRetryable();
+                if (retryable) {
+                    httpResponse.setHeader("Retry-After", e.kind() == RegistrationRejectedException.Kind.BUSY ? "2"
+                            : Long.toString(RegistrationService.TRANSPORT_FAILURE_BACKOFF_SECONDS));
+                }
+                OAuthErrorWriter.write(httpResponse, retryable ? 503 : 401, retryable ? "temporarily_unavailable" : "invalid_client",
+                        e.getMessage());
+                return;
             }
             catch (Exception e) {
-                // Fail open: never block a token request because auto-registration could not complete.
-                LOGGER.info((Object)("Automatic registration skipped: " + e.getMessage()));
+                if (!this.failClosed) {
+                    LOGGER.info((Object)("Automatic registration skipped: " + e.getClass().getSimpleName()));
+                    chain.doFilter(request, response);
+                    return;
+                }
+                LOGGER.error((Object)"Federation registration at the token endpoint failed", e);
+                OAuthErrorWriter.write(httpResponse, 500, "server_error", "the federation registration could not be completed");
+                return;
             }
+            chain.doFilter(request, response);
         }
-        chain.doFilter(request, response);
+        finally {
+            PfRequestScope.exit(outer);
+        }
     }
 
-    private void maybeAutoRegister(HttpServletRequest request) throws Exception {
-        String clientAssertion = request.getParameter("client_assertion");
-        if (clientAssertion == null || clientAssertion.isBlank()) {
-            return;
+    /**
+     * The client the request names: the {@code sub} of its {@code client_assertion} (not yet verified - PingFederate
+     * does that next), else its {@code client_id} parameter. Null when it names none.
+     */
+    static String clientIdOf(HttpServletRequest request, String clientAssertion) {
+        if (clientAssertion != null && !clientAssertion.isBlank()) {
+            try {
+                String sub = JwtCodec.parseUnverifiedClaims(clientAssertion).getSubject();
+                if (sub != null && !sub.isBlank()) {
+                    return sub;
+                }
+            }
+            catch (Exception e) {
+                // Not a JWT PingFederate will accept either; fall back to client_id.
+            }
         }
-        List<String> trustChain = TokenEndpointAutoRegistrationFilter.extractTrustChain(clientAssertion);
-        if (trustChain.isEmpty()) {
-            return;
-        }
-        JwtClaims claims = JwtCodec.parseUnverifiedClaims(clientAssertion);
-        String clientId = claims.getSubject();
-        if (clientId == null || clientId.isBlank()) {
-            return;
-        }
-        String opIssuer = this.issuerResolver.apply(request);
-        this.service.automaticRegister(trustChain, clientId, opIssuer);
+        String clientId = request.getParameter("client_id");
+        return clientId == null || clientId.isBlank() ? null : clientId;
     }
 
     private static List<String> extractTrustChain(String clientAssertion) {
+        if (clientAssertion == null || clientAssertion.isBlank()) {
+            return Collections.emptyList();
+        }
         Map<String, Object> headers;
         try {
             headers = JwtCodec.getJwtHeaders(clientAssertion);
@@ -176,41 +243,4 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
 
-    private static int parseInt(String value, int fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Integer.parseInt(value.trim());
-        }
-        catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private static long parseLong(String value, long fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            return Long.parseLong(value.trim());
-        }
-        catch (NumberFormatException e) {
-            return fallback;
-        }
-    }
-
-    private static Set<String> parseCsv(String value) {
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        ArrayList<String> result = new ArrayList<String>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result.isEmpty() ? Set.of() : Set.copyOf(result);
-    }
 }

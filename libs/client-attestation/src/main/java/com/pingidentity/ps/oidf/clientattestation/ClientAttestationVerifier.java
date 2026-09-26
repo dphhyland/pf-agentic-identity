@@ -15,9 +15,9 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.consumer.InvalidJwtException;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.Claims;
 
 /**
@@ -213,10 +213,12 @@ public final class ClientAttestationVerifier {
         JwtClaims verified;
         try {
             verified = JwtCodec.verifyAgainstKeys(attestationHeader, attesterKeys, attesterIssuer, this.config.attestationAlgorithms());
-        } catch (InvalidJwtException e) {
-            if (e.hasExpired()) {
+        } catch (JwtVerificationException e) {
+            if (e.isExpired()) {
                 throw ClientAttestationException.useFreshAttestation("Client Attestation has expired");
             }
+            // JwtVerificationException's message is a fixed sentence per reason: it never carries the
+            // attestation or its claims, so it is safe in error_description and in the log.
             throw ClientAttestationException.invalidClient("Client Attestation verification failed: " + e.getMessage(), e);
         }
         ClientAttestation attestation = ClientAttestation.fromVerifiedClaims(verified, attestationHeader);
@@ -264,7 +266,7 @@ public final class ClientAttestationVerifier {
         try {
             pop = JwtCodec.verifyAttestationPop(popHeader, cnfKey, this.config.popAlgorithms(),
                     this.config.acceptedAudiences(), this.config.allowedClockSkewSeconds());
-        } catch (InvalidJwtException e) {
+        } catch (JwtVerificationException e) {
             throw ClientAttestationException.invalidClient("Client Attestation PoP verification failed: " + e.getMessage(), e);
         }
 

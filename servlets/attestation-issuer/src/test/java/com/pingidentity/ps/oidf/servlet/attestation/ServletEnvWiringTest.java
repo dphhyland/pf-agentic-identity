@@ -12,7 +12,9 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.keys.EllipticCurves;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 
@@ -38,11 +40,13 @@ class ServletEnvWiringTest {
         return new JsonWebKeySet(anchor).toJson(JsonWebKey.OutputControlLevel.PUBLIC_ONLY);
     }
 
+    @BeforeEach
     @AfterEach
     void clearProps() {
         for (String p : PROPS) {
             System.clearProperty(p);
         }
+        FederationRuntimeConfig.resetForTests();
     }
 
     @Test
@@ -72,6 +76,7 @@ class ServletEnvWiringTest {
         assertNull(AttestationIssuanceServlet.federationWalletValidatorFromEnv());   // op issuer missing
         System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
         System.setProperty("oidf.trust.anchor.jwks", anchorJwks());
+        FederationRuntimeConfig.resetForTests();
         InstanceAttestationValidator v = AttestationIssuanceServlet.federationWalletValidatorFromEnv();
         assertTrue(v instanceof WalletInstanceAttestationValidator);
         assertEquals("wallet", v.format());
@@ -85,10 +90,11 @@ class ServletEnvWiringTest {
 
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 AttestationIssuanceServlet::federationWalletValidatorFromEnv);
-        assertTrue(e.getMessage().contains("OIDF_TRUST_ANCHOR_JWKS"), e.getMessage());
+        assertTrue(e.getMessage().contains(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV), e.getMessage());
 
         // And a document that is not a usable key set is refused too, rather than falling back.
         System.setProperty("oidf.trust.anchor.jwks", "{\"keys\":[]}");
+        FederationRuntimeConfig.resetForTests();
         assertThrows(IllegalArgumentException.class, AttestationIssuanceServlet::federationWalletValidatorFromEnv);
     }
 
@@ -101,6 +107,7 @@ class ServletEnvWiringTest {
         System.setProperty("oidf.trust.controller.host", "https://trust-controller.example.com");
         System.setProperty("oidf.attester.op.issuer", "https://attester.example.com");
         System.setProperty("oidf.trust.anchor.jwks", anchorJwks());
+        FederationRuntimeConfig.resetForTests();
         InstanceAttestationValidator v = AttestationIssuanceServlet.walletValidatorFromEnv();
         assertTrue(v instanceof WalletInstanceAttestationValidator);
         assertEquals("wallet", v.format());

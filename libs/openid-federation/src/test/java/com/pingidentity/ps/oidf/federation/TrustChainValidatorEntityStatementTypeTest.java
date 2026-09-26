@@ -160,11 +160,11 @@ class TrustChainValidatorEntityStatementTypeTest {
         return typs;
     }
 
-    /** validate() throws, and throws about typ - not about a key, a hint or a missing stub. Quoted, because "typ" alone is inside "type". */
+    /** validate() throws, and throws about typ - not about a key, a hint or a missing stub. */
     private static void assertRejectedForTyp(TrustChainValidator validator, List<String> chain) {
-        Exception e = assertThrows(Exception.class, () -> validator.validate(chain, LEAF, LEAF));
-        assertTrue(String.valueOf(e.getMessage()).contains("'typ'"),
-                "rejected, but not for the typ header: " + e);
+        TrustChainValidationException e = assertThrows(TrustChainValidationException.class,
+                () -> validator.validate(chain, LEAF, LEAF));
+        assertEquals(TrustChainValidationException.Kind.TYP, e.kind(), "rejected, but not for the typ header: " + e);
     }
 
     // --- control ---------------------------------------------------------------------------------

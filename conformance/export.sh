@@ -25,7 +25,8 @@ code="$(curl -sk --max-time 180 -u "administrator:$PW" -H 'X-XSRF-Header: PingFe
 # look like PingFederate's: the wrong issuer, or a listener still offering CBC suites.
 listing="$(unzip -l "$HERE/data.zip.tmp")"
 for member in pf.jwk pingfederate-system-keys.xml config-store/com.pingidentity.crypto.SunJCEManager.xml \
-              config-store/org.sourceid.openid.ciba.handlers.CibaHelper.xml; do
+              config-store/org.sourceid.openid.ciba.handlers.CibaHelper.xml \
+              config-store/org.sourceid.oauth20.domain.AuthzServerManagerImpl.xml; do
   grep -q " $member\$" <<<"$listing" || { rm -f "$HERE/data.zip.tmp"; echo "ERROR: archive has no $member" >&2; exit 1; }
 done
 if unzip -p "$HERE/data.zip.tmp" config-store/com.pingidentity.crypto.SunJCEManager.xml | grep -q '_CBC_'; then
@@ -41,6 +42,15 @@ if [[ "${ciba_window:-0}" -eq 0 ]]; then
   rm -f "$HERE/data.zip.tmp"
   echo "ERROR: the archive's CIBA request-object window is not 60 minutes - stage config-store/ into the" >&2
   echo "       authoring PingFederate before it first starts (author.sh does), then re-export." >&2
+  exit 1
+fi
+audience_rule="$(unzip -p "$HERE/data.zip.tmp" config-store/org.sourceid.oauth20.domain.AuthzServerManagerImpl.xml \
+  | LC_ALL=C grep -ac 'Rfc7523bisCompliantAudienceVerification"[^>]*>false<' || true)"
+if [[ "${audience_rule:-0}" -eq 0 ]]; then
+  rm -f "$HERE/data.zip.tmp"
+  echo "ERROR: the archive accepts only the issuer as a client assertion's audience, which fails the SSF plan's" >&2
+  echo "       client at the token endpoint - stage config-store/ into the authoring PingFederate before it first" >&2
+  echo "       starts (author.sh does), then re-export." >&2
   exit 1
 fi
 # COUNT the matches; never `grep -q` here. Under `set -o pipefail`, grep -q exits at its first match,

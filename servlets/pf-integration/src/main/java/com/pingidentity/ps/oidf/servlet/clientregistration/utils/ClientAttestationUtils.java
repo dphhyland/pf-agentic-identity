@@ -17,8 +17,9 @@ import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
-import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidatorOptions;
+import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustControllerGateway;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.Enumeration;
@@ -364,13 +365,13 @@ public final class ClientAttestationUtils {
                 // see HttpTrustControllerGateway's selfIssuer javadoc for why these can diverge.
                 // The anchor's keys are deployment-wide and out of band; the host has to be that
                 // anchor. Same rule and same check as OIDFederationUtils.
-                TrustAnchor trustAnchor = OIDFederationUtils.requireConfiguredAnchor(trustControllerHost);
+                TrustAnchorSet anchors = OIDFederationUtils.requireConfiguredAnchors(trustControllerHost);
                 gateway = new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSslErrors, OutboundUrlPolicy.fromEnvironment()
                         .trusting(effectiveBaseUrl, trustControllerHost)), effectiveBaseUrl, trustControllerHost);
                 configuredIgnoreSslErrors = ignoreSslErrors;
                 configuredTrustControllerHost = trustControllerHost;
                 configuredTrustControllerBaseUrl = effectiveBaseUrl;
-                validator = new TrustChainValidator(gateway, trustAnchor);
+                validator = new TrustChainValidator(gateway, anchors, java.util.Set.of(), ValidatorOptions.defaults());
             } else {
                 ClientAttestationUtils.validateConfiguration(ignoreSslErrors, trustControllerHost, effectiveBaseUrl);
             }

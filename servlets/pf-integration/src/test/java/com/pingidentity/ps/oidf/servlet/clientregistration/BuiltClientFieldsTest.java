@@ -8,12 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidationRequest;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import java.util.List;
 import java.util.Map;
@@ -47,12 +49,12 @@ class BuiltClientFieldsTest {
         JwtClaims leaf = new JwtClaims();
         leaf.setClaim("jwks", Map.of("keys", List.of(
                 Map.of("kty", "EC", "crv", "P-256", "x", "abc", "y", "def", "kid", "k1"))));
-        when(validator.validate(anyList(), eq(CLIENT_ID), eq(OP_ISSUER), anyLong(), anyLong(), anyLong()))
+        when(validator.validate(any(ValidationRequest.class)))
                 .thenReturn(new TrustChainValidationResult("https://tc.example", CLIENT_ID,
                         Map.of("oauth_client", metadata), TRUST_CHAIN, leaf, Set.of("oauth_client")));
 
         new RegistrationService(new RegistrationConfiguration("https://tc.example", false), validator, store)
-                .automaticRegister(TRUST_CHAIN, CLIENT_ID, OP_ISSUER);
+                .admit(CLIENT_ID, TRUST_CHAIN, OP_ISSUER);
 
         ArgumentCaptor<Client> captor = ArgumentCaptor.forClass(Client.class);
         verify(store).add(captor.capture());
@@ -104,6 +106,20 @@ class BuiltClientFieldsTest {
     }
 
     // ---- the approval page ------------------------------------------------------------------------
+
+    /**
+     * PingFederate consults a client's restricted scope and response-type lists only when the matching
+     * restriction flag is set. Registration used to fill the lists and leave the flags off, so a federation
+     * client could request any scope the server defines - the policy-constrained {@code scope} in its
+     * metadata was recorded and never applied.
+     */
+    @Test
+    void theScopeAndResponseTypeListsAreActuallyEnforced() throws Exception {
+        Client c = register(bareMetadata("scope", "read_accounts"));
+        assertTrue(c.isRestrictScopes(), "restrictScopes must be on or the scope list is ignored");
+        assertTrue(c.isRestrictResponseTypes(), "restrictResponseTypes must be on or the list is ignored");
+        assertTrue(register(bareMetadata()).isRestrictScopes(), "no declared scope means no scopes, not every scope");
+    }
 
     @Test
     void aClientCredentialsOnlyClientBypassesTheApprovalPage() throws Exception {

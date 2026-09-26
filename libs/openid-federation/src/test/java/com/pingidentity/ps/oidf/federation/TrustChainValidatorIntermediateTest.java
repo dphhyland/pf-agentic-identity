@@ -230,7 +230,7 @@ class TrustChainValidatorIntermediateTest {
      * policy the anchor set for everything under an intermediate silently constrains nothing.
      */
     @Test
-    @Requirement({"OIDFED §10.2", "OIDFED §6.1.4.1"})
+    @Requirement({"OIDFED §10.2(3.5)", "OIDFED §6.1.4.1(3)"})
     void theAnchorsPolicyReachesTheLeafWhenTheAnchorStatementIsFetched() throws Exception {
         PublicJsonWebKey leafKey = ec("leaf-1");
         PublicJsonWebKey intermediateKey = ec("intermediate-1");
@@ -291,7 +291,7 @@ class TrustChainValidatorIntermediateTest {
      * {@code metadata_policy} reaches the leaf.
      */
     @Test
-    @Requirement({"OIDFED §10.2", "OIDFED §6.1.4.1"})
+    @Requirement({"OIDFED §10.2(3.5)", "OIDFED §6.1.4.1(3)"})
     void aGenuineThreeLevelChainWithTheAnchorStatementSuppliedValidatesWithPolicy() throws Exception {
         PublicJsonWebKey leafKey = ec("leaf-1");
         PublicJsonWebKey intermediateKey = ec("intermediate-1");

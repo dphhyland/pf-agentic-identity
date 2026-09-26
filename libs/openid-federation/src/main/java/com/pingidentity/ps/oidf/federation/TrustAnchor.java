@@ -3,7 +3,9 @@ package com.pingidentity.ps.oidf.federation;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwt.JwtClaims;
@@ -11,6 +13,8 @@ import org.jose4j.lang.JoseException;
 import com.pingidentity.ps.oidf.jose.Claims;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.jose.JwtVerificationException;
+import com.pingidentity.ps.oidf.jose.VerificationPolicy;
 
 /**
  * A Trust Anchor as this validator knows it: an entity identifier and the Federation Entity Keys the
@@ -36,10 +40,30 @@ import com.pingidentity.ps.oidf.jose.JwtCodec;
 public final class TrustAnchor {
     private final String entityId;
     private final List<JsonWebKey> keys;
+    private final Supplier<Map<String, Object>> liveKeys;
 
     private TrustAnchor(String entityId, List<JsonWebKey> keys) {
         this.entityId = entityId;
         this.keys = List.copyOf(keys);
+        this.liveKeys = null;
+    }
+
+    private TrustAnchor(String entityId, Supplier<Map<String, Object>> liveKeys) {
+        this.entityId = entityId;
+        this.keys = List.of();
+        this.liveKeys = liveKeys;
+    }
+
+    /**
+     * An anchor whose keys are read from {@code jwks} every time they are needed - for this deployment's
+     * <em>own</em> identity when it is also a Trust Anchor (for the entities it hosts). Its keys are the
+     * ones it signs with, which rotate with its signing key store; pinning a copy in configuration would
+     * go stale at the first rotation. Every read goes through the same rules as {@link #of}: public keys,
+     * unique {@code kid}s, at least one key.
+     */
+    public static TrustAnchor live(String entityId, Supplier<Map<String, Object>> jwks) {
+        Claims.requireNonBlank(entityId, "trust anchor entity id");
+        return new TrustAnchor(entityId, Objects.requireNonNull(jwks, "jwks"));
     }
 
     /**
@@ -108,9 +132,17 @@ public final class TrustAnchor {
         return this.entityId;
     }
 
-    /** The configured public keys, in configuration order. */
+    /** The configured public keys, in configuration order (for a {@link #live} anchor, as read now). */
     public List<JsonWebKey> keys() {
-        return this.keys;
+        if (this.liveKeys == null) {
+            return this.keys;
+        }
+        return of(this.entityId, this.liveKeys.get()).keys;
+    }
+
+    /** True for an anchor built by {@link #live}. */
+    public boolean isLive() {
+        return this.liveKeys != null;
     }
 
     /**
@@ -118,16 +150,25 @@ public final class TrustAnchor {
      * or its own Entity Configuration — against the configured keys and nothing else. {@code iss} must
      * be this anchor's identifier.
      *
-     * @throws Exception when the signature does not verify against any configured key, the issuer is
-     *                   not this anchor, the algorithm is not accepted, or the statement is expired or
-     *                   malformed
+     * @throws JwtVerificationException when the signature does not verify against any configured key, the
+     *                                  issuer is not this anchor, the algorithm is not accepted, or the
+     *                                  statement is expired or malformed
+     * @throws IllegalArgumentException  when a {@link #live} anchor's key set is not usable
      */
-    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms) throws Exception {
-        return JwtCodec.verifyAgainstKeys(jwt, this.keys, this.entityId, acceptedSigningAlgorithms);
+    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms) throws JwtVerificationException {
+        return JwtCodec.verifyAgainstKeys(jwt, this.keys(), this.entityId, acceptedSigningAlgorithms);
+    }
+
+    /** As {@link #verify(String, Set)}, under the given verification policy (kid, iat, typ, clock). */
+    public JwtClaims verify(String jwt, Set<String> acceptedSigningAlgorithms, VerificationPolicy policy) throws JwtVerificationException {
+        return JwtCodec.verifyAgainstKeys(jwt, this.keys(), this.entityId, acceptedSigningAlgorithms, policy);
     }
 
     @Override
     public String toString() {
+        if (this.liveKeys != null) {
+            return "TrustAnchor[" + this.entityId + ", live keys]";
+        }
         ArrayList<String> kids = new ArrayList<String>(this.keys.size());
         for (JsonWebKey key : this.keys) {
             kids.add(key.getKeyId());

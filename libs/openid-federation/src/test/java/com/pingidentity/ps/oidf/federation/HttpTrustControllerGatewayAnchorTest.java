@@ -205,7 +205,7 @@ class HttpTrustControllerGatewayAnchorTest {
     }
 
     @Test
-    void bindingIsOneAnchorPerGateway() throws Exception {
+    void bindingAddsAnchorsAndABindingForTheSameEntityReplacesItsKeys() throws Exception {
         HttpTrustControllerGateway gateway = new HttpTrustControllerGateway((url, accept) -> "", ANCHOR);
         TrustAnchor anchor = TrustAnchor.of(ANCHOR, jwks(ec("anchor-1")));
 
@@ -214,8 +214,66 @@ class HttpTrustControllerGatewayAnchorTest {
         assertDoesNotThrow(() -> gateway.bindTrustAnchor(anchor, Set.of()), "the same anchor again is a no-op");
         assertDoesNotThrow(() -> gateway.bindTrustAnchor(TrustAnchor.of(ANCHOR, jwks(ec("anchor-2"))), Set.of()),
                 "a rebuilt anchor object for the same entity replaces the keys (an operator key update)");
-        IllegalStateException e = assertThrows(IllegalStateException.class,
-                () -> gateway.bindTrustAnchor(TrustAnchor.of("https://other-anchor.example.com", jwks(ec("other-1"))), Set.of()));
-        assertTrue(e.getMessage().contains("https://other-anchor.example.com"), e.getMessage());
+        assertDoesNotThrow(() -> gateway.bindTrustAnchor(TrustAnchor.of("https://other-anchor.example.com", jwks(ec("other-1"))), Set.of()),
+                "a second federation's anchor is added beside the first");
+    }
+
+    @Test
+    @Requirement({"OIDFED §10.2(3.6)", "OIDFED §10.2(3.7)"})
+    void theAnchorsConfigurationIsHandedOverOnlyOnceItVerifiesWithThePinnedKeys() throws Exception {
+        PublicJsonWebKey pinned = ec("anchor-1");
+        Map<String, Deque<String>> responses = new HashMap<>();
+        responses.put(WELL_KNOWN, queue(entityConfiguration(pinned, ANCHOR)));
+        HttpTrustControllerGateway gateway = new HttpTrustControllerGateway(sequenced(responses, new ArrayList<>()), ANCHOR);
+
+        String configuration = gateway.anchorConfiguration(TrustAnchor.of(ANCHOR, jwks(pinned)), null, null);
+        assertEquals(entityConfiguration(pinned, ANCHOR).split("\\.")[0], configuration.split("\\.")[0]);
+
+        Map<String, Deque<String>> forged = new HashMap<>();
+        forged.put(WELL_KNOWN, queue(entityConfiguration(ec("impostor-1"), ANCHOR), entityConfiguration(ec("impostor-2"), ANCHOR)));
+        HttpTrustControllerGateway fooled = new HttpTrustControllerGateway(sequenced(forged, new ArrayList<>()), ANCHOR);
+        assertThrows(IllegalStateException.class,
+                () -> fooled.anchorConfiguration(TrustAnchor.of(ANCHOR, jwks(pinned)), Set.of(), null));
+    }
+
+    @Test
+    @Requirement("OIDFED §9(1)")
+    void configurationsAreFetchedFromTheWellKnownPathWithAnyTrailingSlashRemoved() throws Exception {
+        List<String> fetched = new ArrayList<>();
+        HttpTrustControllerGateway gateway = new HttpTrustControllerGateway((url, accept) -> {
+            fetched.add(url);
+            return "x";
+        }, "https://pf.example/oidf", "https://pf.example");
+
+        gateway.fetchEntityStatement("https://leaf.example/");
+        gateway.fetchEntityStatement("https://pf.example/");
+
+        assertEquals(List.of("https://leaf.example/.well-known/openid-federation",
+                "https://pf.example/oidf/.well-known/openid-federation"), fetched,
+                "its own identity is reached at its base URL, which may carry a context path");
+    }
+
+    /**
+     * Two anchors on one gateway: each anchor's configuration is verified with the keys bound for the
+     * identifier it claims, so one anchor's keys never vouch for the other's fetch endpoint.
+     */
+    @Test
+    @Requirement("OIDFED §4(9)")
+    void eachBoundAnchorsConfigurationIsVerifiedWithItsOwnKeysOnly() throws Exception {
+        String other = "https://other-anchor.example.com";
+        PublicJsonWebKey anchorKey = ec("anchor-1");
+        PublicJsonWebKey otherKey = ec("other-1");
+        String otherSubordinate = statement(otherKey, other, LEAF, Map.of());
+        Map<String, Deque<String>> responses = new HashMap<>();
+        responses.put(WELL_KNOWN, queue(entityConfiguration(anchorKey, ANCHOR)));
+        // The other anchor's host serves a configuration signed with the FIRST anchor's key, twice.
+        responses.put(other + "/.well-known/openid-federation", queue(entityConfiguration(anchorKey, other), entityConfiguration(anchorKey, other)));
+        responses.put(fetchUrl(other, LEAF), queue(otherSubordinate));
+        HttpTrustControllerGateway gateway = new HttpTrustControllerGateway(sequenced(responses, new ArrayList<>()), ANCHOR);
+        gateway.bindTrustAnchor(TrustAnchor.of(ANCHOR, jwks(anchorKey)), Set.of());
+        gateway.bindTrustAnchor(TrustAnchor.of(other, jwks(otherKey)), Set.of());
+
+        IllegalStateException e = assertThrows(IllegalStateException.class, () -> gateway.fetchSubordinateStatement(other, LEAF));
+        assertTrue(e.getMessage().contains(other), e.getMessage());
     }
 }

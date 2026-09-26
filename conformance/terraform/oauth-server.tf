@@ -7,7 +7,7 @@
 # Clause references are to the FAPI 2.0 Security Profile (Final), authorization server requirements.
 resource "pingfederate_oauth_server_settings" "this" {
   # §5.3.2.2: PAR is supported, and an authorization request that did not come through it is rejected.
-  par_status = "REQUIRED"
+  par_status = var.par_status
   # §5.3.2.2: request_uri lifetime under 600 seconds. A minute is ample for a redirect.
   par_reference_timeout = 60
   par_reference_length  = 24

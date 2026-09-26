@@ -19,12 +19,15 @@ import org.jose4j.json.JsonUtil;
 
 /**
  * The production {@link HostedEntityRegistry}, backed by the schema in
- * {@code db/migration/V100__hosted_entity.sql}.
+ * {@code db/migration/V100__hosted_entity.sql} and {@code V101__hosted_entity_actor.sql}.
  *
  * <p>Written against {@code javax.sql.DataSource} and plain JDBC rather than an ORM, matching the same
  * two reasons an instance registry in this codebase would give: the resolution and revocation queries
  * are the whole contract, and an ORM would obscure exactly the one that matters — the status check that
  * gates whether an entity resolves.
+ *
+ * <p>Every change and its audit line are written in one transaction: the audit log is the record a dispute
+ * is settled from, so it must never say something happened that did not, or miss something that did.
  *
  * <p>{@code metadata} and {@code metadataPolicy} are stored as serialized JSON text rather than a
  * database-specific JSON type, so the same schema and queries work unchanged against Postgres (the
@@ -38,59 +41,76 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
     }
 
+    /** A unit of work in one transaction. */
+    private interface Work<T> {
+        T run(Connection c) throws SQLException, AuthorityRegistryException;
+    }
+
+    private <T> T inTransaction(String operation, Work<T> work) throws AuthorityRegistryException {
+        try (Connection c = this.dataSource.getConnection()) {
+            c.setAutoCommit(false);
+            try {
+                T result = work.run(c);
+                c.commit();
+                return result;
+            } catch (SQLException | AuthorityRegistryException | RuntimeException e) {
+                c.rollback();
+                throw e;
+            }
+        } catch (SQLException e) {
+            throw storage(operation, e);
+        }
+    }
+
     @Override
-    public HostedEntity register(HostedEntity entity) throws AuthorityRegistryException {
+    public HostedEntity register(HostedEntity entity, String actor) throws AuthorityRegistryException {
         if (entity.hostingMode() == HostingMode.SELF_SIGNED) {
             // The hosted_entity schema has no column for the entity's own keys or its published
             // configuration; storing the row without them would host an entity nobody can verify.
             throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE,
                     "the JDBC registry cannot persist SELF_SIGNED entities yet (no federation-key column)");
         }
-        try (Connection c = this.dataSource.getConnection()) {
-            if (find(c, entity.entityId()).isPresent()) {
-                throw new AuthorityRegistryException(AuthorityRegistryException.DUPLICATE,
-                        "entity already hosted: " + entity.entityId());
-            }
-            try (PreparedStatement ps = c.prepareStatement(
-                    "INSERT INTO hosted_entity (entity_id, hosting_mode, hosting_key_ref, metadata,"
-                            + " metadata_policy, status, listable, owner_ref, registered_at, not_after)"
-                            + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
-                ps.setString(1, entity.entityId());
-                ps.setString(2, entity.hostingMode().name());
-                ps.setString(3, entity.hostingKeyRef());
-                ps.setString(4, toJson(entity.metadata()));
-                ps.setString(5, toJson(entity.metadataPolicy()));
-                ps.setString(6, entity.status().name());
-                ps.setBoolean(7, entity.listable());
-                ps.setString(8, entity.ownerRef());
-                ps.setTimestamp(9, timestamp(entity.registeredAt()));
-                ps.setTimestamp(10, timestamp(entity.notAfter()));
-                ps.executeUpdate();
-            }
-            appendAudit(c, entity.entityId(), AuthorityAuditEntry.ENTITY_REGISTERED,
-                    "hostingMode=" + entity.hostingMode());
-            return entity;
-        } catch (SQLException e) {
-            throw storage("register hosted entity", e);
+        return this.inTransaction("register hosted entity", c -> registerIn(c, entity, actor));
+    }
+
+    private static HostedEntity registerIn(Connection c, HostedEntity entity, String actor) throws SQLException, AuthorityRegistryException {
+        if (find(c, entity.entityId()).isPresent()) {
+            throw new AuthorityRegistryException(AuthorityRegistryException.DUPLICATE, "entity already hosted: " + entity.entityId());
         }
+        try (PreparedStatement ps = c.prepareStatement(
+                "INSERT INTO hosted_entity (entity_id, hosting_mode, hosting_key_ref, metadata,"
+                        + " metadata_policy, status, listable, owner_ref, registered_at, not_after)"
+                        + " VALUES (?,?,?,?,?,?,?,?,?,?)")) {
+            ps.setString(1, entity.entityId());
+            ps.setString(2, entity.hostingMode().name());
+            ps.setString(3, entity.hostingKeyRef());
+            ps.setString(4, toJson(entity.metadata()));
+            ps.setString(5, toJson(entity.metadataPolicy()));
+            ps.setString(6, entity.status().name());
+            ps.setBoolean(7, entity.listable());
+            ps.setString(8, entity.ownerRef());
+            ps.setTimestamp(9, timestamp(entity.registeredAt()));
+            ps.setTimestamp(10, timestamp(entity.notAfter()));
+            ps.executeUpdate();
+        }
+        appendAudit(c, entity.entityId(), AuthorityAuditEntry.ENTITY_REGISTERED, "hostingMode=" + entity.hostingMode(), actor);
+        return entity;
     }
 
     @Override
     public Optional<HostedEntity> find(String entityId) throws AuthorityRegistryException {
-        try (Connection c = this.dataSource.getConnection()) {
-            return find(c, entityId);
-        } catch (SQLException e) {
-            throw storage("find hosted entity", e);
-        }
+        return this.inTransaction("find hosted entity", c -> find(c, entityId));
     }
 
     @Override
     public List<HostedEntity> list(String entityType) throws AuthorityRegistryException {
+        return this.inTransaction("list hosted entities", c -> listIn(c, entityType));
+    }
+
+    private static List<HostedEntity> listIn(Connection c, String entityType) throws SQLException {
         List<HostedEntity> out = new ArrayList<>();
-        try (Connection c = this.dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     select() + " WHERE status = 'ACTIVE' AND listable = TRUE"
-                             + " AND (not_after IS NULL OR not_after > ?) ORDER BY entity_id")) {
+        try (PreparedStatement ps = c.prepareStatement(select() + " WHERE status = 'ACTIVE' AND listable = TRUE"
+                + " AND (not_after IS NULL OR not_after > ?) ORDER BY entity_id")) {
             ps.setTimestamp(1, timestamp(Instant.now()));
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
@@ -100,99 +120,106 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
                     }
                 }
             }
-            return List.copyOf(out);
-        } catch (SQLException e) {
-            throw storage("list hosted entities", e);
         }
+        return List.copyOf(out);
     }
 
     @Override
-    public void setStatus(String entityId, EntityStatus status, String reason) throws AuthorityRegistryException {
-        try (Connection c = this.dataSource.getConnection()) {
-            HostedEntity current = find(c, entityId).orElseThrow(() -> notFound(entityId));
-            if (current.status() == status) {
-                // Idempotent — covers a retried REVOKED -> REVOKED just as much as ACTIVE -> ACTIVE,
-                // which is why this must run before the "already revoked" guard below, not after it.
-                return;
+    public List<HostedEntity> all() throws AuthorityRegistryException {
+        return this.inTransaction("list hosted entities", JdbcHostedEntityRegistry::allIn);
+    }
+
+    private static List<HostedEntity> allIn(Connection c) throws SQLException {
+        List<HostedEntity> out = new ArrayList<>();
+        try (PreparedStatement ps = c.prepareStatement(select() + " ORDER BY entity_id"); ResultSet rs = ps.executeQuery()) {
+            while (rs.next()) {
+                out.add(readEntity(rs));
             }
-            if (current.status() == EntityStatus.REVOKED) {
-                throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
-                        "entity " + entityId + " is revoked; revocation is permanent");
-            }
-            try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE hosted_entity SET status = ? WHERE entity_id = ?")) {
-                ps.setString(1, status.name());
-                ps.setString(2, entityId);
-                ps.executeUpdate();
-            }
-            String code = status == EntityStatus.REVOKED
-                    ? AuthorityAuditEntry.ENTITY_REVOKED : AuthorityAuditEntry.ENTITY_STATUS_CHANGED;
-            appendAudit(c, entityId, code, status + ": " + reason);
-        } catch (SQLException e) {
-            throw storage("set hosted entity status", e);
         }
+        return List.copyOf(out);
     }
 
     @Override
-    public void updateMetadata(String entityId, Map<String, Object> metadata) throws AuthorityRegistryException {
-        try (Connection c = this.dataSource.getConnection()) {
+    public void setStatus(String entityId, EntityStatus status, String reason, String actor) throws AuthorityRegistryException {
+        this.inTransaction("set hosted entity status", c -> setStatusIn(c, entityId, status, reason, actor));
+    }
+
+    private static Void setStatusIn(Connection c, String entityId, EntityStatus status, String reason, String actor)
+            throws SQLException, AuthorityRegistryException {
+        HostedEntity current = find(c, entityId).orElseThrow(() -> notFound(entityId));
+        if (current.status() == status) {
+            // Idempotent — covers a retried REVOKED -> REVOKED just as much as ACTIVE -> ACTIVE,
+            // which is why this must run before the "already revoked" guard below, not after it.
+            return null;
+        }
+        if (current.status() == EntityStatus.REVOKED) {
+            throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                    "entity " + entityId + " is revoked; revocation is permanent");
+        }
+        update(c, "UPDATE hosted_entity SET status = ? WHERE entity_id = ?", status.name(), entityId);
+        String code = status == EntityStatus.REVOKED ? AuthorityAuditEntry.ENTITY_REVOKED : AuthorityAuditEntry.ENTITY_STATUS_CHANGED;
+        appendAudit(c, entityId, code, status + ": " + reason, actor);
+        return null;
+    }
+
+    @Override
+    public void updateMetadata(String entityId, Map<String, Object> metadata, String actor) throws AuthorityRegistryException {
+        Map<String, Object> value = Objects.requireNonNull(metadata, "metadata");
+        this.inTransaction("update hosted entity metadata", c -> {
             requireExists(c, entityId);
-            try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE hosted_entity SET metadata = ? WHERE entity_id = ?")) {
-                ps.setString(1, toJson(metadata == null ? Map.of() : metadata));
-                ps.setString(2, entityId);
-                ps.executeUpdate();
-            }
-            appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED,
-                    "types=" + (metadata == null ? Map.of() : metadata).keySet());
-        } catch (SQLException e) {
-            throw storage("update hosted entity metadata", e);
-        }
+            update(c, "UPDATE hosted_entity SET metadata = ? WHERE entity_id = ?", toJson(value), entityId);
+            appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_METADATA_UPDATED, "types=" + value.keySet(), actor);
+            return null;
+        });
     }
 
     @Override
-    public void rotateHostingKey(String entityId, String newHostingKeyRef) throws AuthorityRegistryException {
-        try (Connection c = this.dataSource.getConnection()) {
+    public void updateMetadataPolicy(String entityId, Map<String, Object> metadataPolicy, String actor) throws AuthorityRegistryException {
+        Map<String, Object> value = Objects.requireNonNull(metadataPolicy, "metadataPolicy");
+        this.inTransaction("update hosted entity metadata policy", c -> {
             requireExists(c, entityId);
-            try (PreparedStatement ps = c.prepareStatement(
-                    "UPDATE hosted_entity SET hosting_key_ref = ? WHERE entity_id = ?")) {
-                ps.setString(1, newHostingKeyRef);
-                ps.setString(2, entityId);
-                ps.executeUpdate();
-            }
-            appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_KEY_ROTATED, "hostingKeyRef rotated");
-        } catch (SQLException e) {
-            throw storage("rotate hosted entity key", e);
-        }
+            update(c, "UPDATE hosted_entity SET metadata_policy = ? WHERE entity_id = ?", toJson(value), entityId);
+            appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_METADATA_POLICY_UPDATED, "types=" + value.keySet(), actor);
+            return null;
+        });
+    }
+
+    @Override
+    public void rotateHostingKey(String entityId, String newHostingKeyRef, String actor) throws AuthorityRegistryException {
+        this.inTransaction("rotate hosted entity key", c -> {
+            requireExists(c, entityId);
+            update(c, "UPDATE hosted_entity SET hosting_key_ref = ? WHERE entity_id = ?", newHostingKeyRef, entityId);
+            appendAudit(c, entityId, AuthorityAuditEntry.ENTITY_KEY_ROTATED, "hostingKeyRef rotated", actor);
+            return null;
+        });
     }
 
     @Override
     public void audit(String entityId, String eventCode, String detail) throws AuthorityRegistryException {
-        try (Connection c = this.dataSource.getConnection()) {
-            appendAudit(c, entityId, eventCode, detail);
-        } catch (SQLException e) {
-            throw storage("append hosted entity audit", e);
-        }
+        this.inTransaction("append hosted entity audit", c -> {
+            appendAudit(c, entityId, eventCode, detail, null);
+            return null;
+        });
     }
 
     @Override
     public List<AuthorityAuditEntry> auditTrail(String entityId) throws AuthorityRegistryException {
+        return this.inTransaction("read hosted entity audit trail", c -> auditTrailIn(c, entityId));
+    }
+
+    private static List<AuthorityAuditEntry> auditTrailIn(Connection c, String entityId) throws SQLException {
         List<AuthorityAuditEntry> trail = new ArrayList<>();
-        try (Connection c = this.dataSource.getConnection();
-             PreparedStatement ps = c.prepareStatement(
-                     "SELECT entity_id, event_code, detail, at FROM hosted_entity_audit_log"
-                             + " WHERE entity_id = ? ORDER BY seq")) {
+        try (PreparedStatement ps = c.prepareStatement(
+                "SELECT entity_id, event_code, detail, at, actor FROM hosted_entity_audit_log WHERE entity_id = ? ORDER BY seq")) {
             ps.setString(1, entityId);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    trail.add(new AuthorityAuditEntry(rs.getString(1), rs.getString(2), rs.getString(3),
-                            instant(rs.getTimestamp(4))));
+                    trail.add(new AuthorityAuditEntry(rs.getString(1), rs.getString(2), rs.getString(3), instant(rs.getTimestamp(4)),
+                            rs.getString(5)));
                 }
             }
-            return List.copyOf(trail);
-        } catch (SQLException e) {
-            throw storage("read hosted entity audit trail", e);
         }
+        return List.copyOf(trail);
     }
 
     // ---- internals ---------------------------------------------------------------------------
@@ -211,7 +238,6 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
         }
     }
 
-    @SuppressWarnings("unchecked")
     private static HostedEntity readEntity(ResultSet rs) throws SQLException {
         return new HostedEntity(
                 rs.getString(1),
@@ -232,14 +258,23 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
         }
     }
 
-    private static void appendAudit(Connection c, String entityId, String eventCode, String detail)
-            throws SQLException {
+    private static void update(Connection c, String sql, String... parameters) throws SQLException {
+        try (PreparedStatement ps = c.prepareStatement(sql)) {
+            for (int i = 0; i < parameters.length; i++) {
+                ps.setString(i + 1, parameters[i]);
+            }
+            ps.executeUpdate();
+        }
+    }
+
+    private static void appendAudit(Connection c, String entityId, String eventCode, String detail, String actor) throws SQLException {
         try (PreparedStatement ps = c.prepareStatement(
-                "INSERT INTO hosted_entity_audit_log (entity_id, event_code, detail, at) VALUES (?,?,?,?)")) {
+                "INSERT INTO hosted_entity_audit_log (entity_id, event_code, detail, at, actor) VALUES (?,?,?,?,?)")) {
             ps.setString(1, entityId);
             ps.setString(2, eventCode);
             ps.setString(3, detail);
             ps.setTimestamp(4, timestamp(Instant.now()));
+            ps.setString(5, actor);
             ps.executeUpdate();
         }
     }
@@ -258,7 +293,6 @@ public final class JdbcHostedEntityRegistry implements HostedEntityRegistry {
         return JsonUtil.toJson(map == null ? Map.of() : map);
     }
 
-    @SuppressWarnings("unchecked")
     private static Map<String, Object> fromJson(String json) {
         if (json == null || json.isBlank()) {
             return Map.of();

@@ -3,7 +3,6 @@
  */
 package com.pingidentity.ps.oidf.servlet.attestation;
 
-import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.issuer.AssertedContext;
 import com.pingidentity.ps.oidf.issuer.AssertedContextResolver;
 import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
@@ -15,16 +14,14 @@ import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationWalletProviderKeyResolver;
-import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import com.pingidentity.ps.oidf.issuer.InstanceIdentity;
 import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
-import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
-import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
@@ -357,41 +354,28 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     /**
      * Builds a wallet validator whose provider keys are resolved through the OpenID Federation trust chain
-     * ({@link FederationWalletProviderKeyResolver}), mirroring the AS-side attester wiring. Enabled when the
-     * trust controller host ({@code OIDF_TRUST_CONTROLLER_HOST}) and the hosted attester's own entity id
-     * ({@code OIDF_ATTESTER_OP_ISSUER}, the relying party in the WIA trust chain) are set; returns null
-     * otherwise. {@code OIDF_TRUST_CONTROLLER_IGNORE_SSL} relaxes TLS for a dev trust controller.
+     * ({@link FederationWalletProviderKeyResolver}), mirroring the AS-side attester wiring. Enabled when a trust
+     * controller is configured ({@code OIDF_FEDERATION_TRUST_CONTROLLER_HOST}, or the superseded
+     * {@code OIDF_TRUST_CONTROLLER_HOST}) and the hosted attester's own entity id ({@code OIDF_ATTESTER_OP_ISSUER},
+     * the relying party in the WIA trust chain) is set; returns null otherwise.
      *
-     * <p>Once the host is named, {@code OIDF_TRUST_ANCHOR_JWKS} is required: the anchor's Federation
-     * Entity Keys are configured out of band (OpenID Federation 1.0 §4), not read from its .well-known
-     * over HTTPS. A host without keys throws here, naming the variable - the registry is built on the
-     * first issuance request, so that request fails closed - rather than yielding a validator that
-     * trusts whoever answers at the host, or silently falling back to the static provider map.
+     * <p>The anchors are the deployment's pinned set ({@link FederationRuntimeConfig#trustAnchors()}) - the same
+     * ones every other federation check here uses - so the wallet path can no longer name an anchor of its own. A
+     * trust controller without pinned keys throws here, naming the variable: a trust anchor's keys are configured
+     * out of band (OpenID Federation 1.0 §4), not read from its .well-known over HTTPS. The registry is built on the
+     * first issuance request, so that request fails closed, rather than yielding a validator that trusts whoever
+     * answers at the host, or silently falling back to the static provider map.
      */
     static InstanceAttestationValidator federationWalletValidatorFromEnv() {
-        String trustControllerHost = env("oidf.trust.controller.host", "OIDF_TRUST_CONTROLLER_HOST");
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
         String opIssuer = env("oidf.attester.op.issuer", "OIDF_ATTESTER_OP_ISSUER");
-        if (trustControllerHost == null || opIssuer == null) {
+        if (!runtime.isTrustControllerConfigured() || opIssuer == null) {
             return null;
         }
-        String anchorJwks = env("oidf.trust.anchor.jwks", "OIDF_TRUST_ANCHOR_JWKS");
-        if (anchorJwks == null) {
-            throw new IllegalStateException("OIDF_TRUST_CONTROLLER_HOST names " + trustControllerHost
-                    + " but OIDF_TRUST_ANCHOR_JWKS is unset. A trust anchor's keys are configured out of band (OpenID"
-                    + " Federation 1.0 §4): capture the jwks claim of " + trustControllerHost
-                    + "/.well-known/openid-federation once, from a position you trust, and set it as OIDF_TRUST_ANCHOR_JWKS"
-                    + " (or oidf.trust.anchor.jwks)");
-        }
-        TrustAnchor trustAnchor = TrustAnchor.parse(trustControllerHost, anchorJwks);
-        boolean ignoreSsl = Boolean.parseBoolean(
-                String.valueOf(env("oidf.trust.controller.ignore.ssl", "OIDF_TRUST_CONTROLLER_IGNORE_SSL")));
-        TrustChainValidator chainValidator = new TrustChainValidator(
-                new HttpTrustControllerGateway(new JdkHttpGetClient(ignoreSsl,
-                        OutboundUrlPolicy.fromEnvironment().trusting(trustControllerHost)), trustControllerHost),
-                trustAnchor);
+        TrustChainValidator chainValidator = AttesterResolvers.federationValidator(runtime, null);
         AttesterKeyResolver resolver = new FederationWalletProviderKeyResolver(chainValidator, opIssuer);
         LOGGER.info((Object) ("Wallet instance attestation: federation-backed provider trust via "
-                + trustControllerHost));
+                + runtime.trustControllerHost()));
         return new WalletInstanceAttestationValidator(resolver);
     }
 

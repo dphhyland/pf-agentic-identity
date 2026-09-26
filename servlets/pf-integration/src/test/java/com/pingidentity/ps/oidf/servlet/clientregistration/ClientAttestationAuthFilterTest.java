@@ -73,9 +73,7 @@ class ClientAttestationAuthFilterTest {
 
     /** Both holders memoise; a test that changes the environment has to clear them. */
     private static void resetSingletons() throws Exception {
-        java.lang.reflect.Field instance = FederationRuntimeConfig.class.getDeclaredField("instance");
-        instance.setAccessible(true);
-        instance.set(null, null);
+        FederationRuntimeConfig.resetForTests();
         java.lang.reflect.Method reset = BridgeSigners.class.getDeclaredMethod("resetForTest");
         reset.setAccessible(true);
         reset.invoke(null);

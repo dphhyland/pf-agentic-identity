@@ -102,3 +102,26 @@ variable "ssf_introspection_client_secret" {
   type        = string
   sensitive   = true
 }
+
+# ── the OpenID Federation OP plan (PF_PROFILE=federation-op) ───────────────────────────────────
+
+# The OP plan's relying party registers at the authorization endpoint with a request object sent by value,
+# which a server that requires PAR refuses before federation is asked. REQUIRED is what FAPI 2.0 wants.
+variable "par_status" {
+  description = "PingFederate's pushed authorization request support: DISABLED, ENABLED or REQUIRED"
+  type        = string
+  default     = "REQUIRED"
+
+  validation {
+    condition     = contains(["DISABLED", "ENABLED", "REQUIRED"], var.par_status)
+    error_message = "par_status is DISABLED, ENABLED or REQUIRED."
+  }
+}
+
+# A CA PingFederate trusts for outbound TLS, as the base64 of its DER encoding: the suite's, so PF can fetch the
+# suite RP's jwks_uri. Empty imports nothing.
+variable "trusted_ca_file_data" {
+  description = "Base64 DER of an extra CA certificate for PingFederate to trust, or empty"
+  type        = string
+  default     = ""
+}

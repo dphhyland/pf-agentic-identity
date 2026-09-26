@@ -90,6 +90,9 @@
                                         <include>com.pingidentity.ps.oidf.jose.JwtCodec.getJwtHeaders(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JwtCodec.getType(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JwtCodec.requireType(*</include>
+                                        <!-- The only verification of a request object's signature before a client is
+                                             registered from it (OpenID Federation 1.0 §12.1.1.1.2): no none, no MAC. -->
+                                        <include>com.pingidentity.ps.oidf.jose.JwtCodec.verifySignature(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.requiredMap(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.stringList(*</include>

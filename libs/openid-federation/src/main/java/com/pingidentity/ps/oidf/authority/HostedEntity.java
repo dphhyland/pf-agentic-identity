@@ -138,6 +138,11 @@ public record HostedEntity(
                 this.federationJwks, newEntityConfiguration);
     }
 
+    public HostedEntity withMetadataPolicy(Map<String, Object> newMetadataPolicy) {
+        return new HostedEntity(this.entityId, this.hostingMode, this.hostingKeyRef, this.metadata,
+                newMetadataPolicy, this.status, this.listable, this.ownerRef, this.registeredAt, this.notAfter);
+    }
+
     /** Whether the entity holds the named metadata type at all (e.g. {@code "oauth_client"}). */
     public boolean hasType(String entityType) {
         return this.metadata.containsKey(entityType);

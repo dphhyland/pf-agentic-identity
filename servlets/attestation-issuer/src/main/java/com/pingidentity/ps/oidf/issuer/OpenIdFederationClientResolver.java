@@ -3,56 +3,63 @@
  */
 package com.pingidentity.ps.oidf.issuer;
 
-import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.federation.FederationError;
+import com.pingidentity.ps.oidf.federation.FederationException;
+import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
+import com.pingidentity.ps.oidf.federation.TrustChainValidator;
+import com.pingidentity.ps.oidf.federation.ValidationRequest;
+import java.time.Clock;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwt.JwtClaims;
-import com.pingidentity.ps.oidf.jose.HttpGetClient;
-import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
-import com.pingidentity.ps.oidf.jose.JwtCodec;
 
 /**
- * Resolves the attester's clients from an <strong>OpenID Federation</strong> entity. The attester fetches
- * a federation entity's configuration (a signed Entity Statement at
- * {@code <entity>/.well-known/openid-federation}), verifies it against the entity's own published JWKS,
- * and reads the SPIFFE-ID → OAuth-client bindings from a {@code spiffe_client_bindings} metadata claim.
- * This lets the mapping — and each client's entitlement ceiling (downscoping) — be governed by a
- * federation the attester trusts, rather than a flat file or the local PF store.
+ * Resolves the attester's clients from an <strong>OpenID Federation</strong> entity. The entity's trust chain is
+ * validated to one of the deployment's pinned trust anchors (OpenID Federation 1.0 §10), and the SPIFFE-ID →
+ * OAuth-client bindings are read from the {@code spiffe_client_bindings} claim of its <em>verified</em> Entity
+ * Configuration. So the mapping - and each client's entitlement ceiling (downscoping) - is governed by a
+ * federation the attester trusts, rather than by a flat file, the local PF store, or whoever answers at the
+ * entity's URL.
  *
  * <p>This is the federation-native counterpart of {@link CimdClientResolver}: same binding shape (each
  * entry carries {@code spiffe_id}, {@code client_id}, evidence trust config and an {@code entitlement}
- * ceiling), but delivered inside a signed, self-describing federation entity statement. Full trust-chain
- * validation to an anchor is the natural extension (the {@code openid-federation} library validates
- * chains); this resolver verifies the entity's self-signature and issuer, which is the minimum that makes
- * the document tamper-evident. The attester signing key stays deployment config, never in the statement.
+ * ceiling). The attester signing key stays deployment config, never in the statement.
+ *
+ * <p>The answer is kept for {@code ttlSeconds}. When the federation cannot be reached, the last answer stands:
+ * an outage is not evidence against anyone. When the chain no longer validates - the anchor, or a superior,
+ * stopped vouching for the entity - the kept answer is dropped and its clients are refused, so revoking the
+ * entity at the anchor stops issuance within one TTL.
  */
 public final class OpenIdFederationClientResolver implements IssuanceClientResolver {
+    private static final Log LOGGER = LogFactory.getLog(OpenIdFederationClientResolver.class);
 
     public static final long DEFAULT_TTL_SECONDS = 300L;
     private static final String BINDINGS_CLAIM = "spiffe_client_bindings";
-    private static final String ENTITY_STATEMENT_TYP = "entity-statement+jwt";
 
     private final String entityUrl;
-    private final HttpGetClient http;
+    private final TrustChainValidator validator;
     private final long ttlSeconds;
     private final String defaultSigningJwk;
+    private final Clock clock;
 
     private volatile List<AttesterClient> cached;
     private volatile long cachedAtEpochSeconds;
 
-    public OpenIdFederationClientResolver(String entityUrl, String defaultSigningJwk) {
-        this(entityUrl, new JdkHttpGetClient(false, OutboundUrlPolicy.fromEnvironment().trusting(entityUrl)),
-                DEFAULT_TTL_SECONDS, defaultSigningJwk);
+    public OpenIdFederationClientResolver(String entityUrl, TrustChainValidator validator, String defaultSigningJwk) {
+        this(entityUrl, validator, DEFAULT_TTL_SECONDS, defaultSigningJwk, Clock.systemUTC());
     }
 
-    public OpenIdFederationClientResolver(String entityUrl, HttpGetClient http, long ttlSeconds,
-            String defaultSigningJwk) {
+    public OpenIdFederationClientResolver(String entityUrl, TrustChainValidator validator, long ttlSeconds, String defaultSigningJwk,
+                                          Clock clock) {
         this.entityUrl = entityUrl.endsWith("/") ? entityUrl.substring(0, entityUrl.length() - 1) : entityUrl;
-        this.http = http;
+        this.validator = Objects.requireNonNull(validator, "validator");
         this.ttlSeconds = ttlSeconds;
         this.defaultSigningJwk = defaultSigningJwk;
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     @Override
@@ -72,36 +79,40 @@ public final class OpenIdFederationClientResolver implements IssuanceClientResol
 
     @Override
     public List<AttesterClient> attestationClients() throws IssuanceException {
-        long now = System.currentTimeMillis() / 1000L;
+        long now = this.clock.instant().getEpochSecond();
         List<AttesterClient> local = this.cached;
         if (local != null && now - this.cachedAtEpochSeconds < this.ttlSeconds) {
             return local;
         }
-        String entityConfig;
+        TrustChainValidationResult validated;
         try {
-            entityConfig = this.http.get(this.entityUrl + "/.well-known/openid-federation", "application/entity-statement+jwt");
-        } catch (Exception e) {
-            if (local != null) {
-                return local;
+            // Statements older than the TTL are fetched afresh rather than taken from the validator's cache, so an
+            // anchor that stops vouching for the entity is heard within one TTL, not when its last statement expires.
+            validated = this.validator.validate(ValidationRequest.forSubject(this.entityUrl)
+                    .maxLeafAgeSeconds(this.ttlSeconds)
+                    .maxAnchorAgeSeconds(this.ttlSeconds)
+                    .build());
+        } catch (FederationException e) {
+            if (e.error() == FederationError.TEMPORARILY_UNAVAILABLE) {
+                if (local != null) {
+                    LOGGER.warn("Federation entity " + this.entityUrl + " could not be reached; its clients stand as last validated");
+                    return local;
+                }
+                throw IssuanceException.serverError("the federation entity " + this.entityUrl + " could not be reached");
             }
-            throw IssuanceException.serverError("federation entity configuration could not be fetched: " + this.entityUrl);
+            this.cached = null;
+            throw IssuanceException.invalidClient("the federation entity " + this.entityUrl
+                    + " does not validate to a trusted anchor (" + e.error().code() + "), so none of its clients is");
         }
-        List<AttesterClient> parsed = parse(entityConfig);
+        List<AttesterClient> parsed = this.parse(validated.leafEntityStatement());
         this.cached = parsed;
         this.cachedAtEpochSeconds = now;
         return parsed;
     }
 
     @SuppressWarnings("unchecked")
-    private List<AttesterClient> parse(String entityStatementJwt) throws IssuanceException {
-        JwtClaims claims = verifiedEntityConfiguration(entityStatementJwt);
-
-        Object bindings;
-        try {
-            bindings = claims.getClaimValue(BINDINGS_CLAIM);
-        } catch (Exception e) {
-            bindings = null;
-        }
+    private List<AttesterClient> parse(JwtClaims verified) throws IssuanceException {
+        Object bindings = verified.getClaimValue(BINDINGS_CLAIM);
         if (!(bindings instanceof List)) {
             throw IssuanceException.serverError("federation entity carries no '" + BINDINGS_CLAIM + "' claim");
         }
@@ -119,28 +130,6 @@ public final class OpenIdFederationClientResolver implements IssuanceClientResol
             out.add(new AttesterClient(clientId, CimdMapping.toConfig(entry, spiffeId, this.defaultSigningJwk)));
         }
         return out;
-    }
-
-    /**
-     * The Entity Configuration is self-issued and self-signed: verify it against the JWKS it publishes,
-     * with iss == the entity. This is the tamper-evidence floor, and on this path it is the only check
-     * there is - no trust chain is walked - so the statement must first be one: OpenID Federation 1.0
-     * §3 rejects an Entity Statement whose {@code typ} is missing or anything but
-     * {@code entity-statement+jwt}.
-     */
-    @SuppressWarnings("unchecked")
-    private JwtClaims verifiedEntityConfiguration(String entityStatementJwt) throws IssuanceException {
-        try {
-            JwtCodec.requireType(JwtCodec.getJwtHeaders(entityStatementJwt), ENTITY_STATEMENT_TYP);
-            Map<String, Object> unverified = JwtCodec.parseUnverifiedClaims(entityStatementJwt).getClaimsMap();
-            Object jwks = unverified.get("jwks");
-            if (!(jwks instanceof Map)) {
-                throw new IllegalArgumentException("entity statement has no jwks");
-            }
-            return JwtCodec.verifyAgainstInlineJwks(entityStatementJwt, (Map<String, Object>) jwks, this.entityUrl);
-        } catch (Exception e) {
-            throw IssuanceException.serverError("federation entity statement did not verify: " + e.getMessage());
-        }
     }
 
     private static String str(Object o) {

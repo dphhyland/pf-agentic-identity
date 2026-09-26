@@ -56,6 +56,29 @@ are written to survive: they log the refusal, validate no trust chain, register 
 token request to PF's own client authentication. `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` does the
 same for attestation-based client authentication. Its comments say why each line is there.
 
+**The federation profile makes PF a trust anchor.** `PF_PROFILE=federation ./up.sh` adds
+`vars.federation.env`: `OIDF_FEDERATION_SELF_ANCHOR` names PF as a trust anchor trusted with the key it
+signs with, read from its own key store, so nothing is pinned before it boots. That is the PF the
+suite's OpenID Federation plans test. The FAPI, SSF and CIBA plans are run without it.
+
+**The federation-op profile joins PF to the suite's own federation.** For the OP plan the suite hosts a
+trust anchor and a relying party beneath it, per plan run, and the RP registers at PF's authorization and
+PAR endpoints (OpenID Federation 1.0 §12.1). `PF_PROFILE=federation-op` adds `vars.federation-op.env` to the
+federation profile: the suite's anchor pinned beside PF itself, its host let through the outbound URL
+policy, `OIDF_REQUIRE_METADATA_POLICY=false` (the suite's anchor publishes no policy), PAR optional instead
+of required (the RP sends its request object by value), and the suite's CA among PF's trusted CAs - PF
+fetches the RP's `jwks_uri` itself when it checks a request object, and checks the certificate like any
+other. So the suite has to be one whose certificate that CA issued: `suite/suite-compose.yml` runs one,
+with `keys/suite-tls.crt`.
+
+**A second rig runs beside the first.** `PF_RIG_NAME` names the container, the image and the compose
+project, so a rig built from another checkout doesn't replace this one. Give it its own ports:
+
+```sh
+PF_RIG_NAME=pfai-fed PF_PROFILE=federation PF_PORT_HTTPS=49031 PF_PORT_HTTP=49080 PF_PORT_ADMIN=49999 \
+  PF_AUTHOR_ADMIN_PORT=48999 PF_AUTHOR_RUNTIME_PORT=48031 PF_BASE_URL=https://host.docker.internal:49031 ./up.sh
+```
+
 ## A PF on a public address
 
 The issuer PF advertises is baked into the archive (`terraform/variables.tf` `pf_base_url`), and a suite
@@ -79,6 +102,22 @@ service needs `.context/vars.env`'s values plus your DevOps credentials as its v
 the CBC and static-ECDH suites out, because the suite offers them and fails a server that accepts.
 It is laid over the image *and* carried in the archive; that file's header says why either alone
 looks fine and is not.
+
+**The federation module's extended properties are declared.** PingFederate keeps an extended property on a
+client only when it has been told about it, and drops the rest without a word; the module marks each client it
+registers with `status` and its registration's end. `terraform/extended-properties.tf` declares every name in
+`docs/extended-properties.json`, which a test keeps equal to the code - before it did, an RP the OP plan
+registered came back unmarked, and its later requests went unchecked.
+
+**A client assertion may name the token endpoint.** A new 13.1 install accepts only its issuer as the
+audience of a client assertion (draft RFC 7523bis); an archive upgraded from 13.0 keeps accepting the token
+endpoint URL, and the results below were first measured on one. The suites' ordinary clients - the SSF
+receiver, the federation OP plan's relying party at the token endpoint - name the token endpoint, as OpenID
+Connect Core §9 says to, and on an archive authored fresh on 13.1.3 the SSF plan failed 18 of 19 modules at
+the token endpoint. `config-store/org.sourceid.oauth20.domain.AuthzServerManagerImpl.xml` turns the check off,
+overlay and archive like the cipher list, and `export.sh` refuses an archive without it. The FAPI 2.0 clients
+are still held to their issuer by the filter below, and a federation RP's assertion at PAR by the
+front-channel registration filter.
 
 **Two FAPI 2.0 rules are enforced by a filter, not by PingFederate.** 13.0.3 accepts a client
 assertion addressed to its token endpoint (or the PAR endpoint, or an array) where the profile says
@@ -123,10 +162,12 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 
 | Plan | Variant | Result |
 |---|---|---|
-| `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED |
+| `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED (again 2026-09-25, on an archive authored fresh on 13.1.3 - 1 of 19 before the audience overlay below) |
 | `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet from branch `conformance/caep-interop`) |
-| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3) |
+| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3; the same on 2026-09-25 on an archive authored fresh on 13.1.3) |
 | `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike) - all three on one PingFederate 13.x product gap, below |
+| `openid-federation-deployed-entity-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation`, PF its own trust anchor | 5 modules: 5 WARNING, 0 FAILED (2026-09-25, 13.1.3) - the warning is PF's vendor metadata, below |
+| `openid-federation-entity-joined-to-test-federation-op-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation-op`, the suite from `suite/suite-compose.yml` | 20 modules: 20 WARNING, 0 FAILED (2026-09-25, 13.1.3) - the same warning; the 13 negative modules attach PF's refusal page |
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:
 
@@ -139,6 +180,21 @@ Expect, and do not be alarmed by, in the FAPI 2.0 plan:
   authorization page was loaded rather than when the user authorized; 13.1.3 follows FAPI 2.0
   §5.3.2.2 NOTE 3 and that module now PASSES.)
 - **SKIPPED** on the claims-parameter module - not supported, not advertised, so not tested.
+
+The OP plan's first runs found four things, all fixed: an RP already registered went unchecked on later
+requests (PF dropped the module's undeclared extended properties, so the client no longer looked like a
+federation client), an RP's later requests weren't held to §12.1.1.1, a token request renewed an RP registered
+at the authorization endpoint in an agent's shape, and PF 13.1 refuses the token endpoint as a client
+assertion's audience. Each is in the commit that fixed it.
+
+In the federation plans, each module warns once, on the `oauth_authorization_server` block of PF's entity
+configuration: it carries PF's own discovery document, and the suite doesn't know PF's `ping_*` endpoints,
+its identity-chaining (ID-JAG) parameters or the attestation draft's `client_attestation_pop_methods_supported`.
+The same plan, before the entity configuration carried PF's discovery document, failed all five modules on
+the `openid_provider` block: no `jwks_uri`, `response_types_supported`, `subject_types_supported` or
+`id_token_signing_alg_values_supported`, which OpenID Connect Discovery requires. `render.sh` tells the suite
+the anchor keys by reading them from PF's own entity configuration - fine for a rig, where the point is what
+PF does with them; a real relying party pins them from somewhere it trusts.
 
 And for FAPI-CIBA, three **FAILED** modules that no configuration and no filter can turn, because
 FAPI-CIBA profiles CIBA over FAPI 1.0 Advanced, whose resource servers "shall only support
@@ -161,6 +217,11 @@ re-export, and run the ping plan against that image.
 
 ## Testing it
 
+**In CI**, `.github/workflows/conformance-federation.yml` builds a PF from the clone with `PF_PROFILE=federation`
+and runs the deployed-entity plan against it, weekly and on demand. It needs your licence as the repository
+secrets `PING_IDENTITY_DEVOPS_USER` and `PING_IDENTITY_DEVOPS_KEY`, and it keeps the plan's output. The other
+plans are run by hand, below.
+
 `suite/render.sh` turns `suite/*.template.json` into the configurations a suite wants, with the
 clients' private keys and the test user's password filled in. The rendered files are git-ignored.
 
@@ -182,6 +243,22 @@ suite/run-plan.py https://localhost:9643 fapi2-security-profile-final-test-plan 
 suite/run-plan.py https://localhost:9643 fapi-ciba-id1-test-plan suite/fapi-ciba.json \
   --variant client_auth_type=private_key_jwt ciba_mode=poll fapi_ciba_profile=plain_fapi client_registration=static_client
 
+# OpenID Federation, PF deployed as its own trust anchor (PF_PROFILE=federation). render.sh reads the
+# anchor keys the suite is told about from PF's own entity configuration, so it needs PF up first -
+# PF_LOCAL_URL says where, when the issuer is host.docker.internal
+PF_LOCAL_URL=https://localhost:49031 PF_BASE_URL=https://host.docker.internal:49031 suite/render.sh
+suite/run-plan.py https://localhost:9643 openid-federation-deployed-entity-test-plan suite/federation-deployed-entity.json \
+  --variant server_metadata=discovery client_registration=automatic
+
+# OpenID Federation, PF as an OP in the suite's own federation (PF_PROFILE=federation-op), against a suite
+# whose certificate PF trusts - this directory's own, on 49643 here
+SUITE_PORT=49643 docker compose -f suite/suite-compose.yml -p pfai-suite up -d
+PF_RIG_NAME=pfai-fed PF_PROFILE=federation-op SUITE_PORT=49643 PF_PORT_HTTPS=49031 PF_PORT_HTTP=49080 \
+  PF_PORT_ADMIN=49999 PF_AUTHOR_ADMIN_PORT=48999 PF_AUTHOR_RUNTIME_PORT=48031 PF_BASE_URL=https://host.docker.internal:49031 ./up.sh
+PF_BASE_URL=https://host.docker.internal:49031 suite/render.sh
+suite/run-plan.py https://localhost:49643 openid-federation-entity-joined-to-test-federation-op-test-plan suite/federation-op.json \
+  --variant server_metadata=discovery client_registration=automatic
+
 # the CAEP Interop plan: its last module waits for the operator, and the hook is the operator
 suite/run-plan.py https://localhost:9643 openid-ssf-transmitter-caep-test-plan suite/ssf-transmitter.json \
   --variant ssf_server_metadata=discovery ssf_delivery_mode=poll ssf_auth_mode=dynamic \
@@ -195,6 +272,11 @@ reach and that PF can advertise - `PF_BASE_URL=https://host.docker.internal:9031
 issuer in discovery and the address the suite dials are the same string. If 9031, 9080 or 9999 are
 taken on this machine, `PF_PORT_HTTPS` / `PF_PORT_HTTP` / `PF_PORT_ADMIN` move the host side and the
 default issuer follows.
+
+`--expected FILE` lets a run pass with failures that are known and written down: each entry names the
+module, the condition that fails and why. A module that fails counts as `EXPECTED` only when every
+failure and warning in its log is listed; `--strict-expectations` also fails a run in which a listed
+failure didn't happen, so a fix gets recorded as one.
 
 `trigger-caep-events.py` takes the emitter client's secret from `secrets.env` and PF's origin from
 `terraform/variables.tf` (`--base` to override). It exits non-zero if any of the three events reached

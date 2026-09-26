@@ -48,6 +48,10 @@ public final class SsfAuditLogSource extends AbstractAppender {
         "org.sourceid.websso.profiles.idp.AsAuditLogger",
         "org.sourceid.wstrust.log.STSAuditLogger",
         "org.sourceid.websso.profiles.idp.ClientRegistrationAuditLogger",
+        // PingFederate's audit hook for extensions: the OpenID Federation events (registration expired,
+        // hosted entity revoked, ...) arrive here. auditEventMap maps none of them by default, so hooking
+        // it changes nothing until an operator maps one to a CAEP event.
+        "com.pingidentity.sdk.logging.LoggingUtil",
     };
     private static final String APPENDER_NAME = "SsfAuditEventSource";
 

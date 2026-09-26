@@ -149,4 +149,23 @@ class HostedEntityConfigurationBuilderTest {
                 () -> new HostedEntityConfigurationBuilder(NEVER, AUTHORITY).buildEntityConfiguration(stale));
         assertTrue(e.getMessage().contains("has expired"), e.getMessage());
     }
+
+    @Test
+    @Requirement("OIDFED §3.1.2(1.6)")
+    void aHostedEntityCarriesTheTrustMarksTheAuthorityIssuesIt() throws Exception {
+        try (FakeBaoServer bao = new FakeBaoServer(TOKEN)) {
+            String entityId = AUTHORITY + "/agents/agent-1";
+            List<Map<String, Object>> marks = List.of(Map.of("trust_mark_type", AUTHORITY + "/marks/certified", "trust_mark", "a.b.c"));
+            HostedEntityConfigurationBuilder builder = new HostedEntityConfigurationBuilder(new RegistryHostedEntitySigner(bao.url(), TOKEN),
+                    AUTHORITY, id -> id.equals(entityId) ? marks : List.of());
+
+            JwtClaims carrying = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(builder.buildEntityConfiguration(
+                    HostedEntity.hosted(entityId, FakeBaoServer.KEY_NAME, Map.of("oauth_client", Map.of()), null)));
+            JwtClaims without = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(builder.buildEntityConfiguration(
+                    HostedEntity.hosted(AUTHORITY + "/agents/agent-2", FakeBaoServer.KEY_NAME, Map.of("oauth_client", Map.of()), null)));
+
+            assertEquals(marks, carrying.getClaimValue("trust_marks"));
+            assertTrue(!without.hasClaim("trust_marks"), "no empty trust_marks claim");
+        }
+    }
 }

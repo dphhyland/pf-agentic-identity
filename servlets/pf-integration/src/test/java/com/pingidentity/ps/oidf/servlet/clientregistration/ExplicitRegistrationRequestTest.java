@@ -74,7 +74,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
-    @Requirement("OIDFED §12.2")
+    @Requirement("OIDFED §12.2.2(2.2)")
     void parsesAVerifiedSelfSignedEntityStatement() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = sign(entityConfiguration(k, RP, RP, OP), k, List.of("leaf", "anchor"));
@@ -88,7 +88,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
-    @Requirement("OIDFED §12.2")
+    @Requirement("OIDFED §12.2.2(2.2)")
     void anUnsignedJwtIsRejected() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = unsigned(entityConfiguration(k, RP, RP, OP));
@@ -97,7 +97,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
-    @Requirement("OIDFED §12.2")
+    @Requirement("OIDFED §12.2.2(2.2)")
     void aJwtSignedByAKeyOtherThanItsOwnJwksIsRejected() throws Exception {
         EllipticCurveJsonWebKey advertised = key("rp-1");
         EllipticCurveJsonWebKey attacker = key("rp-1");   // same kid, different key
@@ -107,7 +107,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
-    @Requirement("OIDFED §12.2")
+    @Requirement({"OIDFED §12.2.2(2.2)", "OIDFED §12.2.1(4.12)"})
     void audienceIsCheckedOnTheVerifiedClaims() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = sign(entityConfiguration(k, RP, RP, "https://someone-else.example"), k, null);
@@ -118,7 +118,7 @@ class ExplicitRegistrationRequestTest {
     }
 
     @Test
-    @Requirement("OIDFED §12.2")
+    @Requirement("OIDFED §12.2.1(4.4)")
     void subjectMustEqualIssuerForASelfStatement() throws Exception {
         EllipticCurveJsonWebKey k = key("rp-1");
         String jwt = sign(entityConfiguration(k, RP, "https://other.example.com", OP), k, null);
@@ -177,5 +177,75 @@ class ExplicitRegistrationRequestTest {
         sb.append("]");
 
         assertThrows(IllegalArgumentException.class, () -> ExplicitRegistrationRequest.fromTrustChainJson(sb.toString()));
+    }
+
+    // ---- what is validated: the posted configuration, not the RP's copy of it in the header --------------
+
+    private static String statement(String iss, String sub) {
+        return com.pingidentity.ps.oidf.federation.testkit.Statements.spec("entity-statement+jwt").claim("iss", iss).claim("sub", sub)
+                .unsigned().sign(null, java.time.Clock.systemUTC());
+    }
+
+    /**
+     * §12.2.2 step 5: the RP's configuration in the header "is only used to establish that there is a path"; "it
+     * is the metadata, etc. in the request Entity Configuration ... that is used". So the chain validated starts
+     * with the posted configuration, and the RP's own copy in the header is dropped.
+     */
+    @Test
+    @Requirement("OIDFED §12.2.2(2.5)")
+    void theChainValidatedStartsWithThePostedConfiguration() throws Exception {
+        EllipticCurveJsonWebKey k = key("rp-1");
+        String ownCopy = statement(RP, RP);
+        String aboutRp = statement("https://anchor.example.com", RP);
+        String byRpAboutAnother = statement(RP, "https://another.example.com");
+        String jwt = sign(entityConfiguration(k, RP, RP, OP), k, List.of(ownCopy, aboutRp, byRpAboutAnother, "not-a-jwt"));
+
+        ExplicitRegistrationRequest req = ExplicitRegistrationRequest.fromJwt(jwt, OP);
+
+        assertEquals(List.of(jwt, aboutRp, byRpAboutAnother, "not-a-jwt"), req.presentedChain(),
+                "only the RP's configuration of itself is replaced by the posted one");
+        assertEquals(List.of(ownCopy, aboutRp, byRpAboutAnother, "not-a-jwt"), req.trustChain(), "the header as sent");
+    }
+
+    /** With no chain in the header, discovery starts from the posted configuration (§12.2.2 step 3). */
+    @Test
+    @Requirement("OIDFED §12.2.2(2.3)")
+    void thePeerTrustChainHeaderIsCarriedToValidation() throws Exception {
+        EllipticCurveJsonWebKey k = key("rp-1");
+        JsonWebSignature jws = new JsonWebSignature();
+        jws.setPayload(entityConfiguration(k, RP, RP, OP).toJson());
+        jws.setKey(k.getPrivateKey());
+        jws.setKeyIdHeaderValue(k.getKeyId());
+        jws.setAlgorithmHeaderValue("ES256");
+        jws.setHeader("typ", "entity-statement+jwt");
+        jws.setHeader("peer_trust_chain", List.of("op-ec", "op-ss"));
+
+        String jwt = jws.getCompactSerialization();
+
+        ExplicitRegistrationRequest req = ExplicitRegistrationRequest.fromJwt(jwt, OP);
+
+        assertEquals(List.of("op-ec", "op-ss"), req.peerTrustChain());
+        assertEquals(List.of(jwt), req.presentedChain(), "no trust_chain header: the posted configuration alone");
+    }
+
+    @Test
+    void aTrustChainBodyIsValidatedAsSent() throws Exception {
+        EllipticCurveJsonWebKey k = key("rp-1");
+        String leaf = sign(entityConfiguration(k, RP, RP, OP), k, null);
+        String aboutRp = statement("https://anchor.example.com", RP);
+
+        ExplicitRegistrationRequest req = ExplicitRegistrationRequest.fromTrustChainJson("[\"" + leaf + "\",\"" + aboutRp + "\"]");
+
+        assertEquals(List.of(leaf, aboutRp), req.presentedChain());
+        assertEquals(List.of(), req.peerTrustChain());
+    }
+
+    @Test
+    void aRequestBuiltWithoutHeadersHasNone() {
+        ExplicitRegistrationRequest req = new ExplicitRegistrationRequest(RP, RP, null, null, null, null);
+
+        assertEquals(List.of(), req.trustChain());
+        assertEquals(List.of(), req.peerTrustChain());
+        assertEquals(Map.of(), req.metadata());
     }
 }

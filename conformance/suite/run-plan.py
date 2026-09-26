@@ -12,6 +12,12 @@ Exit status is 0 only if every module that ran finished PASSED, WARNING, REVIEW 
 results a certification run tolerates. It prints each FAILURE's condition and message, because "FAILED"
 alone sends you to a web UI to find out what you could have been told.
 
+--expected FILE names failures that are known and explained, as a JSON list of
+{"module": ..., "condition": ..., "level": "FAILURE" | "WARNING", "why": ...}. A module that FAILED is
+tolerated only when every FAILURE and WARNING in its log is one of those - its module and the condition
+that raised it. An expectation that no module raised is reported, and is fatal with
+--strict-expectations: a fix nobody wrote down is as much a surprise as a new failure.
+
 Some modules wait for the transmitter's operator to do something - the CAEP Interop module logs
 "Please trigger these events on the transmitter now" and gives sixty seconds. --on-log-marker TEXT
 --hook CMD watches the running module's log for TEXT and runs CMD (a shell command) once when it
@@ -98,7 +104,11 @@ def main():
     ap.add_argument("--timeout", type=int, default=420, help="seconds to allow one module")
     ap.add_argument("--on-log-marker", default=None, metavar="TEXT", help="log text that means the module is waiting for the operator")
     ap.add_argument("--hook", default=None, metavar="CMD", help="shell command to run once when the marker appears")
+    ap.add_argument("--expected", default=None, metavar="FILE", help="known, explained failures (JSON list)")
+    ap.add_argument("--strict-expectations", action="store_true", help="fail when an expected failure did not happen")
     args = ap.parse_args()
+    expected = json.load(open(args.expected)) if args.expected else []
+    fired = set()
     base = args.base.rstrip("/")
     variant = dict(v.split("=", 1) for v in args.variant)
 
@@ -126,17 +136,34 @@ def main():
             call("POST", f"{base}/api/runner/{created['id']}")
         info = wait_for(base, created["id"], {"FINISHED"}, args.timeout, args.on_log_marker, args.hook)
         result = info.get("result") or f"({info.get('status', 'NO-STATUS')})"
+        found = failures(base, created["id"]) if result not in ("PASSED", "SKIPPED") else []
+        matched = [explained(expected, name, level, src) for level, src, _ in found]
+        fired.update(i for i in matched if i is not None)
+        if result not in TOLERATED and found and all(i is not None for i in matched):
+            result = "EXPECTED"
         results[name] = result
         print(f"{result:<11} {name}  {base}/log-detail.html?log={created['id']}")
-        if result not in ("PASSED", "SKIPPED"):
-            for level, src, msg in failures(base, created["id"]):
-                print(f"            {level:<8} {src}: {msg}")
+        for (level, src, msg), i in zip(found, matched):
+            note = f"  [expected: {expected[i]['why']}]" if i is not None else ""
+            print(f"            {level:<8} {src}: {msg}{note}")
 
     counts = {}
     for r in results.values():
         counts[r] = counts.get(r, 0) + 1
     print("\n" + "  ".join(f"{k}={v}" for k, v in sorted(counts.items())) + f"  (of {len(results)})")
-    sys.exit(0 if all(r in TOLERATED for r in results.values()) else 1)
+    unfired = [e for i, e in enumerate(expected) if i not in fired and (not args.only or e["module"] in results)]
+    for e in unfired:
+        print(f"expected, did not happen: {e['module']} {e['condition']} ({e['why']})")
+    ok = all(r in TOLERATED | {"EXPECTED"} for r in results.values()) and not (args.strict_expectations and unfired)
+    sys.exit(0 if ok else 1)
+
+
+def explained(expected, module, level, condition):
+    """The index of the expectation that explains this log entry, or None."""
+    for i, e in enumerate(expected):
+        if e["module"] == module and e["condition"] == condition and e.get("level", "FAILURE") == level:
+            return i
+    return None
 
 
 if __name__ == "__main__":

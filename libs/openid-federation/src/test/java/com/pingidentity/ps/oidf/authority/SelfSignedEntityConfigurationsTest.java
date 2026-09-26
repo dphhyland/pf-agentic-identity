@@ -145,6 +145,10 @@ class SelfSignedEntityConfigurationsTest {
 
     @Test
     void theSubordinateStatementVouchesForTheAgentsOwnKey() throws Exception {
+        // As the authority servlet does at start-up; a self-signed entity must never reach this signer.
+        AuthoritySupport.configureSigning(e -> {
+            throw new AssertionError("the authority never signs for a self-signed entity");
+        }, AUTHORITY);
         AuthoritySupport.registry().register(entity);
         Map<String, Object> claims = AuthoritySupport.hostedSubordinateClaims(entityId);
         @SuppressWarnings("unchecked")

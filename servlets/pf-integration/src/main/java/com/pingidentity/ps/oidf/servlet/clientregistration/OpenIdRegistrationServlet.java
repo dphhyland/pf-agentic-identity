@@ -3,19 +3,18 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
-import java.util.Map;
 import java.util.Objects;
 import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
-import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
-import org.jose4j.json.JsonUtil;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
+import com.pingidentity.ps.oidf.federation.FederationError;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
+import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
 
 /**
  * Servlet for OpenID Federation explicit client registration. Accepts a signed
@@ -25,11 +24,10 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
  */
 @WebServlet(urlPatterns = {"/federation/register"})
 public class OpenIdRegistrationServlet
-extends HttpServlet {
+extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private RegistrationService RegistrationService;
     private final Function<HttpServletRequest, String> issuerResolver;
-    private static final Log log = LogFactory.getLog(OpenIdRegistrationServlet.class);
 
     public OpenIdRegistrationServlet() {
         this(null, req -> OAuthIssuerUtils.getInstance().getIssuerValue(req));
@@ -42,6 +40,7 @@ extends HttpServlet {
     }
 
     public void init(ServletConfig config) throws ServletException {
+        PfAuditEventSink.install();
         super.init(config);
         if (this.RegistrationService != null) {
             return;
@@ -64,19 +63,18 @@ extends HttpServlet {
                     break;
                 }
                 default: {
-                    writeError(resp, 404, "not_found", "Unknown endpoint", new Exception("Endpoint not supported"));
+                    FederationErrors.write(resp, FederationError.NOT_FOUND, "unknown endpoint", null);
                     break;
                 }
             }
         }
         catch (RegistrationRejectedException e) {
-            writeError(resp, e.status(), e.error(), e.getMessage(), e);
-        }
-        catch (IllegalArgumentException e) {
-            writeError(resp, 400, "invalid_request", e.getMessage(), e);
+            FederationErrors.write(resp, e.status(), e.error(), e.getMessage(), e);
         }
         catch (Exception e) {
-            writeError(resp, 500, "server_error", e.getMessage(), e);
+            // A chain the validator refused is a FederationException carrying its §8.9 code
+            // (invalid_trust_chain, invalid_metadata, invalid_trust_anchor, temporarily_unavailable).
+            FederationErrors.write(resp, e);
         }
     }
 
@@ -92,11 +90,12 @@ extends HttpServlet {
             String body = readRequestBody(req);
             registrationRequest = ExplicitRegistrationRequest.fromTrustChainJson(body);
         } else {
-            writeError(resp, 400, "invalid_request", "Unsupported content-type: " + contentType, null);
+            FederationErrors.write(resp, FederationError.INVALID_REQUEST, "Unsupported content-type: " + contentType, null);
             return;
         }
         RegisteredClient registeredClient = this.RegistrationService.explicitRegister(registrationRequest, oidcIssuer);
-        writeEntityStatement(resp, 201, registeredClient.signedJwt());
+        // §12.2.3: "A successful response MUST have an HTTP status code 200" - not 201.
+        writeEntityStatement(resp, 200, registeredClient.signedJwt());
     }
 
     private static String baseMediaType(String contentType) {
@@ -111,27 +110,12 @@ extends HttpServlet {
         return new String(req.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
     }
 
-    private static void writeJson(HttpServletResponse resp, int status, String json) throws IOException {
-        resp.setStatus(status);
-        resp.setContentType("application/json");
-        try (PrintWriter out = resp.getWriter()) {
-            out.write(json);
-        }
-    }
-
     private static void writeEntityStatement(HttpServletResponse resp, int status, String jwt) throws IOException {
         resp.setStatus(status);
         resp.setContentType("application/explicit-registration-response+jwt");
         try (PrintWriter out = resp.getWriter()) {
             out.write(jwt);
         }
-    }
-
-    private static void writeError(HttpServletResponse resp, int status, String error, String description, Throwable t) throws IOException {
-        if (t != null) {
-            log.error("error:", t);
-        }
-        writeJson(resp, status, JsonUtil.toJson(Map.of("error", error, "error_description", description)));
     }
 }
 
