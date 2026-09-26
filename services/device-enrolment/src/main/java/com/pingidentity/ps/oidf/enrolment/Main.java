@@ -44,6 +44,12 @@ import org.postgresql.ds.PGSimpleDataSource;
  *                                 (Railway's reference-variable form). Absent → refuses to start
  *   APPLE_TEAM_ID / APPLE_BUNDLE_ID   the App ID an attestation must be bound to
  *   APPLE_ALLOW_DEVELOPMENT       "true" to accept development App Attest. Off by default, on purpose
+ *   APPLE_MACOS_REQUIRE_KEY_POLICY "false" to accept a Mac whose App Attest key does not show Full Security
+ *                                 and SIP (macOS 27 writes the condition into the certificate). On by default
+ *   APPLE_REQUIRE_RENEWAL_ASSERTION "false" to renew a connector that enrolled with App Attest without a fresh
+ *                                 assertion from the same app. On by default
+ *   CONNECTOR_BUILDS              comma-separated base64url SHA-256 hashes of the connector builds to accept,
+ *                                 committed through App Attest; empty accepts any build and records it
  *   UV_MAX_AGE_SECONDS            the server-side time-box (default 300)
  *   REQUIRE_COMPLIANT_DEVICE      "false" to allow minting on an unassessed device (default true)
  *   OIDF_ATTESTATION_SUB          "client_id" flips the attestation sub to the registered client id
@@ -160,7 +166,20 @@ public final class Main {
         }
         String software = clientId == null ? "claude-bank-connector" : clientId;
         AgentMission mission = agentMission(software, System::getenv);
-        return new EnrolmentService.AgentOptions(federation, piv, selfAsserted, authz, mission.metadata(), mission.policy());
+        boolean macKeyPolicy = Boolean.parseBoolean(env("APPLE_MACOS_REQUIRE_KEY_POLICY", "true"));
+        if (!macKeyPolicy) {
+            LOGGER.warn((Object) "APPLE_MACOS_REQUIRE_KEY_POLICY=false: a Mac's App Attest key need not show Full Security"
+                    + " and SIP, so its code signing cannot be relied on");
+        }
+        java.util.Set<String> builds = new java.util.LinkedHashSet<>();
+        for (String build : env("CONNECTOR_BUILDS", "").split(",")) {
+            if (!build.isBlank()) {
+                builds.add(build.trim());
+            }
+        }
+        boolean renewalAssertion = Boolean.parseBoolean(env("APPLE_REQUIRE_RENEWAL_ASSERTION", "true"));
+        return new EnrolmentService.AgentOptions(federation, piv, selfAsserted, authz, mission.metadata(), mission.policy(),
+                macKeyPolicy, builds, renewalAssertion);
     }
 
     /** What the authority says about every agent it hosts: vouched metadata, and the policy capping the rest. */

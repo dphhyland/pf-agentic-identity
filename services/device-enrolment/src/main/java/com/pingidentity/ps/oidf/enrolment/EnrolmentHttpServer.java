@@ -146,7 +146,7 @@ public final class EnrolmentHttpServer {
     private Map<String, Object> attestation(HttpExchange exchange) throws Exception {
         JsonNode body = readJson(exchange);
         EnrolmentService.Reissued reissued = this.service.reissue(new EnrolmentService.ReissueRequest(
-                text(body, "instance_id"), text(body, "key_proof")));
+                text(body, "instance_id"), text(body, "key_proof"), text(body, "app_attest_assertion")));
         return Map.of("attestation", reissued.attestation(), "expires_in", reissued.expiresInSeconds());
     }
 

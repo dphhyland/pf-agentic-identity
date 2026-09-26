@@ -8,6 +8,7 @@ import java.io.InputStream;
 import java.security.cert.CertificateException;
 import java.security.cert.CertificateFactory;
 import java.security.cert.X509Certificate;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Objects;
 import java.util.Set;
@@ -36,9 +37,10 @@ public final class AppAttestConfig {
     private final String bundleId;
     private final Set<AppAttestEnvironment> acceptedEnvironments;
     private final X509Certificate trustRoot;
+    private final Instant validationTime;
 
     private AppAttestConfig(String teamId, String bundleId, Set<AppAttestEnvironment> accepted,
-                            X509Certificate trustRoot) {
+                            X509Certificate trustRoot, Instant validationTime) {
         this.teamId = requireNonBlank(teamId, "teamId");
         this.bundleId = requireNonBlank(bundleId, "bundleId");
         if (accepted == null || accepted.isEmpty()) {
@@ -46,12 +48,13 @@ public final class AppAttestConfig {
         }
         this.acceptedEnvironments = Set.copyOf(accepted);
         this.trustRoot = Objects.requireNonNull(trustRoot, "trustRoot");
+        this.validationTime = validationTime;
     }
 
     /** Accepts production attestations only. This is the correct choice for a deployed service. */
     public static AppAttestConfig production(String teamId, String bundleId) {
         return new AppAttestConfig(teamId, bundleId,
-                EnumSet.of(AppAttestEnvironment.PRODUCTION), appleRootCa());
+                EnumSet.of(AppAttestEnvironment.PRODUCTION), appleRootCa(), null);
     }
 
     /**
@@ -61,13 +64,23 @@ public final class AppAttestConfig {
      */
     public static AppAttestConfig allowingDevelopment(String teamId, String bundleId) {
         return new AppAttestConfig(teamId, bundleId,
-                EnumSet.allOf(AppAttestEnvironment.class), appleRootCa());
+                EnumSet.allOf(AppAttestEnvironment.class), appleRootCa(), null);
     }
 
     /** As {@link #production}, with a caller-supplied trust root — for tests using a synthetic chain. */
     public static AppAttestConfig withTrustRoot(String teamId, String bundleId,
                                                 Set<AppAttestEnvironment> accepted, X509Certificate trustRoot) {
-        return new AppAttestConfig(teamId, bundleId, accepted, trustRoot);
+        return new AppAttestConfig(teamId, bundleId, accepted, trustRoot, null);
+    }
+
+    /**
+     * This policy, validating certificate chains as at {@code when} instead of now. For tests only: an App
+     * Attest credential certificate is valid for three days, so a captured real attestation stops
+     * verifying soon after it is taken. A deployed verifier always validates at the current time.
+     */
+    public AppAttestConfig withValidationTime(Instant when) {
+        return new AppAttestConfig(this.teamId, this.bundleId, this.acceptedEnvironments, this.trustRoot,
+                Objects.requireNonNull(when, "when"));
     }
 
     /**
@@ -91,6 +104,11 @@ public final class AppAttestConfig {
 
     public X509Certificate trustRoot() {
         return this.trustRoot;
+    }
+
+    /** The time chains are validated at, or null for "now". */
+    public Instant validationTime() {
+        return this.validationTime;
     }
 
     public boolean accepts(AppAttestEnvironment environment) {

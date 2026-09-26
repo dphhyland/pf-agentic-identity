@@ -540,14 +540,14 @@ public final class IomInstanceRegistry implements InstanceRegistry {
         return "SELECT d.attrs->>'deviceId', d.attrs->>'platform', d.attrs->>'model', d.attrs->>'osVersion', "
                 + "d.attrs->>'appAttestKeyId', d.attrs->>'appAttestEnvironment', "
                 + "(d.attrs->>'appAttestSignCount')::bigint, d.attrs->>'complianceState', "
-                + "d.attrs->>'complianceCheckedAt', d.subject_id "
+                + "d.attrs->>'complianceCheckedAt', d.subject_id, d.attrs->>'appAttestPublicKey' "
                 + "FROM idm.entry d";
     }
 
     private static Device readDevice(ResultSet rs) throws SQLException {
         return new Device(rs.getString(1), rs.getString(2), rs.getString(3), rs.getString(4), rs.getString(5),
                 rs.getString(6), rs.getLong(7), ComplianceState.fromCaepValue(rs.getString(8)),
-                parseTs(rs.getString(9)), rs.getString(10));
+                parseTs(rs.getString(9)), rs.getString(10), rs.getString(11));
     }
 
     private Map<String, Object> instanceAttrs(AgentInstance i) {
@@ -584,7 +584,9 @@ public final class IomInstanceRegistry implements InstanceRegistry {
         if (d.complianceCheckedAt() != null) {
             attrs.put("complianceCheckedAt", TS.format(d.complianceCheckedAt()));
         }
-        // cryptoBinding: the App Attest key. The store holds no key material — only the reference.
+        // The attested App Attest public key, to verify later assertions with. Public: it cannot sign.
+        putIfPresent(attrs, "appAttestPublicKey", d.appAttestPublicKey());
+        // cryptoBinding: the App Attest key. The store holds no private key material — only the reference.
         attrs.put("pqPosture", "classical");
         attrs.put("keyRef", d.appAttestKeyId());
         attrs.put("keyKty", "EC");
