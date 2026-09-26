@@ -3,8 +3,8 @@
 #
 # Nothing here is a deploy. It is the one-machine version of what a conformance run or a demo needs:
 #
-#   1. gen-keys.sh          the suite clients' key pairs and two generated secrets   (git-ignored)
-#   2. author.sh            a stock PF 13.0.3 with an admin API, on localhost:29999
+#   1. gen-keys.sh          the suite's key pairs and certificates, three secrets    (git-ignored)
+#   2. author.sh            a stock PF 13.1.3 with an admin API, on localhost:29999
 #   3. apply.sh apply       terraform/ -> that server: OAuth server, tokens, clients, login form
 #   4. export.sh            its realised config as data.zip - PF's own saved state    (git-ignored)
 #   5. mvn package + stage  the module jars from this repo (run FIRST: author.sh needs the CIBA plugin)

@@ -8,7 +8,7 @@
 # are registered explicitly in this war's WEB-INF/web.xml:
 #   - SsfLogoutSignal (LogoutEventFilter) over /idp/init_logout.openid → emits caep.session-revoked SETs.
 #   - Fapi2Profile (Fapi2ProfileFilter) over every endpoint that takes a client assertion or a DPoP proof
-#     → the two FAPI 2.0 rules PF 13.0 has no setting for, for the clients OIDF_FAPI2_CLIENTS lists. MUST be
+#     → two FAPI 2.0 rules PF 13.1 cannot apply per client, for the clients OIDF_FAPI2_CLIENTS lists. MUST be
 #     mapped before the two below (see its block — the order is checked).
 #   - OidfAutoRegistration (TokenEndpointAutoRegistrationFilter) over /as/token.oauth2 → §12.1 automatic
 #     registration; MUST be mapped before ClientAttestationAuth (see below — the order is checked).
@@ -164,8 +164,8 @@ fi
 
 # Fapi2Profile (Fapi2ProfileFilter) — FAPI 2.0 Security Profile: a client assertion's aud must be this
 # server's issuer, as a string (§5.3.2.1), and a DPoP proof must be signed with PS256, ES256 or EdDSA
-# (§5.4.1). PF 13.0 accepts the token endpoint URL as an audience and RS256 on a proof, and has no
-# setting for either. Registered always and OFF by default: it examines only the clients named in
+# (§5.4.1). PF 13.1 accepts RS256 on a proof with no setting to narrow it, and its audience check is one
+# switch for the whole server. Registered always and OFF by default: it examines only the clients named in
 # OIDF_FAPI2_CLIENTS ("*" for all) and passes everything else through, because OIDC Core tells clients
 # to use the token endpoint URL, and a server with FAPI 2.0 clients usually has the other kind too.
 #
@@ -229,11 +229,11 @@ else
 fi
 
 # OAuthErrorDescription (OAuthErrorDescriptionFilter) over the backchannel, token and PAR endpoints —
-# RFC 6749 §5.2 gives error_description a character set, and PF 13.0.3 puts jose4j's explanation of a
-# refused request object in it, Java-formatted date and its U+202F included. The filter buffers a 4xx
-# JSON body and brings the description inside the set. Order: it wraps the response, so it must be
-# OUTERMOST for these endpoints - registered here, before the filters that run inside it; the container
-# applies filter-mappings in web.xml order.
+# RFC 6749 §5.2 gives error_description a character set, and PF (seen on 13.0.3) puts jose4j's explanation
+# of a refused request object in it, Java-formatted date and its U+202F included. The filter buffers a 4xx
+# JSON body and brings the description inside the set. Order: it only sees what runs after it, so it must
+# come before the servlet and the filters mapped below it. It is not outermost: PF's own /* filters and
+# Fapi2Profile run before it and their refusals never pass through it (the container keeps web.xml order).
 if grep -q "OAuthErrorDescription" "$WEBXML"; then
   echo "web.xml: OAuthErrorDescription already registered — leaving as is"
 else
@@ -334,7 +334,7 @@ fi
 # Also over /as/par.oauth2: FAPI 2.0 requires PAR, and PAR requires client authentication (RFC 9126
 # §2.1), so a client whose only credential is its attestation must be able to present it at PAR too.
 # draft -11 §7.6 shows exactly that request. The filter is endpoint-agnostic: the PoP aud is the OP
-# issuer, and the bridge assertion it mints names both the issuer and the request URL.
+# issuer, and so is the bridge assertion's - one string, typ client-authentication+jwt, at both endpoints.
 if grep -q "ClientAttestationAuth" "$WEBXML"; then
   echo "web.xml: ClientAttestationAuth already registered — leaving as is"
 else

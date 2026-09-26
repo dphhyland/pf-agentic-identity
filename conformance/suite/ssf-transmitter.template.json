@@ -1,6 +1,6 @@
 {
   "alias": "pf-agentic-identity-ssf",
-  "description": "PingFederate 13.0.3 + pf-agentic-identity SSF servlet. Shared Signals Framework 1.0 transmitter; the suite is the receiver and gets its token by client credentials.",
+  "description": "PingFederate 13.1.3 + pf-agentic-identity SSF servlet. Shared Signals Framework 1.0 transmitter; the suite is the receiver and gets its token by client credentials.",
   "server": {
     "discoveryUrl": "{{PF_BASE_URL}}/.well-known/openid-configuration"
   },

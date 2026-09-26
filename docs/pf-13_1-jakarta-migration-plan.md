@@ -1,17 +1,17 @@
 # PingFederate 13.1 and the Jakarta migration - plan
 
-**Status: done, 2026-09-24, as steps 1-5 below describe** - the rename (58 files: the plan's 46 plus
-the CIBA rig's), the coordinates, the plugin's tests on the `Builder`, both descriptors, the
-workflows, the `FROM` line, and `tools/pf-linkcheck.py` in CI. 0.2.0 is the first `jakarta.servlet`
-version. `mvn clean verify` against the real 13.1.3 jars: 1392 tests, 0 failures, 4 skipped, every
-gate passing; the link checker reports 0 unresolved on 13.1.3 and 59 on 13.0.3. Step 6 (a booted
-13.1.3) is recorded in `conformance/README.md`; steps 0 (the `v0.1.4` tag and `pf-13.0` branch) and
-7 (moving the consumers) are for whoever pushes.
+**Status: done in this repo, 2026-09-26.** What happened to each of [the steps](#the-steps):
 
-**Landed since (2026-09-22), both from [step 0](#the-steps):** the namespace guard, in
-`assemble-pf-runtime-war.sh` - correct on both lines, and guarding a hazard that exists today, which
-is why it went first and on its own; and the conformance work, which the first draft found sitting
-uncommitted in a worktree. The counts below include the latter. Everything else is unexecuted.
+| Step | What happened |
+|---|---|
+| 0 | The namespace guard in `assemble-pf-runtime-war.sh` and the conformance work both landed on `main` on 2026-09-22. `v0.1.4` was cut from `main` on 2026-09-23. The `pf-13.0` branch starts at the last `javax.servlet` commit on `main` (`a7a8758`, 2026-09-24, the parent of the migration), and `v0.1.5` on it is the last `javax.servlet` release. `pf-13.0` is frozen from 2026-09-26: no backports. |
+| 1-5 | Done on `main` in `12626ec` (2026-09-24) - the rename (58 files: the plan's 46 plus the CIBA rig's), the coordinates, the plugin's tests on the `Builder`, both descriptors, the workflows, the `FROM` line, and `tools/pf-linkcheck.py` in CI. 0.2.0 is the first `jakarta.servlet` version. `mvn clean verify` against the real 13.1.3 jars: 1392 tests, 0 failures, 4 skipped, every gate passing; the link checker reports 0 unresolved on 13.1.3 and 59 on 13.0.3. |
+| 6 | Booted. The conformance rig runs 13.1.3 with every module in it, and the FAPI 2.0, SSF, FAPI-CIBA and both OpenID Federation plans ran against it on 2026-09-24 and 2026-09-25 - results in [conformance/README.md](../conformance/README.md). |
+| 7 | 0.2.0 was never tagged: the first release for 13.1.3 is v0.3.0, and upgrades are supported from it. The consumers have not moved - on 2026-09-26 `idp-agentic-demo`'s `Dockerfile` and `pf-oidf-modules`' export helper still name 13.0.3. They move as pairs, PingFederate 13.1.3 and v0.3.0 in one commit, in their own repos. |
+| 8 | Decided 2026-09-26, and not as first written: the audience rule stays in `Fapi2ProfileFilter`; the plugin reads `getJakartaRequest()` from v0.3.0; `getUserKey()` waits for the principal resolver. See step 8 below. |
+
+What was still open when this landed is in [what is not verified](#what-is-not-verified), with what
+has been settled since.
 
 PingFederate 13.1 moved its servlet container from `javax.servlet` to `jakarta.servlet`. This repo
 is compiled against `javax.servlet`, so an image built on 13.1.3 boots to a 503. This plan says what
@@ -35,12 +35,15 @@ under [probes and claims that were wrong](#probes-and-claims-that-were-wrong).
    Keep 13.0.x alive as a maintenance branch for security backports only. Do not build both lines
    from one source tree.
 2. **Leave the two SDK plugins alone for now.** They are not on the critical path - see
-   [the premise, corrected](#the-premise-corrected).
+   [the premise, corrected](#the-premise-corrected). (Later, 2026-09-26: the RAR plugin moved to
+   `getJakartaRequest()` for v0.3.0, and both plugins are now built and supported for 13.1 only.)
 3. **Three things land first, on the javax line, in this order:** a namespace guard in
    `assemble-pf-runtime-war.sh` (**done**); the conformance work, which was uncommitted in a worktree
    (**done** - landed on `main` 2026-09-22); and a final javax release, **`v0.1.4`, cut from `main`**.
 4. **Pin consumers to `v0.1.4` - not to `v0.1.3`.** `v0.1.3` is 19 commits behind `main`, and those
    commits are the 15 September audit fixes. Pinning to it would roll a deploy back past them.
+   (`v0.1.5` has since followed on `pf-13.0`; a consumer still on 13.0.x pins that, the last javax
+   release.)
 
 The cost of the cut-over is small and measured, not estimated. 48 files name `javax.servlet`; 46 are
 rewritten by a blind replace (182 lines), one plugin test changes by hand, and one plugin source file
@@ -155,7 +158,8 @@ would break the build; the replace has to be `javax.servlet` and nothing wider.
 The coordinate `13.0.0.3` is a label that `install:install-file` assigns. The jars call themselves
 `13.0.3.0` and `13.1.3.0` in their own `pom.properties`. The new line should use the real string.
 
-Prose that goes stale with the move, none of it load-bearing: `docs/unverified.md`,
+Prose that goes stale with the move, none of it load-bearing (all updated on 2026-09-26, bar the gm-api
+gaps report, which stays a dated report against 13.0.3): `docs/unverified.md`,
 `docs/client-attestation-architecture.md`, `servlets/pf-integration/README.md`, the three READMEs
 under `plugins/` and `services/gm-api/`, `services/gm-api/docs/pingfederate-gm-api-gaps.md`, and two
 vendored skill copies that will mislead the next agent to read them:
@@ -414,6 +418,21 @@ lifetime and replay only. Move the plugin to `getJakartaRequest()` before the re
 `getRequest()`; at that point the plugin stops being line-independent. Look at whether
 `getUserKey()` retires its resource-owner workaround while there.
 
+*Decided 2026-09-26, in the production plan:*
+
+- **The audience half of `Fapi2ProfileFilter` stays.** The switch is one setting for the whole server,
+  so it cannot hold the FAPI 2.0 clients to their issuer while other clients keep the token-endpoint
+  audience OpenID Connect Core gives them; and even on, it counts audience values, so a one-element
+  array passes. A production PF turns the switch on and keeps the filter; the rig keeps the switch off
+  for the SSF suite. The overlay question is answered: an archive import writes the config store, so
+  `conformance/config-store/` lays the file over the image and carries it in the archive, and
+  `export.sh` refuses an archive without it. Position and evidence:
+  [the PingFederate audience switch](../servlets/pf-integration/README.md#the-pingfederate-audience-switch).
+- **The plugin reads `getJakartaRequest()` from v0.3.0** (production plan Phase 0), so it no longer
+  links on 13.0.
+- **`getUserKey()` is production plan item S2b**, the principal resolver: PF fills it from a different
+  source per grant type, and a client id must never be taken for a user.
+
 ---
 
 ## What is verified, and how
@@ -464,15 +483,24 @@ passed everything, as above.
 
 ## What is not verified
 
+The list as it stood when the migration landed, with what has been settled since. What is still open
+goes to the findings register planned for v0.4.0 (`docs/findings/`, production plan item D-2), as `U-`
+entries; this list stays as the record.
+
 - **Nothing here was run on a live 13.1.3.** The 503 and its `is not a jakarta.servlet.Filter`
   message are from the original finding, not reproduced by me. Everything about 13.1.3 in this
-  document comes from its jars and files.
+  document comes from its jars and files. *Since run: the conformance rig boots 13.1.3 with every
+  module (step 6).*
 - **What a booted 13.1.3 does with the migrated modules.** Static analysis cannot show: that Jetty
   ee9's annotation scan picks up the 13 `@WebServlet`s from `WEB-INF/lib`; that the three filters run
   in the mapped order; that `HttpServletRequestWrapper` injection in `ClientAttestationAuthFilter`
   still reaches PingFederate's client authentication; that the webapp-to-engine request-attribute
   channel survives; that `SsfAuditLogSource` still finds the audit `LoggerContext`. These are step 6,
   and the conformance rig's suite (49 passed / 0 failed on 13.0.3) is the natural regression test.
+  *Partly settled by the 13.1.3 runs: the SSF and federation servlets serve, so the annotation scan
+  maps them, and the FAPI 2.0 plan passes through `Fapi2ProfileFilter`. Not exercised there: the
+  attestation filter's wrapped request and the webapp-to-engine channel (the rig runs attestation
+  inert), and `SsfAuditLogSource`.*
 - **The symptom of a javax `@WebServlet` on ee9.** The handler's key is verified; the consequence is
   inference: with no handler, the servlet should simply never be mapped - a 404, not an error. If so,
   the 503 was the *loud* half of the failure, produced by the filters because `web.xml` names them,
@@ -495,7 +523,10 @@ passed everything, as above.
 - **The four skipped tests** are the Testcontainers ones that do not run on this machine. They are
   skipped identically on both sides; CI runs them.
 - **`age` on Alpine 3.24.** The community repository is enabled in the image. I did not run `apk`.
-- **The image digests** are what `docker image inspect` printed for the local copies.
+  *Settled 2026-09-26: an image built from this repo's Dockerfile on 13.1.3 (alpine 3.24.1) has `age`
+  1.3.1.*
+- **The image digests** are what `docker image inspect` printed for the local copies. *From v0.3.0 the
+  13.1.3 image is pinned by digest in `build/pf-version.env`.*
 
 ---
 

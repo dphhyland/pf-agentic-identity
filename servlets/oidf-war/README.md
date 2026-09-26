@@ -20,9 +20,9 @@ before it did, `/federation/attestation` was in no built war at all (commit `1ac
 
 | Jar | Brings |
 |---|---|
-| `pf-integration-0.1.0.jar` | federation entity servlet, §12 registration, OGNL hooks, the token-endpoint filters (note: the artifact name, not `oidf.jar`) |
-| `attestation-issuer-0.1.0.jar` | `/federation/attestation`, attester discovery, CAS metadata |
-| `client-attestation-0.1.0.jar` | the verifier - and `ClientAttestationChallengeServlet` (`/federation/attestation-challenge`), which rides along from the lib |
+| `pf-integration-<version>.jar` | federation entity servlet, §12 registration, OGNL hooks, the token-endpoint filters (note: the artifact name, not `oidf.jar`) |
+| `attestation-issuer-<version>.jar` | `/federation/attestation`, attester discovery, CAS metadata |
+| `client-attestation-<version>.jar` | the verifier - and `ClientAttestationChallengeServlet` (`/federation/attestation-challenge`), which rides along from the lib |
 | `openid-federation`, `oidf-jose`, `agent-registry` | trust-chain validation, JOSE, `agent_id` minting |
 | `jackson-core/databind/annotations` | bundled - `jackson-databind` is a direct dependency of this pom, deliberately not excluded |
 
@@ -35,8 +35,8 @@ does not change.
 
 ## The jose4j exclusion
 
-Every deployment that runs this war also has `jose4j-0.9.6.jar` on PF's server classpath. Bundling a
-second copy in `WEB-INF/lib` produced `LinkageError: loader constraint violation` on
+Every deployment that runs this war also has jose4j on PF's server classpath (0.9.6, as `jose4j.jar`, on
+13.1.3). Bundling a second copy in `WEB-INF/lib` produced `LinkageError: loader constraint violation` on
 `org.jose4j.jwk.JsonWebKey` the moment a servlet passed a jose4j type across the war's classloader
 boundary (found via `OpenIdFederationServlet`; the old static-mock-attester path never crossed it). Two
 classloaders defining the "same" class are not the same class to the JVM. Marking `jose4j` `provided`
@@ -51,11 +51,12 @@ Two packagings of the same jars exist; this module is one of them.
 - **`oidf.war`** (this module) - own webapp classloader, `/oidf` context. Built by `mvn package` and
   uploaded as a CI artifact (`.github/workflows/build.yml`).
 - **`pf-runtime.war` merge** - what `build/pingfederate/` actually ships. `build/pingfederate/stage-modules.sh`
-  stages eight reactor jars (`oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`,
-  `openid-federation`, `agent-registry`, `device-instance`) into `build/pingfederate/modules/`; the Dockerfile runs
-  `build/pingfederate/assemble-pf-runtime-war.sh` to inject them into the stock `pf-runtime.war` (root context, no
-  `/oidf` prefix, one classloader) and register the three filters over PF's own endpoints, then also
-  copies the jars to `server/default/deploy/` so the engine classloader can resolve the OGNL hook classes.
+  stages nine reactor jars (`oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`,
+  `openid-federation`, `agent-registry`, `device-instance`, `pf.plugins.ciba-sim.jar`) into
+  `build/pingfederate/modules/`; the Dockerfile runs `build/pingfederate/assemble-pf-runtime-war.sh` to inject them
+  into the stock `pf-runtime.war` (root context, no `/oidf` prefix, one classloader) and register the seven
+  filters over PF's own endpoints, then also copies the jars to `server/default/deploy/` so the engine classloader
+  can resolve the OGNL hook classes.
 
 The merge is what lets a filter run over `/as/token.oauth2` and `/idp/init_logout.openid` - a servlet
 filter in a separate war can only see its own context. Both packagings carry the same module set bar
