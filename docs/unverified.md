@@ -9,8 +9,9 @@ possible, it lands here rather than being quietly assumed.
 
 Last reviewed: 2026-09-26, against the PingFederate 13.1.3 jars - items 4, 5 and 9, the ones that name a
 PingFederate version. First written 2026-07-31 against 13.0.3; item 13 added 2026-08-24, against
-draft-ietf-oauth-spiffe-client-auth-02; item 11 resolved 2026-09-24. The findings register planned for
-v0.4.0 (`docs/findings/`) is to take these over as `U-` entries.
+draft-ietf-oauth-spiffe-client-auth-02; item 11 resolved 2026-09-24; item 15 added 2026-09-26, a question
+the migration plan left open, answered on the rig. The findings register planned for v0.4.0
+(`docs/findings/`) is to take these over as `U-` entries.
 
 ---
 
@@ -247,6 +248,38 @@ which is not §3.3 conformance and must not be described as such.
 
 The reasoning is recorded in [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md)
 §1.1 and [ai-agent-attestation-profile-1_0.md](ai-agent-attestation-profile-1_0.md) §1.1.
+
+## 15. Whether a throwing OGNL issuance criterion denies or permits - verified 2026-09-26
+
+**Verified: it denies.** The migration plan asked because the un-migrated v0.1.5 `ClientAttestationUtils`
+throws `ClassCastException` on its first line on 13.1.3, and `idp-agentic-demo` runs that criterion as its
+only gate on the token endpoint. Run on 2026-09-26 on the conformance rig (`conformance/up.sh`, PingFederate
+13.1.3.0 from `pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest`), through the admin API of the
+running instance, on the client-credentials access token mapping (`client_credentials|conformanceJwt`) and
+with the rig's `conformance-ssf-emitter` client, which had just been issued a token (HTTP 200):
+
+| Criterion (`issuanceCriteria.expressionCriteria`) | Saved | Token request | `server.log` |
+|---|---|---|---|
+| `1/0 == 1`, Error Result `ognl_probe_div_by_zero` | 200 | 400 `{"error":"invalid_grant","error_description":"ognl_probe_div_by_zero"}` | `ERROR [org.sourceid.saml20.domain.TokenAuthorizationIssuanceCriteriaChecker] Exception occurred while trying to resolve ognl expression. Expression evaluation runtime exception.` then `INFO […] Authorization failed. The following criterion was not met… Source Type: Expression / Expression: {hidden} / Actual Value(s): false (Exception)` |
+| `@java.lang.Integer@parseInt('not-a-number') == 1`, Error Result `ognl_probe_method_throws` | 200 | 400 `{"error":"invalid_grant","error_description":"ognl_probe_method_throws"}` | the same two lines, the first ending `Method "parseInt" failed for object class java.lang.Integer` |
+| `#this.get('no_such_attribute').toString() == 'x'` | **422** `ognl_expression_invalid_attribute` - "Error during expression evaluation: Invalid attribute: no_such_attribute" | never reached | - |
+
+`audit.log` recorded each refused request as `failure` with the Error Result on the line. With the mapping
+put back to no criteria the same request answered 200 again, and the mapping was left as it was found. So
+PingFederate treats an exception during evaluation as the criterion evaluating to `false`, and refuses the
+token with the criterion's own Error Result: fail closed. It also checks an expression when it is saved, and
+refuses one that names an attribute the context lacks, so that kind never reaches a request (how the check is
+made was not looked into).
+
+**What this settles.** The `catch (Throwable)` shells around `OIDFederationUtils.validateTrustChain` and
+`ClientAttestationUtils.validateClientAttestation`, which return `false`, are belt and braces rather than the
+only thing between a broken criterion and an issued token. A deployment whose only token-endpoint gate is an
+OGNL criterion refuses every gated token when the engine-classpath jar is missing or is the wrong servlet
+line, and says so in `server.log` at ERROR. The upgrade guide's checklist carries the consequence.
+
+**Not tested:** the authorization-code and other grant paths (only client credentials was exercised, though
+the same `TokenAuthorizationIssuanceCriteriaChecker` runs the criteria), conditional (non-expression)
+criteria, and PingFederate 13.0.3.
 
 ---
 

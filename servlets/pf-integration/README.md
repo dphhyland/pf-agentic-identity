@@ -90,6 +90,16 @@ so the deploy also copies the jars into `server/default/deploy/`. The filter and
 verify the same request on two classloaders with two replay caches; each sees a PoP `jti` once, genuine
 replays fail in both. Webapp and engine talk only through string-keyed request attributes.
 
+**A criterion that throws denies.** Verified 2026-09-26 on the rig (PingFederate 13.1.3.0): an issuance
+criterion whose expression throws, or whose method call throws, is treated as `false (Exception)` -
+`TokenAuthorizationIssuanceCriteriaChecker` logs the exception at ERROR, the token endpoint answers 400
+`invalid_grant` with the criterion's Error Result, and the request is audited as a failure
+([docs/unverified.md](../../docs/unverified.md), item 15). The `catch (Throwable)` shells around
+`validateTrustChain` and `validateClientAttestation` are belt and braces: even without them a hook that
+threw would refuse the token. What they add is this module's own log line saying why, and a `false` PF
+reads without an exception. A missing or wrong-line jar on the engine classpath refuses every gated token,
+loudly, rather than issuing them.
+
 ## Asking a policy engine (AuthZEN)
 
 A valid chain says an entity is who it claims to be and what its superiors allow it. Whether this deployment
