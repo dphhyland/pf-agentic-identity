@@ -9,9 +9,9 @@ possible, it lands here rather than being quietly assumed.
 
 Last reviewed: 2026-09-26, against the PingFederate 13.1.3 jars - items 4, 5 and 9, the ones that name a
 PingFederate version. First written 2026-07-31 against 13.0.3; item 13 added 2026-08-24, against
-draft-ietf-oauth-spiffe-client-auth-02; item 11 resolved 2026-09-24; item 15 added 2026-09-26, a question
-the migration plan left open, answered on the rig. The findings register planned for v0.4.0
-(`docs/findings/`) is to take these over as `U-` entries.
+draft-ietf-oauth-spiffe-client-auth-02; item 11 resolved 2026-09-24; items 14 and 15 added 2026-09-26 -
+14 is U-0004, the client model pinned from `javap`, and 15 a question the migration plan left open, answered
+on the rig. The findings register planned for v0.4.0 (`docs/findings/`) is to take these over as `U-` entries.
 
 ---
 
@@ -248,6 +248,19 @@ which is not §3.3 conformance and must not be described as such.
 
 The reasoning is recorded in [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md)
 §1.1 and [ai-agent-attestation-profile-1_0.md](ai-agent-attestation-profile-1_0.md) §1.1.
+
+## 14. The 13.1.3 client-authentication model the federation's clients report - U-0004
+
+**Assumed:** what `ClientAuthenticationModelTest` (in `servlets/pf-integration`) pins: on PingFederate
+13.1.3's multi-auth client model, the agent and relying-party clients `FederationClientBuilder` builds report
+the legacy type only, `private_key_jwt` as the one enabled type, held to the metadata's signing algorithm.
+
+That is a characterisation from `javap` of `pf-protocolengine` 13.1.3.0 (2026-09-26, commit `621336e`), not
+of a booted PingFederate: nothing has yet written one of these clients through PingFederate's client manager
+on 13.1.3 and read back what its admin API or console shows for the new model's fields
+(`isUseClientAuthenticationModel`, `getClientAuthenticationTypes`). Registered as U-0004 for the findings
+register. Revisit on the rig: register a relying party under `PF_PROFILE=federation-op` and read the client
+back over `/pf-admin-api/v1/oauth/clients`.
 
 ## 15. Whether a throwing OGNL issuance criterion denies or permits - verified 2026-09-26
 

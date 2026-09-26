@@ -113,7 +113,8 @@ jobs:
       - name: every PingFederate and servlet member the artifacts link resolves on this image
         # The assemble script's namespace guard catches a jar built for the other servlet line; this
         # catches the member-level break (OAuthIssuerUtils went jakarta with no overload in 13.1) and
-        # will catch the day the SDK removes the bridged javax getters the plugin still uses.
+        # will catch the next member the SDK removes - getRequest(), the bridged javax getter the plugin
+        # read until 0.3.0, is deprecated for removal in 13.1 and gone from the plugin since PR #7.
         run: python3 tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .
       - uses: actions/upload-artifact@v7
         with:
