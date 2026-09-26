@@ -110,7 +110,7 @@ mvn package                      # all Java modules (incl. gm-api.war), tests on
 ```
 
 The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.1.3.0) are extracted from the
-public `pingidentity/pingfederate` image, and so are the jars gm-api and the tests name under
+public `pingidentity/pingfederate` image, and so are the jars gm-api and the plugin poms name under
 `local.pingfederate` - see `.github/actions/pf-provided-jars/action.yml` for the exact steps, or run its
 `install:install-file` lines once locally. Nothing licensed or secret is committed.
 
