@@ -55,6 +55,13 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     /** Internal authorization_details field the BFF folds the authenticated principal into (survives PAR).
      *  Consumed here and stripped so it never reaches the governance engine, the consent page, or the token. */
     private static final String PRINCIPAL_DETAIL_KEY = "_principal_sub";
+    /**
+     * The agent instance, carried inside each entry by the attestation filter at PAR. PingFederate calls
+     * {@link #enrich} from the authorisation endpoint, a browser request the filter never sees, so the
+     * attestation context is not there; {@code authorization_details} is the only channel that survives
+     * from PAR, and the filter overwrites whatever a client puts under this name with the agent_id it verified.
+     */
+    static final String AGENT_DETAIL_KEY = "_agent_id";
 
     /** How the decision subject was established; emitted to the PDP so policy can tell them apart. */
     private static final String PRINCIPAL_AUTHENTICATED = "authenticated";
@@ -75,11 +82,20 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String DENY_ON_NON_PERMIT = "Deny unless PERMIT";
     private static final String FAIL_OPEN = "Fail open on engine error";
     private static final String ALLOW_CLIENT_ASSERTED_PRINCIPAL = "Trust a client-asserted principal";
+    private static final String TRUST_AGENT_MARKER = "Trust the PAR-carried agent marker";
     private static final String INSECURE_TLS = "Skip TLS verification (dev only)";
     private static final String TIMEOUT_MS = "Request timeout (ms)";
 
     private static final Set<String> SUPPORTED_TYPES =
             new LinkedHashSet<>(Arrays.asList("sales_agent", "payment_initiation", "account_information"));
+
+    /**
+     * More types for this deployment, beyond the three built in: {@value #EXTRA_TYPES_PROPERTY} (system
+     * property) or {@value #EXTRA_TYPES_ENV}, whitespace- or comma-separated. PingFederate reads the supported
+     * types from the descriptor before any instance is configured, so they cannot be an instance field.
+     */
+    static final String EXTRA_TYPES_PROPERTY = "oidf.rar.extra.types";
+    static final String EXTRA_TYPES_ENV = "OIDF_RAR_EXTRA_TYPES";
 
     private final Logger log = Logger.getLogger(getClass().getName());
     private final ObjectMapper mapper = new ObjectMapper();
@@ -113,6 +129,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 .denyOnNonPermit(configuration.getBooleanFieldValue(DENY_ON_NON_PERMIT))
                 .failOpenOnError(configuration.getBooleanFieldValue(FAIL_OPEN))
                 .allowClientAssertedPrincipal(configuration.getBooleanFieldValue(ALLOW_CLIENT_ASSERTED_PRINCIPAL))
+                .trustAgentMarker(configuration.getBooleanFieldValue(TRUST_AGENT_MARKER))
                 .insecureTls(configuration.getBooleanFieldValue(INSECURE_TLS))
                 .timeoutMillis(parseInt(configuration.getFieldValue(TIMEOUT_MS), 10_000))
                 .build();
@@ -147,13 +164,32 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 "Use login_hint / _principal_sub as the decision subject when no authenticated principal is present "
                         + "(the caller chooses who the decision is about - leave off unless a trusted BFF is the only caller)",
                 false);
+        addCheck(gui, TRUST_AGENT_MARKER,
+                "Where the attestation is not in the request (the authorisation endpoint), take the agent instance from the "
+                        + AGENT_DETAIL_KEY + " the attestation filter put in each entry at PAR - only for clients that must use PAR",
+                false);
         addCheck(gui, INSECURE_TLS, "Skip TLS verification (dev only)", false);
         addText(gui, TIMEOUT_MS, "Request timeout (ms)", "10000", false);
 
         AuthorizationDetailProcessorDescriptor descriptor =
                 new AuthorizationDetailProcessorDescriptor(TYPE_NAME, this, gui, VERSION);
-        descriptor.setSupportedAuthorizationDetailTypes(new HashSet<>(SUPPORTED_TYPES));
+        descriptor.setSupportedAuthorizationDetailTypes(supportedTypes(
+                System.getProperty(EXTRA_TYPES_PROPERTY), System.getenv(EXTRA_TYPES_ENV)));
         return descriptor;
+    }
+
+    /** The built-in types plus the deployment's extra ones; the property wins over the environment. */
+    static Set<String> supportedTypes(String property, String environment) {
+        Set<String> types = new LinkedHashSet<>(SUPPORTED_TYPES);
+        String extra = property != null && !property.isBlank() ? property : environment;
+        if (extra != null) {
+            for (String type : extra.split("[,\\s]+")) {
+                if (!type.isBlank()) {
+                    types.add(type.trim());
+                }
+            }
+        }
+        return new HashSet<>(types);
     }
 
     @Override
@@ -176,6 +212,11 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         Map<String, Object> base = authDetail.getDetail();
         Map<String, Object> detail = base == null ? new HashMap<>() : new HashMap<>(base);
         Object principalInDetail = detail.remove(PRINCIPAL_DETAIL_KEY);
+        Object agentInDetail = detail.remove(AGENT_DETAIL_KEY);
+        if (subject.getAgentId() == null && config.isTrustAgentMarker() && agentInDetail instanceof String marked && !marked.isBlank()) {
+            subject = new AttestationSubject(subject.getSubject(), subject.getClientId(), subject.getEntitlement(),
+                    subject.getWorkload(), subject.getCnfThumbprint(), marked);
+        }
 
         // Two sources, only one of them trustworthy. The request attribute is set server-side by an authn
         // hook; login_hint and _principal_sub are simply what the caller sent. Treating them alike let a

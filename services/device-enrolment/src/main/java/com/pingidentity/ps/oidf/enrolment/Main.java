@@ -129,6 +129,10 @@ public final class Main {
      *   PF_AUTHORITY_URL            where to reach it from here (defaults to the entity id)
      *   PF_AUTHORITY_ADMIN_TOKEN    its hosted-entity admin bearer token (OIDF_AUTHORITY_ADMIN_TOKEN over there)
      *   PF_AUTHORITY_INSECURE_TLS   "true" to trust its self-signed listener (dev only)
+     *   AGENT_DISPLAY_NAME, AGENT_DESCRIPTION, AGENT_KEYWORDS (JSON array)
+     *                               what the authority vouches for about every agent, in its own words
+     *   AGENT_MISSION_TYPES         JSON array: the RAR types an agent may claim as its mission
+     *   AGENT_MISSION_PURPOSES      JSON array: the DPV purposes an agent may pursue
      * </pre>
      */
     private static EnrolmentService.AgentOptions agentOptions(String clientId) throws Exception {
@@ -155,16 +159,52 @@ public final class Main {
                     required("PF_AUTHORITY_ADMIN_TOKEN"), Boolean.parseBoolean(env("PF_AUTHORITY_INSECURE_TLS", "false")));
         }
         String software = clientId == null ? "claude-bank-connector" : clientId;
+        AgentMission mission = agentMission(software, System::getenv);
+        return new EnrolmentService.AgentOptions(federation, piv, selfAsserted, authz, mission.metadata(), mission.policy());
+    }
+
+    /** What the authority says about every agent it hosts: vouched metadata, and the policy capping the rest. */
+    record AgentMission(Map<String, Object> metadata, Map<String, Object> policy) {
+    }
+
+    /**
+     * The agent's mission as the federation will see it. The metadata goes into the authority's Subordinate
+     * Statement about each agent and replaces whatever the agent wrote for those members; the policy caps
+     * what the agent may claim for itself. Both RAR types and purposes are {@code essential}: an agent that
+     * declares no mission does not resolve at all.
+     */
+    static AgentMission agentMission(String software, java.util.function.UnaryOperator<String> env) throws java.io.IOException {
+        com.fasterxml.jackson.databind.ObjectMapper json = new com.fasterxml.jackson.databind.ObjectMapper();
+        com.fasterxml.jackson.core.type.TypeReference<java.util.List<String>> strings = new com.fasterxml.jackson.core.type.TypeReference<>() { };
         Map<String, Object> oauthClient = new java.util.LinkedHashMap<>();
         oauthClient.put("client_name", "Claude bank connector");
         oauthClient.put("software_id", software);
         oauthClient.put("token_endpoint_auth_method", "attest_jwt_client_auth");
+        putIfSet(oauthClient, "display_name", env.apply("AGENT_DISPLAY_NAME"));
+        putIfSet(oauthClient, "description", env.apply("AGENT_DESCRIPTION"));
+        String keywords = env.apply("AGENT_KEYWORDS");
+        if (keywords != null && !keywords.isBlank()) {
+            oauthClient.put("keywords", json.readValue(keywords, strings));
+        }
         // The authority's lever on a self-signed configuration: whatever the agent writes, these hold.
-        Map<String, Object> policy = Map.of("oauth_client", Map.of(
-                "software_id", Map.of("value", software),
-                "token_endpoint_auth_method", Map.of("value", "attest_jwt_client_auth")));
-        return new EnrolmentService.AgentOptions(federation, piv, selfAsserted, authz,
-                Map.of("oauth_client", oauthClient), policy);
+        Map<String, Object> clientPolicy = new java.util.LinkedHashMap<>();
+        clientPolicy.put("software_id", Map.of("value", software));
+        clientPolicy.put("token_endpoint_auth_method", Map.of("value", "attest_jwt_client_auth"));
+        String types = env.apply("AGENT_MISSION_TYPES");
+        if (types != null && !types.isBlank()) {
+            clientPolicy.put("authorization_details_types", Map.of("subset_of", json.readValue(types, strings), "essential", true));
+        }
+        String purposes = env.apply("AGENT_MISSION_PURPOSES");
+        if (purposes != null && !purposes.isBlank()) {
+            clientPolicy.put("purposes", Map.of("subset_of", json.readValue(purposes, strings), "essential", true));
+        }
+        return new AgentMission(Map.of("oauth_client", oauthClient), Map.of("oauth_client", clientPolicy));
+    }
+
+    private static void putIfSet(Map<String, Object> target, String name, String value) {
+        if (value != null && !value.isBlank()) {
+            target.put(name, value);
+        }
     }
 
     /**

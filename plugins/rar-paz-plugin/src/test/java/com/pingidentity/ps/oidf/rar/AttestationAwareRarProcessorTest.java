@@ -118,4 +118,56 @@ class AttestationAwareRarProcessorTest {
                 () -> processor.enrich(paymentDetail(), context(), Map.of()));
         assertSame(boom, e.getCause());
     }
+
+    @Test
+    void aDeploymentAddsItsOwnTypesToTheBuiltInOnes() {
+        java.util.Set<String> types = AttestationAwareRarProcessor.supportedTypes(
+                "https://schemas.example/v1/retrieve_customer_offer, https://schemas.example/v1/retrieve_customer_position__balance", null);
+        assertTrue(types.containsAll(List.of("sales_agent", "payment_initiation", "account_information",
+                "https://schemas.example/v1/retrieve_customer_offer", "https://schemas.example/v1/retrieve_customer_position__balance")));
+        assertEquals(5, types.size());
+        assertTrue(AttestationAwareRarProcessor.supportedTypes(" ", "a b\nc").containsAll(List.of("a", "b", "c")));
+        assertEquals(3, AttestationAwareRarProcessor.supportedTypes(null, null).size());
+    }
+
+    @Test
+    void theShortNamedProcessorFitsPingFederatesPluginIdLimit() {
+        assertTrue(au.idp.rar.FedRar.class.getName().length() <= 32, au.idp.rar.FedRar.class.getName());
+        assertInstanceOf(AttestationAwareRarProcessor.class, new au.idp.rar.FedRar());
+    }
+
+    private static AuthorizationDetail markedDetail() {
+        Map<String, Object> detail = new HashMap<>();
+        detail.put("type", "https://schemas.example/v1/retrieve_customer_offer");
+        detail.put("purpose", "https://w3id.org/dpv#PersonalisedBenefits");
+        detail.put(AttestationAwareRarProcessor.AGENT_DETAIL_KEY, "agent-7");
+        return new AuthorizationDetail(detail);
+    }
+
+    @Test
+    @SuppressWarnings({"unchecked", "rawtypes"})
+    void thePARCarriedMarkerNamesTheAgentWhereTheAttestationIsNotInTheRequest() throws Exception {
+        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
+        GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").denyOnNonPermit(true).trustAgentMarker(true).build();
+        AuthorizationDetail result = new AttestationAwareRarProcessor(client, trusting).enrich(markedDetail(), context(), Map.of());
+
+        ArgumentCaptor<Map> sent = ArgumentCaptor.forClass(Map.class);
+        ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
+        verify(client).decide(anyString(), sent.capture(), subject.capture(), any(), any(), any());
+        assertEquals("agent-7", subject.getValue().getAgentId());
+        assertFalse(sent.getValue().containsKey(AttestationAwareRarProcessor.AGENT_DETAIL_KEY), "the marker is not a detail the PDP decides on");
+        assertFalse(result.getDetail().containsKey(AttestationAwareRarProcessor.AGENT_DETAIL_KEY), "nor one the customer or the token ever sees");
+        assertEquals("https://w3id.org/dpv#PersonalisedBenefits", result.getDetail().get("purpose"));
+    }
+
+    @Test
+    void theMarkerIsIgnoredUnlessConfiguredButAlwaysStripped() throws Exception {
+        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
+        AuthorizationDetail result = new AttestationAwareRarProcessor(client, config(true, false)).enrich(markedDetail(), context(), Map.of());
+
+        ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
+        verify(client).decide(anyString(), any(), subject.capture(), any(), any(), any());
+        assertEquals(null, subject.getValue().getAgentId());
+        assertFalse(result.getDetail().containsKey(AttestationAwareRarProcessor.AGENT_DETAIL_KEY));
+    }
 }

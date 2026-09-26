@@ -196,6 +196,13 @@ public final class AuthoritySupport {
             // The keys the ENTITY holds. This is what lets a resolver verify a configuration the authority
             // could not have written: ES[0] must be signed by a key in ES[1].jwks (§4).
             claims.put("jwks", entity.federationJwks());
+            // What the authority vouches for, in its own words. A resolver applies a superior's metadata
+            // before any policy, so these members replace whatever the entity wrote for them - the lever a
+            // host has over a configuration it did not sign. An authority-signed entity needs none: the
+            // authority writes that configuration itself.
+            if (!entity.metadata().isEmpty()) {
+                claims.put("metadata", entity.metadata());
+            }
         } else {
             JwsSigner jwsSigner;
             try {

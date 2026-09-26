@@ -37,7 +37,8 @@ import org.jose4j.lang.JoseException;
  * fetch) is resolved by {@code hostedSubordinateLookup} first, ahead of and bypassing
  * {@link #subordinateConfigCache} entirely: a revoked hosted entity must stop resolving on the very next
  * call, not after a cache TTL. The lookup returns a claims fragment — {@code "jwks"} and, when this
- * authority declares one for the entity, {@code "metadata_policy"} — rather than a direct dependency on
+ * authority declares them for the entity, {@code "metadata"} (what it vouches for) and
+ * {@code "metadata_policy"} — rather than a direct dependency on
  * the {@code authority} package's types, so this class and its existing tests stay unaware of, and
  * unaffected by, that package's own (static, process-wide) state.
  */
@@ -201,6 +202,12 @@ public final class FederationService {
                 Map<String, Object> hosted = this.hostedSubordinateLookup.apply(subject);
                 if (hosted != null) {
                     claims.setClaim("jwks", hosted.get("jwks"));
+                    // What the authority vouches for about a self-signed entity: applied before policy by
+                    // every resolver, so it replaces the entity's own words for those members.
+                    Object vouched = hosted.get("metadata");
+                    if (vouched != null) {
+                        claims.setClaim("metadata", vouched);
+                    }
                     Object metadataPolicy = hosted.get("metadata_policy");
                     if (metadataPolicy != null) {
                         claims.setClaim("metadata_policy", metadataPolicy);

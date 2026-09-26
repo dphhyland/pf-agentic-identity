@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Locale;
@@ -279,7 +280,7 @@ public final class ClientAttestationAuthFilter implements Filter {
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
                         + "; authenticating to PF via bridge private_key_jwt"));
             }
-            chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion), response);
+            chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, result.agentId()), response);
         } catch (ClientAttestationException e) {
             LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()));
             int status = ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error()) ? 400 : 401;
@@ -291,6 +292,43 @@ public final class ClientAttestationAuthFilter implements Filter {
             ClientAttestationAuthFilter.reject(httpResponse, 500, "server_error",
                     "client attestation could not be verified");
         }
+    }
+
+    /** Each authorization_details entry's agent marker - the name the RAR processor reads (AGENT_DETAIL_KEY). */
+    static final String AGENT_MARKER = "_agent_id";
+
+    /**
+     * {@code authorization_details} with every entry carrying the agent instance this filter verified, and
+     * nothing a client wrote under the marker's name. PingFederate stores a PAR request's parameters and
+     * consults its RAR processor later, from the authorisation endpoint, where the attestation is gone; the
+     * entries themselves are the only thing that survives. An unverified request carries no marker at all.
+     * A value that is not a JSON array is returned untouched: PingFederate refuses it anyway.
+     */
+    @SuppressWarnings("unchecked")
+    static String markAgent(String authorizationDetails, String agentId) {
+        Object parsed;
+        try {
+            parsed = org.jose4j.json.JsonUtil.parseJson("{\"v\":" + authorizationDetails + "}").get("v");
+        } catch (org.jose4j.lang.JoseException e) {
+            return authorizationDetails;
+        }
+        if (!(parsed instanceof List)) {
+            return authorizationDetails;
+        }
+        List<Object> marked = new java.util.ArrayList<>();
+        for (Object entry : (List<Object>) parsed) {
+            if (entry instanceof Map) {
+                Map<String, Object> copy = new LinkedHashMap<>((Map<String, Object>) entry);
+                copy.remove(AGENT_MARKER);
+                if (agentId != null && !agentId.isBlank()) {
+                    copy.put(AGENT_MARKER, agentId);
+                }
+                marked.add(copy);
+            } else {
+                marked.add(entry);
+            }
+        }
+        return org.jose4j.json.internal.json_simple.JSONValue.toJSONString(marked);
     }
 
     /**
@@ -429,10 +467,14 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final class BridgeAuthRequest extends HttpServletRequestWrapper {
         private final Map<String, String[]> parameters;
 
-        BridgeAuthRequest(HttpServletRequest request, String clientId, String assertion) {
+        BridgeAuthRequest(HttpServletRequest request, String clientId, String assertion, String agentId) {
             super(request);
             Map<String, String[]> merged = new LinkedHashMap<>(request.getParameterMap());
             merged.remove("client_secret");
+            String details = request.getParameter("authorization_details");
+            if (details != null && !details.isBlank()) {
+                merged.put("authorization_details", new String[]{markAgent(details, agentId)});
+            }
             merged.put("client_id", new String[]{clientId});
             merged.put("client_assertion_type", new String[]{ASSERTION_TYPE});
             merged.put("client_assertion", new String[]{assertion});

@@ -92,6 +92,30 @@ class AuthoritySupportTest {
         assertNull(AuthoritySupport.hostedSubordinateClaims(entityId));
     }
 
+    @Test
+    void aSelfSignedEntityGetsItsOwnKeysAndTheMetadataTheAuthorityVouchesFor() throws Exception {
+        String entityId = "https://as.example.com/federation/agents/vouched-" + Instant.now().toEpochMilli();
+        Map<String, Object> keys = Map.of("keys", List.of(Map.of("kty", "EC", "crv", "P-256", "x", "x", "y", "y")));
+        Map<String, Object> vouched = Map.of("oauth_client", Map.of("description", "Reads balances. It cannot move money."));
+        AuthoritySupport.registry().register(new HostedEntity(entityId, HostingMode.SELF_SIGNED, null, vouched,
+                Map.of(), EntityStatus.ACTIVE, false, null, Instant.now(), null, keys, null));
+
+        Map<String, Object> claims = AuthoritySupport.hostedSubordinateClaims(entityId);
+
+        assertEquals(keys, claims.get("jwks"));
+        assertEquals(vouched, claims.get("metadata"));
+    }
+
+    @Test
+    void aSelfSignedEntityWithNothingVouchedForCarriesNoMetadata() throws Exception {
+        String entityId = "https://as.example.com/federation/agents/silent-" + Instant.now().toEpochMilli();
+        Map<String, Object> keys = Map.of("keys", List.of(Map.of("kty", "EC", "crv", "P-256", "x", "x", "y", "y")));
+        AuthoritySupport.registry().register(new HostedEntity(entityId, HostingMode.SELF_SIGNED, null, Map.of(),
+                Map.of(), EntityStatus.ACTIVE, false, null, Instant.now(), null, keys, null));
+
+        assertTrue(!AuthoritySupport.hostedSubordinateClaims(entityId).containsKey("metadata"));
+    }
+
     // ---- hostedEntityIds — delegates entirely to the registry's own listable/resolvable/type filter ----
 
     @Test

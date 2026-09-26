@@ -848,4 +848,28 @@ class ClientAttestationAuthFilterTest {
             System.clearProperty(ClientAttestationAuthFilter.REQUIRE_HOSTED_AGENT_PROP);
         }
     }
+
+    @SuppressWarnings("unchecked")
+    private static java.util.List<Map<String, Object>> entries(String json) throws Exception {
+        return (java.util.List<Map<String, Object>>) org.jose4j.json.JsonUtil.parseJson("{\"v\":" + json + "}").get("v");
+    }
+
+    @Test
+    void theVerifiedAgentRidesInEveryEntryAndAClientCannotPlantItsOwn() throws Exception {
+        String marked = ClientAttestationAuthFilter.markAgent(
+                "[{\"type\":\"a\",\"_agent_id\":\"forged\"},{\"type\":\"b\",\"purpose\":\"p\"}]", "agent-7");
+        java.util.List<Map<String, Object>> parsed = entries(marked);
+        assertEquals("agent-7", parsed.get(0).get(ClientAttestationAuthFilter.AGENT_MARKER));
+        assertEquals("agent-7", parsed.get(1).get(ClientAttestationAuthFilter.AGENT_MARKER));
+        assertEquals("p", parsed.get(1).get("purpose"));
+    }
+
+    @Test
+    void anUnverifiedAgentCarriesNoMarkerAndNonsenseIsLeftForPingFederateToRefuse() throws Exception {
+        assertTrue(!entries(ClientAttestationAuthFilter.markAgent("[{\"type\":\"a\",\"_agent_id\":\"forged\"}]", null))
+                .get(0).containsKey(ClientAttestationAuthFilter.AGENT_MARKER));
+        assertEquals("[not json", ClientAttestationAuthFilter.markAgent("[not json", "agent-7"));
+        assertEquals("{\"type\":\"a\"}", ClientAttestationAuthFilter.markAgent("{\"type\":\"a\"}", "agent-7"));
+        assertEquals("[\"x\"]", ClientAttestationAuthFilter.markAgent("[\"x\"]", "agent-7"));
+    }
 }

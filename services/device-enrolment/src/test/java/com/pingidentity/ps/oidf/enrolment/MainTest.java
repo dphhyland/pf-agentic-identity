@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -57,5 +58,40 @@ class MainTest {
     void somethingThatIsNotAPostgresUrlIsRefusedRatherThanGuessedAt() {
         assertThrows(IllegalArgumentException.class, () -> Main.toJdbcUrl("mysql://host/db"));
         assertThrows(IllegalArgumentException.class, () -> Main.toJdbcUrl("host:5432/db"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void theAgentMissionVouchesForTheAgentAndCapsWhatItMayClaim() throws Exception {
+        Map<String, String> env = Map.of(
+                "AGENT_DISPLAY_NAME", "Claude bank connector",
+                "AGENT_DESCRIPTION", "Reads balances. It cannot move money.",
+                "AGENT_KEYWORDS", "[\"Customer Position\"]",
+                "AGENT_MISSION_TYPES", "[\"T/retrieve_customer_position__balance\"]",
+                "AGENT_MISSION_PURPOSES", "[\"https://w3id.org/dpv#AccountManagement\"]");
+        Main.AgentMission mission = Main.agentMission("claude-bank-connector", env::get);
+
+        Map<String, Object> client = (Map<String, Object>) mission.metadata().get("oauth_client");
+        org.junit.jupiter.api.Assertions.assertEquals("Reads balances. It cannot move money.", client.get("description"));
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.List.of("Customer Position"), client.get("keywords"));
+        org.junit.jupiter.api.Assertions.assertEquals("Claude bank connector", client.get("display_name"));
+        Map<String, Object> policy = (Map<String, Object>) mission.policy().get("oauth_client");
+        org.junit.jupiter.api.Assertions.assertEquals(
+                Map.of("subset_of", java.util.List.of("T/retrieve_customer_position__balance"), "essential", true),
+                policy.get("authorization_details_types"));
+        org.junit.jupiter.api.Assertions.assertEquals(
+                Map.of("subset_of", java.util.List.of("https://w3id.org/dpv#AccountManagement"), "essential", true),
+                policy.get("purposes"));
+        org.junit.jupiter.api.Assertions.assertEquals(Map.of("value", "claude-bank-connector"), policy.get("software_id"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void withoutAMissionConfiguredOnlyTheSoftwareIsPinned() throws Exception {
+        Main.AgentMission mission = Main.agentMission("claude-bank-connector", name -> name.equals("AGENT_KEYWORDS") ? " " : null);
+        Map<String, Object> policy = (Map<String, Object>) mission.policy().get("oauth_client");
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.Set.of("software_id", "token_endpoint_auth_method"), policy.keySet());
+        org.junit.jupiter.api.Assertions.assertEquals(java.util.Set.of("client_name", "software_id", "token_endpoint_auth_method"),
+                ((Map<String, Object>) mission.metadata().get("oauth_client")).keySet());
     }
 }

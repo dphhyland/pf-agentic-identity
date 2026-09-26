@@ -128,6 +128,27 @@ class FederationServiceSubordinateTest {
         assertEquals(hostedId, claims.get("sub"));
         assertEquals("hosted-key", firstKid(claims));
         assertFalse(claims.containsKey("metadata_policy"), "no metadata_policy entry means no claim is emitted");
+        assertFalse(claims.containsKey("metadata"), "nothing vouched for means no metadata claim");
+    }
+
+    @Test
+    void hostedEntityLookupCarriesWhatTheAuthorityVouchesFor() throws Exception {
+        SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
+        String hostedId = "https://as.example.com/federation/agents/agent-3";
+        Map<String, Object> hostedJwks = Map.of("keys", List.of(Map.of("kty", "EC", "kid", "hosted-key")));
+        Map<String, Object> vouched = Map.of("oauth_client", Map.of("description", "Reads balances. It cannot move money."));
+        Map<String, Object> claimsFragment = Map.of("jwks", hostedJwks, "metadata", vouched);
+
+        FederationConfiguration anchorConfig = new FederationConfiguration(
+                List.of(ANCHOR), List.of(ANCHOR), null, false, false, null, null, null, 0, "RS256", null);
+        FederationService anchor = new FederationService(anchorConfig, anchorKeys,
+                (url, accept) -> {
+                    throw new AssertionError("must not fetch — the hosted-entity lookup should have answered first");
+                },
+                subject -> hostedId.equals(subject) ? claimsFragment : null);
+
+        Map<String, Object> claims = payload(anchor.createEntityStatement(hostedId, null, ANCHOR));
+        assertEquals(vouched, claims.get("metadata"));
     }
 
     @Test
