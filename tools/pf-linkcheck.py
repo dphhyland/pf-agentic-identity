@@ -25,9 +25,10 @@ It was written for docs/pf-13_1-jakarta-migration-plan.md, which records what it
 Exit status is 1 when anything is unresolved, or when an artifact had classes but none of this
 repo's own - "checked nothing" must never read as "clean".
 
-WHAT IT DOES NOT SEE. Linking is not loading. A class that implements javax.servlet.Filter links
-perfectly well on PingFederate 13.1, which still ships the javax servlet API jar - and is then
-refused by Jetty's ee9 container, which wants a jakarta.servlet.Filter. Nor does it see anything
+WHAT IT DOES NOT SEE. Linking is not loading. A class that implements javax.servlet.Filter - a jar
+built for the 13.0 line - links perfectly well on PingFederate 13.1, which still ships the javax
+servlet API jar as a type library, and is then refused by Jetty's ee9 container, which loads only
+jakarta.servlet.Filter. Nor does it see anything
 named by a string (OGNL expressions, log4j logger names, web.xml class names, reflection), or an
 annotation such as @Deprecated(forRemoval=true). Always run it against the PingFederate the
 artifacts were BUILT for first: that run must report zero, or the tool is what is broken. Its

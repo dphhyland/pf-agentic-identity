@@ -4,7 +4,7 @@
 # expired, never renewed, its requests held to nothing. The module now refuses to register when that happens;
 # this makes sure it doesn't. trust_chain and contacts hold several values each.
 locals {
-  federation_extended_properties = jsondecode(file("${path.module}/../../docs/extended-properties.json")).extended_properties
+  federation_extended_properties   = jsondecode(file("${path.module}/../../docs/extended-properties.json")).extended_properties
   multi_valued_extended_properties = ["trust_chain", "contacts"]
 }
 

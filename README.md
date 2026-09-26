@@ -126,7 +126,9 @@ request through `getJakartaRequest()`, which 13.0 does not have. `v0.1.5` is the
 13.0.x, on the `pf-13.0` branch, which is frozen and takes no backports. The first release for 13.1.3
 is v0.3.0, and upgrades are supported from it: move to PingFederate 13.1.3 and v0.3.0 together. What
 moved, what did not, and the evidence:
-[docs/pf-13_1-jakarta-migration-plan.md](docs/pf-13_1-jakarta-migration-plan.md).
+[docs/pf-13_1-jakarta-migration-plan.md](docs/pf-13_1-jakarta-migration-plan.md); how to move:
+[docs/operator/upgrading/0.1.5-to-0.3.0.md](docs/operator/upgrading/0.1.5-to-0.3.0.md); what each
+release changed: [CHANGELOG.md](CHANGELOG.md).
 
 ## Provenance
 

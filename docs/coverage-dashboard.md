@@ -27,7 +27,7 @@ which says nothing about whether the security paths are the covered ones.
 | `servlets/pf-integration` | 179 | green | 88% | 589 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
-| `plugins/rar-paz-plugin` | 4 | green | 89% | 63 |
+| `plugins/rar-paz-plugin` | 4 | green | 88% | 63 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
 | `plugins/ciba-sim` | 6 | green | 90% | 14 |
 | `services/device-enrolment` | 4 | green | 72% | 106 |
