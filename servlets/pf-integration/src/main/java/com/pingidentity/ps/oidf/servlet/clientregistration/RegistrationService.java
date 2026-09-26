@@ -806,14 +806,16 @@ final class RegistrationService {
     }
 
     /**
-     * The keys a client is registered with. An RP that publishes keys for {@code openid_relying_party} is registered
-     * with them (§5.2.1, §12.1.1.2.1). An agent authenticates with its Federation Entity Keys - the attestation bridge
-     * signs with them - and so does an RP that publishes no keys of its own, as it was registered before 0.3.0.
+     * The keys a client is registered with: the ones it publishes under the Entity Type it registers from -
+     * {@code openid_relying_party} (§5.2.1, §12.1.1.2.1) or {@code oauth_client} (§12.1.2: the OP verifies the
+     * client's authentication "using the keys from the Relying Party's metadata"; §3.1.1 says the Federation
+     * Entity Keys "SHOULD NOT be used in other protocols"). A client that publishes none is registered with its
+     * Federation Entity Keys, as every client was before 0.3.0 - a hosted agent's attestation bridge signs with
+     * them, and so does an agent whose configuration carries no protocol keys of its own.
      */
     private RpKeyMaterial.Keys keysFor(String entityType, Map<String, Object> metadata, TrustChainValidationResult validation, String clientId)
             throws RegistrationRejectedException {
-        if (RELYING_PARTY.equals(entityType)
-                && (metadata.containsKey("jwks") || metadata.containsKey("signed_jwks_uri") || metadata.containsKey("jwks_uri"))) {
+        if (metadata.containsKey("jwks") || metadata.containsKey("signed_jwks_uri") || metadata.containsKey("jwks_uri")) {
             return this.rpKeyMaterial.resolve(metadata, jwksOf(validation), clientId);
         }
         return new RpKeyMaterial.Keys(List.of(), org.jose4j.json.JsonUtil.toJson(jwksOf(validation)), null, "federation");
