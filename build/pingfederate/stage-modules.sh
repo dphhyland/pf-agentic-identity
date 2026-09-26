@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Stage the reactor's module jars into build/pingfederate/modules/ for the Docker build.
-# Run after `mvn -q -DskipTests package` at the repo root. These eight jars are the modular
-# equivalent of the old monolith pf-oidf-modules.jar (same packages, superset of its classes):
+# Run after `mvn -q -DskipTests package` at the repo root. These nine jars are the modular equivalent
+# of the old monolith pf-oidf-modules.jar (same packages, superset of its classes) plus the CIBA simulator:
 # their external deps (jose4j, jackson, commons-logging) are already on PF's server classpath.
 # agent-registry rides along because attestation-issuer's servlets import it (agent_id minting) —
 # without it the issuance servlet fails at first use with NoClassDefFoundError. device-instance rides
