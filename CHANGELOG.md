@@ -4,10 +4,15 @@ Every release of pf-agentic-identity, newest first, in the shape [Keep a Changel
 describes: one heading per version with its date, and a few lines on what the version was for. A version is a
 tag of this repository (`git tag -l 'v*'`); the dates are the tags' own. Where a version has release notes
 under [docs/releases](docs/releases/), the heading links to them. The convention for the version in progress:
-it sits under `Unreleased` with the version the poms declare, and the heading becomes `[0.3.0] - <date>` when
-David tags it.
+it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), and the heading becomes
+`[<version>] - <date>` when David tags it.
 
-## [Unreleased] - 0.3.0, the poms' version since 2026-09-26
+## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
+
+Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
+hygiene. Nothing has landed yet.
+
+## [0.3.0] - 2026-09-27
 
 The first release for PingFederate 13.1.3, and the release that completes OpenID Federation. Notes:
 [docs/releases/0.3.0.md](docs/releases/0.3.0.md); the move from v0.1.5:
