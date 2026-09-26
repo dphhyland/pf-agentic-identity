@@ -117,7 +117,7 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <div><h1>Coverage and conformance</h1><p class="lede">Are the methods that decide something covered, and is what the docs claim also executed? Generated from jacoco, surefire and the <code>@Requirement</code> annotations; CI fails if this page drifts from the build.</p></div>
 </header>
 <section class="tiles">
-<div class="tile"><span class="label">Tests</span><span class="value">2253</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
+<div class="tile"><span class="label">Tests</span><span class="value">2286</span><span class="note"><span class="pill good">passing</span> &nbsp; 4 skipped</span></div>
 <div class="tile"><span class="label">Critical methods gated</span><span class="value">530</span><span class="note"><span class="pill good">all green</span> &nbsp; 100% line and branch</span></div>
 <div class="tile"><span class="label">Requirements pinned</span><span class="value">480</span><span class="note">by 1029 tests across 31 specifications</span></div>
 <div class="tile"><span class="label">Matrix rows pinned</span><span class="value">209<small> / 216</small></span><span class="note">97% of what the docs claim is checked by a test</span></div>
@@ -129,17 +129,17 @@ footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line)
 <thead><tr><th>Module</th><th class="num">Gated methods</th><th>Gate</th><th>Module instructions</th><th class="num">Tests</th></tr></thead><tbody>
 <tr><td><code>libs/oidf-jose</code></td><td class="num">11</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:88%"></b></i><span>88%</span></span></td><td class="num">135</td></tr>
 <tr><td><code>libs/app-attest</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">40</td></tr>
-<tr><td><code>libs/device-instance</code></td><td class="num">15</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:85%"></b></i><span>85%</span></span></td><td class="num">65</td></tr>
-<tr><td><code>libs/client-attestation</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:77%"></b></i><span>77%</span></span></td><td class="num">105</td></tr>
-<tr><td><code>libs/openid-federation</code></td><td class="num">217</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:97%"></b></i><span>97%</span></span></td><td class="num">561</td></tr>
+<tr><td><code>libs/device-instance</code></td><td class="num">15</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:42%"></b></i><span>42%</span></span></td><td class="num">44</td></tr>
+<tr><td><code>libs/client-attestation</code></td><td class="num">8</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:77%"></b></i><span>77%</span></span></td><td class="num">106</td></tr>
+<tr><td><code>libs/openid-federation</code></td><td class="num">217</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:96%"></b></i><span>96%</span></span></td><td class="num">577</td></tr>
 <tr><td><code>libs/agent-registry</code></td><td class="num">7</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:92%"></b></i><span>92%</span></span></td><td class="num">25</td></tr>
-<tr><td><code>servlets/pf-integration</code></td><td class="num">179</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:87%"></b></i><span>87%</span></span></td><td class="num">569</td></tr>
+<tr><td><code>servlets/pf-integration</code></td><td class="num">179</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:88%"></b></i><span>88%</span></span></td><td class="num">587</td></tr>
 <tr><td><code>servlets/attestation-issuer</code></td><td class="num">17</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:87%"></b></i><span>87%</span></span></td><td class="num">208</td></tr>
 <tr><td><code>servlets/ssf</code></td><td class="num">38</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:76%"></b></i><span>76%</span></span></td><td class="num">262</td></tr>
-<tr><td><code>plugins/rar-paz-plugin</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">54</td></tr>
+<tr><td><code>plugins/rar-paz-plugin</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:76%"></b></i><span>76%</span></span></td><td class="num">58</td></tr>
 <tr><td><code>plugins/instance-registry-datasource</code></td><td class="num">2</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:82%"></b></i><span>82%</span></span></td><td class="num">18</td></tr>
 <tr><td><code>plugins/ciba-sim</code></td><td class="num">6</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:90%"></b></i><span>90%</span></span></td><td class="num">14</td></tr>
-<tr><td><code>services/device-enrolment</code></td><td class="num">4</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:75%"></b></i><span>75%</span></span></td><td class="num">82</td></tr>
+<tr><td><code>services/device-enrolment</code></td><td class="num">4</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:71%"></b></i><span>71%</span></span></td><td class="num">97</td></tr>
 <tr><td><code>services/demo-rs</code></td><td class="num">6</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:91%"></b></i><span>91%</span></span></td><td class="num">29</td></tr>
 <tr><td><code>services/gm-api/servlet</code></td><td class="num">10</td><td><span class="pill good">green</span></td><td><span class="bar"><i><b style="width:37%"></b></i><span>37%</span></span></td><td class="num">83</td></tr>
 </tbody></table></div>

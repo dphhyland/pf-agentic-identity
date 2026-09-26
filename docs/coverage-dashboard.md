@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2253 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2286 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -20,17 +20,17 @@ which says nothing about whether the security paths are the covered ones.
 |---|---:|---|---:|---:|
 | `libs/oidf-jose` | 11 | green | 88% | 135 |
 | `libs/app-attest` | 8 | green | 82% | 40 |
-| `libs/device-instance` | 15 | green | 85% | 65 |
-| `libs/client-attestation` | 8 | green | 77% | 105 |
-| `libs/openid-federation` | 217 | green | 97% | 561 |
+| `libs/device-instance` | 15 | green | 42% | 44 |
+| `libs/client-attestation` | 8 | green | 77% | 106 |
+| `libs/openid-federation` | 217 | green | 96% | 577 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 179 | green | 87% | 569 |
+| `servlets/pf-integration` | 179 | green | 88% | 587 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
-| `plugins/rar-paz-plugin` | 2 | green | 75% | 54 |
+| `plugins/rar-paz-plugin` | 2 | green | 76% | 58 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
 | `plugins/ciba-sim` | 6 | green | 90% | 14 |
-| `services/device-enrolment` | 4 | green | 75% | 82 |
+| `services/device-enrolment` | 4 | green | 71% | 97 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 37% | 83 |
 
