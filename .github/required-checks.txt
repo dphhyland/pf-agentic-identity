@@ -1,0 +1,6 @@
+# The check runs a release requires green on the tagged commit, by name: the job ids of build.yml
+# (a job with no `name:` reports under its id). release.yml reads this file; keep it in step with
+# build.yml's jobs, and add a job here when it becomes a gate.
+secrets-guard
+lint
+java

@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2314 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2319 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -32,7 +32,7 @@ which says nothing about whether the security paths are the covered ones.
 | `plugins/ciba-sim` | 6 | green | 90% | 14 |
 | `services/device-enrolment` | 4 | green | 71% | 97 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
-| `services/gm-api/servlet` | 10 | green | 37% | 83 |
+| `services/gm-api/servlet` | 10 | green | 38% | 88 |
 
 **532 methods gated across the reactor, all green.**
 

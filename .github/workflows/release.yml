@@ -1,4 +1,4 @@
-# Publish a versioned, checksummed build of the capability.
+# Publish a versioned, checksummed build of the capability - the build that was verified, not a second one.
 #
 # WHY THIS EXISTS. Three repos consume this one, and until now every one of them did it by copying
 # jars: idp-agentic-demo commits four built artifacts into its tree, pf-oidf-modules stages them from a
@@ -6,6 +6,22 @@
 # so nothing could tell you a copy was stale — and one was, by nearly two weeks and an entire
 # split-package unwind, with none of the Tier 1/2 security work in it. That is the failure this closes:
 # not tidiness, but the absence of any way to notice.
+#
+# THE ORDER IS THE POINT. Nothing is published until everything has been checked, and what is
+# published is what was checked:
+#   1. the tag names the version the poms declare (tools/set-version.py --check), and it is a release,
+#      not a snapshot;
+#   2. the Build workflow is green on this exact commit (.github/required-checks.txt names the jobs) -
+#      a release is not where a test runs for the first time;
+#   3. the PF-provided jars come from the image build/pf-version.env pins, by digest, through the same
+#      composite action Build uses;
+#   4. `mvn -B verify` with tests and coverage gates on, then tools/pf-linkcheck.py against that PF;
+#   5. the module set is staged and dist/ assembled with a PROVENANCE derived from the staged MANIFEST;
+#   6. the GitHub release is created as a DRAFT, so a failure after this point leaves nothing public;
+#   7. Maven artifacts go to GitHub Packages, and the jars it published are checked byte for byte
+#      against dist/;
+#   8. the draft is published.
+# A workflow_dispatch with dry_run stops after 5: everything built and checked, nothing released.
 #
 # TWO PUBLICATION CHANNELS, deliberately, because the consumers are not alike:
 #   Maven / GitHub Packages   for anything resolving dependencies (domain-authority's phone-simulator
@@ -23,15 +39,17 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Version to publish; must equal the version in bom/pom.xml"
+        description: "Version to publish; must equal the version every pom declares"
         required: true
-
-env:
-  PF_IMAGE: pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest
+      dry_run:
+        description: "Build, verify and assemble dist/, then stop: no draft release, no Packages, nothing published"
+        type: boolean
+        default: false
 
 permissions:
   contents: write     # create the release
   packages: write     # publish to GitHub Packages
+  checks: read        # the required Build check runs on the tagged commit
 
 concurrency:
   group: release-${{ github.ref }}
@@ -40,8 +58,15 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      # The release tag, as given: the pushed tag, or the dispatch input. VERSION (below) is it without the v.
+      RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
     steps:
       - uses: actions/checkout@v7
+      - name: the PingFederate version, from build/pf-version.env
+        # The one place the version is written down; the composite action reads the same file itself.
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -51,20 +76,43 @@ jobs:
           server-username: MAVEN_USERNAME
           server-password: MAVEN_TOKEN
 
-      # The tag is the claim; the poms are the fact. Assert rather than rewrite: `versions:set` across a
-      # reactor with no parent is fiddly and silently partial, and a release whose coordinates disagree
-      # with its tag is worse than a failed one.
+      # The tag is the claim; the poms are the fact. Assert rather than rewrite: a release whose
+      # coordinates disagree with its tag is worse than a failed one. set-version.py reads every pom
+      # the reactor lists - the aggregator, the BOM and its imports, gm-api - so one stale pom fails
+      # here rather than publishing a module built against a stale neighbour.
       - name: the tag must match the declared version
         run: |
-          TAG="${{ github.event.inputs.version || github.ref_name }}"
-          TAG="${TAG#v}"
-          POM="$(sed -n 's|.*<version>\(.*\)</version>.*|\1|p' bom/pom.xml | head -1)"
-          echo "tag=$TAG  bom/pom.xml=$POM"
-          if [ "$TAG" != "$POM" ]; then
-            echo "::error::tag $TAG does not match bom/pom.xml $POM. Bump the poms, or tag the version that exists."
+          VERSION="${RELEASE_TAG#v}"
+          echo "tag=$RELEASE_TAG  version=$VERSION"
+          python3 tools/set-version.py --check --no-snapshot --expect "$VERSION" || {
+            echo "::error::tag $RELEASE_TAG does not match the poms. Bump them with tools/set-version.py, or tag the version that exists."
             exit 1
-          fi
-          echo "VERSION=$TAG" >> "$GITHUB_ENV"
+          }
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse HEAD^{commit})" >> "$GITHUB_ENV"
+
+      - name: a green Build on this commit
+        # The check runs the Build workflow left on the tagged commit, by job name. The API returns the
+        # latest run of each check, so a re-run that went green counts and the failure before it does not.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          runs="$(gh api --paginate "repos/${{ github.repository }}/commits/$COMMIT/check-runs?per_page=100" \
+                    --jq '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion)"')"
+          echo "check runs on $COMMIT:"; printf '%s\n' "$runs" | sed 's/^/  /'
+          missing=0
+          while IFS= read -r name; do
+            case "$name" in ''|'#'*) continue ;; esac
+            line="$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n' | tail -1)"
+            if [ -z "$line" ]; then
+              echo "::error::no check run named '$name' on $COMMIT - Build has not run on this commit"; missing=1
+            elif [ "$(printf '%s' "$line" | cut -f3)" != "success" ]; then
+              echo "::error::check '$name' on $COMMIT is $(printf '%s' "$line" | cut -f2,3 | tr '\t' '/'), not success"; missing=1
+            else
+              echo "ok: $name"
+            fi
+          done < .github/required-checks.txt
+          exit $missing
 
       - name: no archive or key material may be released
         # The same invariant build.yml enforces, at the one moment artifacts leave the repo.
@@ -74,33 +122,15 @@ jobs:
           echo "clean"
 
       - name: extract the provided PF jars from the image
-        run: |
-          docker create --name pf "$PF_IMAGE"
-          docker cp pf:/opt/out/instance/server/default/lib/. pf-lib/ 2>/dev/null || \
-            docker cp pf:/opt/server/server/default/lib/. pf-lib/
-          # The jakarta servlet API lives with Jetty, one directory up from the PF libs.
-          docker cp pf:/opt/server/lib/. pf-jetty-lib/
-          docker rm pf
-          mvn -q install:install-file -Dfile="$(ls pf-lib/pf-protocolengine*.jar | head -1)" \
-            -DgroupId=pingfederate -DartifactId=pf-protocolengine -Dversion=13.1.3.0 -Dpackaging=jar -DgeneratePom=true
-          docker create --name pfsdk "$PF_IMAGE" && { docker cp pfsdk:/opt/out/instance/sdk/lib/. pf-sdk-lib/ 2>/dev/null || docker cp pfsdk:/opt/server/sdk/lib/. pf-sdk-lib/ || true; }; docker rm pfsdk
-          SDK_JAR=""; for j in pf-sdk-lib/*.jar pf-lib/*.jar; do unzip -l "$j" 2>/dev/null | grep -q "com/pingidentity/access/JwksEndpointKeyAccessor.class" && SDK_JAR="$j" && break; done
-          test -n "$SDK_JAR"
-          mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3.0 -Dpackaging=jar -DgeneratePom=true
-          mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3 -Dpackaging=jar -DgeneratePom=true
-          # PF 13.1 is jakarta.servlet: gm-api compiles against the jetty jakarta servlet jar the image ships.
-          SAPI=$(ls pf-jetty-lib/jetty-jakarta-servlet-api-*.jar | head -1); test -n "$SAPI"
-          mvn -q install:install-file -Dfile="$SAPI" -DgroupId=local.pingfederate -DartifactId=jakarta-servlet-api -Dversion=5.0.2 -Dpackaging=jar -DgeneratePom=true
-          for spec in jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
-            a="${spec%%:*}"; v="${spec##*:}"
-            J=$(ls pf-lib/${a}-[0-9]*.jar 2>/dev/null | head -1); [ -z "$J" ] && J=$(ls pf-lib/*${a}*.jar 2>/dev/null | head -1)
-            test -n "$J"
-            mvn -q install:install-file -Dfile="$J" -DgroupId=local.pingfederate -DartifactId="$a" -Dversion="$v" -Dpackaging=jar -DgeneratePom=true
-          done
+        uses: ./.github/actions/pf-provided-jars
 
-      # Tests ON. A release is the one build where "it compiled" is not the bar.
+      # Tests ON, coverage gates ON (they are bound to verify, not package). A release is the one build
+      # where "it compiled" is not the bar.
       - name: build the reactor with tests
-        run: mvn -B package
+        run: mvn -B verify
+
+      - name: every PingFederate and servlet member the artifacts link resolves on this image
+        run: python3 tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .
 
       - name: stage the module set
         # Writes modules/ + MANIFEST. assemble-pf-runtime-war.sh refuses a directory that does not match
@@ -108,67 +138,126 @@ jobs:
         run: bash build/pingfederate/stage-modules.sh
 
       - name: assemble the release artifacts
+        # Every copy is unconditional: a missing war or plugin jar fails the release instead of quietly
+        # shipping without it, which is how a consumer would first learn of it.
         run: |
           mkdir -p dist
-          cp build/pingfederate/modules/*.jar build/pingfederate/modules/MANIFEST dist/
+          MANIFEST=build/pingfederate/modules/MANIFEST
+          cp build/pingfederate/modules/*.jar "$MANIFEST" dist/
           cp servlets/oidf-war/target/oidf.war dist/
           cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar dist/
-          cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/ 2>/dev/null || true
-          cp services/gm-api/servlet/target/gm-api.war dist/ 2>/dev/null || true
+          cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/
+          cp services/gm-api/servlet/target/gm-api.war dist/
+          MODULES=$(grep -c . "$MANIFEST")
+          echo "MODULES=$MODULES" >> "$GITHUB_ENV"
 
-          # Provenance: what a consumer needs to answer "which build is this, and am I behind?"
+          # Provenance: what a consumer needs to answer "which build is this, and am I behind?" The
+          # module count and list come from the MANIFEST the stage step wrote, not from prose.
           {
             echo "pf-agentic-identity $VERSION"
-            echo "commit:    ${{ github.sha }}"
-            echo "tag:       ${{ github.event.inputs.version || github.ref_name }}"
-            echo "built:     $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "run:       ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "commit:       $COMMIT"
+            echo "tag:          $RELEASE_TAG"
+            echo "built:        $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            echo "run:          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "pingfederate: $PF_VERSION, built and link-checked against ${PF_IMAGE}@${PF_IMAGE_DIGEST}"
             echo
             echo "PingFederate line: 13.1.x (jakarta.servlet), from 0.2.0. These artifacts do NOT load on"
-            echo "13.0.x - the last javax.servlet release is v0.1.4. A servlet or filter built for the other"
+            echo "13.0.x - the last javax.servlet release is v0.1.5. A servlet or filter built for the other"
             echo "line fails the war with a 503, or is silently never mapped; the assemble script refuses"
             echo "the mismatch before it can boot. Which line a build targets is the thing a consumer most"
             echo "needs. See docs/pf-13_1-jakarta-migration-plan.md."
             echo
-            echo "The module set below is what PF loads. It is EIGHT SEPARATE JARS staged into modules/,"
-            echo "merged into pf-runtime.war at image build. It is NOT the legacy single"
-            echo "pf-oidf-modules.jar, which this build has not produced since the 2026-08-15"
-            echo "split-package unwind - if you are copying a file by that name, you are running code"
-            echo "older than that unwind."
+            echo "The module set below is what PF loads: $MODULES SEPARATE JARS staged into modules/ and"
+            echo "merged into pf-runtime.war at image build (build/pingfederate/assemble-pf-runtime-war.sh)."
+            echo "It is NOT the legacy single pf-oidf-modules.jar, which this build has not produced since"
+            echo "the 2026-08-15 split-package unwind - if you are copying a file by that name, you are"
+            echo "running code older than that unwind."
             echo
-            cat build/pingfederate/modules/MANIFEST
+            echo "modules ($MODULES, from MANIFEST):"
+            sed 's/^/  /' "$MANIFEST"
+            echo
+            echo "also in this release: oidf.war (the modules as a standalone war, for a demo),"
+            echo "pf.plugins.pf-rar-paz-plugin.jar, pf.plugins.instance-registry-datasource.jar, gm-api.war."
           } > dist/PROVENANCE.txt
 
           ( cd dist && sha256sum * > SHA256SUMS )
+          # Where each dist file came from in the reactor (the target/ file deploy will publish, not the
+          # staged copy), so the deploy step can prove it published the same bytes. A basename can name
+          # two reactor files: oidf.jar is servlets/pf-integration's module (what stage-modules.sh
+          # stages) AND servlets/oidf-war's jar-packaged aggregate, which is never staged or deployed.
+          # So the aggregate is excluded, any other collision is an error rather than a first hit, and
+          # the resolved source is compared with the dist file HERE - a wrong resolution fails this
+          # step, before the draft and before Packages, not the check after them.
+          ( for f in dist/*.jar dist/*.war; do
+              b="$(basename "$f")"
+              src="$(find libs servlets plugins services -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
+              case "$(printf '%s\n' "$src" | grep -c .)" in
+                1) ;;
+                0) echo "::error::no reactor source for $b"; exit 1 ;;
+                *) echo "::error::$b resolves to more than one reactor file: $(printf '%s' "$src" | tr '\n' ' ')"; exit 1 ;;
+              esac
+              cmp -s "$src" "$f" || { echo "::error::$src is not the file staged as $b"; exit 1; }
+              sha256sum "$f" | sed "s|  dist/.*|  $src|"
+            done ) > dist-sources.sha256
+          cat dist-sources.sha256
           echo "--- release contents"; ls -la dist | sed 's/^/  /'
+          echo "--- PROVENANCE"; cat dist/PROVENANCE.txt
 
-      - name: publish Maven artifacts to GitHub Packages
-        env:
-          MAVEN_USERNAME: ${{ github.actor }}
-          MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Tests already ran above; re-running them here would double a slow build for no new signal.
-        run: mvn -B -DskipTests deploy
+      - name: dry run stops here
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "dry run: built, verified and assembled dist/ for $VERSION; nothing released, nothing published"
 
-      - name: create the GitHub release
+      - name: the draft GitHub release
+        # A draft: nothing is public until the last step, so a failure in between leaves no half-release.
+        if: env.DRY_RUN != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ github.event.inputs.version || github.ref_name }}" dist/* \
-            --title "pf-agentic-identity $VERSION" \
-            --notes "$(cat <<'NOTES'
+          cat > release-notes.md <<'NOTES'
           The PF module set, wars and plugin jars for this version, with `SHA256SUMS` and
-          `PROVENANCE.txt` recording the commit that produced them.
+          `PROVENANCE.txt` recording the commit and the PingFederate image that produced them.
 
           **Consuming this.** Pull the assets and check them against `SHA256SUMS`; record the tag you
-          pulled. Do not copy jars from a sibling checkout without recording which build they came from —
+          pulled. Do not copy jars from a sibling checkout without recording which build they came from -
           that is how a consumer ended up running module code from before the split-package unwind, with
           none of the security work in it, and no way to notice.
 
-          `modules/` is **eight separate jars**, not the legacy single `pf-oidf-modules.jar`. Anything
-          still copying a file by that name is running pre-2026-08-15 code.
+          `modules/` is **__MODULES__ separate jars** (listed in `MANIFEST`), not the legacy single
+          `pf-oidf-modules.jar`. Anything still copying a file by that name is running pre-2026-08-15 code.
+
+          Built and link-checked against `__PF_IMAGE__`.
 
           Maven artifacts are also published to GitHub Packages under
           `com.pingidentity.ps.oidf`. Note that GitHub Packages requires authentication even for public
           reads, so the assets here are the auth-free path.
           NOTES
-          )"
+          sed -i "s|__MODULES__|$MODULES|; s|__PF_IMAGE__|${PF_IMAGE}@${PF_IMAGE_DIGEST}|" release-notes.md
+          gh release create "$RELEASE_TAG" dist/* --draft \
+            --title "pf-agentic-identity $VERSION" \
+            --notes-file release-notes.md
+
+      - name: publish Maven artifacts to GitHub Packages
+        if: env.DRY_RUN != 'true'
+        env:
+          MAVEN_USERNAME: ${{ github.actor }}
+          MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Tests already ran above; re-running them here would double a slow build for no new signal.
+        # deploy re-runs package, but the jar and shade plugins leave an up-to-date jar alone, so the
+        # jars this publishes are the ones verify built - which the next step proves rather than assumes.
+        run: mvn -B -DskipTests deploy
+
+      - name: what Packages got is what dist/ holds
+        # Every jar in dist/ against the reactor file deploy just published, byte for byte. The wars are
+        # reported, not compared: maven-war-plugin rebuilds a war on every run (verified 2026-09-26),
+        # oidf.war is demo packaging and gm-api.war is not deployed to Packages at all.
+        if: env.DRY_RUN != 'true'
+        run: |
+          grep '\.jar$' dist-sources.sha256 | sha256sum -c --strict
+          grep '\.war$' dist-sources.sha256 | sha256sum -c || echo "note: the wars were rebuilt by deploy; the release assets are the verified ones"
+
+      - name: publish the release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "$RELEASE_TAG" --draft=false

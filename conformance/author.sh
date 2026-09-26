@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Start the LOCAL PingFederate that terraform/ is applied to and that export.sh exports from.
 #
-# It is the stock 13.0.3 image the rig's own image is built FROM, not the rig's image: authoring needs
+# It is the stock image the rig's own image is built FROM (build/pf-version.env), not the rig's image: authoring needs
 # an admin API and an empty server, and the rig's image imports an archive at boot and would overwrite
 # whatever terraform had applied the next time it restarted.
 #
@@ -14,7 +14,11 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 : "${PF_AUTHOR_ENV:?set PF_AUTHOR_ENV to a KEY=VALUE file holding PING_IDENTITY_PASSWORD}"
 NAME="${PF_AUTHOR_NAME:-pf-conformance-author}"
 PING_CONFIG="${PING_DEVOPS_CONFIG:-$HOME/.pingidentity/config}"
-IMAGE="pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest"   # keep in step with the rig's FROM
+# The image the rig's Dockerfile is built FROM, pulled by the same digest: build/pf-version.env is the one
+# place it is written down.
+# shellcheck disable=SC1091
+. "${PF_AGENTIC_IDENTITY_HOME:-$HERE/..}/build/pf-version.env"
+IMAGE="${PF_IMAGE:?}@${PF_IMAGE_DIGEST:?}"
 ADMIN_PORT="${PF_AUTHOR_ADMIN_PORT:-19999}"; RUNTIME_PORT="${PF_AUTHOR_RUNTIME_PORT:-19031}"
 
 docker rm -f "$NAME" >/dev/null 2>&1 || true
