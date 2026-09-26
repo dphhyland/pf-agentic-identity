@@ -16,6 +16,10 @@ A PingFederate SDK `AuthorizationDetailProcessor` that turns RFC 9396
 applies returned statements (downscoping/obligations). It is a Policy Enforcement Point at
 **token issuance** — complementary to per-API-call PEPs.
 
+**PingFederate 13.1 only.** It reads the request through
+`AuthorizationDetailContext.getJakartaRequest()`, which 13.0 does not have. The last build for
+13.0.x is v0.1.5, on the frozen `pf-13.0` branch.
+
 ## When this fires
 - RFC 9396 / RAR / `authorization_details` on **PingFederate** specifically.
 - Governing **token issuance/exchange** with **PingAuthorize** (as opposed to per-request API gating).
@@ -26,9 +30,10 @@ applies returned statements (downscoping/obligations). It is a Policy Enforcemen
 ```
 authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
   ├─ resolve principal  (resourceOwner → attestation sub → client_id)  → UserID
-  │    · resourceOwner arrives via an authorization_details "_principal_sub" marker
-  │      (the only channel that survives PAR — PF does NOT surface login_hint/params
-  │       to the processor); the plugin strips it before the decision/consent/token.
+  │    · resourceOwner: the resource_owner_sub request attribute an authn hook sets;
+  │      else login_hint or the "_principal_sub" detail marker, but ONLY with
+  │      "Trust a client-asserted principal" on (off by default - both are what the
+  │      caller sent). _principal_sub is always stripped before decision/consent/token.
   ├─ PdpClient — the dialect seam, chosen at configure() time:
   │    · governance-engine (default) → GovernanceEngineRequestBuilder + GovernanceEngineClient
   │    · authzen                     → AuthZenRequestBuilder + AuthZenPdpClient
@@ -51,18 +56,27 @@ pipeline (`context.statements` verbatim, every other member becoming one stateme
 `id`/`reason_admin`/`reason_user` treated as metadata).
 
 ## Key facts that bite
-1. **PF exposes no resource owner to the processor.** `AuthorizationDetailContext` (through
-   SDK 13.0.0.3) has only `getRequest()`, `getClientId()`, `getScope()`. To attribute the
-   decision to the human, the front-end folds `_principal_sub` into `authorization_details`
-   (survives PAR); the plugin reads it as `UserID` (agent → `actor`, RFC 8693 delegation)
-   and strips it. `login_hint` does NOT reach the processor under PAR.
+1. **The plugin finds the resource owner itself.** On 13.1 `AuthorizationDetailContext` has
+   `getJakartaRequest()`, `getClientId()`, `getScope()` and `getUserKey()`; the javax
+   `getRequest()` is deprecated for removal and the plugin no longer calls it. It does not
+   use `getUserKey()` yet: PF fills it from a different source per grant type, unchecked on a
+   running server, and a client id taken for a user is the failure to avoid. So the principal
+   is still looked up out of band (see the architecture above): to attribute the decision to
+   the human behind a PAR request, a trusted front-end folds `_principal_sub` into
+   `authorization_details`, which the plugin honours only with "Trust a client-asserted
+   principal" on (agent → `actor`, RFC 8693 delegation), and strips. `login_hint` does NOT
+   reach the processor under PAR.
 2. **Plugin loading needs a `PF-INF/<type>` marker + shaded deps.** `src/main/resources/PF-INF/
    authorization-detail-processors` lists the class. Jackson is relocated INTO the jar (PF
    isolates each deploy jar's classloader). A `META-INF/services` marker does NOT work.
-3. **TLS to an internal PDP.** The JDK HttpClient enforces a TLS-1.3 in-handshake hostname
-   check a trust-all SSLContext can't disable. Fix = JVM flag
-   `-Djdk.internal.httpclient.disableHostnameVerification=true` in `run.sh` (NOT `ENV
-   JAVA_OPTS`). Or give the PDP cert a matching SAN.
+3. **TLS to an internal PDP: give the PDP certificate a SAN that matches the host PF
+   dials.** The JDK HttpClient checks the hostname in the handshake even when "Skip TLS
+   verification" trusts every certificate. Do NOT set
+   `-Djdk.internal.httpclient.disableHostnameVerification=true`, which older notes here
+   advised: the JDK reads it once for the whole JVM, so every `java.net.http` client in
+   PingFederate stops checking hostnames - the federation fetches, the OpenBao signer and the
+   SSF push, poll and introspection calls too - and any certificate from a trusted CA then
+   passes for any host (read from the 13.1.3 image's JDK, 2026-09-26).
 4. **`purpose`/`actionName`-style cross-plane attrs** should carry a `""` defaultValue in the
    PingAuthorize Trust Framework, else absent attrs go INDETERMINATE and DenyOverrides bites.
 5. **Secret header spelling.** The plugin defaults to `CLIENT-TOKEN` (hyphen); the `paz/`
@@ -75,28 +89,25 @@ pipeline (`context.statements` verbatim, every other member becoming one stateme
 
 ## How to build
 ```bash
-mvn -q package                 # → target/pf.plugins.pf-rar-paz-plugin.jar  (+ 42 unit tests)
+mvn -pl plugins/rar-paz-plugin -am package   # from the repo root → target/pf.plugins.pf-rar-paz-plugin.jar
 ```
-JDK 17+ (the pom targets release 17). No coverage tooling is configured.
-The PF SDK is not on Maven Central — resolve `pf-protocolengine` + `pingfederate-sdk`
-(version = `<version.server-sdk>` in the pom) into `~/.m2` from a PF install. See
-`idp-agentic-demo/pingfederate/rar-paz/README.md` (moved there 2026-08-21).
+JDK 17+ (the pom targets release 17). Jacoco gates the decision methods at 100%; the test
+count is in `docs/coverage-dashboard.md`. Versions come from the repo BOM (`bom/pom.xml`).
+The PF SDK is not on Maven Central - `pf-protocolengine` + `pingfederate-sdk` 13.1.3.0 are
+extracted from the public PF image into `~/.m2` by
+`.github/actions/pf-provided-jars/action.yml`; run its `install:install-file` lines once.
 
 ## How to deploy + configure
-- Bake the jar with `integration/Dockerfile.fragment` (jar → `deploy/`, optional consent
-  template, the TLS JVM flag).
+This repo deploys nothing; the recipe lives in `idp-agentic-demo/pingfederate/rar-paz/`.
+- Bake the jar with its `Dockerfile.fragment` (jar → `server/default/deploy/`, optional
+  consent template). That fragment also adds the JVM-wide hostname flag - leave it out
+  (fact 3).
 - Create the processor instance + enable it on the client:
   `idp-agentic-demo/pingfederate/rar-paz/config-as-code/{create-processor-instance,enable-on-client}.sh`.
 - Author the PDP policy in `paz/` (PAP REST API). Wire contract: top-level `README.md`.
-
-## Railway deploy command (if applicable)
-```bash
-railway up <pf-image-dir> --path-as-root --service <svc> --no-gitignore --detach
-```
-`--path-as-root` (else the subdir Dockerfile isn't found → Railpack fails) and
-`--no-gitignore` (else gitignored secrets the Dockerfile COPYs are excluded). Confirm the
-jar actually shipped: `railway ssh … "wc -c < …/deploy/pf.plugins.pf-rar-paz-plugin.jar"`
-and compare to the freshly built jar's size — Railway can silently serve the last-good image.
+- Confirm the jar that runs is the one you built: compare its size or hash in
+  `server/default/deploy/` with the fresh build - a platform can go on serving the last
+  good image.
 
 ## Wire contract (governance-engine JSON API)
 ```

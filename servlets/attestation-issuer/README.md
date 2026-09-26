@@ -66,7 +66,7 @@ prepended when configured (`AttesterResolvers`).
 ## Build and deploy
 
 ```bash
-mvn -pl servlets/attestation-issuer -am package     # → target/attestation-issuer-0.1.0.jar (tests on)
+mvn -pl servlets/attestation-issuer -am package     # → target/attestation-issuer-<version>.jar (tests on)
 ```
 
 Versions from `bom/pom.xml`. Ships two ways: bundled into `oidf.war` by [`oidf-war`](../oidf-war),

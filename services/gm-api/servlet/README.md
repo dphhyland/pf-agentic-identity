@@ -31,9 +31,9 @@ read or revoke: `grant_management_query` / `grant_management_revoke` / `grant_ma
 PF's plugin SDK has no extension point for a REST endpoint — which is why this started as a Go sidecar.
 But PF runs on Jetty and its `PFWebAppProvider` deploys wars out of `server/default/deploy`, making the
 war name the context path (`gm-api.war` → `/gm-api`), exactly how PF's own `pf-ws.war` serves
-`/pf-ws/rest/oauth/...`. `web.xml` declares Servlet 3.1 and carries no container security — the
-servlet verifies the bearer itself. Being in-process removes every seam the sidecar had, each of which
-produced a real bug:
+`/pf-ws/rest/oauth/...`. `web.xml` declares Servlet 5.0 in the `jakartaee` namespace, as PingFederate
+13.1's own wars do, and carries no container security — the servlet verifies the bearer itself. Being
+in-process removes every seam the sidecar had, each of which produced a real bug:
 
 | Sidecar | Servlet |
 |---|---|
@@ -62,8 +62,8 @@ audiences and one meant for a different API must not be accepted here.
 
 `GrantView` exists because PF's `AccessGrant` is **not** a value object: constructing one reaches into the
 server's service locator and throws `No Impl found for AccessGrantService` outside a running PF.
-Isolating it keeps the decision logic ordinary and testable (79 tests; jacoco gates
-`GrantEvaluator.build*` / `authorise` at 100% line + branch). `PdpClient`, `GrantOperations.evaluate`/
+Isolating it keeps the decision logic ordinary and testable (83 tests on 2026-09-26; jacoco gates ten
+decision methods, `GrantEvaluator.build*` and `authorise` among them, at 100% line + branch). `PdpClient`, `GrantOperations.evaluate`/
 `.search` (against a real loopback `HttpServer` standing in for the PDP), and the audience guard on
 `PfTokenVerifier`'s constructor are also unit tested. What still needs a live PF and is not —
 `GrantView.from`, `PfTokenVerifier.verify`, both servlets' HTTP layer, and `GrantOperations`' grant-store
@@ -72,21 +72,21 @@ calls (`lookup`/`describe`/`revoke`) — is for the same reason `GrantView` exis
 ## Build
 
 Not a BOM consumer: every dependency is `provided` under `local.pingfederate:*` coordinates
-(`pingfederate-sdk` 13.0.3, `servlet-api` 4.0.9, `jose4j`, `jackson-*`, `commons-lang3`,
+(`pingfederate-sdk` 13.1.3, `jakarta-servlet-api` 5.0.2, `jose4j`, `jackson-*`, `commons-lang3`,
 `commons-logging`). The PF SDK is Ping-licensed and not on Maven Central, so those coordinates must be
-installed into `~/.m2` first — the `install:install-file` lines in `.github/workflows/build.yml` do it
-from the public `pingidentity/pingfederate` image; or copy the jars out of a running PF:
+installed into `~/.m2` first — the `install:install-file` lines in
+`.github/actions/pf-provided-jars/action.yml` do it from the public `pingidentity/pingfederate` image; or
+copy the jars out of a running PingFederate 13.1.3, which names them without versions:
 
 ```bash
 PF=gm-pingfederate
 for j in pingfederate-sdk jose4j commons-logging commons-lang3 jackson-core jackson-databind jackson-annotations; do
-  src=$(docker exec $PF sh -c "find /opt/out/instance/server/default/lib /opt/out/instance/lib -iname '${j}*.jar' | head -1")
-  docker cp "$PF:$src" lib/
+  docker cp "$PF:/opt/out/instance/server/default/lib/$j.jar" lib/
 done
-docker cp $PF:/opt/out/instance/lib/jetty-servlet-api-4.0.9.jar lib/
+docker cp $PF:/opt/out/instance/lib/jetty-jakarta-servlet-api-5.0.2.jar lib/
 mvn install:install-file -Dfile=lib/pingfederate-sdk.jar -DgroupId=local.pingfederate \
-  -DartifactId=pingfederate-sdk -Dversion=13.0.3 -Dpackaging=jar -DgeneratePom=true
-# likewise servlet-api (4.0.9), jose4j (1.x), commons-logging (1.x), commons-lang3 (3.x), jackson-{core,databind,annotations} (2.x)
+  -DartifactId=pingfederate-sdk -Dversion=13.1.3 -Dpackaging=jar -DgeneratePom=true
+# likewise jakarta-servlet-api (5.0.2), jose4j (1.x), commons-logging (1.x), commons-lang3 (3.x), jackson-{core,databind,annotations} (2.x)
 
 mvn -pl services/gm-api/servlet package     # from the repo root → target/gm-api.war
 ```
@@ -112,7 +112,7 @@ docker restart gm-pingfederate
 | `pdpTimeoutMs` | — | default 10000 |
 | `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants` |
 
-Confirm it started: `Started ContextHandler{Grant Evaluation API,/gm-api,...,a=AVAILABLE}` —
+Confirm it started: `Started ContextHandler{Grant Management API,/gm-api,...,a=AVAILABLE}` (the `display-name` in `web.xml`) —
 `a=UNAVAILABLE` means the context failed; check `web.xml` parsed.
 
 ## Three things that will cost you an hour each
