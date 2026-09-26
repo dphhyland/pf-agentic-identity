@@ -1,0 +1,20 @@
+id: F-0006
+title: B6 No 13.1 release, image never built in CI, release skips verify, no secrets, main unprotected
+severity: blocker
+area: ci, release
+source: review-2026-09-26
+status: open
+plan_items: [P0-3, P0-5, P0-6, P0-8, R-CI1, R-CI2, R-CI3, R-CI4, R-CI5, R-CI6, R-CI7, R-CI10]
+prs: [10, 11, 14]
+verification: >
+  In progress, checked 2026-09-27: release.yml runs `mvn -B verify` and requires a green Build on the tagged
+  commit (PR #10, merged as 11e9780 on 2026-09-26), and its 0.3.0 dry run was green (run 36234516459 on
+  eba9640, 2026-09-26). PR #11 (v0.3.0) and #14 (0.4.0-SNAPSHOT) are open and `git ls-remote --tags origin`
+  still ends at v0.1.5, so there is no 13.1 release yet. `gh secret list` is empty; the API answers 'Branch
+  not protected' for main and lists no rulesets; Build does not build or boot the image. Stays open until
+  every part is done.
+target_release: 0.7.0
+notes: >
+  Five parts: a release on the 13.1 line (P0-8), the release built from what was verified (P0-6, done), the
+  image built and scanned in CI (R-CI6) and booted under licence (R-CI7), the licence secrets and branch rules
+  that only David can set (R-CI10), and the action, dependency and secret hygiene of R-CI1 to R-CI4.

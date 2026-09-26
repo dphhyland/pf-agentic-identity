@@ -1,0 +1,13 @@
+id: F-0057
+title: 'SSF events and audit source: txn and assurance-level-change wired, a broader audit vocabulary, valid credential_type, re-attach after a log4j reconfigure'
+severity: medium
+area: ssf
+source: reviewer-report
+status: open
+plan_items: [H-SSF-5]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items.

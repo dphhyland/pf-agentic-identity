@@ -1,0 +1,15 @@
+id: F-0048
+title: 'FapiResourceServerFilter is not per client; OAuthErrorDescriptionFilter buffers every response'
+severity: medium
+area: pf-integration
+source: reviewer-report
+status: open
+plan_items: [H-FED-6]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. H-FED-6: FapiResourceServerFilter per client, checked on the
+  percent-decoded query; OAuthErrorDescriptionFilter buffers only error responses and handles sendError and
+  reset.

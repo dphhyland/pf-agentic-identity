@@ -1,0 +1,11 @@
+id: U-0037
+title: RFC 9728
+area: gm-api
+source: design
+status: open
+plan_items: [X-C04]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, OAuth
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: ''

@@ -1,0 +1,14 @@
+id: F-0019
+title: Revoke race on hosted entities
+severity: medium
+area: openid-federation
+source: review-2026-09-26
+status: open
+plan_items: [H-FED-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  State-machine updates (JdbcHostedEntityRegistry.java:141-157 at f95b522) are not conditional on the current
+  status, so two operators can both revoke, or one revoke and one reactivate, without either noticing.
+  H-FED-3: `WHERE status = ?` plus a row count, for hosted entities, Trust Mark grants and key revocation.

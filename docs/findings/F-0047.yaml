@@ -1,0 +1,13 @@
+id: F-0047
+title: Explicit relying-party registration lacks OIDC defaults and PKCE
+severity: medium
+area: pf-integration
+source: reviewer-report
+status: open
+plan_items: [H-FED-5]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. FederationClientBuilder.java:70-77,180 (f95b522).

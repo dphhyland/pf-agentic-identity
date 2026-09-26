@@ -1,0 +1,15 @@
+id: F-0052
+title: Dead federation code
+severity: medium
+area: openid-federation
+source: reviewer-report
+status: open
+plan_items: [H-FED-10]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. ClientEntityAuthorizer, fetchMembers and fetchEntityConfiguration (/list),
+  dead FederationConfiguration methods, deprecated overloads, BridgeSigners.require, public resetForTests. The
+  exposure is maintenance, not security; medium is the rule, not a judgement of risk.

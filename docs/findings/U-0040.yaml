@@ -1,0 +1,11 @@
+id: U-0040
+title: 'HAIP and WIA typ and aud, the Token Status List draft, and the CIMD draft''s URL rules'
+area: attestation-issuer
+source: design
+status: open
+plan_items: [X-B05, X-B06, X-B02]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Wallet and CIMD
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: ''

@@ -1,0 +1,14 @@
+id: U-0014
+title: Whether SPIFFE-native client authentication is worth implementing
+area: client-attestation
+source: design
+status: closed
+plan_items: []
+prs: []
+recorded_in: docs/unverified.md item 13
+verify_by: Nothing further is needed unless a revisit trigger fires.
+verification: >
+  Assessed 2026-08-24 against draft-ietf-oauth-spiffe-client-auth-02 and decided: not implemented, on three
+  findings (one evidence format of eight; authentication-only interoperability; nothing can mint a WIT).
+  Nothing relies on the answer; the revisit triggers are in docs/unverified.md item 13.
+notes: ''

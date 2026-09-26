@@ -1,0 +1,11 @@
+id: U-0044
+title: Graph managedDevice fields, filters and batch limits
+area: mdm-adapter
+source: design
+status: open
+plan_items: [X-A16]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Microsoft
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: ''
