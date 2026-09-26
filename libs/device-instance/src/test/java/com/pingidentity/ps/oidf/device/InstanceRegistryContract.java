@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.device;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -42,6 +43,24 @@ abstract class InstanceRegistryContract {
     private AgentInstance newInstance(String id) {
         return new AgentInstance(id, "https://platform.example.com", "agent/1.0",
                 "thumbprint-" + id, InstanceStatus.ACTIVE, deviceId, Instant.now(), null, Instant.now());
+    }
+
+    @Test
+    void theAttestedAppAttestKeyIsKeptThroughEveryUpdate() throws Exception {
+        String owner = registry.findDevice(deviceId).orElseThrow().ownerUserId();
+        String macId = InstanceIdentifiers.newDeviceId();
+        registry.registerDevice(new Device(macId, "macos", "Mac14,9", "27.2", "keyid-mac", "connector:appattest", 0L,
+                ComplianceState.UNKNOWN, null, owner, "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-spki"));
+        assertEquals("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-spki", registry.findDevice(macId).orElseThrow().appAttestPublicKey());
+
+        registry.recordAppAttestCounter(macId, 3L);
+        registry.updateCompliance(macId, ComplianceState.COMPLIANT, Instant.now());
+        Device after = registry.findDevice(macId).orElseThrow();
+        assertEquals(3L, after.appAttestSignCount());
+        assertEquals("MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE-spki", after.appAttestPublicKey());
+
+        // A device enrolled without App Attest, or before the key was kept, has none.
+        assertNull(registry.findDevice(deviceId).orElseThrow().appAttestPublicKey());
     }
 
     @Test

@@ -24,14 +24,18 @@ public final class AppAttestAttestation {
     private final AppAttestEnvironment environment;
     private final long signCount;
     private final byte[] receipt;
+    private final AppAttestKeyPolicy keyPolicy;
+    private final AppAttestPlatform platform;
 
     AppAttestAttestation(byte[] keyId, ECPublicKey attestedKey, AppAttestEnvironment environment,
-                         long signCount, byte[] receipt) {
+                         long signCount, byte[] receipt, AppAttestKeyPolicy keyPolicy, AppAttestPlatform platform) {
         this.keyId = keyId;
         this.attestedKey = attestedKey;
         this.environment = environment;
         this.signCount = signCount;
         this.receipt = receipt;
+        this.keyPolicy = keyPolicy;
+        this.platform = platform;
     }
 
     /**
@@ -74,10 +78,25 @@ public final class AppAttestAttestation {
         return this.receipt == null ? null : this.receipt.clone();
     }
 
+    /**
+     * The conditions the Secure Enclave enforces on the App Attest key (macOS 27 and later), or null when
+     * the certificate carries none - as on iOS - or one that could not be read.
+     */
+    public AppAttestKeyPolicy keyPolicy() {
+        return this.keyPolicy;
+    }
+
+    /** The OS Apple says produced the attestation, or null when the certificate does not say. */
+    public AppAttestPlatform platform() {
+        return this.platform;
+    }
+
     @Override
     public String toString() {
         return "AppAttestAttestation{keyId=" + keyIdBase64Url()
                 + ", environment=" + this.environment
-                + ", signCount=" + this.signCount + '}';
+                + ", signCount=" + this.signCount
+                + (this.platform == null ? "" : ", platform=" + this.platform.describe())
+                + (this.keyPolicy == null ? "" : ", keyPolicy=" + this.keyPolicy.summary()) + '}';
     }
 }

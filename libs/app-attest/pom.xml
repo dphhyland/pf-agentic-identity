@@ -119,6 +119,10 @@
                                         <!-- Chain to the pinned Apple root, and the key bytes the key id is hashed from. -->
                                         <include>com.pingidentity.ps.oidf.appattest.AppAttestVerifier.validateChain(*</include>
                                         <include>com.pingidentity.ps.oidf.appattest.AppAttestVerifier.uncompressedPoint(*</include>
+                                        <!-- macOS 27: whether the Secure Enclave gates signing on Full Security and SIP, and which OS says so. -->
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestKeyPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestKeyPolicy.signingRequiresSecurity(*</include>
+                                        <include>com.pingidentity.ps.oidf.appattest.AppAttestPlatform.parse(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

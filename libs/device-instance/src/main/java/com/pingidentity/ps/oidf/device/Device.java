@@ -25,6 +25,10 @@ import java.time.Instant;
  * @param complianceState      the most recent posture reported by the compliance source
  * @param complianceCheckedAt  when that posture was reported
  * @param ownerUserId          the owning user — the only link from a device to a human
+ * @param appAttestPublicKey   base64url of the attested App Attest key (X.509 SubjectPublicKeyInfo), kept
+ *                             so later assertions from this install can be verified; null when the
+ *                             device did not enrol with App Attest, or enrolled before this was kept.
+ *                             A public key: nothing here can sign
  */
 public record Device(
         String id,
@@ -36,7 +40,16 @@ public record Device(
         long appAttestSignCount,
         ComplianceState complianceState,
         Instant complianceCheckedAt,
-        String ownerUserId) {
+        String ownerUserId,
+        String appAttestPublicKey) {
+
+    /** A device with no App Attest key on record. */
+    public Device(String id, String platform, String model, String osVersion, String appAttestKeyId,
+                  String appAttestEnvironment, long appAttestSignCount, ComplianceState complianceState,
+                  Instant complianceCheckedAt, String ownerUserId) {
+        this(id, platform, model, osVersion, appAttestKeyId, appAttestEnvironment, appAttestSignCount,
+                complianceState, complianceCheckedAt, ownerUserId, null);
+    }
 
     public Device {
         if (id == null || id.isBlank()) {
@@ -52,13 +65,14 @@ public record Device(
 
     public Device withCompliance(ComplianceState state, Instant checkedAt) {
         return new Device(this.id, this.platform, this.model, this.osVersion, this.appAttestKeyId,
-                this.appAttestEnvironment, this.appAttestSignCount, state, checkedAt, this.ownerUserId);
+                this.appAttestEnvironment, this.appAttestSignCount, state, checkedAt, this.ownerUserId,
+                this.appAttestPublicKey);
     }
 
     public Device withAppAttestSignCount(long counter) {
         return new Device(this.id, this.platform, this.model, this.osVersion, this.appAttestKeyId,
                 this.appAttestEnvironment, counter, this.complianceState, this.complianceCheckedAt,
-                this.ownerUserId);
+                this.ownerUserId, this.appAttestPublicKey);
     }
 
     /** True when this device enrolled against Apple's development attestation service. */

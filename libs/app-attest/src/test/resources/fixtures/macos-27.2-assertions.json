@@ -1,0 +1,10 @@
+{
+  "note": "Two real App Attest assertions from macOS 27.2 (SecureEnclaveSigner.app, team JH6RX4DRG2), captured 26 Sep 2026 over the same clientData, counters 1 and 2. Their authenticator data is 73 bytes: the attested-credential-data flag is set with no credential data, and an extensions map follows the counter. The signature covers SHA-256(authenticatorData || SHA-256(clientData)).",
+  "app_id": "JH6RX4DRG2.info.makefish.fedconnector.sesigner",
+  "attested_key_spki": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE5QDBGQUsMFxm6mD1MybRhzPWz7pE9wiLaXFfJh2UKCjydrphXxip1w-3zKgmYi3bCGK3aIUdgrnHRfvpv_G9dA",
+  "client_data": "renewal key proof",
+  "assertions": [
+    "omlzaWduYXR1cmVYRzBFAiEA-lFna9VJUHiRcBlBeXBtGFKE6iSW3XXLJ5Zc4jbfJ1MCIHo7pMdR4LgXCFdRrTxJJ8dFTpb075fzulyvf0ndETUScWF1dGhlbnRpY2F0b3JEYXRhWEnsRP1qJrBzxzanqa2s9nq3MFk1-CnAgtCDLZ_ZKFgAuMAAAAABoXgcYXBwbGVfdmFsaWRhdGlvbl9jYXRlZ29yeV8wMUQDAAAA",
+    "omlzaWduYXR1cmVYSDBGAiEAlnV_zBA-ZGv4l6_g4C_sF3uXIzH9UFyEkVwCl6WR2TcCIQD09BxmaW4lV5GCbHezc65tLezDSSJo3t_UHl359tQ9FHFhdXRoZW50aWNhdG9yRGF0YVhJ7ET9aiawc8c2p6mtrPZ6tzBZNfgpwILQgy2f2ShYALjAAAAAAqF4HGFwcGxlX3ZhbGlkYXRpb25fY2F0ZWdvcnlfMDFEAwAAAA"
+  ]
+}

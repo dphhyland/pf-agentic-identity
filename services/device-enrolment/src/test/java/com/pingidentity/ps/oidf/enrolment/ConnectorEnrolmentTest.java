@@ -6,6 +6,9 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.appattest.AppAttestEnvironment;
+import com.pingidentity.ps.oidf.appattest.AppAttestFixtures;
+import com.pingidentity.ps.oidf.appattest.AppAttestVerifier;
 import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService;
 import com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
@@ -13,6 +16,8 @@ import com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import java.math.BigInteger;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.PrivateKey;
@@ -25,7 +30,9 @@ import java.util.Base64;
 import java.util.Date;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.HexFormat;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import org.bouncycastle.asn1.ASN1Integer;
 import org.bouncycastle.asn1.ASN1ObjectIdentifier;
@@ -300,6 +307,222 @@ class ConnectorEnrolmentTest {
         assertNotNull(verifier.verify(token));
     }
 
+    // ---- App Attest on a Mac (macOS 27) ------------------------------------------------------------------
+
+    private static final String BUILD = sha256b64("connector.mjs, as sealed in the app bundle");
+
+    private EnrolmentService service(AppAttestVerifier appAttest, boolean macKeyPolicy, Set<String> builds,
+                                     boolean renewalAssertion) throws Exception {
+        PublicJsonWebKey platformKey = ec("attester");
+        return new EnrolmentService(appAttest, idp, registry, new DeviceAttestationMinter(AUDIENCE, CLIENT_ID),
+                challenges, new InMemoryAttestationReplayCache(),
+                new LocalJwkSigner(new LinkedHashMap<>(platformKey.toParams(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE))),
+                AUDIENCE, Duration.ofMinutes(60), false, BindingNotifier.logOnly(),
+                new EnrolmentService.AgentOptions(federation, null, false, CEILING, Map.of(), Map.of(),
+                        macKeyPolicy, builds, renewalAssertion));
+    }
+
+    private EnrolmentService macService(AppAttestFixtures apple) throws Exception {
+        return service(new AppAttestVerifier(apple.config(Set.of(AppAttestEnvironment.PRODUCTION))), true, Set.of(), true);
+    }
+
+    private EnrolmentService.EnrolmentRequest appAttestRequest(String challenge, AppAttestFixtures.Attestation att,
+                                                               String platform, String build) throws Exception {
+        Map<String, Object> evidence = new LinkedHashMap<>();
+        evidence.put("type", "app-attest");
+        if (build != null) {
+            evidence.put("connector_build", build);
+        }
+        return new EnrolmentService.EnrolmentRequest(att.cbor(), att.keyId(), pub(instanceKey), challenge,
+                boundIdToken(challenge), platform, "Mac14,9", "27.2", "connector/0.2.0", pub(federationKey),
+                proofs(challenge), evidence);
+    }
+
+    private byte[] commitment(String challenge, String build) throws Exception {
+        String jkt = Jwks.thumbprint(pub(instanceKey));
+        return build == null ? EnrolmentService.clientDataHash(jkt, challenge)
+                : EnrolmentService.clientDataHash(jkt, challenge, build);
+    }
+
+    @Test
+    void aMacEnrolmentRecordsWhatAppleSaysAboutTheMac() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = macService(apple);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentService.Enrolled enrolled = service.enrol(appAttestRequest(challenge,
+                apple.macAttestation(commitment(challenge, null)), "macos", null));
+
+        assertEquals("macosx 27.2 (26B5091g)", enrolled.evidence().get("os"));
+        assertEquals("ok oa odel osgn:rsec(6=1)", enrolled.evidence().get("key_policy"));
+        assertEquals(Boolean.TRUE, enrolled.evidence().get("full_security"));
+        assertEquals("app-attest", parse(enrolled.attestation()).getClaimValueAsString("key_storage_evidence"));
+    }
+
+    @Test
+    void aMacThatDoesNotShowFullSecurityIsRefused() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = macService(apple);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentException e = assertThrows(EnrolmentException.class, () -> service.enrol(appAttestRequest(challenge,
+                apple.attestation(commitment(challenge, null)), "macos", null)));
+        assertEquals(EnrolmentException.INVALID_ATTESTATION, e.error());
+        assertTrue(e.getMessage().contains("Full Security"));
+
+        // Signing always allowed: a policy, but not the one macOS 27 writes.
+        byte[] ungated = HexFormat.of().parseHex("3026a3240422" + "30200c023131" + "301a"
+                + "300b0c046f73676ea1030101ff" + "300b0c046f64656ca1030101ff");
+        String again = service.issueChallenge().challenge();
+        EnrolmentException weak = assertThrows(EnrolmentException.class, () -> service.enrol(appAttestRequest(again,
+                apple.attestation(commitment(again, null), Map.of("1.2.840.113635.100.8.6", ungated,
+                        "1.2.840.113635.100.8.7", AppAttestFixtures.MACOS_PLATFORM)), "macos", null)));
+        assertTrue(weak.getMessage().contains("osgn odel"));
+    }
+
+    @Test
+    void theKeyPolicyCanBeWaivedOnPurpose() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = service(new AppAttestVerifier(apple.config(Set.of(AppAttestEnvironment.PRODUCTION))),
+                false, Set.of(), true);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentService.Enrolled enrolled = service.enrol(appAttestRequest(challenge,
+                apple.attestation(commitment(challenge, null)), "macos", null));
+        assertFalse(enrolled.evidence().containsKey("key_policy"));
+    }
+
+    @Test
+    void thePlatformMustBeTheOneAppleSigned() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = macService(apple);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentException e = assertThrows(EnrolmentException.class, () -> service.enrol(appAttestRequest(challenge,
+                apple.macAttestation(commitment(challenge, null)), "ios", null)));
+        assertTrue(e.getMessage().contains("Apple's attestation says macosx 27.2"));
+
+        byte[] iphone = HexFormat.of().parseHex("300e" + "bf88020a" + "0408" + "6970686f6e656f73");
+        String again = service.issueChallenge().challenge();
+        EnrolmentException other = assertThrows(EnrolmentException.class, () -> service.enrol(appAttestRequest(again,
+                apple.attestation(commitment(again, null), Map.of("1.2.840.113635.100.8.7", iphone)), "macos", null)));
+        assertTrue(other.getMessage().contains("says iphoneos"));
+    }
+
+    @Test
+    void theConnectorBuildIsCommittedThroughAppAttest() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = macService(apple);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentService.Enrolled enrolled = service.enrol(appAttestRequest(challenge,
+                apple.macAttestation(commitment(challenge, BUILD)), "macos", BUILD));
+        assertEquals(BUILD, enrolled.evidence().get("connector_build"));
+
+        // Naming a different build than the one Apple's attestation covers breaks the nonce.
+        String again = service.issueChallenge().challenge();
+        AppAttestFixtures.Attestation att = apple.macAttestation(commitment(again, BUILD));
+        EnrolmentException e = assertThrows(EnrolmentException.class,
+                () -> service.enrol(appAttestRequest(again, att, "macos", sha256b64("some other build"))));
+        assertEquals(401, e.status());
+        assertTrue(e.getMessage().contains("NONCE_MISMATCH") || e.getMessage().contains("nonce"));
+    }
+
+    @Test
+    void anAttesterCanAcceptOnlyTheBuildsItKnows() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        AppAttestVerifier verifier = new AppAttestVerifier(apple.config(Set.of(AppAttestEnvironment.PRODUCTION)));
+        EnrolmentService strict = service(verifier, true, Set.of(BUILD), true);
+        String challenge = strict.issueChallenge().challenge();
+        assertEquals(BUILD, strict.enrol(appAttestRequest(challenge, apple.macAttestation(commitment(challenge, BUILD)),
+                "macos", BUILD)).evidence().get("connector_build"));
+
+        String unknown = sha256b64("a build the bank never released");
+        String c2 = strict.issueChallenge().challenge();
+        EnrolmentException e = assertThrows(EnrolmentException.class, () -> strict.enrol(appAttestRequest(c2,
+                apple.macAttestation(commitment(c2, unknown)), "macos", unknown)));
+        assertTrue(e.getMessage().contains("is not one this attester accepts"));
+
+        String c3 = strict.issueChallenge().challenge();
+        EnrolmentException none = assertThrows(EnrolmentException.class, () -> strict.enrol(appAttestRequest(c3,
+                apple.macAttestation(commitment(c3, null)), "macos", null)));
+        assertTrue(none.getMessage().contains("names none"));
+    }
+
+    @Test
+    void aBuildMustLookLikeAHash() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = macService(apple);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentException e = assertThrows(EnrolmentException.class, () -> service.enrol(appAttestRequest(challenge,
+                apple.macAttestation(commitment(challenge, null)), "macos", "not-a-hash")));
+        assertEquals(EnrolmentException.INVALID_REQUEST, e.error());
+    }
+
+    @Test
+    void everyRenewalCarriesAFreshAssertionFromTheSameApp() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = macService(apple);
+        String challenge = service.issueChallenge().challenge();
+        AppAttestFixtures.Attestation att = apple.macAttestation(commitment(challenge, BUILD));
+        EnrolmentService.Enrolled enrolled = service.enrol(appAttestRequest(challenge, att, "macos", BUILD));
+        String appId = AppAttestFixtures.TEAM_ID + "." + AppAttestFixtures.BUNDLE_ID;
+
+        // No assertion: refused.
+        EnrolmentException missing = assertThrows(EnrolmentException.class, () -> service.reissue(
+                new EnrolmentService.ReissueRequest(enrolled.instanceId(), proof(instanceKey, null))));
+        assertEquals(401, missing.status());
+        assertTrue(missing.getMessage().contains("app_attest_assertion is required"));
+
+        // An assertion over this key proof, counter 1: renewed, and the counter recorded.
+        String keyProof = proof(instanceKey, null);
+        byte[] assertion = apple.assertion(att.attestedKey(), sha256(keyProof), 1L, appId);
+        assertNotNull(service.reissue(new EnrolmentService.ReissueRequest(enrolled.instanceId(), keyProof,
+                b64(assertion))).attestation());
+        String deviceId = registry.findInstance(enrolled.instanceId()).orElseThrow().deviceId();
+        assertEquals(1L, registry.findDevice(deviceId).orElseThrow().appAttestSignCount());
+
+        // The same assertion cannot cover a different key proof.
+        EnrolmentException moved = assertThrows(EnrolmentException.class, () -> service.reissue(
+                new EnrolmentService.ReissueRequest(enrolled.instanceId(), proof(instanceKey, null), b64(assertion))));
+        assertEquals(401, moved.status());
+
+        // A counter that does not advance is a replay.
+        String next = proof(instanceKey, null);
+        EnrolmentException replay = assertThrows(EnrolmentException.class, () -> service.reissue(
+                new EnrolmentService.ReissueRequest(enrolled.instanceId(), next,
+                        b64(apple.assertion(att.attestedKey(), sha256(next), 1L, appId)))));
+        assertTrue(replay.getMessage().contains("BAD_COUNTER") || replay.getMessage().contains("counter"));
+
+        // Not base64url at all.
+        EnrolmentException garbled = assertThrows(EnrolmentException.class, () -> service.reissue(
+                new EnrolmentService.ReissueRequest(enrolled.instanceId(), proof(instanceKey, null), "***")));
+        assertEquals(EnrolmentException.INVALID_REQUEST, garbled.error());
+    }
+
+    @Test
+    void renewalWithoutAnAssertionCanBeAllowedOnPurpose() throws Exception {
+        AppAttestFixtures apple = new AppAttestFixtures();
+        EnrolmentService service = service(new AppAttestVerifier(apple.config(Set.of(AppAttestEnvironment.PRODUCTION))),
+                true, Set.of(), false);
+        String challenge = service.issueChallenge().challenge();
+        EnrolmentService.Enrolled enrolled = service.enrol(appAttestRequest(challenge,
+                apple.macAttestation(commitment(challenge, null)), "macos", null));
+        assertNotNull(service.reissue(new EnrolmentService.ReissueRequest(enrolled.instanceId(),
+                proof(instanceKey, null))).attestation());
+    }
+
+    private static byte[] sha256(String s) throws Exception {
+        return MessageDigest.getInstance("SHA-256").digest(s.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String sha256b64(String s) {
+        try {
+            return b64(sha256(s));
+        } catch (Exception e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    private static String b64(byte[] bytes) {
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
     // ---- fixtures ----------------------------------------------------------------------------------------
 
     private static PublicJsonWebKey ec(String kid) throws Exception {
@@ -317,7 +540,9 @@ class ConnectorEnrolmentTest {
         claims.setAudience(AUDIENCE);
         claims.setClaim("jti", UUID.randomUUID().toString());
         claims.setIssuedAtToNow();
-        claims.setClaim("challenge", challenge);
+        if (challenge != null) {
+            claims.setClaim("challenge", challenge);
+        }
         JsonWebSignature jws = new JsonWebSignature();
         jws.setPayload(claims.toJson());
         jws.setKey(key.getPrivateKey());

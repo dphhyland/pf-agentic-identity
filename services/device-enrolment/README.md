@@ -81,6 +81,14 @@ and the agent stops until the human is back in front of the phone.
 
 - **Development App Attest is refused** unless `APPLE_ALLOW_DEVELOPMENT=true`; when allowed, the
   environment is recorded on the device row so a development enrolment can never pass as production.
+- **A Mac must show its App Attest key bound to Full Security and SIP.** macOS 27 writes the
+  Secure Enclave's conditions on the key into the credential certificate (`AppAttestKeyPolicy`); a
+  Mac that does not show them is refused unless `APPLE_MACOS_REQUIRE_KEY_POLICY=false`. Without them
+  code signing on the Mac cannot be relied on, so nothing the app says about the code around it can.
+- **A connector that enrolled with App Attest renews with an assertion** from the same App Attest key,
+  over its key proof, with a rising counter - the instance key alone, a file the Secure Enclave will
+  use for whoever holds it, does not keep an agent alive. `APPLE_REQUIRE_RENEWAL_ASSERTION=false`
+  waives it.
 - **A device whose compliance is UNKNOWN cannot mint** (`REQUIRE_COMPLIANT_DEVICE`, default true).
 - **No IdP configured → enrolment refused**, loudly, at startup.
 - `OIDF_ATTESTATION_SUB=client_id` without `OIDF_AGENT_CLIENT_ID` refuses to start.
@@ -95,6 +103,9 @@ and the agent stops until the human is back in front of the phone.
 | `ENROLMENT_SIGNING_JWK` | the attester's private JWK (secret). Production should use a vault-backed `JwsSigner`; the seam exists |
 | `APPLE_TEAM_ID` / `APPLE_BUNDLE_ID` | the App ID an attestation must be bound to |
 | `APPLE_ALLOW_DEVELOPMENT` | default `false` |
+| `APPLE_MACOS_REQUIRE_KEY_POLICY` | default `true`: a Mac's attestation must show Full Security and SIP |
+| `APPLE_REQUIRE_RENEWAL_ASSERTION` | default `true`: an App Attest enrolment renews with `app_attest_assertion` |
+| `CONNECTOR_BUILDS` | comma-separated base64url SHA-256 hashes of the connector builds to accept; the helper commits its build through App Attest (`evidence.connector_build`). Empty accepts any build and records it |
 | `UV_MAX_AGE_SECONDS` | the time-box, default 300 — must match the `instance-registry-datasource` UV field |
 | `REQUIRE_COMPLIANT_DEVICE` | default `true` |
 | `PINGONE_ISSUER` / `PINGONE_CLIENT_ID` | the IdP; both required or user authentication is refused |

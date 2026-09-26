@@ -20,6 +20,7 @@ import java.security.spec.ECPoint;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -146,7 +147,10 @@ public final class AppAttestVerifier {
         }
 
         byte[] receipt = attStmt.hasNonNull("receipt") ? binary(attStmt, "receipt") : null;
-        return new AppAttestAttestation(computedKeyId, attestedKey, environment, authData.signCount(), receipt);
+        // 8. What Apple adds from macOS 27: the conditions the Secure Enclave enforces on the key, and the OS.
+        // Read, not judged: whether a Mac must show Full Security and SIP is the caller's policy.
+        return new AppAttestAttestation(computedKeyId, attestedKey, environment, authData.signCount(), receipt,
+                AppAttestKeyPolicy.from(credCert), AppAttestPlatform.from(credCert));
     }
 
     /**
@@ -167,7 +171,7 @@ public final class AppAttestVerifier {
         JsonNode root = readCbor(assertionObject);
         byte[] signature = binary(root, "signature");
         byte[] authDataBytes = binary(root, "authenticatorData");
-        AuthenticatorData authData = AuthenticatorData.parse(authDataBytes);
+        AuthenticatorData authData = AuthenticatorData.parseAssertion(authDataBytes);
 
         byte[] expectedRpIdHash = sha256(this.config.appId().getBytes(StandardCharsets.UTF_8));
         if (!MessageDigest.isEqual(expectedRpIdHash, authData.rpIdHash())) {
@@ -175,7 +179,9 @@ public final class AppAttestVerifier {
                     "assertion rpIdHash does not match the configured App ID");
         }
 
-        byte[] signed = concat(authDataBytes, clientDataHash);
+        // Apple signs the nonce, SHA-256(authenticatorData ‖ clientDataHash), with ECDSA over SHA-256 - so the
+        // message handed to SHA256withECDSA is the nonce itself. Checked against real macOS 27.2 assertions.
+        byte[] signed = sha256(concat(authDataBytes, clientDataHash));
         try {
             Signature ecdsa = Signature.getInstance("SHA256withECDSA");
             ecdsa.initVerify(attestedKey);
@@ -256,6 +262,9 @@ public final class AppAttestVerifier {
             // App Attest certificates carry no CRL or OCSP pointers; revocation checking would fail closed
             // on every valid attestation, so it is disabled deliberately rather than by oversight.
             params.setRevocationEnabled(false);
+            if (this.config.validationTime() != null) {
+                params.setDate(Date.from(this.config.validationTime()));
+            }
             CertPathValidator.getInstance("PKIX")
                     .validate(factory.generateCertPath(chain), params);
         } catch (Exception e) {

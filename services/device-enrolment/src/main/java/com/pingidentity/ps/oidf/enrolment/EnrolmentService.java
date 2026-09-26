@@ -5,6 +5,8 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.pingidentity.ps.oidf.appattest.AppAttestAttestation;
 import com.pingidentity.ps.oidf.appattest.AppAttestException;
+import com.pingidentity.ps.oidf.appattest.AppAttestKeyPolicy;
+import com.pingidentity.ps.oidf.appattest.AppAttestPlatform;
 import com.pingidentity.ps.oidf.appattest.AppAttestVerifier;
 import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService;
 import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
@@ -23,7 +25,10 @@ import com.pingidentity.ps.oidf.device.KeyStorageLevel;
 import com.pingidentity.ps.oidf.device.OwnerUser;
 import com.pingidentity.ps.oidf.device.RegistryException;
 import java.nio.charset.StandardCharsets;
+import java.security.KeyFactory;
 import java.security.MessageDigest;
+import java.security.interfaces.ECPublicKey;
+import java.security.spec.X509EncodedKeySpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
@@ -31,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -79,6 +85,8 @@ public final class EnrolmentService {
 
     /** Environment prefix marking a device enrolled for a federation-hosted connector agent (the Mac path). */
     static final String CONNECTOR_PREFIX = "connector:";
+    private static final Base64.Encoder B64URL = Base64.getUrlEncoder().withoutPadding();
+    private static final Base64.Decoder B64URL_DECODER = Base64.getUrlDecoder();
 
     public EnrolmentService(AppAttestVerifier appAttest, UserAuthenticationVerifier userAuthentication,
                             InstanceRegistry registry, DeviceAttestationMinter minter,
@@ -210,7 +218,7 @@ public final class EnrolmentService {
             String deviceId = InstanceIdentifiers.newDeviceId();
             this.registry.registerDevice(new Device(deviceId, request.platform(), request.model(),
                     request.osVersion(), evidence.deviceKeyRef(), evidence.environment(),
-                    0L, ComplianceState.UNKNOWN, null, owner.id()));
+                    0L, ComplianceState.UNKNOWN, null, owner.id(), evidence.appAttestPublicKey()));
 
             this.registry.bindAuthenticator(new BoundAuthenticator(
                     InstanceIdentifiers.newOwnerUserId(), deviceId, authentication.credentialId(),
@@ -298,8 +306,12 @@ public final class EnrolmentService {
                 require(request.appAttestObject() != null && request.appAttestObject().length > 0,
                         "appattest_object is required for app-attest evidence");
                 // The app and the device - and, through clientDataHash, the enclave key. App Attest cannot
-                // attest a key the app generated itself, so the app committed SHA-256(jkt | challenge).
-                byte[] clientDataHash = clientDataHash(enclaveJkt, request.challenge());
+                // attest a key the app generated itself, so the app committed SHA-256(jkt | challenge). A
+                // connector that runs inside the attested app also commits the hash of its own sealed code,
+                // SHA-256(jkt | challenge | build): Apple then vouches for which build asked, not just which app.
+                String build = connectorBuild(request);
+                byte[] clientDataHash = build == null ? clientDataHash(enclaveJkt, request.challenge())
+                        : clientDataHash(enclaveJkt, request.challenge(), build);
                 AppAttestAttestation attested;
                 try {
                     attested = this.appAttest.verifyAttestation(
@@ -311,10 +323,43 @@ public final class EnrolmentService {
                             "App Attest verification failed (" + e.reason() + "): " + e.getMessage(), e);
                 }
                 String env = attested.environment().name().equals("DEVELOPMENT") ? "appattestdevelop" : "appattest";
+                AppAttestPlatform os = attested.platform();
+                AppAttestKeyPolicy policy = attested.keyPolicy();
+                boolean claimsMac = "macos".equalsIgnoreCase(request.platform());
+                if (os != null && claimsMac != os.isMac()) {
+                    throw EnrolmentException.invalidAttestation("the enrolment says " + request.platform()
+                            + " but Apple's attestation says " + os.describe());
+                }
+                // macOS 27 binds every App Attest key to Full Security and SIP, and says so in the certificate.
+                // Without that, code signing on the Mac cannot be relied on, and nor can what the app says
+                // about the code around it.
+                if ((os != null ? os.isMac() : claimsMac) && this.agents.requireMacKeyPolicy()
+                        && (policy == null || !policy.signingRequiresSecurity())) {
+                    throw EnrolmentException.invalidAttestation("App Attest on this Mac does not show its key bound"
+                            + " to Full Security and System Integrity Protection"
+                            + (policy == null ? "" : " (" + policy.summary() + ")"));
+                }
+                if (hostedAgent && !this.agents.connectorBuilds().isEmpty()
+                        && (build == null || !this.agents.connectorBuilds().contains(build))) {
+                    throw EnrolmentException.invalidAttestation(build == null
+                            ? "this attester accepts only connector builds it knows, and this enrolment names none"
+                            : "connector build " + build + " is not one this attester accepts");
+                }
                 Map<String, Object> facts = new LinkedHashMap<>();
                 facts.put("type", "app-attest");
                 facts.put("environment", env);
-                return new VerifiedEvidence(attested.keyIdBase64Url(), prefix + env, facts);
+                if (os != null) {
+                    facts.put("os", os.describe());
+                }
+                if (policy != null) {
+                    facts.put("key_policy", policy.summary());
+                    facts.put("full_security", policy.signingRequiresSecurity());
+                }
+                if (build != null) {
+                    facts.put("connector_build", build);
+                }
+                return new VerifiedEvidence(attested.keyIdBase64Url(), prefix + env, facts,
+                        B64URL.encodeToString(attested.attestedKey().getEncoded()));
             }
             case "yubikey-piv": {
                 if (!hostedAgent) {
@@ -344,7 +389,7 @@ public final class EnrolmentService {
                 facts.put("fips", instanceKey.fips());
                 facts.put("cspn", instanceKey.cspn());
                 return new VerifiedEvidence("piv:" + instanceKey.serial(),
-                        prefix + "yubikey-piv" + (instanceKey.userPresencePerUse() ? ":presence" : ""), facts);
+                        prefix + "yubikey-piv" + (instanceKey.userPresencePerUse() ? ":presence" : ""), facts, null);
             }
             case "secure-enclave-self-asserted": {
                 if (!hostedAgent) {
@@ -354,7 +399,7 @@ public final class EnrolmentService {
                     throw EnrolmentException.invalidAttestation("this attester does not accept self-asserted key storage");
                 }
                 return new VerifiedEvidence("self:" + enclaveJkt, prefix + "secure-enclave-self-asserted",
-                        Map.of("type", "secure-enclave-self-asserted"));
+                        Map.of("type", "secure-enclave-self-asserted"), null);
             }
             default:
                 throw EnrolmentException.invalidRequest("unsupported evidence type: " + type);
@@ -409,7 +454,24 @@ public final class EnrolmentService {
     }
 
     /** What verified evidence establishes: the device record's key reference and environment, and facts to return. */
-    record VerifiedEvidence(String deviceKeyRef, String environment, Map<String, Object> facts) {
+    /** @param appAttestPublicKey base64url SPKI of the attested App Attest key, for later assertions; else null */
+    record VerifiedEvidence(String deviceKeyRef, String environment, Map<String, Object> facts,
+                            String appAttestPublicKey) {
+    }
+
+    /**
+     * The hash of the connector's sealed code, when the enrolment names one: {@code evidence.connector_build},
+     * base64url SHA-256. Only App Attest gives it meaning - it is folded into what Apple signs.
+     */
+    private static String connectorBuild(EnrolmentRequest request) throws EnrolmentException {
+        Object build = request.evidence() == null ? null : request.evidence().get("connector_build");
+        if (build == null) {
+            return null;
+        }
+        if (!(build instanceof String value) || !value.matches("[A-Za-z0-9_-]{43}")) {
+            throw EnrolmentException.invalidRequest("evidence.connector_build must be a base64url SHA-256");
+        }
+        return value;
     }
 
     /**
@@ -453,6 +515,8 @@ public final class EnrolmentService {
                             + "; re-authenticate the owner and retry");
         }
 
+        this.verifyRenewalAssertion(device, request);
+
         try {
             DeviceAttestationMinter.Minted minted = this.minter.mint(instance, proof.publicJwk(),
                     null, this.userVerificationMaxAge.toSeconds(), this.signer,
@@ -462,6 +526,51 @@ public final class EnrolmentService {
         } catch (RegistryException e) {
             throw EnrolmentException.serverError("could not record the issuance: " + e.getMessage(), e);
         }
+    }
+
+    /**
+     * For a device that enrolled with App Attest: an assertion from the same App Attest key, over this
+     * renewal's key proof, with a counter above any seen before. The instance key alone - a file the Secure
+     * Enclave can use, whoever holds it - is then not enough to keep an agent alive: every renewal also needs
+     * the genuine app, on the device Apple attested. Required on the connector path; verified wherever given.
+     */
+    private void verifyRenewalAssertion(Device device, ReissueRequest request) throws EnrolmentException {
+        if (device.appAttestPublicKey() == null) {
+            return;
+        }
+        if (!notBlank(request.appAttestAssertion())) {
+            String env = device.appAttestEnvironment();
+            if (this.agents.requireRenewalAssertion() && env != null && env.startsWith(CONNECTOR_PREFIX + "appattest")) {
+                throw new EnrolmentException(EnrolmentException.INVALID_ATTESTATION, 401,
+                        "app_attest_assertion is required: this agent enrolled with App Attest, so each renewal"
+                                + " carries a fresh assertion from the same app");
+            }
+            return;
+        }
+        if (this.appAttest == null) {
+            throw EnrolmentException.invalidAttestation("App Attest is not configured on this attester");
+        }
+        try {
+            long counter = this.appAttest.verifyAssertion(B64URL_DECODER.decode(request.appAttestAssertion()),
+                    MessageDigest.getInstance("SHA-256").digest(request.keyProof().getBytes(StandardCharsets.UTF_8)),
+                    appAttestKey(device.appAttestPublicKey()), device.appAttestSignCount());
+            this.registry.recordAppAttestCounter(device.id(), counter);
+        } catch (AppAttestException e) {
+            throw new EnrolmentException(EnrolmentException.INVALID_ATTESTATION, 401,
+                    "App Attest assertion failed (" + e.reason() + "): " + e.getMessage(), e);
+        } catch (IllegalArgumentException e) {
+            throw EnrolmentException.invalidRequest("app_attest_assertion is not base64url");
+        } catch (RegistryException e) {
+            // Another renewal got there first with the same or a later counter: a replay, or a race lost.
+            throw new EnrolmentException(EnrolmentException.INVALID_ATTESTATION, 401,
+                    "App Attest assertion counter did not advance: " + e.getMessage(), e);
+        } catch (java.security.GeneralSecurityException e) {
+            throw EnrolmentException.serverError("could not verify the App Attest assertion", e);
+        }
+    }
+
+    private static ECPublicKey appAttestKey(String spki) throws java.security.GeneralSecurityException {
+        return (ECPublicKey) KeyFactory.getInstance("EC").generatePublic(new X509EncodedKeySpec(B64URL_DECODER.decode(spki)));
     }
 
     /**
@@ -539,6 +648,11 @@ public final class EnrolmentService {
         } catch (Exception e) {
             throw new IllegalStateException("SHA-256 unavailable", e);
         }
+    }
+
+    /** The commitment for a connector that runs inside the attested app: {@code SHA-256(jkt ‖ challenge ‖ build)}. */
+    static byte[] clientDataHash(String enclaveJkt, String challenge, String build) {
+        return clientDataHash(enclaveJkt, challenge + "|" + build);
     }
 
     private String minterPlatform() {
@@ -658,12 +772,25 @@ public final class EnrolmentService {
      */
     public record AgentOptions(HostedEntityRegistrar federation, PivAttestationVerifier piv, boolean allowSelfAssertedKeys,
                                List<Map<String, Object>> authorizationDetails, Map<String, Object> federationMetadata,
-                               Map<String, Object> metadataPolicy) {
+                               Map<String, Object> metadataPolicy, boolean requireMacKeyPolicy,
+                               Set<String> connectorBuilds, boolean requireRenewalAssertion) {
         public AgentOptions {
             federation = federation == null ? HostedEntityRegistrar.disabled() : federation;
             authorizationDetails = authorizationDetails == null ? List.of() : List.copyOf(authorizationDetails);
             federationMetadata = federationMetadata == null ? Map.of() : federationMetadata;
             metadataPolicy = metadataPolicy == null ? Map.of() : metadataPolicy;
+            connectorBuilds = connectorBuilds == null ? Set.of() : Set.copyOf(connectorBuilds);
+        }
+
+        /**
+         * With the App Attest defaults: a Mac must show Full Security and SIP, any connector build is accepted
+         * (and recorded), and a connector that enrolled with App Attest renews with an assertion.
+         */
+        public AgentOptions(HostedEntityRegistrar federation, PivAttestationVerifier piv, boolean allowSelfAssertedKeys,
+                            List<Map<String, Object>> authorizationDetails, Map<String, Object> federationMetadata,
+                            Map<String, Object> metadataPolicy) {
+            this(federation, piv, allowSelfAssertedKeys, authorizationDetails, federationMetadata, metadataPolicy,
+                    true, Set.of(), true);
         }
 
         public static AgentOptions none() {
@@ -671,7 +798,11 @@ public final class EnrolmentService {
         }
     }
 
-    public record ReissueRequest(String instanceId, String keyProof) {
+    /** @param appAttestAssertion base64url CBOR assertion over SHA-256 of {@code keyProof}; null when none */
+    public record ReissueRequest(String instanceId, String keyProof, String appAttestAssertion) {
+        public ReissueRequest(String instanceId, String keyProof) {
+            this(instanceId, keyProof, null);
+        }
     }
 
     public record Reissued(String attestation, long expiresInSeconds) {
