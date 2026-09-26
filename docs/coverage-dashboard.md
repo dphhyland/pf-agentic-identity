@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2307 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2346 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -19,8 +19,8 @@ which says nothing about whether the security paths are the covered ones.
 | Module | Gated methods | Gate | Module instructions | Tests |
 |---|---:|---|---:|---:|
 | `libs/oidf-jose` | 11 | green | 88% | 135 |
-| `libs/app-attest` | 8 | green | 82% | 40 |
-| `libs/device-instance` | 15 | green | 83% | 65 |
+| `libs/app-attest` | 11 | green | 91% | 68 |
+| `libs/device-instance` | 15 | green | 83% | 67 |
 | `libs/client-attestation` | 8 | green | 77% | 106 |
 | `libs/openid-federation` | 217 | green | 96% | 577 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
@@ -30,11 +30,11 @@ which says nothing about whether the security paths are the covered ones.
 | `plugins/rar-paz-plugin` | 2 | green | 76% | 58 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
 | `plugins/ciba-sim` | 6 | green | 90% | 14 |
-| `services/device-enrolment` | 4 | green | 71% | 97 |
+| `services/device-enrolment` | 4 | green | 72% | 106 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 37% | 83 |
 
-**530 methods gated across the reactor, all green.**
+**533 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.

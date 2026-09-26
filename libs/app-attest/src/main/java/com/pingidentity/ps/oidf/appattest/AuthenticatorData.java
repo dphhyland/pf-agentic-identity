@@ -88,6 +88,27 @@ public final class AuthenticatorData {
         return new AuthenticatorData(rpIdHash, flags, signCount, aaguid, credentialId, data.clone());
     }
 
+    /**
+     * Parses the assertion form: rpIdHash, flags and counter, the 37 bytes an assertion's checks use. Apple's
+     * real assertions (macOS 27.2) set the attested-credential-data flag without carrying any, and follow the
+     * counter with an extensions map ({@code {"apple_validation_category_01": ...}}), so the flags cannot be
+     * trusted to describe what follows. The signature covers every byte, extensions included.
+     *
+     * @throws AppAttestException {@code malformed_attestation} if the buffer is shorter than 37 bytes
+     */
+    public static AuthenticatorData parseAssertion(byte[] data) throws AppAttestException {
+        if (data == null || data.length < MINIMUM_LENGTH) {
+            throw new AppAttestException(AppAttestException.MALFORMED,
+                    "assertion authenticator data is shorter than the " + MINIMUM_LENGTH + "-byte minimum");
+        }
+        ByteBuffer buffer = ByteBuffer.wrap(data);
+        byte[] rpIdHash = new byte[RP_ID_HASH_LENGTH];
+        buffer.get(rpIdHash);
+        byte flags = buffer.get();
+        long signCount = Integer.toUnsignedLong(buffer.getInt());
+        return new AuthenticatorData(rpIdHash, flags, signCount, null, null, data.clone());
+    }
+
     /** SHA-256 of the App ID this authenticator data is bound to. */
     public byte[] rpIdHash() {
         return this.rpIdHash.clone();
