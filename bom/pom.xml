@@ -28,20 +28,30 @@
     <properties>
         <!-- internal reactor artifacts -->
         <version.internal>0.2.0</version.internal>
-        <!-- the two provided PingFederate jars, extracted from the public image (see .github/workflows/build.yml) -->
+        <!-- the two provided PingFederate jars, extracted from the public image (see .github/workflows/build.yml);
+             PF_SDK_MAVEN_VERSION in build/pf-version.env, which tools/pf-version-check.py holds this to -->
         <version.pingfederate>13.1.3.0</version.pingfederate>
-        <!-- third-party -->
-        <version.jose4j>0.9.6</version.jose4j>
-        <version.jackson>2.17.1</version.jackson>
-        <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
-        <version.commons-logging>1.2</version.commons-logging>
+        <!-- version.pf.*: the libraries PingFederate 13.1.3 ships on its own classpath and the staged modules
+             use from there (stage-modules.sh bundles none of them). Each is the Implementation-Version in the
+             image's server/default/lib jar, read on 2026-09-26, and tools/pf-provided-versions.py fails the
+             build when the image and these disagree. Compiling against what PF runs is the point: a newer
+             API than the classpath has links at build and breaks at first use. -->
+        <version.pf.jackson>2.21.1</version.pf.jackson>
+        <version.pf.jose4j>0.9.6</version.pf.jose4j>
         <!-- commons-lang3: PingFederate's own Client domain class reaches into it (lang 2 until 13.0.x,
              lang3 from 13.1.0), so tests that build a Client need it on the test classpath. -->
-        <version.commons-lang3>3.18.0</version.commons-lang3>
+        <version.pf.commons-lang3>3.18.0</version.pf.commons-lang3>
+        <version.pf.commons-logging>1.1.1</version.pf.commons-logging>
+        <version.pf.log4j>2.25.4</version.pf.log4j>
+        <!-- third-party -->
+        <!-- version.jackson is the jackson a module BUNDLES rather than borrows: the RAR plugin's shaded and
+             relocated copy, and the cbor module app-attest's consumers carry. Jackson modules must share a
+             minor version, so it follows version.pf.jackson unless a bundled copy has a reason to differ. -->
+        <version.jackson>${version.pf.jackson}</version.jackson>
+        <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
         <version.postgresql>42.7.3</version.postgresql>
         <version.h2>2.2.224</version.h2>
         <version.bouncycastle>1.78.1</version.bouncycastle>
-        <version.log4j>2.20.0</version.log4j>
         <version.junit.jupiter>5.10.2</version.junit.jupiter>
         <version.mockito>5.12.0</version.mockito>
         <!-- A real Postgres for the tests whose subject IS Postgres behaviour (JSONB, partial unique
@@ -71,20 +81,20 @@
             <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><version>${version.pingfederate}</version></dependency>
 
             <!-- third-party -->
-            <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.jose4j}</version></dependency>
-            <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
+            <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.pf.jose4j}</version></dependency>
+            <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.pf.jackson}</version></dependency>
             <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId><version>${version.jackson}</version></dependency>
             <!-- PingFederate 13.1 is jakarta.servlet (Jetty ee9). Every servlet, filter and war here compiles
                  against it, and so does the RAR plugin, which reads the request through the SDK's
                  getJakartaRequest(). No module needs javax.servlet-api any more. -->
             <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><version>${version.jakarta-servlet-api}</version></dependency>
-            <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
-            <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><version>${version.commons-lang3}</version></dependency>
+            <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.pf.commons-logging}</version></dependency>
+            <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><version>${version.pf.commons-lang3}</version></dependency>
             <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version></dependency>
             <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><version>${version.h2}</version></dependency>
             <dependency><groupId>org.bouncycastle</groupId><artifactId>bcpkix-jdk18on</artifactId><version>${version.bouncycastle}</version></dependency>
-            <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><version>${version.log4j}</version></dependency>
-            <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><version>${version.log4j}</version></dependency>
+            <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><version>${version.pf.log4j}</version></dependency>
+            <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-core</artifactId><version>${version.pf.log4j}</version></dependency>
             <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><version>${version.junit.jupiter}</version></dependency>
             <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>${version.mockito}</version></dependency>
             <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><version>${version.mockito}</version></dependency>

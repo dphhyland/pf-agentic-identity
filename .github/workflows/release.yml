@@ -26,9 +26,6 @@ on:
         description: "Version to publish; must equal the version in bom/pom.xml"
         required: true
 
-env:
-  PF_IMAGE: pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest
-
 permissions:
   contents: write     # create the release
   packages: write     # publish to GitHub Packages
@@ -42,6 +39,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - name: the PingFederate version, from build/pf-version.env
+        # The one place the version is written down; the composite action reads the same file itself.
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
       - uses: actions/setup-java@v5
         with:
           distribution: temurin
@@ -74,29 +74,7 @@ jobs:
           echo "clean"
 
       - name: extract the provided PF jars from the image
-        run: |
-          docker create --name pf "$PF_IMAGE"
-          docker cp pf:/opt/out/instance/server/default/lib/. pf-lib/ 2>/dev/null || \
-            docker cp pf:/opt/server/server/default/lib/. pf-lib/
-          # The jakarta servlet API lives with Jetty, one directory up from the PF libs.
-          docker cp pf:/opt/server/lib/. pf-jetty-lib/
-          docker rm pf
-          mvn -q install:install-file -Dfile="$(ls pf-lib/pf-protocolengine*.jar | head -1)" \
-            -DgroupId=pingfederate -DartifactId=pf-protocolengine -Dversion=13.1.3.0 -Dpackaging=jar -DgeneratePom=true
-          docker create --name pfsdk "$PF_IMAGE" && { docker cp pfsdk:/opt/out/instance/sdk/lib/. pf-sdk-lib/ 2>/dev/null || docker cp pfsdk:/opt/server/sdk/lib/. pf-sdk-lib/ || true; }; docker rm pfsdk
-          SDK_JAR=""; for j in pf-sdk-lib/*.jar pf-lib/*.jar; do unzip -l "$j" 2>/dev/null | grep -q "com/pingidentity/access/JwksEndpointKeyAccessor.class" && SDK_JAR="$j" && break; done
-          test -n "$SDK_JAR"
-          mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3.0 -Dpackaging=jar -DgeneratePom=true
-          mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3 -Dpackaging=jar -DgeneratePom=true
-          # PF 13.1 is jakarta.servlet: gm-api compiles against the jetty jakarta servlet jar the image ships.
-          SAPI=$(ls pf-jetty-lib/jetty-jakarta-servlet-api-*.jar | head -1); test -n "$SAPI"
-          mvn -q install:install-file -Dfile="$SAPI" -DgroupId=local.pingfederate -DartifactId=jakarta-servlet-api -Dversion=5.0.2 -Dpackaging=jar -DgeneratePom=true
-          for spec in jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
-            a="${spec%%:*}"; v="${spec##*:}"
-            J=$(ls pf-lib/${a}-[0-9]*.jar 2>/dev/null | head -1); [ -z "$J" ] && J=$(ls pf-lib/*${a}*.jar 2>/dev/null | head -1)
-            test -n "$J"
-            mvn -q install:install-file -Dfile="$J" -DgroupId=local.pingfederate -DartifactId="$a" -Dversion="$v" -Dpackaging=jar -DgeneratePom=true
-          done
+        uses: ./.github/actions/pf-provided-jars
 
       # Tests ON. A release is the one build where "it compiled" is not the bar.
       - name: build the reactor with tests

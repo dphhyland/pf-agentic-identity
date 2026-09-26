@@ -22,6 +22,21 @@ variable "pf_admin_password" {
   sensitive   = true
 }
 
+# The provider decides which fields it may send from this (major.minor). The default is
+# PF_TERRAFORM_PRODUCT_VERSION in build/pf-version.env, which ../apply.sh exports and
+# tools/pf-version-check.py holds this default to. Provider 1.10.0's binary names 13.1.0 and 13.1.1
+# (strings in it, 2026-09-26); this configuration has been validated at "13.1", not yet applied.
+variable "pf_product_version" {
+  description = "The PingFederate product version the provider is told: major.minor"
+  type        = string
+  default     = "13.1"
+
+  validation {
+    condition     = can(regex("^[0-9]+\\.[0-9]+$", var.pf_product_version))
+    error_message = "pf_product_version is major.minor, e.g. 13.1."
+  }
+}
+
 # ── the origin PF advertises ────────────────────────────────────────────────────────────────────
 
 # PF derives its issuer, every endpoint in discovery and the audiences it accepts on a client
