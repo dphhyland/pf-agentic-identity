@@ -33,7 +33,6 @@
         <!-- third-party -->
         <version.jose4j>0.9.6</version.jose4j>
         <version.jackson>2.17.1</version.jackson>
-        <version.servlet-api>4.0.0</version.servlet-api>
         <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
         <version.commons-logging>1.2</version.commons-logging>
         <!-- commons-lang3: PingFederate's own Client domain class reaches into it (lang 2 until 13.0.x,
@@ -76,10 +75,9 @@
             <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.jackson}</version></dependency>
             <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId><version>${version.jackson}</version></dependency>
             <!-- PingFederate 13.1 is jakarta.servlet (Jetty ee9). Every servlet, filter and war here compiles
-                 against it. javax.servlet-api stays managed for ONE consumer: plugins/rar-paz-plugin, whose
-                 SDK seam is still javax and bridged by PF itself (docs/pf-13_1-jakarta-migration-plan.md). -->
+                 against it, and so does the RAR plugin, which reads the request through the SDK's
+                 getJakartaRequest(). No module needs javax.servlet-api any more. -->
             <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><version>${version.jakarta-servlet-api}</version></dependency>
-            <dependency><groupId>javax.servlet</groupId><artifactId>javax.servlet-api</artifactId><version>${version.servlet-api}</version></dependency>
             <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><version>${version.commons-logging}</version></dependency>
             <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><version>${version.commons-lang3}</version></dependency>
             <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><version>${version.postgresql}</version></dependency>
