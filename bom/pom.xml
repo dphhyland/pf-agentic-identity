@@ -15,7 +15,8 @@
         (scope=import) and declares its dependencies version-less; the poms stay standalone otherwise —
         no parent inheritance, keeping the absorbed modules' provenance property intact. Bump a version
         here and the whole reactor moves together. services/gm-api is deliberately not a consumer: it is
-        a vendored tree with its own coordinate convention (au.com.idpartners + local.pingfederate:*).
+        a vendored tree with its own coordinate convention (au.com.idpartners + local.pingfederate:*),
+        though its version moves with the reactor's (tools/set-version.py).
     </description>
 
     <licenses>

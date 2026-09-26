@@ -62,6 +62,21 @@ jobs:
           fi
           echo "clean: no age identity or private key is tracked"
 
+  # The versions this repo writes down agree with each other: every pom carries one project version
+  # (tools/set-version.py), and every reference to a PingFederate matches build/pf-version.env
+  # (tools/pf-version-check.py). Both are plain Python with unit tests of their own, run here first, so a
+  # tool that has stopped checking cannot pass the build.
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: the tools' own tests
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: one project version across the reactor
+        run: python3 tools/set-version.py --check
+      - name: one PingFederate version across the repo
+        run: python3 tools/pf-version-check.py
+
   java:
     runs-on: ubuntu-latest
     steps:
