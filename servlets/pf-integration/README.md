@@ -197,6 +197,11 @@ the property winning); the federation servlet's own settings are its init-params
 
 ## Upgrading from 0.2.0
 
+0.2.0 was never released: it is the version `main` carried between the PingFederate 13.1.3 cut-over
+(2026-09-24) and 0.3.0, so this list is what changed in 0.3.0 after that cut-over. Coming from v0.1.5 or
+older, every item applies, and [the upgrade guide](../../docs/operator/upgrading/0.1.5-to-0.3.0.md) puts them
+beside the ones that arrived in v0.1.4 and v0.1.5.
+
 - **Declare the four new extended properties** before deploying - `federation_registration_expires_at`,
   `federation_trust_anchor`, `federation_entity_type` and `federation_registration_disabled_at` (the full
   list is [docs/extended-properties.json](../../docs/extended-properties.json)). PF drops a property it
