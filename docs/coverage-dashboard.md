@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2307 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2319 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -24,17 +24,17 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/client-attestation` | 8 | green | 77% | 106 |
 | `libs/openid-federation` | 217 | green | 96% | 577 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 179 | green | 88% | 587 |
+| `servlets/pf-integration` | 179 | green | 88% | 589 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
-| `plugins/rar-paz-plugin` | 2 | green | 76% | 58 |
+| `plugins/rar-paz-plugin` | 4 | green | 88% | 63 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
 | `plugins/ciba-sim` | 6 | green | 90% | 14 |
 | `services/device-enrolment` | 4 | green | 71% | 97 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
-| `services/gm-api/servlet` | 10 | green | 37% | 83 |
+| `services/gm-api/servlet` | 10 | green | 38% | 88 |
 
-**530 methods gated across the reactor, all green.**
+**532 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -69,7 +69,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | CIBA | 3 | 3 |
 | CLAIM-DICT | 4 | 5 |
 | FAPI1-BASE | 2 | 3 |
-| FAPI2-SP | 2 | 16 |
+| FAPI2-SP | 3 | 17 |
 | GRANT-MGMT | 1 | 1 |
 | NIST-800-63B | 1 | 2 |
 | OIDC-CORE | 2 | 9 |
@@ -92,7 +92,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 16 | 55 |
 | UNVERIFIED | 1 | 5 |
 
-**480 distinct requirements pinned by 1029 tests.**
+**481 distinct requirements pinned by 1030 tests.**
 
 **209 of 216 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,

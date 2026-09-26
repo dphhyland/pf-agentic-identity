@@ -89,7 +89,10 @@ public final class ClientAttestationAuthFilter implements Filter {
     private static final String POP_HEADER = "OAuth-Client-Attestation-PoP";
     private static final String ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
     private static final long ASSERTION_TTL_SECONDS = 60L;
-    /** draft-ietf-oauth-rfc7523bis explicit typing; PingFederate 13.1 rejects a client assertion without it. */
+    /**
+     * draft-ietf-oauth-rfc7523bis explicit typing. PingFederate 13.1 with Rfc7523bisCompliantAudienceVerification
+     * on refuses a client assertion typed anything else, as it refused "JWT".
+     */
     static final String BRIDGE_ASSERTION_TYP = "client-authentication+jwt";
 
     /** Where this authority hosts agents as federation entities (HostedEntityServlet). */
@@ -274,7 +277,7 @@ public final class ClientAttestationAuthFilter implements Filter {
                         "no bridge signing key is configured for this client");
                 return;
             }
-            String bridgeAssertion = this.mintBridgeAssertion(signer, clientId, opIssuer, requestUri);
+            String bridgeAssertion = this.mintBridgeAssertion(signer, clientId, opIssuer);
             if (LOGGER.isInfoEnabled()) {
                 LOGGER.info((Object) ("attest_jwt_client_auth: verified attestation for client_id=" + clientId
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
@@ -379,16 +382,20 @@ public final class ClientAttestationAuthFilter implements Filter {
      * {@code CompactJws} assembles them. That is the same seam the attestation minter uses on the
      * issuing side.
      *
-     * <p>Shaped the way PingFederate 13.1 requires, which is also what the specs ask for: explicitly typed
-     * {@code client-authentication+jwt} and ONE audience, the issuer, as a string (draft-ietf-oauth-
-     * rfc7523bis; FAPI 2.0 §5.3.2.1). This used to be {@code typ: JWT} with {@code aud: [issuer, request
-     * URL]}, which 13.0.3 accepted and 13.1.3 refuses with "Invalid typ header parameter value 'JWT'" and
-     * "Audience (aud) claim must contain only one value" - so on 13.1 every bridged request failed after
-     * the attestation had verified. The issuer is the one audience PF accepts at every endpoint it is
-     * mapped over (token and PAR); {@code requestUri} no longer needs to be in it.
+     * <p>Explicitly typed {@code client-authentication+jwt}, with ONE audience: {@code opIssuer}, the issuer
+     * PingFederate resolves for this request, as a string. draft-ietf-oauth-rfc7523bis-11 §4 wants the issuer
+     * "as its sole value" and allows a one-member array; FAPI 2.0 wants the string (§5.3.3.1: "The issuer
+     * identifier value shall be sent as a string not as an item in an array"). The string meets both.
+     *
+     * <p>This used to be {@code typ: JWT} with {@code aud: [issuer, request URL]}, which 13.0.3 accepted and
+     * 13.1.3 refuses with "Invalid typ header parameter value 'JWT'" and "Audience (aud) claim must contain
+     * only one value" once {@code Rfc7523bisCompliantAudienceVerification} is on - the setting a fresh 13.1.3
+     * install ships with - so every bridged request failed after the attestation had verified. With the
+     * setting off, as on an archive upgraded from 13.0, the issuer is still accepted: both of 13.1.3's
+     * audience providers accept the value {@code OAuthIssuerUtils.getIssuerValue} gives for the request (read
+     * with javap from 13.1.3's {@code pf-protocolengine}, 2026-09-26).
      */
-    private String mintBridgeAssertion(JwsSigner signer, String clientId, String opIssuer,
-                                       String requestUri) throws Exception {
+    private String mintBridgeAssertion(JwsSigner signer, String clientId, String opIssuer) throws Exception {
         JwtClaims claims = new JwtClaims();
         claims.setIssuer(clientId);
         claims.setSubject(clientId);

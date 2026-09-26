@@ -58,8 +58,9 @@ public final class GovernanceEngineConfig {
     /**
      * Whether a principal the CALLER asserted may be used as the decision subject. Default false.
      *
-     * <p>PingFederate's {@code AuthorizationDetailContext} exposes no authenticated resource owner, so
-     * the principal is read out-of-band. One source is trustworthy - a request attribute an authn hook
+     * <p>PingFederate's {@code AuthorizationDetailContext} carries no resource owner that holds in every flow
+     * (13.1's {@code getUserKey()} is the client id under client credentials), so the principal is read
+     * out-of-band. One source is trustworthy - a request attribute an authn hook
      * set server-side - and two are not: the {@code login_hint} request parameter and the
      * {@code _principal_sub} marker inside {@code authorization_details}. Both are simply what the
      * caller sent. Treating them as the principal lets a client name whoever it likes and have the PDP
