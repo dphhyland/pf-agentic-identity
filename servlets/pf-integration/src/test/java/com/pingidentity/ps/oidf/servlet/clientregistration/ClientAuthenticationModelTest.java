@@ -20,7 +20,7 @@ import org.sourceid.oauth20.domain.ClientAuthenticationType;
  * chooses how a client may authenticate with {@code isAuthTypeEnabled}, which reads the set when there is one and
  * otherwise compares with the legacy type; the private_key_jwt validator constrains the signing algorithm with
  * {@code getPrivateKeyJwtTokenEndpointAuthSigningAlgorithm()}, which falls back to the legacy algorithm
- * ({@code BaseClientAuthnRequestHandler}, {@code ClientJwtValidator} and {@code Client}, read with javap from
+ * ({@code BaseClientAuthnRequestHandler}, {@code ClientPrivateKeyJwtValidator} and {@code Client}, read with javap from
  * pf-protocolengine 13.1.3.0, 2026-09-26). So these clients authenticate with private_key_jwt and nothing else, held
  * to the algorithm their metadata names.
  *
