@@ -10,7 +10,16 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 ## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Nothing has landed yet.
+hygiene. Notes in progress: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+
+- **Information architecture and style** (D-1) - `docs/{operator,configuration,reference,security,development,findings,releases}`
+  each with a README saying what belongs there; `SECURITY.md`, `CONTRIBUTING.md` and a pull request template;
+  the house style in `docs/development/style-guide.md`, with `tools/doc-lint.py` checking what a machine can
+  against a dated baseline, in a new `docs.yml` workflow.
+- **Findings register** (D-2) - one YAML file per finding under `docs/findings` (`F-` defects, `U-` unverified
+  assumptions), seeded from the 2026-09-26 review, the reviewer reports, the plan's "Found while designing"
+  list and `docs/unverified.md`; `tools/findings.py --check` in CI, `--gate` for a release, `list` and `index`
+  on demand.
 
 ## [0.3.0] - 2026-09-27
 
