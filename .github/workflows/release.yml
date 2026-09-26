@@ -182,11 +182,21 @@ jobs:
 
           ( cd dist && sha256sum * > SHA256SUMS )
           # Where each dist file came from in the reactor (the target/ file deploy will publish, not the
-          # staged copy), so the deploy step can prove it published the same bytes.
+          # staged copy), so the deploy step can prove it published the same bytes. A basename can name
+          # two reactor files: oidf.jar is servlets/pf-integration's module (what stage-modules.sh
+          # stages) AND servlets/oidf-war's jar-packaged aggregate, which is never staged or deployed.
+          # So the aggregate is excluded, any other collision is an error rather than a first hit, and
+          # the resolved source is compared with the dist file HERE - a wrong resolution fails this
+          # step, before the draft and before Packages, not the check after them.
           ( for f in dist/*.jar dist/*.war; do
               b="$(basename "$f")"
-              src="$(find libs servlets plugins services -path "*/target/$b" | head -1)"
-              [ -n "$src" ] || { echo "::error::no reactor source for $b"; exit 1; }
+              src="$(find libs servlets plugins services -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
+              case "$(printf '%s\n' "$src" | grep -c .)" in
+                1) ;;
+                0) echo "::error::no reactor source for $b"; exit 1 ;;
+                *) echo "::error::$b resolves to more than one reactor file: $(printf '%s' "$src" | tr '\n' ' ')"; exit 1 ;;
+              esac
+              cmp -s "$src" "$f" || { echo "::error::$src is not the file staged as $b"; exit 1; }
               sha256sum "$f" | sed "s|  dist/.*|  $src|"
             done ) > dist-sources.sha256
           cat dist-sources.sha256
