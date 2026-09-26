@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2358 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2371 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -29,12 +29,12 @@ which says nothing about whether the security paths are the covered ones.
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 4 | green | 88% | 63 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
-| `plugins/ciba-sim` | 6 | green | 90% | 14 |
+| `plugins/ciba-sim` | 11 | green | 97% | 27 |
 | `services/device-enrolment` | 4 | green | 72% | 106 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 38% | 88 |
 
-**535 methods gated across the reactor, all green.**
+**540 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
