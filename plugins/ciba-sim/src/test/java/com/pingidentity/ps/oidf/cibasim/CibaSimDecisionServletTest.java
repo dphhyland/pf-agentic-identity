@@ -1,5 +1,5 @@
 /*
- * The decision endpoint: off by default, and exact about what it records.
+ * The decision endpoint: a 404 wherever the simulator may not run, and exact about what it records.
  */
 package com.pingidentity.ps.oidf.cibasim;
 
@@ -13,10 +13,13 @@ import com.pingidentity.ps.oidf.cibasim.DecisionStore.Decision;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Clock;
-import java.time.Duration;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Stream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.Test;
@@ -35,7 +38,17 @@ class CibaSimDecisionServletTest {
         }
     }
 
-    private static Exchange post(DecisionStore store, boolean enabled, String authReqId, String action) throws Exception {
+    /** A rig's environment over {@code dir}, which is made private the way the gate wants it. */
+    private static Map<String, String> rig(Path dir) throws Exception {
+        Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
+        Map<String, String> env = new HashMap<>();
+        env.put(SimulatorGate.ENABLED_ENV, "true");
+        env.put(SimulatorGate.PROFILE_ENV, "development");
+        env.put(SimulatorGate.DIR_ENV, dir.toString());
+        return env;
+    }
+
+    private static Exchange post(Map<String, String> env, String authReqId, String action) throws Exception {
         HttpServletRequest req = mock(HttpServletRequest.class);
         when(req.getParameter("auth_req_id")).thenReturn(authReqId);
         when(req.getParameter("action")).thenReturn(action);
@@ -43,54 +56,83 @@ class CibaSimDecisionServletTest {
         HttpServletResponse resp = mock(HttpServletResponse.class);
         when(resp.getWriter()).thenReturn(new PrintWriter(sink));
 
-        CibaSimDecisionServlet.handle(req, resp, store, enabled);
+        new CibaSimDecisionServlet(env::get, DecisionStore::at).doPost(req, resp);
 
         ArgumentCaptor<Integer> status = ArgumentCaptor.forClass(Integer.class);
         verify(resp).setStatus(status.capture());
         return new Exchange(status.getValue(), sink.toString(StandardCharsets.UTF_8));
     }
 
+    private static boolean empty(Path dir) throws Exception {
+        try (Stream<Path> entries = Files.list(dir)) {
+            return entries.findAny().isEmpty();
+        }
+    }
+
     @Test
-    void offUnlessEnabledAndNothingIsRecordedWhileOff(@TempDir Path dir) throws Exception {
-        DecisionStore store = new DecisionStore(dir, Duration.ofMinutes(15), Clock.systemUTC());
-        Exchange x = post(store, false, "urn:req:1", "allow");
+    void offUnlessSwitchedOnAndNothingIsRecordedWhileOff(@TempDir Path dir) throws Exception {
+        Map<String, String> env = rig(dir);
+        env.remove(SimulatorGate.ENABLED_ENV);
+        Exchange x = post(env, "urn:req:1", "allow");
         assertEquals(404, x.status);
-        assertEquals(Optional.empty(), store.lookup(DecisionStore.txIdFor("urn:req:1")));
+        assertEquals("{\"error\":\"not_found\"}", x.body);
+        assertTrue(empty(dir));
+    }
+
+    @Test
+    void neverInProductionWhichIsTheDefault(@TempDir Path dir) throws Exception {
+        Map<String, String> env = rig(dir);
+        env.remove(SimulatorGate.PROFILE_ENV);
+        assertEquals(404, post(env, "urn:req:1", "allow").status);
+        env.put(SimulatorGate.PROFILE_ENV, "production");
+        assertEquals(404, post(env, "urn:req:1", "allow").status);
+        assertTrue(empty(dir));
+    }
+
+    @Test
+    void aDirectoryTheGateRefusesIs404Too(@TempDir Path dir) throws Exception {
+        Map<String, String> env = rig(dir);
+        Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwxr-x---"));
+        assertEquals(404, post(env, "urn:req:1", "allow").status);
+        env.put(SimulatorGate.DIR_ENV, dir.resolve("absent").toString());
+        assertEquals(404, post(env, "urn:req:1", "allow").status);
+        Files.setPosixFilePermissions(dir, PosixFilePermissions.fromString("rwx------"));
+        assertTrue(empty(dir));
     }
 
     @Test
     void recordsAllowAndDenyAndAnswersTheTransaction(@TempDir Path dir) throws Exception {
-        DecisionStore store = new DecisionStore(dir, Duration.ofMinutes(15), Clock.systemUTC());
-        Exchange allow = post(store, true, "urn:req:1", "allow");
+        Map<String, String> env = rig(dir);
+        DecisionStore store = DecisionStore.at(dir);
+        Exchange allow = post(env, "urn:req:1", "allow");
         assertEquals(200, allow.status);
         assertTrue(allow.body.contains("\"action\":\"allow\""));
         assertTrue(allow.body.contains("\"tx\":\"" + DecisionStore.txIdFor("urn:req:1") + "\""));
         assertEquals(Optional.of(Decision.ALLOW), store.lookup(DecisionStore.txIdFor("urn:req:1")));
 
-        assertEquals(200, post(store, true, "urn:req:1", "DENY").status);
+        assertEquals(200, post(env, "urn:req:1", "DENY").status);
         assertEquals(Optional.of(Decision.DENY), store.lookup(DecisionStore.txIdFor("urn:req:1")));
     }
 
     @Test
     void aMissingIdOrAnUnknownActionIs400AndRecordsNothing(@TempDir Path dir) throws Exception {
-        DecisionStore store = new DecisionStore(dir, Duration.ofMinutes(15), Clock.systemUTC());
-        Exchange noId = post(store, true, " ", "allow");
+        Map<String, String> env = rig(dir);
+        Exchange noId = post(env, " ", "allow");
         assertEquals(400, noId.status);
         assertTrue(noId.body.contains("auth_req_id"));
-        assertEquals(400, post(store, true, null, "allow").status);
+        assertEquals(400, post(env, null, "allow").status);
 
-        Exchange badAction = post(store, true, "urn:req:2", "approve");
+        Exchange badAction = post(env, "urn:req:2", "approve");
         assertEquals(400, badAction.status);
         assertTrue(badAction.body.contains("allow or deny"));
-        assertEquals(400, post(store, true, "urn:req:2", null).status);
-        assertEquals(Optional.empty(), store.lookup(DecisionStore.txIdFor("urn:req:2")));
+        assertEquals(400, post(env, "urn:req:2", null).status);
+        assertTrue(empty(dir));
     }
 
     @Test
-    void theSwitchIsReadFromTheEnvironment() {
-        assertTrue(new CibaSimDecisionServlet(null, k -> "true").isEnabledForTests());
-        assertTrue(new CibaSimDecisionServlet(null, k -> "TRUE").isEnabledForTests());
-        assertEquals(false, new CibaSimDecisionServlet(null, k -> "yes").isEnabledForTests());
-        assertEquals(false, new CibaSimDecisionServlet(null, k -> null).isEnabledForTests());
+    void theContainerConstructorReadsTheProcessEnvironment() {
+        // Nothing in this JVM's environment switches it on, so the servlet PingFederate would construct refuses.
+        assertEquals(SimulatorGate.enabled(System::getenv), false);
+        new CibaSimDecisionServlet();
     }
 }
