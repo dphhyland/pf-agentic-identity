@@ -1,0 +1,10 @@
+# Findings gitleaks acknowledges by fingerprint (commit:path:rule:line), each with what it was. This file
+# records a real finding; it does not excuse one. gitleaks reported it, the pull request that added the line
+# says so, and a Build run by hand, which scans the whole history, does not fail on it a second time. What
+# is not a secret at all goes in .gitleaks.toml instead.
+#
+# A demo App Attest trust root's private key, checked in openly by design for demo/phone-simulator (its README
+# at 058a15b said so) and gone with the demo split in f8d66f4 (2026-08-08). It is still in the history of a
+# public repository: anything that still trusts that root accepts attestations anyone can mint. Reported in
+# the Phase 1 CI pull request; neither rotated nor rewritten here.
+058a15b5191dbd4048c1b0619d8cc42c7a470fed:demo/phone-simulator/src/main/resources/demo/appattest-root-key.pem:private-key:1

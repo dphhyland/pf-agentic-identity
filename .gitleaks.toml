@@ -1,0 +1,34 @@
+# gitleaks' rules for this repository: the defaults, plus what the defaults get wrong here. build.yml's
+# secrets-guard job runs gitleaks-action over the commits a push or pull request adds, and over the whole
+# history when Build is run by hand; `gitleaks git .` from a checkout reads this file too. Every entry says
+# what it allows and why that is not a secret, and each is scoped to the one rule that misreads it, so a
+# private key in the same file is still found. A real leak is never allow-listed here: .gitleaksignore
+# acknowledges one by fingerprint, with what it was.
+title = "pf-agentic-identity"
+
+[extend]
+useDefault = true
+
+# libs/app-attest's fixtures are recordings from a real macOS 27.2 device: the attested key's SPKI (a public
+# key), the client data and the assertions themselves. Public by construction, and long enough for the
+# generic rule to read one as an API key.
+[[allowlists]]
+description = "App Attest fixtures: the attested public key and the assertions recorded from a device"
+targetRules = ["generic-api-key"]
+paths = ['''^libs/app-attest/src/test/resources/fixtures/.*\.json$''']
+
+# FederationEventsTest proves a token never reaches a log line, with a token of its own making: the header
+# {"alg":"ES256"}, the payload {"iss":"https://a"} and the word "signature". Nothing signed it.
+[[allowlists]]
+description = "the made-up JWT FederationEventsTest keeps out of its log lines"
+targetRules = ["jwt"]
+regexTarget = "match"
+regexes = ['''eyJhbGciOiJFUzI1NiJ9\.eyJpc3MiOiJodHRwczovL2EifQ\.c2lnbmF0dXJl''']
+
+# deploy/fedhost carried the federation's entity statements until ea3f96e (2026-08-21) moved the deployment
+# tree back to pf-oidf-modules: signed public documents (typ entity-statement+jwt, carrying public keys),
+# which the jwt rule reads as tokens. History only; the path no longer exists.
+[[allowlists]]
+description = "entity statements in the deployment tree that left in ea3f96e (history only)"
+targetRules = ["jwt"]
+paths = ['''^deploy/fedhost/content\.(production|staging)\.json$''']
