@@ -8,10 +8,14 @@
   R-I5). It refuses a war in which a declared filter lacks exactly one `<filter>` and one `<filter-mapping>` over
   exactly its paths, an order pair does not hold, a path is one the stock `web.xml` does not serve, the root is
   `metadata-complete="true"`, or a declared filter's class is in no jar, and prints each path's filter chain.
+  Published to GitHub Packages with the rest of the reactor from the next release; the release assets do not
+  carry it.
 - `assemble-pf-runtime-war.sh` keeps its command line and exit codes and is now a wrapper that runs it; the
   `MANIFEST`, profile and namespace checks moved into the assembler with their messages. A refusal still leaves
-  no output war. With too few or too many arguments it now exits 2 with a usage line (it exited 1 on an unbound
-  variable).
+  no output war, and the wrapper now also removes it when the JVM itself fails. With too few arguments it now exits
+  2 with a usage line (it exited 1 on an unbound variable); with more than five it exits 2 too (it ignored the
+  extras and assembled). `STOCK_WAR` and `OUT_WAR` naming the same file now exits 2 with nothing touched (the script's
+  `cp` failed on it, and its clean-up then deleted the stock war).
 - `stage-modules.sh` also stages the assembler, as `assembler/war-assembler.jar` beside `modules/`; the Dockerfile
   copies it with `filters.xml`, and `conformance/compose-context.sh` carries both.
 
@@ -59,6 +63,18 @@ digest):
   a wrong order, `metadata-complete="true"`, a jar built for the other namespace, a declared listener whose class
   no jar holds - each refused with a message naming the problem and no war left behind. Their decision methods
   are in the module's 100% line and branch gate.
+
+What the mapped-path check cannot see: 13.1.3's stock `web.xml` maps its protocol endpoints by extension
+(`*.oauth2`, `*.openid`, `*.ciba`), and every path `filters.xml` declares is served only that way, so the check
+proves the extension is PingFederate's and nothing about the name. A misspelt or moved endpoint with the same
+extension passes: the adversarial review, 2026-09-28, assembled the real stock war with `Fapi2Profile` over
+`/as/introspekt.oauth2` and got exit 0. The assembler prints the paths this applies to (a line beginning `web.xml:
+served only by a wildcard <servlet-mapping>`), and U-0186 records the gap for the conformance rig or plan item
+D-3's endpoint inventory to close.
+
+A consumer that assembles from the release assets rather than a checkout needs two things they do not carry:
+`com.pingidentity.ps.oidf:war-assembler` from GitHub Packages (or built from the tag), and `filters.xml` from the
+tag's `build/pingfederate`.
 
 Why a jar and not the single-file source launcher, and why the `MANIFEST` checks moved into Java, is in
 [build/war-assembler/README.md](../../../build/war-assembler/README.md). `filters.xml` declares no listener yet;

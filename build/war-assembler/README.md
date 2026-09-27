@@ -15,8 +15,9 @@ build/pingfederate/assemble-pf-runtime-war.sh STOCK_WAR MODULES JOSE4J_JAR OUT_W
 java -jar assembler/war-assembler.jar --filters filters.xml STOCK_WAR MODULES JOSE4J_JAR OUT_WAR [PROFILE]
 ```
 
-Exit 0 with `OUT_WAR` written; 2 for a usage error, with nothing touched; 1 for a refusal, and then `OUT_WAR`
-does not exist, whether or not it did before. The war is written to a temporary file beside `OUT_WAR`, read back
+Exit 0 with `OUT_WAR` written; 2 for a usage error, with nothing touched (`STOCK_WAR` and `OUT_WAR` the same file
+is one); 1 for a refusal, and then `OUT_WAR` does not exist, whether or not it did before. The wrapper removes it
+too when the JVM itself fails - a Java older than 17, or an `Error` - and the assembler removes it in a `finally`. The war is written to a temporary file beside `OUT_WAR`, read back
 and checked there, and moved into place only when every check passed, with the stock war's permissions less
 group and other write (0640 in the image, as the shell script's `cp` left it).
 
@@ -28,10 +29,10 @@ In the order it checks:
 |---|---|
 | The declaration | `filters.xml` has an element, attribute value or url-pattern it does not know, a name twice, or an order rule naming an undeclared filter or giving no reason |
 | `MANIFEST` v2 | `MODULES` is a directory and its `MANIFEST` is missing or not v2, was staged for the other profile, names a jar that is missing or has another digest, or misses a jar that is there. The shell script's check, moved here unchanged, with its messages |
-| The descriptor | the stock war has no `WEB-INF/web.xml`, or it has a DOCTYPE, is not well-formed, or is not a `<web-app>` |
+| The descriptor | the stock war has no `WEB-INF/web.xml`, or it has a DOCTYPE, is not well-formed, is not a `<web-app>`, or its root is prefixed (`<j:web-app>`), so that unprefixed elements inserted into it would fall outside its namespace. Elements in another namespace are not counted as the descriptor's |
 | The namespace guard | the descriptor's namespace is neither Jakarta EE's (13.1.x) nor Java EE's (13.0.x), or a staged jar's class files reference the other one's `servlet` package |
 | `metadata-complete` | the root says `true` (or `1`): the container would scan no annotation, and the modules' `@WebServlet` servlets would never be mapped |
-| Mapped paths | a declared path is one no `<servlet-mapping>` in the stock descriptor serves - the default servlet (`/`) does not count - and no `<path-exception>` says why that is right |
+| Mapped paths | a declared path is one no `<servlet-mapping>` in the stock descriptor serves - the default servlet (`/`) does not count - and no `<path-exception>` says why that is right. See [what the mapped-path check cannot see](#what-the-mapped-path-check-cannot-see) |
 | Existing registrations | the stock descriptor already has a declared name, but not exactly as declared (another class, other paths, a second mapping, a servlet-name or dispatcher) |
 | Classes | a declared filter's or listener's class is in no jar the war will hold: PingFederate would fail the whole war at boot |
 | The result, read back | a declared name without exactly one `<filter>` and one `<filter-mapping>` with exactly its url-patterns; an `<order>` pair not holding in document order; a declared listener not registered exactly once |
@@ -40,6 +41,17 @@ It then prints each declared path's effective filter chain: the servlet that ser
 runs, PingFederate's own included, in the order the Servlet specification gives - url-pattern mappings in
 document order, then servlet-name mappings. Only what `web.xml` declares is shown; a filter a jar registers by
 annotation is not in it.
+
+## What the mapped-path check cannot see
+
+PingFederate 13.1.3's stock `web.xml` maps its protocol endpoints by extension (`*.oauth2`, `*.openid`, `*.ciba`),
+not by name, and every path `filters.xml` declares today is served that way. So for those paths the check proves
+only that the extension is still PingFederate's: a misspelt or moved endpoint with the same extension
+(`/as/introspekt.oauth2`) passes it, and its filter would silently never run. The check catches a changed
+extension and a path under no mapping at all. The assembler says which paths this applies to, on a line beginning
+`web.xml: served only by a wildcard <servlet-mapping>`, and U-0186 records the gap: only a request to each
+endpoint on a booted PingFederate (the conformance rig), or the endpoint inventory plan item D-3 builds, can tell a
+real endpoint from a misspelt one.
 
 ## How it edits `web.xml`
 

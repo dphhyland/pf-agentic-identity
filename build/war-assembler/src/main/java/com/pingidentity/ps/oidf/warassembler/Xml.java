@@ -4,6 +4,7 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import javax.xml.XMLConstants;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
@@ -51,11 +52,15 @@ final class Xml {
         }
     }
 
-    /** The child elements of {@code parent} with this local name, in document order. */
+    /**
+     * The child elements of {@code parent} with this local name, in the parent's own namespace, in document
+     * order. An element of the same name in another namespace is not the container's, so it is not counted.
+     */
     static List<Element> children(Element parent, String localName) {
         List<Element> out = new ArrayList<>();
         for (Node n = parent.getFirstChild(); n != null; n = n.getNextSibling()) {
-            if (n instanceof Element && localName.equals(localName(n))) {
+            if (n instanceof Element && localName.equals(localName(n))
+                    && Objects.equals(n.getNamespaceURI(), parent.getNamespaceURI())) {
                 out.add((Element) n);
             }
         }

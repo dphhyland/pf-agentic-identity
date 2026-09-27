@@ -72,22 +72,29 @@ final class Assembler {
         Path stock = Path.of(a.get(2));
         Path modules = Path.of(a.get(3));
         Path outWar = Path.of(a.get(5)).toAbsolutePath();
+        // OUT_WAR is deleted on every way out but success and the same-file refusal - an Error such as
+        // OutOfMemoryError included, which propagates after the finally has run.
+        boolean keep = false;
         try {
             if (Files.exists(outWar) && Files.isSameFile(stock, outWar)) {
+                keep = true;
                 err.println("ERROR: STOCK_WAR and OUT_WAR are the same file (" + outWar + "). Write the war somewhere"
                         + " else: a refusal deletes OUT_WAR, and that would be the stock war.");
                 return Refusal.USAGE;
             }
             assemble(filters, stock, modules, a.get(4), outWar, profile, out);
+            keep = true;
             return 0;
         } catch (Refusal r) {
             err.println(r.getMessage());
-            deleteQuietly(outWar);
             return r.exitCode();
         } catch (IOException | RuntimeException e) {
             err.println("ERROR: " + e);
-            deleteQuietly(outWar);
             return Refusal.REFUSED;
+        } finally {
+            if (!keep) {
+                deleteQuietly(outWar);
+            }
         }
     }
 

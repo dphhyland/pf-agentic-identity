@@ -42,8 +42,8 @@ a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp
 Filters - not annotated (an annotation would bind them to the module's own context, not PF's), so
 [`build/pingfederate/filters.xml`](../../build/pingfederate/filters.xml) declares them and the war assembler
 ([`build/war-assembler`](../../build/war-assembler/README.md), run by `assemble-pf-runtime-war.sh`) writes them into
-`pf-runtime.war`'s `web.xml`, refusing the war unless each is mapped once over exactly these paths, in the order
-below:
+`pf-runtime.war`'s `web.xml`, refusing the war unless each is mapped once over exactly these paths and the order
+rules `filters.xml` declares hold (the table's order is not the mapping order):
 
 | Filter name | Class | Over | Does |
 |---|---|---|---|

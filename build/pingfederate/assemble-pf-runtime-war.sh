@@ -47,6 +47,11 @@ if [[ $# -lt 4 || $# -gt 5 ]]; then
   exit 2
 fi
 OUT_WAR="$4"
+# Refused before anything can delete OUT_WAR: here it would be the stock war.
+if [[ -e "$OUT_WAR" && "$1" -ef "$OUT_WAR" ]]; then
+  echo "ERROR: STOCK_WAR and OUT_WAR are the same file ($OUT_WAR). Write the war somewhere else." >&2
+  exit 2
+fi
 HERE="$(cd "$(dirname "$0")" && pwd)"
 JAR="${WAR_ASSEMBLER_JAR:-$HERE/assembler/war-assembler.jar}"
 FILTERS="${WAR_FILTERS_XML:-$HERE/filters.xml}"
@@ -58,4 +63,11 @@ refuse() { echo "ERROR: $1" >&2; rm -f "$OUT_WAR"; exit 1; }
 [[ -f "$FILTERS" ]] || refuse "no filter declaration at $FILTERS (or set WAR_FILTERS_XML)."
 command -v "$JAVA" >/dev/null 2>&1 || refuse "no java to run the assembler ($JAVA): set JAVA_HOME or put Java 17 or later on the PATH."
 
-exec "$JAVA" -jar "$JAR" --filters "$FILTERS" "$@"
+# Not exec: a JVM that cannot run the jar (older than 17, or an Error the assembler did not catch) exits
+# non-zero without the assembler's own clean-up, so OUT_WAR is removed here on any exit but 0 and usage.
+rc=0
+"$JAVA" -jar "$JAR" --filters "$FILTERS" "$@" || rc=$?
+if [[ $rc -ne 0 && $rc -ne 2 ]]; then
+  rm -f "$OUT_WAR"
+fi
+exit "$rc"

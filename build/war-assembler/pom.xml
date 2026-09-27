@@ -117,9 +117,11 @@
                                         <include>com.pingidentity.ps.oidf.warassembler.Merge.merge(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.Merge.existing(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.Merge.unservedPaths(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.patternServedPaths(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.Merge.splice(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.Merge.verify(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.Merge.mappingProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.WebXml.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.WebXml.namespace(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.WebXml.metadataComplete(*</include>
                                         <include>com.pingidentity.ps.oidf.warassembler.UrlPatterns.matches(*</include>

@@ -39,6 +39,27 @@ class MergeTest {
     }
 
     @Test
+    void elementsInAnotherNamespaceAreNotTheDescriptors() throws Refusal {
+        WebXml w = WebXml.parse(bytes("<web-app " + NS + " xmlns:o=\"urn:other\">"
+                + "<o:filter><o:filter-name>T</o:filter-name><o:filter-class>x.T</o:filter-class></o:filter>"
+                + "<o:filter-mapping><o:filter-name>T</o:filter-name><o:url-pattern>/as/token.oauth2</o:url-pattern></o:filter-mapping>"
+                + "<o:listener><o:listener-class>x.L</o:listener-class></o:listener>" + SERVLETS + "</web-app>"), "w.xml");
+        assertEquals(List.of(), w.filtersNamed("T"));
+        assertEquals(List.of(), w.mappingsNamed("T"));
+        assertEquals(0, w.listenerCount("x.L"));
+        assertEquals(3, w.servletMappings.size());
+    }
+
+    @Test
+    void aPrefixedRootIsRefused() {
+        Refusal r = assertThrows(Refusal.class, () -> WebXml.parse(bytes("<j:web-app xmlns:j=\"" + WebXml.JAKARTA_EE
+                + "\"><j:servlet-mapping/></j:web-app>"), "w.xml"));
+        assertEquals("ERROR: w.xml has a prefixed root element <j:web-app>. The assembler inserts unprefixed elements,"
+                + " which would fall outside its namespace and be ignored by the container; write the descriptor with a"
+                + " default namespace.", r.getMessage());
+    }
+
+    @Test
     void anEndTagMidLineGetsTheBlockOnItsOwnLines() throws Refusal {
         String out = merged("<web-app " + NS + ">" + SERVLETS + "</web-app>", declaration(TOKEN));
         assertTrue(out.endsWith("</servlet-mapping>\n  <filter>\n    <filter-name>T</filter-name>\n"
@@ -70,7 +91,7 @@ class MergeTest {
         Merge.Result r = Merge.merge(in, WebXml.parse(in, "w.xml"), declaration(TOKEN + "<listener class=\"x.L\"/>"), "w.xml");
         assertArrayEquals(in, r.bytes());
         assertEquals(List.of("web.xml: T already registered as declared - leaving as is",
-                "web.xml: the listener x.L already registered - leaving as is"), r.notes());
+                "web.xml: the listener x.L already registered - leaving as is"), r.notes().subList(1, 3));
     }
 
     @Test
@@ -127,6 +148,29 @@ class MergeTest {
         assertEquals(List.of("X over /nowhere", "X over /other/*"), Merge.unservedPaths(web(SERVLETS), d));
         assertEquals(List.of("X over /nowhere", "X over /static/a", "X over /static/*", "X over /other/*", "X over *.oauth2"),
                 Merge.unservedPaths(web(""), d));
+    }
+
+    @Test
+    void aMisspeltEndpointUnderAnExtensionMappingPassesAndIsSaidToBeUnchecked() throws Refusal {
+        // PingFederate maps its protocol endpoints by extension, so the stock descriptor vouches for *.oauth2
+        // and not for the name before it: a typo passes the served check, and merge says so (U-0186).
+        Declaration d = declaration("<filter name=\"X\" class=\"x.X\"><url-pattern>/as/introspekt.oauth2</url-pattern>"
+                + "<url-pattern>/static/a</url-pattern><url-pattern>/exact</url-pattern><url-pattern>/static/*</url-pattern>"
+                + "<url-pattern>/federation/fetch</url-pattern></filter>"
+                + "<filter name=\"Y\" class=\"x.Y\"><url-pattern>/as/introspekt.oauth2</url-pattern></filter>"
+                + "<path-exception path=\"/federation/fetch\" reason=\"an @WebServlet in the modules serves it\"/>");
+        String servlets = SERVLETS + "<servlet-mapping><servlet-name>e</servlet-name><url-pattern>/exact</url-pattern></servlet-mapping>";
+        assertEquals(List.of(), Merge.unservedPaths(web(servlets), d));
+        assertEquals(List.of("/as/introspekt.oauth2 (p via *.oauth2)", "/static/a (s via /static/*)"),
+                Merge.patternServedPaths(web(servlets), d));
+        List<String> notes = Merge.merge(bytes("<web-app " + NS + ">" + servlets + "</web-app>"), web(servlets), d, "w.xml").notes();
+        assertEquals("web.xml: served only by a wildcard <servlet-mapping>, so w.xml vouches for the pattern and not the"
+                + " endpoint name - a misspelt or moved endpoint under it is not caught here:"
+                + " /as/introspekt.oauth2 (p via *.oauth2); /static/a (s via /static/*)", notes.get(0));
+        Declaration exact = declaration("<filter name=\"X\" class=\"x.X\"><url-pattern>/exact</url-pattern></filter>");
+        assertEquals(List.of(), Merge.patternServedPaths(web(servlets), exact));
+        assertEquals(List.of("web.xml: registered X over /exact"), Merge.merge(bytes("<web-app " + NS + ">" + servlets
+                + "</web-app>"), web(servlets), exact, "w.xml").notes(), "an exact mapping needs no such note");
     }
 
     @Test

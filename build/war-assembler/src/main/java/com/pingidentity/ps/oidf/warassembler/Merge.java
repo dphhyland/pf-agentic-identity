@@ -43,6 +43,12 @@ final class Merge {
                     + " reason it is right.");
         }
         List<String> notes = new ArrayList<>();
+        List<String> byPattern = patternServedPaths(stock, declaration);
+        if (!byPattern.isEmpty()) {
+            notes.add("web.xml: served only by a wildcard <servlet-mapping>, so " + what + " vouches for the pattern and"
+                    + " not the endpoint name - a misspelt or moved endpoint under it is not caught here: "
+                    + String.join("; ", byPattern));
+        }
         List<Declaration.Filter> filters = new ArrayList<>();
         for (Declaration.Filter f : declaration.filters) {
             if (existing(stock, f, what)) {
@@ -107,6 +113,28 @@ final class Merge {
                 }
                 if (!served) {
                     out.add(f.name() + " over " + p);
+                }
+            }
+        }
+        return out;
+    }
+
+    /**
+     * "/p (servlet via pattern)" for each declared exact path the stock descriptor serves only through a path
+     * prefix or an extension mapping. PingFederate 13.1.3 maps its protocol endpoints by extension ({@code
+     * *.oauth2}, {@code *.openid}, {@code *.ciba}), so for every path filters.xml declares today the stock
+     * descriptor can say that the extension is PingFederate's, and nothing about the name before it. The
+     * assembler says so rather than let "served" read as more than it is (U-0186).
+     */
+    static List<String> patternServedPaths(WebXml stock, Declaration declaration) {
+        List<String> out = new ArrayList<>();
+        for (Declaration.Filter f : declaration.filters) {
+            for (String p : f.urlPatterns()) {
+                WebXml.ServletMapping m = p.indexOf('*') < 0 && !declaration.isException(p)
+                        ? UrlPatterns.servletFor(stock.servletMappings, p) : null;
+                String line = m == null ? null : p + " (" + m.servletName() + " via " + m.urlPattern() + ")";
+                if (m != null && m.urlPattern().indexOf('*') >= 0 && !out.contains(line)) {
+                    out.add(line);
                 }
             }
         }

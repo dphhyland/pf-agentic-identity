@@ -93,7 +93,7 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # assembler/, run here on the base image's own Java 21 (JAVA_HOME=/opt/java). modules/ holds the reactor's jars
 # (modules/MANIFEST names every one; under the conformance profile the CIBA simulator too), staged for one
 # profile, and the assembler checks them against the MANIFEST - digests, and the profile against
-# STAGING_PROFILE. bash is for the wrapper; the base image has unzip itself. (No pf-rar-paz-plugin — agentic.)
+# STAGING_PROFILE. bash is for the wrapper; the base image has unzip itself. (No pf-rar-paz-plugin - agentic.)
 COPY assemble-pf-runtime-war.sh filters.xml assembler/war-assembler.jar /tmp/assembler/
 COPY modules/ /tmp/modules/
 RUN mkdir -p /opt/in/instance/server/default/deploy \

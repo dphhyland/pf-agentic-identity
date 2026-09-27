@@ -1,0 +1,23 @@
+id: U-0186
+title: Whether each path filters.xml declares is a real PingFederate endpoint, which the stock web.xml cannot say
+area: build
+source: design
+status: open
+plan_items: [R-I5, D-3]
+prs: []
+recorded_in: docs/releases/unreleased/RI5.md, Notes
+verify_by: >
+  For each exact path in build/pingfederate/filters.xml, show that PingFederate serves it: a request to it on the
+  conformance rig (conformance/up.sh) that reaches the endpoint rather than PingFederate's not-found page, or the
+  endpoint inventory plan item D-3 generates, checked against filters.xml. Then a misspelt path
+  (/as/introspekt.oauth2 for /as/introspect.oauth2) in a scratch copy of filters.xml must fail that check.
+verification: ''
+notes: >
+  The war assembler refuses a declared path no servlet-mapping in the stock web.xml serves, but 13.1.3's stock
+  web.xml maps its protocol endpoints by extension (*.oauth2, *.openid, *.ciba), and every path filters.xml
+  declares is served only that way. So the check proves the extension is PingFederate's and nothing about the name:
+  checked 2026-09-28 by the adversarial review, a filters.xml with Fapi2Profile over /as/introspekt.oauth2 and
+  SsfLogoutSignal over /idp/moved/logout.openid assembled against the real 13.1.3 stock war with exit 0, and the
+  filter would never run there. The assembler now prints the paths this applies to (a line beginning "web.xml:
+  served only by a wildcard <servlet-mapping>"), and build/war-assembler/README.md says what the check cannot see.
+  An endpoint moved by a PingFederate upgrade is the case that matters most, since nobody edits filters.xml then.

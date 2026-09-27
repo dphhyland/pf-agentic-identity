@@ -56,6 +56,11 @@ final class WebXml {
             throw new Refusal("ERROR: " + what + " is not a deployment descriptor: its root element is <"
                     + doc.getDocumentElement().getTagName() + ">, not <web-app>.");
         }
+        if (doc.getDocumentElement().getPrefix() != null) {
+            throw new Refusal("ERROR: " + what + " has a prefixed root element <" + doc.getDocumentElement().getTagName()
+                    + ">. The assembler inserts unprefixed elements, which would fall outside its namespace and be"
+                    + " ignored by the container; write the descriptor with a default namespace.");
+        }
         return new WebXml(doc);
     }
 
