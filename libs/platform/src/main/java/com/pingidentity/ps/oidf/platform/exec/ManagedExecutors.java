@@ -12,6 +12,7 @@ import com.pingidentity.ps.oidf.platform.metrics.Timer;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -69,6 +70,7 @@ public final class ManagedExecutors {
     public static Optional<ManagedExecutor> every(String name, Duration initialDelay, Duration interval, Runnable task) {
         ManagedExecutor.nonNegativeNanos(initialDelay, "initialDelay");
         ManagedExecutor.positiveNanos(interval, "interval");
+        Objects.requireNonNull(task, "task");
         Optional<ManagedExecutor> executor = REGISTRY.create(name);
         executor.ifPresent(e -> e.every(initialDelay, interval, task));
         return executor;
@@ -77,6 +79,7 @@ public final class ManagedExecutors {
     /** Runs {@code task} once, after {@code delay}, on an executor of its own. */
     public static Optional<ManagedExecutor> after(String name, Duration delay, Runnable task) {
         ManagedExecutor.nonNegativeNanos(delay, "delay");
+        Objects.requireNonNull(task, "task");
         Optional<ManagedExecutor> executor = REGISTRY.create(name);
         executor.ifPresent(e -> e.after(delay, task));
         return executor;

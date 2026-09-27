@@ -96,6 +96,8 @@ class ManagedExecutorsTest {
         assertThrows(IllegalArgumentException.class,
                 () -> ManagedExecutors.every("facade-bad", Duration.ofSeconds(-1), Duration.ofSeconds(1), () -> { }));
         assertThrows(IllegalArgumentException.class, () -> ManagedExecutors.after("facade-bad", Duration.ofSeconds(-1), () -> { }));
+        assertThrows(NullPointerException.class, () -> ManagedExecutors.every("facade-bad", Duration.ofSeconds(1), null));
+        assertThrows(NullPointerException.class, () -> ManagedExecutors.after("facade-bad", Duration.ZERO, null));
         assertNull(System.getProperty(ExecutorRegistry.OWNER_PREFIX + "facade-bad"));
         assertEquals(Optional.empty(), ManagedExecutors.live("facade-bad"));
     }
