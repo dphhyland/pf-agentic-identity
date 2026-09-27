@@ -52,8 +52,10 @@ What changed:
   earlier, printed Xcode 26.6 and Swift 6.3.3. Running Swift only when clients/ios changes would leave every
   other pull request without a category main has, which github/codeql discussion 18506 says code scanning
   reports as "Code scanning cannot determine the alerts introduced by this pull request, because 1
-  configuration present on refs/heads/main was not found"; GitHub's own documents do not describe the case. So
-  codeql.yml says why Swift is not analysed, and U-0130 records the question and the options.
+  configuration present on refs/heads/main was not found"; GitHub's own documents do not describe the case.
+  This pull request's own CodeQL check showed that warning, as a neutral result, while two of its analyses were
+  still running (2026-09-27). So codeql.yml says why Swift is not analysed, and U-0130 records the question and
+  the options.
 - **The register.** F-0014 is closed with the staging, assembler and gate evidence below. F-0066 is closed: no
   statement describes the 13.0.3 build except the history PR #13 kept. F-0120 (every release publishes the
   simulator to GitHub Packages), F-0121 (documentation later changes made false, left for the packages that own

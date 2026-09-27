@@ -27,4 +27,10 @@ notes: >
   the iOS workflow's run 36307528301, on the same image version half an hour earlier, printed Xcode 26.6 and
   Swift 6.3.3, inside CodeQL's supported "Swift 5.4-6.3". But the analysis took 13 min 35 s, 11 min 37 s of it
   the traced build, against about 5 min for Java, on every pull request. So codeql.yml leaves Swift out for
-  now, and this records the question.
+  now, and this records the question. Seen first-hand on 2026-09-27: on PR #33 at 118a2ab, while its
+  java-kotlin and javascript-typescript analyses were still running, the CodeQL check (check run 108603691195)
+  completed as neutral, titled "2 configurations not found", with the summary "Code scanning cannot determine
+  the alerts introduced by this pull request, because 2 configurations present on `refs/heads/main` were not
+  found". It read "1 configuration not found" after the first upload, and "No new alerts in code changed by
+  this pull request" (success) after the second. That matches discussion 18506, but it was seen only while
+  analyses were pending, not for a category a pull request never uploads.

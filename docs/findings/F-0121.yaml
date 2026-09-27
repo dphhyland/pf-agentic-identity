@@ -23,4 +23,5 @@ notes: |
     describe device-enrolment's direct compliance endpoint, which PR #28 removed; nothing calls
     CaepEventHandler any more, and X-A18 retires it.
   - CONTRIBUTING.md's generated-files paragraph still says the move out of git is a concurrent pull request
-    "until it merges"; PR #15 merged on 2026-09-27.
+    "until it merges"; PR #15 merged on 2026-09-27. Its local-build section puts CI's Postgres service
+    container in Phase 2 (R-CI5), where build.yml's java job has run one since PR #15, and PR #33 adds Redis.
