@@ -107,6 +107,76 @@ and shows it logs and never loads that class.
 ## Future owners' sections
 
 <!-- settings (ST-1, ST-2): add this package's section below this line -->
+
+## settings
+
+How a setting is read (plan items ST-1 and ST-2). The catalogue format is in
+[docs/development/settings-catalogue.md](../../docs/development/settings-catalogue.md).
+
+- `Parsers` holds the strict parsers, moved out of `FederationRuntimeConfig` with their messages:
+  `strictBoolean` and `bool` (`true` or `false` in any case, nothing else), `wholeNumber` and `inRange`,
+  `choice`, `words`, `jsonObject`, `httpsUrl` and `httpOrHttpsUrl`, `path`, `strictly` (a parse's
+  `IllegalArgumentException` refused naming the setting), `aliased` (a superseded name: warned, or refused when
+  it disagrees) and `blankToNull`. A refusal is a `SettingRefused`, an `IllegalStateException` naming the
+  setting (`setting()`) and the value refused. `jsonObject` reads with `platform.json`, not Jackson: the
+  differences are listed in `FederationRuntimeConfigTest` and the ST12 release note.
+- `Catalogue` loads `META-INF/oidf-settings/<component>.json` from the caller's classloader and checks it
+  strictly: an unknown member, a missing one, a default its type refuses, a name declared twice, a removed name
+  whose replacement is not in the catalogue are each refused, naming the file, the entry and the member. The
+  same file found more than once is accepted when the copies are identical - PingFederate stages each jar in
+  `pf-runtime.war` and in `server/default/deploy`, and the webapp's loader returns both - and refused when they
+  differ. `refuseRemoved(sources)` refuses any removed name that is set.
+- `Setting` is one entry: name, kind, type, default, range or choices, description, when it's wrong, profile
+  class, security flag, sources in precedence order, aliases, and whether a secret may come from a `_FILE`
+  variant. Its resolution rule - sources, `_FILE`, aliases, default - is on `Setting.resolve` and in the
+  format page.
+- `Settings.of("<component>")` reads a catalogue through typed accessors (`bool`, `integer`, `longValue`,
+  `duration`, `string`, `choice`, `httpsUrl`, `url`, `jsonObject`, `words`, `path`, `secret`), each checking the
+  entry's type, so a reader converted to it keeps its meaning; `resolve` also returns the provenance, the
+  source and name that supplied the value. `Sources` is the environment, the system properties and the
+  init-params (platform-pf's `InitParams` supplies those). Every read first refuses any of the catalogue's
+  removed names that is set, whichever setting it is for. A warning is logged once per loaded copy.
+- `UnknownKeys.find(environment, catalogues)` lists the `OIDF_*` names set under a catalogue's family that no
+  catalogue declares. A mechanism only: nothing calls it at run time and nothing is refused for it until the
+  start-up audit (PR-5) and the reader conversion (ST-5) wire it in, in Phase 3.
+
+Nothing reads through `Settings` yet. `FederationRuntimeConfig` calls `Parsers` and is otherwise unchanged;
+ST3A, ST3B and ST3C write the production catalogues, and ST-5 converts the readers.
+
+### Lenient reads: ST-5's worklist
+
+Every read found on 2026-09-28 (origin/main `276bcd6`) that takes a wrong value as something else rather than
+refusing it. A boolean read with `Boolean.parseBoolean`, or compared with `"true"`, reads a typo as `false`; a
+number whose parse failure falls back reads a typo as the default. Found by searching main code for
+`Boolean.parseBoolean`, `Boolean.valueOf`, `"true".equalsIgnoreCase` and `catch (NumberFormatException`, then
+reading each hit; reads that refuse are left out.
+
+| Module | Where | Setting | What a wrong value does |
+|---|---|---|---|
+| servlets/pf-integration | `FederationRuntimeConfig.from` | `OIDF_FEDERATION_IGNORE_SSL_ERRORS` (and `oidf.federation.ignore.ssl.errors`, and the superseded `OIDF_TRUST_CONTROLLER_IGNORE_SSL`, `oidf.trust.controller.ignore.ssl`) | read as `false` |
+| servlets/pf-integration | `FederationRuntimeConfig.pdpSettings` | `OIDF_FETCH_ALLOW_HTTP` (environment only, for the PDP URL check) | read as `false` |
+| servlets/pf-integration | `RegisteredClientsServlet.init` | `OIDF_REGISTERED_CLIENTS_ENABLED` (init-param `registeredClientsEnabled`, `oidf.registered.clients.enabled`) | read as `false` |
+| servlets/pf-integration | `ClientAttestationAuthFilter.requireHostedAgentSetting` | `OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT` (and its system property) | read as `false` |
+| servlets/pf-integration | `ClientAttestationUtils.boolProp` | extended property `attestation_challenge_required` | read as `false` |
+| servlets/pf-integration | `ClientAttestationUtils.longProp` | extended properties `attestation_pop_max_age`, `attestation_dpop_max_age`, `attestation_clock_skew`, `trust_chain_request_max_age` | warned and ignored |
+| servlets/pf-integration | `OIDFederationUtils.longSetting` | extended properties `trust_chain_leaf_max_time`, `trust_chain_trustanchor_max_time`, `trust_chain_request_max_age` | warned, default for that request |
+| servlets/pf-integration | `PfAuditEventSink` | `OIDF_EVENTS_MAX_VALUE_LENGTH` | warned, the current length kept |
+| libs/oidf-jose | `OutboundUrlPolicy.from` | `OIDF_FETCH_ALLOW_HTTP`, `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS` | read as `false` |
+| libs/oidf-jose | `OutboundUrlPolicy.parseLong` | `OIDF_FETCH_MAX_BODY_BYTES` | not a number, or not above 0: the default |
+| libs/openid-federation | `FederationConfiguration` | `OIDF_FEDERATION_IGNORE_SSL_ERRORS` (init-param `ignoreSslErrors`); init-param `corsEnabled` | read as `false` |
+| libs/openid-federation | `AttestationMetadataConfig` | init-param `attestationChallengeEndpointEnabled` | read as `false` |
+| libs/client-attestation | `ClientAttestationChallengeServlet.init` | init-param `replayCacheMaxEntries` | warned and ignored |
+| libs/client-attestation | `ChallengeEndpointServlet.init` | init-params `challengeCacheMaxEntries`, `challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` | warned and ignored: the default |
+| servlets/ssf | `SsfConfiguration.parseBoolean` | `kafkaEnabled`, `introspectionInsecureTls`, `verificationEventEnabled`, `receiverInsecureTls`, `receiverActionsEnabled`, `receiverInstanceRegistry`, `auditEventsEnabled` (each init-param, `oidf.ssf.<name>`, `OIDF_SSF_<NAME>`) | read as `false` |
+| servlets/ssf | `LogoutEventFilter.allowSubParameter` | `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` (and its system property) | read as `false` |
+| servlets/attestation-issuer | `AttesterConfigurationServlet`, `AttestationIssuanceServlet`, `ClientAttestationServiceMetadataServlet` | init-param `challengeRequired`; init-param `challengeEndpointEnabled` | read as `false` |
+| services/device-enrolment | `Main` | `REQUIRE_COMPLIANT_DEVICE`, `APPLE_ALLOW_DEVELOPMENT`, `ALLOW_SELF_ASSERTED_KEYS`, `PF_AUTHORITY_INSECURE_TLS`, `APPLE_MACOS_REQUIRE_KEY_POLICY`, `APPLE_REQUIRE_RENEWAL_ASSERTION` | read as `false` |
+| plugins/ciba-sim | `SimulatorGate.enabled` | `OIDF_CIBA_SIM_ENABLED` | anything but `true` is off: safe, but a typo is silent |
+| plugins/rar-paz-plugin | `AttestationAwareRarProcessor.parseInt` | plugin field "Request timeout (ms)" | the default, silently |
+| plugins/instance-registry-datasource | `InstanceRegistryDataSource.configure` | plugin field "User verification max age (seconds)" | warned, the default |
+
+Not shipped, so not on the list: `services/harness` (`OIDF_HARNESS_INSECURE_TLS`, `OIDF_NO_CHALLENGE`) and
+`libs/testkit` (`CI`).
 <!-- profile (PR-1): add this package's section below this line -->
 <!-- tls (PR-1): add this package's section below this line -->
 <!-- events (O-1): add this package's section below this line -->

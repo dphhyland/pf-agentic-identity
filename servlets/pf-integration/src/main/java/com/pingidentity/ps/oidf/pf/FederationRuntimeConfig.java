@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.pf;
 
+import static com.pingidentity.ps.oidf.platform.settings.Parsers.blankToNull;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -11,6 +13,7 @@ import com.pingidentity.ps.oidf.federation.MetadataPolicy;
 import com.pingidentity.ps.oidf.federation.TrustAnchor;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.TrustMarkPolicy;
+import com.pingidentity.ps.oidf.platform.settings.Parsers;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkClaims;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkType;
 import org.apache.commons.logging.Log;
@@ -31,7 +34,9 @@ import org.apache.commons.logging.LogFactory;
  * by initialisation order.
  *
  * <p>Resolution is system property first, then environment variable — the same precedence the rest of
- * the codebase uses, so a JVM flag can override a container variable without a redeploy.
+ * the codebase uses, so a JVM flag can override a container variable without a redeploy. The values are read
+ * by the strict parsers of {@code platform.settings} ({@link Parsers}), which moved there from this class
+ * with their messages (plan item ST-1).
  */
 public final class FederationRuntimeConfig {
     private static final Log LOGGER = LogFactory.getLog(FederationRuntimeConfig.class);
@@ -519,13 +524,13 @@ public final class FederationRuntimeConfig {
                 // Default TRUE: an absent bridge key makes attestation authentication a no-op, which
                 // is exactly the failure that should be loud rather than silent. Strict, like the three below:
                 // each guards something, and a typo must stop the deployment rather than quietly switch it off.
-                requireBridge == null || requireBridge.isBlank() || strictBoolean(requireBridge, REQUIRE_BRIDGE_KEY_ENV),
+                requireBridge == null || requireBridge.isBlank() || strictBoolean(REQUIRE_BRIDGE_KEY_ENV, requireBridge),
                 // Default TRUE for the same reason: a chain with no metadata_policy constrains nothing,
                 // so the leaf's self-published scope and grant_types are simply granted. Silently.
-                requirePolicy == null || requirePolicy.isBlank() || strictBoolean(requirePolicy, REQUIRE_METADATA_POLICY_ENV),
+                requirePolicy == null || requirePolicy.isBlank() || strictBoolean(REQUIRE_METADATA_POLICY_ENV, requirePolicy),
                 // Default TRUE: a client anyone trusted may vouch for is a client anyone trusted may
                 // impersonate at the bridge.
-                requireBinding == null || requireBinding.isBlank() || strictBoolean(requireBinding, REQUIRE_ATTESTER_BINDING_ENV),
+                requireBinding == null || requireBinding.isBlank() || strictBoolean(REQUIRE_ATTESTER_BINDING_ENV, requireBinding),
                 deprecations,
                 registrationSettings(env, props),
                 autoRegistrationSettings(env, props),
@@ -617,38 +622,12 @@ public final class FederationRuntimeConfig {
 
     /** The system property for an {@code OIDF_...} variable: lower case, underscores as dots. */
     private static String prop(String var) {
-        return var.toLowerCase(java.util.Locale.ROOT).replace('_', '.');
+        return Parsers.systemPropertyName(var);
     }
 
     /** One of {@code allowed}, any case; unset is {@code fallback}; anything else stops the deployment starting. */
     private static String choice(Function<String, String> env, Function<String, String> props, String var, String fallback, String... allowed) {
-        String value = blankToNull(setting(env, props, prop(var), var));
-        if (value == null) {
-            return fallback;
-        }
-        for (String option : allowed) {
-            if (option.equalsIgnoreCase(value)) {
-                return option;
-            }
-        }
-        throw new IllegalStateException(var + " must be one of " + String.join(", ", allowed) + ", not " + value);
-    }
-
-    /** Space- or comma-separated words; unset is null, "no list", and a list of nothing is refused as a likely slip. */
-    private static java.util.Set<String> words(String var, String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        java.util.Set<String> words = new java.util.LinkedHashSet<>();
-        for (String word : value.split("[\\s,]+")) {
-            if (!word.isEmpty()) {
-                words.add(word);
-            }
-        }
-        if (words.isEmpty()) {
-            throw new IllegalStateException(var + " lists nothing; leave it unset instead");
-        }
-        return words;
+        return Parsers.choice(var, setting(env, props, prop(var), var), fallback, allowed);
     }
 
     private static java.util.Set<com.pingidentity.ps.oidf.federation.policy.DecisionPoint> decisionPoints(String value,
@@ -669,17 +648,14 @@ public final class FederationRuntimeConfig {
         return points;
     }
 
-    /** A JSON object, or null when blank. */
+    /** Space- or comma-separated words ({@link Parsers#words}); unset is null, and a list of nothing is refused. */
+    private static java.util.Set<String> words(String var, String value) {
+        return Parsers.words(var, value);
+    }
+
+    /** A JSON object, or null when unset ({@link Parsers#jsonObject}: platform.json, which replaced Jackson here). */
     private static Map<String, Object> jsonObject(String json) {
-        if (json == null || json.isBlank()) {
-            return null;
-        }
-        try {
-            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(json,
-                    new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() {});
-        } catch (Exception e) {
-            throw new IllegalArgumentException("not a JSON object");
-        }
+        return Parsers.jsonObject(json);
     }
 
     /** One {@code metadata_policy} per Entity Type, each one a policy {@link MetadataPolicy} can apply. */
@@ -707,13 +683,9 @@ public final class FederationRuntimeConfig {
         return constraints == null ? null : Map.copyOf(constraints);
     }
 
-    /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting. */
+    /** A setting parsed by {@code parse}; one it refuses stops the deployment, naming the setting ({@link Parsers#strictly}). */
     private static <T> T strictly(String var, java.util.function.Supplier<T> parse) {
-        try {
-            return parse.get();
-        } catch (IllegalArgumentException e) {
-            throw new IllegalStateException(var + ": " + e.getMessage());
-        }
+        return Parsers.strictly(var, parse);
     }
 
     private static TrustMarkPolicy requiredTrustMarks(Function<String, String> env, Function<String, String> props) {
@@ -746,8 +718,7 @@ public final class FederationRuntimeConfig {
     }
 
     private static boolean bool(Function<String, String> env, Function<String, String> props, String prop, String var, boolean fallback) {
-        String value = blankToNull(setting(env, props, prop, var));
-        return value == null ? fallback : strictBoolean(value, var);
+        return Parsers.bool(var, setting(env, props, prop, var), fallback);
     }
 
     private static RegistrationSettings registrationSettings(Function<String, String> env, Function<String, String> props) {
@@ -766,30 +737,17 @@ public final class FederationRuntimeConfig {
                 seconds(env, props, REGISTRATION_REFRESH_BEFORE_EXPIRY_PROP, REGISTRATION_REFRESH_BEFORE_EXPIRY_ENV, d.refreshBeforeExpirySeconds()),
                 parsed,
                 seconds(env, props, REGISTRATION_SWEEP_INTERVAL_PROP, REGISTRATION_SWEEP_INTERVAL_ENV, d.sweepIntervalSeconds()),
-                failClosed == null || strictBoolean(failClosed, AUTO_REGISTRATION_FAIL_CLOSED_ENV));
+                failClosed == null || strictBoolean(AUTO_REGISTRATION_FAIL_CLOSED_ENV, failClosed));
     }
 
-    /** {@code true} or {@code false}, any case; anything else is refused rather than read as {@code false}. */
-    private static boolean strictBoolean(String value, String var) {
-        if ("true".equalsIgnoreCase(value.trim())) {
-            return true;
-        }
-        if ("false".equalsIgnoreCase(value.trim())) {
-            return false;
-        }
-        throw new IllegalStateException(var + " must be true or false, not " + value);
+    /** {@code true} or {@code false}, any case; anything else is refused rather than read as {@code false} ({@link Parsers#strictBoolean}). */
+    private static boolean strictBoolean(String var, String value) {
+        return Parsers.strictBoolean(var, value);
     }
 
+    /** A whole number, of seconds or of whatever unit {@code var} names; no range is checked here. */
     private static long seconds(Function<String, String> env, Function<String, String> props, String prop, String var, long fallback) {
-        String value = blankToNull(setting(env, props, prop, var));
-        if (value == null) {
-            return fallback;
-        }
-        try {
-            return Long.parseLong(value);
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException(var + " must be a whole number, not " + value);
-        }
+        return Parsers.wholeNumber(var, setting(env, props, prop, var), fallback);
     }
 
     /**
@@ -798,25 +756,8 @@ public final class FederationRuntimeConfig {
      */
     private static String aliased(Function<String, String> env, Function<String, String> props, String prop, String var,
             String oldProp, String oldVar, List<String> deprecations) {
-        String current = blankToNull(setting(env, props, prop, var));
-        String old = blankToNull(setting(env, props, oldProp, oldVar));
-        if (old == null) {
-            return current;
-        }
-        if (current == null) {
-            deprecations.add(oldVar + " is deprecated; set " + var + " instead (the value was taken from " + oldVar + ")");
-            return old;
-        }
-        if (!current.equals(old)) {
-            throw new IllegalStateException(var + " and its superseded name " + oldVar + " are both set, to different values."
-                    + " They name one thing - set only " + var);
-        }
-        deprecations.add(oldVar + " is deprecated and redundant beside " + var + "; remove it");
-        return current;
-    }
-
-    private static String blankToNull(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
+        return Parsers.aliased(var, setting(env, props, prop, var), oldVar,
+                setting(env, props, oldProp, oldVar), deprecations);
     }
 
     private static String setting(Function<String, String> env, Function<String, String> props, String prop, String var) {

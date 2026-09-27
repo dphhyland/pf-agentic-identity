@@ -40,6 +40,16 @@ criteria answer `false` (S9b, Phase 3) is where it gets its first callers.
 ## Future owners' sections
 
 <!-- settings (ST-1, ST-2): add this package's section below this line -->
+
+## settings
+
+`InitParams` makes a servlet's or filter's init-params the `init-param` source of
+[platform's settings](../platform/README.md#settings): `InitParams.of(config)` is the lookup, and
+`InitParams.sources(config)` is this process's environment and system properties with it, so a servlet reads
+its catalogued settings as `Settings.of("<component>").with(InitParams.sources(config))`, in the precedence its
+catalogue gives. A null config has no init-params. Nothing calls it yet: the readers move onto `Settings` in
+ST-5 (Phase 3). The extended properties and plugin fields PingFederate supplies are parsed, not resolved
+(`Settings.parse`), so they need no source here.
 <!-- audit (O-1): add this package's section below this line -->
 <!-- health (O-4): add this package's section below this line -->
 <!-- lifecycle (F-2): add this package's section below this line -->
