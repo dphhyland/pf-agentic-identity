@@ -17,7 +17,8 @@ import java.util.Set;
 /**
  * The AuthZEN dialect of {@link PdpClient}. POSTs the {@link AuthZenRequestBuilder} evaluation body to
  * the configured PDP URL (point it at the PDP's {@code /access/v1/evaluation}) with the same optional
- * shared-secret header as the governance-engine dialect, and maps the response:
+ * shared-secret header as the governance-engine dialect, reads the status the way {@link PdpResponses}
+ * says, and maps the response:
  *
  * <ul>
  *   <li>{@code decision} (boolean, required) → PERMIT / DENY.</li>
@@ -63,16 +64,19 @@ public final class AuthZenPdpClient implements PdpClient {
             headers.put(config.getSecretHeader(), config.getSecret());
         }
         HttpTransport.Response response = transport.post(config.getPdpUrl(), body, headers);
-        if (response.status() < 200 || response.status() >= 300) {
-            throw new IOException("AuthZEN PDP returned HTTP " + response.status() + ": " + response.body());
-        }
-        return parse(response.body());
+        return parse(PdpResponses.bodyOf(response, "AuthZEN PDP"));
     }
 
+    /** A body that is not JSON, or JSON without a boolean {@code decision}, is refused: a PDP that answered, not one that permitted. */
     private DecisionResponse parse(String body) throws IOException {
-        JsonNode root = mapper.readTree(body == null ? "{}" : body);
-        if (!root.path("decision").isBoolean()) {
-            throw new IOException("AuthZEN response has no boolean 'decision': " + body);
+        JsonNode root;
+        try {
+            root = mapper.readTree(body == null || body.isBlank() ? "{}" : body);
+        } catch (IOException e) {
+            throw new IOException("AuthZEN response is not JSON: " + PdpResponses.excerpt(body), e);
+        }
+        if (root == null || !root.path("decision").isBoolean()) {
+            throw new IOException("AuthZEN response has no boolean 'decision': " + PdpResponses.excerpt(body));
         }
         boolean permit = root.get("decision").asBoolean();
 

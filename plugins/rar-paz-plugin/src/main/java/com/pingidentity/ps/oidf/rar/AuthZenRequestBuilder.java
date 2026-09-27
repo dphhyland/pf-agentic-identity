@@ -13,9 +13,10 @@ import java.util.Map;
  *   "action":   { "name": "&lt;configured action&gt;" },
  *   "resource": { "type": "&lt;detail type&gt;", "id": "&lt;detail identifier | type&gt;",
  *                 "properties": { …the requested detail, minus "type"… } },
- *   "context":  { "client_id": "…",
- *                 "actor": { "type": "agent", "id": "&lt;agent_id&gt;" },   // when minted and ≠ subject
- *                 "attestation": { "entitlement": […], "workload": {…}, "cnf_thumbprint": "…" } } }
+ *   "context":  { "principal_source": "authenticated | client | …",
+ *                 "client_id": "…",
+ *                 "actor": { "type": "agent", "id": "&lt;agent_id&gt;", "iss": "&lt;attester iss&gt;" },   // when minted and ≠ subject
+ *                 "attestation": { "entitlement": […], "workload": {…}, "cnf_thumbprint": "…", "iss": "…" } } }
  * </pre>
  *
  * <p>The subject is the <b>principal</b> the decision is about — the authenticated resource owner
@@ -30,7 +31,9 @@ import java.util.Map;
  *
  * <p>Unlike the governance-engine dialect (whose Trust Framework wants JSON-stringified attribute
  * values), AuthZEN carries structured JSON natively — detail fields, entitlement, and workload go in
- * as-is.
+ * as-is. The requested fields live under {@code resource.properties} and nowhere else, so nothing a caller
+ * puts in a detail can reach {@code subject} or {@code context}; there are no reserved names to refuse in
+ * this dialect.
  */
 public final class AuthZenRequestBuilder {
 
@@ -103,6 +106,10 @@ public final class AuthZenRequestBuilder {
             Map<String, Object> actor = new LinkedHashMap<>();
             actor.put("type", "agent");
             actor.put("id", agentId);
+            // The attester that minted the id: an agent_id is unique only within its issuing authority.
+            if (subj.getAttesterIssuer() != null) {
+                actor.put("iss", subj.getAttesterIssuer());
+            }
             context.put("actor", actor);
         }
         Map<String, Object> attestation = new LinkedHashMap<>();
@@ -114,6 +121,9 @@ public final class AuthZenRequestBuilder {
         }
         if (subj.getCnfThumbprint() != null) {
             attestation.put("cnf_thumbprint", subj.getCnfThumbprint());
+        }
+        if (subj.getAttesterIssuer() != null) {
+            attestation.put("iss", subj.getAttesterIssuer());
         }
         if (!attestation.isEmpty()) {
             context.put("attestation", attestation);

@@ -114,11 +114,18 @@
                 one-argument getBooleanFieldValue read a missing "Deny unless PERMIT" as off. versionOf is
                 what PF shows as the plugin's version.
 
+                The 0.4.0 decisions (S2a, S2b): enrich itself, which fails open on PdpUnavailableException
+                alone and closed on everything else; flowOf and PrincipalResolver, which decide who the PDP
+                is asked about and label how that was established, per OAuth flow; PdpResponses and
+                JdkHttpTransport.classify, which sort a PDP's answer and a transport's failure into
+                "unreachable" and "refuse"; PdpUrlPolicy, the https rule; refuseCollisions, a detail field
+                that would overwrite a server attribute; and the config's profile and type-list parsing.
+
                 Gated per METHOD, not per class, so the rest stays honestly out of scope rather than
-                behind a lowered number. The request builders, the PDP clients' transport paths and the
-                processor's PF-SDK entry points (configure/validate/getUserConsentDescription) still carry
-                missed branches; they are the next work queue, and each is added here only once a test
-                closes it. JdkHttpTransport opens real sockets and is covered by the deployed probes.
+                behind a lowered number. The request builders' mapping, the PDP clients' header paths and
+                the processor's other PF-SDK entry points (configure/validate/getUserConsentDescription)
+                still carry missed branches; they are the next work queue, and each is added here only once
+                a test closes it. JdkHttpTransport.post opens real sockets and is covered by the rig.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -147,6 +154,23 @@
                                         <include>com.pingidentity.ps.oidf.rar.DecisionResponse.isPermit(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.settings(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.versionOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.enrich(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.flowOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.fromPingFederate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.requiresAuthenticatedPrincipal(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.hashForLog(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver$Flow.is*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResponses.bodyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResponses.isJson(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.JdkHttpTransport.classify(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy$Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.refuseCollisions(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.profileOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.authenticatedPrincipalTypesOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isClientAssertedPrincipalHonoured(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
