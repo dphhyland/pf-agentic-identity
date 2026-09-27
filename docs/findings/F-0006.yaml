@@ -5,7 +5,7 @@ area: ci, release
 source: review-2026-09-26
 status: open
 plan_items: [P0-3, P0-5, P0-6, P0-8, R-CI1, R-CI2, R-CI3, R-CI4, R-CI5, R-CI6, R-CI7, R-CI10]
-prs: [10, 11, 14]
+prs: [10, 11, 14, 33]
 verification: >
   In progress, checked 2026-09-27: release.yml runs `mvn -B verify` and requires a green Build on the tagged
   commit (PR #10, merged as 11e9780 on 2026-09-26), and its 0.3.0 dry run was green (run 36234516459 on
@@ -15,7 +15,9 @@ verification: >
   `gh release view v0.3.0` answers "release not found" and no 13.1 release is published until the run is
   re-run on the tag (F-0069). PR #14 (0.4.0-SNAPSHOT) is open. `gh secret list` is empty; the API answers
   'Branch not protected' for main and lists no rulesets; private vulnerability reporting is off (F-0068);
-  Build does not build or boot the image. Stays open until every part is done.
+  Build does not build or boot the image. PR #33 (2026-09-27) gives Build's java job a Redis service and a TLS
+  Redis beside the Postgres one, so RedisLiveTest runs both halves in CI (part of R-CI5), and records why
+  CodeQL does not analyse the iOS client's Swift yet (U-0130). Stays open until every part is done.
 target_release: 0.7.0
 notes: >
   Five parts: a release on the 13.1 line (P0-8), the release built from what was verified (P0-6, done), the

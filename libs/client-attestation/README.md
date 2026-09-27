@@ -182,11 +182,12 @@ mvn -o -pl libs/client-attestation -am verify
 ```
 
 The TLS URL must name the host the certificate names (`localhost`), because one test connects by address
-instead and expects the handshake to fail before `AUTH`. In CI the Redis service is plan item R-CI5; until
-it lands these tests skip there. The handshake is covered without them: `MiniRedisClientTlsTest` runs an
-in-JVM TLS server whose certificate `keytool` makes for the run, names `localhost` and not `127.0.0.1`, and
-checks that the client verifies the name, sends it as SNI and sends nothing to an address the certificate
-does not carry. R-CI5 needs a TLS Redis and a CA file, not only a plain one, for `RedisLiveTest`'s TLS half.
+instead and expects the handshake to fail before `AUTH`. `tools/ci/start-tls-redis.sh DIR PORT NAME` makes
+the CA and the certificate and starts the TLS server, and prints the two TLS variables. In CI, build.yml's
+java job runs both halves: a `redis` service for the plain one, and that script's server for the TLS one.
+The handshake is covered without them: `MiniRedisClientTlsTest` runs an in-JVM TLS server whose certificate
+`keytool` makes for the run, names `localhost` and not `127.0.0.1`, and checks that the client verifies the
+name, sends it as SNI and sends nothing to an address the certificate does not carry.
 
 ## Security posture
 

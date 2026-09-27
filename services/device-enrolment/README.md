@@ -131,7 +131,8 @@ and the agent stops until the human is back in front of the phone.
 |---|---|
 | `PORT` | default 8080 |
 | `ENROLMENT_ISSUER` | this service's entity id — the attestation `iss` and the key-proof `aud` |
-| `DATABASE_URL` | Postgres JDBC URL (secret; absent → refuses to start) |
+| `IDM_DATABASE_URL` | the Identity Object Model directory (Postgres) the registry lives in, the one the SCIM users live in; a JDBC URL or a `postgresql://` DSN (secret). Absent, the service refuses to start, and a `DATABASE_URL` left from before the move to the model is refused with a message naming the rename. Not read with `REGISTRY=memory` |
+| `REGISTRY` | `iom` (default), or `memory` for a registry that lives in the process and is lost on restart - development only, with a warning at start |
 | `ENROLMENT_SIGNING_JWK` | the attester's private JWK (secret). Production should use a vault-backed `JwsSigner`; the seam exists |
 | `APPLE_TEAM_ID` / `APPLE_BUNDLE_ID` | the App ID an attestation must be bound to |
 | `APPLE_ALLOW_DEVELOPMENT` | default `false` |
@@ -143,6 +144,17 @@ and the agent stops until the human is back in front of the phone.
 | `PINGONE_ISSUER` / `PINGONE_CLIENT_ID` | the IdP; both required or user authentication is refused |
 | `PINGONE_ACR_AAL2` | comma-separated sign-on policy names whose `acr` genuinely means AAL2; anything else is AAL1 and refused for binding |
 | `OIDF_ATTESTATION_SUB` / `OIDF_AGENT_CLIENT_ID` | the staged Phase 2.5 `sub` flip: `client_id` mints `sub` = the registered client; `agent_id` carries the instance id either way. See [docs/claim-dictionary.md](../../docs/claim-dictionary.md) |
+
+The connector-agent path (the Mac connector) reads the rest, and each is off until set:
+
+| Variable | Notes |
+|---|---|
+| `YUBICO_PIV_ROOTS` | path to a PEM bundle of pinned Yubico PIV roots; set, `yubikey-piv` evidence is accepted |
+| `ALLOW_SELF_ASSERTED_KEYS` | default `false`; `true` accepts `secure-enclave-self-asserted` evidence, a key whose storage nobody can verify, and attests it without a `key_storage` claim (with a warning at start) |
+| `AGENT_AUTHORIZATION_DETAILS` | a JSON array: the RFC 9396 ceiling every connector attestation carries |
+| `PF_AUTHORITY_ENTITY_ID` / `PF_AUTHORITY_URL` / `PF_AUTHORITY_ADMIN_TOKEN` / `PF_AUTHORITY_INSECURE_TLS` | the federation authority (PingFederate's issuer) that hosts agent entities. Unset, no agent entity is registered. The URL defaults to the entity id; the admin token (`OIDF_AUTHORITY_ADMIN_TOKEN` over there) is then required; `PF_AUTHORITY_INSECURE_TLS=true` trusts a self-signed listener, for development |
+| `AGENT_DISPLAY_NAME` / `AGENT_DESCRIPTION` / `AGENT_KEYWORDS` | what the authority vouches for about every agent, in its own words; the keywords as a JSON array |
+| `AGENT_MISSION_TYPES` / `AGENT_MISSION_PURPOSES` | JSON arrays: the RAR types and the DPV purposes an agent may claim. Each one set becomes an essential `subset_of` policy in the authority's statement, so an agent that declares none does not resolve |
 
 ## Deploy
 

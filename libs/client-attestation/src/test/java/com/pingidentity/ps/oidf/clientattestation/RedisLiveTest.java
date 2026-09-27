@@ -26,8 +26,9 @@ import org.junit.jupiter.api.Test;
  * </ul>
  *
  * <p>Locally: {@code redis:7-alpine} with {@code --requirepass}, and a second one with {@code --tls-port} and a
- * self-signed certificate for {@code localhost} (the README of this module has the commands). In CI the Redis
- * service is plan item R-CI5; until it lands these tests skip there.
+ * self-signed certificate for {@code localhost} (the README of this module has the commands, and
+ * {@code tools/ci/start-tls-redis.sh} starts the second). In CI, build.yml's java job runs both halves: its
+ * {@code redis} service for the plain one, and the TLS Redis that script starts for the other.
  */
 class RedisLiveTest {
     private static final String PLAIN = System.getenv("OIDF_TEST_REDIS_URL");

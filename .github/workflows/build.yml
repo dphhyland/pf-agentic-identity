@@ -136,6 +136,13 @@ jobs:
     # time. The job runs on the runner itself, so the service is reached at localhost on the mapped port, and
     # the health check holds the job until Postgres answers. The credentials are throwaway: the suite drops
     # and rebuilds the schema, and nothing outlives the job.
+    #
+    # client-attestation's RedisLiveTest runs the attestation stores against a real Redis, which its fake
+    # server cannot stand in for, and skips each half whose server the environment does not name. The plain
+    # half gets the redis service. The TLS half gets a second Redis, TLS only, that a step starts, because its
+    # CA and localhost certificate are made in the job and services start before the first step. Only the
+    # OIDF_TEST_REDIS_* variables are set: OIDF_REDIS_URL or REDIS_URL would configure the stores themselves,
+    # and AttestationSupportTest skips itself when it sees either.
     services:
       postgres:
         image: postgres:16-alpine
@@ -150,10 +157,33 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: the Redis service asks for a password, as a deployed Redis does
+        # GitHub documents `command` for a service container (workflow syntax, read 2026-09-27), but the
+        # actionlint tools/ci/install-lint-tools.sh pins (1.7.12) rejects the key, so redis:7-alpine starts on
+        # its image's own command, open, and is given its password here, before anything connects. Move the
+        # password to `command:` once the pinned actionlint accepts it. It is as throwaway as Postgres's.
+        env:
+          REDIS_SERVICE: ${{ job.services.redis.id }}
+        run: docker exec "$REDIS_SERVICE" redis-cli CONFIG SET requirepass redis-live-test
+      - name: a TLS Redis beside it, with a CA and a localhost certificate made for this run
+        # tools/ci/start-tls-redis.sh makes the certificates (no key is tracked, and the CA's key is deleted
+        # once the certificate is signed), starts redis:7-alpine serving TLS only on 127.0.0.1:6380, waits
+        # until it answers over TLS, and prints OIDF_TEST_REDIS_TLS_URL and OIDF_TEST_REDIS_CA_FILE for the
+        # reactor build below.
+        run: tools/ci/start-tls-redis.sh "$RUNNER_TEMP/redis-tls" 6380 >> "$GITHUB_ENV"
       - name: the PingFederate version, from build/pf-version.env
         # The one place the version is written down; the composite action reads the same file itself.
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
@@ -166,16 +196,37 @@ jobs:
         # BOM's version.pf.* properties. A module compiled against a different jackson or commons-logging
         # than the one on PF's classpath links at build and may not at run time.
         run: python3 tools/pf-provided-versions.py --lib pf-lib --bom bom/pom.xml
-      - name: reactor build (tests on, coverage gates enforced, the IOM registry suite on the Postgres service)
+      - name: reactor build (tests on, coverage gates enforced, the IOM registry suite on Postgres, RedisLiveTest on both Redis servers)
         # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
-        # stopping at package builds the artifacts and silently skips every gate.
+        # stopping at package builds the artifacts and silently skips every gate. The TLS Redis's two
+        # variables come from $GITHUB_ENV, written by that Redis's step.
         env:
           IDM_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
           IDM_TEST_JDBC_USER: dashboard
           IDM_TEST_JDBC_PASSWORD: dashboard
+          OIDF_TEST_REDIS_URL: redis://:redis-live-test@localhost:6379
         run: mvn verify
+      - name: RedisLiveTest ran, and skipped nothing
+        # Each half of RedisLiveTest skips itself when its variables are unset, so a variable renamed here, in
+        # start-tls-redis.sh or in the test would turn the suite back into skips and leave the job green. This
+        # reads the surefire report the build wrote and fails the job instead, and fails it when the report is
+        # missing, so a pull request that renames or moves the test updates the path here.
+        env:
+          REPORT: libs/client-attestation/target/surefire-reports/TEST-com.pingidentity.ps.oidf.clientattestation.RedisLiveTest.xml
+        run: |
+          python3 - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          report = os.environ["REPORT"]
+          if not os.path.isfile(report):
+              sys.exit(f"no surefire report at {report}")
+          suite = ET.parse(report).getroot()
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"RedisLiveTest: {ran} run, {skipped} skipped")
+          if ran == 0 or skipped:
+              sys.exit("RedisLiveTest skipped tests or ran none: check the OIDF_TEST_REDIS_* variables")
+          PY
       - name: coverage dashboard, generated from this build
-        # Generated from the jacoco and surefire reports the step above just produced, and published rather
+        # Generated from the jacoco and surefire reports the reactor build just produced, and published rather
         # than committed: a reactor-wide file that every test change regenerated conflicted in Phase 0's
         # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module that has
         # tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate
