@@ -118,7 +118,142 @@ gm-api's `init` (a component name of its own, such as `GM_API`, since S-9 names 
 to start reads DOWN. The detail and info take the same bearer: the token is JVM-wide.
 
 <!-- lifecycle (F-2): add this package's section below this line -->
+## lifecycle
+
+`LifecycleListener` is the one `ServletContextListener` this repository ships (plan item F-2). It works on the copy
+of platform its own war loaded, and on no other:
+
+- **`contextInitialized`** marks that copy as the webapp's (`Lifecycle.markWebapp()`), registers its metrics MXBean
+  (`Metrics.registerMXBean()`), and arranges the start-up audit. It adds a servlet, `oidf-startup-audit`, with no
+  mapping and load-on-startup `Integer.MAX_VALUE`; the container initialises filters before servlets and
+  load-on-startup servlets in ascending order, so that servlet's `init` runs after the war's filters and other
+  load-on-startup servlets have registered their components, and it logs the banner, once, at INFO. A container
+  that will not add a servlet then (a listener that was itself added programmatically) gets the banner at once,
+  with whatever components had registered by then.
+- **`contextDestroyed`** runs the copy's `Lifecycle.shutdown` within five seconds (`SHUTDOWN_BUDGET`, under
+  `docker stop`'s default ten with PingFederate's own shutdown still to come) - the managed executors, the metrics
+  MXBean and the Redis pools, last registered first - and logs one line naming each close and how it ended. That line
+  reaches server.log when a war is undeployed (gm-api.war removed from `server/default/deploy` on the rig), but not
+  when the JVM stops: PingFederate stops its logging before it destroys its webapps' contexts (finding
+  [F-0210](../../docs/findings/F-0210.yaml)).
+
+**The loader check.** Before either, the listener compares the loader that defined its copy of `Lifecycle` with the
+war's own (`ServletContext.getClassLoader()`). The same jars sit in `server/default/deploy`, on the engine's loader,
+where the OGNL criteria run; a war whose loader asked its parent first would see that copy, and marking it or
+shutting it down would close what the criteria use. When the two loaders differ the listener logs a WARN and does
+nothing else.
+
+**Where it is registered, and why by name.** In `pf-runtime.war` through `build/pingfederate/filters.xml`, whose
+`<listener>` entry the war assembler writes into the war's `web.xml` and checks is there exactly once; in
+`oidf.war`'s and `gm-api.war`'s `web.xml`. It carries no `@WebListener` annotation. An annotated one would run: on the rig (PingFederate 13.1.3.0, Jetty
+12.0.36.1, 2026-09-28) a probe `@WebListener` in a jar in `pf-runtime.war`'s `WEB-INF/lib`, with no `web.xml` entry,
+ran once per boot, and the same jar in `server/default/deploy` ran in no context, the engine's or any other war's
+(finding [U-0024](../../docs/findings/U-0024.yaml)). It is registered by name all the same: the same jars sit in both
+places and the engine's loader must never run it, so the registration should not depend on which jars a container
+scans; a named entry is one registration the assembler checks, in the one war; and a war with
+`metadata-complete="true"` would silently drop an annotated listener.
+
+**The banner**, one INFO event on the logger `com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener`:
+
+| Line | What it says |
+|---|---|
+| `version` | this repository's version, from platform-pf's `pom.properties` (`BuildInfo`, as `/agentic-identity/info` reads it) |
+| `commit` | `unknown`: no build records the commit where a running PingFederate can read it (finding F-0190). `BuildInfo` is where it would be read, from a manifest entry the build sets from `GITHUB_SHA`; the banner follows it |
+| `PingFederate` | PingFederate's version, from `pf-commons.jar`'s `pom.properties` - the file PingFederate's own `VersionUtil` reads - through `BuildInfo`, not through PingFederate's internals |
+| `Java` | the running JVM's version |
+| `profile` | `development` or `production`, and how `OIDF_DEPLOYMENT_PROFILE` said so (`DeploymentProfile.describe`) |
+| `topology` | `standalone` until C-1 (Phase 4) can tell a cluster from one node |
+| `accepted risks` | each risk `OIDF_ACCEPTED_RISKS` accepts, with its expiry and what it lets happen |
+| `risk refusals` | how many entries did not parse, were unknown, expired or repeated; each is also logged at WARN, naming it, and its risk is not accepted. Nothing refuses a start for them until PR-5 (Phase 3; the Phase 2 plan's decision 7) |
+| `insecure TLS` | each setting that asked `InsecureTls` for a trust-all context in this war so far, and since when |
+| `JDK host names` | whether `jdk.internal.httpclient.disableHostnameVerification` turns the JDK HTTP client's host name check off for the whole JVM |
+| `components` | each registered component's state and reason, as health reads them |
+| `executors` | this copy's managed executors |
+| `metrics MXBean` | the name this copy's MXBean is registered under |
+| `platform` | where this copy of platform was loaded from: the war's `WEB-INF/lib` |
+
+Every value is one line of at most 256 characters, with control, format and separator characters replaced by `?`,
+because the profile and the risk refusals quote what an operator set. The audit refuses nothing and changes nothing;
+it is what PR-5 will turn into refused components.
+
+**gm-api.war** bundles platform-pf, and platform through it, in its own `WEB-INF/lib`, so it has its own copy: its
+own lifecycle, components, metrics MXBean and banner, and its own health under `/gm-api/agentic-identity/health/...`
+(the decision O-4 recorded above). `GrantsServlet` and `McpServlet` register the parts of a component of its own,
+`GM_API` (S-9 names none for gm-api), so a gm-api whose servlets failed to start reads `FAILED_CONFIG` in its
+banner and DOWN on its ready.
+
+**What it does not do.** It does not refuse a start: PR-5 does that. It does not make `ExecutorRegistry` refuse an
+unmarked copy (finding F-0200): that is one check in platform.exec, now that the webapp's copy is marked, and it is
+C-3's code to change; a standalone program using platform would then need to mark itself, which X-A01's service-kit
+is the place for. The engine's copy is never marked and never shut down: nothing runs a listener for
+`server/default/deploy`, and its MXBean stays until the JVM stops, which is what keeps the OGNL criteria's metrics
+visible (the Phase 2 plan's risk 12).
+
 <!-- internals (F-1, PfInternals): add this package's section below this line -->
+## internals
+
+`PfInternals` is the one class that calls PingFederate's internal services (plan item F-1, decision 10): classes in
+`pf-protocolengine.jar` that are not part of the SDK and, the plan's risks say, "can change in a patch release".
+Each member is one call, made when it is called; nothing runs when the class loads, so loading it touches no
+PingFederate class, and outside a booted PingFederate each member throws where the caller reaches it, as the
+direct call did.
+
+| Member | Calls | Callers |
+|---|---|---|
+| `issuer(request)` | `OAuthIssuerUtils.getInstance().getIssuerValue(request)` | the issuer resolvers of eight classes in pf-integration and two in attestation-issuer |
+| `tokenEndpointBaseUrl()` | `MgmtFactory.getAuthzServerManager().getTokenEndpointBaseUrl()` | `ClientAttestationUtils.configuredTokenEndpointBaseUrl` |
+| `addClient`, `updateClient`, `getClient`, `getClients` | the same methods of `MgmtFactory.getClientManager()` | `PfMgmtClientStore` |
+| `isBackendDatabase()` | `MgmtFactory.getClientManager().isBackendDatabase()` | nothing yet: C-1 (Phase 4) |
+| `discoveryHandler(openIdConnect)` | `ProviderConfigurationInfoHandler.createOpenIDConnectProviderConfigurationInfoHandler()` or `createOAuthProviderConfigurationInfoHandler()`, then `process` | `PfProviderMetadata` |
+
+`ClientManager.isBackendDatabase()` exists in 13.1.3 as `public abstract boolean isBackendDatabase()` on
+`org.sourceid.oauth20.domain.ClientManager` (javap on the pinned image's `pf-protocolengine.jar`, 2026-09-28).
+
+**No production class outside platform-pf names `org.sourceid.oauth20.issuer`, `org.sourceid.saml20.domain.mgmt`,
+`org.sourceid.openid.connect.handlers`, `ClientManager` or `AuthzServerManager`.** `InternalsBoundaryTest` holds
+it over every `src/main` Java source under libs, servlets, services and plugins (a wildcard import of
+`org.sourceid.oauth20.domain` counts, since it would let a source name either manager by its simple name), with one
+recorded exception:
+servlets/ssf's `PfIdTokenVerifier` still calls `OAuthIssuerUtils` itself, because package PFI's scope stopped at
+pf-integration, attestation-issuer and platform-pf ([F-0215](../../docs/findings/F-0215.yaml)). The test fails
+when that file stops naming it, so the exception goes with the fix.
+
+**The data types stay where they are.** `Client` is what the client manager takes and returns, and `ParamValues`
+and `ClientAuthenticationType` are what a `Client` holds. Wrapping them would copy some thirty `Client` accessors
+into a type of our own that still links every one of them, and add a translation to keep in step; the facade
+would hide nothing. What checks them is `tools/pf-linkcheck.py`, which resolves every member the built jars link
+against the pinned PingFederate, in CI's java job.
+
+**Tests.** `PfInternalsTest` replaces PingFederate's statics and checks that each member makes its one call with
+its caller's arguments and answers what PingFederate answers, and that the class initialises in a loader with no
+PingFederate class on it. `issuer` is not in the coverage gate: `OAuthIssuerUtils` is final and Mockito cannot
+redefine it on the test class path ("class redefinition failed: invalid class", 2026-09-28), so its test shows
+only that outside PingFederate the lookup throws a `LinkageError`, which is why every caller has an issuer seam.
+The callers' own tests keep those seams; none mocked PingFederate's statics, so none needed the facade replaced.
+
+### What the reactor links from PingFederate
+
+Every `org.sourceid.*` and `com.pingidentity.*` class the shipped jars and `gm-api.war` link, read from their
+constant pools by `tools/pf-linkcheck.py`'s scanner against 13.1.3.0's `server/default/lib` on 2026-09-28, after
+this package. Where a class ships decides its kind: `pingfederate-sdk.jar` is the SDK plugins compile against,
+whatever the package; `pf-protocolengine.jar` is PingFederate's own engine.
+
+| Kind | Classes (members linked) | Jar | Linked from |
+|---|---|---|---|
+| Internal service | `OAuthIssuerUtils` (2) | pf-protocolengine | platform-pf; ssf's `PfIdTokenVerifier` ([F-0215](../../docs/findings/F-0215.yaml)) |
+| Internal service | `MgmtFactory` (2), `ClientManager` (5), `AuthzServerManager` (1), `ProviderConfigurationInfoHandler` (3) | pf-protocolengine | platform-pf only |
+| Internal data type | `org.sourceid.oauth20.domain.Client` (32: the constructor, getters and setters) | pf-protocolengine | pf-integration, attestation-issuer |
+| SDK data type | `org.sourceid.oauth20.domain.ParamValues` (3), `ClientAuthenticationType` (1) | pingfederate-sdk | pf-integration, attestation-issuer |
+| SDK | `org.sourceid.saml20.adapter.*` - `AttributeValue`, `conf.Configuration`, `conf.Field`, `conf.SimpleFieldList`, the `gui` descriptors and validators | pingfederate-sdk | pf-integration, gm-api, the RAR plugin, the instance-registry data store |
+| SDK | `org.sourceid.util.log.AttributeMap` | pingfederate-sdk | gm-api |
+| SDK | `com.pingidentity.access.*` - `AccessGrantManagerAccessor`, `DataSourceAccessor`, `JwksEndpointKeyAccessor` | pingfederate-sdk | pf-integration, ssf, gm-api |
+| SDK | `com.pingidentity.sdk.*` - `accessgrant`, `authorizationdetails`, `logging.LoggingUtil`, `oauth20.Scope`, `oobauth`, `GuiConfigDescriptor`, `PluginDescriptor` | pingfederate-sdk | platform-pf (`LoggingUtil`), ssf, gm-api, the RAR plugin, ciba-sim |
+| SDK | `com.pingidentity.sources.*` - the custom data source driver and its descriptors | pingfederate-sdk | the instance-registry data store |
+
+The scanner does not see names in strings: servlets/ssf's `SsfAuditLogSource` names five of PingFederate's audit
+logger classes (`org.sourceid.websso.profiles.idp.IdpAuditLogger` and four more) as log4j logger names, which
+change with nothing linking them.
+
 
 ## Build
 

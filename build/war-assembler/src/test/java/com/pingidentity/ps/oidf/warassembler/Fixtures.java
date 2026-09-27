@@ -26,6 +26,11 @@ final class Fixtures {
         PFI + "clientregistration.ClientAttestationAuthFilter",
     };
     static final String SSF_FILTER = PFI + "ssf.LogoutEventFilter";
+    /** The listener filters.xml declares (plan item F-2), in platform-pf's jar. */
+    static final String LIFECYCLE_LISTENER = "com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener";
+    /** What the assembler inserts for it, after the filters. */
+    static final String LIFECYCLE_LISTENER_BLOCK = "  <listener>\n    <listener-class>" + LIFECYCLE_LISTENER
+            + "</listener-class>\n  </listener>\n";
     static final long TIME = 1_790_000_000_000L;
 
     record Run(int exit, String out, String err) {
@@ -104,7 +109,7 @@ final class Fixtures {
         return war(dir, "stock.war", webXml, Map.of());
     }
 
-    /** The module jars: oidf.jar with the six pf-integration filters, ssf with the logout filter. */
+    /** The module jars: oidf.jar with the six pf-integration filters, ssf with the logout filter, platform-pf with the listener. */
     static Map<String, byte[]> moduleJars(String namespace) {
         Map<String, byte[]> oidf = new LinkedHashMap<>();
         for (String c : PF_INTEGRATION_FILTERS) {
@@ -113,6 +118,7 @@ final class Fixtures {
         Map<String, byte[]> jars = new LinkedHashMap<>();
         jars.put("oidf.jar", zip(oidf));
         jars.put("ssf-0.5.0-SNAPSHOT.jar", zip(Map.of(classEntry(SSF_FILTER), classBytes(namespace))));
+        jars.put("platform-pf-0.5.0-SNAPSHOT.jar", zip(Map.of(classEntry(LIFECYCLE_LISTENER), classBytes(namespace))));
         return jars;
     }
 

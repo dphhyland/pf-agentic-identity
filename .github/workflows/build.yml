@@ -329,3 +329,132 @@ jobs:
             servlets/attestation-issuer/target/attestation-issuer-*.jar
             servlets/ssf/target/ssf-*.jar
             services/gm-api/servlet/target/gm-api.war
+
+  # The PingFederate image (plan item R-CI6, part of F-0006): the Dockerfile's capability target - the image with no
+  # configuration archive, which R-I3 (Phase 3) makes the image this repository ships - built for both staging profiles, its entrypoint
+  # tested inside it, scanned, and described by an SBOM. The deployment target needs an archive, so it is built
+  # here from a placeholder only to show it is still the default and still refuses a context with none. Booting
+  # PingFederate needs a licence and waits for R-CI7 (Phase 4). The service images R-CI6 also names - device-
+  # enrolment, the adapter, the SPIRE reader - do not exist until R-I8 (Phases 5 and 6); they join this job then.
+  #
+  # The scanner is grype and the SBOM syft's, both from tools/ci/install-lint-tools.sh at pinned versions and
+  # checksums. grype rather than Trivy because it scans the syft SBOM this job publishes, so the package list
+  # published and the one scanned are the same document. Not because of Trivy's compromise (a malicious v0.69.4
+  # release and force-pushed trivy-action tags on 2026-03-19, GHSA-69fq-xp46-6x23): a version pinned by checksum, as
+  # both tools are here, would not have fetched it. tools/ci/image-scan-gate.py fails on HIGH or CRITICAL findings
+  # in the layers this repository adds - its jars, the assembled war, the Alpine packages the Dockerfile installs -
+  # and reports the base image's own without failing: a PingFederate bump fixes those (build/pingfederate/README.md,
+  # "Scanning the image"). .github/grype.yaml names the findings of ours that are accepted, each with its reason.
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    env:
+      GRYPE_CHECK_FOR_APP_UPDATE: 'false'
+      SYFT_CHECK_FOR_APP_UPDATE: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: the PingFederate version, from build/pf-version.env
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        with: { distribution: temurin, java-version: '17', cache: maven }
+      - name: extract provided PF jars from the image
+        uses: ./.github/actions/pf-provided-jars
+      - name: the reactor's jars (the java job runs the tests)
+        run: mvn -B -DskipTests package
+      - name: the war assembler against PingFederate's own war
+        # StockWarGoldenTest runs only when it is given the stock pf-runtime.war, which is PingFederate's and not in
+        # this repository: it holds the war's web.xml to 13.1.3's digest and the assembled one to the shell
+        # assembler's, byte for byte (U-0185). After a PingFederate bump the first fails by design, and the golden
+        # result is taken again as the test's comment says. The surefire report shows it ran and skipped nothing.
+        env:
+          REPORT: build/war-assembler/target/surefire-reports/TEST-com.pingidentity.ps.oidf.warassembler.StockWarGoldenTest.xml
+        run: |
+          docker create --name stock-war "$PF_IMAGE@$PF_IMAGE_DIGEST"
+          docker cp stock-war:/opt/server/server/default/deploy/pf-runtime.war "$RUNNER_TEMP/stock-pf-runtime.war"
+          docker rm stock-war
+          mvn -B verify -pl build/war-assembler -am -DwarAssembler.stockWar="$RUNNER_TEMP/stock-pf-runtime.war"
+          python3 - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          report = os.environ["REPORT"]
+          if not os.path.isfile(report):
+              sys.exit(f"no surefire report at {report}")
+          suite = ET.parse(report).getroot()
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"StockWarGoldenTest: {ran} run, {skipped} skipped")
+          if ran == 0 or skipped:
+              sys.exit("StockWarGoldenTest skipped or ran nothing: check -DwarAssembler.stockWar")
+          PY
+      - name: the capability image, for each staging profile
+        # stage-modules.sh rewrites modules/ for the profile it is given, so each profile is staged and built in
+        # turn. The assembler runs again inside the build, on the image's own Java 21.
+        run: |
+          for profile in production conformance; do
+            build/pingfederate/stage-modules.sh --profile "$profile"
+            cp build/pingfederate/modules/MANIFEST "$RUNNER_TEMP/MANIFEST-$profile"
+            docker build --target capability --build-arg STAGING_PROFILE="$profile" \
+              -t "pf-agentic-identity:capability-$profile" build/pingfederate
+            label="$(docker inspect --format '{{index .Config.Labels "io.github.dphhyland.pf-agentic-identity.staging-profile"}}' \
+              "pf-agentic-identity:capability-$profile")"
+            [ "$label" = "$profile" ] || { echo "::error::capability-$profile is labelled '$label'"; exit 1; }
+          done
+      - name: the entrypoint's decisions, inside each image
+        run: |
+          for profile in production conformance; do
+            build/pingfederate/test-entrypoint.sh --image "pf-agentic-identity:capability-$profile"
+          done
+      - name: the default target is still deployment, and still refuses a context with no archive
+        # modules/ is the conformance stage the step above left. The placeholder is not a configuration archive;
+        # the image it makes is never run.
+        run: |
+          ctx="$RUNNER_TEMP/deployment-context"
+          cp -R build/pingfederate "$ctx"
+          if docker build --build-arg STAGING_PROFILE=conformance "$ctx" > "$RUNNER_TEMP/no-archive.log" 2>&1; then
+            echo "::error::the default target built from a context with no configuration archive"; exit 1
+          fi
+          grep -q 'ERROR: no config archive staged' "$RUNNER_TEMP/no-archive.log" \
+            || { cat "$RUNNER_TEMP/no-archive.log"; echo "::error::the default target failed, but not at the archive check"; exit 1; }
+          python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1], "w").writestr("placeholder", "not an archive\n")' "$ctx/data.zip"
+          docker build --build-arg STAGING_PROFILE=conformance -t pf-agentic-identity:deployment-placeholder "$ctx"
+          docker run --rm --entrypoint ls pf-agentic-identity:deployment-placeholder \
+            /opt/in/instance/server/default/data/drop-in-deployer/data.zip /opt/in/instance/server/default/deploy/pf-runtime.war
+      - name: the scanner and the SBOM generator
+        run: |
+          tools/ci/install-lint-tools.sh "$RUNNER_TEMP/scan-tools" grype syft
+          echo "$RUNNER_TEMP/scan-tools" >> "$GITHUB_PATH"
+      - name: an SBOM of each image, and each scanned beside the base image
+        # syft's own JSON is what grype scans; the SPDX document is the one published. The base image is scanned
+        # the same way, so the gate can tell PingFederate's findings from ours; a finding in a jar the profile's
+        # MANIFEST names is ours whatever the base has. The database is fetched once and not updated between the
+        # scans, so a database published mid-step cannot class a PingFederate finding as ours. The gate runs for
+        # both profiles before the step fails, so both reports reach the summary.
+        run: |
+          out="$RUNNER_TEMP/image-scan"; mkdir -p "$out"
+          grype db update
+          export GRYPE_DB_AUTO_UPDATE=false
+          syft scan "docker:$PF_IMAGE@$PF_IMAGE_DIGEST" -q -o syft-json="$out/base.syft.json"
+          grype "sbom:$out/base.syft.json" -q -c .github/grype.yaml -o json --file "$out/base.grype.json"
+          failed=0
+          for profile in production conformance; do
+            syft scan "docker:pf-agentic-identity:capability-$profile" -q \
+              -o syft-json="$out/capability-$profile.syft.json" -o spdx-json="$out/capability-$profile.spdx.json"
+            grype "sbom:$out/capability-$profile.syft.json" -q -c .github/grype.yaml -o json --file "$out/capability-$profile.grype.json"
+            python3 tools/ci/image-scan-gate.py --image "$out/capability-$profile.grype.json" --base "$out/base.grype.json" \
+              --ours-manifest "$RUNNER_TEMP/MANIFEST-$profile" --label "capability ($profile)" --summary "$GITHUB_STEP_SUMMARY" || failed=1
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: image-sbom
+          path: ${{ runner.temp }}/image-scan/capability-*.spdx.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: image-scan
+          path: ${{ runner.temp }}/image-scan/*.grype.json
+          if-no-files-found: error
