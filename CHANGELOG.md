@@ -36,6 +36,11 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   JWKs and every PEM kind, with gitleaks over the whole history beside it; CodeQL for Java, Actions, Python and
   JavaScript; Dependabot; the rig's Terraform lock file committed; CODEOWNERS.
 
+- **iOS reference client** (X-I01a) - `clients/ios`: AgentIdentityKit, a Swift package for the device side of
+  `services/device-enrolment` (enrol, re-mint, the user-verification refresh, the counter-race retry) with App
+  Attest, the Secure Enclave and PingOne behind protocols, tested with fakes and against the service's own Java; a
+  sample app that also captures App Attest vectors; `docs/device/ios-client-contract.md`; a macOS job, `ios.yml`.
+  A skeleton until X-I01b.
 - **Generated files leave git** (plan decision 18; R-CI5's publish step, brought forward from Phase 2):
   `docs/coverage-dashboard.md` and `.html` and the showcase's rendered documents (now `showcase/docs.js`) are
   generated and git-ignored; a CI Build whose reactor build completes publishes them as its `coverage-dashboard`

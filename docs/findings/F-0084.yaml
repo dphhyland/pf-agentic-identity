@@ -1,0 +1,21 @@
+id: F-0084
+title: An iOS enrolment's ID token is bound to nothing, so a held token binds any key while it lasts
+severity: medium
+area: device-enrolment
+source: design
+status: open
+plan_items: [X-A05]
+prs: []
+verification: ''
+target_release: 0.9.0
+notes: >
+  Found 2026-09-27 writing docs/device/ios-client-contract.md for X-I01a. EnrolmentService.enrol passes no expected
+  nonce for a request without federation_public_jwk (EnrolmentService.java:192-193 at ab74038), and
+  PingOneIdTokenVerifier.verifyToken checks the nonce only when one is expected (lines 194-202), so on the iOS path
+  user_authentication is bound to neither the enrolment's challenge nor its instance key, and nothing makes the
+  token single use. Whoever holds an owner's unexpired ID token for the app's client id, and can present a genuine
+  App Attest attestation of the app, binds a key of their choosing to that owner. The connector path already binds
+  it: base64url(SHA-256(challenge "|" instance-jkt "|" federation-jkt)). X-A05 (nonce, single-use ID token,
+  auth_time maximum age and azp) closes it. The kit already sends base64url(SHA-256(challenge "|" instance-jkt))
+  and checks it in the token it gets back (Commitments.enrolmentNonce); X-A05 adopts that shape or the kit
+  changes. The device path is documented as not production-usable until Phase 6 (M-2).
