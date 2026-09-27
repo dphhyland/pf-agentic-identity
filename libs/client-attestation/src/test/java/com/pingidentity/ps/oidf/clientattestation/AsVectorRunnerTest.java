@@ -47,8 +47,8 @@ import org.junit.jupiter.api.TestFactory;
  * attester's operations and run through {@code CasVectorRunnerTest} in {@code servlets/attestation-issuer}.
  *
  * <p>How an answer is read: a grant is "within" (the granted list must equal the candidate, or the case's
- * {@code granted}); a refusal with the fixed "exceeds" description and no cause is "not within"; any other refusal
- * carries the model's reason as its cause, which must be the case's reason. The error is
+ * {@code granted}); a refusal with the fixed "exceeds" description is "not within"; every refusal carries the
+ * model's reason as its cause, which must be the case's reason ({@code EXCEEDS_CEILING} for "not within"). The error is
  * {@code invalid_client} when the attestation's own details are what the model refuses and
  * {@code invalid_authorization_details} otherwise.
  *
@@ -164,7 +164,7 @@ class AsVectorRunnerTest {
         if (refusal == RarModelException.Reason.EXCEEDS_CEILING || Boolean.FALSE.equals(expect)) {
             assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, answer.error, c.name());
             assertEquals(AuthorizationDetailsGate.EXCEEDS, answer.description, c.name());
-            assertNull(answer.reason, c.name());
+            assertEquals(RarModelException.Reason.EXCEEDS_CEILING, answer.reason, "the log names the detail: " + c.name());
         } else if (refusal != null) {
             assertEquals(refusal, answer.reason, "'" + c.name() + "': the model's reason rides as the cause ("
                     + answer.error + ": " + answer.description + ")");
@@ -246,7 +246,7 @@ class AsVectorRunnerTest {
             return new Answer(result.grantedAuthorizationDetails(), null, null, null);
         } catch (ClientAttestationException e) {
             RarModelException.Reason reason = e.getCause() instanceof RarModelException r ? r.reason() : null;
-            if (reason == null && !AuthorizationDetailsGate.EXCEEDS.equals(e.getMessage())) {
+            if (reason == null) {
                 fail("refused before the gate was asked: " + e.error() + ": " + e.getMessage());
             }
             return new Answer(List.of(), e.error(), e.getMessage(), reason);

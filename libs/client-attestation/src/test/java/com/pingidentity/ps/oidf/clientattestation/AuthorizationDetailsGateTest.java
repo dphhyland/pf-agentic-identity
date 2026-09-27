@@ -85,6 +85,30 @@ class AuthorizationDetailsGateTest {
 
         assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, e.error());
         assertEquals(AuthorizationDetailsGate.EXCEEDS, e.getMessage());
+        assertEquals(Reason.EXCEEDS_CEILING, causeOf(e));
+        assertTrue(e.getCause().getMessage().contains("authorization_details[0]") && e.getCause().getMessage().contains("'sales_agent'")
+                        && !e.getCause().getMessage().contains("5000.01"),
+                "the log line names the detail and its type, never the value: " + e.getCause().getMessage());
+    }
+
+    /**
+     * The log's reason for "not within" is the model's own: the first detail no attestation entry contains. Asked
+     * only once {@code contains} has said no; were the strict {@code authorize} to grant after all, the reason stays
+     * a generic one rather than none.
+     */
+    @Test
+    void theReasonForNotWithinNamesTheFirstDetailOutside() throws Exception {
+        java.util.List<Map<String, Object>> ceiling = RarModels.parseDetails(SALES_CEILING);
+        java.util.List<Map<String, Object>> twoDetails = RarModels.parseDetails(
+                "[{\"type\":\"sales_agent\",\"actions\":[\"read_accounts\"],\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":1},"
+                        + "{\"type\":\"sales_agent\",\"actions\":[\"read_accounts\"],\"sales_regions\":[\"APAC\"],\"max_txn_eur\":1}]");
+        RarModelException why = AuthorizationDetailsGate.whyNotWithin(MODELS, ceiling, twoDetails);
+        assertEquals(Reason.EXCEEDS_CEILING, why.reason());
+        assertTrue(why.getMessage().contains("authorization_details[1]"), why.getMessage());
+
+        RarModelException generic = AuthorizationDetailsGate.whyNotWithin(MODELS, ceiling, twoDetails.subList(0, 1));
+        assertEquals(Reason.EXCEEDS_CEILING, generic.reason(), "a detail that is within gets the generic reason");
+        assertEquals("authorization_details is not within the client attestation's", generic.getMessage());
     }
 
     /** Blocker B1 for a payment: a different creditor account is not within an attestation that names one. */

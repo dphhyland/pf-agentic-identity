@@ -110,6 +110,7 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.withoutMarkers(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.ceilingOf(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.whyNotWithin(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.get(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.require(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.issue(*</include>

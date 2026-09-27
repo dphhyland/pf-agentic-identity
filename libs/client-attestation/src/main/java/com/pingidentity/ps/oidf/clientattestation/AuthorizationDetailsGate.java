@@ -5,6 +5,7 @@
 package com.pingidentity.ps.oidf.clientattestation;
 
 import com.pingidentity.ps.oidf.rar.model.Json;
+import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import java.nio.charset.StandardCharsets;
@@ -126,9 +127,27 @@ final class AuthorizationDetailsGate {
             throw refused(e);
         }
         if (!within) {
-            throw new ClientAttestationException(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, EXCEEDS);
+            throw new ClientAttestationException(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, EXCEEDS,
+                    whyNotWithin(models, ceiling, candidate));
         }
         return candidate;
+    }
+
+    /**
+     * Which detail is not within the attestation's, for the log line: the model's own refusal from a strict
+     * {@code authorize} over the same lists, which names the first such detail and its type and never a value.
+     * Asked only after {@code contains} has said no, so it refuses; the decision is {@code contains}'s.
+     */
+    static RarModelException whyNotWithin(RarModels models, List<Map<String, Object>> ceiling,
+                                          List<Map<String, Object>> candidate) {
+        RarModelException why = new RarModelException(RarModelException.Reason.EXCEEDS_CEILING,
+                "authorization_details is not within the client attestation's");
+        try {
+            models.authorize(candidate, ceiling, Omission.STRICT);
+        } catch (RarModelException e) {
+            why = e;
+        }
+        return why;
     }
 
     /** Copies of the details without {@value #PRINCIPAL_MARKER} and {@value #AGENT_MARKER}. */
