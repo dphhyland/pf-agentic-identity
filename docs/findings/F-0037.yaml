@@ -15,7 +15,10 @@ verification: >
   TTL and size. AttestationIssuanceServletTest refuses a challenge in both directions and leaves the refused
   challenge unspent (aChallengeFromTheAuthorizationServersEndpointIsRefusedAndLeftUnspent,
   aChallengeFromTheAttestersEndpointIsRefusedAtTheTokenEndpoint, the latter through a verifier wired as the filter
-  wires it); RedisAttestationStoreTest keysLiveUnderTheStoresNamespace does the same on the RESP fake;
+  wires it); TokenEndpointChallengeSurfaceTest (commit 79af85d) drives the real ClientAttestationAuthFilter and the
+  real issuance criterion, each refusing a challenge from oidf:cas:challenge:* with it left unspent and taking one
+  from oidf:as:challenge:* once - with either pointed at oidf:cas:challenge:*, two of its four tests fail (JDK
+  20.0.2, 2026-09-27); RedisAttestationStoreTest keysLiveUnderTheStoresNamespace does the same on the RESP fake;
   ChallengeEndpointAdvertisementTest reads each advertised challenge_endpoint against the servlet mapping it names.
   With challengeService pointed back at oidf:as:challenge:*, three AttestationIssuanceServletTest tests fail (JDK
   20.0.2). On a booted PingFederate 13.1.3 (conformance/up.sh as PF_RIG_NAME=pfai-s4b, the deployed
