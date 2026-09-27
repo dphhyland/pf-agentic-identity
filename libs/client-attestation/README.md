@@ -7,7 +7,7 @@ AS-side **OAuth Attestation-Based Client Authentication**
 the verifier and supporting machinery an Authorization Server uses to authenticate a client that
 presents a Client Attestation plus a proof of possession. Package
 `com.pingidentity.ps.oidf.clientattestation` (the challenge servlet in its `.servlet` subpackage).
-Depends on `oidf-jose` and the servlet API (provided) — no PingFederate. The issuing side lives in
+Depends on `oidf-jose`, [`rar-model`](../rar-model/README.md) and the servlet API (provided) — no PingFederate. The issuing side lives in
 `servlets/attestation-issuer` and `libs/device-instance`; PingFederate's token-endpoint hook and the
 federation-backed key resolver live in `servlets/pf-integration`.
 The whole pipeline end to end — plus standards alignment, test coverage and the open gaps — is
@@ -19,17 +19,20 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `attest_jwt_client_auth` in both draft-10 PoP methods: `attestation_pop_jwt` (headers
   `OAuth-Client-Attestation` + `OAuth-Client-Attestation-PoP`) and `dpop_combined`
   (`OAuth-Client-Attestation` + `DPoP`, where the DPoP key must equal the attestation `cnf` key).
-  Authenticates first, then authorises the request's RFC 9396 `authorization_details` against the
-  attested entitlement. Failures are a `ClientAttestationException` carrying the draft's OAuth error
+  Authenticates first, then checks the request's RFC 9396 `authorization_details` against the attestation's
+  ([the token gate](#the-token-gate)). Failures are a `ClientAttestationException` carrying the OAuth error
   code: `invalid_client`, `use_attestation_challenge`, `use_fresh_attestation`,
-  `invalid_authorization_details`, `access_denied`, `insufficient_disclosure`.
+  `invalid_authorization_details`, `insufficient_disclosure`, `temporarily_unavailable`. Built with
+  `new ClientAttestationVerifier(...)`, it checks with this classloader's model set (`AttestationRarModels`);
+  `ClientAttestationVerifier.withRarModels(...)` takes the set a component loaded at start-up.
 - **`ClientAttestationConfig`** — the verification policy: accepted algorithms per JWT (attestation /
   PoP / DPoP), clock skew (60 s) and max-age windows (300 s), expected PoP audiences, DPoP `htm`/`htu`,
   whether a challenge is mandatory, and `requiredDisclosedClaims` (`workload`, `authorization_details`)
   this AS insists an attestation carry.
 - **`ClientAttestation` / `ClientAttestationResult`** — the parsed attestation (`iss`, `sub` =
   `client_id`, `cnf.jwk`, `authorization_details`, `workload`, `agent_id`) and the authenticated outcome
-  (client id, confirmed key, PoP mode, attester, entitled vs granted details).
+  (client id, confirmed key, PoP mode, attester, entitled vs granted details, and the fingerprint of the model
+  set that checked the request).
 - **`DpopProofValidator` / `DpopProof`** — RFC 9449 proof validation for combined mode: `dpop+jwt`,
   self-signature under the `jwk` header, algorithm allowlist, `htm`/`htu`, `iat` freshness, `jti`
   required. Replay and challenge binding are the caller's.
@@ -66,9 +69,14 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `:jti:<client> <jti>`, `:evidence:<digest>`, the digest being the attester's SHA-256 of the evidence's
   JWS Signing Input. No exception message quotes a URL's userinfo: `MiniRedisClient` replaces it with
   `***`.
-- **`RarEntitlement`** — RFC 9396 containment: each requested detail must sit within an attested detail
-  of the same `type`, with the set-valued fields (`actions`, `locations`, `datatypes`, `privileges`,
-  `sales_regions`) compared as subsets.
+- **`AuthorizationDetailsGate`** (package-private) - [the token gate](#the-token-gate): the request's
+  `authorization_details` against the attestation's, with the containment model.
+- **`AttestationRarModels`** - the model set this classloader enforces, read once from `OIDF_RAR_MODELS_FILE` or
+  `OIDF_RAR_MODELS` through `RarModels.fromEnvironment`, its fingerprint logged once; a document that cannot be
+  read is refused on every call after.
+- **`RarEntitlement`** - the old containment check (five array fields). Unused since 0.4.0 and deprecated for
+  removal; it stays only because `plugins/rar-paz-plugin`'s `RarContainmentContractTest` reads this file until
+  plan item S1c deletes that test ([F-0100](../../docs/findings/F-0100.yaml)).
 - **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — `POST /federation/attestation-challenge`
   returns `{"attestation_challenge", "expires_in"}` (draft §6.1); advertised as `challenge_endpoint`.
 - **`ChallengeRateLimiter`** — per-caller fixed-window cap on the (necessarily unauthenticated) challenge
@@ -77,13 +85,52 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   presents as intermittent attestation failures rather than as an outage. Default 60 requests/caller/60s;
   the limiter's own caller map is itself bounded.
 
+## The token gate
+
+CAS §7.1: an authorization server "MUST, when authenticating a client via an attestation containing
+`authorization_details`, ensure that any authority granted in issued tokens is a subset of the attestation's
+`authorization_details` (same subset semantics as Section 7 rule 1), and MUST reject requests exceeding it with
+`invalid_authorization_details` [RFC9396]." `ClientAttestationVerifier.verify` asks `AuthorizationDetailsGate` once
+the attestation and its proof have verified:
+
+1. The request's text is read by the model's reader (`RarModels.parseDetails`). Nothing requested - absent, blank,
+   `[]` - is not checked, whatever the attestation carries.
+2. `_principal_sub` (a BFF's principal) and `_agent_id` (the filter's agent marker) are taken off each detail. The
+   model refuses both as `forbidden`, so without this every BFF request would be malformed; the grant does not
+   carry them.
+3. The attestation's `authorization_details` are read from its verified payload by the same reader - not from
+   jose4j's parse, which reads a decimal as a `double` and drops a list entry that is not an object - and held to
+   the model. Absent is empty, and nothing is within an empty ceiling.
+4. `RarModels.contains(attestation's, request's)`: every field of every detail compared by its type's rule, and a
+   field the attestation's details constrain and the request leaves out is not contained. The grant is the
+   request's own details, never filled in from the attestation: what passes here is what PingFederate issues.
+
+| Refused because | Error | Description |
+|---|---|---|
+| not valid JSON, not an array of objects, a value its rule cannot compare, no `type` | `invalid_authorization_details` | `authorization_details is malformed` |
+| past a size limit (16 details, depth 8, 256 members, 2048 characters, 64 digits) | `invalid_authorization_details` | `authorization_details exceeds a size limit` |
+| a field the type's model does not declare | `invalid_authorization_details` | `authorization_details carries a field its type does not define` |
+| a type no model names | `invalid_authorization_details` | `authorization_details names a type this server does not support` |
+| not within the attestation's details | `invalid_authorization_details` | `authorization_details exceeds what the client attestation allows` |
+| the attestation's own details are ones the model refuses | `invalid_client` | `the client attestation's authorization_details cannot be evaluated by this server` |
+
+RFC 9396 §5 is the first four ("The AS MUST refuse to process any unknown authorization details type or
+authorization details not conforming to the respective type definition") and §6 the fifth ("Otherwise, the AS
+refuses the request with the error code invalid_authorization_details (similar to invalid_scope)"). The last is
+the credential's fault, not the request's. The description is fixed; the exception's cause is the model's own
+message, which names the detail and the field and never the value, for the log. The token-endpoint filter answers
+`invalid_authorization_details` with 400 (RFC 6749 §5.2); 0.3.0 answered a request outside the attestation's
+details 401 `access_denied`. The vector file in `libs/rar-model`'s test-jar runs through this gate as
+`AsVectorRunnerTest`, with the three cases it answers differently named there.
+
 ## Configuration
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|
 | `oidf.redis.url` (system property), then `OIDF_REDIS_URL`, then `REDIS_URL` (env) | unset | Set: challenge, replay and evidence-binding state lives in Redis, cluster-wide, under the namespaces above. Unset: per-node in-memory, which a clustered deployment must not run | Not a `redis://` or `rediss://` URL with a host: first request, every store accessor throws, so the token endpoint answers 500 `server_error` to attested clients and the challenge endpoint and the attester answer 500 - a configuration error, not an outage, so not a 503. `redis://` under the production profile: the same, with a message naming `OIDF_DEPLOYMENT_PROFILE` - the password would cross the network in the clear |
 | `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | unset (the JVM's CAs) | A PEM file of one or more CA certificates to trust for `rediss://`, the shape managed Redis providers publish | Missing, unreadable or holding no certificate: first request, as above, naming the variable |
-| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store; unset, `production` or anything else is production. Read directly from the environment until plan item PR-1 centralises it | Not checked beyond that: a typo is production |
+| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store, and lets an authorization_details type no model names fall back to the common fields; unset, `production` or anything else is production. Read directly from the environment until plan item PR-1 centralises it | Not checked beyond that: a typo is production |
+| `OIDF_RAR_MODELS_FILE`, `OIDF_RAR_MODELS` (env only) | unset (the built-in models) | A models document - a file path, or the document inline; one or the other - adding types, or fields to the built-in ones ([libs/rar-model](../rar-model/README.md#a-models-document)). Read once per classloader by `AttestationRarModels`, which logs the fingerprint. The RAR plugin reads the same variables and denies when its fingerprint differs | A document the library refuses, an unreadable file, or both set: every call refuses (`MODEL_INVALID`). The token-endpoint filter doesn't start, the attester's issuance servlet fails from its first request, and the issuance criterion refuses every attested token |
 | `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (servlet init-params) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies | Not an integer: at init, the value is ignored with a warning and the default used |
 
 Everything else is a `ClientAttestationConfig.builder()` call by the host.
@@ -134,6 +181,9 @@ does not carry. R-CI5 needs a TLS Redis and a CA file, not only a plain one, for
   that encoding was retired; only plain attestation JWTs are accepted.
 - Replay is keyed on `(client_id, jti)` with TTL = max-age + skew. A required-but-missing or unknown
   challenge is `use_attestation_challenge`; an expired attestation is `use_fresh_attestation`.
+- The attestation's `authorization_details` bound what a token request may ask for, field by field, with the
+  model's strict `contains`; a request is never widened by filling it in, and the model never repeats a value in
+  what it reports.
 - Store failures fail closed - availability is never traded for a replayable credential - and are reported
   as what they are: 503 `temporarily_unavailable` at the token endpoint, the challenge endpoint, the
   attester and the federation endpoints, never as a replay. The automatic-registration filter still takes
@@ -146,7 +196,7 @@ does not carry. R-CI5 needs a TLS Redis and a CA file, not only a plain one, for
 mvn -pl libs/client-attestation -am package     # or `mvn package` at the repo root; tests run with the build
 ```
 
-Versions come from `bom/pom.xml`. Consumers, by pom: `servlets/pf-integration`,
+Versions come from `bom/pom.xml`; `rar-model` is a compile dependency, JDK only, and ships beside this jar. Consumers, by pom: `servlets/pf-integration`,
 `servlets/attestation-issuer`, `services/device-enrolment` (reuses the challenge/replay stores),
 `services/demo-rs` (DPoP validation), `services/harness` (attestation issuance/flow harnesses). Ships
 into PingFederate via `build/pingfederate/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
