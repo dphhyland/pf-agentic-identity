@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
@@ -86,19 +87,28 @@ public class HostedEntityServlet extends RequestScopedServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        PfAuditEventSink.install();
+        var part = Startup.begin(Startup.HOSTING, "HostedEntityServlet");
         try {
-            // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
-            // not, and a servlet that refuses to boot just because enrolment isn't configured would take
-            // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
-            this.adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-            if (!configureAuthority(config::getInitParameter)) {
-                throw new IllegalStateException("HostedEntityServlet requires 'authorityEntityId' (init-param, oidf.authority.entity_id,"
-                        + " or OIDF_AUTHORITY_ENTITY_ID)");
+            super.init(config);
+            PfAuditEventSink.install();
+            try {
+                // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
+                // not, and a servlet that refuses to boot just because enrolment isn't configured would take
+                // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
+                this.adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+                if (!configureAuthority(config::getInitParameter)) {
+                    part.disabled();
+                    throw new IllegalStateException("HostedEntityServlet requires 'authorityEntityId' (init-param, oidf.authority.entity_id,"
+                            + " or OIDF_AUTHORITY_ENTITY_ID)");
+                }
+            } catch (RuntimeException e) {
+                throw new ServletException("Failed to initialize HostedEntityServlet", e);
             }
-        } catch (RuntimeException e) {
-            throw new ServletException("Failed to initialize HostedEntityServlet", e);
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
     }
 
