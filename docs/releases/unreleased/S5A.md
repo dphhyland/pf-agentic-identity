@@ -8,7 +8,8 @@
   cap, whether its length is declared, chunked or delimited by close. GET, POST, PUT, PATCH and DELETE, headers on
   every method, the status always returned, no redirects. With it: `Deadline`, `Budget` (a wall clock and a
   request count, with child budgets), `AddressPolicy` (oidf-jose's URL rules, plus 0.0.0.0/8, 240.0.0.0/4,
-  Teredo, and the IPv6 forms that embed a non-public IPv4 address), `TlsTrust` and a `Bulkhead` seam
+  Teredo, the IPv6 forms that embed a non-public IPv4 address, and no exemption for a path a server could
+  normalise or decode out of the exempt prefix), `TlsTrust` and a `Bulkhead` seam
   (plan item S5a, part 1). Nothing calls it yet.
 - The platform jar now carries Apache HttpComponents Core 5.4.4, relocated under
   `com.pingidentity.ps.oidf.platform.http.internal.hc5` and minimised; it grows from 227 KB to 448 KB.

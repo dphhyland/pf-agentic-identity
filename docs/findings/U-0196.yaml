@@ -4,7 +4,7 @@ area: platform
 source: design
 status: open
 plan_items: [S5a]
-prs: []
+prs: [55]
 recorded_in: libs/platform/README.md, the http section, the address rules
 verify_by: >
   Ask each consumer (pf-oidf-modules, idp-agentic-demo, domain-authority) whether its PingFederate runs on an
