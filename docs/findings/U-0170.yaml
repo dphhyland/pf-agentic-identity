@@ -19,6 +19,6 @@ notes: >
   guard on a flag whose name matches (?i).*(secure|disable|selfCert|selfSign|validat|verif|trust|ignore|
   nocertificatecheck).* controls it. InsecureTls.trustAnyCertificate calls init only inside `if (insecureTls)`,
   the parameter that carries the setting's value. That is the query's own exclusion for an intentionally
-  insecure use, not a way around it: every trust-all here is behind an operator's switch. Not yet seen in a
-  CodeQL run; if the query reports InsecureTls after all, the alert is the one development-only trust-all and
-  only David dismisses it.
+  insecure use, not a way around it: every trust-all here is behind an operator's switch. Should a later CodeQL
+  release report InsecureTls after all, the alert is the one development-only trust-all and only David
+  dismisses it.

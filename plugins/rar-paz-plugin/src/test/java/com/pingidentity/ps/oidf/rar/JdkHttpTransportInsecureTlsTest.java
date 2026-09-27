@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -38,6 +39,8 @@ class JdkHttpTransportInsecureTlsTest {
     @Test
     void theSwitchAcceptsASelfSignedCertificateForTheHostDialled() throws Exception {
         assertEquals(200, new JdkHttpTransport(true, 5000).post(rightName.url("/"), "{}", Map.of()).status());
+        assertEquals(Set.of("Skip TLS verification (dev only)"),
+                SelfSignedTlsServer.settingsRecordedBy(() -> new JdkHttpTransport(true, 5000)));
     }
 
     @Test

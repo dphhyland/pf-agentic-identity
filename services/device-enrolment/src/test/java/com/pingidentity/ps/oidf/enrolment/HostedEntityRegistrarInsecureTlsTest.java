@@ -10,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -44,6 +45,8 @@ class HostedEntityRegistrarInsecureTlsTest {
     @Test
     void theSwitchAcceptsASelfSignedCertificateForTheHostDialled() throws Exception {
         assertEquals("https://authority.example/agents/a1", register(rightName, true));
+        assertEquals(Set.of("PF_AUTHORITY_INSECURE_TLS"), SelfSignedTlsServer.settingsRecordedBy(
+                () -> new HostedEntityRegistrar.PingFederate("https://authority.example", rightName.url(""), "admin-token", true)));
     }
 
     @Test

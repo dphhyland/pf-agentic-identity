@@ -3,9 +3,11 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import com.sun.net.httpserver.HttpsConfigurator;
 import com.sun.net.httpserver.HttpsServer;
 import java.io.InputStream;
+import java.lang.reflect.Method;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -15,6 +17,9 @@ import java.security.KeyStore;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.concurrent.Callable;
 import java.util.concurrent.TimeUnit;
 import javax.net.ssl.KeyManagerFactory;
 import javax.net.ssl.SSLContext;
@@ -86,5 +91,22 @@ final class SelfSignedTlsServer implements AutoCloseable {
             }
         }
         return false;
+    }
+
+    /**
+     * The settings platform's InsecureTls records while {@code build} runs, starting from an empty record, so a
+     * site that records its use under another setting's name fails its test. InsecureTls's reset is
+     * package-private, so this reaches it by reflection.
+     */
+    static Set<String> settingsRecordedBy(Callable<?> build) throws Exception {
+        Method reset = InsecureTls.class.getDeclaredMethod("reset");
+        reset.setAccessible(true);
+        reset.invoke(null);
+        build.call();
+        Set<String> settings = new TreeSet<>();
+        for (InsecureTls.Use use : InsecureTls.uses()) {
+            settings.add(use.setting());
+        }
+        return settings;
     }
 }

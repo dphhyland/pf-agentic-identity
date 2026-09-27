@@ -14,6 +14,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.file.Path;
+import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -45,6 +46,7 @@ class AttestationFlowHarnessInsecureTlsTest {
     @Test
     void theSwitchAcceptsASelfSignedCertificateForTheHostDialled() throws Exception {
         assertEquals(200, get(AttestationFlowHarness.httpClient(true), rightName));
+        assertEquals(Set.of("OIDF_HARNESS_INSECURE_TLS"), SelfSignedTlsServer.settingsRecordedBy(() -> AttestationFlowHarness.httpClient(true)));
     }
 
     @Test

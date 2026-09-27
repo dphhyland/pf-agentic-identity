@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
+import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -36,6 +37,8 @@ class JdkHttpClientInsecureTlsTest {
     @Test
     void ignoringSslErrorsAcceptsASelfSignedCertificateForTheHostDialled() throws Exception {
         assertEquals("{}", new JdkHttpClient(true, OutboundUrlPolicy.permissive()).get(rightName.url("/"), "application/json"));
+        assertEquals(Set.of("OIDF_FEDERATION_IGNORE_SSL_ERRORS"),
+                SelfSignedTlsServer.settingsRecordedBy(() -> new JdkHttpClient(true, OutboundUrlPolicy.permissive())));
     }
 
     @Test

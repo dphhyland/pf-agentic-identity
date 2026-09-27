@@ -12,7 +12,8 @@
   (`OIDF_FEDERATION_IGNORE_SSL_ERRORS`), the RAR plugin's "Skip TLS verification (dev only)", the SSF
   receiver's and introspection's insecure-TLS switches, device-enrolment's `PF_AUTHORITY_INSECURE_TLS` and the
   harness ask it; each use logs one WARN naming its setting. What each switch trusts is unchanged: any
-  certificate chain, and the certificate must still name the host dialled.
+  certificate chain, and the certificate must still name the host dialled - except in the harness, which turns
+  the JDK's host-name check off for every run ([F-0162](../../findings/F-0162.yaml)).
 - `tools/trust-scan.py`, a new step in the lint job, fails on a trust-all trust manager, an always-true
   hostname verifier, a null endpoint identification algorithm or the JDK's hostname flag anywhere else in main
   code (F-0042, CodeQL alerts 4 to 9).

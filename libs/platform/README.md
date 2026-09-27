@@ -165,10 +165,12 @@ risks and `refusals()`.
 
 `InsecureTls` is the only place a trust-all trust manager is built and the only place the JDK HTTP client's
 hostname check is turned off (plan item PR-1, finding [F-0042](../../docs/findings/F-0042.yaml)).
-`tools/trust-scan.py`, a step in build.yml's lint job, fails on any other main source that implements or
+`tools/trust-scan.py`, a step in build.yml's lint job, fails on any other Java main source that implements or
 instantiates an `X509TrustManager` (or the extended one), builds a hostname verifier that returns true, sets the
-endpoint identification algorithm to null or empty, or names the JVM property; it exempts this class and the
-gm-api example, and says why.
+endpoint identification algorithm to null or empty, or names the JVM property, and on start-up configuration
+that sets the property; it exempts this class and the gm-api example, and says why. It is a regression lint over
+those shapes, with CodeQL behind it: its docstring lists what it misses, including the rig's Python and shell
+trust-alls.
 
 - `trustAnyCertificate(builder, setting, insecureTls)` returns the `HttpClient.Builder` unchanged when
   `insecureTls` is false, and with a trust-all context when it is true. The first use for a setting name in a

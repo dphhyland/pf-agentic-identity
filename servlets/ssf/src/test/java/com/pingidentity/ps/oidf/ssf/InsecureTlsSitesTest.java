@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
@@ -80,5 +81,19 @@ class InsecureTlsSitesTest {
     void theSettingsAreNamedAsAnOperatorSetsThem() {
         assertEquals("OIDF_SSF_RECEIVER_INSECURE_TLS", PollReceiverClient.RECEIVER_INSECURE_TLS);
         assertEquals("OIDF_SSF_INTROSPECTION_INSECURE_TLS", PfIntrospectionReceiverAuthenticator.INTROSPECTION_INSECURE_TLS);
+    }
+
+    @Test
+    void eachSiteRecordsItsUseUnderItsOwnSetting() throws Exception {
+        Set<String> receiver = Set.of("OIDF_SSF_RECEIVER_INSECURE_TLS");
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
+                () -> SetVerifier.httpJwksSource(rightName.url("/jwks"), 60, true)));
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
+                () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", true)));
+        assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(() -> ReceiverStreamClient.httpTransport("t", true)));
+        assertEquals(Set.of("OIDF_SSF_INTROSPECTION_INSECURE_TLS"), SelfSignedTlsServer.settingsRecordedBy(
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true)));
+        assertEquals(Set.of(), SelfSignedTlsServer.settingsRecordedBy(
+                () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", false)), "off: nothing recorded");
     }
 }

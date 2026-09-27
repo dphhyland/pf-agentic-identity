@@ -24,6 +24,14 @@ hostname flag (a -D option in a start-up line turns the check off for the whole 
 
 The files allowed a hit are listed in EXEMPT, each with why; nothing else is. Exit status: 0 when clean, 1 with
 a list otherwise, 2 when a file cannot be read.
+
+What it does not see. It is a regression lint over the shapes above, with CodeQL's java/insecure-trustmanager
+behind it, not a proof. It reads Java and start-up configuration only: the rig's Python and shell trust-alls
+(conformance/suite, plugins/rar-paz-plugin/paz, curl -k) are outside it. In Java it misses, among others, an
+interface with default methods extending X509TrustManager, a builder's `.hostnameVerifier((h, s) -> true)`, an
+Apache TrustStrategy lambda, and a null algorithm or the flag's name passed through a variable (checked with
+fixtures on 2026-09-28; none of these is in the tree, and nothing here depends on Apache HttpClient, OkHttp or
+Netty).
 """
 import argparse
 import os
