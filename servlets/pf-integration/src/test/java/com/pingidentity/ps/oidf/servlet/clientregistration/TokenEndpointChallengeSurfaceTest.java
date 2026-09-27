@@ -201,6 +201,10 @@ class TokenEndpointChallengeSurfaceTest {
         when(req.getHeaders("OAuth-Client-Attestation-PoP")).thenAnswer(i -> Collections.enumeration(List.of(pop)));
         when(req.getHeaders("DPoP")).thenAnswer(i -> Collections.enumeration(List.of()));
         when(req.getRequestURL()).thenAnswer(i -> new StringBuffer(TOKEN_ENDPOINT));
+        // Routed as PingFederate routes a token request: no context path, the *.oauth2 servlet path.
+        when(req.getContextPath()).thenReturn("");
+        when(req.getServletPath()).thenReturn("/as/token.oauth2");
+        when(req.getRequestURI()).thenReturn("/as/token.oauth2");
         when(req.getMethod()).thenReturn("POST");
         Map<String, String[]> params = new HashMap<>();
         params.put("grant_type", new String[]{"client_credentials"});
