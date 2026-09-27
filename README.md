@@ -33,6 +33,7 @@ names below carry the project version, written `<version>`.
 | Path | What it is | Artifact |
 |---|---|---|
 | `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-<version>.jar` |
+| `libs/rar-model` | The **RFC 9396 containment model**: per-type field rules (sets, limits with a unit, `instructedAmount`, instants, equality, nested objects, forbidden fields), three built-in types, more from a models document, and `contains` / `authorize` / `intersect` over lists held to fixed limits, with a fingerprint of the effective model. JDK only. Closes blocker B1 once S1b/S1c wire it into the authenticator, the issuer and the plugin | `rar-model-<version>.jar` |
 | `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-<version>.jar` |
 | `libs/openid-federation` | **OpenID Federation 1.0** (Final): trust-chain validation against pinned anchors, metadata policy, constraints, Trust Marks (verify and issue), the federation endpoints' logic, hosted entities and their key history, the AuthZEN policy decision client, and the event API - no PingFederate code | `openid-federation-<version>.jar` |
 | `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-<version>.jar` |
