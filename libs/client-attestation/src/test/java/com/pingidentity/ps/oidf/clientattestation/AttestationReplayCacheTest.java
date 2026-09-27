@@ -39,4 +39,27 @@ class AttestationReplayCacheTest {
         // "a" was evicted, so it is accepted again (acceptable trade-off documented on the cache)
         assertTrue(cache.firstSeen("c", "a", 300L));
     }
+
+    @Test
+    void theVerdictIsFirstUseThenReplayAndNeverUnavailable() {
+        InMemoryAttestationReplayCache cache = new InMemoryAttestationReplayCache();
+        assertTrue(cache.record("c", "j", 300L) == AttestationReplayCache.Verdict.FIRST_USE);
+        assertTrue(cache.record("c", "j", 300L) == AttestationReplayCache.Verdict.REPLAY);
+        assertTrue(cache.record(null, "j", 0L) == AttestationReplayCache.Verdict.FIRST_USE, "a null client is the empty client");
+    }
+
+    @Test
+    void aNullJtiIsRefusedLikeABlankOne() {
+        InMemoryAttestationReplayCache cache = new InMemoryAttestationReplayCache();
+        assertThrows(IllegalArgumentException.class, () -> cache.record("c", null, 300L));
+    }
+
+    @Test
+    void anExpiredEntryIsFirstUseAgain() throws Exception {
+        InMemoryAttestationReplayCache cache = new InMemoryAttestationReplayCache();
+        assertTrue(cache.record("c", "j", 1L) == AttestationReplayCache.Verdict.FIRST_USE);
+        Thread.sleep(1100L);
+        assertTrue(cache.record("c", "j", 1L) == AttestationReplayCache.Verdict.FIRST_USE,
+                "a jti whose record has expired is not a replay: the proof it came from is stale on its own iat");
+    }
 }

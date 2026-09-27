@@ -3,17 +3,37 @@ title: B2 Raw platform evidence embedded in attestations
 severity: blocker
 area: attestation-issuer
 source: review-2026-09-26
-status: open
+status: closed
 plan_items: [S-3, S3a, S3b]
-prs: []
-verification: ''
+prs: [31]
+verification: >
+  Closed by S3b on 2026-09-27 (commit aca3f0c on prod/p1-evidence-binding). Read in the worktree: InstanceIdentity.ofSpiffe no longer puts
+  svid.raw() into workloadClaims, WalletInstanceAttestationValidator no longer puts the presented WIA
+  there (the note above saying the WIA was not raw was wrong: it was, as workload.instance_attestation),
+  and AttestationMinter writes instance_attestation_sha256, _type and _exp. AttestationIssuanceServletTest
+  decodes the minted JWT for the SPIFFE, GKE and wallet paths and asserts the raw token is absent and the
+  digest is present; ClientAttestationUtils.attestationContext and the plugin's AttestationSubject
+  forward the workload map whole, so nothing downstream can see what the issuer no longer writes. The
+  evidence binds to its first presenter (EvidenceBindingStore, Redis SET NX against redis:7-alpine and the
+  in-memory store), a second presenter is 401 instance_attestation_bound with an
+  attestation.evidence.conflict audit event, evidence lifetime is capped at 86400 s in production and the
+  attestation's exp never passes the evidence's. Residual risk recorded in servlets/attestation-issuer/README.md.
+  Verified again on 2026-09-27 at 0c9f7a9, after bind moved to SET NX PX and a key that can be neither taken nor
+  read became STORE_UNAVAILABLE rather than CONFLICT: mvn -o -B clean verify with Postgres and both Redis
+  instances, 2451 tests and no failures, RedisLiveTest 5 of 5 against redis:7-alpine plaintext and TLS.
+  The adversarial review of ee34324 (2026-09-27) found the binding bypassable: the digest was over the
+  evidence string as presented, and jose4j 0.9.6 verifies one signed token with a trailing space or newline,
+  with stray characters or padding in the signature, with non-canonical trailing bits and as the ECDSA
+  (r, n-s) twin, each with a different SHA-256. Fixed in 57787b5: the digest is the SHA-256 of the JWS
+  Signing Input (the first two segments), which no re-encoding changes without breaking the signature, and
+  it keys both the binding and instance_attestation_sha256. A probe against the jose4j jar on 2026-09-27
+  (ES256, ES384, RS256, PS256) found every variant that verifies has the original's signing input, and every
+  change to the header or payload segments fails verification. AttestationIssuanceServletTest presents
+  six re-encodings of a JWT-SVID and of a GKE token with a thief's key and gets instance_attestation_bound
+  and a conflict event for each, the event naming the thief's key and the rightful one (bound_jkt); hashing
+  the whole string again fails three of its tests.
 target_release: 0.4.0
 notes: >
   The minted attestation carries the raw platform token (`workload.svid`, and the six cloud validators'
   tokens; not the wallet WIA) whose audience is the attester, and the issuer checks the key proof only against
   the caller's key: anyone who sees an attestation can re-mint for their own key until the evidence expires.
-  S3b replaces the token with a digest (`workload.instance_attestation_sha256`, `_type`, `_exp`) and binds
-  evidence to the first instance key that presents it (EvidenceBindingStore, Redis SET NX PX, 401 plus a theft
-  event on conflict); S3a makes the store verdicts tri-state and refuses `redis://` in production. Residual
-  once fixed: a thief who uses the evidence first wins - detectable, not preventable, without key-bound
-  evidence.
