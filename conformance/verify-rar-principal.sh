@@ -38,6 +38,13 @@ export PF_AUTHOR_ADMIN_PORT="${PF_AUTHOR_ADMIN_PORT:-44999}" PF_AUTHOR_RUNTIME_P
 export PF_AUTHOR_ENV="${PF_AUTHOR_ENV:-$HERE/.author.env}"
 export RAR_PLUGIN_JAR="${RAR_PLUGIN_JAR:-$REPO/plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar}"
 export COMPOSE_FILE="docker-compose.yml:docker-compose.rar-plugin.yml"
+# The compose project up.sh uses (its rule, repeated: the default rig keeps this directory's project name),
+# so the restart in the rehearsal and the teardown address the rig up.sh started and not a namesake.
+if [[ "$PF_RIG_NAME" == pf-agentic-identity ]]; then
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-conformance}"
+else
+  export COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME:-$PF_RIG_NAME}"
+fi
 STUB_PORT="${STUB_PORT:-45500}"
 OUT="${OUT_DIR:-$HERE/.rar-principal}"
 PF="https://localhost:$PF_PORT_HTTPS"
@@ -206,9 +213,9 @@ cleanup() {
   echo; echo "── tearing down ──"
   [[ -n "${ADAPTER_ORIGINAL:-}" ]] && restore_adapter
   unconfigure
-  kill "$STUB_PID" 2>/dev/null
+  kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null
   if [[ "${KEEP_RIG:-0}" != 1 ]]; then
-    ( cd "$HERE" && docker compose down --rmi local --volumes --remove-orphans ) >/dev/null 2>&1
+    ( cd "$HERE" && docker compose down --rmi local --volumes --remove-orphans ) > "$OUT/compose-down.log" 2>&1
     docker rm -f "${PF_AUTHOR_NAME:-$PF_RIG_NAME-author}" >/dev/null 2>&1
     echo "rig $PF_RIG_NAME is down"
   fi
@@ -231,7 +238,7 @@ if [[ -n "${OLD_PLUGIN_JAR:-}" ]]; then
   echo "   before: the old plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"]') (HTTP $TOKEN_STATUS at the token endpoint)"
   curl -sk -o "$OUT/archive-old.zip" -u "administrator:$PW" -H 'X-XSRF-Header: PingFederate' "$ADMIN/configArchive/export"
   echo "   exported the archive; the field is stored as: $(unzip -p "$OUT/archive-old.zip" 'authorization-detail-processors/*' | grep -o '<urn:Field name="Shared Secret">[^<]*' | sed 's/.*>//' | sed "s/$SECRET/<the plaintext secret>/")"
-  ( cd "$HERE" && docker compose up -d ) >/dev/null 2>&1   # RAR_PLUGIN_JAR now names the jar under test
+  ( cd "$HERE" && docker compose up -d ) > "$OUT/compose-restart.log" 2>&1   # RAR_PLUGIN_JAR now names the jar under test
   wait_for_pf
   curl -sk -o /dev/null -w '   imported the archive under the new jar: HTTP %{http_code}\n' -X POST -u "administrator:$PW" -H 'X-XSRF-Header: PingFederate' \
     -F "file=@$OUT/archive-old.zip" "$ADMIN/configArchive/import?forceImport=true"
