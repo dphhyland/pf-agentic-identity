@@ -27,9 +27,10 @@
 # its archive fails in a way that reads like data corruption.
 #
 # Env:
-#   PF_ARCHIVE_FILE          the archive to boot from: age-encrypted (preferred) or a plain configArchive,
-#                            told apart by content. Default: data.zip.age in the drop-in directory, else
-#                            data.zip there. A mounted secret is the usual reason to set it.
+#   PF_ARCHIVE_FILE          the archive to boot from: age-encrypted (preferred; binary or `age -a` armored)
+#                            or a plain configArchive, told apart by content. Default: data.zip.age in the
+#                            drop-in directory, else data.zip there. A mounted secret is the usual reason
+#                            to set it.
 #   PF_ARCHIVE_AGE_KEY_FILE  a path to the age identity (a mounted secret file). Preferred.
 #   PF_ARCHIVE_AGE_KEY       the identity itself (AGE-SECRET-KEY-1...). Read only when _FILE is unset.
 #                            Both are removed from the environment before PingFederate starts.
@@ -61,8 +62,11 @@ die() { log "FATAL: $*"; exit 1; }
 sha256_of() {
     if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
 }
-# An age file starts with its format line; nothing else is decrypted.
-is_age() { [ "$(head -c 21 "$1")" = "age-encryption.org/v1" ]; }
+# An age file starts with its version line, or with the PEM header of the armor `age -a` writes (the C2SP
+# age spec: RFC 7468 encoding, label "AGE ENCRYPTED FILE"; both seen from age 1.3.1 on 2026-09-27, which
+# decrypts either without being told which). Nothing else is decrypted. The bytes stay in a pipe rather
+# than a shell variable: a zip has NULs in its first 34.
+is_age() { head -c 34 "$1" | head -n 1 | grep -qsE '^(age-encryption\.org/v1|-----BEGIN AGE ENCRYPTED FILE-----)$'; }
 is_development() { [ "$(printf '%s' "$PROFILE" | tr '[:upper:]' '[:lower:]')" = development ]; }
 
 # --- which archive ---

@@ -18,8 +18,8 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   the other profile.
 - **R-I4 Entrypoint hardening** - `umask 077` first; `PF_ARCHIVE_AGE_KEY_FILE` preferred, the inline key piped and
   both variables unset before PingFederate starts; `PF_ARCHIVE_SHA256` checked before the archive is decrypted or
-  imported; `PF_ARCHIVE_FILE`; a plaintext archive refused unless `OIDF_DEPLOYMENT_PROFILE=development`; the tmpfs
-  claim corrected; `test-entrypoint.sh`.
+  imported; `PF_ARCHIVE_FILE`, binary or armored age; a plaintext archive refused unless
+  `OIDF_DEPLOYMENT_PROFILE=development`; the tmpfs claim corrected; `test-entrypoint.sh`.
 - **X-D02 ciba-sim conformance-only** - the decision endpoint (404) and the authenticator (`OOBAuthGeneralException`)
   refuse every request unless `OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and
   `OIDF_CIBA_SIM_DIR` is an existing private directory the plugin owns; the rig sets all three.

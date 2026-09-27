@@ -31,10 +31,17 @@ sha256_of() {
 mode_of() { stat -c %a "$1" 2>/dev/null || stat -f %Lp "$1"; }
 
 WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+# The fixtures hold the identity by design, so they get a directory of their own, outside every tree the
+# leak sweep below reads.
+FIX="$(mktemp -d)"
+trap 'rm -rf "$WORK" "$FIX"' EXIT
+# physical DIR: DIR with its symlinks resolved and no trailing slash, so the paths find prints and the paths
+# it is told to skip are spelled the same way (macOS: /tmp is /private/tmp, and TMPDIR ends in a slash).
+physical() { (cd "$1" 2>/dev/null && pwd -P); }
+WORK_P="$(physical "$WORK")"; FIX_P="$(physical "$FIX")"
 
-# --- fixtures: a configArchive-shaped zip, an identity, its ciphertext, and a second identity ---
-FIX="$WORK/fixtures"; mkdir -p "$FIX/archive/config-store"
+# --- fixtures: a configArchive-shaped zip, an identity, its ciphertext (binary and armored), and a second identity ---
+mkdir -p "$FIX/archive/config-store"
 printf '{"keys":[{"kty":"oct","k":"not-a-real-master-key"}]}\n' > "$FIX/archive/pf.jwk"
 printf '<system-keys/>\n' > "$FIX/archive/pingfederate-system-keys.xml"
 printf '<config/>\n' > "$FIX/archive/config-store/example.xml"
@@ -45,6 +52,7 @@ age-keygen -o "$FIX/other-identity.txt" 2>/dev/null
 IDENTITY="$(grep '^AGE-SECRET-KEY-1' "$FIX/identity.txt")"
 OTHER_IDENTITY="$(grep '^AGE-SECRET-KEY-1' "$FIX/other-identity.txt")"
 age -r "$(age-keygen -y "$FIX/identity.txt")" -o "$FIX/data.zip.age" "$FIX/data.zip"
+age -a -r "$(age-keygen -y "$FIX/identity.txt")" -o "$FIX/data.zip.age.armored" "$FIX/data.zip"
 SUM_AGE="$(sha256_of "$FIX/data.zip.age")"
 SUM_ZIP="$(sha256_of "$FIX/data.zip")"
 
@@ -82,6 +90,23 @@ refused() { [[ $RC -ne 0 && ! -f "$OUT/env" ]]; }
 logged()  { [[ "$LOG" == *"$1"* ]]; }
 env_lacks() { ! grep -q "^$1=" "$OUT/env"; }
 env_has()   { grep -q "^$1=" "$OUT/env"; }
+# identity_on_disk MARKER: is the inline identity in any file a run could have written - anything under the
+# work directory, or a regular file newer than MARKER under a temp directory: the script's own TMPDIR, and
+# /tmp, where a `mktemp` in the entrypoint would land (`run` gives it no TMPDIR)? The fixtures are skipped;
+# they hold the identity by design. Only options busybox grep and find have, because the image's are
+# busybox: a `--include` here once made busybox grep exit 2, and the negated check pass whatever the
+# entrypoint had written. The control checks below plant the identity to prove the sweep can fail.
+identity_on_disk() {
+  grep -rqsF "$IDENTITY" "$WORK" && return 0
+  local dir found
+  for dir in "${TMPDIR:-/tmp}" /tmp; do
+    dir="$(physical "$dir")" || continue
+    found="$(find "$dir" -type f -newer "$1" ! -path "$FIX_P/*" ! -path "$WORK_P/*" \
+               -exec grep -lsF "$IDENTITY" {} + 2>/dev/null || true)"
+    [[ -n "$found" ]] && return 0
+  done
+  return 1
+}
 
 echo "pf-entrypoint.sh: $ENTRYPOINT"
 
@@ -122,12 +147,32 @@ check "nothing was decrypted" '[[ ! -f "$DROP/data.zip" && -f "$DROP/data.zip.ag
 
 prepare encrypted-inline-key
 cp "$FIX/data.zip.age" "$DROP/"
+# The sweep looks for files newer than this marker; the second between them is for a filesystem whose
+# timestamps are whole seconds.
+MARK="$WORK/$CASE/marker"; touch "$MARK"; sleep 1
 run PF_ARCHIVE_AGE_KEY="$IDENTITY"
 check "an inline identity decrypts the archive, on the default profile" 'booted && logged "config archive ready"'
 check "the decrypted archive and the keys are in place and private" '[[ -f "$DROP/data.zip" && "$(mode_of "$DROP/data.zip")" == 600 && "$(mode_of "$DATA/pf.jwk")" == 600 && -f "$DATA/pingfederate-system-keys.xml" ]]'
 check "the ciphertext the image carried is gone" '[[ ! -f "$DROP/data.zip.age" ]]'
 check "PingFederate does not see the identity" 'env_lacks PF_ARCHIVE_AGE_KEY && env_lacks PF_ARCHIVE_AGE_KEY_FILE'
-check "the identity was never written to disk" '! grep -rqs "AGE-SECRET-KEY-1" "$WORK/$CASE" "${TMPDIR:-/tmp}" --include="*" 2>/dev/null || ! grep -rqs "$IDENTITY" "${TMPDIR:-/tmp}" 2>/dev/null'
+check "the identity is in no file: not under the work directory, not written to a temp directory" '! identity_on_disk "$MARK"'
+
+# A sweep that cannot fail proves nothing (this one's first version could not, under busybox grep): plant
+# the identity where a leak would land, in both places, and make sure the same predicate finds it.
+CASE=control-planted-identity; mkdir -p "$WORK/$CASE"
+printf '%s\n' "$IDENTITY" > "$WORK/$CASE/leak"
+check "the sweep finds an identity planted under the work directory" 'identity_on_disk "$MARK"'
+rm -f "$WORK/$CASE/leak"
+LEAK="$(mktemp "${TMPDIR:-/tmp}/pf-entrypoint-test.XXXXXX")"
+printf '%s\n' "$IDENTITY" > "$LEAK"
+check "and one planted in the temp directory" 'identity_on_disk "$MARK"'
+rm -f "$LEAK"
+check "and nothing once both are removed" '! identity_on_disk "$MARK"'
+
+prepare encrypted-armored
+cp "$FIX/data.zip.age.armored" "$DROP/data.zip.age"
+run PF_ARCHIVE_AGE_KEY="$IDENTITY"
+check "an archive armored with age -a is encrypted, not plaintext: it boots on the default profile" 'booted && logged "decrypting" && [[ -f "$DROP/data.zip" && -f "$DATA/pf.jwk" ]]'
 
 prepare encrypted-key-file
 cp "$FIX/data.zip.age" "$DROP/"

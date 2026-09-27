@@ -92,9 +92,15 @@ PF_BASE_URL=https://your.host:port ./up.sh     # substitutes it into the archive
 The suite opens its own TLS handshakes against the token, authorization and userinfo endpoints and fails
 anything it does not like about the listener, so the listener has to be PF's own 9031, reached through
 a TLS-passthrough TCP proxy and not an HTTP edge that terminates TLS. `.context/` is the build context
-a deploy tool wants (`docker build .context`, or your platform's equivalent); the deployed service needs
-`.context/vars.env`'s values plus your DevOps credentials as its variables. The demo repo
-`pf-oidf-modules` deploys one such PF (project `pf-conformance`) and keeps the platform-specific pieces.
+a deploy tool wants - `docker build --build-arg STAGING_PROFILE=conformance .context`, or your platform's
+equivalent, and the build arg is not optional: `up.sh` stages `modules/` for the conformance profile,
+`compose-context.sh` accepts nothing else, and the assembler refuses to build that stage into an image for
+the default profile, production (`modules/ was staged for the conformance profile, and this image is being
+built for production`; verified 2026-09-27). What comes out is a conformance image: it carries the CIBA
+simulator, which runs only where the three settings `.context/vars.env` carries say so
+([plugins/ciba-sim](../plugins/ciba-sim/README.md)). The deployed service needs `.context/vars.env`'s
+values plus your DevOps credentials as its variables. The demo repo `pf-oidf-modules` deploys one such PF
+(project `pf-conformance`) and keeps the platform-specific pieces.
 
 ## Why it is shaped like this
 

@@ -166,8 +166,8 @@ Count the digest lines instead: `grep -cE '^[0-9a-f]{64}  ' MANIFEST`.
 1. `umask 077`, before anything is written - the decrypted archive, the keys, and every file the base
    image's hooks go on to copy are readable by PingFederate's user alone.
 2. Chooses the archive: `PF_ARCHIVE_FILE` if set, else `data.zip.age` in the drop-in directory, else
-   `data.zip` there. Encrypted and plain are told apart by content (an age file starts with
-   `age-encryption.org/v1`), not by name.
+   `data.zip` there. Encrypted and plain are told apart by content, not by name: an age file starts with
+   `age-encryption.org/v1`, or with `-----BEGIN AGE ENCRYPTED FILE-----` when it was made with `age -a`.
 3. If `PF_ARCHIVE_SHA256` is set, checks the archive against it - before it is decrypted or imported.
 4. Decrypts an encrypted archive with the identity from `PF_ARCHIVE_AGE_KEY_FILE`, or, only when that is
    unset, from `PF_ARCHIVE_AGE_KEY`. The inline identity reaches `age` on a pipe, never a temporary file
@@ -227,10 +227,10 @@ so size it:
 docker run ... --tmpfs /opt/out:rw,exec,size=2g,uid=9031,gid=0,mode=0770 ...
 ```
 
-`exec` is not optional: Docker mounts a tmpfs `noexec` unless told otherwise, and the runtime's `run.sh`
-then fails with `Permission denied` before PingFederate starts (seen 2026-09-27: exit 126, after the
-licence had been fetched). With it, the boot described under "Verified" below came up with `/opt/out` a
-2 GB tmpfs, 569 MB used. With `PF_ARCHIVE_FILE` pointing at a mounted secret, the drop-in copy under
+Pass `exec` explicitly. On 2026-09-27, with it left out of the mount options, the runtime's `run.sh` failed
+with `Permission denied` before PingFederate started (exit 126, after the licence had been fetched); with it
+in, the boot described under "Verified" below came up with `/opt/out` a 2 GB tmpfs, 569 MB used. With
+`PF_ARCHIVE_FILE` pointing at a mounted secret, the drop-in copy under
 `/opt/in` can go on a tmpfs too (`--tmpfs /opt/in/instance/server/default/data/drop-in-deployer`), leaving
 the extracted keys under `PF_DATA_DIR` and the `/opt/staging` copy on the writable layer: `/opt/staging`
 holds the hooks and cannot be a mount, and `PF_DATA_DIR` holds the image's `config-store/` overlay. Plan
@@ -240,10 +240,14 @@ item R-I3 (Phase 3) revisits the layout.
 with a wrong one, and a `docker save` layer scan of an image built this way found **no** key material,
 against a plaintext-built control that found four files - a control that matters, because an earlier
 version of the same scan reported "clean" for both images and was simply broken. 2026-09-27 on 13.1.3:
-the base image is alpine 3.24.1 with `age` 1.3.1, and `test-entrypoint.sh --image` ran its 38 checks inside
-an image built from this Dockerfile, as the `ping` user - every refusal above, the file-over-variable
-preference, `umask 077` reaching the process the entrypoint hands over to, both identity variables absent
-from its environment, and the inline identity found nowhere on disk. The same day, on a real boot: the
+the base image is alpine 3.24.1 with `age` 1.3.1, and `test-entrypoint.sh --image` ran its 42 checks inside
+an image built from this Dockerfile, as the `ping` user, and again in the base image with GNU grep beside
+busybox's - every refusal above, the file-over-variable preference, an archive armored with `age -a` taken
+for encrypted and not for plaintext, `umask 077` reaching the process the entrypoint hands over to, both
+identity variables absent from its environment, and the inline identity in no file under the test's work
+directory and in none written to a temp directory during the run. That last check is proved live by two
+more that plant the identity in both places and find it; its first version passed whatever the entrypoint
+wrote, because the image's busybox grep rejected an option it used. The same day, on a real boot: the
 rig's image started from an age-encrypted archive named by `PF_ARCHIVE_FILE` on a read-only mount, the
 identity from `PF_ARCHIVE_AGE_KEY_FILE`, `PF_ARCHIVE_SHA256` set, under `OIDF_DEPLOYMENT_PROFILE=production`,
 first on the writable layer and then with `/opt/out` on the tmpfs above. Both times the entrypoint logged
@@ -269,8 +273,10 @@ build/pingfederate/test-entrypoint.sh --image <built image>  # the same inside t
 
 Each case boots the entrypoint from a fresh data directory under `env -i`, with the base image's
 `bootstrap.sh` replaced by a stub that records its environment, umask, working directory and arguments,
-and asserts on what was written, what was refused and what PingFederate would have seen. It becomes a CI
-step in Phase 2 (plan item R-CI6). Every script in this directory is shellcheck-clean (0.11.0, 2026-09-27).
+and asserts on what was written, what was refused and what PingFederate would have seen. One check sweeps
+the work directory and the temp directories for the inline identity, and two more plant it there so the
+sweep is known to fail when it should. It becomes a CI step in Phase 2 (plan item R-CI6). Every script in
+this directory is shellcheck-clean (0.11.0, 2026-09-27).
 
 Because the modules sit at the **root** context, their endpoints have no `/oidf` prefix - the challenge
 endpoint is `/federation/attestation-challenge`, and `/.well-known/ssf-configuration` is at root.
