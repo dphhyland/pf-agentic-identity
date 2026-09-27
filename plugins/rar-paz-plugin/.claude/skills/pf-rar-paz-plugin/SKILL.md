@@ -126,10 +126,17 @@ question goes to the model.
 14. **The attestation filter and the plugin must load one model set.** The filter publishes
     `rar_models_fingerprint` in the attestation context (0.4.0 on); the plugin refuses a context
     without it or with another value. Deploy the plugin and the filter from one release, with one
-    `OIDF_RAR_MODELS_FILE` for the whole PF process. No context at all is decided without the check.
-15. **A refresh is compared only when it restates `authorization_details`,** strictly: more, another
-    payee or another currency than the grant is `invalid_authorization_details`; a bare refresh
-    reissues the stored details without asking the plugin or the PDP (javap, 13.1.3).
+    `OIDF_RAR_MODELS_FILE` for the whole PF process. No context at all - a client the filter did not
+    verify, the authorization endpoint's resume, CIBA's backchannel request, PingFederate's consent and
+    grant-reuse checks - is decided without the check.
+15. **A refresh is compared with its grant only when it restates `authorization_details`,** strictly:
+    more, another payee or another currency than the grant is `invalid_authorization_details`. A bare
+    refresh reissues the stored details without asking the PDP; the plugin is asked only where approved
+    consent is reused ("bypass authorization for approved consents" on, the client not bypassing the
+    approval page), whether the stored details are within the consent, and a no revokes the grant
+    (javap, 13.1.3).
+16. **`validate` still checks only `type`.** On the JWT-bearer grant PingFederate calls `validate` and
+    never `enrich`, so those details reach the token without the model or the PDP (F-0108).
 
 ## How to build
 ```bash

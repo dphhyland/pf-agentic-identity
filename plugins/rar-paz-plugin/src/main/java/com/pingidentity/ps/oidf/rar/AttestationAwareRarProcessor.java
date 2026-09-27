@@ -463,13 +463,18 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      *
      * <p>What PingFederate 13.1.3 does around this call, read with {@code javap} on 2026-09-27
      * ({@code RefreshTokenGrantProcessor.processGrant}, {@code AuthorizationDetailsServiceImpl} and
-     * {@code AuthorizationDetailsUtil}): only a refresh that carries {@code authorization_details} is compared -
-     * without one the stored details are reissued and no processor is called. The requested details are
-     * enriched first, with the grant's user key, then each must be within some stored detail of the same type
-     * ({@code allMatch} over the request, {@code anyMatch} over the grant, the type compared by PingFederate before
-     * this method is called), with a context that carries the request, the client id and the scope and no user
-     * key, and an empty parameter map. PingFederate passes copies of both details; a {@code false}, or an
-     * {@link AuthorizationDetailProcessingException}, makes it answer {@code invalid_authorization_details}.
+     * {@code AuthorizationDetailsUtil}): only a refresh that carries {@code authorization_details} is compared with
+     * its grant. The requested details are enriched first, with the grant's user key, then each must be within some
+     * stored detail of the same type ({@code allMatch} over the request, {@code anyMatch} over the grant, the type
+     * compared by PingFederate before this method is called), with a context that carries the request, the client id
+     * and the scope and no user key, and an empty parameter map. PingFederate passes copies of both details; a
+     * {@code false}, or an {@link AuthorizationDetailProcessingException}, makes it answer
+     * {@code invalid_authorization_details}. A refresh without the parameter reissues the stored details and the PDP
+     * is not asked. This method is then called only where approved consent is reused ("bypass authorization for
+     * approved consents" on, and a client that does not bypass the approval page), through
+     * {@code OAuthConsentManagerDefaultImpl.isGranted}: the stored details against the user's consent, and a
+     * {@code false} revokes the grant. That caller, like PingFederate's grant-reuse lookups, passes a context with no
+     * request, so there is no attestation context to compare.
      */
     @Override
     public boolean isEqualOrSubset(AuthorizationDetail requested, AuthorizationDetail accepted,

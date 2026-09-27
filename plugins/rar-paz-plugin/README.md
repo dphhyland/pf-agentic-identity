@@ -106,6 +106,11 @@ array fields and let every other value through, is gone with its contract test.
   agent - and then stripped before anything is asked; the model declares both forbidden, so a detail that reached
   it with either would be malformed.
 - **Failing open** grants only a detail the model has checked, since the check comes before the PDP call.
+- **Not at `validate`.** PingFederate calls the processor's `validate` at PAR and the authorization endpoint, at
+  CIBA's backchannel request, at the device authorization endpoint and at the token endpoint (`javap`, 13.1.3.0);
+  it still checks only that `type` is there. So a detail the model refuses is refused at the resume or at the
+  token endpoint, not at PAR. On the JWT-bearer grant, which calls `validate` and never `enrich`, the requested
+  details reach the token without the model or the PDP (F-0108).
 - **Types.** `OIDF_RAR_EXTRA_TYPES` still decides which types PingFederate may bind to the processor. A type
   named there without a model is refused in production (`UNMODELLED_TYPE`); with
   `OIDF_DEPLOYMENT_PROFILE=development` the library's common-fields model stands in. A type a models document
@@ -129,12 +134,16 @@ own before it asks the model anything:
 - the same fingerprint: decided as above;
 - another fingerprint, or a context without the member (a filter from before 0.4.0), or a context that is not a
   map: refused before any PDP call, and `isEqualOrSubset` answers `false`;
-- no context at all - a client the filter did not verify, or the authorization endpoint's resume, which the
-  filter never sees: nothing to compare, and the plugin decides as 0.4.0's principal work (PR #29) left it - the
-  PDP is asked about the request alone, with no attested ceiling - with the model's checks above.
+- no context at all - a client the filter did not verify, the authorization endpoint's resume and CIBA's
+  backchannel request, which the filter never sees, and PingFederate's consent and grant-reuse checks, which pass
+  no request: nothing to compare, and the plugin decides as 0.4.0's principal work (PR #29) left it - the PDP is
+  asked about the request alone, with no attested ceiling - with the model's checks above.
 
-So this plugin with an attestation filter from before 0.4.0 refuses every request from an attested client:
-deploy the two from one release.
+The filter runs over the token endpoint and PAR, and PingFederate asks this processor to decide only at the token
+endpoint: client credentials and token exchange (`enrich`) and a refresh that restates `authorization_details`
+(`enrich`, then `isEqualOrSubset`). So this plugin beside an attestation filter from before 0.4.0 refuses those
+requests from every attested client, before the PDP is asked, with `invalid_authorization_details`: deploy the
+two from one release.
 
 ### What PingFederate 13.1.3 asks on a refresh
 
@@ -150,17 +159,25 @@ Read with `javap -c` from `pf-protocolengine` and `pingfederate-sdk` 13.1.3.0 on
   pair - copies of both details, a context with the request, the client id and the scope and no user key, and an
   empty parameter map - taking the first yes. A `false` or an `AuthorizationDetailProcessingException` makes it
   answer `invalid_authorization_details`; on success the token carries the requested (enriched) details.
-- A refresh without `authorization_details` reissues the stored details; no processor is called and the PDP is
-  not asked (F-0105).
+- A refresh without `authorization_details` reissues the stored details, and the PDP is not asked (F-0105). No
+  processor is called either, unless approved consent is reused: with "bypass authorization for approved
+  consents" on and a client that does not bypass the approval page, PingFederate asks `isEqualOrSubset`, through
+  `OAuthConsentManagerDefaultImpl.isGranted`, whether the stored details are within the user's approved consent,
+  and on a no revokes the grant and answers `invalid_scope` ("revoked, or expired consent").
 - An empty requested list (`[]`) asks no processor either, and issues no details.
 
 PingFederate also asks `isEqualOrSubset` outside refresh, and the strict answer applies there too: whether
-approved consent covers a request (`OAuthConsentManagerDefaultImpl.isGranted`, also asked on a refresh when
-"bypass authorization for approved consents" applies), which consent records an updated consent covers and which
-it revokes (`createOrUpdate`), which requested details are already approved at the authorization endpoint
+approved consent covers a request (`OAuthConsentManagerDefaultImpl.isGranted`, also asked on a refresh as above),
+which consent records an updated consent covers and which it revokes (`createOrUpdate`), which requested details
+are already approved at the authorization endpoint
 (`PingFederateAuthorizationProcessor.getApprovedAuthorizationDetails`), and which stored grant a request can
-reuse (`AccessGrantManagerJdbcImpl` and `AccessGrantManagerLDAPADImpl.getByAccessGrantCriteria`). Read from the
-bytecode only; none of these was driven (U-0115).
+reuse (`getByAccessGrantCriteria`: the SDK's default method on `AccessGrantManager`, which
+`AccessGrantManagerMapImpl` inherits, and the overrides in `AccessGrantManagerJdbcImpl`,
+`AccessGrantManagerLDAPADImpl` - and so `AccessGrantManagerLDAPOracleImpl`, which extends it - and
+`pf-dynamodb-integrations`' `AccessGrantManagerDynamoDBImpl`). The consent and grant-reuse callers pass a
+context with no request, so the plugin sees no attestation context there and compares no fingerprint. Read from
+the bytecode of `pf-protocolengine`, `pingfederate-sdk` and `pf-dynamodb-integrations` 13.1.3.0 only; none of
+these was driven (U-0115).
 
 ### The vectors on the refresh path
 

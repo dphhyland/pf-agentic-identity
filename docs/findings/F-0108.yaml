@@ -1,0 +1,30 @@
+id: F-0108
+title: The RAR plugin's validate checks only the type, and the JWT-bearer grant asks it nothing else, so those details skip the model and the PDP
+severity: high
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [S-1, S4d]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by S1c's adversarial review on 2026-09-27 (PR #36) and read with javap -c of pf-protocolengine 13.1.3.0 the
+  same day. AttestationAwareRarProcessor.validate checks only that type is not blank. PingFederate calls it
+  through AuthorizationDetailsUtil.validate, with a copy of each detail and an empty parameter map, at PAR and the
+  authorization endpoint (AuthorizationRequestSupport.checkAuthorizationDetails), at CIBA's backchannel request,
+  the device authorization endpoint, token exchange and the token endpoint, and in JwtGrantProcessor, which then
+  sets the grant's details and never calls enrich (U-0017). So on the JWT-bearer grant the requested details reach
+  the token without the containment model and without the PDP: a client allowed that grant, asking for a type bound
+  to this processor, gets the details it asks for, unless the attestation filter's ceiling check applies (a client
+  the filter verified, at the token endpoint). Elsewhere the lenient validate costs less: a detail the model
+  refuses is refused at the resume or at the token endpoint rather than where it arrives, although RFC 9396
+  section 5 says "The AS MUST refuse to process any unknown authorization details type or authorization details
+  not conforming to the respective type definition." High: a PDP bypass wherever a client may use the JWT-bearer
+  grant with these types. Not changed in S1c, whose specification covers enrich and isEqualOrSubset, and the rig
+  does not drive the JWT-bearer grant. The fix: validate strips the two markers and asks the model (ModelGate
+  check), so a non-conforming detail is refused where it arrives; and on the JWT-bearer grant validate refuses
+  authorization_details outright (the grant type is on the request), or the plugin asks the PDP there, which needs
+  the principal the grant's assertion names. S4d's issuance criterion on context.OAuthAuthorizationDetails would
+  also hold what the JWT-bearer grant issues to the attested ceiling, for attested clients only. Until then, do not
+  allow the JWT-bearer grant to a client that may send these types.

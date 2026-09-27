@@ -1,4 +1,4 @@
-# The RAR plugin holds every request, every PDP answer and every refresh to the containment model
+# The RAR plugin asks the containment model: the PDP may narrow, never widen, and a restated refresh stays within its grant
 
 ## Changelog
 
@@ -6,15 +6,18 @@
   a request before the PDP, the PDP's answer after it (narrow, never widen), a refresh against its grant - and
   compares the attestation context's `rar_models_fingerprint` with its own. `RarContainment` and its contract test
   are gone. Closes F-0031 and, with S1b, F-0001 (blocker B1); closes F-0106. New in the register: F-0105, F-0106,
-  F-0107, U-0115 and U-0116.
+  F-0107, F-0108, U-0115 and U-0116.
 
 ## Before you deploy
 
 1. **Deploy the plugin and the attestation filter from one release.** The filter publishes its model set's
    fingerprint in the attestation context from 0.4.0 (S1b), and the plugin refuses a request whose context lacks
-   it or carries another: a 0.4.0 plugin beside a 0.3.0 `pf-integration` refuses every request from an attested
-   client, before the PDP is asked, with `invalid_authorization_details`. A request with no attestation context -
-   a client the filter did not verify, or the authorization endpoint's resume - is decided without the comparison.
+   it or carries another. With a 0.4.0 plugin beside a 0.3.0 `pf-integration`, the requests the plugin decides at
+   the token endpoint for a client the filter verified - client credentials or token exchange with
+   `authorization_details`, and a refresh that restates them - are refused before the PDP is asked, with
+   `invalid_authorization_details`. A request with no attestation context is decided without the comparison: a
+   client the filter did not verify, the authorization endpoint's resume, CIBA's backchannel request, and
+   PingFederate's consent and grant-reuse checks, which pass no request.
 2. **Give the whole PingFederate process one models document.** The plugin reads `OIDF_RAR_MODELS_FILE` or
    `OIDF_RAR_MODELS` itself, once, as the filter and the attester do; a plugin GUI field would let the two drift,
    which the fingerprint exists to catch. Unset, the model is the three built-in types. A document the library
@@ -39,15 +42,20 @@
    model's strict `contains`: more than the grant, another payee or another currency, or a constrained field left
    out, is `invalid_authorization_details` where 0.3.0 compared five array fields and issued the rest. A grant
    issued before 0.4.0 whose stored details the model cannot read - a statement's field no model declares, say -
-   can no longer be refreshed with `authorization_details`. A refresh without the parameter is unchanged: the
-   stored details are reissued and neither the plugin nor the PDP is asked (F-0105).
+   can no longer be refreshed with `authorization_details`. A refresh without the parameter still reissues the
+   stored details without asking the PDP (F-0105), and the plugin is asked about it only where approved consent is
+   reused (**Consent and grant reuse follow the stricter answer.**). So a grant issued before 0.4.0, whose details
+   were compared on five array fields only, keeps them for its lifetime: until plan item S4d, revoke or re-issue
+   the grants issued before 0.4.0 that carry `payment_initiation` or `account_information`, and keep refresh-token
+   lifetimes short for those types.
 6. **Consent and grant reuse follow the stricter answer.** PingFederate 13.1.3 also asks `isEqualOrSubset`
    whether approved consent covers a request, which stored grant a request may reuse, and which consent records a
    changed consent deletes (read with `javap`, not driven: U-0115). Expect a consent prompt where 0.3.0 reused a
-   consent for a larger amount. With "bypass authorization for approved consents" on, a grant issued before 0.4.0
-   whose details exceed its consent, or cannot be read by the model, is revoked at its next refresh
-   (`invalid_scope`, "revoked, or expired consent"), bare refreshes included. Revoke or re-issue such grants on
-   your own schedule before the upgrade if that matters.
+   consent for a larger amount. With "bypass authorization for approved consents" on, and for a client that does
+   not bypass the approval page, a grant issued before 0.4.0 whose details exceed its consent, or cannot be read
+   by the model, is revoked at its next refresh (`invalid_scope`, "revoked, or expired consent"), bare refreshes
+   included. Revoke or re-issue such grants on your own schedule before the upgrade if that matters. These checks
+   pass no request, so no attestation context and no fingerprint comparison.
 
 ## Notes
 
@@ -76,12 +84,21 @@ the grant. `tools/pf-linkcheck.py` against the 13.1.3 jars: nothing unresolved i
 a narrowing context was granted (`max_txn_eur` 100; EMEA of EMEA and APAC), a widening one and one writing an
 undeclared field answered 400 `invalid_authorization_details`, a request with an undeclared field answered 400
 with no PDP call, and a CIBA grant for 42.00 AUD refused refreshes for 43.00 and for another payee and granted
-41.00; nothing of the PDP's answer reached `server.log`. The plugin README's "Verified on the rig" has the table.
+41.00. No value from the PDP's answer reached `server.log`: the plugin's refusal names the undeclared field
+(`trace`), as designed, and PingFederate's own ERROR line names only the type. The plugin README's "Verified on
+the rig" has the table. `javap` of `pf-protocolengine`, `pingfederate-sdk` and `pf-dynamodb-integrations` 13.1.3.0,
+rechecked for the review the same day (`pf-protocolengine.jar`'s SHA-256 is the one in the
+`pingidentity/pingfederate:13.1.3` image): the refresh loop, the consent check on a refresh, the callers of the
+processor's `validate` and the grant managers' `getByAccessGrantCriteria` read as the README says.
 
-Residual risk. A bare refresh reissues stored details without the plugin or the PDP (F-0105, PingFederate's own
-behaviour, which RFC 9396 section 7 permits). The fingerprint comparison was unit-tested but not driven on a
-booted PingFederate, since the filter publishes the member only from S1b on (U-0116). What the strict answer does
-to consent and grant reuse and to consent revocation is read from the bytecode, not driven (U-0115). The plugin
-still does not compare a request with the attested ceiling itself: the filter does that at the token endpoint
-(S1b), and the details a code, CIBA or device grant stored at authorize or PAR are not held to the ceiling until
-S4d (F-0032). The plugin reads `OIDF_DEPLOYMENT_PROFILE` in any case and the model exactly (F-0107).
+Residual risk. A bare refresh reissues stored details without the PDP, and without the plugin unless approved
+consent is reused (F-0105, PingFederate's own behaviour, which RFC 9396 section 7 permits). The fingerprint
+comparison was unit-tested but not driven on a booted PingFederate, since the filter publishes the member only from
+S1b on (U-0116). What the strict answer does to consent and grant reuse and to consent revocation is read from the
+bytecode, not driven (U-0115). The plugin still does not compare a request with the attested ceiling itself: the
+filter does that at the token endpoint (S1b), and the details a code, CIBA or device grant stored at authorize or
+PAR are not held to the ceiling until S4d (F-0032). The plugin reads `OIDF_DEPLOYMENT_PROFILE` in any case and the
+model exactly (F-0107). The processor's `validate` still checks only `type`: on the JWT-bearer grant, which never
+calls `enrich`, the requested details reach the token without the model or the PDP, and PAR and the authorization
+endpoint accept a detail the model will refuse at the resume (F-0108, high, found by this package's review; not
+changed here). The S1a section of the 0.4.0 notes says `RarContainment` still runs; with this package it does not.
