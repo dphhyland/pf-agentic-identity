@@ -176,6 +176,34 @@ python3 tools/coverage-report.py --gate --baseline /tmp/baseline/coverage-dashbo
 id; if your branch is behind main, pick the run for a commit it contains, or merge main first, since a newer
 main can have gated methods your branch never had.
 
+## The image job
+
+Build's `image` job builds the Dockerfile's `capability` target - the PingFederate image with no configuration
+archive - for the production and the conformance profile, and a release needs it green. It runs the war
+assembler against PingFederate's own war (`StockWarGoldenTest`), `test-entrypoint.sh --image` in each image,
+the default `deployment` target from a placeholder archive and without one, and then a syft SBOM and a grype scan
+of each image beside the base image. What it checks, what fails and what is only reported is in
+[build/pingfederate/README.md](build/pingfederate/README.md#scanning-the-image); the commands to do the same
+locally are there too.
+
+When it fails:
+
+- **at the scan**: the job summary lists each HIGH or CRITICAL finding of ours, with the package, where it is and
+  the version that fixes it. Move the dependency, or rebuild what installed it. If it cannot be fixed yet, accept
+  it in `.github/grype.yaml` - one entry per vulnerability, package and version, with a reason a reviewer can
+  check and the finding that tracks it - in the same pull request. A PingFederate finding never fails the job;
+  it is listed under "PingFederate's findings" for the next version bump.
+- **on a day nothing changed**: grype reads the day's vulnerability database, and the image's `apk add` installs
+  the day's Alpine packages (F-0220), so a new advisory or package can fail a pull request that touched neither.
+  It is still ours to answer: fix or accept it as above, in its own pull request if that is clearer.
+- **at `StockWarGoldenTest`**: after a PingFederate bump the stock `web.xml` digest fails by design; take the
+  golden result again as the test's comment says.
+- **at a `docker build`**: the step's log names the stage (`builder`, `capability` or `deployment`) and the
+  instruction.
+
+The scanner and SBOM versions, like the linters', are in `tools/ci/install-lint-tools.sh` with their
+checksums; Dependabot does not move them.
+
 ## Pull requests
 
 The template asks for what a reviewer needs, in this order: Summary, What changed, Verification, Adversarial

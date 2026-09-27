@@ -1,0 +1,67 @@
+# grype's configuration for Build's image job (https://github.com/anchore/grype#configuration): the findings in
+# this repository's layers of the PingFederate image that are accepted rather than fixed, each with its reason.
+# The job passes the file by name (`grype -c .github/grype.yaml`) for the image and for the pinned base image
+# alike, and tools/ci/image-scan-gate.py fails on anything HIGH or CRITICAL of ours that is not accepted here.
+# PingFederate's own findings need no entry: they are reported and never fail (build/pingfederate/README.md,
+# "Scanning the image").
+#
+# An entry names one vulnerability in one package at one version, so a new vulnerability, or the same package at
+# another version, is not accepted by it and fails until someone reads it. An entry that no longer matches is
+# named in the job's summary; remove it then. Checked 2026-09-28 with grype 0.119.0 and the database of that day.
+ignore:
+  # age 1.3.1-r6, the Alpine package the Dockerfile installs so pf-entrypoint.sh can decrypt the configuration
+  # archive, is built with golang.org/x/crypto v0.45.0 (grype reads it from each binary's build information in
+  # /usr/bin/age, age-keygen, age-inspect and age-plugin-batchpass). Every HIGH and CRITICAL finding in that
+  # module is in its SSH code - golang.org/x/crypto/ssh's client and server connections, ssh/agent and
+  # ssh/knownhosts - according to the Go vulnerability database's affected packages and symbols (govulncheck
+  # 1.8.0 -mode binary on the image's age binaries, 2026-09-28). age links that code for SSH-key recipients and
+  # identities; the entrypoint runs `age --decrypt --identity` over a local file and never opens an SSH
+  # connection, runs an SSH server, talks to an agent or reads a known_hosts file. Fixed in x/crypto 0.52.0
+  # (0.55.0 and 0.56.0 for the GO-2026-63xx three); remove these entries when Alpine rebuilds age against it, or
+  # when plan item R-I3 stops installing age from Alpine (F-0221).
+  - vulnerability: GHSA-f5wc-c3c7-36mc
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-39832, ssh/agent: key constraints dropped when forwarding keys to an agent; age uses no agent. F-0221"
+  - vulnerability: GHSA-jppx-rxg9-jmrx
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-39833, ssh/agent: an in-memory keyring does not enforce key constraints; age uses no agent. F-0221"
+  - vulnerability: GHSA-5cgq-3rg8-m6cv
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-42508, ssh/knownhosts: @revoked not enforced; age reads no known_hosts file. F-0221"
+  - vulnerability: GHSA-rm3j-f69w-wqmq
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-39834, ssh: infinite loop on large channel writes; age opens no SSH connection. F-0221"
+  - vulnerability: GHSA-x527-x647-q7gg
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-46595, ssh server: VerifiedPublicKeyCallback permissions not enforced; age runs no SSH server. F-0221"
+  - vulnerability: GHSA-vgwf-h737-ff37
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-39830, ssh server: a client can deadlock it; age runs no SSH server. F-0221"
+  - vulnerability: GHSA-89gr-r52h-f8rx
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-39831, ssh: FIDO/U2F presence check bypass in authentication and certificate checks; age authenticates no one. F-0221"
+  - vulnerability: GHSA-q4h4-gmj2-qvw2
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-46597, ssh: an underflow and panic in key exchange; age performs no SSH key exchange. F-0221"
+  - vulnerability: GHSA-w879-237q-wc7r
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-39829, ssh: pathological RSA or DSA parameters cause a DoS, and ParsePrivateKey is affected - reachable only if the operator's own identity is a malformed SSH key, which stops that container booting and nothing else. F-0221"
+  - vulnerability: GO-2026-6303
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-56854, ssh server: source-address not enforced for some authentication callbacks; age runs no SSH server. F-0221"
+  - vulnerability: GO-2026-6354
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-78662, ssh: a peer can deadlock a connection before a channel is established; age opens no SSH connection. F-0221"
+  - vulnerability: GO-2026-6355
+    package: { name: golang.org/x/crypto, version: v0.45.0, location: "/usr/bin/age*" }
+    reason: "CVE-2026-56855, ssh: a peer can deadlock an established connection; age opens no SSH connection. F-0221"
+
+  # zlib 1.3.2-r0 is PingFederate's base package, in our layer only because the base ships without apk's installed
+  # database and the Dockerfile's `apk add` reinstalls every base package (F-0220). Alpine had no fixed package on
+  # 2026-09-28. The overflow is in zlib's gz* file API - gzprintf or gzvprintf after a stalled non-blocking
+  # gzwrite. The JVM that runs this repository's jars links this zlib, but imports deflate and inflate and none of
+  # gzwrite, gzprintf or gzvprintf (scanelf -s over /opt/java/lib in the built image, 2026-09-28), and bash and
+  # age do not link it. Remove when Alpine ships a fixed zlib: the next build installs it.
+  - vulnerability: CVE-2026-85091
+    package: { name: zlib, version: 1.3.2-r0, type: apk }
+    reason: "base package reinstalled by the Dockerfile's apk add; no fixed Alpine package on 2026-09-28; the JVM imports no gz* function, and bash and age do not link zlib. F-0220"

@@ -26,7 +26,8 @@ import sys
 
 ENV_FILE = "build/pf-version.env"
 DOCKERFILE = "build/pingfederate/Dockerfile"
-FROM_RE = re.compile(r"^FROM\s+(pingidentity/pingfederate:([0-9]+\.[0-9]+\.[0-9]+)[A-Za-z0-9._-]*)@(sha256:[0-9a-f]{64})\s*$", re.M)
+# The line may name its stage (`AS pingfederate`): the Dockerfile's other stages start from it.
+FROM_RE = re.compile(r"^FROM\s+(pingidentity/pingfederate:([0-9]+\.[0-9]+\.[0-9]+)[A-Za-z0-9._-]*)@(sha256:[0-9a-f]{64})(?:\s+[Aa][Ss]\s+\S+)?\s*$", re.M)
 
 
 def values_from_dockerfile(text):
