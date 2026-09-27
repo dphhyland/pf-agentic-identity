@@ -227,7 +227,8 @@ trusted CA bundle (`OIDF_*_CA_FILE`, as `OIDF_REDIS_CA_FILE` already is) in plac
 would remove trust-all altogether, and this class with it. It changes what every rig and demo sets, so it is
 breaking and belongs to PR-2.
 
-CodeQL's `java/insecure-trustmanager` should not report `InsecureTls`, by its own library's rule (not yet seen in a CodeQL run - [U-0170](../../docs/findings/U-0170.yaml)): a sink is
+CodeQL's `java/insecure-trustmanager` does not report `InsecureTls`, by its own library's rule (CodeQL 2.27.1 on
+this change's pull request, 2026-09-28: no result - [U-0170](../../docs/findings/U-0170.yaml)): a sink is
 an `SSLContext.init` whose trust managers flow from a class whose `checkServerTrusted` cannot throw, and it is
 not a sink when "guarded by a flag that suggests an intentionally insecure use" - a guard on a boolean whose
 name matches `(?i).*(secure|disable|selfCert|selfSign|validat|verif|trust|ignore|nocertificatecheck).*`

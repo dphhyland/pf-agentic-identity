@@ -60,7 +60,9 @@ JDK (OpenJDK 21.0.12.1): refused for the wrong name without `jdk.internal.httpcl
 accepted with it. `tools/trust-scan.py` over main's copies of the sites before this change reported ten hits in
 seven files, and over this tree none. `tools/pf-linkcheck.py` against PingFederate 13.1.3 resolved every
 reference in both plugin jars; each plugin's `ShadedJarCheck` finds platform only under its relocated package,
-and the RAR plugin still shades rar-model.
+and the RAR plugin still shades rar-model. CodeQL 2.27.1 on the pull request's merge commit ran `java/insecure-trustmanager`
+and reported nothing, `InsecureTls` included, so no alert needs dismissing; alerts 4 to 9 have no instance there
+and close on main's first analysis after the merge.
 
 Residual risk. Nothing refuses a forbidden switch or an unaccepted risk yet (PLAN.md decision 7). A trust-all
 switch still trusts any chain until PR-2 forbids it in production; the alternative, a trusted CA file in place of
