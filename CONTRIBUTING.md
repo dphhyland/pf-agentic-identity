@@ -149,6 +149,9 @@ exist - and logs what it is waiting for and for how long. It fails, with nothing
 - the runs cannot be read three times in a row, or 20 minutes pass. Re-run the release once the API answers or
   the Build has finished.
 
+A dry run is gated the same way, so a dry run on a branch needs a Build started there by hand first
+(`gh workflow run build.yml --ref <branch>`); from 0.4.0 that holds for a branch with a pull request too.
+
 ## Style
 
 [docs/development/style-guide.md](docs/development/style-guide.md). The short version: plain short sentences,
