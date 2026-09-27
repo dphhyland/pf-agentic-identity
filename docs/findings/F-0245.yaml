@@ -1,0 +1,23 @@
+id: F-0245
+title: The SSF receiver accepted a SET whose typ merely contained "secevent", with no iat, or with any algorithm
+severity: medium
+area: ssf, shared-signals
+source: pr-review
+status: closed
+plan_items: [X-A14]
+prs: [61]
+verification: >
+  2026-09-28, PR #61 (package XA14): SetVerifier (now libs/shared-signals) accepts typ secevent+jwt or
+  application/secevent+jwt in any case and nothing else, only the RS, PS and ES families and EdDSA, a numeric iat,
+  an exp not past (60 s leeway), an events object with at least one member whose values are objects, and a sub_id
+  that is an object. SetVerifierClaimsTest pins each (typ "notsecevent+jwt" and "text/secevent+jwt", none and HS256,
+  no iat, a text iat, a past exp, empty events, a string event, a string sub_id - all invalid_request), on JDK 20
+  and 17.
+target_release: 0.5.0
+notes: >
+  Found while moving the verifier (2026-09-28). At origin/main 628b5d6 servlets/ssf's SetVerifier.verify checked
+  typ with toLowerCase().contains("secevent"), read iat as 0 when it was missing or not a number, checked only that
+  events was a map, ignored a sub_id that was not an object, and set no algorithm constraint (jose4j refused none
+  and a public key as an HMAC key, but by accident of key types, not by rule). None of it let an unsigned or
+  wrongly signed SET through - the signature and iss checks held - but the receiver took SETs RFC 8417 and SSF 1.0
+  say are malformed, and recorded iat 0 for one without an iat.
