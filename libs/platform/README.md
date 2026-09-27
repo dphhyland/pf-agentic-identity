@@ -587,6 +587,110 @@ outcomes, 126 series. Two gauges read the catalogues' own counts: `oidf_events_d
 counting never fails an event.
 
 <!-- redis (C-2): add this package's section below this line -->
+
+## redis
+
+`RedisClient` is the platform's Redis client (plan item C-2): 0.4.0's `MiniRedisClient` from client-attestation,
+moved here with S3a's rules unchanged and a bounded pool, a deadline on every command, key prefixes, the commands
+leases and rate limits need, and Sentinel added. It speaks RESP itself, so no Redis library reaches PingFederate's
+loaders. client-attestation's stores are its first user; X-D01's replay store and C-4's leases are the next. The
+plan's X-A02 ("Absorbs X-A02", under C-2) is defined nowhere else in the plan; this package takes it as absorbed.
+
+**What 0.4.0 did, and still does.** A URL is `redis://[user[:password]@]host[:port][/db]` or `rediss://`.
+`rediss://` verifies the server as a browser does - the chain, to the JVM's CAs or the PEM file
+`OIDF_REDIS_CA_FILE` names; the name, by the HTTPS endpoint identification algorithm; the host as SNI - and
+completes the handshake before `AUTH` is written. Under the production profile `redis://` is refused, the
+decision `ProfileGuard.forbidInProduction` makes and the message 0.4.0 wrote. No message quotes a URL's userinfo.
+One thing is kept that should not be: the userinfo is decoded twice, so a `+` in a password is a space
+([F-0180](../../docs/findings/F-0180.yaml)). Nothing connects until the first command.
+
+**The pool and the deadlines.** At most `OIDF_REDIS_POOL_SIZE` connections are open at once, in use or idle (0.4.0
+opened as many as the load asked for and kept four). A command waits up to `OIDF_REDIS_BORROW_TIMEOUT_MS` for one,
+and then has `OIDF_REDIS_COMMAND_TIMEOUT_MS` for everything else: connecting, the handshake, `AUTH` and `SELECT`,
+finding the master, the command and the one retry. Each read waits only what is left of that; a command's own
+bytes are written untimed, since they fit a socket's send buffer ([F-0181](../../docs/findings/F-0181.yaml)). An
+exhausted pool, a deadline passed and a
+closed client are an `IOException`, which the stores answer as `STORE_UNAVAILABLE` - the same 503 as a Redis that
+is down. An error reply is a `RedisErrorReply` (an `IllegalStateException`, as 0.4.0 threw) and is not retried. A
+command that fails on a reused connection is retried once on a fresh one, as 0.4.0 did, because the server may
+have closed an idle connection. That retry can run a command twice when the first one ran and only its reply was
+lost - a `SET NX` then answers "already set" and a `DEL` "nothing deleted", a verdict rather than an outage -
+exactly as 0.4.0's could; nothing else is retried after a command was sent. A reply past 64 KiB for a line, 64 MiB for a bulk string or a million array
+elements is a protocol failure, not an allocation.
+
+**Key prefixes.** `client.keyspace("oidf:as")` is a `RedisKeyspace`: every key it is given becomes
+`oidf:as:<key>`. client-attestation's four namespaces are keyspaces over one client, and write byte for byte the
+keys 0.4.0 wrote - `oidf:as:*`, `oidf:cas:*`, `oidf:fed:endpoint:*`, `oidf:admin:dpop:*` - so a rolling upgrade
+from 0.4.0 finds the challenges and spent proofs the old nodes recorded. `RedisClientTest` and client-attestation's
+`RedisAttestationStoreTest` write keys the 0.4.0 way and find them.
+
+**The commands.** `set` and `setIfAbsent` (`SET ... [NX] PX`), `get`, `del`, `incr`, `pexpire`, and `eval`, which
+sends a `RedisScript` by its SHA-1 (`EVALSHA`) and by its source (`EVAL`) when Redis answers `NOSCRIPT` - after a
+restart or a `SCRIPT FLUSH`. Three scripts are built in: `compareAndDelete` and `compareAndExtend`, which release
+and renew a lease only while it still holds the caller's token (C-4), and `countInWindow`, a fixed-window counter
+for rate limits (X-A11) that increments and, when the key has no TTL, sets the window's, in one atomic step, so a
+counter never lives without one. It answers the count and the time the window has left.
+
+**Sentinel.** With `OIDF_REDIS_SENTINEL_MASTER` and `OIDF_REDIS_SENTINELS` set, the client asks each sentinel in
+turn `SENTINEL get-master-addr-by-name`, connects where the first answer says, and checks with `ROLE` that the
+server is the master. Each sentinel gets an equal share of what is left of the command's deadline - of 3000 ms and
+two sentinels, the first has 1500 - so one that accepts and never answers, or whose host drops packets, leaves the
+rest time to answer; the sentinel that answered is asked first next time. It asks again when a connection to the
+master is lost, or the master answers `READONLY` - it has become a replica, so a failover has happened. The
+command is retried once on the new master, within the same deadline, after `READONLY` (which refused it) or when
+no connection to the master could be opened (so nothing was sent); a new connection lost after the command was
+sent is an outage, not a retry, because the command may have run. Losing the master closes every connection to it: those idle at once, those in use when they come
+back. The URL still says `redis` or `rediss`, the password and the database; its host is not dialled. Over TLS
+the sentinels are verified against their own names, with the same CA file. The master is verified against the
+name a sentinel gave for it, or, when it gave an address - what Sentinel does unless `announce-hostnames` is on -
+against the URL's host, which every node's certificate must then carry
+([U-0190](../../docs/findings/U-0190.yaml): C-6's reference cluster settles which). The sentinels are trusted to
+say where the master is: a name one gives is checked as itself, so with the JVM's CAs any server holding a public
+certificate for that name would be sent `AUTH`. Over TLS with Sentinel, set `OIDF_REDIS_CA_FILE` to the
+deployment's own CA, and give the sentinels a password. One thread asks the sentinels while others wait for its
+answer, each for at most its own deadline.
+
+| Setting | Default | What it does | When it's wrong |
+|---|---|---|---|
+| `oidf.redis.url`, then `OIDF_REDIS_URL`, then `REDIS_URL` | unset | The Redis; unset keeps each store in one node's memory | A URL that does not parse, another scheme, or `redis://` under the production profile: every store that would use Redis refuses its requests, the message without the password |
+| `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | the JVM's CAs | A PEM file of CA certificates to trust for `rediss://` | Unreadable or holding no certificate: refused, naming the file |
+| `OIDF_REDIS_POOL_SIZE` (`oidf.redis.pool.size`) | 8 | The most connections open at once | Not a whole number from 1 to 256: refused |
+| `OIDF_REDIS_BORROW_TIMEOUT_MS` (`oidf.redis.borrow.timeout.ms`) | 1000 | How long a command waits for a free connection | Not from 1 to 60000: refused |
+| `OIDF_REDIS_COMMAND_TIMEOUT_MS` (`oidf.redis.command.timeout.ms`) | 3000, 0.4.0's socket timeout | How long a command may take once it has a connection | Not from 1 to 60000: refused |
+| `OIDF_REDIS_SENTINEL_MASTER` (`oidf.redis.sentinel.master`) | unset | The master's name in Sentinel | Set without `OIDF_REDIS_SENTINELS`, or the other way round: refused |
+| `OIDF_REDIS_SENTINELS` (`oidf.redis.sentinels`) | unset | `host[:port]` of each sentinel, port 26379 when left out, IPv6 in brackets | An entry that is not host or host:port: refused, naming it |
+| `OIDF_REDIS_SENTINEL_PASSWORD` (or `_FILE`) | unset | What the sentinels ask for in `AUTH` | Not checked until the sentinels refuse it; every command then fails as an outage |
+
+The catalogue is `src/main/resources/META-INF/oidf-settings/platform-redis.json` ([format](../../docs/development/settings-catalogue.md));
+`RedisConfig.current()` reads it from the process, and `RedisConfig.builder` makes a configuration in code.
+"Refused" means the first request that needs Redis fails, and every later one, with the message logged once.
+
+**Tests.** `RedisClientTest` and `RedisSentinelTest` run against `FakeRedis`, an in-process RESP server that can be
+a master, a replica or a sentinel and stages what real servers do badly: silence, a dropped connection, a reply
+cut off or malformed. `RedisClientTlsTest` checks the TLS rules with certificates `keytool` makes for the run.
+`RedisLiveTest` runs the commands and the scripts - which the fake only emulates - against a real Redis, with the
+variables client-attestation's live test reads (`OIDF_TEST_REDIS_URL`, `OIDF_TEST_REDIS_TLS_URL`,
+`OIDF_TEST_REDIS_CA_FILE`), so build.yml's java job runs it. Its Sentinel test needs a Sentinel, which CI does not
+start; locally, a master, a replica and one sentinel sharing one network namespace so the sentinel reports an
+address the host can reach:
+
+```sh
+docker run -d --rm --name s-master -p 127.0.0.1:56390:56390 -p 127.0.0.1:56391:56391 -p 127.0.0.1:26390:26390 \
+  redis:7-alpine redis-server --port 56390 --requirepass pw --masterauth pw
+docker run -d --rm --name s-replica --network container:s-master redis:7-alpine \
+  redis-server --port 56391 --replicaof 127.0.0.1 56390 --requirepass pw --masterauth pw
+docker run -d --rm --name s-sentinel --network container:s-master redis:7-alpine sh -c \
+  'printf "port 26390\nsentinel monitor mymaster 127.0.0.1 56390 1\nsentinel auth-pass mymaster pw\n" > /tmp/s.conf && exec redis-sentinel /tmp/s.conf'
+OIDF_TEST_REDIS_SENTINELS=127.0.0.1:26390 OIDF_TEST_REDIS_SENTINEL_MASTER=mymaster \
+OIDF_TEST_REDIS_SENTINEL_URL=redis://:pw@127.0.0.1:6379 OIDF_TEST_REDIS_SENTINEL_FAILOVER=true \
+  mvn -o -pl libs/platform verify -Dtest=RedisLiveTest
+```
+
+With `OIDF_TEST_REDIS_SENTINEL_FAILOVER=true` the test asks the sentinel for a failover and follows the master to
+its new port. On 2026-09-28 (redis:7-alpine, JDK 17.0.11) it did, in 11.5 s, most of it Sentinel's own switch.
+The in-process tests also ran on the pinned PingFederate image's JDK (OpenJDK 21.0.12.1) that day, the TLS ones
+included.
+
 <!-- http (S5a): add this package's section below this line -->
 <!-- exec (C-3): add this package's section below this line -->
 ## exec

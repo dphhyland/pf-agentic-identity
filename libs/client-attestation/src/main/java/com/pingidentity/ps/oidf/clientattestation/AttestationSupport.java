@@ -3,6 +3,9 @@
  */
 package com.pingidentity.ps.oidf.clientattestation;
 
+import com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle;
+import com.pingidentity.ps.oidf.platform.redis.RedisClient;
+import com.pingidentity.ps.oidf.platform.redis.RedisConfig;
 import java.time.Clock;
 import java.util.EnumMap;
 import java.util.Map;
@@ -18,19 +21,22 @@ import org.apache.commons.logging.LogFactory;
  * override the sizing and TTL of its own namespace's challenges during {@code init()}.
  *
  * <p>Store selection: if a Redis URL is configured - system property {@code oidf.redis.url}, or env var
- * {@code OIDF_REDIS_URL}, or env var {@code REDIS_URL} (checked in that order) - one shared
- * {@link MiniRedisClient} backs a {@link RedisAttestationStore} per {@link StoreNamespace}, making challenge
+ * {@code OIDF_REDIS_URL}, or env var {@code REDIS_URL} (checked in that order, through platform's
+ * {@code platform-redis} settings catalogue) - one shared {@link RedisClient}, built from
+ * {@link RedisConfig#current()}, backs a {@link RedisAttestationStore} per {@link StoreNamespace}, making challenge
  * consumption, replay detection and evidence binding cluster-wide (and immune to the servlet-vs-hook
  * classloader split, since state lives outside the JVM). Otherwise the per-node in-memory implementations are
  * used, one per namespace, so the two shapes keep the same separation.
  *
- * <p>Under the production profile a {@code redis://} URL is refused by {@link MiniRedisClient}; the refusal is
- * logged once and every store accessor throws it, so no surface silently falls back to per-node state.
+ * <p>Under the production profile a {@code redis://} URL is refused by {@link RedisClient}, and a Redis setting
+ * whose value is wrong by its catalogue entry; the refusal is logged once and every store accessor throws it, so
+ * no surface silently falls back to per-node state. The client is registered with platform's {@link Lifecycle},
+ * so the webapp's shutdown closes its pool.
  */
 public final class AttestationSupport {
     private static final Log LOGGER = LogFactory.getLog(AttestationSupport.class);
     private static final Object LOCK = new Object();
-    private static MiniRedisClient redis;
+    private static RedisClient redis;
     private static String redisRefusal;
     private static final Map<StoreNamespace, RedisAttestationStore> REDIS_STORES = new EnumMap<>(StoreNamespace.class);
     private static final Map<StoreNamespace, InMemoryAttestationChallengeService> MEMORY_CHALLENGES = new EnumMap<>(StoreNamespace.class);
@@ -57,7 +63,7 @@ public final class AttestationSupport {
     /** The challenge store of {@code namespace}. */
     public static AttestationChallengeService challengeService(StoreNamespace namespace) {
         synchronized (LOCK) {
-            if (redisUrl() != null) {
+            if (redisConfigured()) {
                 return redisStore(namespace);
             }
             return MEMORY_CHALLENGES.computeIfAbsent(namespace,
@@ -68,7 +74,7 @@ public final class AttestationSupport {
     /** The replay cache of {@code namespace}. */
     public static AttestationReplayCache replayCache(StoreNamespace namespace) {
         synchronized (LOCK) {
-            if (redisUrl() != null) {
+            if (redisConfigured()) {
                 return redisStore(namespace);
             }
             return MEMORY_REPLAYS.computeIfAbsent(namespace, ns -> new InMemoryAttestationReplayCache(replayMaxEntries));
@@ -78,7 +84,7 @@ public final class AttestationSupport {
     /** The attester's evidence bindings ({@code oidf:cas:evidence:*}). */
     public static EvidenceBindingStore evidenceBindingStore() {
         synchronized (LOCK) {
-            if (redisUrl() != null) {
+            if (redisConfigured()) {
                 return redisStore(StoreNamespace.CAS);
             }
             if (memoryEvidence == null) {
@@ -102,7 +108,7 @@ public final class AttestationSupport {
      */
     public static void configureChallengeService(StoreNamespace namespace, int maxEntries, long ttlSeconds) {
         synchronized (LOCK) {
-            if (redisUrl() != null) {
+            if (redisConfigured()) {
                 RedisAttestationStore store = new RedisAttestationStore(redisClient(), false, namespace, ttlSeconds, Clock.systemUTC());
                 REDIS_STORES.put(namespace, store);
                 LOGGER.info((Object) ("attestation store " + namespace.prefix() + ":* is Redis, challenge TTL " + ttlSeconds
@@ -119,7 +125,7 @@ public final class AttestationSupport {
     public static void configureReplayCache(int maxEntries) {
         synchronized (LOCK) {
             replayMaxEntries = maxEntries;
-            if (redisUrl() != null) {
+            if (redisConfigured()) {
                 redisStore(StoreNamespace.AS);
                 LOGGER.info((Object) "attestation replay cache is Redis-backed; replayCacheMaxEntries ignored");
             } else {
@@ -150,7 +156,7 @@ public final class AttestationSupport {
     }
 
     /** Must be called under {@link #LOCK}. The shared client, or the refusal that stopped it being made. */
-    private static MiniRedisClient redisClient() {
+    private static RedisClient redisClient() {
         if (redis != null) {
             return redis;
         }
@@ -158,12 +164,13 @@ public final class AttestationSupport {
             throw new IllegalStateException(redisRefusal);
         }
         try {
-            redis = new MiniRedisClient(redisUrl());
-        } catch (IllegalArgumentException e) {
-            redisRefusal = "the configured Redis URL is refused: " + e.getMessage();
+            redis = new RedisClient(RedisConfig.current());
+        } catch (IllegalArgumentException | IllegalStateException e) {
+            redisRefusal = refusal(e);
             LOGGER.error((Object) redisRefusal);
             throw new IllegalStateException(redisRefusal, e);
         }
+        Lifecycle.current().register("client-attestation Redis client", redis);
         return redis;
     }
 
@@ -185,14 +192,17 @@ public final class AttestationSupport {
         }
     }
 
-    private static String redisUrl() {
-        String url = System.getProperty("oidf.redis.url");
-        if (url == null || url.isBlank()) {
-            url = System.getenv("OIDF_REDIS_URL");
-        }
-        if (url == null || url.isBlank()) {
-            url = System.getenv("REDIS_URL");
-        }
-        return url == null || url.isBlank() ? null : url.trim();
+    /**
+     * Why the shared client could not be made: the URL (0.4.0's words), or a setting its catalogue entry refuses (a
+     * {@code SettingRefused}, which names the setting and never a secret's value).
+     */
+    static String refusal(RuntimeException e) {
+        return (e instanceof IllegalArgumentException ? "the configured Redis URL is refused: " : "a Redis setting is refused: ")
+                + e.getMessage();
+    }
+
+    /** Whether a Redis URL is set: {@code oidf.redis.url}, {@code OIDF_REDIS_URL}, then {@code REDIS_URL}. */
+    private static boolean redisConfigured() {
+        return RedisConfig.isConfigured();
     }
 }
