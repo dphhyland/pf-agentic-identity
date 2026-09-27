@@ -4,7 +4,7 @@ area: ci
 source: design
 status: open
 plan_items: [R-CI5]
-prs: []
+prs: [40]
 recorded_in: docs/releases/unreleased/RCI5.md, Notes
 verify_by: >
   Run the reactor's tests on JDK 21 - `mvn -B verify` under Temurin 21 with the java job's Postgres and Redis
