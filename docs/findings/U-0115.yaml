@@ -1,0 +1,28 @@
+id: U-0115
+title: PingFederate's other isEqualOrSubset callers behave as their bytecode reads now that the answer is strict
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [S1c]
+prs: [36]
+recorded_in: 'plugins/rar-paz-plugin/README.md, The containment model, What PingFederate 13.1.3 asks on a refresh'
+verify_by: >
+  On the rig with "bypass authorization for approved consents" on and a client that does not bypass the
+  approval page: approve a payment_initiation for 42.00, then ask for 50.00 at the authorization endpoint (the
+  user should be asked again) and for 40.00 (the consent should be reused); update the consent so it drops a
+  detail and read which consent records PingFederate deletes; refresh a grant whose stored details exceed its
+  consent and read whether the grant is revoked. Record each with the plugin's RAR refresh lines.
+verification: ''
+notes: >
+  javap -c of pf-protocolengine 13.1.3.0 on 2026-09-27 found five callers of the processor's isEqualOrSubset
+  besides the refresh: OAuthConsentManagerDefaultImpl.isGranted (is a request within the approved consent - also
+  asked on a refresh when approved consents are reused, where a no revokes the grant and answers invalid_scope
+  "revoked, or expired consent"), OAuthConsentManagerDefaultImpl.createOrUpdate and its revokeAuthorizationDetails
+  (which consent records an updated consent covers, and which records a dropped detail deletes: those whose
+  detail the dropped one is within), PingFederateAuthorizationProcessor.getApprovedAuthorizationDetails (which
+  requested details are already approved) and AccessGrantManagerJdbcImpl / AccessGrantManagerLDAPADImpl
+  getByAccessGrantCriteria (which stored grant a request may reuse). Read from the bytecode, not driven. What
+  the strict answer should change: consent and grant reuse only when the request is truly within (more consent
+  prompts than RarContainment gave), identical details still matching for revocation, and grants issued before
+  0.4.0 whose details the model cannot read, or which exceed their consent, no longer passing - so a refresh of
+  one fails, and where approved consents are reused the grant is revoked.
