@@ -11,13 +11,18 @@ write or read it. The rule throughout is the model's own: an attribute a consume
 The model is one table, `idm.entry` (migration `0000-base-schema`), with `entry_uuid`, `object_classes text[]`,
 `subject_id`, `subject_type`, `parent_id` (containment, `ON DELETE CASCADE`), `record_status`, `created_at`,
 `modified_at`, `expires_at`, a JSONB `attrs`, and generated columns for the hot keys (`client_id` from
-`attrs.clientId`, and three others). `idm.object_class` declares each class's MUST and MAY attributes;
-`validate_entry` refuses a missing MUST on INSERT and UPDATE and reports an undeclared attribute. Migration
-`002-backfill-may-attrs` set every class's MAY list; `006-add-agent-instance-registry` registered the four
-device-path classes. Copies of those three, with the model's checksums, are under
-[libs/device-instance/src/test/resources/idm](../../libs/device-instance/src/test/resources/idm/README.md);
-`0001-add-shared-signals-ssf`, which registers the SSF classes, is not vendored here, so its declared lists are
-not checked below (verified 2026-09-27 against the copies at `main` 711ff11).
+`attrs.clientId`, `grant_guid`, `correlation_id` and `hashed_refresh`). `idm.object_class` declares each
+class's MUST and MAY attributes. Two things read those lists: the row trigger `entry_class_check`
+(`idm.check_entry_classes()`), which refuses a missing MUST on INSERT and on UPDATE and says nothing about any
+other attribute; and the model repo's `validate_entry` tool, which checks a proposed entry at design time,
+writes nothing, and reports an attribute no class declares. Migration `002-backfill-may-attrs` set the base
+classes' MAY lists; `006-add-agent-instance-registry` registered the four device-path classes;
+`0001-add-shared-signals-ssf` registered the three SSF classes. Copies of `0000`, `002` and `006` are under
+[libs/device-instance/src/test/resources/idm](../../libs/device-instance/src/test/resources/idm/README.md),
+and of `0000` and `0001` under
+[servlets/ssf/src/test/resources/idm](../../servlets/ssf/src/test/resources/idm/README.md), each with the
+model's checksum; the tables below are checked against them (2026-09-27; the copies match the model repo at
+`cb90151`).
 
 ### The device-path classes, as declared by 006 and as written by `IomInstanceRegistry`
 
@@ -41,19 +46,24 @@ ordering index `entry_agent_event_order_idx`; the trigger `entry_agent_registry_
 append-only, revocation is permanent, `appAttestSignCount` never decreases); and the view
 `idm.v_agent_instance` (instance -> device -> owner, the issuance-time resolution).
 
-### The SSF classes, as `LdmSsfStore` writes them
+### The SSF classes, as declared by 0001 and as written by `LdmSsfStore`
 
-| Class | Row | `attrs` written |
-|---|---|---|
-| `ssfStream` | `entry_uuid` = the stream id | `audience`, `ownerClientId` - **written, not declared** (the [ssf README](../../servlets/ssf/README.md#upgrading) already asks for it as a MAY, never a MUST), `deliveryMethod` (the RFC URN), `streamStatus`, `pushEndpointUrl`, `pushAuthorizationHeader`, `eventsRequested`, `eventsDelivered`, `statusReason` |
-| `ssfStreamSubject` | `parent_id` = the stream, `subject_id` = the RFC 9493 canonical key | `subjectFormat`, `subjectJson` |
-| `ssfPendingSet` | `parent_id` = the stream, `subject_id` = the subject key, `expires_at` = the SET's expiry | `jti`, `eventType`, `subjectKey`, `setJws`, `issuedAt`, `deliveryAttempts`, `nextAttemptAt` |
+| Class (kind, id) | Row | MUST (0001) | MAY (0001) | Also written today |
+|---|---|---|---|---|
+| `ssfStream` (structural, ldm-9100, SUP `identityObject`) | `entry_uuid` = the stream id | `audience`, `deliveryMethod` (the RFC URN), `streamStatus` | `pushEndpointUrl`, `pushAuthorizationHeader`, `eventsRequested`, `eventsDelivered`, `statusReason`, `ssfIssuer` (declared, never written) | `ownerClientId` - **written, not declared** (the [ssf README](../../servlets/ssf/README.md#upgrading) already asks for it as a MAY, never a MUST) |
+| `ssfStreamSubject` (structural, ldm-9110) | `parent_id` = the stream, `subject_id` = the RFC 9493 canonical key | `subjectFormat`, `subjectJson` | - | - |
+| `ssfPendingSet` (structural, ldm-9120) | `parent_id` = the stream, `subject_id` = the subject key, `expires_at` = the SET's expiry | `jti`, `setJws`, `issuedAt` | `eventType`, `subjectKey`, `deliveryAttempts`, `nextAttemptAt` | - |
+
+0001 also indexes `ssfPendingSet` on `nextAttemptAt`, `issuedAt` and `jti` (`entry_ssf_pending_due_idx`,
+`entry_ssf_pending_order_idx`, `entry_ssf_pending_jti_idx`). Since 0.4.0 the push loop's selection joins the
+pending entry to its stream entry on `parent_id` and reads the stream's `deliveryMethod` and `streamStatus`
+(the B5 stopgap); `SsfStoresOnPostgresTest` runs it against these two migrations.
 
 ## The rule: MAY, never MUST
 
-`validate_entry` checks MUST attributes on UPDATE as well as INSERT, and the rows already in a directory have
-none of the attributes below. A MUST would refuse the next update of every existing row - a compliance change
-on a device enrolled before the migration, a dead-letter pause on a stream created before it. That is why
+The trigger checks MUST attributes on UPDATE as well as INSERT, and the rows already in a directory have none
+of the attributes below. A MUST would refuse the next update of every existing row - a compliance change on a
+device enrolled before the migration, a dead-letter pause on a stream created before it. That is why
 `ownerClientId` had to be a MAY, and it holds for everything here. Where a consumer needs an attribute to be
 present it enforces that in its own write path: X-A17 writes a device only once it holds the MDM ids, and
 never a device without them.
@@ -70,7 +80,9 @@ timestamps are the model's text convention unless a hot predicate needs more, no
 ### 1. Declare what is already written
 
 - `agentDevice` MAY + `appAttestPublicKey` (base64url SubjectPublicKeyInfo; `Device.appAttestPublicKey`).
-  Written since the App Attest assertion work; `validate_entry` reports it undeclared on every device row.
+  Written since the App Attest assertion work; `validate_entry` reports it undeclared for a device row shaped
+  as the registry writes it. The trigger lets it through, so nothing fails today; the declaration is what makes
+  the model's own tool agree with the rows.
 - `ssfStream` MAY + `ownerClientId` (a client id, deliberately not `clientId`, which the table turns into
   its indexed `client_id` column).
 
@@ -233,3 +245,7 @@ S10e, S10f.
   model's.
 - Whether the model wants `appAttestReceipt` in `attrs` at all (a few KB per device) or in a separate
   `agentDeviceReceipt` entry contained under the device.
+- `deviceComplianceState` (006) has an `unknown` code, but the registry writes `null` for a device never
+  assessed (`ComplianceState.caepValue()`: CAEP has no value for it). Either the attribute takes `unknown` or
+  the code goes; this repository would write `unknown` once the model says the vocabulary governs the
+  attribute.
