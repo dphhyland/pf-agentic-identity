@@ -78,8 +78,10 @@ public class HealthServlet extends HttpServlet {
     @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getServletPath();
-        boolean restricted = DETAIL.equals(path) || INFO.equals(path);
-        if (restricted && !HealthAccess.isAuthorized(this.token, req.getHeader("Authorization"))) {
+        // Fails closed: only live and ready are open. Any other servlet path - the detail, info, or one a later
+        // mapping or dispatch brings here - needs the bearer, and answer() serves nothing it does not name.
+        boolean open = LIVE.equals(path) || READY.equals(path);
+        if (!open && !HealthAccess.isAuthorized(this.token, req.getHeader("Authorization"))) {
             resp.sendError(HttpServletResponse.SC_NOT_FOUND);
             return;
         }
@@ -92,8 +94,12 @@ public class HealthServlet extends HttpServlet {
         this.answer(path, "HEAD".equals(method), resp);
     }
 
-    /** Writes the answer for {@code path}, one of the four mapped. */
+    /** Writes the answer for {@code path}, one of the four mapped; any other path is the container's 404. */
     void answer(String path, boolean head, HttpServletResponse resp) throws IOException {
+        if (!LIVE.equals(path) && !READY.equals(path) && !DETAIL.equals(path) && !INFO.equals(path)) {
+            resp.sendError(HttpServletResponse.SC_NOT_FOUND);
+            return;
+        }
         if (LIVE.equals(path)) {
             write(resp, HttpServletResponse.SC_OK, Health.status(Health.Status.UP), head);
             return;

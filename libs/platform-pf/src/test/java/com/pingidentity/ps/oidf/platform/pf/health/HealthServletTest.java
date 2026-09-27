@@ -177,6 +177,32 @@ class HealthServletTest {
     }
 
     @Test
+    void aPathTheServletDoesNotNameIs404WithOrWithoutTheBearer() throws Exception {
+        // A wildcard mapping, a forward or a named dispatch could bring another servlet path here: it fails closed.
+        HealthServlet servlet = servlet(TOKEN, null);
+        java.util.Arrays.asList("/agentic-identity", "/agentic-identity/health/", "/agentic-identity/health/other", "", null)
+                .forEach(path -> {
+                    for (String auth : new String[] {null, "Bearer " + TOKEN}) {
+                        try {
+                            Answer a = call(servlet, "GET", path, auth);
+                            assertEquals(404, a.error, path + " with " + auth);
+                            assertEquals("", a.text(), path + " with " + auth);
+                        } catch (Exception e) {
+                            throw new AssertionError(e);
+                        }
+                    }
+                });
+        // Each layer on its own: the access check turns an unnamed path away before the method check does...
+        assertEquals(404, call(servlet, "POST", "/agentic-identity", null).error, "an unnamed path is not open");
+        assertEquals(405, call(servlet, "POST", "/agentic-identity", "Bearer " + TOKEN).error);
+        // ...and answer() serves nothing it does not name, whoever got the request that far.
+        Answer direct = new Answer();
+        servlet.answer("/agentic-identity", false, response(direct));
+        assertEquals(404, direct.error);
+        assertEquals("", direct.text());
+    }
+
+    @Test
     void theDetailAnswersTheBearerWithEveryComponentAndTheReadinessCode() throws Exception {
         HealthServlet servlet = servlet(null, TOKEN);
         ComponentParts.Part part = Startup.begin(Startup.SSF_RECEIVER, "HealthServletDetailPart");

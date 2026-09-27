@@ -102,6 +102,18 @@ class ComponentStatesTest {
                 part("TokenEndpointAutoRegistrationFilter").reason());
     }
 
+    // ---- FEDERATION (explicit registration) ----------------------------------------------------------
+
+    @Test
+    void aRegistrationInitThatThrowsStillThrowsAndIsAFailedConfiguration() {
+        jakarta.servlet.ServletConfig config = mock(jakarta.servlet.ServletConfig.class);
+        org.mockito.Mockito.when(config.getInitParameter(RegistrationConfiguration.SUBORDINATE_CACHE_MAX_ENTRIES_PARAM)).thenReturn("lots");
+        ServletException e = assertThrows(ServletException.class, () -> new OpenIdRegistrationServlet().init(config));
+        assertEquals(ComponentState.FAILED_CONFIG, part("OpenIdRegistrationServlet").state());
+        assertEquals(Startup.FEDERATION, part("OpenIdRegistrationServlet").component());
+        assertTrue(part("OpenIdRegistrationServlet").reason().startsWith(e.getMessage()), part("OpenIdRegistrationServlet").reason());
+    }
+
     // ---- ATTESTATION_AUTH ----------------------------------------------------------------------------
 
     @Test

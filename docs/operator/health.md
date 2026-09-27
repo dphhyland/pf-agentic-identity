@@ -31,7 +31,9 @@ Things to know before routing on ready:
   A filter that fails to start still takes the whole webapp down, live included.
 - **Some servlets start on their first request** (explicit registration, hosting, the admin API, the attester's
   issuance endpoint, the SSF receiver), so ready does not see their configuration until someone calls them
-  ([F-0193](../findings/F-0193.yaml)). S9a (Phase 3) starts every component at deploy.
+  ([F-0193](../findings/F-0193.yaml)). While such a servlet starts, its component reads `STARTING`, so a first
+  POST to `/federation/register` makes ready 503 for as long as that init takes, even though `FEDERATION` was
+  ready. S9a (Phase 3) starts every component at deploy.
 - **A PingFederate that names a trust controller before its anchor's keys are pinned is not ready**: automatic
   registration refuses everything until the keys are set. If it is its own trust anchor, capture the keys from the
   node directly, not through a load balancer that routes on ready ([F-0192](../findings/F-0192.yaml)).
