@@ -37,7 +37,7 @@ import org.jose4j.jwt.JwtClaims;
 public final class EvidenceSelectors {
 
     /**
-     * The most values one identity may carry, across every name. The largest built-in list has four names with one
+     * The most values one identity may carry, across every name. The largest built-in list has three names with one
      * value each; the bound is for the sources to come - X-B08's SPIRE reader adds one value per registration
      * selector - and keeps what X-B09 matches per issuance small. An identity with more is refused, not cut short,
      * because a truncated set could drop the one selector a condition turns on.
@@ -46,8 +46,8 @@ public final class EvidenceSelectors {
 
     /**
      * The longest value, in UTF-8 bytes. SPIFFE-ID §2.3: "SPIFFE implementations MUST support SPIFFE URIs up to 2048
-     * bytes in length and SHOULD NOT generate URIs of length greater than 2048 bytes". A SPIFFE ID is the longest
-     * value any validator here takes from its evidence, so 2048 accepts every conforming one and nothing longer.
+     * bytes in length and SHOULD NOT generate URIs of length greater than 2048 bytes", so every SPIFFE ID a
+     * conforming implementation must accept fits, and nothing longer is kept.
      */
     public static final int MAX_VALUE_BYTES = 2048;
 

@@ -36,7 +36,99 @@ Ids (the client's `attestation_evidence`): `spiffe-jwt` (`SpiffeInstanceAttestat
 `wallet-instance-attestation` (`WalletInstanceAttestationValidator`, format `wallet`). The wallet entry
 is registered with an *unconfigured* key resolver so the id is always discoverable and a WIA fails
 loudly until wallet-provider trust is configured. `SpireSelectorIntrospector` (optional) merges SPIRE
-registration selectors into the `workload` claim.
+registration selectors into `workload.attributes`; they are not evidence selectors ([below](#evidence-selectors)).
+
+What each validator checks, and what it copies into the identity, as the code does it on 2026-09-28. The key
+source for every type but the wallet's is the client's trust bundle: `attestation_spiffe_bundle` inline, or
+`attestation_bundle_url` fetched and cached (`RemoteJwksCache`). The key is the one the header's `kid` names, or
+the bundle's only key when there is no `kid`. The algorithm must be RS, PS or ES 256/384/512 or EdDSA, so `none`
+and HMAC are refused. `aud` must contain the client's `attestation_issuer`. `exp` is required and refused once more
+than 60 s past; `iat` is read when present. Any failure is `invalid_svid`, or `invalid_instance_attestation` for
+the wallet.
+
+| Evidence type (validator) | Key | `iss` | Other claims required | `subject` | `trustDomain` | `workloadClaims` |
+|---|---|---|---|---|---|---|
+| `spiffe-jwt` (`SpiffeInstanceAttestationValidator`, via `SpiffeSvidValidator`) | trust bundle | not read | `sub` a `spiffe://` ID with a trust domain, equal to `attestation_trust_domain` when set | `sub` | the authority of `sub` | `spiffe_id` = `sub` |
+| `gke-sa-token` (`GkeTokenValidator`), `eks-sa-token` (`EksTokenValidator`), `aks-sa-token` (`AksWorkloadIdentityValidator`) | trust bundle (the cluster's JWKS) | equal to `attestation_evidence_issuer` when set | `sub` = `system:serviceaccount:<ns>:<sa>` | `spiffe://<attestation_trust_domain>/ns/<ns>/sa/<sa>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `gcp-id-token` (`GcpSaTokenValidator`) | trust bundle (Google's JWKS) | equal to `attestation_evidence_issuer` when set | `email` | `spiffe://<attestation_trust_domain>/sa/<email>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `aws-sts-web-identity` (`AwsStsWebIdentityValidator`) | trust bundle (the account issuer's JWKS) | equal to `attestation_evidence_issuer` when set | `sub` = `arn:aws...:iam::<account>:role/<role>` or `arn:aws...:sts::<account>:assumed-role/<role>/<session>` | `spiffe://<attestation_trust_domain>/aws/<account>/role/<role>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `azure-mi-token` (`AzureManagedIdentityValidator`) | trust bundle (the tenant's JWKS) | equal to `attestation_evidence_issuer` when set | `oid` | `spiffe://<attestation_trust_domain>/azure/mi/<oid>` | `attestation_trust_domain` (required) | `spiffe_id` = subject |
+| `wallet-instance-attestation` (`WalletInstanceAttestationValidator`) | the keys the wallet-provider resolver returns for `iss` (a federation trust chain, or the static `OIDF_WALLET_PROVIDER_JWKS` map); header `typ` one of the four WIA types or absent | required; equal to `attestation_trust_domain` when set | `sub`; `cnf.jwk`, a public key, returned as `boundKey` | `sub` | `iss` | `wallet_provider` = `iss`, `wallet_instance` = `sub` |
+
+## Evidence selectors
+
+`InstanceIdentity.selectors()` (plan item X-B01) is what the validator proved about the instance, in one
+namespace: an immutable, sorted multimap from `<source>:<name>` to a sorted set of values. `source` is the evidence
+type id; `name` comes from the validator's fixed list (`selectorNames()`). Nothing reads the selectors yet. Plan
+item X-B09 (Phase 5) is to condition ceilings on them (`conditional_ceilings`, a `CeilingPolicy` SPI) and decide
+what, if anything, an attestation discloses.
+
+| Evidence type | Selector | From | Compared with the client's configuration |
+|---|---|---|---|
+| `spiffe-jwt` | `spiffe-jwt:spiffe_id` | `sub` | no |
+| | `spiffe-jwt:trust_domain` | the authority of `sub` | `attestation_trust_domain`, when set |
+| `gke-sa-token`, `eks-sa-token`, `aks-sa-token` | `<type>:issuer` | `iss` | `attestation_evidence_issuer`, when set |
+| | `<type>:namespace`, `<type>:service_account` | `sub`, `system:serviceaccount:<namespace>:<service_account>` | no |
+| `gcp-id-token` | `gcp-id-token:issuer` | `iss` | `attestation_evidence_issuer`, when set |
+| | `gcp-id-token:email` | `email` | no |
+| | `gcp-id-token:project_id` | the domain of `email`, only for a user-managed account, `<name>@<project-id>.iam.gserviceaccount.com` | no |
+| `aws-sts-web-identity` | `aws-sts-web-identity:issuer` | `iss` | `attestation_evidence_issuer`, when set |
+| | `aws-sts-web-identity:account`, `aws-sts-web-identity:role` | `sub`, the IAM principal ARN; the role is the one the SPIFFE path carries, the session name dropped | no |
+| `azure-mi-token` | `azure-mi-token:issuer` | `iss` | `attestation_evidence_issuer`, when set |
+| | `azure-mi-token:tenant_id` | `tid` | no: pin `attestation_evidence_issuer` to the tenant's issuer to tie it to one tenant |
+| | `azure-mi-token:object_id` | `oid` | no |
+| `wallet-instance-attestation` | `wallet-instance-attestation:provider` | `iss`, whose keys verified the WIA | `attestation_trust_domain`, when set |
+| | `wallet-instance-attestation:instance` | `sub` | no |
+
+The rules:
+
+- **Only verified claims.** A validator builds its selectors itself, after every check in the table above has
+  passed, from claims of the evidence whose signature it verified. A claim that is not a JSON string gives no
+  selector, and neither does an absent or empty one. What the client's configuration supplies rather than the
+  evidence - the cloud types' `attestation_trust_domain`, and so the SPIFFE ID they synthesise - is not a selector;
+  it stays in `subject()` and `trustDomain()`.
+- **Only listed names.** The names are constants in each validator. A token's extra claims, however named (a
+  `selectors` claim, a claim called `gke-sa-token:namespace`, a `kubernetes.io` object), add nothing.
+- **Values as the evidence states them.** They are compared by exact string equality, the way
+  `SpiffeBinding.matches` compares an instance subject: case-sensitive, never trimmed. SPIFFE-ID §2.4 says "The
+  scheme and trust domain name of the SPIFFE ID are case-insensitive", but the binding match and the trust-domain
+  pin compare them exactly, and a selector does the same.
+- **Bounds, refused above.** At most 32 values in all, and at most 2048 UTF-8 bytes in one. Evidence over either is
+  refused (`invalid_svid`, or `invalid_instance_attestation` for the wallet); it is never truncated, because a cut
+  set could drop the one selector a condition turns on. 2048 bytes is the SPIFFE ID's own limit - SPIFFE-ID §2.3:
+  "SPIFFE implementations MUST support SPIFFE URIs up to 2048 bytes in length and SHOULD NOT generate URIs of length
+  greater than 2048 bytes" - so every SPIFFE ID a conforming implementation must accept fits. 32 is ten times the
+  longest list today (three names, one value each); the room is for SPIRE's selectors, below, and the bound keeps
+  what X-B09 matches per issuance small.
+- **Nothing after the validator.** Not the request's parameters, not the binding's `metadata`, not the introspected
+  attributes (step 5 in `AttestationIssuanceServlet`), not the caller-asserted context (step 5a). `InstanceIdentity`
+  cannot be changed once built, and `EvidenceSelectors.of` is package-private, so the servlet's package cannot build
+  a non-empty set.
+- **Nothing on the wire.** `AttestationMinter` reads the identity's format, subject, `workloadClaims`, digest,
+  evidence type and expiry, and not its selectors, so a minted attestation is the same with or without them.
+
+`EvidenceSelectorsTest` holds each rule: each validator's selectors from a real-shaped token; extra, unknown,
+non-string and oversized claims; refusals that come before any selector is built; the bounds; and, for 200 random
+seeds, binding metadata, asserted context and SPIRE answers that leave the selectors as they were and a minted
+attestation equal to one minted from the same identity without them.
+
+### SPIRE
+
+`SpireSelectorIntrospector`'s selectors are not evidence selectors. It is a plain HTTP GET of the endpoint
+`OIDF_ATTESTER_SPIRE_ENTRIES_URL` names, nothing authenticates the answer, and a failed lookup gives none. Its
+output stays where it was, in `workload.attributes` (`selectors` and `spire`), and never reaches `selectors()`.
+Anything that reads those attributes in a minted attestation is reading what that endpoint said, signed by the
+attester ([F-0140](../../docs/findings/F-0140.yaml)); do not condition policy on them, and name an https URL.
+
+Plan items X-B07 and X-B08 (Phase 5) replace it with a read-only SPIRE reader and its PingFederate client, over
+mTLS from a PingFederate-managed key pair. That reader is to be the one way `spire:` selectors arrive. The
+`spiffe-jwt` validator is to call it after the SVID has passed every check, keyed by the verified SPIFFE ID, and to
+add what it reads through `EvidenceSelectors.of` with source `spire`, names from a fixed list of SPIRE selector
+types (`spire:k8s` to `ns:payments` and `sa:payment-agent`, say), and the same bounds. `spire` will then be the one
+source that is not an evidence type id, as a second verified source about the same instance. Where several
+registration entries match, only the selectors common to all of them are to count (the plan's intersection across
+entries). A failed read is to refuse the issuance (`closed`) or issue without `spire:` selectors (`downscope`),
+whichever failure mode is configured.
 
 ## Minting
 
