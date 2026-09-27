@@ -4,7 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
-import com.pingidentity.ps.oidf.issuer.EvidencePolicy;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import java.io.IOException;
@@ -152,7 +152,7 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
         if (bundles == null || bundles.isBlank()) {
             bundles = env.apply("OIDF_CIMD_TRUST_BUNDLES");
         }
-        if (bundles != null && !bundles.isBlank() && !EvidencePolicy.isProduction(env)) {
+        if (bundles != null && !bundles.isBlank() && DeploymentProfile.of(env).isDevelopment()) {
             sources.add("cimd");
         }
         sources.add("registration");

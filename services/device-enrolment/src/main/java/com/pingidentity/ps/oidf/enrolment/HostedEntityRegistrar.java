@@ -5,21 +5,16 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -68,6 +63,8 @@ public interface HostedEntityRegistrar {
     final class PingFederate implements HostedEntityRegistrar {
         private static final Log LOGGER = LogFactory.getLog(PingFederate.class);
         private static final ObjectMapper JSON = new ObjectMapper();
+        /** The environment variable that turns the trust-all on, and the name InsecureTls records it under. */
+        static final String INSECURE_TLS = "PF_AUTHORITY_INSECURE_TLS";
 
         private final String authorityEntityId;
         private final URI baseUrl;
@@ -77,21 +74,15 @@ public interface HostedEntityRegistrar {
         /**
          * @param authorityEntityId the authority's Entity Identifier (PingFederate's issuer)
          * @param baseUrl where to reach it from here - differs from the identifier when PF runs in a container
-         * @param insecureTls dev only: trust PF's self-signed listener. Loudly logged.
+         * @param insecureTls dev only: trust PF's self-signed listener ({@value #INSECURE_TLS}), through platform's
+         *                    {@link InsecureTls}, which warns once and records the use; the host name is still checked
          */
         public PingFederate(String authorityEntityId, String baseUrl, String adminToken, boolean insecureTls) {
             this.authorityEntityId = Objects.requireNonNull(authorityEntityId, "authorityEntityId");
             this.baseUrl = URI.create(Objects.requireNonNull(baseUrl, "baseUrl").replaceAll("/+$", ""));
             this.adminToken = Objects.requireNonNull(adminToken, "adminToken");
-            HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5));
-            if (insecureTls) {
-                LOGGER.warn((Object) "PF_AUTHORITY_INSECURE_TLS=true: certificate checks OFF for the hosted-entity API (dev only)");
-                builder.sslContext(trustAll());
-                SSLParameters params = new SSLParameters();
-                params.setEndpointIdentificationAlgorithm(null);
-                builder.sslParameters(params);
-            }
-            this.http = builder.build();
+            this.http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(5)), INSECURE_TLS,
+                    insecureTls).build();
         }
 
         @Override
@@ -137,29 +128,6 @@ public interface HostedEntityRegistrar {
                 throw e;
             } catch (Exception e) {
                 throw EnrolmentException.serverError("could not reach the federation authority: " + e.getMessage(), e);
-            }
-        }
-
-        private static SSLContext trustAll() {
-            try {
-                SSLContext ctx = SSLContext.getInstance("TLS");
-                ctx.init(null, new TrustManager[]{new X509TrustManager() {
-                    @Override
-                    public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                    }
-
-                    @Override
-                    public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                    }
-
-                    @Override
-                    public X509Certificate[] getAcceptedIssuers() {
-                        return new X509Certificate[0];
-                    }
-                }}, new SecureRandom());
-                return ctx;
-            } catch (Exception e) {
-                throw new IllegalStateException(e);
             }
         }
     }

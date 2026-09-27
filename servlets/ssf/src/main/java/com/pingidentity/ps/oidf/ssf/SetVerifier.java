@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -148,9 +149,14 @@ public final class SetVerifier {
         return false;
     }
 
-    /** Runtime {@link JwksSource}: fetch the JWKS URL, cache for {@code cacheTtlSeconds}, re-fetch on demand. */
+    /**
+     * Runtime {@link JwksSource}: fetch the JWKS URL, cache for {@code cacheTtlSeconds}, re-fetch on demand.
+     * {@code insecureTls} is the receiver's switch and trusts any certificate chain through platform's
+     * {@link InsecureTls}; the host name is still checked.
+     */
     public static JwksSource httpJwksSource(String jwksUrl, long cacheTtlSeconds, boolean insecureTls) {
-        HttpClient http = insecureTls ? trustAllClient() : HttpClient.newHttpClient();
+        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), PollReceiverClient.RECEIVER_INSECURE_TLS,
+                insecureTls).build();
         return new JwksSource() {
             private volatile List<JsonWebKey> cached;
             private volatile long fetchedAt;
@@ -172,28 +178,5 @@ public final class SetVerifier {
                 return this.cached;
             }
         };
-    }
-
-    private static HttpClient trustAllClient() {
-        try {
-            javax.net.ssl.TrustManager[] trustAll = {new javax.net.ssl.X509TrustManager() {
-                public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
-                    // dev trust-all
-                }
-
-                public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
-                    // dev trust-all
-                }
-
-                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                    return new java.security.cert.X509Certificate[0];
-                }
-            }};
-            javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
-            ssl.init(null, trustAll, new java.security.SecureRandom());
-            return HttpClient.newBuilder().sslContext(ssl).build();
-        } catch (Exception e) {
-            throw new IllegalStateException("failed to build trust-all HTTP client", e);
-        }
     }
 }
