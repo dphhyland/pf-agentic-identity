@@ -140,7 +140,7 @@
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.runOnce(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.oldestIsBackingOff(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService$CappedBody.onNext(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(*</include>
 
                                         <!-- Boot never throws: start() is up, or logged and retried; scheduleBootRetry() keeps it to one retry. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.start(*</include>
