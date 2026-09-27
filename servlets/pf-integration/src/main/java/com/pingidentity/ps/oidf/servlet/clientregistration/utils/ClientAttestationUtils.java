@@ -153,12 +153,15 @@ public final class ClientAttestationUtils {
             String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
             String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
             String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
-            String requestUri = request.getRequestURL() == null ? null : request.getRequestURL().toString();
+            // The endpoint's URL as PingFederate advertises it, not the request URL: that is rebuilt from the
+            // Host header, which is the caller's to write (see endpointUrl).
+            String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer,
+                    ClientAttestationUtils.configuredTokenEndpointBaseUrl(), ClientAttestationUtils.endpointPath(request));
 
             AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
                     ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
                     ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
-            ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, requestUri);
+            ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, endpointUrl);
             ClientAttestationVerifier verifier = new ClientAttestationVerifier(resolver, config, AttestationSupport.replayCache(), AttestationSupport.challengeService());
 
             // Prefer the standard RFC 9396 parameter, but PingFederate's AS pre-validates
@@ -169,7 +172,7 @@ public final class ClientAttestationUtils {
             if (authorizationDetails == null || authorizationDetails.isBlank()) {
                 authorizationDetails = request.getParameter("oidf_requested_access");
             }
-            ClientAttestationResult result = verifier.verify(attestation, pop, dpop, request.getMethod(), requestUri, requestedClientId, authorizationDetails);
+            ClientAttestationResult result = verifier.verify(attestation, pop, dpop, request.getMethod(), endpointUrl, requestedClientId, authorizationDetails);
             if (!result.grantedAuthorizationDetails().isEmpty()) {
                 // Stash the GRANTED RFC 9396 authorization_details so an access-token-manager attribute
                 // mapping can surface it into the issued token (OGNL reads the HttpRequest attribute).
@@ -293,18 +296,93 @@ public final class ClientAttestationUtils {
     }
 
     /**
-     * Default verification policy for the token-endpoint auth filter: PoP audience = OP issuer or the
-     * request URL, method POST. The filter has no issuance-criteria context, so the per-client
-     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here — and because the
-     * OGNL issuance criterion reuses the verification this filter publishes rather than verifying again
-     * (verify-once), that tuning does not apply to a filter-authenticated request at all.
+     * Default verification policy for the token-endpoint auth filter: the PoP audience is the OP issuer and
+     * nothing else (draft-ietf-oauth-attestation-based-client-auth-10 §5.1 and §7.2, item 7), a DPoP proof's
+     * {@code htu} is {@code endpointUrl} (see {@link #endpointUrl}), method POST. The filter has no
+     * issuance-criteria context, so the per-client {@code extproperties.*} tuning read by {@link #buildConfig}
+     * does not apply here — and because the OGNL issuance criterion reuses the verification this filter
+     * publishes rather than verifying again (verify-once), that tuning does not apply to a filter-authenticated
+     * request at all.
+     *
+     * <p>Until 0.4.0 the request URL was accepted as a PoP audience as well, and was the {@code htu}. It is
+     * rebuilt from the {@code Host} header, so a PoP or DPoP proof minted for another server - one whose token
+     * endpoint shares this one's path, as every PingFederate's does - passed here with a {@code Host} header
+     * naming that server.
      */
-    public static ClientAttestationConfig defaultConfig(String opIssuer, String requestUri) {
+    public static ClientAttestationConfig defaultConfig(String opIssuer, String endpointUrl) {
         return ClientAttestationConfig.builder()
-                .addAcceptedAudience(opIssuer)
-                .addAcceptedAudience(requestUri)
+                .expectedAudience(opIssuer)
+                .expectedHtu(endpointUrl)
                 .expectedHtm("POST")
                 .build();
+    }
+
+    /**
+     * The URL of the PingFederate endpoint at {@code endpointPath}, as PingFederate advertises it for
+     * {@code issuer}: the issuer followed by the path, except the token endpoint, which PingFederate advertises
+     * under its token endpoint base URL when one is set ({@code ProviderConfigurationInfoHandler} in 13.1.3's
+     * {@code pf-protocolengine}: {@code token_endpoint} is that base URL, or the issuer when it is blank, then
+     * {@code /as/token.oauth2}; {@code pushed_authorization_request_endpoint} is the issuer then
+     * {@code /as/par.oauth2}; read with javap on 2026-09-27). {@code null} when either the issuer or the path is
+     * unknown, and then a DPoP proof is refused rather than compared with nothing.
+     *
+     * <p>This is the {@code htu} a DPoP proof must name. RFC 9449 §4.3, item 9, compares it with "the HTTP URI
+     * value for the HTTP request in which the JWT was received"; a servlet container rebuilds that from the
+     * {@code Host} header (or {@code X-Forwarded-*}), which the client writes, so a proof minted for another
+     * server would pass with a {@code Host} header naming it. The issuer comes from configuration: PingFederate's
+     * {@code OAuthIssuerUtils.getIssuerValue} returns its base URL, or a virtual host name or issuer it has
+     * configured when the request names one; a {@code Host} it does not know gets the base URL (13.1.3, javap,
+     * 2026-09-27).
+     */
+    public static String endpointUrl(String issuer, String tokenEndpointBaseUrl, String endpointPath) {
+        if (issuer == null || issuer.isBlank() || endpointPath == null || endpointPath.isEmpty()) {
+            return null;
+        }
+        boolean tokenEndpoint = TOKEN_ENDPOINT_PATH.equals(endpointPath);
+        String base = tokenEndpoint && tokenEndpointBaseUrl != null && !tokenEndpointBaseUrl.isBlank()
+                ? tokenEndpointBaseUrl : issuer;
+        return base + endpointPath;
+    }
+
+    /** Where PingFederate serves its token endpoint, under the issuer or the token endpoint base URL. */
+    static final String TOKEN_ENDPOINT_PATH = "/as/token.oauth2";
+
+    /**
+     * The path within this server that {@code request} was routed to, as the container decoded and matched it:
+     * context path, servlet path and path info ({@code /as/token.oauth2} under PingFederate's {@code *.oauth2}
+     * mapping, whose servlet path is the whole path). {@code null} when the request names none.
+     */
+    public static String endpointPath(HttpServletRequest request) {
+        String path = ClientAttestationUtils.nullToEmpty(request.getContextPath())
+                + ClientAttestationUtils.nullToEmpty(request.getServletPath())
+                + ClientAttestationUtils.nullToEmpty(request.getPathInfo());
+        return path.isEmpty() ? null : path;
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean TOKEN_ENDPOINT_BASE_URL_WARNED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * PingFederate's token endpoint base URL (Authorization Server Settings), or {@code null} when it is not set
+     * or cannot be read. An internal of PingFederate's, not SDK, read the way {@code ProviderConfigurationInfoHandler}
+     * reads it for the discovery document. Unreadable is said once and treated as unset, which leaves the token
+     * endpoint under the issuer: a proof naming the base URL is then refused, never one naming another server
+     * accepted.
+     */
+    public static String configuredTokenEndpointBaseUrl() {
+        try {
+            return org.sourceid.saml20.domain.mgmt.MgmtFactory.getAuthzServerManager().getTokenEndpointBaseUrl();
+        } catch (RuntimeException | LinkageError e) {
+            if (TOKEN_ENDPOINT_BASE_URL_WARNED.compareAndSet(false, true)) {
+                LOGGER.warn((Object) ("PingFederate's token endpoint base URL could not be read, so a DPoP proof at "
+                        + "the token endpoint must name the issuer's token endpoint: " + e));
+            }
+            return null;
+        }
     }
 
     private static volatile StaticAttesterKeyResolver mockResolver;
@@ -388,16 +466,17 @@ public final class ClientAttestationUtils {
     }
 
     /**
-     * Builds the verification policy, defaulting the PoP audience to the OP issuer and the request URL,
-     * and reading optional {@code extproperties.*} overrides: {@code attestation_pop_max_age},
-     * {@code attestation_dpop_max_age}, {@code attestation_clock_skew},
-     * {@code attestation_challenge_required}, {@code attestation_expected_htu},
-     * {@code attestation_accepted_algs}, {@code attestation_pop_algs}, {@code attestation_dpop_algs}.
+     * Builds the verification policy: the PoP audience is the OP issuer alone and a DPoP proof's {@code htu}
+     * is {@code endpointUrl}, as in {@link #defaultConfig}, with optional {@code extproperties.*} overrides:
+     * {@code attestation_pop_max_age}, {@code attestation_dpop_max_age}, {@code attestation_clock_skew},
+     * {@code attestation_challenge_required}, {@code attestation_expected_htu} (an administrator's pin of the
+     * {@code htu}, which replaces {@code endpointUrl}), {@code attestation_accepted_algs},
+     * {@code attestation_pop_algs}, {@code attestation_dpop_algs}.
      */
-    private static ClientAttestationConfig buildConfig(Map inParameters, String opIssuer, String requestUri) {
+    private static ClientAttestationConfig buildConfig(Map inParameters, String opIssuer, String endpointUrl) {
         ClientAttestationConfig.Builder b = ClientAttestationConfig.builder()
-                .addAcceptedAudience(opIssuer)
-                .addAcceptedAudience(requestUri)
+                .expectedAudience(opIssuer)
+                .expectedHtu(endpointUrl)
                 .expectedHtm("POST");
 
         Long popMaxAge = ClientAttestationUtils.longProp(inParameters, "extproperties.attestation_pop_max_age");

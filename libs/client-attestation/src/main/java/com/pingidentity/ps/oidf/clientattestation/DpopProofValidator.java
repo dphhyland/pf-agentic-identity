@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.clientattestation;
 
 import java.net.URI;
+import java.net.URISyntaxException;
 import java.time.Instant;
 import java.util.Locale;
 import java.util.Map;
@@ -89,8 +90,8 @@ public final class DpopProofValidator {
         if (expectedMethod != null && !expectedMethod.equalsIgnoreCase(htm)) {
             throw new IllegalArgumentException("DPoP 'htm' mismatch: got '" + htm + "', expected '" + expectedMethod + "'");
         }
-        if (expectedHtu != null && !DpopProofValidator.normalizeHtu(expectedHtu).equals(DpopProofValidator.normalizeHtu(htu))) {
-            throw new IllegalArgumentException("DPoP 'htu' mismatch: got '" + htu + "', expected '" + expectedHtu + "'");
+        if (expectedHtu != null) {
+            DpopProofValidator.requireHtu(htu, expectedHtu);
         }
         this.assertFresh(iat);
 
@@ -107,33 +108,122 @@ public final class DpopProofValidator {
         }
     }
 
-    /** Normalizes an {@code htu} for comparison: lower-cased scheme/host, default ports dropped, query and fragment removed. */
-    static String normalizeHtu(String url) {
-        String trimmed = url.trim();
-        try {
-            URI u = URI.create(trimmed);
-            String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
-            String host = u.getHost() == null ? "" : u.getHost().toLowerCase(Locale.ROOT);
-            int port = u.getPort();
-            boolean defaultPort = port == -1 || ("https".equals(scheme) && port == 443) || ("http".equals(scheme) && port == 80);
-            String path = u.getPath() == null ? "" : u.getPath();
-            StringBuilder sb = new StringBuilder();
-            sb.append(scheme).append("://").append(host);
-            if (!defaultPort) {
-                sb.append(':').append(port);
-            }
-            return sb.append(path).toString();
-        } catch (RuntimeException e) {
-            String s = trimmed;
-            int q = s.indexOf('?');
-            if (q >= 0) {
-                s = s.substring(0, q);
-            }
-            int h = s.indexOf('#');
-            if (h >= 0) {
-                s = s.substring(0, h);
-            }
-            return s;
+    /**
+     * Refuses a proof whose {@code htu} does not name {@code expectedHtu}.
+     *
+     * <p>RFC 9449 §4.3, item 9: "The htu claim matches the HTTP URI value for the HTTP request in which the JWT
+     * was received, ignoring any query and fragment parts." And after the list: "To reduce the likelihood of
+     * false negatives, servers SHOULD employ syntax-based normalization (Section 6.2.2 of [RFC3986]) and
+     * scheme-based normalization (Section 6.2.3 of [RFC3986]) before comparing the htu claim." Both sides go
+     * through {@link #normalizeHtu}; an {@code htu} that is not an absolute http or https URI names no endpoint
+     * of this server and is refused, and an expected value that is not one is this server's misconfiguration.
+     */
+    static void requireHtu(String htu, String expectedHtu) {
+        String expected = DpopProofValidator.normalizeHtu(expectedHtu);
+        if (expected == null) {
+            throw new IllegalArgumentException("the expected DPoP 'htu' is not an absolute http or https URI: '"
+                    + expectedHtu + "'");
         }
+        if (!expected.equals(DpopProofValidator.normalizeHtu(htu))) {
+            throw new IllegalArgumentException("DPoP 'htu' mismatch: got '" + htu + "', expected '" + expectedHtu + "'");
+        }
+    }
+
+    /**
+     * The form an {@code htu} is compared in, or {@code null} when {@code url} is not an absolute http or https
+     * URI with a host.
+     *
+     * <p>RFC 3986 §6.2.2 syntax-based normalization: the scheme and host in lower case (§6.2.2.1), percent-encoded
+     * unreserved characters decoded and the hex digits of every other percent-encoding in upper case (§6.2.2.1,
+     * §6.2.2.2), and dot-segments removed (§6.2.2.3). §6.2.3 scheme-based normalization for http and https: a
+     * port that is empty or the scheme's default dropped, and an empty path made "/". The query and the fragment
+     * are dropped (RFC 9449 §4.3, item 9). Nothing else is: the user information, a trailing slash and the case
+     * of the path all still count, because §6.2.2 leaves them significant.
+     */
+    static String normalizeHtu(String url) {
+        if (url == null) {
+            return null;
+        }
+        URI u;
+        try {
+            u = new URI(url);
+        } catch (URISyntaxException e) {
+            return null;
+        }
+        String scheme = u.getScheme() == null ? "" : u.getScheme().toLowerCase(Locale.ROOT);
+        boolean https = "https".equals(scheme);
+        if ((!https && !"http".equals(scheme)) || u.getHost() == null) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder(scheme).append("://");
+        if (u.getRawUserInfo() != null) {
+            sb.append(DpopProofValidator.normalizePercentEncoding(u.getRawUserInfo())).append('@');
+        }
+        sb.append(u.getHost().toLowerCase(Locale.ROOT));
+        int port = u.getPort();
+        if (port != -1 && port != (https ? 443 : 80)) {
+            sb.append(':').append(port);
+        }
+        String path = DpopProofValidator.removeDotSegments(
+                DpopProofValidator.normalizePercentEncoding(u.getRawPath()));
+        return sb.append(path.isEmpty() ? "/" : path).toString();
+    }
+
+    /**
+     * RFC 3986 §6.2.2.2 and the hex-digit half of §6.2.2.1: a percent-encoded octet that is an unreserved
+     * character (§2.3: {@code ALPHA / DIGIT / "-" / "." / "_" / "~"}) is decoded, and any other keeps its
+     * encoding with its hex digits in upper case. The input has already parsed as a URI, so every {@code %}
+     * starts a well-formed triplet.
+     */
+    static String normalizePercentEncoding(String raw) {
+        StringBuilder out = new StringBuilder(raw.length());
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c != '%') {
+                out.append(c);
+                continue;
+            }
+            int octet = Integer.parseInt(raw.substring(i + 1, i + 3), 16);
+            char decoded = (char) octet;
+            boolean unreserved = decoded >= 'A' && decoded <= 'Z' || decoded >= 'a' && decoded <= 'z'
+                    || decoded >= '0' && decoded <= '9' || decoded == '-' || decoded == '.' || decoded == '_'
+                    || decoded == '~';
+            if (unreserved) {
+                out.append(decoded);
+            } else {
+                out.append('%').append(raw.substring(i + 1, i + 3).toUpperCase(Locale.ROOT));
+            }
+            i += 2;
+        }
+        return out.toString();
+    }
+
+    /** RFC 3986 §5.2.4 remove_dot_segments, step for step (the letters are the RFC's). */
+    static String removeDotSegments(String path) {
+        String in = path;
+        StringBuilder out = new StringBuilder();
+        while (!in.isEmpty()) {
+            if (in.startsWith("../")) {                                   // A
+                in = in.substring(3);
+            } else if (in.startsWith("./")) {                             // A
+                in = in.substring(2);
+            } else if (in.startsWith("/./")) {                            // B
+                in = in.substring(2);
+            } else if (in.equals("/.")) {                                 // B
+                in = "/";
+            } else if (in.startsWith("/../") || in.equals("/..")) {       // C
+                in = "/" + in.substring(in.equals("/..") ? 3 : 4);
+                int last = out.lastIndexOf("/");
+                out.setLength(Math.max(last, 0));
+            } else if (in.equals(".") || in.equals("..")) {               // D
+                in = "";
+            } else {                                                      // E
+                int next = in.indexOf('/', 1);
+                int end = next < 0 ? in.length() : next;
+                out.append(in, 0, end);
+                in = in.substring(end);
+            }
+        }
+        return out.toString();
     }
 }

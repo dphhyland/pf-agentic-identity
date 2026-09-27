@@ -8,9 +8,9 @@ import java.util.Set;
 
 /**
  * Immutable verification policy for {@link ClientAttestationVerifier}: which signing algorithms are
- * accepted for the attestation, PoP and DPoP JWTs; the clock-skew and freshness windows; the expected
- * PoP audiences and DPoP {@code htm}/{@code htu}; and whether a server-issued challenge is mandatory.
- * Built via {@link #builder()}.
+ * accepted for the attestation, PoP and DPoP JWTs; the clock-skew and freshness windows; the one PoP
+ * audience this server answers to and the DPoP {@code htm}/{@code htu}; and whether a server-issued
+ * challenge is mandatory. Built via {@link #builder()}.
  */
 public final class ClientAttestationConfig {
     /** Asymmetric signature algorithms accepted by default (no {@code none}, no MACs). */
@@ -29,7 +29,7 @@ public final class ClientAttestationConfig {
     private final int allowedClockSkewSeconds;
     private final long popMaxAgeSeconds;
     private final long dpopMaxAgeSeconds;
-    private final Set<String> acceptedAudiences;
+    private final String expectedAudience;
     private final String expectedHtu;
     private final String expectedHtm;
     private final boolean challengeRequired;
@@ -43,7 +43,7 @@ public final class ClientAttestationConfig {
         this.allowedClockSkewSeconds = b.allowedClockSkewSeconds;
         this.popMaxAgeSeconds = b.popMaxAgeSeconds;
         this.dpopMaxAgeSeconds = b.dpopMaxAgeSeconds;
-        this.acceptedAudiences = Set.copyOf(b.acceptedAudiences);
+        this.expectedAudience = b.expectedAudience;
         this.expectedHtu = b.expectedHtu;
         this.expectedHtm = b.expectedHtm;
         this.challengeRequired = b.challengeRequired;
@@ -79,10 +79,27 @@ public final class ClientAttestationConfig {
         return this.dpopMaxAgeSeconds;
     }
 
-    public Set<String> acceptedAudiences() {
-        return this.acceptedAudiences;
+    /**
+     * The identifier of the server doing the verifying, which a Client Attestation PoP JWT must carry as its
+     * only {@code aud}: an authorization server's RFC 8414 issuer identifier, or a resource server's RFC 9728
+     * resource identifier. draft-ietf-oauth-attestation-based-client-auth-10 §5.1: "When the JWT is presented
+     * to an Authorization Server, the [RFC8414] issuer identifier URL of the Authorization Server MUST be
+     * used. [...] A Client Attestation PoP JWT is intended for a single audience, Clients MUST generate JWTs
+     * for each target." One value, not a set: a server that also accepted, say, its token endpoint URL would
+     * accept a PoP minted for another server that happens to share that URL's shape. {@code null} when
+     * unset, and then PoP mode is refused as a misconfiguration rather than checked against nothing.
+     */
+    public String expectedAudience() {
+        return this.expectedAudience;
     }
 
+    /**
+     * The URL of the endpoint the proof is presented to, which a DPoP proof's {@code htu} must name (RFC 9449
+     * §4.3, item 9). It comes from this server's configuration - for PingFederate, the endpoint URL it
+     * advertises for its issuer - and never from the request's {@code Host} header, {@code X-Forwarded-*} or
+     * the request URL a servlet container rebuilds from them: those are the caller's to write, and a proof
+     * minted for another server would otherwise pass with a {@code Host} header naming that server.
+     */
     public String expectedHtu() {
         return this.expectedHtu;
     }
@@ -125,7 +142,7 @@ public final class ClientAttestationConfig {
         private int allowedClockSkewSeconds = DEFAULT_CLOCK_SKEW_SECONDS;
         private long popMaxAgeSeconds = DEFAULT_POP_MAX_AGE_SECONDS;
         private long dpopMaxAgeSeconds = DEFAULT_DPOP_MAX_AGE_SECONDS;
-        private Set<String> acceptedAudiences = new LinkedHashSet<>();
+        private String expectedAudience;
         private String expectedHtu;
         private String expectedHtm = DEFAULT_HTTP_METHOD;
         private boolean challengeRequired;
@@ -171,20 +188,16 @@ public final class ClientAttestationConfig {
             return this;
         }
 
-        public Builder acceptedAudiences(Set<String> audiences) {
-            if (audiences != null) {
-                this.acceptedAudiences = new LinkedHashSet<>(audiences);
-            }
+        /**
+         * Sets the one PoP audience this server answers to (see {@link ClientAttestationConfig#expectedAudience()});
+         * a blank value is treated as unset. This replaced a set of accepted audiences in 0.4.0.
+         */
+        public Builder expectedAudience(String audience) {
+            this.expectedAudience = audience == null || audience.isBlank() ? null : audience;
             return this;
         }
 
-        public Builder addAcceptedAudience(String audience) {
-            if (audience != null && !audience.isBlank()) {
-                this.acceptedAudiences.add(audience);
-            }
-            return this;
-        }
-
+        /** Sets the endpoint URL a DPoP proof's {@code htu} must name (see {@link ClientAttestationConfig#expectedHtu()}). */
         public Builder expectedHtu(String htu) {
             this.expectedHtu = htu;
             return this;

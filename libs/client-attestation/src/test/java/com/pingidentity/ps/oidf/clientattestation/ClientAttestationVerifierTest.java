@@ -44,8 +44,7 @@ class ClientAttestationVerifierTest {
 
     private ClientAttestationVerifier newVerifier(boolean challengeRequired, Set<String> requiredDisclosedClaims) {
         ClientAttestationConfig config = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .challengeRequired(challengeRequired)
                 .requiredDisclosedClaims(requiredDisclosedClaims)
@@ -525,8 +524,7 @@ class ClientAttestationVerifierTest {
     private ClientAttestationVerifier verifierWith(AttestationReplayCache replay, AttestationChallengeService challenges,
                                                    boolean challengeRequired) {
         ClientAttestationConfig config = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .challengeRequired(challengeRequired)
                 .build();
