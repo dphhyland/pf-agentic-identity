@@ -294,6 +294,23 @@
                                         <!-- redis (C-2): add gate includes below this line -->
                                         <!-- http (S5a): add gate includes below this line -->
                                         <!-- exec (C-3): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.relocated(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.checkName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.create(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.claim(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.release(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.every(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.after(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.nonNegativeNanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.positiveNanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.whenClosed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.runHook(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.awaitEnd(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.every(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.after(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.startDaemon(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -36,7 +36,8 @@ owner, so nobody edits it.
 `Lifecycle.current()` is this loader's registry of things to close: `register(name, resource)` adds an
 `AutoCloseable`, and `shutdown()` closes them the last registered first, once. A close that throws is logged
 and reported, and the rest are still closed. The wait is bounded (`DEFAULT_BUDGET`, ten seconds, or the
-budget passed): each close runs on a short-lived daemon thread and is waited for only until the budget runs
+budget passed): each close runs on a short-lived daemon thread (`oidf-platform-close-<n>`, started through
+[exec](#exec)'s `startDaemon`) and is waited for only until the budget runs
 out, so a hung close cannot hold up an undeploy; it carries on in the background and is reported as timed out.
 Reverse order holds only while every close finishes in time: after a timeout, or once the budget is spent, the
 remaining closes start at once while the hung one is still running, so a resource registered earlier - one the
@@ -588,6 +589,108 @@ counting never fails an event.
 <!-- redis (C-2): add this package's section below this line -->
 <!-- http (S5a): add this package's section below this line -->
 <!-- exec (C-3): add this package's section below this line -->
+## exec
+
+`ManagedExecutors` is where the repository's code starts a background thread (plan item C-3). Each job gets an
+executor of its own with one daemon thread named `oidf-<name>-<n>`, registered with this copy's lifecycle, listed
+in this copy's registry and counted in this copy's metrics:
+
+```java
+ManagedExecutors.every("registration-sweeper", Duration.ofSeconds(300), this::sweep);          // first run in 300 s
+ManagedExecutors.every("subordinate-refresh", Duration.ZERO, Duration.ofSeconds(240), this::refresh); // first run now
+ManagedExecutors.after("some-job", Duration.ofSeconds(30), this::once);
+ManagedExecutors.single("ssf-boot-retry").ifPresent(e -> e.after(Duration.ofSeconds(30), this::retry));
+```
+
+- `every` runs with a fixed delay: the next run starts one interval after the last one ended, so runs never
+  overlap. `after` runs once. `single` schedules nothing, for a job that schedules its own runs (one retry at a
+  time) or runs a loop until it is interrupted (`ManagedExecutor.execute`).
+- A name is a constant: 1-40 of `a-z`, `0-9` and single hyphens, starting with a letter. Anything else is an
+  `IllegalArgumentException`, as is a negative delay or an interval of zero, and both are checked before the
+  name is claimed.
+- A run that throws - an exception the task did not catch, or an `Error` - is logged at WARN with its stack,
+  counted, and the schedule carries on. A bare `ScheduledExecutorService` silently drops a periodic task's later
+  runs once one throws, and a bare thread dies. The five jobs below each catch their own exceptions with their own
+  log lines, as they always did, so only what those catches let through reaches this.
+- `close()` interrupts a run in progress, drops what is queued and waits up to five seconds (`CLOSE_WAIT`) for
+  the thread to end, then gives the name back. A run that throws because that close interrupted it is logged at
+  INFO as ended by shutdown and is not a failure. `close(Duration.ZERO)` does not wait, as `shutdownNow` did not.
+- `whenClosed(hook)` runs something once the executor is closed; the registration sweeper uses it to give back
+  its own owner property.
+
+### Which copy may start one
+
+Only the webapp's copy starts threads ([classloaders](../../docs/development/classloaders.md), rule 2). A copy
+cannot yet tell it is the webapp's - `Lifecycle.loaderRole()` is `UNKNOWN` until F-2's listener marks it - so a
+start is refused, with the reason logged and an empty `Optional` returned, in three cases:
+
+1. **A relocated copy.** A plugin that shades platform relocates this package, and a plugin's loader has nothing
+   that would stop a thread. The package name to compare against is built from parts, because a shading
+   relocation rewrites string constants that look like the package it moves.
+2. **A copy whose lifecycle has shut down.**
+3. **A job of that name already running anywhere in the JVM.** The name is claimed in the System property
+   `oidf.exec.owner.<name>` under a lock on `System.class`, holding the claiming copy's id, and given back when
+   the executor closes. This is the registration sweeper's owner property made general, and classloaders rule 4
+   records it. A servlet initialised twice, or the same servlet in `oidf.war` and `pf-runtime.war`, starts one
+   loop, not two. For the subordinate refresher that means one instance's cache is warmed and the other's is not
+   ([F-0202](../../docs/findings/F-0202.yaml)). `ExecutorCopiesTest` loads platform twice through two `URLClassLoader`s and shows the second
+   copy starts nothing while the first runs, and may once the first copy's lifecycle has shut down.
+
+The engine's copy is told apart from the webapp's only by never calling a start: every start is in a servlet's
+or filter's `init` (or a boot retry scheduled from one), and no `init` runs in the engine's loader. Once F-2 marks
+the webapp, refusing every unmarked copy is one more check here; [F-0200](../../docs/findings/F-0200.yaml)
+records it.
+
+### The jobs
+
+| Job | Where | Schedule | Thread before 0.5.0 | Thread now |
+|---|---|---|---|---|
+| Registration expiry sweep | `RegistrationExpirySweeper.startOnce`, from `TokenEndpointAutoRegistrationFilter.init` | every `OIDF_REGISTRATION_SWEEP_INTERVAL_SECONDS`, first after one interval | `oidf-registration-sweeper` | `oidf-registration-sweeper-1` |
+| Subordinate entity-configuration refresh | `FederationService.prewarmSubordinatesAsync`, from `OpenIdFederationServlet.init` | at once, then 240 s after each round | `oidf-subordinate-refresh` | `oidf-subordinate-refresh-1` |
+| SSF push delivery and SET expiry | `PushDeliveryService.start`, from `SsfSupport.start` | every `pushRetryBackoffSeconds` (at least 1), first after one tick | `ssf-push-delivery` | `oidf-ssf-push-delivery-1` |
+| SSF receiver poll | `PollReceiverClient.start`, from the SSF servlets' wiring | every `receiverPollIntervalSeconds` (at least 1), first after one tick | `ssf-poll-receiver` | `oidf-ssf-poll-receiver-1` |
+| SSF boot retry | `SsfSupport.scheduleBootRetry`, when the store cannot be opened at boot | once, 30 s later, one pending at a time | `ssf-boot-retry` | `oidf-ssf-boot-retry-1` |
+| Lifecycle closes | `Lifecycle.shutdown` and a `register` after shutdown | one short-lived thread per close | `oidf-platform-close-<resource name>` | `oidf-platform-close-<n>` |
+
+The timing, the log lines and each job's own failure handling are what they were; each job has a test that
+drives its loop on the executor (`RegistrationExpirySweeperTest`, `SubordinateRefresherTest`,
+`PushDeliveryLoopTest`, `PollReceiverLoopTest`, `SsfSupportBootTest`). Three things differ:
+
+- one of each job runs in the JVM, where the subordinate refresher had no guard and each call started a thread
+  (so a second `FederationService` whose refresher is refused keeps a cold cache: F-0202);
+- an `Error` thrown by a run is logged and counted and the job carries on, where it used to end the job;
+- the subordinate refresher, interrupted at shutdown, stops at the next subordinate rather than logging each of
+  the rest as not reachable.
+
+The lifecycle's closer is the one thread here that is not an executor. `ManagedExecutors.startDaemon(name, task)`
+starts it - a named daemon, not claimed, not registered and not refused in any copy - because the lifecycle is
+what closes executors, and a shutdown that ran its closes on an executor would depend on one being shut down.
+That closes [F-0131](../../docs/findings/F-0131.yaml).
+
+### Metrics
+
+Per executor name (a label capped at 64 values; names are constants): `oidf_executor_runs_total`,
+`oidf_executor_failures_total` (runs that threw) and `oidf_executor_run_seconds` (a timer; the 30 s and 60 s
+buckets are for these). They are registered on the first run, so loading the class registers nothing; from then
+on this copy has a metrics MXBean (see [One MXBean per loaded copy](#one-mxbean-per-loaded-copy)).
+`ManagedExecutors.snapshot()` lists each executor this copy runs with its own run and failure counts, for health
+to read.
+
+### Left for C-4
+
+A managed executor runs a job once per JVM, which on one node is once. On two nodes each runs its own, which is
+why 0.5.0 still supports one node ([deployment limits](../../docs/operator/deployment-limits.md)). C-4 (Phase 4)
+adds `leaderEvery(job, interval, lease, taskWithToken)` for a job that must run once per cluster: the
+registration sweeper, the SSF poll client (each node would poll and acknowledge on its own), and later the MDM
+watch loop. The SSF push loop is S-10's engine instead: stream leases with a fencing epoch, not one leader.
+Nothing here fixes their shape: `leaderEvery` can build on `single` and `every`, and the claim here stays the
+per-JVM rule under it.
+
+Threads the repository does not start through here: services/device-enrolment's HTTP server pool and its
+shutdown hook (`EnrolmentHttpServer`, `Main`), which X-A11 replaces; libs/testkit's shutdown hook, which stops a
+test database and is never shipped; and the Kafka producer's own I/O thread when the SSF Kafka publisher is on,
+which the Kafka client starts ([F-0201](../../docs/findings/F-0201.yaml)).
+
 
 ## Build
 

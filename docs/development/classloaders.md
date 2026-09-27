@@ -48,13 +48,16 @@ so a thread it started would have nothing to stop it. Every thread the repositor
 - the SSF push, poll and boot-retry schedulers, started from `SsfHttp.bootstrap(ServletConfig)`, which the SSF
   servlets' `init` calls.
 
-A copy cannot tell by itself which loader it is in. `Lifecycle.loaderRole()` says `WEBAPP` once the webapp's
-lifecycle listener (F-2) has called `markWebapp()`, and `UNKNOWN` everywhere else, so code that starts a thread
-can refuse to in any copy not marked. Managed executors (C-3) will start threads only there. The one thread
-platform starts itself is `Lifecycle`'s short-lived closer, one per resource during shutdown, which only the
-webapp's listener is meant to call - but a `register()` after shutdown also closes its resource on a closer
-thread, in whichever copy and from whichever caller registers it. C-3 is where it moves onto the managed
-executors.
+Each of them starts through platform's `ManagedExecutors` (C-3), as `oidf-<name>-1`
+([libs/platform, exec](../../libs/platform/README.md#exec)), which refuses a start in a plugin's relocated copy, in
+a copy whose lifecycle has shut down, and for a job already running anywhere in the JVM (rule 4). A copy cannot
+tell by itself which loader it is in: `Lifecycle.loaderRole()` says `WEBAPP` once the webapp's lifecycle listener
+(F-2) has called `markWebapp()`, and `UNKNOWN` everywhere else. Until F-2 lands, the engine's copy is kept from
+starting threads only by nothing in it calling a start; refusing every unmarked copy is
+[F-0200](../findings/F-0200.yaml). The one other thread platform starts is `Lifecycle`'s short-lived closer, one
+per resource during shutdown, and one when a `register()` after shutdown closes its resource at once, in whichever
+copy registers it; it starts through `ManagedExecutors.startDaemon` and is refused nowhere, because it is what
+closes the executors.
 
 Applies to the engine's copy and the plugins' copies, which must start none.
 
@@ -85,7 +88,14 @@ is invisible to the other. What crosses between loaders is what both see from th
   The plugin cannot share the constant, so both sides write the literal and `RarContextKeyTest` holds them equal.
 - **The JVM-wide System properties already in use.** The registration sweeper records its owner in
   `oidf.registration.sweeper.owner` under a lock on `System.class`, so two filter instances, or two copies,
-  never start two sweepers (`RegistrationExpirySweeper.OWNER_PROPERTY` and `startOnce`).
+  never start two sweepers (`RegistrationExpirySweeper.OWNER_PROPERTY` and `startOnce`), and gives it back when
+  its executor closes. Managed executors do the same for every job: `oidf.exec.owner.<name>` holds the id of the
+  copy running the job named `<name>`, set and cleared under the same lock, so one of each job runs in the JVM
+  whichever copy starts it (`ExecutorRegistry.claim` and `release`). The reasoning is the sweeper's: a
+  background job started twice does its work twice, against the same PingFederate and the same stores, and a
+  System property is the one thing every loader sees. The subordinate refresher is the exception: it warms its
+  own `FederationService`'s cache, so a second instance whose refresher is refused is left cold
+  ([F-0202](../findings/F-0202.yaml)).
 
 Nothing else: no shared static, no interface one copy implements and another calls, no new System property
 without the same reasoning written beside it.

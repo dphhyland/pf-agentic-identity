@@ -3,19 +3,20 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.Optional;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
@@ -41,7 +42,7 @@ public final class PollReceiverClient {
     private final PollTransport transport;
     private final int maxEvents;
     private final List<String> pendingAcks = new ArrayList<>();
-    private volatile ScheduledExecutorService scheduler;
+    private volatile ManagedExecutor scheduler;
 
     public PollReceiverClient(SsfReceiverService receiver, PollTransport transport, int maxEvents) {
         this.receiver = Objects.requireNonNull(receiver, "receiver");
@@ -91,31 +92,42 @@ public final class PollReceiverClient {
         return processed;
     }
 
-    /** Start the background poll loop (idempotent). */
+    /** The poll loop's managed executor; its thread is {@code oidf-ssf-poll-receiver-1}. */
+    static final String EXECUTOR_NAME = "ssf-poll-receiver";
+
+    /**
+     * Start the background poll loop (idempotent): a tick every {@code intervalSeconds} (at least 1), the first one
+     * interval from now, each starting one interval after the last ended. It runs once in the JVM; a start that finds
+     * it running elsewhere starts nothing.
+     */
     public synchronized void start(long intervalSeconds) {
         if (this.scheduler != null) {
             return;
         }
         long tick = Math.max(1, intervalSeconds);
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ssf-poll-receiver");
-            t.setDaemon(true);
-            return t;
-        });
-        this.scheduler.scheduleWithFixedDelay(() -> {
+        Optional<ManagedExecutor> started = ManagedExecutors.every(EXECUTOR_NAME, Duration.ofSeconds(tick), () -> {
             try {
                 runOnce();
             } catch (Exception e) {
                 LOGGER.warn((Object) ("SSF poll client tick failed: " + e.getMessage()));
             }
-        }, tick, tick, TimeUnit.SECONDS);
+        });
+        if (started.isEmpty()) {
+            return;
+        }
+        this.scheduler = started.get();
         LOGGER.info((Object) ("SSF poll receiver started (tick " + tick + "s)"));
     }
 
-    public synchronized void stop() {
-        if (this.scheduler != null) {
-            this.scheduler.shutdownNow();
+    /** Stops the loop: a tick in progress is interrupted and waited for, briefly, outside this client's lock. */
+    public void stop() {
+        ManagedExecutor running;
+        synchronized (this) {
+            running = this.scheduler;
             this.scheduler = null;
+        }
+        if (running != null) {
+            running.close();
         }
     }
 
