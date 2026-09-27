@@ -51,3 +51,6 @@ dependency-reduced-pom.xml
 docs/coverage-dashboard.md
 docs/coverage-dashboard.html
 showcase/docs.js
+
+# The hosted microsite is assembled from showcase/ by tools/build-microsite.py; the pages are the source.
+build/microsite/
