@@ -1,0 +1,17 @@
+id: U-0123
+title: The expected htu under a non-root PingFederate runtime context path
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S4a]
+prs: [34]
+recorded_in: 'docs/releases/unreleased/S4A.md, Notes'
+verify_by: >
+  On the rig, set pf.runtime.context.path=/sso and a base URL ending in /sso, read token_endpoint from discovery,
+  and send a combined-mode proof naming it at the token endpoint and at PAR; both must be issued, and a proof naming
+  .../sso/sso/as/token.oauth2 refused.
+verification: ''
+notes: >
+  The review of 2026-09-27 found the first cut counted the context path twice. From commit 980df9c endpointPath
+  leaves it out, as OAuthIssuer.constructCurrentRequestUrl does (javap, 13.1.3), and 13.1.3's run.properties says
+  the base URL must carry the path. Unit-tested with a /sso context; not booted.

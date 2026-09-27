@@ -92,7 +92,10 @@ public final class ClientAttestationVerifier {
      * @param popHeader          the {@code OAuth-Client-Attestation-PoP} value (PoP-JWT mode), or null
      * @param dpopHeader         the {@code DPoP} value (combined mode), or null
      * @param requestMethod      the HTTP method of the token request (for DPoP {@code htm}), or null
-     * @param requestUri         the HTTP target URI of the token request (for DPoP {@code htu}), or null
+     * @param requestUri         the URL of the endpoint the request was sent to, as this server's configuration
+     *                           gives it - never one rebuilt from the {@code Host} header - for the DPoP
+     *                           {@code htu} when the config names no {@link ClientAttestationConfig#expectedHtu()};
+     *                           with neither, DPoP combined mode is refused
      * @param requestedClientId  the {@code client_id} request parameter, if any, to cross-check {@code sub}
      * @return the authenticated client identity and confirmed key
      * @throws ClientAttestationException with the appropriate OAuth error code on any failure
@@ -284,7 +287,8 @@ public final class ClientAttestationVerifier {
     }
 
     private ClientAttestationResult verifyPopMode(ClientAttestation attestation, String popHeader) throws Exception {
-        if (this.config.acceptedAudiences().isEmpty()) {
+        String expectedAudience = this.config.expectedAudience();
+        if (expectedAudience == null) {
             throw ClientAttestationException.invalidClient("Server misconfigured: no expected PoP audience");
         }
         Map<String, Object> headers = JwtCodec.getJwtHeaders(popHeader);
@@ -294,10 +298,16 @@ public final class ClientAttestationVerifier {
         JwtClaims pop;
         try {
             pop = JwtCodec.verifyAttestationPop(popHeader, cnfKey, this.config.popAlgorithms(),
-                    this.config.acceptedAudiences(), this.config.allowedClockSkewSeconds());
+                    Set.of(expectedAudience), this.config.allowedClockSkewSeconds());
         } catch (JwtVerificationException e) {
+            if (e.reason() == JwtVerificationException.Reason.AUDIENCE) {
+                throw ClientAttestationException.invalidClient(WRONG_POP_AUDIENCE, e);
+            }
             throw ClientAttestationException.invalidClient("Client Attestation PoP verification failed: " + e.getMessage(), e);
         }
+        // jose4j accepts an aud that CONTAINS an expected value, so ["<this issuer>", "<anyone>"] got through
+        // it. The draft allows one audience, and it is this server.
+        ClientAttestationVerifier.requireSoleAudience(pop, expectedAudience);
 
         String popIssuer = pop.hasClaim("iss") ? pop.getIssuer() : null;
         if (popIssuer != null && !popIssuer.equals(attestation.clientId())) {
@@ -318,18 +328,53 @@ public final class ClientAttestationVerifier {
                 java.util.List.of(), java.util.List.of(), attestation.workload(), attestation.agentId());
     }
 
+    /**
+     * Refuses a PoP whose {@code aud} is anything but {@code expected} alone.
+     *
+     * <p>draft-ietf-oauth-attestation-based-client-auth-10 §5.1: "aud: REQUIRED. The aud (audience) claim MUST
+     * specify a value that identifies the intended audience of the JWT. When the JWT is presented to an
+     * Authorization Server, the [RFC8414] issuer identifier URL of the Authorization Server MUST be used. [...]
+     * A Client Attestation PoP JWT is intended for a single audience, Clients MUST generate JWTs for each
+     * target." §7.2, item 7: "The audience claim in the Client Attestation PoP JWT identifies the receiving
+     * server: when validated by an Authorization Server, it MUST be the issuer identifier URL of the
+     * Authorization Server as described in [RFC8414]".
+     *
+     * <p>What that leaves: the issuer as a string, or as the one member of an array. The draft asks for "a
+     * value" and never says "as a string", and RFC 7519 §4.1.3 writes one audience either way: "In the general
+     * case, the "aud" value is an array of case-sensitive strings [...] In the special case when the JWT has
+     * one audience, the "aud" value MAY be a single case-sensitive string". An array with a second member,
+     * even a second copy of the issuer, is not a single audience; the token endpoint URL is not the issuer
+     * identifier. The comparison is exact: RFC 7519 compares StringOrURI values "as case-sensitive strings
+     * with no transformations or canonicalizations applied" (§2), so a trailing slash or a change of case is
+     * another audience.
+     */
+    static void requireSoleAudience(JwtClaims pop, String expected) throws Exception {
+        List<String> audiences = pop.getAudience();
+        if (audiences.size() != 1 || !expected.equals(audiences.get(0))) {
+            throw ClientAttestationException.invalidClient(WRONG_POP_AUDIENCE);
+        }
+    }
+
+    /** Every refusal of a PoP's {@code aud} says the same thing, whichever check found it. */
+    static final String WRONG_POP_AUDIENCE =
+            "Client Attestation PoP 'aud' must be this server's issuer identifier and nothing else";
+
     private ClientAttestationResult verifyDpopMode(ClientAttestation attestation, String dpopHeader,
                                                    String requestMethod, String requestUri) throws Exception {
         DpopProofValidator validator = new DpopProofValidator(this.config.dpopAlgorithms(),
                 this.config.allowedClockSkewSeconds(), this.config.dpopMaxAgeSeconds());
         String expectedHtm = requestMethod != null && !requestMethod.isBlank() ? requestMethod : this.config.expectedHtm();
         String expectedHtu = this.config.expectedHtu() != null ? this.config.expectedHtu() : requestUri;
+        // DpopProofValidator skips the htu comparison when it is given no URL. That skip is a caller's choice
+        // there; here it would let a proof minted for any server authenticate at this one, so no URL is a
+        // misconfiguration, as no audience is in PoP mode.
+        if (expectedHtu == null || expectedHtu.isBlank()) {
+            throw ClientAttestationException.invalidClient("Server misconfigured: no expected DPoP htu");
+        }
 
         DpopProof proof;
         try {
             proof = validator.validate(dpopHeader, expectedHtm, expectedHtu);
-        } catch (ClientAttestationException e) {
-            throw e;
         } catch (Exception e) {
             throw ClientAttestationException.invalidClient("DPoP proof verification failed: " + e.getMessage(), e);
         }

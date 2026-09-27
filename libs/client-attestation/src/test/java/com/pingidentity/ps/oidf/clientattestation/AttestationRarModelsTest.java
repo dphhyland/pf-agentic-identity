@@ -104,7 +104,7 @@ class AttestationRarModelsTest {
     @Test
     void thePublicConstructorTakesThisClassloadersSet() {
         AttestationRarModels.resetForTest(Map.of(RarModels.ENV_MODELS, "not json"));
-        ClientAttestationConfig config = ClientAttestationConfig.builder().addAcceptedAudience("https://op.example.com").build();
+        ClientAttestationConfig config = ClientAttestationConfig.builder().expectedAudience("https://op.example.com").build();
 
         assertThrows(IllegalStateException.class, () -> new ClientAttestationVerifier((iss, chain) -> java.util.List.of(),
                 config, new InMemoryAttestationReplayCache(), null));

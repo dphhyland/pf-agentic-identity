@@ -276,7 +276,7 @@ class CasVectorRunnerTest {
         }
         JsonWebKey attesterPublic = JsonWebKey.Factory.newJwk(attesterKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY));
         ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels((iss, chain) -> List.of(attesterPublic),
-                ClientAttestationConfig.builder().addAcceptedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                ClientAttestationConfig.builder().expectedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
                 new InMemoryAttestationReplayCache(), null, models);
         JwtClaims pop = new JwtClaims();
         pop.setIssuer(CLIENT_ID);

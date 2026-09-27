@@ -237,7 +237,7 @@ class AsVectorRunnerTest {
 
     private static Answer ask(RarModels models, String request, Object ceiling) throws Exception {
         ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(resolver,
-                ClientAttestationConfig.builder().addAcceptedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                ClientAttestationConfig.builder().expectedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
                 new InMemoryAttestationReplayCache(), null, models);
         try {
             ClientAttestationResult result = verifier.verify(attestation(ceiling), pop(), null, "POST",

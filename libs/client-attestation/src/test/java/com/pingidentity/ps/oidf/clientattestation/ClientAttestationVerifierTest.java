@@ -53,8 +53,7 @@ class ClientAttestationVerifierTest {
 
     private ClientAttestationVerifier newVerifier(boolean challengeRequired, Set<String> requiredDisclosedClaims) {
         ClientAttestationConfig config = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .challengeRequired(challengeRequired)
                 .requiredDisclosedClaims(requiredDisclosedClaims)
@@ -365,7 +364,7 @@ class ClientAttestationVerifierTest {
         com.pingidentity.ps.oidf.rar.model.RarModels files = com.pingidentity.ps.oidf.rar.model.RarModels.load(
                 "{\"types\":{\"https://scheme.example.org/files\":{\"fields\":{\"locations\":\"set\"}}}}");
         ClientAttestationVerifier withFiles = ClientAttestationVerifier.withRarModels(resolver,
-                ClientAttestationConfig.builder().addAcceptedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                ClientAttestationConfig.builder().expectedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
                 new InMemoryAttestationReplayCache(), challengeService, files);
         String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L, Map.of("authorization_details",
                 List.of(Map.of("type", "https://scheme.example.org/files", "locations", List.of("/a", "/b")))));
@@ -585,8 +584,7 @@ class ClientAttestationVerifierTest {
     private ClientAttestationVerifier verifierWith(AttestationReplayCache replay, AttestationChallengeService challenges,
                                                    boolean challengeRequired) {
         ClientAttestationConfig config = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .challengeRequired(challengeRequired)
                 .build();

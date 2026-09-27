@@ -32,6 +32,7 @@ import java.util.Locale;
 import java.time.Instant;
 import java.util.UUID;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.FilterConfig;
@@ -108,19 +109,26 @@ public final class ClientAttestationAuthFilter implements Filter {
     /** The RAR model set the token gate asks, loaded at {@code init} when attestation authentication is live. */
     private volatile RarModels rarModels;
     private final Function<HttpServletRequest, String> issuerResolver;
+    private final Supplier<String> tokenEndpointBaseUrl;
 
     public ClientAttestationAuthFilter() {
-        this.issuerResolver = ClientAttestationAuthFilter::defaultIssuer;
+        this(ClientAttestationAuthFilter::defaultIssuer, ClientAttestationUtils::configuredTokenEndpointBaseUrl);
     }
 
     /**
      * Test seam: inject the OP-issuer resolver so tests can exercise {@link #doFilter} without
      * PingFederate's {@code OAuthIssuerUtils} singleton, whose static initializer reaches into PF's
      * HiveMind registry and cannot run outside a booted server (mirrors the same seam on
-     * {@link TokenEndpointAutoRegistrationFilter}).
+     * {@link TokenEndpointAutoRegistrationFilter}). No token endpoint base URL is set.
      */
     ClientAttestationAuthFilter(Function<HttpServletRequest, String> issuerResolver) {
+        this(issuerResolver, () -> null);
+    }
+
+    /** Test seam: as above, with PingFederate's token endpoint base URL setting as well. */
+    ClientAttestationAuthFilter(Function<HttpServletRequest, String> issuerResolver, Supplier<String> tokenEndpointBaseUrl) {
         this.issuerResolver = issuerResolver;
+        this.tokenEndpointBaseUrl = tokenEndpointBaseUrl;
     }
 
     private static String defaultIssuer(HttpServletRequest request) {
@@ -227,11 +235,15 @@ public final class ClientAttestationAuthFilter implements Filter {
         }
 
         try {
-            String requestUri = httpRequest.getRequestURL() == null ? null : httpRequest.getRequestURL().toString();
             String opIssuer = this.issuerResolver.apply(httpRequest);
+            // What this server calls the endpoint, from its configuration: the issuer (the PoP audience) and the
+            // URL PingFederate advertises for the endpoint under it (the DPoP htu). Never getRequestURL(), which
+            // the container rebuilds from the Host header the client wrote.
+            String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, this.tokenEndpointBaseUrl.get(),
+                    ClientAttestationUtils.endpointPath(httpRequest));
             ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(
                     ClientAttestationUtils.attesterResolver(opIssuer),
-                    ClientAttestationUtils.defaultConfig(opIssuer, requestUri),
+                    ClientAttestationUtils.defaultConfig(opIssuer, endpointUrl),
                     AttestationSupport.replayCache(),
                     AttestationSupport.challengeService(),
                     this.rarModels);
@@ -240,7 +252,7 @@ public final class ClientAttestationAuthFilter implements Filter {
                 authorizationDetails = httpRequest.getParameter("oidf_requested_access");
             }
             ClientAttestationResult result = verifier.verify(attestation, pop, dpop, httpRequest.getMethod(),
-                    requestUri, httpRequest.getParameter("client_id"), authorizationDetails);
+                    endpointUrl, httpRequest.getParameter("client_id"), authorizationDetails);
 
             String clientId = result.clientId();
             // Trust in the attester is federation-wide - any issuer whose chain reaches the anchor

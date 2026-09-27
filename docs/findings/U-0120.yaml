@@ -1,0 +1,19 @@
+id: U-0120
+title: What servlet path the request PingFederate hands the OGNL attestation criterion carries
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S4a]
+prs: [34]
+recorded_in: 'docs/releases/unreleased/S4A.md, Notes, Residual risk'
+verify_by: >
+  On the rig, remove ClientAttestationAuthFilter from pf-runtime.war's web.xml so the OGNL criterion verifies
+  alone, send a combined-mode request whose DPoP htu is the advertised token_endpoint and one naming another
+  server, and read which is issued a token and what the criterion logs as the expected htu.
+verification: ''
+notes: >
+  ClientAttestationUtils.endpointPath reads the servlet path and path info, and falls back to the request URI less
+  the context path when both are empty. CriterionEndpointTest drives the criterion with a mocked request whose
+  servlet path is /as/token.oauth2. What getServletPath returns on the request object PingFederate passes the
+  criterion in context.HttpRequest (a wrapper, possibly) was not read on a booted server; the rig runs the filter,
+  whose published verification the criterion reuses.

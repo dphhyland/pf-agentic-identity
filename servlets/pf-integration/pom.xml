@@ -247,6 +247,12 @@
                                              subject the delegated act chain names. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.defaultConfig(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.actingPartySub(*</include>
+                                        <!-- S4a: the endpoint URL a DPoP proof must name, from configuration and never from the
+                                             Host header. configuredTokenEndpointBaseUrl is not here: the line that reads the
+                                             setting runs only in a booted PingFederate, so a unit test cannot cover it
+                                             (EndpointUrlTest covers the unreadable case). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.endpointUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.endpointPath(*</include>
                                         <!-- S1b: what the RAR plugin is told - the attested ceiling and the fingerprint of the
                                              model set that checked the request, which it compares with its own - and the
                                              model's reason a refusal's log line carries (never the client's description). -->

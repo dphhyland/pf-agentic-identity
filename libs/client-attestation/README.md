@@ -26,16 +26,25 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `new ClientAttestationVerifier(...)`, it checks with this classloader's model set (`AttestationRarModels`);
   `ClientAttestationVerifier.withRarModels(...)` takes the set a component loaded at start-up.
 - **`ClientAttestationConfig`** — the verification policy: accepted algorithms per JWT (attestation /
-  PoP / DPoP), clock skew (60 s) and max-age windows (300 s), expected PoP audiences, DPoP `htm`/`htu`,
-  whether a challenge is mandatory, and `requiredDisclosedClaims` (`workload`, `authorization_details`)
-  this AS insists an attestation carry.
+  PoP / DPoP), clock skew (60 s) and max-age windows (300 s), the one PoP audience this server answers to
+  (`expectedAudience`: an AS's issuer identifier; it replaced a set of accepted audiences in 0.4.0), the
+  DPoP `htm` and `htu` (the endpoint's URL from configuration, never from the `Host` header), whether a
+  challenge is mandatory, and `requiredDisclosedClaims` (`workload`, `authorization_details`) this AS
+  insists an attestation carry. A PoP whose `aud` is anything but that audience - as a string or as the one
+  member of an array - is `invalid_client` (draft-10 §5.1 and §7.2, item 7), and so is DPoP combined mode
+  when neither the config nor the caller names the endpoint's URL.
 - **`ClientAttestation` / `ClientAttestationResult`** — the parsed attestation (`iss`, `sub` =
   `client_id`, `cnf.jwk`, `authorization_details`, `workload`, `agent_id`) and the authenticated outcome
   (client id, confirmed key, PoP mode, attester, entitled vs granted details, and the fingerprint of the model
   set that checked the request).
 - **`DpopProofValidator` / `DpopProof`** — RFC 9449 proof validation for combined mode: `dpop+jwt`,
   self-signature under the `jwk` header, algorithm allowlist, `htm`/`htu`, `iat` freshness, `jti`
-  required. Replay and challenge binding are the caller's.
+  required. The `htu` is compared after RFC 3986 syntax- and scheme-based normalisation (RFC 9449 §4.3):
+  scheme and host in lower case, a default or empty port dropped, percent-encoded unreserved characters
+  decoded, dot-segments removed, query and fragment ignored; the user information, the path's case and a
+  trailing slash still count, and an `htu` that is not an absolute http or https URI is refused. Given no
+  expected URL it skips the `htu` check, so the verifier never calls it without one. Replay and challenge
+  binding are the caller's.
 - **`AttesterKeyResolver`** — how an attester's signing keys are trusted; must throw, never return
   empty. `StaticAttesterKeyResolver` (pre-registered keys, dev/test only) is here; the production
   `FederationAttesterKeyResolver` (trust-chain resolved) is in `servlets/pf-integration`.

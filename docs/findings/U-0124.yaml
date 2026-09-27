@@ -1,0 +1,17 @@
+id: U-0124
+title: A Host header naming another server over PingFederate's HTTPS listener
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S4a]
+prs: [34]
+recorded_in: 'docs/releases/unreleased/S4A.md, Notes, Residual risk'
+verify_by: >
+  On the rig, send over the HTTPS listener (9031) a token request whose Host header names another server,
+  with a PoP addressed to that server and, separately, a DPoP proof naming it; read whether Jetty refuses the
+  request (SNI or Host checks) or the filter does, and with which answer.
+verification: ''
+notes: >
+  The forged-Host rig cases on 2026-09-27 ran over the plain 9080 listener. Over HTTPS, Jetty's SNI host check
+  may refuse such a request before the filter sees it, which would only narrow the attack; the filter's answer
+  does not depend on the listener.
