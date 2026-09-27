@@ -49,14 +49,14 @@
              minor version, so it follows version.pf.jackson unless a bundled copy has a reason to differ. -->
         <version.jackson>${version.pf.jackson}</version.jackson>
         <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
-        <version.postgresql>42.7.3</version.postgresql>
-        <version.h2>2.2.224</version.h2>
-        <version.bouncycastle>1.78.1</version.bouncycastle>
+        <version.postgresql>42.7.13</version.postgresql>
+        <version.h2>2.5.250</version.h2>
+        <version.bouncycastle>1.86</version.bouncycastle>
         <version.junit.jupiter>5.10.2</version.junit.jupiter>
-        <version.mockito>5.12.0</version.mockito>
+        <version.mockito>5.23.0</version.mockito>
         <!-- A real Postgres for the tests whose subject IS Postgres behaviour (JSONB, partial unique
              indexes on expressions, plpgsql triggers, compare-and-set under READ COMMITTED). -->
-        <version.testcontainers>1.19.8</version.testcontainers>
+        <version.testcontainers>1.21.4</version.testcontainers>
     </properties>
 
     <dependencyManagement>
