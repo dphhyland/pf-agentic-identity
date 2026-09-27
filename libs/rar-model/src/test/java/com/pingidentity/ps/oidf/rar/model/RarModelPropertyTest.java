@@ -19,23 +19,36 @@ import org.junit.jupiter.api.Test;
 
 /**
  * The algebra the plan asks of the three operations, checked over random well-formed details of the
- * three built-in types. The repo has no property-testing library and this module has no dependencies,
- * so the generator is a seeded {@link Random}: every run sees the same cases, and a failure names the
+ * three built-in types and one declared by a models document (for the object rule, which no built-in
+ * uses). The repo has no property-testing library and this module has no dependencies, so the
+ * generator is a seeded {@link Random}: every run sees the same cases, and a failure names the
  * iteration and the inputs so it can be turned into a vector.
  *
  * <p>What is checked: {@code contains} is reflexive; {@code intersect} is within both arguments, is
  * commutative, is the greatest such thing (anything within both is within the meet), is monotone in
- * each argument, idempotent and associative; and {@code authorize} agrees with {@code contains} under
- * STRICT, keeps the candidate's own values under INHERIT, and never grants outside the ceiling.
+ * each argument, idempotent and associative; {@code authorize} agrees with {@code contains} under
+ * STRICT, keeps the candidate's own values under INHERIT, and never grants outside the ceiling; and no
+ * grant says a payment's amount in a spelling other than the one the ceiling entry holding it uses.
+ * Payment details are generated in either spelling or neither, so random pairs cross spellings often.
  */
 @SuppressWarnings("unchecked")
 class RarModelPropertyTest {
 
     private static final long SEED = 20260927L;
     private static final int ITERATIONS = 1500;
+    private static final String FILES = "https://example.com/files";
 
-    private final RarModels models = RarModels.builtIn();
+    private final RarModels models = files();
     private final Random random = new Random(SEED);
+
+    private static RarModels files() {
+        try {
+            return RarModels.load("{\"types\":{\"" + FILES + "\":{\"fields\":{\"locations\":\"set\",\"max_files\":\"limit\","
+                    + "\"access\":{\"rule\":\"object\",\"fields\":{\"paths\":\"set\",\"mode\":\"string\"}}}}}}");
+        } catch (RarModelException e) {
+            throw new IllegalStateException(e);
+        }
+    }
 
     @Test
     void containsIsReflexive() throws Exception {
@@ -167,6 +180,17 @@ class RarModelPropertyTest {
             }
             granted++;
             assertTrue(models.contains(ceiling, g), "iteration " + i + ": granted outside the ceiling");
+            for (Map<String, Object> detail : g) {
+                String spelling = spelling(detail);
+                assertTrue(spelling != null, "iteration " + i + ": a grant says the amount two ways: " + Json.write(detail));
+                for (Map<String, Object> entry : ceiling) {
+                    if (entry.get("type").equals(detail.get("type")) && models.contains(List.of(entry), List.of(detail))) {
+                        String held = spelling(entry);
+                        assertTrue(held.isEmpty() || held.equals(spelling), "iteration " + i + ": entry " + Json.write(entry)
+                                + " holds a grant in another spelling: " + Json.write(detail));
+                    }
+                }
+            }
             assertEquals(candidate.size(), g.size());
             for (int k = 0; k < candidate.size(); k++) {
                 for (Map.Entry<String, Object> e : candidate.get(k).entrySet()) {
@@ -181,6 +205,20 @@ class RarModelPropertyTest {
         assertTrue(granted > ITERATIONS / 2, "too few grants to mean anything: " + granted);
     }
 
+    /**
+     * The spelling a detail says a payment amount in, worked out here rather than asked of the model:
+     * {@code instructedAmount}, {@code flat} (amount, currency or both), empty for neither, and
+     * {@code null} for both.
+     */
+    private static String spelling(Map<String, Object> detail) {
+        boolean instructed = detail.containsKey("instructedAmount");
+        boolean flat = detail.containsKey("amount") || detail.containsKey("currency");
+        if (instructed && flat) {
+            return null;
+        }
+        return instructed ? "instructedAmount" : flat ? "flat" : "";
+    }
+
     // ---- generator ----
 
     private static final String[] ACTIONS = {"read", "write", "initiate", "cancel"};
@@ -192,6 +230,8 @@ class RarModelPropertyTest {
     private static final String[] INSTANTS = {"2026-12-31", "2026-06-30T12:00:00Z", "2027-01-01T00:00:00+01:00"};
     private static final String[] NAMES = {"Merchant A", "Merchant B"};
     private static final String[] IDS = {"id-0", "id-1"};
+    private static final String[] PATHS = {"/a", "/b", "/c"};
+    private static final String[] MODES = {"r", "rw"};
 
     private List<Map<String, Object>> list() {
         int n = 1 + random.nextInt(3);
@@ -204,7 +244,7 @@ class RarModelPropertyTest {
 
     private Map<String, Object> detail() {
         Map<String, Object> d = new LinkedHashMap<>();
-        switch (random.nextInt(3)) {
+        switch (random.nextInt(4)) {
             case 0 -> {
                 d.put("type", "sales_agent");
                 common(d);
@@ -214,28 +254,40 @@ class RarModelPropertyTest {
             case 1 -> {
                 d.put("type", "payment_initiation");
                 common(d);
-                maybe(d, "instructedAmount", this::amount);
-                if (random.nextInt(4) == 0) {
-                    d.put("amount", pick(LIMITS));
-                    d.put("currency", pick(CURRENCIES));
-                } else {
-                    maybe(d, "currency", () -> pick(CURRENCIES));
+                // One spelling of the amount, or neither: a third each.
+                switch (random.nextInt(3)) {
+                    case 0 -> maybe(d, "instructedAmount", this::amount);
+                    case 1 -> {
+                        if (random.nextBoolean()) {
+                            d.put("amount", pick(LIMITS));
+                            d.put("currency", pick(CURRENCIES));
+                        } else {
+                            maybe(d, "currency", () -> pick(CURRENCIES));
+                        }
+                    }
+                    default -> {
+                    }
                 }
                 maybe(d, "creditorName", () -> pick(NAMES));
                 maybe(d, "creditorAccount", () -> pick(ACCOUNTS));
             }
-            default -> {
+            case 2 -> {
                 d.put("type", "account_information");
                 common(d);
                 maybe(d, "accounts", () -> subset(ACCOUNTS));
-                maybe(d, "access", () -> {
-                    Map<String, Object> access = new LinkedHashMap<>();
-                    maybe(access, "accounts", () -> subset(ACCOUNTS));
-                    maybe(access, "balances", () -> subset(ACCOUNTS));
-                    return access;
-                });
                 maybe(d, "validUntil", () -> pick(INSTANTS));
                 maybe(d, "recurringIndicator", () -> random.nextBoolean());
+            }
+            default -> {
+                d.put("type", FILES);
+                maybe(d, "locations", () -> subset(LOCATIONS));
+                maybe(d, "max_files", () -> pick(LIMITS));
+                maybe(d, "access", () -> {
+                    Map<String, Object> access = new LinkedHashMap<>();
+                    maybe(access, "paths", () -> subset(PATHS));
+                    maybe(access, "mode", () -> pick(MODES));
+                    return access;
+                });
             }
         }
         return d;

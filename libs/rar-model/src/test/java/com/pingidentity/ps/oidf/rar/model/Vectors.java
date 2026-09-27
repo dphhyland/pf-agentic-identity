@@ -20,11 +20,14 @@ import java.util.Set;
  * is compared - as canonical JSON, so member order and number spelling do not matter.
  *
  * <p>A case has an {@code op} ({@code contains}, {@code authorize}, {@code intersect}, {@code validate},
- * {@code details}, {@code fullCeiling}, {@code load}, {@code fingerprint}), the lists that op takes,
- * an optional {@code models} ({@code development} and/or a {@code document}; the default is the
- * built-ins with production semantics) and an {@code expect}: {@code true}/{@code false}, {@code "ok"},
- * {@code {"refused": REASON}}, {@code {"granted": [...]}}, {@code {"intersection": [...]}},
- * {@code {"types": [...]}} (a subset of the model's types) or {@code {"fingerprint": "..."}}.
+ * {@code details}, {@code parse}, {@code fullCeiling}, {@code load}, {@code fingerprint}), the lists that
+ * op takes, an optional {@code models} ({@code development} and/or a {@code document}; the default is
+ * the built-ins with production semantics) and an {@code expect}: {@code true}/{@code false},
+ * {@code "ok"}, {@code {"refused": REASON}}, {@code {"granted": [...]}}, {@code {"intersection": [...]}},
+ * {@code {"types": [...]}} (a subset of the model's types) or {@code {"fingerprint": "..."}}. A
+ * {@code parse} case carries its list as JSON {@code text}, for what only text can say: a number literal
+ * too long to read, a duplicate member name, half a surrogate pair. A runner whose surface takes text
+ * sends it as it is; the library reads it with {@link RarModels#parseDetails} and validates the list.
  */
 public final class Vectors {
 
@@ -126,6 +129,9 @@ public final class Vectors {
                     return Outcome.of("ok");
                 case "details":
                     RarModels.details(c.list("details"));
+                    return Outcome.of("ok");
+                case "parse":
+                    models.validate(RarModels.parseDetails((String) c.raw().get("text")), "details");
                     return Outcome.of("ok");
                 case "fullCeiling":
                     return Outcome.of(models.fullCeiling(details(c.list("ceiling"))));

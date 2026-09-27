@@ -46,7 +46,7 @@ class RarModelVectorsTest {
     @Test
     void everyCaseIsRunnable() {
         for (Vectors.Case c : Vectors.load()) {
-            assertTrue(List.of("contains", "authorize", "intersect", "validate", "details", "fullCeiling", "load", "fingerprint")
+            assertTrue(List.of("contains", "authorize", "intersect", "validate", "details", "parse", "fullCeiling", "load", "fingerprint")
                     .contains(c.op()), c.name() + " op " + c.op());
             assertTrue(c.expect() != null, c.name() + " has no expectation");
         }

@@ -77,6 +77,38 @@ class ModelSchemaTest {
                 "an extended built-in keeps its place");
     }
 
+    /** A built-in's name may extend that built-in and nothing else, so no document replaces it with another type's fields. */
+    @Test
+    void aBuiltInExtendsOnlyItself() throws Exception {
+        assertEquals("type 'payment_initiation' is built in and may extend only itself, not 'sales_agent'",
+                refused("{\"types\":{\"payment_initiation\":{\"extends\":\"sales_agent\",\"fields\":{\"amount\":\"limit\",\"currency\":\"equal\"}}}}"));
+        assertTrue(refused("{\"types\":{\"x\":{\"extends\":\"payment_initiation\",\"fields\":{\"instructedAmount\":\"forbidden\"}},"
+                + "\"payment_initiation\":{\"extends\":\"x\",\"fields\":{}}}}").contains("may extend only itself, not 'x'"),
+                "not through a type of the document's own either");
+        assertEquals(Rule.FORBIDDEN, parse("{\"types\":{\"payment_initiation\":{\"extends\":\"payment_initiation\","
+                + "\"fields\":{\"instructedAmount\":\"forbidden\"}}}}").get("payment_initiation").fields().get("instructedAmount").rule(),
+                "tightening a built-in in place is still allowed");
+    }
+
+    /** An extension keeps its base's alternatives, and a unit it adds must sit in the same spelling as its limit. */
+    @Test
+    void extensionsInheritAlternatives() throws Exception {
+        Map<String, TypeModel> models = parse("{\"types\":{\"payment_initiation\":{\"extends\":\"payment_initiation\","
+                + "\"fields\":{\"remittanceInformationStructured\":\"string\"}},\"y\":{\"extends\":\"payment_initiation\",\"fields\":{}}}}");
+        List<List<List<String>>> expected = List.of(List.of(List.of("instructedAmount"), List.of("amount", "currency")));
+        assertEquals(expected, models.get("payment_initiation").alternatives());
+        assertEquals(expected, models.get("y").alternatives());
+        assertEquals(List.of(), models.get("sales_agent").alternatives());
+        assertEquals("type 'x': field 'fee' and its unit_field 'currency' must be in the same spelling",
+                refused("{\"types\":{\"x\":{\"extends\":\"payment_initiation\",\"fields\":{\"fee\":{\"rule\":\"limit\",\"unit_field\":\"currency\"}}}}}"));
+    }
+
+    /** A name UTF-8 cannot carry is refused by the reader, so no two documents hash alike and compare apart. */
+    @Test
+    void halfASurrogatePairIsRefused() {
+        assertTrue(refused("{\"types\":{\"x\":{\"fields\":{\"\\ud800\":\"set\"}}}}").contains("half a surrogate pair"));
+    }
+
     @Test
     void fieldRuleShapes() {
         assertTrue(refused("{\"types\":{\"x\":{\"fields\":{\"f\":\"subset\"}}}}").contains("unknown rule 'subset'"));

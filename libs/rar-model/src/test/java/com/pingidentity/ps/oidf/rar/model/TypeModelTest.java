@@ -41,6 +41,8 @@ class TypeModelTest {
         assertThrows(IllegalArgumentException.class, () -> new TypeModel("t", fields("amount", FieldRule.limit("currency"))));
         assertThrows(IllegalArgumentException.class,
                 () -> new TypeModel("t", fields("amount", FieldRule.limit("currency"), "currency", FieldRule.of(Rule.SET))));
+        assertEquals(Rule.STRING, new TypeModel("t", fields("amount", FieldRule.limit("currency"), "currency", FieldRule.of(Rule.STRING)))
+                .fields().get("currency").rule(), "a unit may be a string");
         Map<String, FieldRule> nullName = new LinkedHashMap<>();
         nullName.put(null, FieldRule.of(Rule.SET));
         assertThrows(IllegalArgumentException.class, () -> new TypeModel("t", nullName));
@@ -141,7 +143,118 @@ class TypeModelTest {
 
     @Test
     void describeSortsFieldsByName() {
-        assertEquals(List.of("access", "actions", "amount", "currency", "secret"), new ArrayList<>(MODEL.describeFields().keySet()));
-        assertEquals("forbidden", MODEL.describeFields().get("secret"));
+        Map<?, ?> described = (Map<?, ?>) MODEL.describe().get("fields");
+        assertEquals(List.of("access", "actions", "amount", "currency", "secret"), new ArrayList<>(described.keySet()));
+        assertEquals("forbidden", described.get("secret"));
+        assertFalse(MODEL.describe().containsKey("alternatives"), "no alternatives, no member");
+        assertEquals(List.of(List.of(List.of("total"), List.of("amount", "currency"))), PAY.describe().get("alternatives"));
+    }
+
+    // ---- alternatives: one thing, two spellings ----
+
+    /** A type that says its amount two ways, as payment_initiation does: {@code total}, or {@code amount} with {@code currency}. */
+    private static final TypeModel PAY = new TypeModel("p", fields(
+            "actions", FieldRule.of(Rule.SET),
+            "total", FieldRule.of(Rule.AMOUNT),
+            "amount", FieldRule.limit("currency"),
+            "currency", FieldRule.of(Rule.STRING),
+            "access", FieldRule.object(new TypeModel(null, fields("paths", FieldRule.of(Rule.SET))))),
+            List.of(List.of(List.of("total"), List.of("amount", "currency"))));
+
+    private static Map<String, Object> map(Object... pairs) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (int i = 0; i < pairs.length; i += 2) {
+            out.put((String) pairs[i], pairs[i + 1]);
+        }
+        return out;
+    }
+
+    private static final Map<String, Object> EUR100 = Map.of("amount", "100", "currency", "EUR");
+
+    @Test
+    void alternativesAreHeldToTheirShape() {
+        Map<String, FieldRule> f = fields("a", FieldRule.of(Rule.SET), "b", FieldRule.of(Rule.SET), "c", FieldRule.of(Rule.SET),
+                "l", FieldRule.limit("u"), "u", FieldRule.of(Rule.STRING));
+        assertEquals("alternatives need two spellings or more", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("a"))))).getMessage());
+        assertEquals("a spelling names no field", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("a"), List.of())))).getMessage());
+        assertEquals("spelling field 'z' is not a field of the object", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("a"), List.of("z"))))).getMessage());
+        assertEquals("field 'a' is in two spellings", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("a"), List.of("a", "b"))))).getMessage());
+        assertEquals("field 'b' is in two spellings", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("a"), List.of("b")), List.of(List.of("b"), List.of("c"))))).getMessage());
+        assertEquals("field 'l' and its unit_field 'u' must be in the same spelling", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("a"), List.of("l"))))).getMessage());
+        assertEquals("field 'l' and its unit_field 'u' must be in the same spelling", assertThrows(IllegalArgumentException.class,
+                () -> new TypeModel("t", f, List.of(List.of(List.of("l"), List.of("u"))))).getMessage());
+        TypeModel ok = new TypeModel("t", f, List.of(List.of(List.of("a"), List.of("l", "u"))));
+        assertEquals(List.of(List.of(List.of("a"), List.of("l", "u"))), ok.alternatives());
+        assertEquals(List.of(), MODEL.alternatives());
+    }
+
+    @Test
+    void aDetailUsesOneSpelling() throws Exception {
+        PAY.check(map("type", "p", "total", EUR100), "d");
+        PAY.check(map("type", "p", "amount", "5", "currency", "EUR"), "d");
+        PAY.check(map("type", "p", "currency", "EUR"), "d");
+        RarModelException e = assertThrows(RarModelException.class,
+                () -> PAY.check(map("type", "p", "total", EUR100, "amount", "5", "currency", "EUR"), "d"));
+        assertEquals(RarModelException.Reason.MALFORMED, e.reason());
+        assertEquals("d carries 'total' and 'amount', two spellings of one thing; send one", e.getMessage());
+        assertEquals(RarModelException.Reason.MALFORMED, assertThrows(RarModelException.class,
+                () -> PAY.checkValues(map("currency", "EUR", "total", EUR100), "d")).reason(), "whichever comes first");
+    }
+
+    /** Groups are independent: one spelling from each is fine, two from one are not. */
+    @Test
+    void eachGroupIsItsOwn() throws Exception {
+        TypeModel two = new TypeModel("t", fields("a", FieldRule.of(Rule.SET), "b", FieldRule.of(Rule.SET), "c", FieldRule.of(Rule.SET),
+                "d", FieldRule.of(Rule.SET)), List.of(List.of(List.of("a"), List.of("b")), List.of(List.of("c"), List.of("d"))));
+        two.check(map("type", "t", "a", List.of("x"), "c", List.of("x")), "d");
+        two.check(map("type", "t", "b", List.of("x"), "d", List.of("x")), "d");
+        assertEquals("d carries 'c' and 'd', two spellings of one thing; send one", assertThrows(RarModelException.class,
+                () -> two.check(map("type", "t", "a", List.of("x"), "c", List.of("x"), "d", List.of("x")), "d")).getMessage());
+        assertFalse(two.contains(map("a", List.of("x"), "c", List.of("x")), map("a", List.of("x"), "d", List.of("x"))));
+        assertTrue(two.contains(map("a", List.of("x")), map("a", List.of("x"), "d", List.of("x"))));
+    }
+
+    @Test
+    void aCeilingsSpellingBindsTheCandidate() {
+        Map<String, Object> total = map("type", "p", "total", EUR100);
+        Map<String, Object> flat = map("type", "p", "amount", "42", "currency", "EUR");
+        Map<String, Object> currencyOnly = map("type", "p", "currency", "EUR");
+        Map<String, Object> neither = map("type", "p", "actions", List.of("initiate"));
+        assertTrue(PAY.contains(total, map("type", "p", "total", Map.of("amount", "5", "currency", "EUR"))));
+        assertFalse(PAY.contains(total, flat), "the ceiling spells the amount as total; a flat amount is outside it");
+        assertFalse(PAY.contains(flat, map("type", "p", "total", Map.of("amount", "5", "currency", "EUR"))));
+        assertFalse(PAY.contains(currencyOnly, map("type", "p", "total", Map.of("amount", "1000000", "currency", "EUR"))),
+                "a currency alone still picks the spelling");
+        assertTrue(PAY.contains(neither, map("type", "p", "actions", List.of("initiate"), "total", EUR100)), "no spelling, no constraint");
+        assertTrue(PAY.contains(neither, map("type", "p", "actions", List.of("initiate"), "amount", "1", "currency", "USD")));
+    }
+
+    @Test
+    void inheritStaysInTheCandidatesSpelling() {
+        Map<String, Object> ceiling = map("type", "p", "actions", List.of("initiate"), "total", EUR100);
+        Map<String, Object> got = PAY.inherit(ceiling, map("type", "p", "amount", "42"));
+        assertEquals(map("type", "p", "amount", "42", "actions", List.of("initiate")), got, "total is not added beside amount");
+        assertFalse(PAY.contains(ceiling, got));
+        Map<String, Object> flatCeiling = map("type", "p", "amount", "100", "currency", "EUR");
+        assertEquals(map("type", "p", "amount", "42", "currency", "EUR"), PAY.inherit(flatCeiling, map("type", "p", "amount", "42")),
+                "the same spelling is filled in");
+        assertEquals(map("type", "p", "amount", "100", "currency", "EUR"), PAY.inherit(flatCeiling, map("type", "p")),
+                "a candidate that uses no spelling takes the ceiling's");
+        assertEquals(map("type", "p", "total", EUR100), PAY.inherit(flatCeiling, map("type", "p", "total", EUR100)));
+    }
+
+    @Test
+    void twoSpellingsHaveNoMeet() {
+        assertEquals(Optional.empty(), PAY.meet(map("type", "p", "total", EUR100), map("type", "p", "currency", "EUR")));
+        assertEquals(Optional.of(map("type", "p", "actions", List.of("a"), "total", EUR100)),
+                PAY.meet(map("type", "p", "total", EUR100), map("type", "p", "actions", List.of("a"))));
+        assertEquals(Optional.of(map("type", "p", "amount", "42", "currency", "EUR")),
+                PAY.meet(map("type", "p", "amount", "100", "currency", "EUR"), map("type", "p", "amount", "42", "currency", "EUR")));
     }
 }

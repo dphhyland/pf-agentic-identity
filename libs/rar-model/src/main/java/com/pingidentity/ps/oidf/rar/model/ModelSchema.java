@@ -4,8 +4,10 @@
 package com.pingidentity.ps.oidf.rar.model;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
 
 /**
  * Reads a models document into {@link TypeModel}s on top of the built-ins. The document is one JSON
@@ -25,11 +27,13 @@ import java.util.Set;
  *
  * <p>A field is a rule name, or an object with {@code rule} and that rule's options: {@code unit_field}
  * for {@code limit}, {@code fields} for {@code object}. {@code extends} names a built-in type or one
- * declared earlier in the document; the extension inherits the base's fields, adds its own, and may
- * redefine an inherited field only as {@code forbidden} - a redefinition that changes how an inherited
- * field is compared would relax a rule somebody relies on. A document entry named like a built-in must
- * extend it: silently replacing a built-in model is the mistake this refuses. Anything the schema does
- * not name - an unknown key, an unknown rule, an option on the wrong rule - is
+ * declared earlier in the document; the extension inherits the base's fields and alternatives, adds its
+ * own fields, and may redefine an inherited field only as {@code forbidden} - a redefinition that
+ * changes how an inherited field is compared would relax a rule somebody relies on. A document entry
+ * named like a built-in must extend that built-in and nothing else: silently replacing a built-in model,
+ * from scratch or with another type's fields, is the mistake this refuses. A document cannot declare
+ * alternatives of its own; to say a built-in's thing a new way, an extension forbids the old spelling.
+ * Anything the schema does not name - an unknown key, an unknown rule, an option on the wrong rule - is
  * {@link RarModelException.Reason#MODEL_INVALID}, never ignored.
  */
 final class ModelSchema {
@@ -65,24 +69,30 @@ final class ModelSchema {
             if (name.isBlank()) {
                 throw RarModelException.modelInvalid("a type name is blank");
             }
-            String where = "type '" + name + "'";
+            String where = "type " + RarModelException.quote(name);
             Map<String, Object> entry = object(e.getValue(), where);
             onlyKeys(entry, TYPE_KEYS, where);
             if (!entry.containsKey("fields")) {
                 throw RarModelException.modelInvalid(where + " has no 'fields'");
             }
             Map<String, FieldRule> fields = new LinkedHashMap<>();
+            List<List<List<String>>> alternatives = List.of();
             Object extendsValue = entry.get("extends");
             if (entry.containsKey("extends")) {
                 if (!(extendsValue instanceof String base) || base.isBlank()) {
                     throw RarModelException.modelInvalid(where + ": 'extends' must name a type");
                 }
+                if (builtIn.containsKey(name) && !name.equals(base)) {
+                    throw RarModelException.modelInvalid(where + " is built in and may extend only itself, not "
+                            + RarModelException.quote(base));
+                }
                 TypeModel baseModel = out.get(base);
                 if (baseModel == null) {
-                    throw RarModelException.modelInvalid(where + " extends '" + base
-                            + "', which is neither built in nor declared before it");
+                    throw RarModelException.modelInvalid(where + " extends " + RarModelException.quote(base)
+                            + ", which is neither built in nor declared before it");
                 }
                 fields.putAll(baseModel.fields());
+                alternatives = baseModel.alternatives();
             } else if (builtIn.containsKey(name)) {
                 throw RarModelException.modelInvalid(where + " is built in; add fields to it with \"extends\": \""
                         + name + "\" rather than redefining it");
@@ -90,14 +100,14 @@ final class ModelSchema {
             Map<String, Object> declared = object(entry.get("fields"), where + " 'fields'");
             for (Map.Entry<String, Object> f : declared.entrySet()) {
                 String field = f.getKey();
-                FieldRule rule = fieldRule(f.getValue(), where + " field '" + field + "'", 1);
+                FieldRule rule = fieldRule(f.getValue(), where + " field " + RarModelException.quote(field), 1);
                 if (fields.containsKey(field) && rule.rule() != Rule.FORBIDDEN) {
-                    throw RarModelException.modelInvalid(where + " redefines inherited field '" + field
-                            + "'; an inherited field may only be made forbidden");
+                    throw RarModelException.modelInvalid(where + " redefines inherited field " + RarModelException.quote(field)
+                            + "; an inherited field may only be made forbidden");
                 }
                 fields.put(field, rule);
             }
-            out.put(name, typeModel(name, fields, where));
+            out.put(name, typeModel(name, fields, alternatives, where));
         }
         return out;
     }
@@ -143,22 +153,23 @@ final class ModelSchema {
                 }
                 Map<String, FieldRule> fields = new LinkedHashMap<>();
                 for (Map.Entry<String, Object> f : declared.entrySet()) {
-                    fields.put(f.getKey(), fieldRule(f.getValue(), where + " field '" + f.getKey() + "'", depth + 1));
+                    fields.put(f.getKey(), fieldRule(f.getValue(), where + " field " + RarModelException.quote(f.getKey()), depth + 1));
                 }
-                return FieldRule.object(typeModel(null, fields, where));
+                return FieldRule.object(typeModel(null, fields, List.of(), where));
             }
             default: {
                 if (spec.size() != 1) {
-                    throw RarModelException.modelInvalid(where + ": rule '" + name + "' takes no options");
+                    throw RarModelException.modelInvalid(where + ": rule " + RarModelException.quote(name) + " takes no options");
                 }
                 return FieldRule.of(rule);
             }
         }
     }
 
-    private static TypeModel typeModel(String name, Map<String, FieldRule> fields, String where) throws RarModelException {
+    private static TypeModel typeModel(String name, Map<String, FieldRule> fields, List<List<List<String>>> alternatives,
+                                       String where) throws RarModelException {
         try {
-            return new TypeModel(name, fields);
+            return new TypeModel(name, fields, alternatives);
         } catch (IllegalArgumentException e) {
             throw RarModelException.modelInvalid(where + ": " + e.getMessage());
         }
@@ -183,8 +194,8 @@ final class ModelSchema {
     private static void onlyKeys(Map<String, Object> object, Set<String> allowed, String where) throws RarModelException {
         for (String key : object.keySet()) {
             if (!allowed.contains(key)) {
-                throw RarModelException.modelInvalid(where + " has unknown key '" + key + "' (allowed: "
-                        + String.join(", ", new java.util.TreeSet<>(allowed)) + ")");
+                throw RarModelException.modelInvalid(where + " has unknown key " + RarModelException.quote(key) + " (allowed: "
+                        + String.join(", ", new TreeSet<>(allowed)) + ")");
             }
         }
     }

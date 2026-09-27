@@ -1,5 +1,5 @@
 /*
- * The eight ways a field can be compared.
+ * The nine ways a field can be compared.
  */
 package com.pingidentity.ps.oidf.rar.model;
 
@@ -13,7 +13,7 @@ public enum Rule {
     SET("set"),
     /** An array of any JSON values (an account object, say), compared as a set by structural equality. */
     SET_OF_VALUES("set_of_values"),
-    /** A decimal, as a number or a plain decimal string; the candidate's is at most the ceiling's. */
+    /** A non-negative decimal, as a number or a plain decimal string; the candidate's is at most the ceiling's. */
     LIMIT("limit"),
     /** The RFC 9396 {@code instructedAmount} object: {@code currency} equal and {@code amount} at most. */
     AMOUNT("amount"),
@@ -21,6 +21,8 @@ public enum Rule {
     INSTANT_LIMIT("instant_limit"),
     /** Any JSON value, which must be structurally equal. */
     EQUAL("equal"),
+    /** A string with something in it besides whitespace, which must be the ceiling's exactly. */
+    STRING("string"),
     /** A JSON object with field rules of its own. */
     OBJECT("object"),
     /** A field that must not appear at all. */
@@ -44,6 +46,6 @@ public enum Rule {
                 return r;
             }
         }
-        throw RarModelException.modelInvalid("unknown rule '" + name + "'");
+        throw RarModelException.modelInvalid("unknown rule " + RarModelException.quote(name));
     }
 }

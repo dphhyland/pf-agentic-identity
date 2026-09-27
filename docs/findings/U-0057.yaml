@@ -16,5 +16,10 @@ notes: >
   The built-in payment_initiation model carries RFC 9396 Figure 2 (instructedAmount, creditorName,
   creditorAccount, remittanceInformationUnstructured), debtorAccount, and the flat amount, currency and
   purpose that the RAR plugin's consent text and tests in this repository read and send (read at 6ebc186,
-  2026-09-27). idp-agentic-demo is a sibling repository this package could not read; the plan's S-1 says its
-  payment fields pass, which is true of the fields visible here and unverified for any others.
+  2026-09-27). instructedAmount and the flat amount with currency are alternatives: a detail that carries
+  both is refused, and a request must use the spelling of the ceiling that constrains it. creditorName,
+  remittanceInformationUnstructured, currency, identifier and purpose must be strings. account_information
+  carries accounts, validUntil and recurringIndicator, and not RFC 9396 §7.1's access object.
+  idp-agentic-demo is a sibling repository this package could not read; the plan's S-1 says its payment
+  fields pass, which is true of the fields visible here and unverified for any others, and for the value
+  types it sends.

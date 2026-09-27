@@ -7,11 +7,14 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.Test;
 
 class LimitsTest {
@@ -26,6 +29,47 @@ class LimitsTest {
         assertEquals(8, Limits.MAX_DEPTH);
         assertEquals(256, Limits.MAX_ENTRIES);
         assertEquals(2048, Limits.MAX_STRING);
+        assertEquals(64, Limits.MAX_DIGITS, "this library's, not the plan's");
+        assertEquals(262_144, Limits.MAX_TEXT, "this library's, not the plan's");
+    }
+
+    /** A number is measured by what it would write, from its scale and size, without writing it. */
+    @Test
+    void digitsCountsThePlainDecimal() {
+        assertEquals(4, Limits.digits(new BigDecimal("5E+3")));
+        assertEquals(3, Limits.digits(new BigDecimal("0.05")));
+        assertEquals(3, Limits.digits(new BigDecimal("12.5")));
+        assertEquals(1, Limits.digits(BigDecimal.ZERO));
+        assertEquals(4, Limits.digits(new BigDecimal("0.000")));
+        assertEquals(64, Limits.digits(new BigDecimal("1E+63")));
+        assertEquals(65, Limits.digits(new BigDecimal("1E+64")));
+        assertEquals(64, Limits.digits(new BigDecimal("1E-63")));
+        assertEquals(65, Limits.digits(new BigDecimal("1E-64")));
+        assertEquals(65, Limits.digits(new BigDecimal("1E+65")), "past the scale bound the answer is only 'more'");
+        assertEquals(65, Limits.digits(new BigDecimal("1E-65")));
+        assertEquals(65, Limits.digits(new BigDecimal("1e999999999")));
+        assertEquals(65, Limits.digits(new BigDecimal("1e-999999999")));
+        assertEquals(65, Limits.digits(new BigDecimal("100e2147483647")));
+        assertEquals(65, Limits.digits(new BigDecimal(BigInteger.TEN.pow(100))), "past 256 bits");
+        assertEquals(64, Limits.digits(new BigDecimal("9".repeat(64))));
+        assertEquals(65, Limits.digits(new BigDecimal("9".repeat(65))));
+        assertEquals(64, Limits.digits(new BigDecimal("-" + "9".repeat(64))), "the sign is not a digit");
+    }
+
+    /** Numbers from any parser, in any class a parser produces, are held to the digit limit. */
+    @Test
+    void numbersAreHeldToTheDigitLimit() throws Exception {
+        Limits.check(List.of(Map.of("n", new BigDecimal("9".repeat(64)), "l", Long.MAX_VALUE, "i", 1, "s", (short) 1, "b", (byte) 1,
+                "f", 1.5f, "d", 0.1d, "big", BigInteger.TEN.pow(63))), "candidate");
+        for (Object tooLarge : List.of(new BigDecimal("1e999999999"), new BigDecimal("1e2147483647"), new BigDecimal("100e2147483647"),
+                new BigDecimal("1e-999999999"), new BigDecimal("9".repeat(65)), BigInteger.TEN.pow(64), 1e308d, 4.9e-324d)) {
+            RarModelException e = refused(List.of(Map.of("n", tooLarge)));
+            assertEquals(RarModelException.Reason.TOO_LARGE, e.reason(), tooLarge.getClass() + " " + e.getMessage());
+            assertEquals("candidate authorization_details[0].'n' is a number of more than 64 digits", e.getMessage());
+        }
+        RarModelException odd = refused(List.of(Map.of("n", new AtomicInteger(1))));
+        assertEquals(RarModelException.Reason.MALFORMED, odd.reason(), "a Number no JSON parser produces");
+        assertEquals("candidate authorization_details[0].'n' is not a JSON number (java.util.concurrent.atomic.AtomicInteger)", odd.getMessage());
     }
 
     @Test

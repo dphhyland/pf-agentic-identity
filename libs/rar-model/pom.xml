@@ -64,11 +64,12 @@
             <!--
               Coverage gate on the decisions: whether a detail is the shape its rule compares, whether a
               candidate is within a ceiling, what is granted for it, what is within two ceilings, which
-              model a type gets and what a models document is allowed to say. 100% line + branch,
-              enforced, per METHOD as the other libraries do it - a missed branch here is a field granted
-              unexamined, which is the review's blocker B1. A whole-module floor sits under it, as
-              openid-federation's does, so the reader and writer that feed the decisions cannot rot
-              unnoticed either.
+              model a type gets, what a models document is allowed to say, how large a value may be, and
+              what the reader refuses. 100% line + branch, enforced, per METHOD as the other libraries do
+              it - a missed branch here is a field granted unexamined, which is the review's blocker B1. A
+              whole-module floor sits under it, as openid-federation's does. Left out: the writer, the
+              deep copy, the fingerprint's hash and the two catch blocks that turn an impossible checked
+              exception into an IllegalStateException - none of them decides anything.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -99,6 +100,7 @@
                                         <include>com.pingidentity.ps.oidf.rar.model.RarModels.intersect(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.RarModels.fullCeiling(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.RarModels.containing(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.RarModels.assertWithin(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.RarModels.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.RarModels.model(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.RarModels.typeOf(*</include>
@@ -113,18 +115,41 @@
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.contains(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.inherit(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.meet(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.TypeModel.disagree(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.TypeModel.used(*</include>
                                         <!-- Each rule's three answers. -->
                                         <include>com.pingidentity.ps.oidf.rar.model.FieldRule.check(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.FieldRule.contains(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.FieldRule.meet(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.FieldRule.decimal(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.FieldRule.instant(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.FieldRule.FieldRule(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.FieldRule.nonEmptyList(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.FieldRule.comparable(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.FieldRule.noNulls(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.FieldRule.text(*</include>
                                         <!-- The limits, and what a models document may say. -->
                                         <include>com.pingidentity.ps.oidf.rar.model.Limits.check(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.Limits.walk(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Limits.digits(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.ModelSchema.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.ModelSchema.fieldRule(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.ModelSchema.onlyKeys(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.ModelSchema.object(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.Rule.fromJson(*</include>
+                                        <!-- What the reader refuses, and how a number is measured and converted. -->
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.readValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.readObject(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.readArray(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.readString(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.readNumber(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.hexDigit(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.wellFormed(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.skipWhitespace(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.decimal(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.Json.exact(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

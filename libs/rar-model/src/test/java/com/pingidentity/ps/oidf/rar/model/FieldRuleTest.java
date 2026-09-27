@@ -26,11 +26,16 @@ class FieldRuleTest {
     private static final FieldRule AMOUNT = FieldRule.of(Rule.AMOUNT);
     private static final FieldRule INSTANT = FieldRule.of(Rule.INSTANT_LIMIT);
     private static final FieldRule EQUAL = FieldRule.of(Rule.EQUAL);
+    private static final FieldRule STRING = FieldRule.of(Rule.STRING);
     private static final FieldRule FORBIDDEN = FieldRule.of(Rule.FORBIDDEN);
 
     private static RarModelException malformed(FieldRule rule, Object value) {
+        return refused(rule, value, RarModelException.Reason.MALFORMED);
+    }
+
+    private static RarModelException refused(FieldRule rule, Object value, RarModelException.Reason reason) {
         RarModelException e = assertThrows(RarModelException.class, () -> rule.check(value, "d.f"));
-        assertEquals(RarModelException.Reason.MALFORMED, e.reason(), e.getMessage());
+        assertEquals(reason, e.reason(), e.getMessage());
         assertTrue(e.getMessage().startsWith("d.f"), e.getMessage());
         return e;
     }
@@ -56,25 +61,55 @@ class FieldRuleTest {
         malformed(SET, List.of(1));
     }
 
+    /** Each member of a set of values is held to what equal holds a value to. */
     @Test
     void setOfValuesChecks() throws Exception {
         VALUES.check(List.of("a", 1, true, Map.of("k", "v"), List.of("x")), "d.f");
         malformed(VALUES, Map.of());
         malformed(VALUES, List.of());
-        malformed(VALUES, Arrays.asList("a", null));
+        assertEquals("d.f[1] must not be null", malformed(VALUES, Arrays.asList("a", null)).getMessage());
+        assertEquals("d.f[0] must not be an empty object", malformed(VALUES, List.of(Map.of())).getMessage());
+        assertEquals("d.f[0] must not be an empty array", malformed(VALUES, List.of(List.of())).getMessage());
+        Map<String, Object> nullInside = new HashMap<>();
+        nullInside.put("iban", null);
+        assertEquals("d.f[0] must not contain null", malformed(VALUES, List.of(nullInside)).getMessage());
     }
 
     @Test
     void limitChecks() throws Exception {
         LIMIT.check(5000, "d.f");
-        LIMIT.check("-0.5", "d.f");
+        LIMIT.check("0.5", "d.f");
+        LIMIT.check("0", "d.f");
         LIMIT.check(new BigDecimal("1E+3"), "d.f");
+        LIMIT.check(new BigDecimal("-0"), "d.f");
         malformed(LIMIT, "1E+3");
         malformed(LIMIT, "1,000");
         malformed(LIMIT, " 1");
         malformed(LIMIT, true);
         malformed(LIMIT, null);
         malformed(LIMIT, List.of(1));
+    }
+
+    /** A negative limit is within every ceiling and asks for the opposite of a limit: malformed, however sent. */
+    @Test
+    void limitsAndAmountsAreNeverNegative() {
+        assertEquals("d.f must not be negative", malformed(LIMIT, -1).getMessage());
+        assertEquals("d.f must not be negative", malformed(LIMIT, new BigDecimal("-0.01")).getMessage());
+        assertEquals("d.f must be a number or a plain decimal string", malformed(LIMIT, "-0.5").getMessage());
+        assertEquals("d.f.amount must not be negative",
+                malformed(AMOUNT, Map.of("amount", -1000000, "currency", "EUR")).getMessage());
+        malformed(AMOUNT, Map.of("amount", "-1000000", "currency", "EUR"));
+    }
+
+    /** A decimal string is held to the digit limit a number is held to, and refused as too large past it. */
+    @Test
+    void decimalStringsHaveTheNumberDigitLimit() throws Exception {
+        LIMIT.check("1".repeat(Limits.MAX_DIGITS), "d.f");
+        LIMIT.check("0." + "1".repeat(Limits.MAX_DIGITS - 1), "d.f");
+        RarModelException e = refused(LIMIT, "1".repeat(Limits.MAX_DIGITS + 1), RarModelException.Reason.TOO_LARGE);
+        assertEquals("d.f is a decimal of more than 64 digits", e.getMessage());
+        refused(LIMIT, "0." + "1".repeat(Limits.MAX_DIGITS), RarModelException.Reason.TOO_LARGE);
+        refused(AMOUNT, Map.of("amount", "9".repeat(2000), "currency", "EUR"), RarModelException.Reason.TOO_LARGE);
     }
 
     @Test
@@ -89,6 +124,7 @@ class FieldRuleTest {
         malformed(AMOUNT, Map.of("value", "1", "currency", "EUR"));
         malformed(AMOUNT, Map.of("amount", "one", "currency", "EUR"));
         malformed(AMOUNT, Map.of("amount", "1", "currency", ""));
+        malformed(AMOUNT, Map.of("amount", "1", "currency", " "));
         malformed(AMOUNT, Map.of("amount", "1", "currency", 978));
         Map<String, Object> nullCurrency = new HashMap<>();
         nullCurrency.put("amount", "1");
@@ -96,16 +132,46 @@ class FieldRuleTest {
         malformed(AMOUNT, nullCurrency);
     }
 
+    /**
+     * RFC 3339 §5.6: "date-fullyear = 4DIGIT", "partial-time = time-hour ":" time-minute ":" time-second
+     * [time-secfrac]", "date-time = full-date "T" full-time", and its note: "the "T" and "Z" characters in
+     * this syntax may alternatively be lower case "t" or "z" respectively."
+     */
     @Test
     void instantChecks() throws Exception {
         assertEquals(Instant.parse("2026-12-31T22:30:00Z"), FieldRule.instant("2026-12-31T23:30:00+01:00", "d.f"));
         assertEquals(Instant.parse("2027-01-01T00:00:00Z"), FieldRule.instant("2026-12-31", "d.f"));
         assertEquals(Instant.parse("2026-12-31T23:59:59.500Z"), FieldRule.instant("2026-12-31T23:59:59.5Z", "d.f"));
+        assertEquals(Instant.parse("2026-06-30T00:00:00Z"), FieldRule.instant("2026-06-30t00:00:00z", "d.f"), "lower case t and z");
+        assertEquals(Instant.parse("2026-06-30T00:00:00.123456789Z"), FieldRule.instant("2026-06-30T00:00:00.123456789Z", "d.f"));
+        assertEquals(Instant.parse("+10000-01-01T00:00:00Z"), FieldRule.instant("9999-12-31", "d.f"), "the last date there is");
         malformed(INSTANT, "2026-12-31T23:59:59");
+        malformed(INSTANT, "2026-12-31T23:59Z");
+        malformed(INSTANT, "2026-12-31 23:59:59Z");
+        malformed(INSTANT, "2026-06-30T00:00:00.1234567891Z");
+        malformed(INSTANT, "+999999999-12-31");
+        malformed(INSTANT, "+999999999-12-31T23:59:59Z");
+        malformed(INSTANT, "20261231");
         malformed(INSTANT, "2026-13-01");
+        malformed(INSTANT, "2026-02-30");
+        malformed(INSTANT, "2026-06-30T23:59:60Z");
+        malformed(INSTANT, "2026-06-30T00:00:00+19:00");
         malformed(INSTANT, "");
         malformed(INSTANT, 20261231);
         malformed(INSTANT, null);
+    }
+
+    @Test
+    void stringChecks() throws Exception {
+        STRING.check("Merchant A", "d.f");
+        STRING.check("x".repeat(2048), "d.f");
+        assertEquals("d.f must be a non-empty string", malformed(STRING, "").getMessage());
+        malformed(STRING, "  ");
+        malformed(STRING, 42);
+        malformed(STRING, Map.of("$ne", "x"));
+        malformed(STRING, List.of("a"));
+        malformed(STRING, true);
+        malformed(STRING, null);
     }
 
     @Test
@@ -161,6 +227,8 @@ class FieldRuleTest {
         assertFalse(INSTANT.contains("2026-12-31T00:00:00Z", "2026-12-31"));
         assertTrue(EQUAL.contains(Map.of("a", 1), Map.of("a", 1.0)));
         assertFalse(EQUAL.contains("a", "A"));
+        assertTrue(STRING.contains("Merchant A", "Merchant A"));
+        assertFalse(STRING.contains("Merchant A", "merchant a"));
         FieldRule object = FieldRule.object(new TypeModel(null, Map.of("a", SET)));
         assertTrue(object.contains(Map.of("a", List.of("x", "y")), Map.of("a", List.of("x"))));
         assertFalse(object.contains(Map.of("a", List.of("x")), Map.of()));
@@ -187,6 +255,8 @@ class FieldRuleTest {
                 "equal instants take the spelling that sorts first");
         assertEquals(Optional.of(Map.of("a", 1)), EQUAL.meet(Map.of("a", 1), Map.of("a", 1.0)));
         assertEquals(Optional.empty(), EQUAL.meet("a", "b"));
+        assertEquals(Optional.of("EUR"), STRING.meet("EUR", "EUR"));
+        assertEquals(Optional.empty(), STRING.meet("EUR", "USD"));
         FieldRule object = FieldRule.object(new TypeModel(null, Map.of("a", SET, "b", EQUAL)));
         assertEquals(Optional.of(Map.of("a", List.of("x", "y"), "b", 1)), object.meet(Map.of("a", List.of("x", "y")), Map.of("b", 1)),
                 "a field one side omits takes the other side's value");
@@ -205,6 +275,7 @@ class FieldRuleTest {
     @Test
     void describeNamesTheRuleAndItsOptions() {
         assertEquals("set", SET.describe());
+        assertEquals("string", STRING.describe());
         assertEquals(Map.of("rule", "limit", "unit_field", "currency"), FieldRule.limit("currency").describe());
         assertEquals("limit", LIMIT.describe());
         assertEquals(Map.of("rule", "object", "fields", Map.of("a", "set")), FieldRule.object(new TypeModel(null, Map.of("a", SET))).describe());
@@ -213,7 +284,9 @@ class FieldRuleTest {
     @Test
     void decimalReader() throws Exception {
         assertEquals(new BigDecimal("1.5"), FieldRule.decimal(1.5d, "w"));
-        assertEquals(new BigDecimal("-2"), FieldRule.decimal("-2", "w"));
+        assertEquals(new BigDecimal("2"), FieldRule.decimal("2", "w"));
+        assertEquals(new BigDecimal("007.50"), FieldRule.decimal("007.50", "w"));
+        assertThrows(RarModelException.class, () -> FieldRule.decimal("-2", "w"));
         assertThrows(RarModelException.class, () -> FieldRule.decimal("2.", "w"));
         assertThrows(RarModelException.class, () -> FieldRule.decimal(List.of(), "w"));
     }

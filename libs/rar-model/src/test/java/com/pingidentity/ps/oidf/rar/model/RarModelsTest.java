@@ -8,12 +8,14 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTimeout;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
@@ -42,7 +44,19 @@ class RarModelsTest {
         assertFalse(models.commonFieldsFallback());
         assertEquals(64, models.fingerprint().length());
         assertTrue(models.fingerprint().matches("[0-9a-f]{64}"));
-        assertTrue(models.canonicalJson().startsWith("{\"common_fields_fallback\":false,\"types\":{\"account_information\":{\"fields\":{"));
+        assertTrue(models.canonicalJson().startsWith("{\"common_fields_fallback\":false,\"semantics\":1,\"types\":{\"account_information\":{\"fields\":{"),
+                models.canonicalJson());
+        assertTrue(models.canonicalJson().contains("\"payment_initiation\":{\"alternatives\":[[[\"instructedAmount\"],[\"amount\",\"currency\"]]],"),
+                "the alternatives are part of the model the fingerprint covers");
+    }
+
+    /** The public load is production's: only the environment's profile turns the fallback on. */
+    @Test
+    void publicLoadHasNoFallback() throws Exception {
+        RarModels loaded = RarModels.load("{\"types\":{\"x\":{\"fields\":{\"a\":\"set\"}}}}");
+        assertFalse(loaded.commonFieldsFallback());
+        assertEquals(RarModelException.Reason.UNMODELLED_TYPE, assertThrows(RarModelException.class, () -> loaded.model("y")).reason());
+        assertEquals(models.fingerprint(), RarModels.load(null).fingerprint());
     }
 
     @Test
@@ -275,7 +289,8 @@ class RarModelsTest {
     /**
      * RFC 9396 §2.2: "locations: An array of strings", "actions: An array of strings", "datatypes: An
      * array of strings", "identifier: A string identifier indicating a specific resource", "privileges:
-     * An array of strings". Every built-in type carries the five with those shapes.
+     * An array of strings". Every built-in type carries the five with those shapes: four sets of
+     * strings, and an identifier that is a string - a number or an object there is malformed.
      */
     @Test
     @Requirement("RFC9396 §2.2")
@@ -285,7 +300,12 @@ class RarModelsTest {
             for (String set : List.of("locations", "actions", "datatypes", "privileges")) {
                 assertEquals(Rule.SET, m.fields().get(set).rule(), type + "." + set);
             }
-            assertEquals(Rule.EQUAL, m.fields().get("identifier").rule(), type + ".identifier");
+            assertEquals(Rule.STRING, m.fields().get("identifier").rule(), type + ".identifier");
+            for (String bad : List.of("42", "{\"$ne\":null}", "[\"r1\"]")) {
+                RarModelException e = assertThrows(RarModelException.class,
+                        () -> models.validate(details("[{\"type\":\"" + type + "\",\"identifier\":" + bad + "}]"), "candidate"));
+                assertEquals(RarModelException.Reason.MALFORMED, e.reason(), type + " identifier " + bad);
+            }
             List<Map<String, Object>> ceiling = details("[{\"type\":\"" + type + "\",\"locations\":[\"https://a\",\"https://b\"],"
                     + "\"actions\":[\"read\",\"write\"],\"datatypes\":[\"contacts\",\"photos\"],\"privileges\":[\"admin\"],\"identifier\":\"r1\"}]");
             assertTrue(models.contains(ceiling, details("[{\"type\":\"" + type + "\",\"locations\":[\"https://a\"],\"actions\":[\"read\"],"
@@ -385,6 +405,104 @@ class RarModelsTest {
                 () -> models.authorize(details("[{\"type\":\"payment_initiation\",\"amount\":\"42.00\"}]"),
                         details("[{\"type\":\"payment_initiation\"}]"), Omission.INHERIT));
         assertEquals(RarModelException.Reason.MALFORMED, p.reason(), "no currency to inherit: the pairing rule refuses the fitted detail");
+    }
+
+    @Test
+    void authorizeNeedsAMode() throws Exception {
+        List<Map<String, Object>> ceiling = details("[{\"type\":\"sales_agent\"}]");
+        assertThrows(NullPointerException.class, () -> models.authorize(ceiling, ceiling, null));
+    }
+
+    /**
+     * CAS §7 rule 1: "for a candidate to be within the ceiling there must be a ceiling object of the same
+     * type whose constraints it does not exceed". A constraint on an amount is one constraint however the
+     * amount is spelt, so the review's cross-spelling cases (2026-09-27), each of which was granted before
+     * alternatives, are refused: a ceiling that constrains the amount one way holds the request to that way.
+     */
+    @Test
+    @Requirement("CAS §7(1)")
+    void anAmountSaidTheOtherWayIsNotWithinTheCeiling() throws Exception {
+        List<Map<String, Object>> instructed = details("[{\"type\":\"payment_initiation\",\"instructedAmount\":{\"amount\":\"100\",\"currency\":\"EUR\"}}]");
+        assertEquals(RarModelException.Reason.MALFORMED, assertThrows(RarModelException.class, () -> models.contains(instructed,
+                details("[{\"type\":\"payment_initiation\",\"instructedAmount\":{\"amount\":\"50\",\"currency\":\"EUR\"},"
+                        + "\"amount\":\"1000000\",\"currency\":\"USD\"}]"))).reason(), "both spellings in one detail");
+        assertEquals(RarModelException.Reason.EXCEEDS_CEILING, assertThrows(RarModelException.class, () -> models.authorize(
+                details("[{\"type\":\"payment_initiation\",\"amount\":\"1000000\",\"currency\":\"USD\"}]"), instructed, Omission.INHERIT))
+                .reason(), "the flat amount is not filled with instructedAmount beside it and granted");
+        List<Map<String, Object>> flat = details("[{\"type\":\"payment_initiation\",\"amount\":\"42\",\"currency\":\"AUD\"}]");
+        assertFalse(models.contains(flat, details("[{\"type\":\"payment_initiation\",\"amount\":\"42\",\"currency\":\"AUD\"},"
+                + "{\"type\":\"payment_initiation\",\"instructedAmount\":{\"amount\":\"1000000\",\"currency\":\"AUD\"}}]")));
+    }
+
+    /** RFC 9396 §7.1's access object is not in the built-in account_information, so an account cannot be named a second way. */
+    @Test
+    void accountsHaveOneSpelling() throws Exception {
+        List<Map<String, Object>> ceiling = details("[{\"type\":\"account_information\",\"accounts\":[\"A\"]}]");
+        RarModelException e = assertThrows(RarModelException.class, () -> models.authorize(
+                details("[{\"type\":\"account_information\",\"access\":{\"transactions\":[\"B\"]}}]"), ceiling, Omission.INHERIT));
+        assertEquals(RarModelException.Reason.UNDECLARED_FIELD, e.reason());
+    }
+
+    /** A meet is a list like any other: past sixteen entries nothing could take it, so it is refused. */
+    @Test
+    void aMeetOfMoreThanSixteenEntriesIsTooLarge() throws Exception {
+        List<Map<String, Object>> regions = new ArrayList<>();
+        List<Map<String, Object>> actions = new ArrayList<>();
+        for (int i = 0; i < Limits.MAX_DETAILS; i++) {
+            regions.add(Map.of("type", SA, "sales_regions", List.of("r" + i)));
+            actions.add(Map.of("type", SA, "actions", List.of("a" + i)));
+        }
+        RarModelException e = assertThrows(RarModelException.class, () -> models.intersect(regions, actions));
+        assertEquals(RarModelException.Reason.TOO_LARGE, e.reason());
+        assertEquals("the intersection has more than 16 entries", e.getMessage());
+        assertEquals(Limits.MAX_DETAILS, models.intersect(regions, List.of(Map.of("type", SA, "actions", List.of("a")))).size());
+    }
+
+    /** Text is bounded before the reader starts, and what the reader refuses for size is too large, not malformed. */
+    @Test
+    void parseDetailsRefusesSizeAsTooLarge() {
+        String padded = "[" + " ".repeat(Limits.MAX_TEXT) + "]";
+        RarModelException text = assertThrows(RarModelException.class, () -> RarModels.parseDetails(padded));
+        assertEquals(RarModelException.Reason.TOO_LARGE, text.reason());
+        assertEquals("authorization_details is longer than 262144 characters", text.getMessage());
+        RarModelException number = assertThrows(RarModelException.class,
+                () -> RarModels.parseDetails("[{\"type\":\"sales_agent\",\"max_txn_eur\":1" + "0".repeat(200) + "}]"));
+        assertEquals(RarModelException.Reason.TOO_LARGE, number.reason());
+        assertTrue(number.getMessage().startsWith("authorization_details is too large to read: JSON: a number longer than 128"),
+                number.getMessage());
+        RarModelException nested = assertThrows(RarModelException.class, () -> RarModels.parseDetails("[".repeat(40) + "]".repeat(40)));
+        assertEquals(RarModelException.Reason.TOO_LARGE, nested.reason());
+    }
+
+    /**
+     * The review's measurements (2026-09-27): a 60-byte detail allocated a gigabyte, others threw
+     * exceptions outside the contract, a 100 KB literal took 8 s. Each is now a refusal with its reason,
+     * at once.
+     */
+    @Test
+    void numbersAndDatesCannotRunAwayWithTheWork() {
+        List<Map<String, Object>> ceiling;
+        try {
+            ceiling = details("[{\"type\":\"payment_initiation\",\"amount\":100,\"currency\":\"EUR\"}]");
+        } catch (RarModelException e) {
+            throw new AssertionError(e);
+        }
+        for (String number : List.of("1e999999999", "1e2147483647", "100e2147483647", "1e-999999999")) {
+            String request = "[{\"type\":\"payment_initiation\",\"amount\":\"50\",\"currency\":" + number + "}]";
+            RarModelException e = assertThrows(RarModelException.class, () -> models.contains(ceiling, details(request)), number);
+            assertEquals(RarModelException.Reason.TOO_LARGE, e.reason(), number);
+            RarModelException a = assertThrows(RarModelException.class,
+                    () -> models.authorize(details(request), ceiling, Omission.INHERIT), number);
+            assertEquals(RarModelException.Reason.TOO_LARGE, a.reason(), number);
+        }
+        RarModelException date = assertThrows(RarModelException.class, () -> models.contains(
+                details("[{\"type\":\"account_information\"}]"),
+                details("[{\"type\":\"account_information\",\"validUntil\":\"+999999999-12-31\"}]")));
+        assertEquals(RarModelException.Reason.MALFORMED, date.reason());
+        String literal = "[{\"type\":\"sales_agent\",\"max_txn_eur\":1" + "0".repeat(100_000) + "}]";
+        RarModelException big = assertTimeout(Duration.ofSeconds(5),
+                () -> assertThrows(RarModelException.class, () -> models.contains(ceiling, details(literal))));
+        assertEquals(RarModelException.Reason.TOO_LARGE, big.reason());
     }
 
     @Test

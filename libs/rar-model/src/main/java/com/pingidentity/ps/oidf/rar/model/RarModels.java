@@ -15,6 +15,7 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeMap;
@@ -40,10 +41,11 @@ import java.util.TreeMap;
  *
  * <p>Every operation first holds both lists to {@link Limits} and checks every detail against its
  * type's model, and refuses rather than skips what it cannot compare: an unmodelled type, an undeclared
- * field, a {@code null}, an empty array, a value of the wrong shape. A type no model names is refused
- * ({@link RarModelException.Reason#UNMODELLED_TYPE}) unless the deployment profile is
- * {@value #DEVELOPMENT_PROFILE}, when the common-fields model (RFC 9396 §2.2's fields and nothing more)
- * stands in.
+ * field, a {@code null}, an empty array, a value of the wrong shape, one thing said two ways. A type no
+ * model names is refused ({@link RarModelException.Reason#UNMODELLED_TYPE}) unless the deployment
+ * profile is {@value #DEVELOPMENT_PROFILE}, when the common-fields model (RFC 9396 §2.2's fields and
+ * nothing more) stands in. Every refusal is a {@link RarModelException} with its reason; an
+ * {@link IllegalStateException} out of {@link #authorize} is this library's defect, not the request's.
  *
  * <p>Instances are immutable and safe to share.
  */
@@ -61,6 +63,12 @@ public final class RarModels {
     public static final String ENV_PROFILE = "OIDF_DEPLOYMENT_PROFILE";
     /** The profile value that enables the common-fields fallback. */
     public static final String DEVELOPMENT_PROFILE = "development";
+    /**
+     * The version of what the rules mean, part of {@link #canonicalJson()} so that two builds of this
+     * library that compare differently never share a fingerprint, whatever models they load. Raise it
+     * with any change to what a rule accepts or contains, and re-pin the fingerprints in the vector file.
+     */
+    public static final int SEMANTICS = 1;
 
     private final Map<String, TypeModel> types;
     private final TypeModel commonFields;
@@ -74,12 +82,11 @@ public final class RarModels {
         this.commonFieldsFallback = commonFieldsFallback;
         Map<String, Object> described = new TreeMap<>();
         for (Map.Entry<String, TypeModel> e : types.entrySet()) {
-            Map<String, Object> one = new LinkedHashMap<>();
-            one.put("fields", e.getValue().describeFields());
-            described.put(e.getKey(), one);
+            described.put(e.getKey(), e.getValue().describe());
         }
         Map<String, Object> doc = new LinkedHashMap<>();
         doc.put("common_fields_fallback", commonFieldsFallback);
+        doc.put("semantics", SEMANTICS);
         doc.put("types", described);
         this.canonical = Json.write(doc);
         this.fingerprint = sha256(canonical);
@@ -91,12 +98,23 @@ public final class RarModels {
     }
 
     /**
-     * The built-ins plus a models document.
+     * The built-ins plus a models document, production semantics (no fallback). The fallback is the
+     * environment's to allow, through {@link #fromEnvironment(Map)}, not a caller's.
      *
-     * @param modelsJson           the document ({@link ModelSchema} has the shape), or {@code null} for none
+     * @param modelsJson the document ({@link ModelSchema} has the shape), or {@code null} for none
+     */
+    public static RarModels load(String modelsJson) throws RarModelException {
+        return load(modelsJson, false);
+    }
+
+    /**
+     * The built-ins plus a models document, with the fallback as given: for {@link #fromEnvironment(Map)},
+     * which has read the profile, and for the tests and the vector runner in this package.
+     *
+     * @param modelsJson           the document, or {@code null} for none
      * @param commonFieldsFallback whether an unmodelled type falls back to the common fields
      */
-    public static RarModels load(String modelsJson, boolean commonFieldsFallback) throws RarModelException {
+    static RarModels load(String modelsJson, boolean commonFieldsFallback) throws RarModelException {
         Map<String, TypeModel> builtIn = BuiltIn.models();
         return new RarModels(modelsJson == null ? builtIn : ModelSchema.parse(modelsJson, builtIn), commonFieldsFallback);
     }
@@ -129,14 +147,18 @@ public final class RarModels {
         return load(json, development);
     }
 
-    /** SHA-256, lower-case hex, over {@link #canonicalJson()}. Equal fingerprints mean equal models. */
+    /**
+     * SHA-256, lower-case hex, over {@link #canonicalJson()}. Equal fingerprints mean the same types, fields,
+     * rules and alternatives, the same fallback, and the same {@link #SEMANTICS}.
+     */
     public String fingerprint() {
         return fingerprint;
     }
 
     /**
-     * The model set as canonical JSON: {@code common_fields_fallback} and every type's fields by name,
-     * rules described as a models document writes them. What {@link #fingerprint()} hashes.
+     * The model set as canonical JSON: {@code common_fields_fallback}, {@code semantics}, and every type's
+     * fields by name with rules described as a models document writes them, and its alternatives when it
+     * has any. What {@link #fingerprint()} hashes.
      */
     public String canonicalJson() {
         return canonical;
@@ -188,13 +210,23 @@ public final class RarModels {
         return out;
     }
 
-    /** {@link #details} over JSON text; blank text is an empty list. */
+    /**
+     * {@link #details} over JSON text; blank text is an empty list. Text longer than
+     * {@link Limits#MAX_TEXT}, nesting past the reader's cap and a number literal past its cap are
+     * {@link RarModelException.Reason#TOO_LARGE}; anything else the reader refuses is
+     * {@link RarModelException.Reason#MALFORMED}.
+     */
     public static List<Map<String, Object>> parseDetails(String json) throws RarModelException {
         if (json == null || json.isBlank()) {
             return List.of();
         }
+        if (json.length() > Limits.MAX_TEXT) {
+            throw RarModelException.tooLarge("authorization_details is longer than " + Limits.MAX_TEXT + " characters");
+        }
         try {
             return details(Json.parse(json));
+        } catch (Json.TooLarge e) {
+            throw RarModelException.tooLarge("authorization_details is too large to read: " + e.getMessage());
         } catch (IllegalArgumentException e) {
             throw RarModelException.malformed("authorization_details is not valid JSON: " + e.getMessage());
         }
@@ -205,7 +237,7 @@ public final class RarModels {
      *
      * @param details the list
      * @param side    which list, for messages ({@code ceiling}, {@code candidate}, ...)
-     * @return the same details, as given
+     * @return the same details, as given - the caller's maps, not copies
      */
     public List<Map<String, Object>> validate(List<? extends Map<String, Object>> details, String side)
             throws RarModelException {
@@ -256,6 +288,7 @@ public final class RarModels {
     public List<Map<String, Object>> authorize(List<? extends Map<String, Object>> candidate,
                                                List<? extends Map<String, Object>> ceiling, Omission mode)
             throws RarModelException {
+        Objects.requireNonNull(mode, "mode");
         List<Map<String, Object>> c = validate(ceiling, "ceiling");
         List<Map<String, Object>> d = Limits.check(candidate, "candidate");
         List<Map<String, Object>> granted = new ArrayList<>(d.size());
@@ -307,11 +340,15 @@ public final class RarModels {
     /**
      * The meet: the largest details within both lists. Every pair of same-type entries, one from each
      * list, contributes the largest detail within both of them, when one exists (disjoint sets, unequal
-     * values or different currencies mean none). The result is deduplicated and sorted by canonical
-     * JSON, so it is the same list whichever way round the arguments come, and it is within each
-     * argument. Two details of different types never meet.
+     * values, different currencies or a thing spelt two ways mean none). The result is deduplicated and
+     * sorted by canonical JSON, so it is the same list whichever way round the arguments come, and it is
+     * within each argument. Two details of different types never meet.
      *
      * @return new objects, never aliasing the inputs
+     * @throws RarModelException {@link RarModelException.Reason#TOO_LARGE} when the meet has more than
+     *                           {@link Limits#MAX_DETAILS} entries - sixteen entries each side can meet
+     *                           in 256 ways - since no operation could take it as a list; or a
+     *                           malformed-input reason
      */
     public List<Map<String, Object>> intersect(List<? extends Map<String, Object>> a, List<? extends Map<String, Object>> b)
             throws RarModelException {
@@ -328,6 +365,9 @@ public final class RarModels {
                 Optional<Map<String, Object>> m = model.meet(p, q);
                 if (m.isPresent()) {
                     out.putIfAbsent(Json.write(m.get()), m.get());
+                    if (out.size() > Limits.MAX_DETAILS) {
+                        throw RarModelException.tooLarge("the intersection has more than " + Limits.MAX_DETAILS + " entries");
+                    }
                 }
             }
         }
@@ -337,23 +377,37 @@ public final class RarModels {
     /**
      * The first ceiling entry of the detail's type that contains it, as the fitted detail: the
      * candidate as sent under STRICT, or with the entry's constrained fields inherited under INHERIT.
-     * The candidate has passed the size limits; under INHERIT its shape is checked after inheritance.
+     * The candidate has passed the size limits and its own checks; under INHERIT the fitted detail is
+     * checked again, because a limit sent without its unit is well formed only once an entry supplies
+     * the unit. An entry that does not is passed over; when no same-type entry does, the candidate's
+     * limit has no unit anywhere and it is refused as malformed rather than as over the ceiling.
      */
     private Optional<Map<String, Object>> containing(List<Map<String, Object>> ceiling, Map<String, Object> detail,
                                                      Omission mode) throws RarModelException {
         String type = (String) detail.get("type");
         TypeModel model = model(type);
+        RarModelException unpaired = null;
+        boolean fittedOne = false;
         for (Map<String, Object> entry : ceiling) {
             if (!type.equals(entry.get("type"))) {
                 continue;
             }
             Map<String, Object> fitted = mode == Omission.INHERIT ? model.inherit(entry, detail) : asMap(Json.copy(detail));
             if (mode == Omission.INHERIT) {
-                model.check(fitted, "candidate authorization_details entry of type " + RarModelException.quote(type));
+                try {
+                    model.check(fitted, "candidate authorization_details entry of type " + RarModelException.quote(type));
+                } catch (RarModelException e) {
+                    unpaired = unpaired == null ? e : unpaired;
+                    continue;
+                }
             }
             if (model.contains(entry, fitted)) {
                 return Optional.of(fitted);
             }
+            fittedOne = true;
+        }
+        if (unpaired != null && !fittedOne) {
+            throw unpaired;
         }
         return Optional.empty();
     }

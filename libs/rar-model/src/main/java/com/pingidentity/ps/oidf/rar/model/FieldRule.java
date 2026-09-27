@@ -4,11 +4,11 @@
 package com.pingidentity.ps.oidf.rar.model;
 
 import java.math.BigDecimal;
+import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -27,19 +27,33 @@ import java.util.regex.Pattern;
  *
  * <p>Well-formedness comes first and is never skipped: a value the rule cannot compare is refused
  * whether or not the ceiling constrains the field. {@code null}, an empty array, an empty object under
- * {@link Rule#EQUAL}, and a wrong JSON type are all malformed. Treating any of them as "no constraint"
- * or "nothing requested" is how an unexamined value gets granted.
+ * {@link Rule#EQUAL}, a blank string under {@link Rule#STRING}, a negative limit or amount, and a wrong
+ * JSON type are all malformed. Treating any of them as "no constraint" or "nothing requested" is how an
+ * unexamined value gets granted, and a negative amount is within every ceiling while it asks for a
+ * payment the other way.
+ *
+ * <p>Every value reaching these methods has passed {@link Limits}, so no number in it has more than
+ * {@link Limits#MAX_DIGITS} digits; a decimal sent as a string is held to the same count here.
  *
  * @param rule      the rule
  * @param unitField for {@link Rule#LIMIT} only: the field whose value must be present alongside this one
- *                  (a currency beside an amount), and whose own rule is {@link Rule#EQUAL}; {@code null}
- *                  when the unit is in the field's name ({@code max_txn_eur})
+ *                  (a currency beside an amount), and whose own rule is {@link Rule#EQUAL} or
+ *                  {@link Rule#STRING}; {@code null} when the unit is in the field's name ({@code max_txn_eur})
  * @param nested    for {@link Rule#OBJECT} only: the fields of the object
  */
 public record FieldRule(Rule rule, String unitField, TypeModel nested) {
 
-    /** A plain decimal: digits, an optional fraction, an optional leading minus. No exponent, no spaces. */
-    private static final Pattern DECIMAL = Pattern.compile("-?[0-9]+(\\.[0-9]+)?");
+    /** A plain non-negative decimal: digits and an optional fraction. No sign, no exponent, no spaces. */
+    private static final Pattern DECIMAL = Pattern.compile("[0-9]+(\\.[0-9]+)?");
+
+    /**
+     * RFC 3339 §5.6's full-date, or its date-time: four-digit year, seconds required, the {@code T} and
+     * {@code Z} in either case (the section's note allows lower case), at most nine fraction digits (what
+     * {@link Instant} holds). Checked before parsing, because {@link OffsetDateTime#parse} also takes a
+     * missing seconds field and years of nine digits.
+     */
+    private static final Pattern RFC3339 = Pattern.compile(
+            "[0-9]{4}-[0-9]{2}-[0-9]{2}([Tt][0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,9})?([Zz]|[+-][0-9]{2}:[0-9]{2}))?");
 
     public FieldRule {
         if (rule == null) {
@@ -86,10 +100,8 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
             }
             case SET_OF_VALUES -> {
                 List<?> list = nonEmptyList(value, where);
-                for (Object item : list) {
-                    if (item == null) {
-                        throw RarModelException.malformed(where + " must not contain null");
-                    }
+                for (int i = 0; i < list.size(); i++) {
+                    comparable(list.get(i), where + "[" + i + "]");
                 }
             }
             case LIMIT -> decimal(value, where);
@@ -101,21 +113,11 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
                     throw RarModelException.malformed(where + " must have exactly amount and currency");
                 }
                 decimal(m.get("amount"), where + ".amount");
-                currency(m.get("currency"), where + ".currency");
+                text(m.get("currency"), where + ".currency");
             }
             case INSTANT_LIMIT -> instant(value, where);
-            case EQUAL -> {
-                if (value == null) {
-                    throw RarModelException.malformed(where + " must not be null");
-                }
-                if (value instanceof List<?> l && l.isEmpty()) {
-                    throw RarModelException.malformed(where + " must not be an empty array");
-                }
-                if (value instanceof Map<?, ?> m && m.isEmpty()) {
-                    throw RarModelException.malformed(where + " must not be an empty object");
-                }
-                noNulls(value, where);
-            }
+            case STRING -> text(value, where);
+            case EQUAL -> comparable(value, where);
             case OBJECT -> {
                 if (!(value instanceof Map<?, ?>)) {
                     throw RarModelException.malformed(where + " must be an object");
@@ -148,6 +150,8 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
                 return !instantOf(candidate).isAfter(instantOf(ceiling));
             case EQUAL:
                 return Json.write(ceiling).equals(Json.write(candidate));
+            case STRING:
+                return ceiling.equals(candidate);
             case OBJECT:
                 return nested.contains(asMap(ceiling), asMap(candidate));
             default:
@@ -207,6 +211,8 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
                 return Optional.of(smaller(a, b, instantOf(a).compareTo(instantOf(b))));
             case EQUAL:
                 return Json.write(a).equals(Json.write(b)) ? Optional.of(Json.copy(a)) : Optional.empty();
+            case STRING:
+                return a.equals(b) ? Optional.of(a) : Optional.empty();
             case OBJECT:
                 return nested.meet(asMap(a), asMap(b)).map(m -> m);
             default:
@@ -237,7 +243,7 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
         if (rule == Rule.OBJECT) {
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("rule", rule.json());
-            out.put("fields", nested.describeFields());
+            out.putAll(nested.describe());
             return out;
         }
         return rule.json();
@@ -253,6 +259,24 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
             throw RarModelException.malformed(where + " must not be an empty array");
         }
         return list;
+    }
+
+    /**
+     * A value structural equality can compare, as an {@link Rule#EQUAL} field or one member of a
+     * {@link Rule#SET_OF_VALUES}: not {@code null}, not {@code []} or {@code {}}, and nothing {@code null}
+     * inside it.
+     */
+    private static void comparable(Object value, String where) throws RarModelException {
+        if (value == null) {
+            throw RarModelException.malformed(where + " must not be null");
+        }
+        if (value instanceof List<?> l && l.isEmpty()) {
+            throw RarModelException.malformed(where + " must not be an empty array");
+        }
+        if (value instanceof Map<?, ?> m && m.isEmpty()) {
+            throw RarModelException.malformed(where + " must not be an empty object");
+        }
+        noNulls(value, where);
     }
 
     private static void noNulls(Object value, String where) throws RarModelException {
@@ -273,22 +297,35 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
         }
     }
 
-    /** A decimal as a number or a plain decimal string; anything else is malformed. */
+    /**
+     * A non-negative decimal, as a number or a plain decimal string; anything else is malformed, and a
+     * string of more than {@link Limits#MAX_DIGITS} digits is too large, as the same number sent as a
+     * number would be.
+     */
     static BigDecimal decimal(Object value, String where) throws RarModelException {
+        BigDecimal d;
         if (value instanceof Number n) {
-            return Json.decimal(n);
+            d = Json.decimal(n);
+        } else if (value instanceof String s && DECIMAL.matcher(s).matches()) {
+            d = new BigDecimal(s);
+            if (Limits.digits(d) > Limits.MAX_DIGITS) {
+                throw RarModelException.tooLarge(where + " is a decimal of more than " + Limits.MAX_DIGITS + " digits");
+            }
+        } else {
+            throw RarModelException.malformed(where + " must be a number or a plain decimal string");
         }
-        if (value instanceof String s && DECIMAL.matcher(s).matches()) {
-            return new BigDecimal(s);
+        if (d.signum() < 0) {
+            throw RarModelException.malformed(where + " must not be negative");
         }
-        throw RarModelException.malformed(where + " must be a number or a plain decimal string");
+        return d;
     }
 
     private static BigDecimal decimalOf(Object checked) {
         return checked instanceof Number n ? Json.decimal(n) : new BigDecimal((String) checked);
     }
 
-    private static void currency(Object value, String where) throws RarModelException {
+    /** A string with something in it besides whitespace: a currency, a name, an identifier. */
+    private static void text(Object value, String where) throws RarModelException {
         if (!(value instanceof String s) || s.isBlank()) {
             throw RarModelException.malformed(where + " must be a non-empty string");
         }
@@ -297,19 +334,19 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
     /**
      * An RFC 3339 date-time with its offset, or a full date, which means the end of that day in UTC:
      * "valid until 2026-12-31" allows the whole of the 31st, so its instant is the start of the 1st.
+     * The syntax is the pattern above; a value in it that names no instant (the 30th of February, a leap
+     * second, an offset past 18 hours) is malformed too.
      */
     static Instant instant(Object value, String where) throws RarModelException {
-        if (!(value instanceof String s)) {
+        if (!(value instanceof String s) || !RFC3339.matcher(s).matches()) {
             throw RarModelException.malformed(where + " must be an RFC 3339 date-time or date string");
         }
         try {
-            return OffsetDateTime.parse(s).toInstant();
-        } catch (DateTimeParseException notDateTime) {
-            try {
-                return LocalDate.parse(s).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
-            } catch (DateTimeParseException notDate) {
-                throw RarModelException.malformed(where + " must be an RFC 3339 date-time or date string");
-            }
+            return s.length() == 10
+                    ? LocalDate.parse(s).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()
+                    : OffsetDateTime.parse(s).toInstant();
+        } catch (DateTimeException e) {
+            throw RarModelException.malformed(where + " must be an RFC 3339 date-time or date string");
         }
     }
 

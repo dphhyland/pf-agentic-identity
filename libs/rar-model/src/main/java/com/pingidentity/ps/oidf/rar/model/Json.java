@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.rar.model;
 
 import java.math.BigDecimal;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -24,19 +25,42 @@ import java.util.TreeMap;
  *
  * <p>The reader is strict where it matters: a duplicate member name is refused (two {@code actions}
  * members in one detail is how a second, unexamined value gets past a check that read the first), a
- * control character inside a string is refused, and nesting deeper than {@link #MAX_NESTING} is refused
- * before the recursion gets anywhere near the stack. The semantic size limits on details
- * ({@link Limits}) are applied by the model on whatever it is given, parsed here or elsewhere.
+ * control character inside a string is refused, a Unicode escape takes ASCII hex digits only, a
+ * string holding half a surrogate pair is refused (no UTF-8 text can carry it, so two such names would
+ * hash alike), and nesting deeper than {@link #MAX_NESTING} or a number literal longer than
+ * {@link #MAX_NUMBER_LITERAL} is refused as {@link TooLarge} before the recursion or the decimal
+ * arithmetic costs anything. The semantic size limits on details ({@link Limits}) are applied by the
+ * model on whatever it is given, parsed here or elsewhere. Messages name offsets, and the one name a
+ * message carries is quoted through {@link RarModelException#quote}, so a request cannot write a line
+ * of its own into a log.
  *
  * <p>The writer is canonical: object members in code-unit order of their names, no whitespace, numbers
  * as plain decimals with trailing zeros stripped ({@code 5000.0} and {@code 5E+3} both write as
  * {@code 5000}). Two values with the same meaning write to the same text, which is what the model
- * fingerprint and structural equality rest on.
+ * fingerprint and structural equality rest on. A number of more than {@link Limits#MAX_DIGITS} digits
+ * written out is refused rather than written: {@code 1e999999999} is eleven characters to send and a
+ * billion digits to write.
  */
 public final class Json {
 
     /** Deeper nesting than this is refused by the reader. The model's own depth limit is lower. */
     public static final int MAX_NESTING = 32;
+    /**
+     * A longer number literal than this is refused by the reader, before it is read as a decimal: the work
+     * on a long literal grows faster than its length (the review measured 8.4 s for a 100 KB one). The
+     * model's own limit on a number, {@link Limits#MAX_DIGITS}, is lower.
+     */
+    public static final int MAX_NUMBER_LITERAL = 128;
+
+    /**
+     * A refusal for size rather than syntax - nesting past {@link #MAX_NESTING}, a number literal past
+     * {@link #MAX_NUMBER_LITERAL} - so a caller can report it as too large rather than as malformed.
+     */
+    public static final class TooLarge extends IllegalArgumentException {
+        TooLarge(String message) {
+            super(message);
+        }
+    }
 
     private final String text;
     private int pos;
@@ -71,7 +95,8 @@ public final class Json {
      *
      * @param value a {@link Map} with String keys, a {@link List}, {@link String}, {@link Number},
      *              {@link Boolean} or {@code null}, nested to any depth
-     * @throws IllegalArgumentException for any other Java type, or a number with no finite decimal value
+     * @throws IllegalArgumentException for any other Java type, a number with no finite decimal value, or
+     *                                  one of more than {@link Limits#MAX_DIGITS} digits written out
      */
     public static String write(Object value) {
         StringBuilder out = new StringBuilder();
@@ -148,24 +173,45 @@ public final class Json {
 
     /**
      * A number as the decimal it denotes, trailing zeros stripped so that equal values are equal
-     * {@link BigDecimal}s under {@link Object#equals}. A {@code double} without a finite value is refused.
+     * {@link BigDecimal}s under {@link Object#equals}. Refused: what {@link #exact} refuses, and a number
+     * of more than {@link Limits#MAX_DIGITS} digits written out, which is checked before any arithmetic
+     * (stripping the zeros of a long number is quadratic, and writing {@code 1e999999999} out is a
+     * gigabyte).
      */
     static BigDecimal decimal(Number n) {
-        BigDecimal d;
-        if (n instanceof BigDecimal b) {
-            d = b;
-        } else if (n instanceof Double || n instanceof Float) {
-            double v = n.doubleValue();
-            if (Double.isNaN(v) || Double.isInfinite(v)) {
-                throw new IllegalArgumentException("not a finite number: " + n);
-            }
-            d = new BigDecimal(n.toString());
-        } else {
-            d = new BigDecimal(n.toString());
+        BigDecimal d = exact(n);
+        if (Limits.digits(d) > Limits.MAX_DIGITS) {
+            throw new IllegalArgumentException("a number of more than " + Limits.MAX_DIGITS + " digits");
         }
         d = d.stripTrailingZeros();
         // stripTrailingZeros keeps zero as 0E-n or 0E+n; one zero is enough.
         return d.signum() == 0 ? BigDecimal.ZERO : d;
+    }
+
+    /**
+     * A number as the decimal it denotes, scale unchanged and nothing computed from its digits, so any
+     * size is cheap here. The classes are the ones JSON parsers produce - {@link BigDecimal},
+     * {@link BigInteger}, {@link Long}, {@link Integer}, {@link Short}, {@link Byte}, {@link Double},
+     * {@link Float}; any other {@link Number} is refused, as is a {@code double} with no finite value.
+     */
+    static BigDecimal exact(Number n) {
+        if (n instanceof BigDecimal b) {
+            return b;
+        }
+        if (n instanceof BigInteger b) {
+            return new BigDecimal(b);
+        }
+        if (n instanceof Long || n instanceof Integer || n instanceof Short || n instanceof Byte) {
+            return BigDecimal.valueOf(n.longValue());
+        }
+        if (n instanceof Double || n instanceof Float) {
+            double v = n.doubleValue();
+            if (Double.isNaN(v) || Double.isInfinite(v)) {
+                throw new IllegalArgumentException("not a finite number");
+            }
+            return new BigDecimal(n.toString());
+        }
+        throw new IllegalArgumentException("not a JSON number (" + n.getClass().getName() + ")");
     }
 
     private static void writeString(String s, StringBuilder out) {
@@ -219,7 +265,7 @@ public final class Json {
                 if (c == '-' || (c >= '0' && c <= '9')) {
                     return readNumber();
                 }
-                throw error("unexpected character '" + c + "'");
+                throw error("unexpected character " + RarModelException.quote(String.valueOf(c)));
         }
     }
 
@@ -247,7 +293,7 @@ public final class Json {
             skipWhitespace();
             Object value = readValue();
             if (out.containsKey(name)) {
-                throw error("duplicate member name '" + name + "'");
+                throw error("duplicate member name " + RarModelException.quote(name));
             }
             out.put(name, value);
             skipWhitespace();
@@ -293,7 +339,7 @@ public final class Json {
 
     private void enter() {
         if (++nesting > MAX_NESTING) {
-            throw error("nesting deeper than " + MAX_NESTING);
+            throw new TooLarge("JSON: nesting deeper than " + MAX_NESTING + " at offset " + pos);
         }
     }
 
@@ -306,6 +352,9 @@ public final class Json {
             }
             char c = text.charAt(pos++);
             if (c == '"') {
+                if (!wellFormed(out)) {
+                    throw error("a string holding half a surrogate pair");
+                }
                 return out.toString();
             }
             if (c == '\\') {
@@ -326,16 +375,18 @@ public final class Json {
                         if (pos + 4 > text.length()) {
                             throw error("truncated \\u escape");
                         }
-                        String hex = text.substring(pos, pos + 4);
+                        int code = 0;
                         for (int i = 0; i < 4; i++) {
-                            if (Character.digit(hex.charAt(i), 16) < 0) {
+                            int digit = hexDigit(text.charAt(pos + i));
+                            if (digit < 0) {
                                 throw error("bad \\u escape");
                             }
+                            code = code * 16 + digit;
                         }
-                        out.append((char) Integer.parseInt(hex, 16));
+                        out.append((char) code);
                         pos += 4;
                     }
-                    default -> throw error("bad escape '\\" + e + "'");
+                    default -> throw error("bad escape");
                 }
             } else if (c < 0x20) {
                 throw error("control character in a string");
@@ -380,7 +431,42 @@ public final class Json {
                 pos++;
             }
         }
-        return new BigDecimal(text.substring(start, pos));
+        if (pos - start > MAX_NUMBER_LITERAL) {
+            throw new TooLarge("JSON: a number longer than " + MAX_NUMBER_LITERAL + " characters at offset " + start);
+        }
+        try {
+            return new BigDecimal(text.substring(start, pos));
+        } catch (NumberFormatException e) {
+            // The grammar held; only an exponent past the range of an int is left to refuse.
+            throw error("a number whose exponent is out of range");
+        }
+    }
+
+    /** An ASCII hex digit's value, or -1: {@link Character#digit} would take fullwidth and Arabic-Indic digits too. */
+    private static int hexDigit(char c) {
+        if (c >= '0' && c <= '9') {
+            return c - '0';
+        }
+        if (c >= 'a' && c <= 'f') {
+            return c - 'a' + 10;
+        }
+        if (c >= 'A' && c <= 'F') {
+            return c - 'A' + 10;
+        }
+        return -1;
+    }
+
+    /** Whether every surrogate in the text is half of a pair, in order: what UTF-8 can carry. */
+    static boolean wellFormed(CharSequence s) {
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            if (Character.isHighSurrogate(c) && i + 1 < s.length() && Character.isLowSurrogate(s.charAt(i + 1))) {
+                i++;
+            } else if (Character.isSurrogate(c)) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void expectLiteral(String literal) {
