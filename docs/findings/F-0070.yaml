@@ -1,0 +1,18 @@
+id: F-0070
+title: 'JdkHttpClient.get sends a request to a URL that came from outside (CodeQL java/ssrf)'
+severity: medium
+area: oidf-jose
+source: pr-review
+status: open
+plan_items: [S5a]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  CodeQL's first run on main (2026-09-27) flags JdkHttpClient.get (libs/oidf-jose, alert 3): the URL a caller
+  passes - an entity id, a JWKS URI, a federation endpoint taken from a statement - reaches the JDK client.
+  OutboundUrlPolicy.check runs first (scheme, host, private-network and port rules), which CodeQL does not
+  credit, so part of this is the residual the review already named: the check resolves the name once and the
+  connection resolves it again, so a DNS answer that changes between the two reaches a private address.
+  S5a's platform HTTP client pins the checked address at connect time and closes that; the alert is dismissed
+  or closes with it, with the policy documented as the sanitiser.

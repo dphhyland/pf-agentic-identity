@@ -1,0 +1,16 @@
+id: F-0071
+title: 'The showcase generator strips tags with a single regex pass (CodeQL js/incomplete-multi-character-sanitization)'
+severity: low
+area: showcase
+source: pr-review
+status: open
+plan_items: [D-3]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  tools/build-showcase-docs.mjs plain() removes markup with one pass of /<[^>]+>/g before taking a heading's
+  text for a slug or a title (alert 2, 2026-09-27). One pass leaves behind what a nested "<<b>>" shape
+  reassembles. The input is the repository's own tracked Markdown rendered by marked, so nothing untrusted
+  reaches it today; it is recorded so D-3 (the showcase built from showcase/src as a published artefact)
+  replaces the regex with a DOM or a loop-until-stable strip.
