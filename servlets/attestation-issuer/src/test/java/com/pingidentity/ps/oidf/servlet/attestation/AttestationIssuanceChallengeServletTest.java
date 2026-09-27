@@ -146,6 +146,27 @@ class AttestationIssuanceChallengeServletTest {
         verify(atTheAuthorizationServer.mock).setStatus(200);
     }
 
+    /**
+     * CAS §4.6: {@code temporarily_unavailable} (503) when "the store that tracks challenges, proof {@code jti}s or
+     * bindings does not answer". A challenge the store could not record is not handed out. The store is a TLS Redis
+     * on a port nothing listens on, which the production profile accepts as a URL and which fails at the first
+     * command.
+     */
+    @Test
+    @Requirement("CAS §4.6")
+    void aStoreThatCannotRecordTheChallengeAnswers503AndHandsNothingOut() throws Exception {
+        System.setProperty("oidf.redis.url", "rediss://127.0.0.1:1");
+        try {
+            Resp resp = call(new AttestationIssuanceChallengeServlet(), "GET", "10.0.3.6");
+
+            verify(resp.mock).setStatus(503);
+            assertEquals("temporarily_unavailable", resp.json().get("error"));
+            assertFalse(resp.body.toString().contains("attestation_challenge"), resp.body.toString());
+        } finally {
+            System.clearProperty("oidf.redis.url");
+        }
+    }
+
     @Test
     void itIsTheAttestersGetAtItsMappedPath() {
         AttestationIssuanceChallengeServlet servlet = new AttestationIssuanceChallengeServlet();

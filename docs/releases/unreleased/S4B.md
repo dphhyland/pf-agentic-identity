@@ -19,7 +19,10 @@
    `{"error":"invalid_request","error_description":"this challenge endpoint takes GET, not POST"}`. Proofs without
    a challenge are unaffected while `challengeRequired` is `false`, the default. Move clients once every node runs
    this release: a 0.3.0 node has no `GET /federation/attestation/challenge` (404), and its attester reads only
-   `oidf:challenge:*`. Nothing in this repository fetches the attester's challenge; `AttestationFlowHarness` and
+   `oidf:challenge:*`. Both documents are publicly cacheable - `/.well-known/client-attestation-service` for an
+   hour, `/.well-known/client-attester` for five minutes - so a client or proxy holding a copy from before the
+   upgrade names the old path until the copy expires; a client that reads `challenge_endpoint` should fetch the
+   documents again after the upgrade. Nothing in this repository fetches the attester's challenge; `AttestationFlowHarness` and
    the idp-agentic-demo bridge fetch the authorization server's, for the PoP at the token endpoint, and are right
    as they are.
 2. **The token endpoint refuses the attester's challenges.** A challenge from
