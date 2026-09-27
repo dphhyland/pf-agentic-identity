@@ -221,7 +221,7 @@ public final class AddressPolicy {
             throw refusedUrl("refusing to fetch over " + (scheme.isEmpty() ? "(no scheme)" : scheme) + ": " + uri);
         }
         String rawHost = uri.getHost();
-        if (rawHost == null || rawHost.isBlank()) {
+        if (rawHost == null) {
             throw refusedUrl("refusing to fetch a URL with no host: " + uri);
         }
         if (uri.getRawUserInfo() != null) {
@@ -504,10 +504,11 @@ public final class AddressPolicy {
             }
             String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
             String host = uri.getHost();
-            if (host == null || host.isBlank() || !(scheme.equals("https") || scheme.equals("http"))) {
+            if (host == null || !(scheme.equals("https") || scheme.equals("http"))) {
                 return null;
             }
-            String path = uri.getPath() == null ? "" : uri.getPath();
+            // A URI with a host is hierarchical, so it has a path, if only an empty one.
+            String path = uri.getPath();
             if (path.endsWith("/")) {
                 path = path.substring(0, path.length() - 1);
             }

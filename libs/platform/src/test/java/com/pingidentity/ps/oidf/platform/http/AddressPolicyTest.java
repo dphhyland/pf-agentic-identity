@@ -91,7 +91,8 @@ class AddressPolicyTest {
         "169.253.0.1", "223.255.255.255", "11.0.0.1", "126.0.0.1", "192.169.0.1", "203.1.113.1", "198.50.100.1",
         "2606:4700::1111", "2a00:1450::1", "2001:4860:4860::8888", "64:ff9b::808:808", "2002:808:808::1",
         "::ffff:0:808:808", "64:ff9b:1:808:8:808:808:808", "64:ff9b:2::1", "2001:db9::1", "2001:1::1",
-        "101::1", "100:0:0:1::1", "fe00::1", "0:0:0:1::1", "1::", "::1:0:0:0"
+        "101::1", "100:0:0:1::1", "fe00::1", "0:0:0:1::1", "1::", "::1:0:0:0", "64::1", "64:ff00::1",
+        "64:ff9b:100::1", "2001:d00::1", "2003::1", "::ffff:1:808:808", "::ff00:808:808"
     })
     void aPublicAddressPasses(String literal) {
         assertNull(AddressPolicy.nonPublicReason(address(literal)), literal);
@@ -217,7 +218,9 @@ class AddressPolicyTest {
         assertTrue(a.matches("https", "a.test", 443, "/p"));
         assertFalse(a.matches("https", "a.test", 443, null));
         assertTrue(AddressPolicy.Endpoint.of("https://a.test").matches("https", "a.test", 443, null));
-        assertEquals("[::1]", AddressPolicy.Endpoint.of("https://[::1]/").matches("https", "::1", 443, "/") ? "[::1]" : "");
+        assertTrue(AddressPolicy.Endpoint.of("https://[::1]/").matches("https", "::1", 443, "/"));
+        assertNull(AddressPolicy.Endpoint.of("spire.local/bundle"));
+        assertNull(AddressPolicy.Endpoint.of("ftp://a.test/"));
     }
 
     @Test
@@ -258,7 +261,7 @@ class AddressPolicyTest {
     @ParameterizedTest
     @CsvSource({
         "example.com,false", "127.0.0.1,true", "::1,true", "1.2.3,false", "1.2.3.4.5,false", "1.2.3.,false",
-        "1.2.3.1234,false", "1.2.a.4,false", "999.1.1.1,true", "10.0.0.1.example,false"
+        "1.2.3.1234,false", "1.2.a.4,false", "1.2.-3.4,false", "999.1.1.1,true", "10.0.0.1.example,false"
     })
     void literalsAreToldFromNames(String host, boolean literal) {
         assertEquals(literal, AddressPolicy.isLiteral(host));

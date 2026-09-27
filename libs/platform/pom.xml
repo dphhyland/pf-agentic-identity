@@ -323,6 +323,67 @@
                                         <!-- health (O-4): add gate includes below this line -->
                                         <!-- redis (C-2): add gate includes below this line -->
                                         <!-- http (S5a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.nanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.remainingNanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.expired(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.sooner(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.min(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.timeoutMillis(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.child(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.spend(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.take(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.isExemptEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.addressExempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.defaultPort(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.unbracket(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.isLiteral(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.isPublic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.nonPublicReason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.ipv4Reason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.ipv6Reason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.nat64LocalUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.embedded(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.zero(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.ffff(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Endpoint.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Endpoint.matches(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Endpoint.equals(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Target.origin(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Builder.addressExemptHosts(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Builder.trusting(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.checkHeader(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.isTokenChar(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.notNegative(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.positive(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.headers(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.Builder.body(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundResponse.successful(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundResponse.header(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundResponse.headers(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.exchange(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.connect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.handshake(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.message(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.head(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.framing(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.readCapped(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.failure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.isHttpCoreIo(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.timeout(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.causedBy(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.orDefault(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.LogText.clip(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.Builder.build(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.arm(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.getInputStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.DeadlineInputStream.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.DeadlineInputStream.skip(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.insecureIf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.caBundle(*</include>
                                         <!-- exec (C-3): add gate includes below this line -->
                                     </includes>
                                     <limits>

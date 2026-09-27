@@ -234,8 +234,7 @@ public final class OutboundHttp {
             for (Header header : head.getHeaders()) {
                 headers.add(new OutboundResponse.Header(header.getName(), header.getValue()));
             }
-            String reason = head.getReasonPhrase() == null ? "" : head.getReasonPhrase();
-            return new OutboundResponse(head.getCode(), reason, headers, body,
+            return new OutboundResponse(head.getCode(), Objects.toString(head.getReasonPhrase(), ""), headers, body,
                     (InetSocketAddress) socket.getRemoteSocketAddress());
         } catch (OutboundHttpException e) {
             throw e;
@@ -260,10 +259,8 @@ public final class OutboundHttp {
             try {
                 socket.connect(new InetSocketAddress(address, target.port()), millis);
                 return socket;
-            } catch (SocketTimeoutException e) {
-                timedOut = true;
-                last = e;
             } catch (IOException e) {
+                timedOut |= e instanceof SocketTimeoutException;
                 last = e;
             }
             closeQuietly(socket);
@@ -292,7 +289,8 @@ public final class OutboundHttp {
     /** The request as HttpCore writes it: origin-form target, Host, the caller's headers, framing, Connection: close. */
     BasicClassicHttpRequest message(OutboundRequest request, AddressPolicy.Target target) {
         URI uri = target.uri();
-        String path = uri.getRawPath() == null || uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
+        // The policy passed only URIs with a host, which are hierarchical and so have a raw path, if an empty one.
+        String path = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String requestTarget = uri.getRawQuery() == null ? path : path + "?" + uri.getRawQuery();
         BasicClassicHttpRequest message = new BasicClassicHttpRequest(request.method().name(), requestTarget);
         message.setVersion(HttpVersion.HTTP_1_1);
@@ -340,7 +338,7 @@ public final class OutboundHttp {
      * body follows.
      */
     static boolean framing(ClassicHttpResponse head, long cap, AddressPolicy.Target target) throws OutboundHttpException {
-        if (head.getVersion() == null || head.getVersion().getMajor() != 1 || head.getVersion().getMinor() > 1) {
+        if (head.getVersion().getMajor() != 1 || head.getVersion().getMinor() > 1) {
             throw malformed("an HTTP version other than 1.0 or 1.1: " + head.getVersion());
         }
         int code = head.getCode();
@@ -394,7 +392,7 @@ public final class OutboundHttp {
 
     /** Names a failure by what went wrong and when. */
     static OutboundHttpException failure(Exception e, DeadlineSocket socket, Deadline total, AddressPolicy.Target target) {
-        if (socket.timedOut() || causedBy(e, SocketTimeoutException.class)) {
+        if (socket.timedOut()) {
             switch (socket.phase()) {
                 case CONNECT:
                     return timeout(total, OutboundHttpException.Reason.CONNECT_TIMEOUT, "the TLS handshake with " + target.origin(), e);
