@@ -1,8 +1,8 @@
 # Contributing
 
 How work on this repository is done: the build, the tests that need a database, worktrees, the version tools,
-the files that are generated, and what a pull request carries. The house style for anything written -
-prose, comments, commits, pull requests, release notes - is in [docs/development/style-guide.md](docs/development/style-guide.md).
+the files that are generated, what a pull request carries, and how a release is cut. The house style for
+anything written - prose, comments, commits, pull requests, release notes - is in [docs/development/style-guide.md](docs/development/style-guide.md).
 The production programme's plan and its findings are the backlog: [docs/findings](docs/findings/README.md)
 holds every finding and unverified assumption, and a pull request names the ones it closes.
 
@@ -115,6 +115,34 @@ review, Merge order, Upgrade notes, Findings, Unverified. Before opening one:
 
 Merge commits only, never squash or rebase: commit ids are cited in documents, pull request bodies and
 release notes. The maintainer merges.
+
+## Releasing
+
+The maintainer cuts a release. A pull request sets every pom to the version (`python3 tools/set-version.py
+<version>`), gives the changelog's `Unreleased` heading the version and date, and finishes
+`docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
+[release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
+order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps and stops once
+`dist/` is assembled, publishing nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
+
+The release's first gate is a green Build on the tagged commit: every job
+[.github/required-checks.txt](.github/required-checks.txt) names must have a check run there, and the newest
+run of each must have concluded success. From 0.4.0 the gate waits for a Build that is still running, because
+a tag pushed straight after its merge arrives while it is: v0.3.0's did, the gate read `java` in progress and
+failed, and the release was re-run by hand (run 36278709651, F-0069). The gate reads the check runs every 30
+seconds for up to 20 minutes and logs what it is waiting for and for how long. It fails, with nothing
+published, when:
+
+- a required job concludes anything but success. Get Build green on the commit, then re-run the release
+  (`gh run rerun <run-id>`, the release's run).
+- no required job has a check run after two minutes: Build was never started on the commit. It runs on a push
+  to `main`, a pull request or by hand, never on a tag alone, so a commit that reached GitHub only through its
+  tag has none. Start one (`gh workflow run build.yml --ref v<version>`), then re-run the release.
+- some required jobs have check runs and one still has none after two minutes: the tagged commit's
+  `required-checks.txt` names a job its `build.yml` does not have, and no re-run can pass. Correct the file in
+  a new commit and release from that.
+- the check runs cannot be read three times in a row, or 20 minutes pass. Re-run the release once the API
+  answers or the Build has finished.
 
 ## Style
 

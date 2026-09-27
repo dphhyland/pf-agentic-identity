@@ -1,0 +1,24 @@
+id: U-0090
+title: 'A Build job still waiting for a runner has a check run within the release gate''s two minutes'
+area: release, ci
+source: pr-review
+status: open
+plan_items: [P0-6]
+prs: []
+recorded_in: 'release.yml, the step "a green Build on this commit" (ABSENT_GRACE_SECONDS), and the prod/p1-release-gate-waits pull request''s Unverified list'
+verify_by: >
+  Read `gh api 'repos/dphhyland/pf-agentic-identity/commits/<sha>/check-runs?filter=all'` while a Build job on
+  <sha> has not started - just after a push to main, or when runners are slow - and see the job listed with a
+  status other than completed. Or read the first live tag's Release log, which prints the check runs each time
+  they change.
+verification: ''
+notes: >
+  The gate fails when a required job has no check run two minutes after the step starts, on the reading that a
+  Build which was triggered lists its jobs at once. The evidence, read 2026-09-27: v0.3.0's Build (run
+  36278704385, created 23:12:21Z) created its three jobs at 23:12:22Z and started them at 23:12:25Z, each job's
+  check_run_url naming a check run with the job's own id, and the release read all three at 23:12:35Z; GitHub's
+  check-runs reference says "Only GitHub Actions can set a status of waiting, pending, or requested", states a
+  job is in before it runs. A job waiting longer than seconds for a runner was not seen: nothing on the
+  repository was queued while this was written. If such a job has no check run, a tag whose Build waits more
+  than two minutes for runners fails the gate as "never started", and the release is re-run by hand - which is
+  what happened to every such tag before this change.
