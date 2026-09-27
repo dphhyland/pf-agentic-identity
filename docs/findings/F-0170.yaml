@@ -1,0 +1,24 @@
+id: F-0170
+title: O-5's endpoint can read the engine's metrics only through the MBean server, a channel between loaders the classloader rules do not list
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [O-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Package O3 (2026-09-28) gives each loaded copy of platform its own metrics registry and registers one MXBean
+  per copy in the JVM's platform MBean server, named by the copy's package and the place it was loaded from
+  (libs/platform README, "metrics"). O-5's Prometheus endpoint, `/agentic-identity/metrics`, will be served by
+  the webapp's copy, but the OGNL criteria and access-token mappings - the token endpoint's decisions - run in
+  the engine's copy, whose registry the webapp cannot see: statics are per loader
+  (docs/development/classloaders.md, rule 1). The only way across is to read the other copies' MXBeans through
+  the MBean server, which rule 4 does not list - it names request attributes with string keys and the JVM-wide
+  System properties already in use, "nothing else". O3 designs the MXBean for that read: every attribute is an
+  open type, the MXBean gives every metric as CompositeData with a Prometheus-ready shape, and a proxy rebuilds
+  them in another loader (MXBeanRegistrationTest). What is left for O-5: add the MBean server to rule 4 with its
+  reasoning (read-only, JDK types only, one query for `com.pingidentity.ps.oidf:type=Metrics,*`), or render
+  each copy under its own `copy` label, and decide what the endpoint does with a copy registered by a war
+  other than its own.
