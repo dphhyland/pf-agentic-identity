@@ -398,9 +398,11 @@ public final class Json {
 
     private BigDecimal readNumber() {
         int start = pos;
-        if (peek() == '-') {
+        boolean negative = peek() == '-';
+        if (negative) {
             pos++;
         }
+        int intStart = pos;
         if (peek() == '0') {
             pos++;
         } else if (peek() >= '1' && peek() <= '9') {
@@ -410,36 +412,49 @@ public final class Json {
         } else {
             throw error("bad number");
         }
+        String intDigits = text.substring(intStart, pos);
+        String fraction = "";
         if (peek() == '.') {
             pos++;
+            int fractionStart = pos;
             if (!(peek() >= '0' && peek() <= '9')) {
                 throw error("bad number: no digits after '.'");
             }
             while (peek() >= '0' && peek() <= '9') {
                 pos++;
             }
+            fraction = text.substring(fractionStart, pos);
         }
+        boolean negativeExponent = false;
+        String exponent = "0";
         if (peek() == 'e' || peek() == 'E') {
             pos++;
             if (peek() == '+' || peek() == '-') {
+                negativeExponent = peek() == '-';
                 pos++;
             }
+            int exponentStart = pos;
             if (!(peek() >= '0' && peek() <= '9')) {
                 throw error("bad number: no digits in the exponent");
             }
             while (peek() >= '0' && peek() <= '9') {
                 pos++;
             }
+            exponent = text.substring(exponentStart, pos);
         }
         if (pos - start > MAX_NUMBER_LITERAL) {
             throw new TooLarge("JSON: a number longer than " + MAX_NUMBER_LITERAL + " characters at offset " + start);
         }
-        try {
-            return new BigDecimal(text.substring(start, pos));
-        } catch (NumberFormatException e) {
-            // The grammar held; only an exponent past the range of an int is left to refuse.
+        // Built from its parts rather than by new BigDecimal(String): JDK 17 refuses an exponent of 2^31 whose scale
+        // (-2^31) an int still holds, where JDK 19 and later read it, so the reader would depend on the runtime.
+        // The scale is fraction digits minus the exponent, and a number whose scale is outside an int is refused.
+        BigInteger exp = new BigInteger(exponent);
+        BigInteger scale = BigInteger.valueOf(fraction.length()).subtract(negativeExponent ? exp.negate() : exp);
+        if (scale.bitLength() > 31) {
             throw error("a number whose exponent is out of range");
         }
+        BigInteger unscaled = new BigInteger(intDigits + fraction);
+        return new BigDecimal(negative ? unscaled.negate() : unscaled, scale.intValueExact());
     }
 
     /** An ASCII hex digit's value, or -1: {@link Character#digit} would take fullwidth and Arabic-Indic digits too. */
