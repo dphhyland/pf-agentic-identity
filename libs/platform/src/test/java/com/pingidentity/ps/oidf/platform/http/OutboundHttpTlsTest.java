@@ -82,6 +82,17 @@ class OutboundHttpTlsTest {
     }
 
     @Test
+    void aNameTlsCannotCarryIsATlsFailure() throws Exception {
+        AddressPolicy trailingDot = AddressPolicy.builder().publicAddress(address -> true)
+                .resolver(host -> new InetAddress[] {loopback}).build();
+        try (TestServer server = TestServer.tls(pki.server("pinned"), TestServer.ok("x"))) {
+            OutboundHttpException e = assertThrows(OutboundHttpException.class, () -> OutboundHttp.builder(trailingDot)
+                    .tls(pki.trust()).build().get("https://pinned.test.:" + server.port() + "/", "*/*", seconds(10)));
+            assertEquals(Reason.TLS, e.reason(), e.getMessage());
+        }
+    }
+
+    @Test
     void aCertificateForAnotherNameIsRefused() throws Exception {
         try (TestServer server = TestServer.tls(pki.server("other"), TestServer.ok("wrong"))) {
             OutboundHttpException e = assertThrows(OutboundHttpException.class,

@@ -195,6 +195,29 @@ class OutboundHttpTest {
     }
 
     @Test
+    void aBodyThatKeepsComingIsRefusedAtTheCapWithoutWaitingForTheDeadline() throws Exception {
+        for (String framing : new String[] {"Transfer-Encoding: chunked\r\n", "Content-Length: 99999\r\n", ""}) {
+            boolean chunked = framing.startsWith("Transfer");
+            try (TestServer server = TestServer.plain((request, out) -> {
+                TestServer.write(out, "HTTP/1.1 200 OK\r\n" + framing + "\r\n");
+                String piece = "z".repeat(4000);
+                for (int i = 0; i < 25; i++) {
+                    TestServer.write(out, chunked ? Integer.toHexString(piece.length()) + "\r\n" + piece + "\r\n" : piece);
+                }
+                Thread.sleep(4000);
+            })) {
+                OutboundHttp small = OutboundHttp.builder(LOCAL).maxBodyBytes(50_000).build();
+                long start = System.nanoTime();
+                OutboundHttpException e = assertThrows(OutboundHttpException.class,
+                        () -> small.get(url(server), "*/*", seconds(3)));
+                long elapsedMillis = (System.nanoTime() - start) / 1_000_000L;
+                assertEquals(Reason.BODY_TOO_LARGE, e.reason(), framing);
+                assertTrue(elapsedMillis < 1000, framing + " took " + elapsedMillis + " ms");
+            }
+        }
+    }
+
+    @Test
     void aCloseDelimitedBodyOverTheCapIsRefused() throws Exception {
         assertEquals(Reason.BODY_TOO_LARGE, refused(TestServer.raw("HTTP/1.1 200 OK\r\n\r\n" + "y".repeat(300 * 1024))).reason());
     }

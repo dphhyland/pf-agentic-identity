@@ -604,7 +604,9 @@ The limits on what a peer can send: at most 100 headers, a status line or header
 HTTP/1.0 or 1.1, a status of 100 to 599, at most 8 interim (1xx) responses and never a 101, no `Content-Length`
 beside `Transfer-Encoding`, one `Content-Length` of plain digits, `Transfer-Encoding: chunked` and nothing else,
 and a body no larger than the cap (256 KiB by default, oidf-jose's; the request may set its own). A declared
-length over the cap is refused before a byte of the body is read. HttpCore's response parser takes its limits
+length over the cap is refused before a byte of the body is read, and a body refused part-way is not drained:
+HttpCore's length-delimited and chunked streams read the rest of the body when closed, so the stream is left and
+the socket closed. HttpCore's response parser takes its limits
 from its own factory, not the connection's configuration (`DefaultHttpResponseParserFactory.INSTANCE` parses
 with `Http1Config.DEFAULT`, 5.4.4), so platform hands the parser the same limits; `exactlyTheMostHeadersIsAccepted`
 pins it.
@@ -645,7 +647,7 @@ JVM-wide `jdk.internal.httpclient.disableHostnameVerification` governs `java.net
 this transport would widen F-0035 rather than keep a behaviour. Under `insecureIf` the chain goes unchecked and the
 name is still checked, as InsecureTls documents for the JDK client.
 
-The package's 251 tests pass on JDK 17 and 20 in the reactor, and on the pinned image's own java 21.0.12.1
+The package's 253 tests pass on JDK 17 and 20 in the reactor, and on the pinned image's own java 21.0.12.1
 against the shaded, minimised jar itself (`docker run --entrypoint java` with the JUnit console launcher,
 2026-09-28), so the relocated HttpCore, the layered TLS reads and SNI are checked on the runtime PingFederate uses.
 The plugins that shade platform carry HttpCore under their own package

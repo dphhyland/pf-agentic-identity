@@ -279,7 +279,14 @@ public final class OutboundHttp {
         parameters.setEndpointIdentificationAlgorithm("HTTPS");
         parameters.setProtocols(TLS_PROTOCOLS.clone());
         if (!AddressPolicy.isLiteral(target.host())) {
-            parameters.setServerNames(List.of(new SNIHostName(target.host())));
+            SNIHostName name;
+            try {
+                name = new SNIHostName(target.host());
+            } catch (IllegalArgumentException e) {
+                // A name TLS cannot carry, such as one with a trailing dot, is a TLS failure, not a peer's fault.
+                throw new SSLException("cannot send " + target.host() + " as a TLS server name", e);
+            }
+            parameters.setServerNames(List.of(name));
         }
         ssl.setSSLParameters(parameters);
         ssl.startHandshake();
@@ -371,21 +378,24 @@ public final class OutboundHttp {
         return true;
     }
 
-    /** Reads the body, refusing it once it passes {@code cap}. */
+    /**
+     * Reads the body, refusing it once it passes {@code cap}. The stream is deliberately not closed: HttpCore's
+     * length-delimited and chunked streams read the rest of the body on close, so a refused body would be drained
+     * until the deadline. The exchange closes the socket instead.
+     */
     static byte[] readCapped(HttpEntity entity, long cap, AddressPolicy.Target target) throws IOException {
         ByteArrayOutputStream buffer = new ByteArrayOutputStream();
         byte[] chunk = new byte[8192];
         long total = 0;
-        try (InputStream in = entity.getContent()) {
-            int read;
-            while ((read = in.read(chunk)) != -1) {
-                total += read;
-                if (total > cap) {
-                    throw new OutboundHttpException(OutboundHttpException.Reason.BODY_TOO_LARGE,
-                            target.origin() + " sent a body over the " + cap + "-byte cap");
-                }
-                buffer.write(chunk, 0, read);
+        InputStream in = entity.getContent();
+        int read;
+        while ((read = in.read(chunk)) != -1) {
+            total += read;
+            if (total > cap) {
+                throw new OutboundHttpException(OutboundHttpException.Reason.BODY_TOO_LARGE,
+                        target.origin() + " sent a body over the " + cap + "-byte cap");
             }
+            buffer.write(chunk, 0, read);
         }
         return buffer.toByteArray();
     }
