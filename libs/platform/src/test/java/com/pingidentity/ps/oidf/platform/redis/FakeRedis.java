@@ -44,6 +44,7 @@ final class FakeRedis implements Closeable {
     private final Map<String, Entry> store = new ConcurrentHashMap<>();
     private final Set<String> scripts = ConcurrentHashMap.newKeySet();
     private final Map<String, List<String>> masters = new ConcurrentHashMap<>();
+    private final Map<String, List<String>> once = new ConcurrentHashMap<>();
     private final List<Socket> connections = Collections.synchronizedList(new ArrayList<>());
     private final List<String> commands = Collections.synchronizedList(new ArrayList<>());
     private final List<String> sniNames = Collections.synchronizedList(new ArrayList<>());
@@ -89,6 +90,11 @@ final class FakeRedis implements Closeable {
         } else {
             this.masters.put(name, List.of(host, Integer.toString(port)));
         }
+    }
+
+    /** As a sentinel: names {@code host:port} once more, and then whatever {@link #master} set before. */
+    void masterOnce(String name, String host, int port) {
+        this.once.put(name, List.of(host, Integer.toString(port)));
     }
 
     /** As a sentinel: answers get-master-addr-by-name with {@code reply}, whatever its shape. */
@@ -255,7 +261,8 @@ final class FakeRedis implements Closeable {
     private String answer(String name, List<String> c) {
         if (this.role == Role.SENTINEL) {
             if (name.equals("SENTINEL") && c.size() == 3 && c.get(1).equalsIgnoreCase("get-master-addr-by-name")) {
-                List<String> address = this.masters.get(c.get(2));
+                List<String> first = this.once.remove(c.get(2));
+                List<String> address = first != null ? first : this.masters.get(c.get(2));
                 return address == null ? "*-1\r\n" : array(address);
             }
             return name.equals("PING") ? "+PONG\r\n" : "-ERR unknown command '" + name + "'\r\n";
