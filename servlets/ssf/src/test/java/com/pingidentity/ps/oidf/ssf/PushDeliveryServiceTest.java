@@ -345,6 +345,32 @@ class PushDeliveryServiceTest {
     }
 
     /**
+     * A tick whose thread is interrupted - {@code stop()}, which shuts the scheduler down - posts nothing after
+     * the attempt that was in flight, so a stopped loop does not go on to count failures against every other
+     * stream in the batch.
+     */
+    @Test
+    void anInterruptedTickPostsNothingMore() {
+        pushStream("a", StreamStatus.ENABLED);
+        pushStream("b", StreamStatus.ENABLED);
+        store.enqueue(PendingSet.fresh("j-a", "a", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-a", 100, 0));
+        store.enqueue(PendingSet.fresh("j-b", "b", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-b", 200, 0));
+        List<String> posted = new ArrayList<>();
+        try {
+            svc((u, a, j) -> {
+                posted.add(j);
+                Thread.currentThread().interrupt(); // as send() leaves it when the wait is interrupted
+                return PushDeliveryService.DeliveryResult.retryable(0, "interrupted");
+            }).runOnce(1000);
+        } finally {
+            assertTrue(Thread.interrupted(), "the interrupt is left for the scheduler to see");
+        }
+
+        assertEquals(List.of("jws-a"), posted);
+        assertEquals(0, store.peek("b", 1).get(0).deliveryAttempts(), "b was not tried, and not counted");
+    }
+
+    /**
      * The store selects by the stream's state, and the executor reads the stream again before it posts: a
      * stream paused between the two (a receiver's status update, another node's dead-letter) is not posted
      * to, and its SET is held.

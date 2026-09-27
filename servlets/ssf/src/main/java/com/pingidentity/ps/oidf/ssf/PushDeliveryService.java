@@ -131,6 +131,8 @@ public final class PushDeliveryService {
      * the one that failed, which is retried before anything behind it. Attempts are counted on the SET that
      * was tried, the oldest, so the stream dead-letters when that SET has failed {@code pushRetryMaxAttempts}
      * times, on the same backoff as before.
+     *
+     * <p>A tick whose thread is interrupted - {@link #stop} - posts nothing after the attempt in flight.
      */
     public int runOnce(long now) {
         evictExpired(now);
@@ -138,6 +140,9 @@ public final class PushDeliveryService {
         Set<String> held = new HashSet<>();   // streams that get no more attempts this tick
         Set<String> looked = new HashSet<>(); // streams whose oldest SET has been looked at this tick
         for (PendingSet p : this.store.dueForPush(now, BATCH)) {
+            if (Thread.currentThread().isInterrupted()) {
+                break; // the loop was stopped: nothing more is posted, and nothing more counted as failed
+            }
             if (held.contains(p.streamId())) {
                 continue;
             }
@@ -343,6 +348,12 @@ public final class PushDeliveryService {
         } catch (TimeoutException e) {
             exchange.cancel(true);
             throw new HttpTimeoutException("no complete response within " + deadline.toMillis() + " ms");
+        } catch (InterruptedException e) {
+            // The loop is being stopped. The exchange goes with it, and the interrupt stays set so that
+            // runOnce posts nothing after this one.
+            exchange.cancel(true);
+            Thread.currentThread().interrupt();
+            throw e;
         }
     }
 

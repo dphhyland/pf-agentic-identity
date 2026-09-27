@@ -5,6 +5,7 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
@@ -18,6 +19,9 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -174,6 +178,54 @@ class PushDeliveryHttpTest {
             assertEquals(PushDeliveryService.Outcome.RETRYABLE, r.outcome(), r.message());
             assertEquals("closed", verdict, "the connection outlived the attempt");
             assertTrue(elapsedMs < 3_000, "closed " + elapsedMs + " ms after the attempt began");
+        }
+    }
+
+    /**
+     * The other way a wait ends: the loop is stopped and its thread interrupted. {@code send} gives up at once,
+     * cancels the exchange - the receiver sees the socket close - and leaves the interrupt set for the loop.
+     */
+    @Test
+    void anInterruptEndsTheWaitAndClosesTheConnection() throws Exception {
+        try (ServerSocket receiver = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            Thread caller = Thread.currentThread();
+            CompletableFuture<String> seen = new CompletableFuture<>();
+            Thread accept = new Thread(() -> {
+                try (Socket s = receiver.accept()) {
+                    readRequest(s.getInputStream());
+                    OutputStream out = s.getOutputStream();
+                    out.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 100\r\n\r\npartial..."
+                            .getBytes(StandardCharsets.ISO_8859_1));
+                    out.flush();
+                    caller.interrupt();
+                    s.setSoTimeout(5_000);
+                    try {
+                        seen.complete(s.getInputStream().read() == -1 ? "closed" : "a byte after the request");
+                    } catch (SocketTimeoutException stillOpen) {
+                        seen.complete("still open 5 s after the headers");
+                    } catch (SocketException reset) {
+                        seen.complete("closed");
+                    }
+                } catch (Exception e) {
+                    seen.completeExceptionally(e);
+                }
+            });
+            accept.setDaemon(true);
+            accept.start();
+            HttpRequest request = HttpRequest.newBuilder(URI.create("http://127.0.0.1:" + receiver.getLocalPort() + "/set"))
+                    .POST(HttpRequest.BodyPublishers.ofString("eyJ.set.jws")).build();
+
+            long started = System.nanoTime();
+            try {
+                assertThrows(InterruptedException.class,
+                        () -> PushDeliveryService.send(HttpClient.newHttpClient(), request, Duration.ofSeconds(10), CAP));
+            } finally {
+                assertTrue(Thread.interrupted(), "the interrupt is kept for the loop to see");
+            }
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+
+            assertTrue(elapsedMs < 3_000, "gave up " + elapsedMs + " ms in, not at the 10 s deadline");
+            assertEquals("closed", seen.get(10, TimeUnit.SECONDS), "the exchange was cancelled with the wait");
         }
     }
 
