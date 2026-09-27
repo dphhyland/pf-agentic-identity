@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.platform.lifecycle;
 
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -157,19 +158,19 @@ public final class Lifecycle {
 
     /**
      * Closes one resource on a thread of its own and waits for it until the deadline. Closes run outside the
-     * registry's lock, so a close that registers something or asks whether shutdown has run cannot deadlock.
+     * registry's lock, so a close that registers something or asks whether shutdown has run cannot deadlock. The
+     * thread is platform.exec's {@code startDaemon} ({@code oidf-platform-close-<n>}), not a managed executor: a
+     * shutdown that closed resources on an executor would depend on one that is itself being shut down.
      */
     private static Closed close(Entry entry, long deadline) {
         AtomicReference<Throwable> failure = new AtomicReference<>();
-        Thread closer = new Thread(() -> {
+        Thread closer = ManagedExecutors.startDaemon("platform-close", () -> {
             try {
                 entry.resource().close();
             } catch (Throwable t) {
                 failure.set(t);
             }
-        }, "oidf-platform-close-" + entry.name());
-        closer.setDaemon(true);
-        closer.start();
+        });
         long remaining = deadline - System.nanoTime();
         try {
             if (remaining > 0) {

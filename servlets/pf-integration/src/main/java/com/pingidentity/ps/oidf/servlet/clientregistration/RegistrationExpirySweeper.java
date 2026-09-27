@@ -7,9 +7,13 @@ import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
 import com.pingidentity.ps.oidf.pf.PfTracking;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.OptionalLong;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -29,11 +33,17 @@ import org.sourceid.oauth20.domain.Client;
  */
 final class RegistrationExpirySweeper {
     private static final Log LOGGER = LogFactory.getLog(RegistrationExpirySweeper.class);
-    /** Set once a sweeper runs in this JVM, so two filter instances (or classloaders) never start two. */
+    /**
+     * Set once a sweeper runs in this JVM, so two filter instances (or classloaders) never start two; given back
+     * when its executor is closed.
+     */
     static final String OWNER_PROPERTY = "oidf.registration.sweeper.owner";
+    /** The managed executor's name; its thread is {@code oidf-registration-sweeper-1}. */
+    static final String EXECUTOR_NAME = "registration-sweeper";
 
     private final ClientStore clientStore;
     private final RegistrationLifetime lifetime;
+    private volatile ManagedExecutor executor;
 
     RegistrationExpirySweeper(ClientStore clientStore, RegistrationLifetime lifetime) {
         this.clientStore = Objects.requireNonNull(clientStore, "clientStore");
@@ -70,9 +80,11 @@ final class RegistrationExpirySweeper {
     }
 
     /**
-     * Starts the sweep on a daemon thread every {@code intervalSeconds}, unless it is 0, expiries are only logged, or
-     * a sweeper already runs in this JVM. Returns whether this call started it. Each pass logs under a tracking id of
-     * its own ({@code oidf-sweep-<8 hex>}), as a request's lines do under PingFederate's.
+     * Starts the sweep on a managed executor ({@code oidf-registration-sweeper-1}) every {@code intervalSeconds}, the
+     * first pass one interval from now, unless it is 0, expiries are only logged, or a sweeper already runs in this
+     * JVM. Returns whether this call started it. Each pass logs under a tracking id of its own
+     * ({@code oidf-sweep-<8 hex>}), as a request's lines do under PingFederate's. A pass that throws is logged and
+     * the next interval tries again.
      */
     boolean startOnce(long intervalSeconds) {
         if (intervalSeconds <= 0) {
@@ -83,28 +95,48 @@ final class RegistrationExpirySweeper {
                     + " and enforces none");
             return false;
         }
+        String owner = Integer.toHexString(System.identityHashCode(this));
         synchronized (System.class) {
             if (System.getProperty(OWNER_PROPERTY) != null) {
                 return false;
             }
-            System.setProperty(OWNER_PROPERTY, Integer.toHexString(System.identityHashCode(this)));
+            System.setProperty(OWNER_PROPERTY, owner);
         }
         Runnable pass = this.pass();
-        Thread sweeper = new Thread(() -> {
-            while (!Thread.currentThread().isInterrupted()) {
-                try {
-                    Thread.sleep(intervalSeconds * 1000L);
-                    pass.run();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                } catch (RuntimeException e) {
-                    LOGGER.warn("Federation registration sweep failed; retrying next interval: " + e.getMessage());
-                }
+        Optional<ManagedExecutor> started = ManagedExecutors.every(EXECUTOR_NAME, Duration.ofSeconds(intervalSeconds), () -> {
+            try {
+                pass.run();
+            } catch (RuntimeException e) {
+                LOGGER.warn("Federation registration sweep failed; retrying next interval: " + e.getMessage());
             }
-        }, "oidf-registration-sweeper");
-        sweeper.setDaemon(true);
-        sweeper.start();
+        });
+        if (started.isEmpty()) {
+            releaseOwner(owner);
+            return false;
+        }
+        this.executor = started.get();
+        this.executor.whenClosed(() -> releaseOwner(owner));
         LOGGER.info("Federation registration sweeper started (every " + intervalSeconds + "s)");
         return true;
+    }
+
+    /** Gives the JVM-wide owner property back, if this sweeper still holds it. */
+    private static void releaseOwner(String owner) {
+        synchronized (System.class) {
+            if (owner.equals(System.getProperty(OWNER_PROPERTY))) {
+                System.clearProperty(OWNER_PROPERTY);
+            }
+        }
+    }
+
+    /**
+     * Stops the sweep this sweeper started, if it started one: a pass in progress is interrupted, and the owner
+     * property is given back so that another may start. The lifecycle's shutdown does the same.
+     */
+    void stop() {
+        ManagedExecutor running = this.executor;
+        if (running != null) {
+            running.close();
+        }
     }
 }

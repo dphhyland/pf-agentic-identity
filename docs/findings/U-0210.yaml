@@ -1,0 +1,22 @@
+id: U-0210
+title: The managed executors' thread names and JVM-wide claims have not been seen in a running PingFederate
+area: platform
+source: design
+status: open
+plan_items: [F-2]
+prs: [51]
+recorded_in: libs/platform/README.md, exec
+verify_by: >
+  Build the image with this change, boot the rig with SSF (a data store or in memory), federation subordinates
+  and automatic registration with a sweep interval configured, and take a thread dump inside the container
+  (jcmd <pid> Thread.print). Expect one each of oidf-ssf-push-delivery-1, oidf-subordinate-refresh-1 and
+  oidf-registration-sweeper-1 (and oidf-ssf-poll-receiver-1 with a poll URL), and none of the old names; read
+  System.getProperties() for oidf.exec.owner.* (jcmd <pid> VM.system_properties) and expect one entry per job,
+  all holding the same copy id. After F-2 has landed, stop the container and check that the log shows each
+  executor closed within the lifecycle's budget.
+verification: ''
+notes: >
+  Package C3 (2026-09-28) tested the executors, the claims and the five converted jobs with Maven on JDK 17 and
+  20, and two copies of platform in one JVM through two URLClassLoaders (ExecutorCopiesTest), not inside
+  PingFederate. The rig was not booted: nothing in this change depends on PingFederate's classes, and the loops
+  start from the same init calls as before.

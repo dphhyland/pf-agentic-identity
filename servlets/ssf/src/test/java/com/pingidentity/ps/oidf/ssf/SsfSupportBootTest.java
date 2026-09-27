@@ -9,6 +9,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -97,6 +99,23 @@ class SsfSupportBootTest {
 
         assertEquals(0, wired.get(), "the wiring waits for a store");
         assertThrows(IllegalStateException.class, SsfSupport::pushDeliveryService, "and so does the push loop");
+        assertEquals("oidf-ssf-boot-retry",
+                ManagedExecutors.live(SsfSupport.BOOT_RETRY).orElseThrow().threadNamePrefix(), "on a managed executor");
+    }
+
+    @Test
+    void noRetryIsScheduledHereWhileAnotherCopyRunsTheBootRetry() {
+        SsfSupport.bootRetrySeconds = 3600;
+        SsfSupport.installStoreFactory(failingFirst(Integer.MAX_VALUE));
+        String claim = "oidf.exec.owner." + SsfSupport.BOOT_RETRY;
+        System.setProperty(claim, "another-copy");
+        try {
+            assertFalse(SsfSupport.start(JDBC, wired::incrementAndGet), "still no exception out of init");
+            assertFalse(SsfSupport.bootRetryPending(), "the retry belongs to the copy that runs it");
+            assertEquals(Optional.empty(), ManagedExecutors.live(SsfSupport.BOOT_RETRY));
+        } finally {
+            System.clearProperty(claim);
+        }
     }
 
     /** The store comes back on the second retry, and the transmitter comes up on it - wiring and push loop included. */
