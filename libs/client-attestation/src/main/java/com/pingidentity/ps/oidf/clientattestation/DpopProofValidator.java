@@ -88,7 +88,8 @@ public final class DpopProofValidator {
         String ath = claims.hasClaim("ath") ? claims.getStringClaimValue("ath") : null;
 
         if (expectedMethod != null && !expectedMethod.equalsIgnoreCase(htm)) {
-            throw new IllegalArgumentException("DPoP 'htm' mismatch: got '" + htm + "', expected '" + expectedMethod + "'");
+            throw new IllegalArgumentException("DPoP 'htm' mismatch: got '" + DpopProofValidator.shown(htm)
+                    + "', expected '" + expectedMethod + "'");
         }
         if (expectedHtu != null) {
             DpopProofValidator.requireHtu(htu, expectedHtu);
@@ -125,8 +126,26 @@ public final class DpopProofValidator {
                     + expectedHtu + "'");
         }
         if (!expected.equals(DpopProofValidator.normalizeHtu(htu))) {
-            throw new IllegalArgumentException("DPoP 'htu' mismatch: got '" + htu + "', expected '" + expectedHtu + "'");
+            throw new IllegalArgumentException("DPoP 'htu' mismatch: got '" + DpopProofValidator.shown(htu)
+                    + "', expected '" + expectedHtu + "'");
         }
+    }
+
+    /** Longest part of a proof's own claim a refusal repeats. */
+    static final int SHOWN_LIMIT = 256;
+
+    /**
+     * A claim from the proof as a refusal may repeat it: the proof is the caller's to write, and the message reaches
+     * the token endpoint's error_description and the server log, so a control character becomes '?' and anything past
+     * {@link #SHOWN_LIMIT} characters is cut, rather than letting a proof forge log lines or fill them.
+     */
+    static String shown(String claim) {
+        StringBuilder out = new StringBuilder(Math.min(claim.length(), SHOWN_LIMIT) + 3);
+        for (int i = 0; i < claim.length() && i < SHOWN_LIMIT; i++) {
+            char c = claim.charAt(i);
+            out.append(c < 0x20 || c == 0x7f ? '?' : c);
+        }
+        return claim.length() > SHOWN_LIMIT ? out.append("...").toString() : out.toString();
     }
 
     /**

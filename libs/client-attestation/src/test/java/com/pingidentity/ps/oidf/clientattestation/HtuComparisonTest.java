@@ -147,6 +147,24 @@ class HtuComparisonTest {
         assertNull(DpopProofValidator.normalizeHtu(null));
     }
 
+    /** A refusal repeats the proof's htu, and the proof is the caller's to write: no line breaks, and not all of it. */
+    @Test
+    void aRefusalRepeatsTheHtuWithoutControlCharactersAndNotAllOfALongOne() {
+        IllegalArgumentException forged = assertThrows(IllegalArgumentException.class,
+                () -> DpopProofValidator.requireHtu("https://x.example/a\n2026-09-27 INFO forged line", ENDPOINT));
+        assertTrue(forged.getMessage().contains("got 'https://x.example/a?2026-09-27 INFO forged line'"), forged.getMessage());
+        assertEquals(-1, forged.getMessage().indexOf('\n'));
+
+        String longHtu = "https://x.example/" + "a".repeat(10_000);
+        IllegalArgumentException cut = assertThrows(IllegalArgumentException.class,
+                () -> DpopProofValidator.requireHtu(longHtu, ENDPOINT));
+        assertTrue(cut.getMessage().contains(longHtu.substring(0, DpopProofValidator.SHOWN_LIMIT) + "...'"), cut.getMessage());
+        assertTrue(cut.getMessage().length() < 2 * DpopProofValidator.SHOWN_LIMIT + ENDPOINT.length() + 64, cut.getMessage());
+
+        assertEquals("POST", DpopProofValidator.shown("POST"));
+        assertEquals("a?b", DpopProofValidator.shown("a\u007fb"));
+    }
+
     @Test
     void anExpectedEndpointThatIsNotAnAbsoluteHttpUriIsThisServersMisconfiguration() {
         IllegalArgumentException e = assertThrows(IllegalArgumentException.class,

@@ -124,6 +124,7 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(*</include>
                                         <!-- S3a: which CA a rediss:// connection trusts, the transport rule, the redaction
                                              that keeps a Redis password out of log messages, which store each surface
                                              gets and the remembered refusal of plaintext, the holder a conflict names,
