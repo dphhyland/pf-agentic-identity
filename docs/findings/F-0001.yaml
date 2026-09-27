@@ -5,7 +5,7 @@ area: client-attestation, rar-paz-plugin
 source: review-2026-09-26
 status: open
 plan_items: [S-1, S1a, S1b, S1c]
-prs: [26]
+prs: [26, 37]
 verification: ''
 target_release: 0.4.0
 notes: >
@@ -17,4 +17,6 @@ notes: >
   (S4d, Phase 3). S1a landed libs/rar-model on 2026-09-27 (the library only: nine rules, alternatives for
   payment_initiation's two spellings of an amount, three built-in models, contains / authorize / intersect,
   244 vectors in a test-jar); both copies still run until S1b and S1c wire the library in, so the status stays
-  open.
+  open. S1b (PR #37, 2026-09-27) moved the authorization server's token gate and the attester onto it: every field
+  compared, strictly at the token endpoint, with the vector file run through both; RarEntitlement is unused and
+  waits for its deletion on F-0100. RarContainment still decides refresh-time containment in the plugin until S1c.

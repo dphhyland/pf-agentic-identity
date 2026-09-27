@@ -3,13 +3,22 @@ title: CAS instance ceilings can be wider than the client ceiling
 severity: high
 area: attestation-issuer
 source: design
-status: open
+status: closed
 plan_items: [S-1, S1b]
-prs: []
-verification: ''
+prs: [37]
+verification: >
+  2026-09-27, branch prod/p1-rar-wire-cas-as (PR #37), on JDK 20 and JDK 17: AttestationIssuanceConfig keeps an
+  instance ceiling as authorize(instance, client, INHERIT) from libs/rar-model.
+  AttestationIssuanceConfigTest#anInstanceCeilingKeepsWhatTheClientsConstrainsAndItLeavesOut has a client ceiling
+  with max_txn_eur 5000 and an instance ceiling that names only sales_regions, and the binding keeps 5000 for the
+  instance; #anInstanceLimitAboveTheClientsIsRefused refuses 5000.01 (invalid_client). CasVectorRunnerTest runs
+  every INHERIT vector in the shared file through the configuration parse and compares the kept ceiling with the
+  case's grant. The instance ceiling is what the mint authorizes against (AttestationIssuanceConfig.effectiveCeiling).
 target_release: 0.4.0
 notes: >
   Found while designing, item 5. parseInstances (AttestationIssuanceConfig.java:241-243,292-295 at f95b522)
-  checks an instance ceiling against the client's and then discards the result. High: a per-instance ceiling
-  can grant what the client ceiling refuses. S-1: the instance ceiling becomes authorize(instance, client)
-  when the configuration is parsed, and the mint authorizes against it.
+  checked an instance ceiling against the client's and then discarded the result, and RarEntitlement compared only
+  five array fields. High: a per-instance ceiling could grant what the client ceiling refused. Fixed in S1b: both
+  ceilings are read by the model's reader and held to the model when the configuration is parsed, and the
+  instance's is authorize(instance, client, INHERIT), kept. With no client ceiling the instance's stands alone
+  (CAS §6.1: "MUST be a subset of the client-level entitlement when both are present").
