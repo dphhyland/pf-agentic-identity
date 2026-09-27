@@ -5,11 +5,15 @@ import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFi
 import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.agentMetadata;
 import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.chain;
 import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.federationClient;
+import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.jwks;
 import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.param;
 import static com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationFixtures.result;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -82,6 +86,34 @@ class RegistrationServiceAutomaticRegisterTest {
 
         assertEquals(ClientAuthenticationType.PRIVATE_KEY_JWT, provisioned.getClientAuthnType());
         assertEquals("oauth_client", param(provisioned, FederationClientParams.ENTITY_TYPE));
+    }
+
+    /**
+     * §12.1.2: the OP verifies the client's authentication with the keys its metadata publishes, and §3.1.1 keeps
+     * the Federation Entity Keys out of other protocols. So an agent that publishes {@code jwks} for
+     * {@code oauth_client} is registered with those keys, and a {@code private_key_jwt} assertion signed with its
+     * Federation Entity Key is not one PingFederate accepts.
+     */
+    @Test
+    @Requirement("OIDFED §12.1.2")
+    void anAgentThatPublishesKeysForOauthClientIsRegisteredWithThem() throws Exception {
+        Map<String, Object> metadata = new java.util.HashMap<>(agentMetadata("automatic"));
+        metadata.put("jwks", jwks("agent-1", "xyz"));
+
+        Client provisioned = registeredFrom("oauth_client", metadata);
+
+        assertTrue(provisioned.getJwks().contains("\"kid\":\"agent-1\""), "its oauth_client keys");
+        assertFalse(provisioned.getJwks().contains("\"kid\":\"k1\""), "not its Federation Entity Keys");
+        assertNull(provisioned.getJwksUrl());
+    }
+
+    /** An agent that publishes no protocol keys keeps its Federation Entity Keys, as before. */
+    @Test
+    void anAgentThatPublishesNoKeysIsRegisteredWithItsFederationEntityKeys() throws Exception {
+        Client provisioned = registeredFrom("oauth_client", agentMetadata("automatic"));
+
+        assertTrue(provisioned.getJwks().contains("\"kid\":\"k1\""), "its Federation Entity Keys");
+        assertNull(provisioned.getJwksUrl());
     }
 
     @Test
