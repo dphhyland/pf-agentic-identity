@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -10,7 +11,6 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
@@ -31,7 +31,7 @@ extends RequestScopedServlet {
     private final Function<HttpServletRequest, String> issuerResolver;
 
     public OpenIdRegistrationServlet() {
-        this(null, req -> OAuthIssuerUtils.getInstance().getIssuerValue(req));
+        this(null, req -> PfInternals.issuer(req));
     }
 
     /** Test seam: a pre-built service and an issuer resolver, so the servlet runs without PF's runtime. */

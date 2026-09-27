@@ -1,0 +1,27 @@
+id: F-0205
+title: 'platform.http''s reads ignored a thread interrupt, so closing a managed executor could not stop a fetch on a silent peer'
+severity: low
+area: platform
+source: pr-review
+status: closed
+plan_items: [S5a, C-3]
+prs: [60]
+verification: >
+  2026-09-28, on prod/p2-outbound-http-rebase: DeadlineSocket reads in slices of at most 250 ms, looks at the
+  thread's interrupt before each, and throws InterruptedIOException with the interrupt left set.
+  DeadlineSocketTest anInterruptEndsAReadOnASilentPeerAndIsKept (the read ends within about a slice),
+  anAlreadyInterruptedThreadReadsNothing, aReadOutlastsItsSlicesUntilTheDeadline (a peer silent for three slices
+  inside the deadline is still read) and anInterruptedExchangeIsAnIoFailureAndKeepsTheInterrupt (OutboundHttp.get
+  on a peer that accepted and never answered ends as reason IO with the interrupt set).
+  SubordinateRefresherTest shutdownEndsARoundAtTheNextSubordinateWithTheProductionClient, which failed on JDK 17
+  with JdkHttpClient on platform.http before the change ("the round ended within the wait" false after 5 s),
+  passes. DeadlineSocket.arm, deadlinePassed and DeadlineInputStream.read are in platform's 100% METHOD gate.
+target_release: 0.5.0
+notes: >
+  Found on 2026-09-28 when S5AR moved oidf-jose's JdkHttpClient onto platform.http: C-3's
+  SubordinateRefresherTest closes the subordinate refresher's executor while a round is stuck on a peer that
+  accepted the connection and never answered, and expects the round to end within 5 s. The JDK client's send
+  threw InterruptedException on an interrupt; a blocking java.net.Socket read does not see Thread.interrupt at
+  all, so the fetch ran on until its 15 s deadline and the close gave up. Low: every read was already bounded by
+  the deadline, so the thread was held for at most the fetch's own timeout, not forever. Connecting is still not
+  interruptible; it waits at most the connect deadline (8 s for oidf-jose).

@@ -438,6 +438,14 @@
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.timeout(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.causedBy(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.orDefault(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.atLeastOne(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.inFlight(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.join(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.leave(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.drop(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.Place.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.deadlinePassed(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.LogText.clip(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.Builder.build(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.arm(*</include>

@@ -33,6 +33,15 @@ description = "entity statements in the deployment tree that left in ea3f96e (hi
 targetRules = ["jwt"]
 paths = ['''^deploy/fedhost/content\.(production|staging)\.json$''']
 
+# A GitHub security advisory id (GHSA-xxxx-xxxx-xxxx, from GitHub's own restricted alphabet) after the word "key"
+# reads to the generic rule as a key's value: F-0221 at ae232d8 names GHSA-w879-237q-wc7r after "key parsing
+# reaches". A public advisory id, never a secret.
+[[allowlists]]
+description = "GitHub security advisory ids, which the findings and .github/grype.yaml name"
+targetRules = ["generic-api-key"]
+regexTarget = "secret"
+regexes = ['''^GHSA(-[23456789cfghjmpqrvwx]{4}){3}$''']
+
 # libs/rs-validation's tests (XD01): ComponentsTest's DPoP nonce HMAC key is the ASCII digits and letters
 # 0-9a-f twice, a fixed test value that keys nothing outside the test; and in AccessTokenRefusalTest the
 # generic rule reads the parameter list "String token, X509Certificate cert" as a token assigned the value

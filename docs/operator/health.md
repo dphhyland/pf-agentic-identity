@@ -59,5 +59,6 @@ admin token is the same one that guards `/federation/admin/*`; S8b (Phase 3) rep
 
 ## Other wars
 
-`oidf.war` (demo-only) answers the same paths under `/oidf`, and `gm-api.war`, once F-2 bundles platform-pf in it,
-under `/gm-api`; each reports only its own components.
+`oidf.war` (demo-only) answers the same paths under `/oidf`, and `gm-api.war`, which bundles platform-pf from 0.5.0,
+under `/gm-api`; each reports only its own components. gm-api's are one, `GM_API`, the worst of its two load-on-startup
+servlets (seen on the rig on 2026-09-28: live and ready 200 `{"status":"UP"}` with `GM_API` READY).

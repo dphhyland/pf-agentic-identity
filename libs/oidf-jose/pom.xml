@@ -54,15 +54,15 @@
             <!--
               Coverage gate on the JOSE decisions a caller cannot re-check for itself: what a JWT's
               header says it is, which claims are allowed to be missing, which SD-JWT digests get
-              reconstructed into a payload, and which hosts escape the outbound address rule. 100%
-              line + branch, enforced - a missed branch here is a typ confusion, a required claim
-              silently absent, an undisclosed digest reconstructed anyway, or a private endpoint
-              waved through, not a cosmetic gap.
+              reconstructed into a payload, which URLs and hosts escape the outbound rules, and what
+              a failed fetch reaches its caller as. 100% line + branch, enforced - a missed branch
+              here is a typ confusion, a required claim silently absent, an undisclosed digest
+              reconstructed anyway, or a private endpoint waved through, not a cosmetic gap.
 
               Gated per METHOD, not per class, so the members that need a socket or a real key stay
-              honestly out of scope: JdkHttpGetClient.get and OpenBaoTransitSigner.sign talk to a
-              server, and the verifyAgainstKeys/verifyAttestationPop consumers still have
-              null-argument branches no test reaches. Those are the queue, not the gate - widen the
+              honestly out of scope: OpenBaoTransitSigner.sign talks to a server, and the
+              verifyAgainstKeys/verifyAttestationPop consumers still have null-argument branches no
+              test reaches. Those are the queue, not the gate - widen the
               includes as tests land, never lower the limits.
             -->
             <plugin>
@@ -100,7 +100,19 @@
                                         <include>com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.stringList(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.SdJwt.reconstruct(*</include>
-                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressExempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.trusting(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressRuleApplies(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.csv(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parseLong(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.failure(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.headerMap(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

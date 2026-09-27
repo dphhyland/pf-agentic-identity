@@ -51,7 +51,7 @@ class DeclarationTest {
                         "Fapi2Profile<OidfFrontChannelAutoRegistration", "OAuthErrorDescription<OidfFrontChannelAutoRegistration"),
                 d.orders.stream().map(o -> o.earlier() + "<" + o.later()).toList());
         assertTrue(d.orders.stream().allMatch(o -> !o.reason().isBlank() && !o.reason().contains("\n")));
-        assertEquals(List.of(), d.listeners, "no listener yet: F-2 adds the lifecycle listener");
+        assertEquals(List.of(Fixtures.LIFECYCLE_LISTENER), d.listeners, "F-2's lifecycle listener, and no other");
         assertEquals(List.of(), d.pathExceptions);
     }
 

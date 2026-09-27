@@ -17,6 +17,7 @@ import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
@@ -48,7 +49,6 @@ import org.apache.commons.logging.LogFactory;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
 import org.jose4j.jwt.JwtClaims;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * Implements {@code attest_jwt_client_auth} (draft-ietf-oauth-attestation-based-client-auth) in front of
@@ -133,7 +133,7 @@ public final class ClientAttestationAuthFilter implements Filter {
     }
 
     private static String defaultIssuer(HttpServletRequest request) {
-        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        return PfInternals.issuer(request);
     }
 
     @Override
