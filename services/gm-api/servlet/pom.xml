@@ -45,6 +45,12 @@
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>provided</scope></dependency>
         <!-- TypeReference is jackson-core's, imported directly. -->
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><scope>provided</scope></dependency>
+        <!-- platform-pf, and platform through it (plan item F-2): bundled in WEB-INF/lib, the one exception to
+             "all provided". They are this repository's own jars, not PingFederate's, and this war needs its own
+             copy - its own lifecycle, components and metrics - for the lifecycle listener and the health servlet
+             to report this war and close only what it opened (docs/development/classloaders.md, rule 1).
+             platform-pf's own PingFederate dependencies stay provided and do not come with it. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <!-- No commons-lang3 or commons-logging: nothing here, main or test, reaches either (the
              local.pingfederate era declared both; the war compiles and its tests pass without them). -->
 

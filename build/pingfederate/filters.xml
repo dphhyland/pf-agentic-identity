@@ -128,4 +128,12 @@
     the response and so has to sit outside it.
   </order>
 
+  <!-- The lifecycle listener (plan item F-2, libs/platform-pf, "lifecycle"): marks the webapp's copy of platform
+       as the webapp's, logs the start-up audit banner once, and at undeploy closes that copy's executors, MXBean
+       and Redis pools. Registered here by name, not by a @WebListener annotation: the same jars also sit in
+       server/default/deploy, on the engine's classloader, which must never run it, and an explicit entry is
+       one registration in one war whatever a container scans. The listener also checks that its copy of
+       platform is the war's own before it touches it. -->
+  <listener class="com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener"/>
+
 </war-filters>
