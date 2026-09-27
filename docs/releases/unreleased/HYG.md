@@ -54,9 +54,9 @@ What changed:
   re-pointed through a line diff from 915f682; the rest citing the image build and the workflows were read
   beside the code and corrected. The image's settings gain `$5 PROFILE`, `STAGING_PROFILE`, `PF_ARCHIVE_FILE`,
   `PF_ARCHIVE_SHA256`, `PF_BOOTSTRAP` and the entrypoint's `OIDF_DEPLOYMENT_PROFILE`; the CIBA simulator's
-  statements name its three-part gate; and the playground's registry gate says what P0-8 established about a
-  failed criterion (400 `invalid_grant` with the criterion's Error Result, for expression criteria on 13.1.3)
-  and that its conditional criteria have not been run.
+  statements name its three-part gate; and the playground's registry gate says what P0-8 established (on
+  13.1.3 an expression criterion that throws is refused with 400 `invalid_grant` and its Error Result) and
+  that its own conditional criteria have not been run.
 - **READMEs.** device-instance names the SSF receiver as `CaepSignalApplier`'s one live caller and says both
   profiles stage the jar; device-enrolment's table is complete; ssf counts the staged jars by profile.
 - **Already done elsewhere.** build.yml's `workflow_dispatch` comment was corrected by PR #30 itself (merged

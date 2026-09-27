@@ -1348,7 +1348,7 @@ function mountDevice() {
       const failing = ['instance_active', 'device_compliant', 'uv_fresh'].filter(k => !attrs[k]);
       gates.push({ label: 'Instance state at issuance', where: '`InstanceRegistryDataSource`, queried with `agent_id`', status: 'unverified', src: devSrc(5),
         state: failing.length ? 'fail' : 'pass', note: 'Read from the registry at the moment of issuance.',
-        why: `Criteria gating on ${failing.map(f => '`' + f + '`').join(', ')} would refuse issuance. A failed criterion is refused with 400 \`invalid_grant\` and the criterion's Error Result: seen on PingFederate 13.1.3 on 2026-09-26 for expression criteria, one that throws included (\`docs/unverified.md\` item 15). These are conditional criteria on the registry's attributes, which no one has run (item 9).` });
+        why: `Criteria gating on ${failing.map(f => '`' + f + '`').join(', ')} would refuse issuance. PingFederate 13.1.3 refused a token whose expression criterion threw with 400 \`invalid_grant\` and the criterion's Error Result, counting the exception as \`false\` (2026-09-26, \`docs/unverified.md\` item 15). These are conditional criteria on the registry's attributes, which no one has run (item 9).` });
     } else {
       gates.push({ label: 'Instance state at issuance', where: 'no data source configured', status: 'opt-in', state: 'skip', why: 'No instance-state check at issuance. The attestation stays usable until it expires.' });
     }
