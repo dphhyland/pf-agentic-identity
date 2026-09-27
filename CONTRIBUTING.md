@@ -1,8 +1,8 @@
 # Contributing
 
 How work on this repository is done: the build, the tests that need a database, worktrees, the version tools,
-the files that are generated, and what a pull request carries. The house style for anything written -
-prose, comments, commits, pull requests, release notes - is in [docs/development/style-guide.md](docs/development/style-guide.md).
+the files that are generated, what a pull request carries, and how a release is cut. The house style for
+anything written - prose, comments, commits, pull requests, release notes - is in [docs/development/style-guide.md](docs/development/style-guide.md).
 The production programme's plan and its findings are the backlog: [docs/findings](docs/findings/README.md)
 holds every finding and unverified assumption, and a pull request names the ones it closes.
 
@@ -115,6 +115,42 @@ review, Merge order, Upgrade notes, Findings, Unverified. Before opening one:
 
 Merge commits only, never squash or rebase: commit ids are cited in documents, pull request bodies and
 release notes. The maintainer merges.
+
+## Releasing
+
+The maintainer cuts a release. A pull request sets every pom to the version (`python3 tools/set-version.py
+<version>`), gives the changelog's `Unreleased` heading the version and date, and finishes
+`docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
+[release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
+order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps and stops once
+`dist/` is assembled, publishing nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
+
+The release's second gate, after the tag-version check, is a green Build on the tagged commit. The newest Build
+run that a push to `main` or a dispatch started there must have concluded success, and so must the latest attempt
+of every job [.github/required-checks.txt](.github/required-checks.txt) names. A pull request's Build never
+counts, even when its head is the tagged commit: it tested the pull request's merge with its base, not the
+commit. From 0.4.0 the gate waits for a Build that is still running, because a tag pushed straight after its
+merge arrives while it is: v0.3.0's did, the gate read `java` in progress and failed, and the release was re-run
+by hand (run 36278709651, F-0069). It reads the Build runs every 30 seconds for up to 20 minutes, waits while
+the run is queued or pending - a run can wait over a minute behind the previous `main` Build before its jobs
+exist - and logs what it is waiting for and for how long. It fails, with nothing published, when:
+
+- the run concludes anything but success, or a required job's latest attempt does. That includes a run
+  cancelled because another push to `main` came before it finished. Start a fresh Build on the tag
+  (`gh workflow run build.yml --ref v<version>`) and, once it is green, re-run the release
+  (`gh run rerun <run-id>`, the release's run).
+- there is no such run after two minutes: Build was never started on the commit. It runs on a push to `main`,
+  a pull request or by hand, never on a tag alone, so a commit that reached GitHub only through its tag, or
+  only through a pull request, has none. Start one as above, then re-run the release.
+- the run passed without a job `required-checks.txt` names: the tagged commit's `required-checks.txt` names a
+  job its `build.yml` does not have, and no re-run can pass. Correct the file in a new commit and release from
+  that.
+- `required-checks.txt` names no job, or is missing. Before 0.4.0 a file that named no job passed the gate.
+- the runs cannot be read three times in a row, or 20 minutes pass. Re-run the release once the API answers or
+  the Build has finished.
+
+A dry run is gated the same way, so a dry run on a branch needs a Build started there by hand first
+(`gh workflow run build.yml --ref <branch>`); from 0.4.0 that holds for a branch with a pull request too.
 
 ## Style
 
