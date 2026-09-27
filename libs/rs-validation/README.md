@@ -1,63 +1,166 @@
-# demo-rs
+# rs-validation
 
-> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Written here, no upstream; see [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
+> **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** - build from the repo root with `mvn package`. Written here, no upstream; see [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
-The resource-server end of the loop: what an RS must check before it believes an agent is acting for
-a human. It validates a **DPoP sender-constrained** access token (RFC 9449) issued by PingFederate and
-reads the **RFC 8693 `act` chain** to see which agent instance is acting for whom.
+The resource-server end of the loop: what a resource server must check before it believes an agent is acting for a
+human. It validates a sender-constrained JWT access token issued by PingFederate - bound to a DPoP key (RFC 9449) or
+to a TLS client certificate (RFC 8705) - and reads the RFC 8693 `act` chain to see which agent instance is acting for
+whom. Package `com.pingidentity.ps.oidf.rs`. Formerly `services/demo-rs`, which is now a relocation POM (plan item
+X-D01).
 
-Two classes, package `com.pingidentity.ps.oidf.rs`, no PingFederate. There is no HTTP listener or
-`main` here — this is the validation core a resource server embeds; the tests drive it directly.
+It is a library: a resource server embeds `DelegatedTokenValidator`, directly or through `ResourceServerFilter`, a
+`jakarta.servlet.Filter`. Nothing here is staged into PingFederate's image.
 
 ## What it checks
 
-`DelegatedTokenValidator.validate(accessToken, dpopProof, method, url)` — four things, in order, and the
-third is the one people skip:
+`DelegatedTokenValidator.validate(Presentation)` refuses the request unless all of this holds:
 
-1. the access token is a JWS signed by one of the AS keys it was given (`ES256`/`RS256`/`PS256`, `kid`
-   selected), with the expected `iss` and `aud`, unexpired within the clock skew;
-2. the DPoP proof is well-formed, fresh, and covers this `htm`/`htu` —
-   `com.pingidentity.ps.oidf.clientattestation.DpopProofValidator`, reused from
-   [`libs/client-attestation`](../../libs/client-attestation) on purpose (the pom says why: it already
-   implements RFC 9449, with tests, and there is no reason to write it twice);
-3. **the proof's key is the key the token is bound to** — `cnf.jkt` must equal the RFC 7638 thumbprint
-   of the proof's `jwk`, and the proof's `ath` must be the hash of *this* token. Without the first,
-   sender-constraining is decorative; without the second, a captured proof works against any token
-   bound to the same key;
-4. the `act` claim, parsed by `ActChain`.
+1. **The token is the authorisation server's.** A JWS whose `typ` is what `AccessTokenType` says (RFC 9068's
+   `at+jwt` by default - see below), whose `alg` is permitted (`ES256`, `PS256`, `RS256` by default; never `none` or
+   an HMAC), whose `kid` names exactly one of the server's public keys - a token without a `kid`, or naming one the
+   server does not publish, is refused; there is no fallback to trying every key - and whose signature verifies.
+   `iss` is the issuer, `aud` contains this resource, `exp` has not passed and `nbf`, when present, has (60 s
+   leeway by default).
+2. **The sender proves the binding.** The token's `cnf` must carry `jkt`, `x5t#S256` or both; a token with neither
+   is refused, because there is no bearer mode.
+   - `cnf.jkt`, under `Authorization: DPoP`: exactly one `DPoP` header, holding a proof that passes client-attestation's
+     `DpopProofValidator` (type `dpop+jwt`, a public `jwk`, the signature, `htm`, `htu` after RFC 3986
+     normalisation, `iat` within the window) and whose key's RFC 7638 thumbprint is `jkt`, whose `ath` is this
+     token's hash and, with `DpopNonces` on, whose `nonce` this server issued.
+   - `cnf.x5t#S256`: the SHA-256 of the TLS client certificate is that value. Under `Authorization: Bearer`, which
+     is accepted only when `mtls(true)` is set and only for a token with no `jkt`; RFC 9449 §7.2 says a
+     DPoP-bound token received as a bearer token must be rejected.
+3. **The `act` claim is an RFC 8693 actor chain.** `ActChain` parses it; a chain that is not a JSON object at every
+   level, names no actor at a level, or nests more than 10 deep is refused. Only `currentActor()`, the outermost
+   actor, is single-valued: RFC 8693 §4.1 says prior actors "are informational only and are not to be considered in
+   access control decisions". For this platform `sub` is the human and `act.sub` the opaque agent instance
+   identifier.
+4. **The proof is new.** Last of all, the `ReplayStore` records the proof and refuses one it has seen: RFC 9449 §11.1
+   has servers "store the jti value of each DPoP proof for the time window in which the respective DPoP proof JWT
+   would be accepted to prevent multiple uses of the same DPoP proof".
 
-There is no bearer fallback: a missing proof is `invalid_token`, not "try Bearer". Replay of the proof
-`jti` is the caller's to own, as it is in `DpopProofValidator` — the `Result` reports it, the RS decides
-which cache it belongs in.
+Refusals are `DelegatedTokenValidator.RsException` with `error()` and `status()`:
 
-`ActChain` enforces two RFC 8693 §4.1 rules that are security bugs when got wrong: `act` is a JSON
-object (the legacy string form this platform once emitted is still parsed but flagged
-`legacyStringForm`, so a deployment can see it is on a deviation), and **only the outermost actor may be
-authorised on** — `currentActor()` is the single-valued accessor; `priorActors()` is history, returned
-only as a list. Nesting is bounded at 10 hops, the same cap `services/gm-api` applies - two
-resource servers reading one `act` chain should not disagree about where it stops. For this platform `sub` is the human and `act.sub` is the
-opaque agent instance identifier — an RS can risk-assess on it and learn nothing more without the
-instance registry.
+| `error()` | Status | When |
+|---|---|---|
+| `invalid_token` | 401 | anything wrong with the token, its binding or its `act`; a DPoP-bound token without a proof |
+| `invalid_dpop_proof` | 401 | a proof that fails RFC 9449 §4.3, more than one `DPoP` header, a wrong or missing `ath`, a replay |
+| `use_dpop_nonce` | 401 | nonces on, and the proof has none or one this server did not issue; `dpopNonce()` is the one to use |
+| `invalid_request` | 400 | from the filter: more than one `Authorization` header, a query `access_token` too, a credential that is not token68 |
+| null | 401 | a scheme this resource does not take: RFC 6750 §3.1 sends no error for it |
+| null | 503 | the replay store or the key source could not answer; the request is refused, never let through |
 
-`Result.describe()` is what a demo endpoint can safely echo: subject, `delegated`, `acting_instance`,
-`prior_actors`, scopes — no device data, no raw token. Refusals are `RsException(error, status, message)`
-with the OAuth error code a `WWW-Authenticate` header should carry (`invalid_token`,
-`invalid_dpop_proof`, 401).
+## Using it
+
+```java
+RedisClient redis = new RedisClient(RedisConfig.current());      // platform.redis
+OutboundHttp http = OutboundHttp.builder(AddressPolicy.strict()).build();   // platform.http
+
+DelegatedTokenValidator validator = DelegatedTokenValidator.builder("https://pf.example.com", "https://rs.example.com")
+        .keys(new RemoteJwks(http, "https://pf.example.com/pf/JWKS"))
+        .replayStore(new RedisReplayStore(redis.keyspace("oidf:rs:dpop")))
+        .nonces(new DpopNonces(secret))          // optional: 32 random bytes, the same on every node
+        .build();
+
+servletContext.addFilter("rs", new ResourceServerFilter(validator, "https://rs.example.com"))
+        .addMappingForUrlPatterns(null, false, "/api/*");
+```
+
+A request that passes carries the `Result` in the request attribute `com.pingidentity.ps.oidf.rs.Result`:
+`subject()`, `actingInstance()`, `scopes()`, `claims()`, and `describe()`, which is what a demo endpoint can echo
+(no raw token, no `cnf`). Authorising on the result - which scopes, which actor - is the resource's job; the library
+only establishes who is asking and who is acting.
+
+### The builder
+
+| Method | Default | What it does |
+|---|---|---|
+| `keys(JwksSource)` / `keys(Collection<JsonWebKey>)` | required | the authorisation server's public keys |
+| `replayStore(ReplayStore)` | required | where accepted proofs are remembered; `build()` refuses without one |
+| `accessTokenType(AccessTokenType)` | `RFC9068` | `at+jwt` or `application/at+jwt`; `ABSENT` for no `typ`; `exactly("...")` |
+| `tokenAlgorithms(Set)` / `proofAlgorithms(Set)` | `ES256 PS256 RS256` | ES, RS and PS algorithms only |
+| `clockSkew(Duration)` | 60 s | leeway for `exp`, `nbf` and a proof's `iat`; at most 5 minutes |
+| `proofMaxAge(Duration)` | 300 s | how long after `iat` a proof is accepted; 1 s to 1 hour |
+| `nonces(DpopNonces)` | off | require resource-server nonces (RFC 9449 §9) |
+| `dpop(boolean)` / `mtls(boolean)` | on / off | which schemes are accepted; at least one |
+| `allowLegacyStringAct(DeploymentProfile)` | off | accept `act` as a string holding JSON; throws under the production profile |
+
+The library reads no environment variable or system property of its own: the embedding application builds it from
+its own configuration, and `RedisConfig.current()` (the platform's catalogued `OIDF_REDIS_*` settings) is one way to
+build the Redis client.
+
+### Replay stores
+
+`ReplayStore.firstUse(key, window)` answers whether a key is new. The key is base64url(SHA-256(`jkt` ":" `jti`)) -
+a hash, so an outsized `jti` costs nothing to store, and scoped to the proof's key, so a party that sees another
+client's `jti` cannot spend it first. It is not scoped to the target URI: a `jti` is refused everywhere once seen,
+which is stricter than RFC 9449 §11.1 requires. The window is how much longer the proof would pass the freshness
+check - until `iat` + max age + skew, plus a second for `iat`'s rounding.
+
+- `RedisReplayStore` - `SET <prefix>:<key> 1 NX PX <window>` through `platform.redis`: shared by every node, and
+  what a resource served by more than one node must use.
+- `InMemoryReplayStore` - one JVM's bounded map (100,000 keys by default); when it is full of unexpired keys it
+  answers as unavailable (503) rather than let a proof through. One node only.
+
+### Keys
+
+- `RemoteJwks` fetches the `jwks_uri` through `platform.http` - pinned to checked addresses, a 5 s deadline, a
+  capped body - and caches the keys by `kid`. An unknown `kid` fetches again, at most once every 30 s; the whole
+  set is fetched again once it is 10 minutes old, so a withdrawn key stops verifying. A failed fetch keeps the keys
+  it has; a `kid` it does not have, when the last fetch failed, is a 503, not a 401.
+- `StaticJwks` holds a fixed set. Both keep only public signing keys with a `kid`, and refuse a key with private
+  parameters.
+
+### PingFederate's `typ`
+
+RFC 9068 §4: "The resource server MUST verify that the "typ" header value is "at+jwt" or "application/at+jwt" and
+reject tokens carrying any other value." PingFederate's JWT access token manager does not send it unless its
+"Type Header Value" field is set: the field's description reads "Indicates the value of the Type (typ) header in the
+JWT (omitted, if blank)", and it is blank by default (read 2026-09-28 with javap from
+`JwtBearerAccessTokenManagementPlugin` in PingFederate 13.1.3's `pf-core-plugins.jar`). The conformance rig sets it
+to `at+jwt` ([conformance/terraform/tokens.tf](../../conformance/terraform/tokens.tf)). A deployment whose manager
+leaves it blank uses `AccessTokenType.ABSENT`, which requires the header to be missing. The same manager includes
+`kid` by default ("Include Key ID Header Parameter" defaults to on), which the exact-`kid` rule needs.
+
+### Nonces
+
+`DpopNonces` issues the base64url HMAC-SHA256, under a secret of at least 32 bytes, of the current time window's
+number (a minute by default). Nodes that share the secret issue and accept the same nonces without storing any. A
+nonce is accepted in its window and the next; one from the previous window passes, and the response carries the
+current one in `DPoP-Nonce`.
+
+### The filter
+
+`ResourceServerFilter` answers a refusal with the status and the `WWW-Authenticate` challenges:
+
+- no credentials, or a scheme not taken: 401, `DPoP algs="ES256 PS256 RS256"` (and `Bearer realm="<base URL>"` when
+  mTLS is on), with no error - RFC 6750 §3.1;
+- a refused token or proof: 401, the `error` and `error_description` in the challenge of the scheme used - RFC 9449
+  §7.2's rule for a resource that takes both;
+- ambiguous or malformed: 400 `invalid_request` in every challenge (RFC 9449 figure 19);
+- `use_dpop_nonce`: 401 with `DPoP-Nonce`;
+- unavailable: 503, no challenge.
+
+Every refusal and every response carrying `DPoP-Nonce` has `Cache-Control: no-store`. An `error_description` keeps
+only the characters RFC 6750 §3 allows and at most 200 of them. The `htu` a proof must name is the configured base
+URL plus the request's path, never the `Host` header. The client certificate comes from the container's
+`jakarta.servlet.request.X509Certificate` attribute, so a deployment behind a TLS-terminating proxy must have the
+container take the certificate from the proxy for mTLS-bound tokens to pass.
 
 ## Build and test
 
 ```bash
-mvn -pl services/demo-rs -am test      # 29 tests
+mvn -pl libs/rs-validation -am verify
 ```
 
-Versions come from the repo BOM (`bom/pom.xml`); depends on `oidf-jose`, `client-attestation`, jose4j,
-jackson. Test LOC exceeds main LOC by design — the contract is the product. The two tests that would
-matter in an incident are `aProofFromADifferentKeyIsRejected` and
-`aProofCapturedForAnotherTokenIsRejected`.
+Versions come from the repo BOM; depends on `oidf-jose`, `client-attestation` (for `DpopProofValidator`),
+`platform` (redis, http, profile), jose4j and Jackson; `jakarta.servlet-api` is provided. Every refusal test carries
+the RFC sentence it enforces, and the jacoco gate holds the decision methods at 100% line and branch.
+`RedisReplayStoreLiveTest` runs against a real Redis when `OIDF_TEST_REDIS_URL` names one, as CI's java job does.
 
 ## Caveats
 
-- Not deployed anywhere in this repo: no `deploy/` entry, no Dockerfile. It is a library-shaped
-  reference an RS wires behind its own endpoint.
-- The AS keys are passed in as a `List<JsonWebKey>`; fetching and rotating PF's JWKS is the embedding
-  service's job.
+- `DpopProofValidator` lives in client-attestation, so this module depends on it. Moving it where platform-pf's
+  operator authenticator (plan item S8a) can share it is [F-0225](../../docs/findings/F-0225.yaml).
+- No token introspection yet (RFC 7662): the token must be a JWT. gm-api's move onto this module (X-C03) adds it.
+- The actor is reported, not authorised: nothing here checks it against a registry or `may_act`.

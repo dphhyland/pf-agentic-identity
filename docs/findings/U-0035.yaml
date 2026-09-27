@@ -2,10 +2,21 @@ id: U-0035
 title: RFC 9449 sections 4.3 and 11.1
 area: platform
 source: design
-status: open
+status: closed
 plan_items: [S8a, X-D01]
-prs: []
+prs: [59]
 recorded_in: the plan, To verify before relying on it, verbatim from the primary source, OAuth
 verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
-verification: ''
-notes: ''
+verification: >
+  Read 2026-09-28 from the RFC Editor's text of RFC 9449 (September 2023), sections 4.2, 4.3, 7.1, 7.2, 8, 9, 11.1 and
+  11.3, and quoted verbatim where libs/rs-validation asserts them: section 4.3's twelve checks in
+  DelegatedTokenValidator and in the javadoc of the DpopRefusalTest and ResourceServerFilterTest tests that pin them
+  ("There is not more than one DPoP HTTP request header field", the htm, htu, nonce and iat items, and item 12's ath
+  and key binding), and section 11.1's replay text ("servers can store the jti value of each DPoP proof for the time
+  window in which the respective DPoP proof JWT would be accepted to prevent multiple uses of the same DPoP proof",
+  and "should reject DPoP proof JWTs with unnecessarily large jti values or store only a hash thereof") in ReplayStore,
+  DelegatedTokenValidator.checkReplay and DpopRefusalTest.aReplayedProofIsRefused. Each quote was compared with
+  the RFC text line by line.
+notes: >
+  Closed by XD01 for the resource-server side. S8a's operator authenticator verifies DPoP the same way and may add
+  its own verification when it lands; it quotes from the same sections.
