@@ -139,11 +139,11 @@ own before it asks the model anything:
   no request: nothing to compare, and the plugin decides as 0.4.0's principal work (PR #29) left it - the PDP is
   asked about the request alone, with no attested ceiling - with the model's checks above.
 
-The filter runs over the token endpoint and PAR, and PingFederate asks this processor to decide only at the token
-endpoint: client credentials and token exchange (`enrich`) and a refresh that restates `authorization_details`
-(`enrich`, then `isEqualOrSubset`). So this plugin beside an attestation filter from before 0.4.0 refuses those
-requests from every attested client, before the PDP is asked, with `invalid_authorization_details`: deploy the
-two from one release.
+The filter runs over the token endpoint and PAR. At PAR PingFederate calls only `validate`, which compares
+nothing; at the token endpoint it asks this processor to decide for client credentials and token exchange
+(`enrich`) and for a refresh that restates `authorization_details` (`enrich`, then `isEqualOrSubset`). So this
+plugin beside an attestation filter from before 0.4.0 refuses those requests from every attested client, before
+the PDP is asked, with `invalid_authorization_details`: deploy the two from one release.
 
 ### What PingFederate 13.1.3 asks on a refresh
 
