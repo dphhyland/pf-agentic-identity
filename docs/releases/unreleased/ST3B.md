@@ -12,7 +12,7 @@
   settings with their sources, defaults, types, profile classes and whether they bear on security. A plugin field
   is catalogued under the name PingFederate shows for it, and its entry names the plugin's descriptor id. The
   settings scan no longer exempts these six modules. The jars carry the catalogues; nothing reads them at run
-  time yet. New in the register: F-0230, F-0231.
+  time yet. New in the register: F-0230, F-0231, F-0232.
 
 ## Before you deploy
 
@@ -40,3 +40,7 @@ properties but is not among the names the attester reads off a PingFederate clie
 a request's asserted context is ignored (F-0230); and the catalogue format records a removed name only for an
 environment variable, a system property or an init-param, so the RAR plugin's "Deny unless PERMIT" field,
 removed in 0.4.0 and ignored when an old configuration still holds it, is not in its catalogue (F-0231).
+
+Found while verifying, on 2026-09-28: the SSF stores order SETs minted in the same second by the database's
+collation, so their contract test passes on CI's postgres:16-alpine and fails on the Debian postgres:16 image
+(F-0232). Nothing is lost; the order a receiver sees differs by database.

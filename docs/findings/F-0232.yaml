@@ -1,0 +1,20 @@
+id: F-0232
+title: 'The SSF stores order same-second SETs by the database''s collation, and their contract test assumes C'
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [DB-1]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST3B (2026-09-28) running the reactor's Postgres suites against the Debian postgres:16 image rather
+  than CI's postgres:16-alpine. JdbcSsfStore and LdmSsfStore order a stream's pending SETs by issued time, then by
+  jti in SQL (ORDER BY issued_at, jti; attrs->>'jti' in the LDM store), so SETs minted in the same second come back
+  in the database's text collation. SsfStoreContract.aSecondsSetsComeBackInJtiOrderFromBothReads expects Java's
+  String order; under en_US.utf8 it failed in both Postgres test classes (mixed-case jtis sort case-insensitively),
+  and passed on the alpine image, whose default collation orders like C. Nothing is lost - a read returns the same
+  SETs, and acknowledgement is by jti - but the order a receiver sees differs by database, and the suite fails on a
+  developer's or a deployment's Postgres that is not C-collated. Closes when the ORDER BY names a collation (COLLATE
+  "C") or the contract stops depending on it.
