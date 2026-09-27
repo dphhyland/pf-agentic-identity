@@ -30,8 +30,9 @@ pf-integration), ST3B and ST3C (the rest), and with the Phase 2 packages that ad
 - **Exactly one owning package.** The `package` member names the one Java package whose code resolves these
   settings. A module with several components has one file per component, each naming its own package; when two
   packages of one module read settings, they are two components, or one package resolves the settings and hands
-  the values to the other (as `FederationRuntimeConfig` does for the whole of pf-integration today). Nothing
-  checks the package against the code in Phase 2; the scan (ST3A) does.
+  the values to the other (as `FederationRuntimeConfig` does for the whole of pf-integration today).
+  `tools/settings-scan.py` checks the package against the code: it, or a package under it, reads at least one
+  of the file's settings.
 - **Families.** `families` lists the `OIDF_*` prefixes the component owns, such as `OIDF_PDP_`. They are what
   `UnknownKeys.find` looks under for a set name no catalogue declares. A family may be shared by two components;
   a name is known when any loaded catalogue declares it.
