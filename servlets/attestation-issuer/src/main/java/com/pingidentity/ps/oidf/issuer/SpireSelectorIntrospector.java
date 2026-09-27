@@ -22,8 +22,11 @@ import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
  *
  * <p>Those attributes ride into the attestation's {@code workload.attributes} and are available to the
  * issuance policy for downscoping — e.g. only grant EMEA when {@code k8s:ns:demo} is among the selectors.
- * Selectors are how SPIRE proves <em>how</em> a workload was attested, so they are a stronger basis for
- * policy than anything the workload asserts about itself.
+ *
+ * <p>They are not verified evidence, and they never reach {@link InstanceIdentity#selectors()}: this is a plain
+ * HTTP GET of an operator-configured endpoint, whose answer nothing authenticates, and a lookup that fails yields
+ * none. Plan item X-B08 (Phase 5) replaces this class with a read-only SPIRE reader over mTLS, and only that reader
+ * adds {@code spire:} selectors; the attestation-issuer README's "Evidence selectors" section says how.
  *
  * <p>Expected proxy response for {@code GET <base>/entries?spiffe_id=<id>} (a minimal projection of the
  * SPIRE Server API): <pre>{ "selectors": [ {"type":"k8s","value":"ns:demo"}, … ] }</pre>

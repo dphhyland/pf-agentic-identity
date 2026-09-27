@@ -21,6 +21,9 @@ public final class SpiffeInstanceAttestationValidator implements InstanceAttesta
     /** The format label for SPIFFE, used in selection and as {@code workload.attested_by}. */
     public static final String FORMAT = "spiffe";
 
+    /** The selector names this validator proves: the SVID's SPIFFE ID ({@code sub}) and that ID's trust domain. */
+    static final List<String> SELECTOR_NAMES = List.of("spiffe_id", "trust_domain");
+
     private final SpiffeSvidValidator delegate;
 
     public SpiffeInstanceAttestationValidator() {
@@ -53,10 +56,23 @@ public final class SpiffeInstanceAttestationValidator implements InstanceAttesta
     }
 
     @Override
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
+    }
+
+    /**
+     * {@inheritDoc}
+     *
+     * <p>The selectors are the verified SVID's {@code spiffe_id} (its {@code sub}) and {@code trust_domain} (that
+     * ID's authority), as the SVID states them: SPIFFE-ID §2.4 makes the trust domain case-insensitive, but the
+     * binding match and the trust-domain pin compare it exactly, and so does a selector.
+     */
+    @Override
     public InstanceIdentity validate(String presented, List<JsonWebKey> bundleKeys,
                                      AttestationIssuanceConfig config) throws IssuanceException {
         SpiffeSvid svid = this.delegate.validate(
                 presented, bundleKeys, config.issuer(), config.expectedTrustDomain());
-        return InstanceIdentity.ofSpiffe(svid, this.id());
+        return InstanceIdentity.ofSpiffe(svid, this.id(), EvidenceSelectors.of(this.id(), SELECTOR_NAMES,
+                IssuanceException::invalidSvid, "spiffe_id", svid.spiffeId(), "trust_domain", svid.trustDomain()));
     }
 }

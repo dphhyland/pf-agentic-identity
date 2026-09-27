@@ -40,6 +40,9 @@ public final class EksTokenValidator implements InstanceAttestationValidator {
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
+    /** The selector names this validator proves; see {@link #selectors}. */
+    static final List<String> SELECTOR_NAMES = List.of("issuer", "namespace", "service_account");
+
     private final long allowedClockSkewSeconds;
 
     public EksTokenValidator() {
@@ -78,9 +81,15 @@ public final class EksTokenValidator implements InstanceAttestationValidator {
     }
 
     @Override
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
+    }
+
+    @Override
     public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config), this.id());
+        VerifiedSvid verified = verify(evidence, bundleKeys, config);
+        return InstanceIdentity.ofSpiffe(verified.svid(), this.id(), verified.selectors());
     }
 
     /**
@@ -88,6 +97,12 @@ public final class EksTokenValidator implements InstanceAttestationValidator {
      * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
      */
     public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return verify(evidence, bundleKeys, config).svid();
+    }
+
+    /** Every check on the token, then the identity it maps onto and the selectors it proves. */
+    private VerifiedSvid verify(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no service-account token presented");
@@ -187,6 +202,16 @@ public final class EksTokenValidator implements InstanceAttestationValidator {
 
         String path = "/ns/" + matcher.group(1) + "/sa/" + matcher.group(2);
         String spiffeId = "spiffe://" + trustDomain + path;
-        return new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence);
+        return new VerifiedSvid(new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence),
+                selectors(EvidenceSelectors.stringClaim(claims, "iss"), matcher.group(1), matcher.group(2)));
+    }
+
+    /**
+     * The token's selectors: {@code issuer} (its {@code iss}, the cluster), and the {@code namespace} and
+     * {@code service_account} of its Kubernetes subject.
+     */
+    EvidenceSelectors selectors(String issuer, String namespace, String serviceAccount) throws IssuanceException {
+        return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidSvid,
+                "issuer", issuer, "namespace", namespace, "service_account", serviceAccount);
     }
 }

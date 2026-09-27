@@ -6,6 +6,8 @@ package com.pingidentity.ps.oidf.issuer;
 import java.security.Key;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
@@ -37,6 +39,13 @@ import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 public final class GcpSaTokenValidator implements InstanceAttestationValidator {
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
+
+    /** A user-managed service account's email: {@code <name>@<project-id>.iam.gserviceaccount.com}. */
+    private static final Pattern USER_MANAGED_SA =
+            Pattern.compile("[^@]+@([a-z][a-z0-9-]{4,28}[a-z0-9])\\.iam\\.gserviceaccount\\.com");
+
+    /** The selector names this validator proves; see {@link #selectors}. */
+    static final List<String> SELECTOR_NAMES = List.of("issuer", "email", "project_id");
 
     private final long allowedClockSkewSeconds;
 
@@ -76,9 +85,15 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
     }
 
     @Override
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
+    }
+
+    @Override
     public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config), this.id());
+        VerifiedSvid verified = verify(evidence, bundleKeys, config);
+        return InstanceIdentity.ofSpiffe(verified.svid(), this.id(), verified.selectors());
     }
 
     /**
@@ -86,6 +101,12 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
      * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
      */
     public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return verify(evidence, bundleKeys, config).svid();
+    }
+
+    /** Every check on the token, then the identity it maps onto and the selectors it proves. */
+    private VerifiedSvid verify(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no ID token presented");
@@ -181,6 +202,27 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
 
         String path = "/sa/" + email;
         String spiffeId = "spiffe://" + trustDomain + path;
-        return new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence);
+        return new VerifiedSvid(new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence),
+                selectors(EvidenceSelectors.stringClaim(claims, "iss"),
+                        EvidenceSelectors.stringClaim(claims, "email")));
+    }
+
+    /**
+     * The token's selectors: {@code issuer} (its {@code iss}), {@code email} (the service account), and
+     * {@code project_id} when the email is a user-managed service account's,
+     * {@code <name>@<project-id>.iam.gserviceaccount.com}. No other email is parsed, Google's default service
+     * accounts ({@code ...@developer.gserviceaccount.com}, {@code ...@appspot.gserviceaccount.com}) included, so
+     * those give no {@code project_id}.
+     */
+    EvidenceSelectors selectors(String issuer, String email) throws IssuanceException {
+        String projectId = null;
+        if (email != null) {
+            Matcher m = USER_MANAGED_SA.matcher(email);
+            if (m.matches()) {
+                projectId = m.group(1);
+            }
+        }
+        return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidSvid,
+                "issuer", issuer, "email", email, "project_id", projectId);
     }
 }
