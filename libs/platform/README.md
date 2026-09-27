@@ -162,7 +162,9 @@ of plan item D-6 (Phase 7).
 one line this package adds outside its own subpackage, a logger by name beside the logger by class. An
 uncatalogued code is written on `LoggingSink.FALLBACK_LOGGER`, the federation prefix, as it was.
 `EventsCataloguedTest` in servlets/pf-integration holds the emitters to the catalogues (see
-libs/openid-federation's README).
+libs/openid-federation's README). Seen on the rig on 2026-09-28 (PingFederate 13.1.3): an event line through
+`PlatformLog` reached server.log at WARN on `com.pingidentity.ps.oidf.federation.event.client`, through
+commons-logging and log4j, not as `[SystemErr]`.
 
 <!-- metrics (O-3): add this package's section below this line -->
 <!-- health (O-4): add this package's section below this line -->
