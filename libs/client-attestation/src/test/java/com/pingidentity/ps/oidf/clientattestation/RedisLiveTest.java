@@ -9,7 +9,11 @@ import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.Consumption;
 import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache.Verdict;
 import com.pingidentity.ps.oidf.clientattestation.EvidenceBindingStore.Binding;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.redis.RedisClient;
+import com.pingidentity.ps.oidf.platform.redis.RedisConfig;
 import java.net.URI;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -44,6 +48,16 @@ class RedisLiveTest {
                 "set OIDF_TEST_REDIS_TLS_URL and OIDF_TEST_REDIS_CA_FILE to run the live TLS Redis tests");
     }
 
+    /** Platform's client over a plaintext URL, as a development rig runs it. */
+    private static RedisClient plain(String url) {
+        return new RedisClient(RedisConfig.builder(url).profile(DeploymentProfile.DEVELOPMENT).build());
+    }
+
+    /** Platform's client under the production profile, trusting {@code ca} (or the JVM's CAs when null). */
+    private static RedisClient production(String url, String ca) {
+        return new RedisClient(RedisConfig.builder(url).caFile(ca == null ? null : Path.of(ca)).build());
+    }
+
     private static long now() {
         return Instant.now().getEpochSecond();
     }
@@ -55,7 +69,7 @@ class RedisLiveTest {
     @Test
     void challengesReplayAndBindingsWorkAgainstRedis() throws Exception {
         needPlain();
-        try (MiniRedisClient client = new MiniRedisClient(PLAIN, null, false);
+        try (RedisClient client = plain(PLAIN);
              RedisAttestationStore store = new RedisAttestationStore(client, true, StoreNamespace.CAS, 300L, java.time.Clock.systemUTC())) {
             String challenge = store.issue();
             assertEquals(Consumption.CONSUMED, store.consumeChallenge(challenge));
@@ -83,7 +97,7 @@ class RedisLiveTest {
     @Test
     void theClientAuthenticatesOverTlsAfterVerifyingTheServer() throws Exception {
         needTls();
-        try (RedisAttestationStore store = new RedisAttestationStore(new MiniRedisClient(TLS, CA, true), true,
+        try (RedisAttestationStore store = new RedisAttestationStore(production(TLS, CA), true,
                 StoreNamespace.AS, 300L, java.time.Clock.systemUTC())) {
             String challenge = store.issue();
             assertNotNull(challenge);
@@ -95,9 +109,9 @@ class RedisLiveTest {
     void aServerWhoseCertificateDoesNotNameTheHostIsRefusedBeforeAuth() throws Exception {
         needTls();
         URI tls = URI.create(TLS);
-        assumeTrue(!MiniRedisClient.isIpLiteral(tls.getHost()), "the TLS URL must use the certificate's name, so an address can be the mismatch");
+        assumeTrue(!tls.getHost().startsWith("[") && !tls.getHost().matches("\\d{1,3}(\\.\\d{1,3}){3}"), "the TLS URL must use the certificate's name, so an address can be the mismatch");
         String byAddress = TLS.replace(tls.getHost(), "127.0.0.1");
-        try (RedisAttestationStore store = new RedisAttestationStore(new MiniRedisClient(byAddress, CA, true), true,
+        try (RedisAttestationStore store = new RedisAttestationStore(production(byAddress, CA), true,
                 StoreNamespace.AS, 300L, java.time.Clock.systemUTC())) {
             StoreUnavailableException e = assertThrows(StoreUnavailableException.class, store::issue);
             assertNotNull(e.getCause(), "the handshake failure is the cause: the certificate names the host, not the address");
@@ -108,7 +122,7 @@ class RedisLiveTest {
     @Test
     void aServerTheCaFileDidNotIssueIsRefused() throws Exception {
         needTls();
-        try (RedisAttestationStore store = new RedisAttestationStore(new MiniRedisClient(TLS, null, true), true,
+        try (RedisAttestationStore store = new RedisAttestationStore(production(TLS, null), true,
                 StoreNamespace.AS, 300L, java.time.Clock.systemUTC())) {
             assertThrows(StoreUnavailableException.class, store::issue,
                     "the JVM's CAs did not issue the test certificate");
@@ -118,6 +132,6 @@ class RedisLiveTest {
     @Test
     void plaintextIsRefusedUnderProductionEvenWhenTheServerIsThere() {
         needPlain();
-        assertThrows(IllegalArgumentException.class, () -> new MiniRedisClient(PLAIN, null, true));
+        assertThrows(IllegalArgumentException.class, () -> production(PLAIN, null));
     }
 }

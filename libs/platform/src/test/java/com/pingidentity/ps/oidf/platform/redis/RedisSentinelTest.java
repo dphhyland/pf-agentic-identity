@@ -173,6 +173,43 @@ class RedisSentinelTest {
     }
 
     @Test
+    void aConnectionInUseDuringAFailoverIsClosedWhenItComesBack() throws Exception {
+        try (RedisClient client = this.client(List.of(this.at(this.sentinel)), "sentinel-pw")) {
+            assertTrue(client.ping());
+            this.first.delay(500L);
+            Thread holder = new Thread(() -> {
+                try {
+                    client.ping();
+                } catch (IOException e) {
+                    throw new IllegalStateException(e);
+                }
+            });
+            holder.start();
+            Thread.sleep(150L);
+            this.first.delay(0L);
+            this.failover();
+            assertTrue(client.set("k", "v", Duration.ofMinutes(1)), "the new connection met a replica, and the retry the master");
+            holder.join(5000L);
+            int before = this.second.accepted();
+            assertTrue(client.ping());
+            assertTrue(client.ping());
+            assertEquals(before, this.second.accepted(), "the new master's connection is the one pooled");
+            assertFalse(this.first.commands().subList(this.first.commands().size() - 1, this.first.commands().size()).contains("SET k v PX 60000"));
+        }
+    }
+
+    @Test
+    void aSentinelAnsweringNothingLikeAnAddressIsNotBelieved() throws IOException {
+        try (FakeRedis open = new FakeRedis(null, FakeRedis.Role.SENTINEL)) {
+            open.rawReplies("+nonsense\r\n", 2);
+            try (RedisClient client = this.client(List.of(this.at(open)), null)) {
+                IOException e = assertThrows(IOException.class, client::ping);
+                assertTrue(e.getMessage().contains("something other than a host and a port"), e.getMessage());
+            }
+        }
+    }
+
+    @Test
     void anErrorReplyThatIsNotReadOnlyIsNotAFailover() throws IOException {
         try (RedisClient client = this.client(List.of(this.at(this.sentinel)), "sentinel-pw")) {
             assertThrows(RedisErrorReply.class, () -> client.call("NOSUCH"));
@@ -199,15 +236,17 @@ class RedisSentinelTest {
         long deadline = System.nanoTime() + 3_000_000_000L;
         MasterLocator.Endpoint master = located.master(deadline);
         assertEquals("redis.example", master.tlsName(), "an address is verified against the URL's host");
-        assertEquals(1L, located.generation());
-        located.lost(0L);
-        assertEquals(master, located.master(deadline), "an old generation's loss changes nothing");
-        located.lost(1L);
+        assertEquals(0L, master.generation());
+        located.lost(5L);
+        assertEquals(master, located.master(deadline), "a loss reported for another generation changes nothing");
         this.sentinel.master(MASTER, "localhost", this.first.port());
+        located.lost(0L);
+        assertEquals(1L, located.generation(), "the loss starts a new generation at once");
         MasterLocator.Endpoint named = located.master(deadline);
         assertEquals("localhost", named.tlsName(), "a name is verified as itself");
-        assertEquals(2L, named.generation());
-        located.lost(2L);
-        located.lost(2L);
+        assertEquals(1L, named.generation());
+        located.lost(1L);
+        located.lost(1L);
+        assertEquals(2L, located.generation(), "a second report of the same loss is the same loss");
     }
 }

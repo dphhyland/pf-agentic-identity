@@ -188,6 +188,9 @@ class RedisClientTest {
         assertEquals("", this.client.call("X"));
         this.redis.rawNextReply("*2\r\n$3\r\nh\u00e9\r\n+ok\r\n");
         assertEquals(List.of("h\u00e9", "ok"), this.client.call("X"));
+        String large = "x".repeat(20_000);
+        this.redis.rawNextReply("$20000\r\n" + large + "\r\n");
+        assertEquals(large, this.client.call("X"), "a bulk string longer than one read of the buffer");
 
         // Each on a fresh connection to a server with no password, so the reply is the command's and nothing
         // reused is retried.

@@ -98,6 +98,8 @@ class RedisConfigTest {
     void urlsThisClientDoesNotTakeAreRefusedWithoutTheirUserinfo() {
         assertTrue(assertThrows(IllegalArgumentException.class, () -> RedisUrl.parse("http://h")).getMessage().contains("scheme"));
         assertThrows(IllegalArgumentException.class, () -> RedisUrl.parse("h:6379"));
+        assertTrue(assertThrows(IllegalArgumentException.class, () -> RedisUrl.parse("cache.example.com")).getMessage()
+                .contains("scheme: null"), "no scheme at all");
         IllegalArgumentException noHost = assertThrows(IllegalArgumentException.class, () -> RedisUrl.parse("rediss://:s3cret@redis_cache:6379"));
         assertFalse(noHost.getMessage().contains("s3cret"), noHost.getMessage());
         IllegalArgumentException bad = assertThrows(IllegalArgumentException.class, () -> RedisUrl.parse("rediss://:s3 cret@cache.example.com"));
@@ -311,6 +313,8 @@ class RedisConfigTest {
         try {
             System.setProperty("oidf.redis.url", "rediss://from-a-property");
             assertEquals("rediss://from-a-property", RedisConfig.current().url());
+            assertTrue(RedisConfig.isConfigured());
+            assertEquals("rediss://other", RedisConfig.currentFor("rediss://other").url());
         } finally {
             if (before == null) {
                 System.clearProperty("oidf.redis.url");
@@ -320,6 +324,7 @@ class RedisConfigTest {
         }
         if (!set && before == null) {
             assertNull(RedisConfig.current());
+            assertFalse(RedisConfig.isConfigured());
         }
     }
 }

@@ -4,8 +4,10 @@
 package com.pingidentity.ps.oidf.platform.redis;
 
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
 import com.pingidentity.ps.oidf.platform.settings.Secret;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -65,26 +67,38 @@ public final class RedisConfig {
 
     /**
      * This process's configuration, from the {@code platform-redis} catalogue on this class's loader, under this
-     * process's profile; null when no URL is set ({@code oidf.redis.url}, {@code OIDF_REDIS_URL}, {@code REDIS_URL},
-     * in that order).
+     * process's profile; null when no URL is set ({@code oidf.redis.url}, {@code OIDF_REDIS_URL}, then
+     * {@code REDIS_URL}).
      *
      * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a value its setting refuses
      * @throws IllegalArgumentException for Sentinel settings that do not go together
      */
     public static RedisConfig current() {
-        return fromSettings(Settings.load(RedisConfig.class.getClassLoader(), COMPONENT), DeploymentProfile.current());
+        return fromSettings(processSettings(), DeploymentProfile.current());
+    }
+
+    /** Whether this process names a Redis: a URL is set, whether or not the rest of the settings are good. */
+    public static boolean isConfigured() {
+        return url(processSettings()) != null;
+    }
+
+    /**
+     * This process's configuration for {@code url} rather than the one its settings name: the CA file, the pool, the
+     * deadlines and Sentinel as the settings say, under this process's profile.
+     */
+    public static RedisConfig currentFor(String url) {
+        return fromSettings(processSettings(), DeploymentProfile.current(), url);
     }
 
     /** The configuration {@code settings} hold, under {@code profile}; null when no URL is set. */
     public static RedisConfig fromSettings(Settings settings, DeploymentProfile profile) {
-        Secret url = settings.secret(URL_SETTING);
-        if (url == null) {
-            url = settings.secret(FALLBACK_URL_SETTING);
-        }
-        if (url == null) {
-            return null;
-        }
-        Builder builder = builder(url.reveal())
+        Secret url = url(settings);
+        return url == null ? null : fromSettings(settings, profile, url.reveal());
+    }
+
+    /** The configuration {@code settings} hold for {@code url}, under {@code profile}. */
+    public static RedisConfig fromSettings(Settings settings, DeploymentProfile profile, String url) {
+        Builder builder = builder(url)
                 .caFile(settings.path(CA_FILE_SETTING))
                 .profile(profile)
                 .poolSize(settings.integer(POOL_SIZE_SETTING))
@@ -98,6 +112,21 @@ public final class RedisConfig {
                     password == null ? null : password.reveal());
         }
         return builder.build();
+    }
+
+    /** {@value #URL_SETTING} (or its property), else {@value #FALLBACK_URL_SETTING}; null when neither is set. */
+    private static Secret url(Settings settings) {
+        Secret url = settings.secret(URL_SETTING);
+        return url != null ? url : settings.secret(FALLBACK_URL_SETTING);
+    }
+
+    /** The catalogue, loaded once per loaded copy of this class, read from this process each time. */
+    private static Settings processSettings() {
+        return Settings.of(CatalogueHolder.CATALOGUE, Sources.process());
+    }
+
+    private static final class CatalogueHolder {
+        static final Catalogue CATALOGUE = Catalogue.load(RedisConfig.class.getClassLoader(), COMPONENT);
     }
 
     /** A configuration in code, starting from the catalogue's defaults and the production profile. */

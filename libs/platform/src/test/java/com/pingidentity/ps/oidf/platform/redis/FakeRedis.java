@@ -55,6 +55,7 @@ final class FakeRedis implements Closeable {
     private volatile boolean dropNext;
     private volatile String rawNext;
     private volatile boolean closeAfterRaw;
+    private final AtomicInteger rawTimes = new AtomicInteger();
     private volatile long delayMillis;
 
     FakeRedis(String password, Role role) throws IOException {
@@ -111,13 +112,20 @@ final class FakeRedis implements Closeable {
     }
 
     void rawNextReply(String raw) {
+        this.rawReplies(raw, 1);
+    }
+
+    /** The next {@code times} replies are {@code raw}. */
+    void rawReplies(String raw, int times) {
         this.closeAfterRaw = false;
+        this.rawTimes.set(times);
         this.rawNext = raw;
     }
 
     /** The next reply is {@code raw}, and then the connection is closed: a reply cut off. */
     void rawNextReplyThenClose(String raw) {
         this.closeAfterRaw = true;
+        this.rawTimes.set(1);
         this.rawNext = raw;
     }
 
@@ -229,7 +237,9 @@ final class FakeRedis implements Closeable {
                 }
                 String raw = this.rawNext;
                 if (raw != null) {
-                    this.rawNext = null;
+                    if (this.rawTimes.decrementAndGet() <= 0) {
+                        this.rawNext = null;
+                    }
                     out.write(raw.getBytes(StandardCharsets.UTF_8));
                     out.flush();
                     if (this.closeAfterRaw) {

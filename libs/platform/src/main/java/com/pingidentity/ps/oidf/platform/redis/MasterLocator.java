@@ -13,8 +13,9 @@ import javax.net.ssl.SSLContext;
  * names it, and remembered until a connection to it is lost or it answers {@code READONLY} - a failover - when the
  * next command asks again.
  *
- * <p>Each answer has a generation, one more than the last, so connections opened to an old master are closed rather
- * than reused ({@link RedisClient} compares a connection's generation with the current one).
+ * <p>Losing the master starts a new generation, so every connection opened to the old one - idle, or in use and
+ * handed back later - is closed rather than reused ({@link RedisClient} compares a connection's generation with the
+ * current one).
  */
 abstract class MasterLocator {
 
@@ -25,7 +26,10 @@ abstract class MasterLocator {
     /** The master, finding it first if need be, by {@code deadline}. */
     abstract Endpoint master(long deadline) throws IOException;
 
-    /** The master of {@code generation} is gone: the next {@link #master} finds it again, if that is still current. */
+    /**
+     * The master of {@code generation} is gone: when that is the current generation, a new one starts and the next
+     * {@link #master} finds the master again; a loss reported for an older generation changes nothing.
+     */
     abstract void lost(long generation);
 
     /** The current generation. */
@@ -109,7 +113,6 @@ abstract class MasterLocator {
                     }
                     String host = String.valueOf(address.get(0));
                     int port = (int) RedisConnection.number(String.valueOf(address.get(1)), 1, 65535);
-                    this.generation++;
                     this.current = new Endpoint(host, port, RedisTls.isIpLiteral(host) ? this.url.host : host, this.generation);
                     return this.current;
                 } catch (IOException | RuntimeException e) {
@@ -122,8 +125,9 @@ abstract class MasterLocator {
 
         /** One sentinel's answer: the master's {@code [host, port]}, or null when it knows no master of that name. */
         private List<?> ask(RedisConfig.HostPort sentinel, long deadline) throws IOException {
-            try (RedisConnection connection = RedisConnection.open(sentinel.host(), sentinel.port(), this.ssl,
-                    sentinel.host(), deadline, 0L)) {
+            RedisConnection connection = RedisConnection.open(sentinel.host(), sentinel.port(), this.ssl, sentinel.host(),
+                    deadline, 0L);
+            try {
                 if (this.password != null) {
                     connection.roundTrip(deadline, "AUTH", this.password);
                 }
@@ -136,13 +140,16 @@ abstract class MasterLocator {
                             + " than a host and a port");
                 }
                 return list;
+            } finally {
+                connection.close();
             }
         }
 
         @Override
         synchronized void lost(long generation) {
-            if (this.current != null && this.current.generation() == generation) {
+            if (generation == this.generation) {
                 this.current = null;
+                this.generation++;
             }
         }
 

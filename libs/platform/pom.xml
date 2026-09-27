@@ -269,6 +269,41 @@
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.copyOf(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
                                         <!-- redis (C-2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.redact(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.authenticates(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.decode(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisTls.sslParametersFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisTls.isIpLiteral(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisTls.sslContextFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.fromSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.url(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.HostPort.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.Builder.sentinel(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.Builder.poolSize(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.Builder.positive(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.transportRefusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.call(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.retries(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.failsOver(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.eval(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.millis(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.borrowPermit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.giveBack(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.masterLost(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.open(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.requireMaster(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.open(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.readReply(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.number(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.readLine(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.remainingMillis(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.master(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.ask(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.lost(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisKeyspace.RedisKeyspace(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisErrorReply.code(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.WindowCount.of(*</include>
                                         <!-- http (S5a): add gate includes below this line -->
                                         <!-- exec (C-3): add gate includes below this line -->
                                     </includes>

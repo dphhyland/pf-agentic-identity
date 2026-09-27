@@ -66,9 +66,9 @@ final class RedisUrl {
                 password = decode(userInfo);
             }
         }
-        String path = uri.getPath();
+        String path = uri.getPath(); // never null for a URI with a host
         int db = 0;
-        if (path != null && path.length() > 1) {
+        if (path.length() > 1) {
             try {
                 db = Integer.parseInt(path.substring(1));
             } catch (NumberFormatException e) {
