@@ -23,13 +23,15 @@
 #   RAR_PLUGIN_JAR   the jar to lend the rig (default: the reactor's plugins/rar-paz-plugin/target build)
 #   OLD_PLUGIN_JAR   an older release's jar (gh release download v0.3.0 -p 'pf.plugins.pf-rar-paz-plugin.jar'):
 #                    the rig boots on it, an instance is created under it, the archive exported, the container
-#                    restarted on RAR_PLUGIN_JAR and the archive imported - the upgrade rehearsal, then the flows
+#                    restarted on RAR_PLUGIN_JAR, the archive imported and the instance saved again - the
+#                    upgrade rehearsal, then the flows
 #   SKIP_UP=1        the rig is already up on the slot (an earlier run with KEEP_RIG=1)
 #   SKIP_AUTHOR=1 / SKIP_BUILD=1   passed through to up.sh
 #   KEEP_RIG=1       leave the rig running (the stub is still stopped, the configuration still removed)
 #   ONLY_CONFIGURE=1 configure the rig and stop there, leaving the stub and the configuration in place for
 #                    driving a flow by hand (SKIP_UP=1 KEEP_RIG=1 ./verify-rar-principal.sh afterwards cleans up)
-#   OUT_DIR          where the stub's request log and the PF log excerpt land (default conformance/.rar-principal)
+#   OUT_DIR          where the stub's request log, the summary and PingFederate's server.log land
+#                    (default conformance/.rar-principal, git-ignored)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
 export PF_RIG_NAME="${PF_RIG_NAME:-pfai-rar}"
@@ -138,6 +140,21 @@ report() {  # report <flow> <pdp-line-count-before> <pf-log-count-before> <what 
   { echo "$flow: $outcome"; pf_log_since "$log_before" | sed 's/^/  /' || true; echo "  pdp: ${asked:-not asked}"; } >> "$OUT/summary.txt" || true
 }
 
+# The instance as PingFederate stored it on disk: its field names, and what form "Shared Secret" takes there -
+# never the secret itself.
+stored_fields() {
+  local file
+  file="$(docker exec "$PF_RIG_NAME" find /opt/out/instance/server/default/data -name "$INSTANCE_ID.xml" 2>/dev/null | head -1)"
+  [[ -n "$file" ]] || { echo "no $INSTANCE_ID.xml under the data directory"; return; }
+  docker exec "$PF_RIG_NAME" cat "$file" | python3 -c 'import re, sys
+xml = sys.stdin.read(); secret = sys.argv[1]
+names = re.findall(r"<urn:Field name=\"([^\"]+)\"", xml)
+value = (re.findall(r"<urn:Field name=\"Shared Secret\">([^<]*)<", xml) or [None])[0]
+form = "absent" if value is None else "the plaintext secret" if value == secret else "obfuscated (" + value[:8] + "...)" if value.startswith("OBF:") else "something else"
+print("%d fields%s, Shared Secret %s" % (len(names), " including Deny unless PERMIT" if "Deny unless PERMIT" in names else "", form))' "$SECRET"
+}
+deobfuscation_errors() { docker exec "$PF_RIG_NAME" grep -c 'problem deobfuscating the value for the field: Shared Secret' /opt/out/instance/log/server.log 2>/dev/null || true; }
+
 configure() {
   unconfigure   # a previous run's leftovers, if any; each DELETE is a 404 otherwise
   DESCRIPTOR="$(pf GET /oauth/authorizationDetailProcessors/descriptors | jq -r '.items[] | select(.className | test("FedRar|AttestationAwareRarProcessor")) | .id' | head -1)"
@@ -219,6 +236,7 @@ cleanup() {
   [[ -n "${ADAPTER_ORIGINAL:-}" ]] && restore_adapter
   unconfigure
   kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null
+  docker exec "$PF_RIG_NAME" cat /opt/out/instance/log/server.log > "$OUT/server.log" 2>/dev/null
   if [[ "${KEEP_RIG:-0}" != 1 ]]; then
     # --rmi all: the rig's image is tagged <PF_RIG_NAME>/pingfederate:local, which --rmi local leaves behind.
     ( cd "$HERE" && docker compose down --rmi all --volumes --remove-orphans ) > "$OUT/compose-down.log" 2>&1
@@ -229,7 +247,7 @@ cleanup() {
       echo "rig $PF_RIG_NAME is down"
     fi
   fi
-  echo "evidence: $OUT/summary.txt, $OUT/pdp-requests.jsonl"
+  echo "evidence: $OUT/summary.txt, $OUT/pdp-requests.jsonl, $OUT/server.log"
 }
 trap cleanup EXIT
 sleep 1
@@ -254,9 +272,17 @@ if [[ -n "${OLD_PLUGIN_JAR:-}" ]]; then
     -F "file=@$OUT/archive-old.zip" "$ADMIN/configArchive/import?forceImport=true"
   sleep 5
   echo "   the instance reads back with: $(pf GET "/oauth/authorizationDetailProcessors/$INSTANCE_ID" | jq -c '[.configuration.fields[] | select(.name | test("Secret|Deny"))]' | sed "s/$SECRET/<the plaintext secret>/")"
-  before="$(pdp_lines)"
+  echo "   on disk after the import: $(stored_fields)"
+  before="$(pdp_lines)"; errors="$(deobfuscation_errors)"
   token -d grant_type=client_credentials --data-urlencode "authorization_details=$DETAIL_SALES" >/dev/null
-  echo "   after: the new plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"] // "nothing (no PDP call)"' | sed "s/$SECRET/<the plaintext secret>/") (HTTP $TOKEN_STATUS at the token endpoint)"
+  echo "   after: the new plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"] // "nothing (no PDP call)"' | sed "s/$SECRET/<the plaintext secret>/") (HTTP $TOKEN_STATUS at the token endpoint); PingFederate's log gained $(( $(deobfuscation_errors) - errors )) \"problem deobfuscating the value for the field: Shared Secret\" line(s) since the import, $(deobfuscation_errors) in all"
+  # The upgrade note's remedy: save the instance again, here through the admin API with what it read back.
+  pf PUT "/oauth/authorizationDetailProcessors/$INSTANCE_ID" "$(pf GET "/oauth/authorizationDetailProcessors/$INSTANCE_ID")" >/dev/null
+  need 200 "saving the imported instance again"
+  sleep 2
+  before="$(pdp_lines)"; errors="$(deobfuscation_errors)"
+  token -d grant_type=client_credentials --data-urlencode "authorization_details=$DETAIL_SALES" >/dev/null
+  echo "   saved again: on disk $(stored_fields); the plugin sent $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"] // "nothing (no PDP call)"' | sed "s/$SECRET/<the plaintext secret>/") (HTTP $TOKEN_STATUS); new deobfuscation lines: $(( $(deobfuscation_errors) - errors ))"
   { echo "upgrade rehearsal: see the lines above"; } >> "$OUT/summary.txt"
 else
   configure
