@@ -7,9 +7,10 @@
 # The same mount takes the v0.3.0 jar from the GitHub release for the upgrade rehearsal, and the jar the
 # reactor just built for the flows, one container start each.
 #
-# OIDF_DEPLOYMENT_PROFILE=development is set here rather than in vars.env because it is what lets
-# the plugin dial the stub PDP the script runs on the host over plain http (host.docker.internal); the
-# rig's vars.env stays the production-shaped environment the conformance plans are run against.
+# OIDF_DEPLOYMENT_PROFILE=development is what lets the plugin dial the stub PDP the script runs on the
+# host over plain http (host.docker.internal). vars.env has set it for the whole rig since 0.4.0 (the CIBA
+# simulator needs it too); it is repeated here so this override says what it depends on, and keeps
+# working if the rig's own setting ever moves to a profile file.
 #
 #   COMPOSE_FILE=docker-compose.yml:docker-compose.rar-plugin.yml RAR_PLUGIN_JAR=/abs/path.jar ./up.sh
 services:

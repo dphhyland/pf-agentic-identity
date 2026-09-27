@@ -168,9 +168,8 @@ configure() {
   # the plugin has been asked ("Could not find a Access Token Mapping for the selected Policy Processor").
   pf POST /oauth/accessTokenMappings "$(jq -cn '{context: {type: "TOKEN_EXCHANGE_PROCESSOR_POLICY", contextRef: {id: "rarProbeExchange"}},
     accessTokenManagerRef: {id: "conformanceJwt"},
-    attributeContractFulfillment: {sub: {source: {type: "TOKEN_EXCHANGE_PROCESSOR_POLICY"}, value: "subject"}}}')" > "$OUT/exchange-mapping.json"
+    attributeContractFulfillment: {sub: {source: {type: "TOKEN_EXCHANGE_PROCESSOR_POLICY"}, value: "subject"}}}')" >/dev/null
   need 201 "creating the token exchange access token mapping"
-  EXCHANGE_MAPPING_ID="$(jq -r '.id // empty' "$OUT/exchange-mapping.json")"
   pf POST /oauth/clients "$(jq -cn --arg c "$CLIENT_ID" --arg s "$CLIENT_SECRET" '{
     clientId: $c, name: "RAR principal probe", enabled: true,
     grantTypes: ["CLIENT_CREDENTIALS", "AUTHORIZATION_CODE", "REFRESH_TOKEN", "CIBA", "TOKEN_EXCHANGE"],
@@ -188,10 +187,15 @@ configure() {
   echo "configured: processor $INSTANCE_ID ($DESCRIPTOR), types ${TYPES[*]}, client $CLIENT_ID"
 }
 unconfigure() {
+  local mapping
   pf DELETE "/oauth/clients/$CLIENT_ID" >/dev/null
   for t in "${TYPES[@]}"; do pf DELETE "/oauth/authorizationDetailTypes/rarProbe_$t" >/dev/null; done
   pf DELETE "/oauth/authorizationDetailProcessors/$INSTANCE_ID" >/dev/null
-  [[ -n "${EXCHANGE_MAPPING_ID:-}" ]] && pf DELETE "/oauth/accessTokenMappings/$EXCHANGE_MAPPING_ID" >/dev/null
+  # The exchange's mapping has an id PingFederate chose, so it is found by the policy it maps - also when an
+  # earlier run (KEEP_RIG=1, or one that stopped half way) created it - and goes before the policy it names.
+  for mapping in $(pf GET /oauth/accessTokenMappings | jq -r '(.items? // .)[]? | select(.context.contextRef.id? == "rarProbeExchange") | .id'); do
+    pf DELETE "/oauth/accessTokenMappings/$mapping" >/dev/null
+  done
   pf DELETE /oauth/tokenExchange/processor/policies/rarProbeExchange >/dev/null
   pf DELETE /idp/tokenProcessors/rarProbeBearer >/dev/null
 }
@@ -216,9 +220,14 @@ cleanup() {
   unconfigure
   kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null
   if [[ "${KEEP_RIG:-0}" != 1 ]]; then
-    ( cd "$HERE" && docker compose down --rmi local --volumes --remove-orphans ) > "$OUT/compose-down.log" 2>&1
+    # --rmi all: the rig's image is tagged <PF_RIG_NAME>/pingfederate:local, which --rmi local leaves behind.
+    ( cd "$HERE" && docker compose down --rmi all --volumes --remove-orphans ) > "$OUT/compose-down.log" 2>&1
     docker rm -f "${PF_AUTHOR_NAME:-$PF_RIG_NAME-author}" >/dev/null 2>&1
-    echo "rig $PF_RIG_NAME is down"
+    if docker ps -a --format '{{.Names}}' | grep -qx "$PF_RIG_NAME"; then
+      echo "WARNING: container $PF_RIG_NAME is still there - see $OUT/compose-down.log" >&2
+    else
+      echo "rig $PF_RIG_NAME is down"
+    fi
   fi
   echo "evidence: $OUT/summary.txt, $OUT/pdp-requests.jsonl"
 }
@@ -329,7 +338,7 @@ fi
 #    plugin knows nobody and refuses a payment. Driven twice: as the rig ships, and with "subject" mapped on
 #    the adapter by expression, which is what a deployment does to give the plugin a principal here.
 code_flow() {  # code_flow <label> <authorization_details json>
-  local label="$1" details="$2" p l jar par request_uri page action location code
+  local label="$1" details="$2" p l jar par request_uri action location code password
   p="$(pdp_lines)"; l="$(pf_log_lines)"
   jar="$(mktemp)"
   par="$(curl -sk -u "$CLIENT_ID:$CLIENT_SECRET" -d response_type=code -d "redirect_uri=https://localhost/rar-probe/cb" -d scope=openid \
@@ -337,13 +346,13 @@ code_flow() {  # code_flow <label> <authorization_details json>
   request_uri="$(jq -r '.request_uri // empty' <<<"$par")"
   code=""; location=""
   if [[ -n "$request_uri" ]]; then
-    # shellcheck disable=SC1091
-    . "$HERE/secrets.env"
+    # The rig's test user, whose password gen-keys.sh generated into the git-ignored secrets.env.
+    password="$(sed -n 's/^TF_VAR_test_user_password=//p' "$HERE/secrets.env")"
     curl -sk -c "$jar" -b "$jar" -L -o "$OUT/login.html" "$PF/as/authorization.oauth2?client_id=$CLIENT_ID&request_uri=$request_uri"
     action="$(grep -o 'action="[^"]*"' "$OUT/login.html" | head -1 | sed 's/action="//; s/"$//' | sed 's/&amp;/\&/g')"
     [[ "$action" == http* ]] || action="$PF$action"
     location="$(curl -sk -c "$jar" -b "$jar" -o "$OUT/login-post.html" -w '%{redirect_url}' -d pf.username=suite-user \
-      --data-urlencode "pf.pass=$TF_VAR_test_user_password" -d pf.ok=clicked -d pf.cancel= -d pf.adapterId=conformanceLogin "$action")"
+      --data-urlencode "pf.pass=$password" -d pf.ok=clicked -d pf.cancel= -d pf.adapterId=conformanceLogin "$action")"
     for _ in 1 2 3; do   # follow PingFederate's own redirects, never the callback
       [[ "$location" == "$PF"* ]] || break
       location="$(curl -sk -c "$jar" -b "$jar" -o /dev/null -w '%{redirect_url}' "$location")"
@@ -355,7 +364,7 @@ code_flow() {  # code_flow <label> <authorization_details json>
     token -d grant_type=authorization_code -d "code=$code" -d "redirect_uri=https://localhost/rar-probe/cb" > "$OUT/code-token.json"
     report "authorization code, $label" "$p" "$l" "callback reached with a code; token endpoint HTTP $TOKEN_STATUS, token sub=$(jwt_sub "$(jq -r '.access_token // empty' "$OUT/code-token.json")")"
   else
-    report "authorization code, $label" "$p" "$l" "no code (last location: $(sed 's/\(error_description=[^&]*\).*/\1/' <<<"${location:-none}"); PAR: $(head -c 100 <<<"$par"))"
+    report "authorization code, $label" "$p" "$l" "no code (last location: $(head -c 240 <<<"${location:-none}"); PAR: $(head -c 100 <<<"$par"))"
   fi
 }
 ADAPTER_ORIGINAL="$(pf GET /idp/adapters/conformanceLogin | jq -c 'del(.attributeContract.extendedAttributes[]? | select(.name == "subject")) | del(.attributeMapping.attributeContractFulfillment.subject)')"
