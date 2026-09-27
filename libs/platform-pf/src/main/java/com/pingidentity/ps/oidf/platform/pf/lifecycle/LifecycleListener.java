@@ -110,12 +110,24 @@ public class LifecycleListener implements ServletContextListener {
      * Logs the start-up audit, the first time it is called for this listener: the banner at INFO, then each
      * {@code OIDF_ACCEPTED_RISKS} refusal at WARN.
      *
-     * @return the banner it logged, or empty when it had already logged one
+     * <p>The banner is a diagnostic: when collecting it fails, it logs a WARN and returns, so that it never fails the
+     * listener or the load-on-startup servlet it runs in.
+     *
+     * @return the banner it logged, or empty when it had already logged one or could not collect it
      */
     Optional<String> audit(String war) {
         if (!this.audited.compareAndSet(false, true)) {
             return Optional.empty();
         }
+        try {
+            return Optional.of(logAudit(war));
+        } catch (RuntimeException | LinkageError e) {
+            LOG.warn("Start-up audit: " + war + " could not write its banner (" + StartupAudit.oneLine(e.toString()) + ")");
+            return Optional.empty();
+        }
+    }
+
+    private String logAudit(String war) {
         ClassLoader loader = LifecycleListener.class.getClassLoader();
         StartupAudit.Facts facts = StartupAudit.collect(war, BuildInfo.read(loader), this.env, this.today.get(),
                 InsecureTls.uses(), InsecureTls.jdkHostnameVerificationDisabled(), Components.snapshot(),
@@ -127,7 +139,7 @@ public class LifecycleListener implements ServletContextListener {
             LOG.warn("Start-up audit: " + StartupAudit.oneLine(refusal) + " - not accepted (nothing refuses a start for it"
                     + " until PR-5)");
         }
-        return Optional.of(banner);
+        return banner;
     }
 
     /**

@@ -26,9 +26,11 @@ import java.security.CodeSource;
 import java.security.cert.Certificate;
 import java.time.LocalDate;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 import org.junit.jupiter.api.Test;
@@ -144,12 +146,16 @@ class LifecycleListenerTest {
             Container container = new Container();
             ServletContext context = context("", "pf-runtime", webapp, container);
             ServletContextListener listener = listener(webapp);
+            ObjectName metrics = new ObjectName("com.pingidentity.ps.oidf:type=Metrics,*");
+            Set<ObjectName> before = server.queryNames(metrics, null);
             listener.contextInitialized(new ServletContextEvent(context));
+            Set<ObjectName> registered = new HashSet<>(server.queryNames(metrics, null));
+            registered.removeAll(before);
 
             assertEquals("WEBAPP", role(webapp));
             assertEquals("UNKNOWN", role(engine), "the engine's copy gets no callback and stays unmarked");
             ObjectName name = mxBean(webapp).orElseThrow();
-            assertTrue(server.isRegistered(name), "the webapp's MXBean is registered at contextInitialized");
+            assertEquals(Set.of(name), registered, "the webapp's MXBean - and only it - is registered at contextInitialized");
             assertTrue(name.toString().contains(webapp.getURLs()[0].toString()), name + " names where this copy came from");
             assertEquals(List.of(LifecycleListener.AUDIT_SERVLET), container.added);
             assertEquals(Integer.MAX_VALUE, container.loadOnStartup, "initialised after every other load-on-startup servlet");
@@ -206,6 +212,15 @@ class LifecycleListenerTest {
             assertTrue(banner.orElseThrow().contains("  accepted risks: pkce-off (no expiry)"), banner.toString());
             assertEquals(Optional.empty(), listener.audit("/oidf (oidf)"), "once per listener");
         }
+    }
+
+    @Test
+    void anAuditThatThrowsIsLoggedAndTakesNothingDown() {
+        LifecycleListener listener = new LifecycleListener(name -> {
+            throw new IllegalStateException("the environment cannot be read");
+        }, () -> LocalDate.of(2026, 9, 28));
+        assertEquals(Optional.empty(), listener.audit("/oidf (oidf)"), "no banner, and no exception");
+        assertEquals(Optional.empty(), listener.audit("/oidf (oidf)"), "and it is not tried again");
     }
 
     @Test

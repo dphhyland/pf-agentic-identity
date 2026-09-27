@@ -42,8 +42,8 @@ INFO  [com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener] Start-u
 | `profile` | `development` or `production`, and what `OIDF_DEPLOYMENT_PROFILE` said | `production` everywhere but a rig or a demo; unset, blank or misspelt reads as production |
 | `topology` | `standalone` | always `standalone` until 0.7.0 tells a cluster from one node |
 | `accepted risks` | each risk `OIDF_ACCEPTED_RISKS` accepts, its expiry and what it lets happen | anything you did not mean to accept |
-| `risk refusals` | how many `OIDF_ACCEPTED_RISKS` entries were not accepted - unknown, expired, undated where a date is needed, or named twice | anything but `none`: each is also logged at WARN on the same logger, naming the entry |
-| `insecure TLS` | each setting that turned certificate checking off in this war, and since when | anything at all in production |
+| `risk refusals` | how many `OIDF_ACCEPTED_RISKS` entries were not accepted - unknown, expired, undated where a date is needed, with a date that is not a real YYYY-MM-DD date, empty, or named twice | anything but `none`: each is also logged at WARN on the same logger, naming the entry |
+| `insecure TLS` | each setting that turned certificate or host-name checking off in this war, and since when | anything at all in production |
 | `JDK host names` | whether `jdk.internal.httpclient.disableHostnameVerification` switches host name checking off for every Java HTTP client in the JVM | `checked` in production |
 | `components` | each feature's state and, when it is not serving, why | the same states `/agentic-identity/health` reports ([health.md](health.md)) |
 | `executors` | the background jobs this war runs | |
