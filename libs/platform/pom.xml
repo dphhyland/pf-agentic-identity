@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>platform</artifactId>
+    <version>0.5.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>platform</name>
+    <description>What every module of the repository shares and PingFederate does not provide: a registry of
+        what to close when a classloader's copy shuts down, the state of each component, a JDK-only JSON
+        reader and writer, and - as Phase 2 lands them - settings, the deployment profile, events, metrics,
+        health, Redis, outbound HTTP and managed executors. JDK only at runtime: no Jackson, jose4j, servlet
+        API or PingFederate, so the servlets can stage it beside themselves and the plugins can shade and
+        relocate it.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- No compile-scope dependencies. commons-logging is provided and optional: PlatformLog writes through it
+         when the loader platform sits in can see it - every PingFederate loader can, and so can each standalone
+         service here - and through java.lang.System.Logger when it cannot, so the jar needs nothing but the JDK
+         to load. The README's "Logging" section has the evidence. -->
+    <dependencies>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope><optional>true</optional></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on the decisions, 100% line + branch per METHOD as the other libraries do it. Each
+              package that adds to platform adds its decision methods under its own anchor comment below and
+              nowhere else, so packages built at the same time merge cleanly: an insertion under one anchor and
+              an insertion under the next are separated by an unchanged line. An anchor is only a comment; the
+              rule must always include at least one real method, because tools/coverage-report.py strict fails
+              a gate whose includes match nothing.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- lifecycle (F-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle.shutdown(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle.markWebapp(*</include>
+                                        <!-- component (F-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.move(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.checkName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.clean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentState.needsReason(*</include>
+                                        <!-- json (F-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.readValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.readObject(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.readArray(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.readString(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.readNumber(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.hexDigit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.wellFormed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.skipWhitespace(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.decimal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.exact(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.digits(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.json.Json.quote(*</include>
+                                        <!-- log (F-1, then O-6): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.log.PlatformLog.commonsLoggingVisible(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.log.PlatformLog.of(*</include>
+                                        <!-- settings (ST-1, ST-2): add gate includes below this line -->
+                                        <!-- profile (PR-1): add gate includes below this line -->
+                                        <!-- tls (PR-1): add gate includes below this line -->
+                                        <!-- events (O-1): add gate includes below this line -->
+                                        <!-- metrics (O-3): add gate includes below this line -->
+                                        <!-- health (O-4): add gate includes below this line -->
+                                        <!-- redis (C-2): add gate includes below this line -->
+                                        <!-- http (S5a): add gate includes below this line -->
+                                        <!-- exec (C-3): add gate includes below this line -->
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Published to the monorepo's own package registry, as every module is. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
+</project>
