@@ -76,4 +76,33 @@ class PiiPolicyTest {
         assertThrows(NullPointerException.class,
                 () -> PiiPolicy.DEFAULT.with(PiiPolicy.Destination.SERVER_LOG, PiiClass.NETWORK, null));
     }
+
+    @Test
+    void theDescriptionIsFreeTextWithItsOwnTreatmentPerLog() {
+        Event event = CATALOGUES.admit(Event.builder(null, "shop.order.placed").description("refunded for Jane Citizen")
+                .field("item", "tea").build());
+        for (PiiPolicy.Destination destination : PiiPolicy.Destination.values()) {
+            assertEquals(PiiPolicy.Treatment.KEEP, PiiPolicy.DEFAULT.descriptionTreatment(destination));
+        }
+        PiiPolicy restrictive = PiiPolicy.DEFAULT
+                .with(PiiPolicy.Destination.SERVER_LOG, PiiClass.DIRECT_ID, PiiPolicy.Treatment.DROP);
+        assertSame(event, restrictive.apply(event, PiiPolicy.Destination.SERVER_LOG, CATALOGUES),
+                "a class's treatment does not reach the description; the description's own does");
+
+        PiiPolicy policy = restrictive
+                .withDescription(PiiPolicy.Destination.SERVER_LOG, PiiPolicy.Treatment.DROP)
+                .withDescription(PiiPolicy.Destination.AUDIT_LOG, PiiPolicy.Treatment.DIGEST);
+
+        Event server = policy.apply(event, PiiPolicy.Destination.SERVER_LOG, CATALOGUES);
+        assertNull(server.description());
+        assertEquals(Map.of("item", "tea"), server.fields());
+        assertEquals("sha256:" + LogSafe.sha256Hex12("refunded for Jane Citizen"),
+                policy.apply(event, PiiPolicy.Destination.AUDIT_LOG, CATALOGUES).description());
+        assertEquals(PiiPolicy.Treatment.DROP, policy.with(PiiPolicy.Destination.AUDIT_LOG, PiiClass.NETWORK,
+                PiiPolicy.Treatment.DROP).descriptionTreatment(PiiPolicy.Destination.SERVER_LOG),
+                "changing a class keeps the description's treatment");
+        assertThrows(NullPointerException.class, () -> PiiPolicy.DEFAULT.withDescription(null, PiiPolicy.Treatment.KEEP));
+        assertThrows(NullPointerException.class,
+                () -> PiiPolicy.DEFAULT.withDescription(PiiPolicy.Destination.SERVER_LOG, null));
+    }
 }

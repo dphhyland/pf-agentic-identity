@@ -78,6 +78,12 @@ public record Event(String code, Outcome outcome, String reason, String subject,
                 this.fields, this.requestJti, this.audit, this.category, this.component);
     }
 
+    /** The same event with another description; everything else is kept. */
+    public Event withDescription(String newDescription) {
+        return new Event(this.code, this.outcome, this.reason, this.subject, this.partner, this.role, newDescription,
+                this.fields, this.requestJti, this.audit, this.category, this.component);
+    }
+
     /** {@code fields} with the privacy rule applied: no {@code instance_subject} or {@code spiffe_id} beside {@code agent_id}. */
     static Map<String, String> withoutInstanceBesideAgent(Map<String, String> fields) {
         Map<String, String> safe = new LinkedHashMap<>(fields);

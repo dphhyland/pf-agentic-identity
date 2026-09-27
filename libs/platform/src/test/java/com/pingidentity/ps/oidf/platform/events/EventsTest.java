@@ -69,6 +69,19 @@ class EventsTest {
     }
 
     @Test
+    void oneEventThroughTheLoggingSinkCountsOnce() {
+        EventCatalogues catalogues = TestCatalogues.shopAndBank();
+        EventCatalogues.install(catalogues);
+        Events.configure(new LoggingSink(() -> catalogues, PiiPolicy.DEFAULT));
+
+        Events.event(null, "nobody.declares.this").field("a", "1").emit();
+        Events.event(null, "shop.order.placed").field("card_number", "4111").emit();
+
+        assertEquals(1, catalogues.uncataloguedEvents(), "Events.emit counts; the sink behind it does not");
+        assertEquals(2, catalogues.droppedFields());
+    }
+
+    @Test
     void resetForgetsTheLoadedCatalogues() {
         EventCatalogues installed = TestCatalogues.shopAndBank();
         EventCatalogues.install(installed);

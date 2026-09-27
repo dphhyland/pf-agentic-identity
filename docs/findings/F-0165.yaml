@@ -9,14 +9,15 @@ prs: []
 verification: ''
 target_release: 1.0.0
 notes: >
-  Package O1 (2026-09-28) classified every event field. The one DIRECT_ID field is `actor`, which
+  Package O1 (2026-09-28) classified every event field. The one field classed DIRECT_ID is `actor`, which
   FederationAdminServlet.actor builds as `admin:` and eight hex digits of the admin token's SHA-256, followed by
   whatever the caller sends in X-Federation-Actor (cut at 128 characters): a person's name or e-mail address, for
   one. It is on the hosted-entity, Trust Mark and key-revocation events and on the policy decision point's
   enrolment consultations, and it is written to server.log and to the audit log's description as it was before
   the catalogues. O1 kept that output on purpose: server.log is usually shipped more widely than the audit log,
   but digesting the name there takes it away from whoever reads server.log during an incident, and that is a
-  policy decision, not a refactoring. The mechanism is in place - platform.events.PiiPolicy can digest or drop a
+  policy decision, not a refactoring. `actor` is not the only way a name reaches the logs: the free-text
+  description, which no class covers, is F-0166. The mechanism is in place - platform.events.PiiPolicy can digest or drop a
   class per log, and nothing uses it yet. Its DIGEST is an unkeyed SHA-256, which a guess of the name reverses, so
   the decision is also whether a keyed pseudonym is needed. Who and when: the PII policy of plan item D-6
   (Phase 7) decides, and the change it makes to server.log is a "Before you deploy" item of its release.

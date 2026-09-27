@@ -181,6 +181,25 @@ class EventCataloguesTest {
     }
 
     @Test
+    void readmittingAppliesTheSameRuleAndCountsNothing() {
+        EventCatalogues catalogues = TestCatalogues.shopAndBank();
+        Event declared = Event.builder("wrong", "shop.order.placed").field("item", "tea").field("pin", "1234").build();
+        Event uncatalogued = Event.builder("shop", "nobody.declares.this").field("a", "1").build();
+
+        Event readmitted = catalogues.readmit(declared);
+
+        assertEquals(Map.of("item", "tea"), readmitted.fields());
+        assertEquals("shop", readmitted.component());
+        assertEquals(Map.of(), catalogues.readmit(uncatalogued).fields());
+        assertEquals(0, catalogues.droppedFields());
+        assertEquals(0, catalogues.uncataloguedEvents());
+        Event admitted = catalogues.admit(uncatalogued);
+        assertSame(admitted, catalogues.readmit(admitted), "readmitting an admitted event changes nothing");
+        assertEquals(1, catalogues.uncataloguedEvents());
+        assertEquals(1, catalogues.droppedFields());
+    }
+
+    @Test
     void onlyTheFirstDropsOfEachPairAreLoggedAndThoseUpToACap() {
         EventCatalogues catalogues = TestCatalogues.shopAndBank();
         for (int i = 0; i < EventCatalogues.MAX_WARNED + 10; i++) {

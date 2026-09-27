@@ -133,23 +133,29 @@ different document for a component, or a code two components declare, is set asi
 catalogues: `federation` in libs/openid-federation, `attestation-issuer` in servlets/attestation-issuer.
 
 **Nothing uncatalogued reaches a log.** `Events.emit` admits every event through the catalogues before any sink
-sees it, and `LoggingSink` and platform-pf's audit sink admit it again (admitting twice changes nothing): the
-event's component becomes the catalogue's that declares its code, and a field that code does not declare is
-dropped and counted (`droppedFields()`; `uncataloguedEvents()` counts codes no catalogue declares, whose events keep
-their head and lose every field). The first drop of each code and field is a WARN line naming the field, never its
+sees it (`admit`), and `LoggingSink` and platform-pf's audit sink apply the same rule again without counting
+(`readmit`; readmitting an admitted event changes nothing): the event's component becomes the catalogue's that
+declares its code, and a field that code does not declare is dropped. `Events.emit` counts each event once:
+`droppedFields()` the fields dropped, `uncataloguedEvents()` the events whose code no catalogue declares, which keep
+their head and lose every field. The first drop of each code and field is a WARN line naming the field, never its
 value. O4 (plan item O-4) turns the counts into metrics.
 
 **The PII policy.** `PiiPolicy` says, for server.log and for PingFederate's audit log, what happens to each class:
 kept, replaced by `sha256:` and twelve hex digits, or dropped. The subject and partner are `PSEUDONYMOUS_ID`; the
-reason, role, request `jti` and description are operational and never removed. `PiiPolicy.DEFAULT` keeps every
-class in both logs, which is what reached them before the catalogues (checked 2026-09-28 against the emitters):
+reason, role and request `jti` are operational and never removed. The description is free text with no class and
+its own treatment per log (`withDescription`): emitters put in it an administrator's free-text `reason`, an external
+policy decision point's `reason_admin`, exception messages, and client ids and key thumbprints (checked 2026-09-28),
+so it can carry a value of any class, a person's name included, and a policy that digests or drops a class must set
+the description's treatment too (finding [F-0166](../../docs/findings/F-0166.yaml)). `PiiPolicy.DEFAULT` keeps every
+class and the description in both logs, which is what reached them before the catalogues (checked 2026-09-28 against
+the emitters):
 
 | Class | What it holds | server.log | audit log |
 |---|---|---|---|
 | `OPERATIONAL` | modes, counts, endpoint names, decisions, times | kept | kept |
 | `PSEUDONYMOUS_ID` | client ids, entity identifiers, key ids, a workload's subject; the subject and partner | kept | kept (the subject and connection columns) |
 | `DIRECT_ID` | can name a person: `actor`'s self-declared name from `X-Federation-Actor` | kept - finding [F-0165](../../docs/findings/F-0165.yaml) | kept |
-| `NETWORK` | addresses and host names; no field today - the audit log's `ip` column is PingFederate's own | kept | kept |
+| `NETWORK` | addresses and host names; no field today, but platform-pf's audit sink writes the caller's address in the audit log's `ip` column under this class | kept | kept |
 | `CREDENTIAL_DIGEST` | key thumbprints, evidence digests | kept | kept |
 
 An unkeyed digest of a guessable value can be reversed by guessing, so `DIGEST` hides a direct identifier from a

@@ -33,8 +33,9 @@ import org.junit.jupiter.api.Test;
  * whether a failure. A call whose code is a variable (a helper that emits for its callers) is checked against every
  * FederationEvents code its file names outside such calls.
  *
- * <p>Code that emits through {@code platform.events} directly is not scanned yet: nothing does today, and the test
- * fails when something starts to, so that the package that adds it (O-2) extends the scan.
+ * <p>Code that emits any other way - through {@code platform.events} directly, or through the façade's
+ * {@code FederationEvent.builder}, constructor or {@code FederationEvents.emit} - is not scanned: nothing does
+ * today, and the test fails when something starts to, so that the package that adds it (O-2) extends the scan.
  */
 @SuppressWarnings("removal")
 class EventsCataloguedTest {
@@ -44,7 +45,14 @@ class EventsCataloguedTest {
     private static final Pattern CONSTANT = Pattern.compile("FederationEvents\\.([A-Z_]+)\\b");
     private static final Pattern FIELD = Pattern.compile("\\.field\\(\\s*\"([^\"]+)\"");
     private static final Pattern LITERAL = Pattern.compile("\"([^\"]+)\"");
-    private static final Pattern PLATFORM_EMIT = Pattern.compile("\\b(Events\\.event|Event\\.builder)\\(");
+    /**
+     * Every other way to build or hand over an event: platform's builder and registry, and the façade's builder,
+     * constructor and {@code emit}. A main-code file outside the event packages that uses one is not understood by
+     * the scan, so it fails the test until the scan is extended.
+     */
+    private static final Pattern PLATFORM_EMIT = Pattern.compile(
+            "\\b(Events\\.event|Events\\.emit|Event\\.builder|new Event|FederationEvent\\.builder|new FederationEvent"
+                    + "|FederationEvents\\.emit)\\(");
 
     /** One emit site: where, the codes it can emit, the fields it adds, and whether it marks audit and failure. */
     private record Site(String where, Set<String> codes, List<String> fields, boolean audit, boolean failure) {
@@ -214,6 +222,6 @@ class EventsCataloguedTest {
     @Test
     void nothingEmitsThroughPlatformEventsDirectlyYet() {
         assertEquals(List.of(), PLATFORM_EMITTERS,
-                "these emit through platform.events directly: extend this scan to them (plan item O-2)");
+                "these emit other than through FederationEvents.event(...): extend this scan to them (plan item O-2)");
     }
 }

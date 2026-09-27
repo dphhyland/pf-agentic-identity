@@ -22,8 +22,8 @@ import java.util.function.Supplier;
  * catalogue marks {@code debug} (a chatty one) is written at DEBUG; otherwise a failure that belongs in the audit
  * log is written at WARN and everything else, an uncatalogued code included, at INFO.
  *
- * <p>Before writing, the event is admitted by its catalogue ({@link EventCatalogues#admit}: an undeclared field
- * is dropped and counted) and passed through the {@link PiiPolicy} for {@link PiiPolicy.Destination#SERVER_LOG}.
+ * <p>Before writing, the event is admitted again by its catalogue ({@link EventCatalogues#readmit}: an undeclared
+ * field is dropped; {@link Events#emit} has counted it) and passed through the {@link PiiPolicy} for {@link PiiPolicy.Destination#SERVER_LOG}.
  * Every value then goes through {@link LogSafe}.
  */
 public final class LoggingSink implements EventSink {
@@ -63,7 +63,7 @@ public final class LoggingSink implements EventSink {
     public void emit(Event event) {
         try {
             EventCatalogues known = this.catalogues.get();
-            Event admitted = known.admit(event);
+            Event admitted = known.readmit(event);
             EventCatalogue.Code declared = known.code(admitted.code()).orElse(null);
             String logger = known.component(admitted.component()).map(EventCatalogue::logger).orElse(FALLBACK_LOGGER)
                     + "." + admitted.category();

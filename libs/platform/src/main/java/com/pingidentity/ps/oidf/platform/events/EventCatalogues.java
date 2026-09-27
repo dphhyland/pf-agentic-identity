@@ -178,12 +178,28 @@ public final class EventCatalogues {
      * The event as its catalogue allows it: its component set to the catalogue's that declares its code, and every
      * field that code does not declare dropped and counted. The first drop of each (code, field) pair is logged at
      * WARN with the field's name, never its value. An event whose code no catalogue declares keeps its code,
-     * outcome, parties and description and loses every field. Admitting an admitted event changes nothing.
+     * outcome, parties and description, loses every field, and is counted. {@link Events#emit} admits each event
+     * once, so each event is counted once; a sink behind it uses {@link #readmit}.
      */
     public Event admit(Event event) {
+        return this.admit(event, true);
+    }
+
+    /**
+     * The same rule as {@link #admit}, not counted: what a sink applies to the event {@link Events#emit} has
+     * already admitted and counted, so that one event counts once however many sinks see it. Readmitting an
+     * admitted event changes nothing. A drop is still logged the first time its (code, field) pair is seen.
+     */
+    public Event readmit(Event event) {
+        return this.admit(event, false);
+    }
+
+    private Event admit(Event event, boolean count) {
         EventCatalogue.Code declared = this.codes.get(event.code());
         if (declared == null) {
-            this.uncataloguedEvents.incrementAndGet();
+            if (count) {
+                this.uncataloguedEvents.incrementAndGet();
+            }
             this.warnOnce(event.code(), null);
         }
         Map<String, String> kept = new LinkedHashMap<>();
@@ -191,7 +207,9 @@ public final class EventCatalogues {
             if (declared != null && declared.declares(field.getKey())) {
                 kept.put(field.getKey(), field.getValue());
             } else {
-                this.droppedFields.incrementAndGet();
+                if (count) {
+                    this.droppedFields.incrementAndGet();
+                }
                 if (declared != null) {
                     this.warnOnce(event.code(), field.getKey());
                 }

@@ -151,6 +151,11 @@
                                         <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.with(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.apply(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.treat(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.withDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogues.readmit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Event.Builder.field(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LoggingSink.PlatformLogWriter.log(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.describe(*</include>
                                         <!-- metrics (O-3): add gate includes below this line -->
                                         <!-- health (O-4): add gate includes below this line -->
                                         <!-- redis (C-2): add gate includes below this line -->

@@ -16,6 +16,7 @@ import com.pingidentity.ps.oidf.platform.events.EventCatalogue;
 import com.pingidentity.ps.oidf.platform.events.EventCatalogues;
 import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.ps.oidf.platform.events.LogSafe;
+import com.pingidentity.ps.oidf.platform.events.LoggingSink;
 import com.pingidentity.ps.oidf.platform.events.PiiClass;
 import com.pingidentity.ps.oidf.platform.events.PiiPolicy;
 import java.util.ArrayList;
@@ -85,6 +86,34 @@ class PfAuditSinkTest {
         assertNull(this.audit.get(0).address());
         assertEquals("Jane Citizen", this.serverLog.get(0).fields().get("member"),
                 "server.log's policy is its own sink's to apply");
+    }
+
+    @Test
+    void theCallersAddressIsNetworkDataUnderTheAuditPolicy() {
+        PiiPolicy digest = PiiPolicy.DEFAULT.with(PiiPolicy.Destination.AUDIT_LOG, PiiClass.NETWORK, PiiPolicy.Treatment.DIGEST);
+        this.sink(true, "203.0.113.9", digest).emit(joined());
+        this.sink(true, "203.0.113.9", PiiPolicy.DEFAULT
+                .with(PiiPolicy.Destination.SERVER_LOG, PiiClass.NETWORK, PiiPolicy.Treatment.DROP)).emit(joined());
+
+        String digested = this.audit.get(0).address();
+        assertTrue(digested.startsWith("sha256:") && !digested.contains("203.0.113.9"), digested);
+        assertEquals(digest.treat(PiiPolicy.Destination.AUDIT_LOG, PiiClass.NETWORK, "203.0.113.9"), digested);
+        assertEquals("203.0.113.9", this.audit.get(1).address(), "server.log's rule does not reach the ip column");
+    }
+
+    @Test
+    void oneEventThroughEveryLayerCountsOnce() {
+        EventCatalogues fresh = EventCatalogues.of(List.of(EventCatalogue.parse(CLUB)));
+        EventCatalogues.install(fresh);
+        Events.configure(new PfAuditSink(new LoggingSink(() -> fresh, PiiPolicy.DEFAULT),
+                (e, p, a) -> this.audit.add(new Written(e, p, a)), true, () -> null, () -> fresh, PiiPolicy.DEFAULT));
+
+        Events.event("club", "club.member.left").field("member", "Jane Citizen").audit().emit();
+        Events.emit(joined());
+
+        assertEquals(1, fresh.uncataloguedEvents(), "Events.emit, the audit sink and the server-log sink: one count");
+        assertEquals(2, fresh.droppedFields());
+        assertEquals(2, this.audit.size());
     }
 
     @Test

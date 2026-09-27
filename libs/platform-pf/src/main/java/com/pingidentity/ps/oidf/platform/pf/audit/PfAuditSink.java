@@ -10,6 +10,7 @@ import com.pingidentity.ps.oidf.platform.events.EventSink;
 import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import com.pingidentity.ps.oidf.platform.events.LoggingSink;
+import com.pingidentity.ps.oidf.platform.events.PiiClass;
 import com.pingidentity.ps.oidf.platform.events.PiiPolicy;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import java.util.Objects;
@@ -31,9 +32,11 @@ import java.util.function.Supplier;
  * description that carries the event's reason and fields. PingFederate fills {@code host} itself, with this node's
  * name, as it does for its own records.
  *
- * <p>Before either write the event is admitted by its catalogue ({@link EventCatalogues#admit}: a field its code
- * does not declare is dropped and counted); the audit record is then passed through the {@link PiiPolicy} for
- * {@link PiiPolicy.Destination#AUDIT_LOG}, and the server-log sink applies the policy for server.log.
+ * <p>Before either write the event is admitted again by its catalogue ({@link EventCatalogues#readmit}: a field
+ * its code does not declare is dropped; {@code Events.emit} has admitted and counted the event already); the audit
+ * record is then passed through the {@link PiiPolicy} for {@link PiiPolicy.Destination#AUDIT_LOG} - the caller's
+ * address, for the {@code ip} column, as {@link PiiClass#NETWORK} - and the server-log sink applies the policy for
+ * server.log.
  *
  * <p>Nothing here can fail a request: an audit write that throws is noted at DEBUG and dropped.
  * {@code OIDF_EVENTS_AUDIT=false} keeps events in {@code server.log} only.
@@ -139,14 +142,15 @@ public final class PfAuditSink implements EventSink {
     @Override
     public void emit(Event event) {
         EventCatalogues known = this.catalogues.get();
-        Event admitted = known.admit(event);
+        Event admitted = known.readmit(event);
         this.serverLog.emit(admitted);
         if (!admitted.audit() || !this.auditEnabled) {
             return;
         }
         try {
             Event written = this.policy.apply(admitted, PiiPolicy.Destination.AUDIT_LOG, known);
-            this.auditWriter.write(written, protocolOf(written, known), this.remoteAddress.get());
+            String address = this.policy.treat(PiiPolicy.Destination.AUDIT_LOG, PiiClass.NETWORK, this.remoteAddress.get());
+            this.auditWriter.write(written, protocolOf(written, known), address);
         } catch (RuntimeException | LinkageError e) {
             // Outside a running PingFederate the SDK's audit service does not exist; inside one, an audit
             // failure is PingFederate's to report. Either way the request the event describes carries on.

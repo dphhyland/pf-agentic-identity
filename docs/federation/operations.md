@@ -188,8 +188,11 @@ the attester's in `servlets/attestation-issuer`'s
 The catalogue gives each field one PII class - `OPERATIONAL`, `PSEUDONYMOUS_ID` (a client id, an entity
 identifier, a workload's subject), `DIRECT_ID` (can name a person: `actor`, which carries whatever name an
 administrator sends in `X-Federation-Actor`), `NETWORK` or `CREDENTIAL_DIGEST` (a key's thumbprint, evidence's
-SHA-256). Today every class is written to both logs as it was before the catalogues existed; the policy that would
-digest or drop a class in one log is in place and not yet used (the platform README's "events" section). A field
+SHA-256). The description (`desc=`) is free text with no class: it can carry an administrator's free-text
+`reason`, the policy decision point's `reason_admin`, an exception message, client ids and key thumbprints. Today
+every class, and the description, is written to both logs as it was before the catalogues existed; the policy that
+would digest or drop a class or the description in one log is in place and not yet used (the platform README's
+"events" section, findings F-0165 and F-0166). A field
 an event's catalogue does not declare is dropped before any log sees it, and counted: the first drop of each code
 and field is a WARN line naming the field, never its value.
 

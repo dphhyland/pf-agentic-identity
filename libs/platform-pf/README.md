@@ -47,8 +47,9 @@ criteria answer `false` (S9b, Phase 3) is where it gets its first callers.
 `PfAuditSink` is PingFederate's event sink (plan item O-1), the logic `PfAuditEventSink` in servlets/pf-integration
 held until now; that class stays as a delegating shim, so its callers' `install()` is unchanged. Every event goes to
 server.log through a `LoggingSink`; an event marked audit, while `OIDF_EVENTS_AUDIT` is not `false`, also goes to
-PingFederate's audit log through the SDK's `LoggingUtil`. Before either write the event is admitted by its
-catalogue, and the audit record is passed through the `PiiPolicy` for the audit log (platform's README, "events").
+PingFederate's audit log through the SDK's `LoggingUtil`. Before either write the event is admitted again by its
+catalogue (`readmit`: `Events.emit` has counted it), and the audit record is passed through the `PiiPolicy` for the
+audit log, the caller's address as `NETWORK` (platform's README, "events").
 
 The record's columns: `event` (the code), `status`, `subject` (the event's subject), `connectionid` (its partner),
 `protocol`, `role`, `ip` (the caller's address, from the supplier the sink is given - pf-integration's
