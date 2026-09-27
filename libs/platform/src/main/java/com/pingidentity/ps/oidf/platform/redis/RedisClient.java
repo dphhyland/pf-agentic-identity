@@ -34,9 +34,12 @@ import javax.net.ssl.SSLContext;
  *       for everything else: connecting, the handshake, {@code AUTH} and {@code SELECT}, finding the master, the
  *       command, and the one retry.</li>
  *   <li><b>Retry.</b> A command that fails on a reused connection - which may have gone stale on a server-side idle
- *       timeout - is retried once on a fresh one, as 0.4.0 did. Through Sentinel a lost connection, and a
- *       {@code READONLY} reply (the master has become a replica), also send the next connection to wherever the
- *       sentinels now say the master is, and the command is retried once there.</li>
+ *       timeout - is retried once on a fresh one, as 0.4.0 did; that retry can repeat a command whose reply was
+ *       lost, as 0.4.0's could. Through Sentinel a lost connection, and a {@code READONLY} reply (the master has
+ *       become a replica), also send the next connection to wherever the sentinels now say the master is. The
+ *       command is retried once there after {@code READONLY}, which refused it, or when no connection could be
+ *       opened, which sent nothing; a fresh connection lost after the command was sent is not retried, since the
+ *       command may have run and {@code SET NX}, {@code DEL} and {@code INCR} are not safe to run twice.</li>
  * </ul>
  *
  * <p>Failures: a transport failure, a timeout, an exhausted pool and a closed client are {@link IOException}; an
@@ -46,7 +49,8 @@ import javax.net.ssl.SSLContext;
 public final class RedisClient implements Closeable {
     private final RedisUrl url;
     private final SSLContext ssl;
-    private final MasterLocator locator;
+    /** Package-private so a test can report a loss the way another command's failure would. */
+    final MasterLocator locator;
     private final int poolSize;
     private final long borrowTimeoutNanos;
     private final long commandTimeoutNanos;
@@ -118,9 +122,11 @@ public final class RedisClient implements Closeable {
             RedisConnection connection = this.takeIdle();
             boolean reused = connection != null;
             for (int attempt = 0; ; attempt++) {
+                // Finding the master is not retried: through Sentinel it has already asked every sentinel.
+                MasterLocator.Endpoint master = connection == null ? this.locator.master(deadline) : null;
                 try {
                     if (connection == null) {
-                        connection = this.open(deadline);
+                        connection = this.open(master, deadline);
                     }
                     Object reply = connection.roundTrip(deadline, args);
                     this.giveBack(connection);
@@ -134,10 +140,11 @@ public final class RedisClient implements Closeable {
                     }
                     this.masterLost(connection);
                 } catch (IOException e) {
-                    if (connection != null) {
+                    boolean sent = connection != null;
+                    if (sent) {
                         this.masterLost(connection);
                     }
-                    if (attempt > 0 || !retries(reused, this.locator.sentinel())) {
+                    if (attempt > 0 || !retries(reused, this.locator.sentinel(), sent)) {
                         throw e;
                     }
                 }
@@ -158,10 +165,12 @@ public final class RedisClient implements Closeable {
 
     /**
      * Whether a transport failure is retried on a fresh connection: when the connection was reused and may simply
-     * have gone stale, or when the master is found through Sentinel and may have moved.
+     * have gone stale (0.4.0's rule), or when the master is found through Sentinel and may have moved, and the
+     * command was never sent - no connection to the master could be opened - so running it again cannot run it
+     * twice.
      */
-    static boolean retries(boolean reused, boolean sentinel) {
-        return reused || sentinel;
+    static boolean retries(boolean reused, boolean sentinel, boolean sent) {
+        return reused || (sentinel && !sent);
     }
 
     /** {@code PING}: whether Redis answers {@code PONG}. */
@@ -297,20 +306,24 @@ public final class RedisClient implements Closeable {
     /** Closes a connection that failed, and through Sentinel forgets its master and every idle connection to it. */
     private void masterLost(RedisConnection connection) {
         connection.close();
+        this.forget(connection.generation);
+    }
+
+    /** Through Sentinel, forgets the master of {@code generation} and closes the idle connections to it. */
+    private void forget(long generation) {
         if (this.locator.sentinel()) {
-            this.locator.lost(connection.generation);
+            this.locator.lost(generation);
             this.closeIdle();
         }
     }
 
-    /** A new connection to the master, authenticated and on its database, by {@code deadline}. */
-    private RedisConnection open(long deadline) throws IOException {
-        MasterLocator.Endpoint master = this.locator.master(deadline);
+    /** A new connection to {@code master}, authenticated and on its database, by {@code deadline}. */
+    private RedisConnection open(MasterLocator.Endpoint master, long deadline) throws IOException {
         RedisConnection connection;
         try {
             connection = RedisConnection.open(master.host(), master.port(), this.ssl, master.tlsName(), deadline, master.generation());
         } catch (IOException e) {
-            this.locator.lost(master.generation());
+            this.forget(master.generation());
             throw e;
         }
         try {
@@ -331,7 +344,7 @@ public final class RedisClient implements Closeable {
         } catch (IOException | RuntimeException e) {
             connection.close();
             if (e instanceof IOException) {
-                this.locator.lost(master.generation());
+                this.forget(master.generation());
             }
             throw e;
         }

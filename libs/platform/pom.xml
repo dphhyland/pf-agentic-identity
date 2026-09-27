@@ -301,6 +301,10 @@
                                         <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.master(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.ask(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.lost(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.share(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.takeIdle(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.forget(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.redis.RedisKeyspace.RedisKeyspace(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.redis.RedisErrorReply.code(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.redis.WindowCount.of(*</include>

@@ -1,0 +1,18 @@
+id: F-0183
+title: Two documents outside C2's files still describe MiniRedisClient, which is gone
+severity: low
+area: docs, client-attestation
+source: pr-review
+status: open
+plan_items: [C-2]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by C2's review (2026-09-28). C2 moved client-attestation's MiniRedisClient to platform.redis.RedisClient
+  and deleted it, but two documents it did not own still describe it as current: docs/client-attestation-architecture.md
+  (lines 377, 557 and 863 on 2026-09-28: the store section, the test-gap table, and a "still open" line saying its
+  rediss:// path is untested, which RedisClientTlsTest and the live TLS half now test), and libs/platform's README
+  tls section (PR1's anchor, line 283), which says MiniRedisClient builds its own SSLSocket - it is now
+  platform.redis.RedisConnection. The fix is to re-point each line to RedisClient and RedisConnection and drop the
+  untested claim.

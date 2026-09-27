@@ -4,13 +4,18 @@
 package com.pingidentity.ps.oidf.platform.redis;
 
 import java.io.IOException;
+import java.io.InterruptedIOException;
+import java.net.SocketTimeoutException;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 import javax.net.ssl.SSLContext;
 
 /**
  * Finds the Redis master a client sends its commands to. Directly, it is the URL's host and port, always. Through
- * Sentinel it is what {@code SENTINEL get-master-addr-by-name} answers, asked of each sentinel in order until one
- * names it, and remembered until a connection to it is lost or it answers {@code READONLY} - a failover - when the
+ * Sentinel it is what {@code SENTINEL get-master-addr-by-name} answers, asked of each sentinel in turn, each within
+ * its share of the command's deadline, until one names it, and remembered until a connection to it is lost or it answers {@code READONLY} - a failover - when the
  * next command asks again.
  *
  * <p>Losing the master starts a new generation, so every connection opened to the old one - idle, or in use and
@@ -80,47 +85,99 @@ abstract class MasterLocator {
      * verified against its own host. The master is verified against the name a sentinel gave for it, or - when it
      * gave an address, which is what Sentinel reports unless {@code announce-hostnames} is on - against the URL's
      * host, so every master's certificate must then carry that one name.
+     *
+     * <p>Each sentinel gets its share of what is left of the deadline ({@link #share}), so one that accepts and
+     * never answers, or whose host drops packets, leaves time for the next; the sentinel that answered is asked
+     * first next time. One thread asks at a time; the others wait for its answer, each only until its own deadline.
      */
     static final class Sentinel extends MasterLocator {
         private final RedisUrl url;
         private final String master;
+        /** The order to ask the sentinels in, the last to answer first; under {@link #resolving}. */
         private final List<RedisConfig.HostPort> sentinels;
         private final String password;
         private final SSLContext ssl;
-        private Endpoint current;
-        private long generation;
+        private final ReentrantLock resolving = new ReentrantLock();
+        private volatile Endpoint current;
+        private volatile long generation;
 
         Sentinel(RedisUrl url, String master, List<RedisConfig.HostPort> sentinels, String password, SSLContext ssl) {
             this.url = url;
             this.master = master;
-            this.sentinels = sentinels;
+            this.sentinels = new ArrayList<>(sentinels);
             this.password = password;
             this.ssl = ssl;
         }
 
         @Override
-        synchronized Endpoint master(long deadline) throws IOException {
-            if (this.current != null) {
-                return this.current;
+        Endpoint master(long deadline) throws IOException {
+            Endpoint known = this.current;
+            if (known != null) {
+                return known;
             }
+            boolean locked;
+            try {
+                locked = this.resolving.tryLock(deadline - System.nanoTime(), TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new InterruptedIOException("interrupted waiting for the sentinels to name the master");
+            }
+            if (!locked) {
+                throw new SocketTimeoutException("Redis command deadline passed while the sentinels were being asked"
+                        + " for the master " + this.master);
+            }
+            try {
+                known = this.current;
+                return known != null ? known : this.resolve(deadline);
+            } finally {
+                this.resolving.unlock();
+            }
+        }
+
+        /** Asks the sentinels in turn, each within its share of the deadline, until one names the master. */
+        private Endpoint resolve(long deadline) throws IOException {
+            List<RedisConfig.HostPort> asked = new ArrayList<>();
             IOException last = null;
-            for (RedisConfig.HostPort sentinel : this.sentinels) {
+            for (int i = 0; i < this.sentinels.size(); i++) {
+                long now = System.nanoTime();
+                if (deadline - now <= 0L) {
+                    break;
+                }
+                RedisConfig.HostPort sentinel = this.sentinels.get(i);
+                asked.add(sentinel);
                 try {
-                    List<?> address = this.ask(sentinel, deadline);
+                    List<?> address = this.ask(sentinel, share(now, deadline, this.sentinels.size() - i));
                     if (address == null) {
                         last = new IOException("sentinel " + sentinel + " does not know a master named " + this.master);
                         continue;
                     }
                     String host = String.valueOf(address.get(0));
                     int port = (int) RedisConnection.number(String.valueOf(address.get(1)), 1, 65535);
-                    this.current = new Endpoint(host, port, RedisTls.isIpLiteral(host) ? this.url.host : host, this.generation);
-                    return this.current;
+                    this.sentinels.remove(i);
+                    this.sentinels.add(0, sentinel);
+                    synchronized (this) {
+                        this.current = new Endpoint(host, port, RedisTls.isIpLiteral(host) ? this.url.host : host,
+                                this.generation);
+                        return this.current;
+                    }
                 } catch (IOException | RuntimeException e) {
                     last = e instanceof IOException ? (IOException) e : new IOException("sentinel " + sentinel + ": " + e.getMessage(), e);
                 }
             }
-            throw new IOException("no sentinel named the master " + this.master + " (asked " + this.sentinels + "): "
-                    + last.getMessage(), last);
+            if (last == null) {
+                throw new SocketTimeoutException("Redis command deadline passed before a sentinel could be asked for the"
+                        + " master " + this.master);
+            }
+            throw new IOException("no sentinel named the master " + this.master + " (asked " + asked + " of "
+                    + this.sentinels.size() + "): " + last.getMessage(), last);
+        }
+
+        /**
+         * The deadline for one sentinel of {@code left} still to ask: an equal share of what remains, so a sentinel
+         * that never answers costs the command at most that share, and the last one asked gets all that is left.
+         */
+        static long share(long now, long deadline, int left) {
+            return now + (deadline - now) / Math.max(1, left);
         }
 
         /** One sentinel's answer: the master's {@code [host, port]}, or null when it knows no master of that name. */
@@ -149,12 +206,12 @@ abstract class MasterLocator {
         synchronized void lost(long generation) {
             if (generation == this.generation) {
                 this.current = null;
-                this.generation++;
+                this.generation = generation + 1;
             }
         }
 
         @Override
-        synchronized long generation() {
+        long generation() {
             return this.generation;
         }
 

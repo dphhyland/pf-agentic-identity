@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.platform.redis;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.platform.settings.Catalogue;
 import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.platform.settings.Sources;
 import java.nio.file.Path;
@@ -70,8 +71,7 @@ public final class RedisConfig {
      * process's profile; null when no URL is set ({@code oidf.redis.url}, {@code OIDF_REDIS_URL}, then
      * {@code REDIS_URL}).
      *
-     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a value its setting refuses
-     * @throws IllegalArgumentException for Sentinel settings that do not go together
+     * @throws SettingRefused for a value its setting refuses, and for Sentinel settings that do not go together
      */
     public static RedisConfig current() {
         return fromSettings(processSettings(), DeploymentProfile.current());
@@ -108,8 +108,13 @@ public final class RedisConfig {
         Set<String> sentinels = settings.words(SENTINELS_SETTING);
         Secret password = settings.secret(SENTINEL_PASSWORD_SETTING);
         if (master != null || sentinels != null) {
-            builder.sentinel(master, sentinels == null ? List.of() : List.copyOf(sentinels),
-                    password == null ? null : password.reveal());
+            try {
+                builder.sentinel(master, sentinels == null ? List.of() : List.copyOf(sentinels),
+                        password == null ? null : password.reveal());
+            } catch (IllegalArgumentException e) {
+                // A setting refused, as a pool or deadline value is: not the URL.
+                throw new SettingRefused(master == null ? SENTINEL_MASTER_SETTING : SENTINELS_SETTING, e.getMessage());
+            }
         }
         return builder.build();
     }

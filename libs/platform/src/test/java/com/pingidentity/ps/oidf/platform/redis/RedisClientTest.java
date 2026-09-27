@@ -318,9 +318,12 @@ class RedisClientTest {
 
     @Test
     void theDecisions() {
-        assertTrue(RedisClient.retries(true, false));
-        assertTrue(RedisClient.retries(false, true));
-        assertFalse(RedisClient.retries(false, false));
+        assertTrue(RedisClient.retries(true, false, true), "a reused connection may have gone stale: 0.4.0's retry");
+        assertTrue(RedisClient.retries(true, true, true));
+        assertTrue(RedisClient.retries(false, true, false), "through Sentinel, a master that could not be reached was sent nothing");
+        assertFalse(RedisClient.retries(false, true, true), "a fresh connection lost after the command was sent: it may have run");
+        assertFalse(RedisClient.retries(false, false, false));
+        assertFalse(RedisClient.retries(false, false, true));
         RedisErrorReply readOnly = new RedisErrorReply("READONLY You can't write against a read only replica.");
         assertTrue(RedisClient.failsOver(readOnly, true, 0));
         assertFalse(RedisClient.failsOver(readOnly, true, 1));

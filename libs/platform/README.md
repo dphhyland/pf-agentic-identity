@@ -527,11 +527,14 @@ One thing is kept that should not be: the userinfo is decoded twice, so a `+` in
 opened as many as the load asked for and kept four). A command waits up to `OIDF_REDIS_BORROW_TIMEOUT_MS` for one,
 and then has `OIDF_REDIS_COMMAND_TIMEOUT_MS` for everything else: connecting, the handshake, `AUTH` and `SELECT`,
 finding the master, the command and the one retry. Each read waits only what is left of that; a command's own
-bytes are written untimed, since they fit a socket's send buffer. An exhausted pool, a deadline passed and a
+bytes are written untimed, since they fit a socket's send buffer ([F-0181](../../docs/findings/F-0181.yaml)). An
+exhausted pool, a deadline passed and a
 closed client are an `IOException`, which the stores answer as `STORE_UNAVAILABLE` - the same 503 as a Redis that
 is down. An error reply is a `RedisErrorReply` (an `IllegalStateException`, as 0.4.0 threw) and is not retried. A
 command that fails on a reused connection is retried once on a fresh one, as 0.4.0 did, because the server may
-have closed an idle connection. A reply past 64 KiB for a line, 64 MiB for a bulk string or a million array
+have closed an idle connection. That retry can run a command twice when the first one ran and only its reply was
+lost - a `SET NX` then answers "already set" and a `DEL` "nothing deleted", a verdict rather than an outage -
+exactly as 0.4.0's could; nothing else is retried after a command was sent. A reply past 64 KiB for a line, 64 MiB for a bulk string or a million array
 elements is a protocol failure, not an allocation.
 
 **Key prefixes.** `client.keyspace("oidf:as")` is a `RedisKeyspace`: every key it is given becomes
@@ -549,9 +552,13 @@ counter never lives without one. It answers the count and the time the window ha
 
 **Sentinel.** With `OIDF_REDIS_SENTINEL_MASTER` and `OIDF_REDIS_SENTINELS` set, the client asks each sentinel in
 turn `SENTINEL get-master-addr-by-name`, connects where the first answer says, and checks with `ROLE` that the
-server is the master. It asks again when a connection to the master is lost, or the master answers `READONLY` -
-it has become a replica, so a failover has happened - and retries the command once on the new master, within the
-same deadline. Losing the master closes every connection to it: those idle at once, those in use when they come
+server is the master. Each sentinel gets an equal share of what is left of the command's deadline - of 3000 ms and
+two sentinels, the first has 1500 - so one that accepts and never answers, or whose host drops packets, leaves the
+rest time to answer; the sentinel that answered is asked first next time. It asks again when a connection to the
+master is lost, or the master answers `READONLY` - it has become a replica, so a failover has happened. The
+command is retried once on the new master, within the same deadline, after `READONLY` (which refused it) or when
+no connection to the master could be opened (so nothing was sent); a new connection lost after the command was
+sent is an outage, not a retry, because the command may have run. Losing the master closes every connection to it: those idle at once, those in use when they come
 back. The URL still says `redis` or `rediss`, the password and the database; its host is not dialled. Over TLS
 the sentinels are verified against their own names, with the same CA file. The master is verified against the
 name a sentinel gave for it, or, when it gave an address - what Sentinel does unless `announce-hostnames` is on -
@@ -560,7 +567,7 @@ against the URL's host, which every node's certificate must then carry
 say where the master is: a name one gives is checked as itself, so with the JVM's CAs any server holding a public
 certificate for that name would be sent `AUTH`. Over TLS with Sentinel, set `OIDF_REDIS_CA_FILE` to the
 deployment's own CA, and give the sentinels a password. One thread asks the sentinels while others wait for its
-answer, for at most its own deadline.
+answer, each for at most its own deadline.
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|

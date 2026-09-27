@@ -53,6 +53,7 @@ final class FakeRedis implements Closeable {
     private volatile boolean closed;
     private volatile boolean silent;
     private volatile boolean dropNext;
+    private volatile String dropOn;
     private volatile String rawNext;
     private volatile boolean closeAfterRaw;
     private final AtomicInteger rawTimes = new AtomicInteger();
@@ -109,6 +110,11 @@ final class FakeRedis implements Closeable {
 
     void dropNextCommand() {
         this.dropNext = true;
+    }
+
+    /** The next command named {@code name} is read, recorded and not run, and its connection closed. */
+    void dropNextCommandNamed(String name) {
+        this.dropOn = name;
     }
 
     void rawNextReply(String raw) {
@@ -227,6 +233,10 @@ final class FakeRedis implements Closeable {
                 this.commands.add(String.join(" ", command));
                 if (this.dropNext) {
                     this.dropNext = false;
+                    return;
+                }
+                if (command.get(0).equalsIgnoreCase(this.dropOn)) {
+                    this.dropOn = null;
                     return;
                 }
                 while (this.silent && !this.closed) {

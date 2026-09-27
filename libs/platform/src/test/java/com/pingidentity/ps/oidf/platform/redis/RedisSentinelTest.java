@@ -7,9 +7,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.io.IOException;
+import java.io.InterruptedIOException;
 import java.net.ServerSocket;
+import java.net.SocketTimeoutException;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -137,6 +140,130 @@ class RedisSentinelTest {
              RedisClient client = this.client(List.of("127.0.0.1:" + dead, this.at(ignorant), this.at(this.sentinel)), "sentinel-pw")) {
             assertTrue(client.ping(), "the first is down, the second knows no such master, the third answers");
             assertEquals(1, ignorant.accepted());
+        }
+    }
+
+    @Test
+    void aSentinelThatNeverAnswersCostsOnlyItsShareOfTheDeadline() throws IOException {
+        try (FakeRedis hung = new FakeRedis(null, FakeRedis.Role.SENTINEL);
+             RedisClient client = this.client(List.of(this.at(hung), this.at(this.sentinel)), "sentinel-pw")) {
+            hung.silent(true);
+            long start = System.nanoTime();
+            assertTrue(client.ping(), "the first sentinel accepts and says nothing; the second names the master");
+            long took = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            assertTrue(took >= 1000L && took < 2500L, "half of the 3000 ms deadline went to the first, took " + took + " ms");
+            assertEquals(1, hung.accepted());
+
+            client.locator.lost(client.locator.generation());
+            start = System.nanoTime();
+            assertTrue(client.ping());
+            assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start) < 1000L, "the sentinel that answered is asked first");
+            assertEquals(1, hung.accepted(), "and the silent one is not asked again");
+            assertEquals(2, this.sentinel.accepted());
+        }
+        assertEquals(1_500L, MasterLocator.Sentinel.share(0L, 3_000L, 2));
+        assertEquals(3_000L, MasterLocator.Sentinel.share(0L, 3_000L, 1));
+        assertEquals(1_100L, MasterLocator.Sentinel.share(100L, 3_100L, 3));
+    }
+
+    @Test
+    void theSentinelsAllSilentIsAnOutageWithinTheDeadline() throws IOException {
+        try (FakeRedis hung = new FakeRedis(null, FakeRedis.Role.SENTINEL);
+             RedisClient client = new RedisClient(RedisConfig.builder("redis://:pw@redis.example:6379")
+                     .profile(DeploymentProfile.DEVELOPMENT).commandTimeout(Duration.ofMillis(600))
+                     .sentinel(MASTER, List.of(this.at(hung), this.at(hung)), null).build())) {
+            hung.silent(true);
+            long start = System.nanoTime();
+            IOException e = assertThrows(IOException.class, client::ping);
+            long took = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            assertTrue(took >= 500L && took < 2000L, "took " + took + " ms");
+            assertTrue(e.getMessage().contains("no sentinel named the master " + MASTER), e.getMessage());
+        }
+    }
+
+    @Test
+    void aCommandWaitingOnAnotherThreadsLookupWaitsOnlyItsOwnDeadline() throws Exception {
+        try (FakeRedis hung = new FakeRedis(null, FakeRedis.Role.SENTINEL)) {
+            hung.silent(true);
+            RedisConfig config = RedisConfig.builder("redis://redis.example").profile(DeploymentProfile.DEVELOPMENT)
+                    .sentinel(MASTER, List.of(this.at(hung)), null).build();
+            MasterLocator located = MasterLocator.sentinel(RedisUrl.parse("redis://redis.example"), config, null);
+            Thread asking = new Thread(() -> {
+                try {
+                    located.master(System.nanoTime() + 3_000_000_000L);
+                } catch (IOException expected) {
+                    // the silent sentinel's deadline passes
+                }
+            });
+            asking.start();
+            Thread.sleep(200L);
+            long start = System.nanoTime();
+            IOException e = assertThrows(IOException.class, () -> located.master(System.nanoTime() + 300_000_000L));
+            long took = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start);
+            assertTrue(took >= 250L && took < 1500L, "took " + took + " ms");
+            assertTrue(e.getMessage().contains("while the sentinels were being asked"), e.getMessage());
+            hung.silent(false);
+            asking.join(5000L);
+        }
+
+        // A waiter with time enough takes the answer the other thread found, and asks no sentinel itself.
+        this.sentinel.delay(300L);
+        MasterLocator located = MasterLocator.sentinel(RedisUrl.parse("redis://redis.example"), RedisConfig
+                .builder("redis://redis.example").profile(DeploymentProfile.DEVELOPMENT)
+                .sentinel(MASTER, List.of(this.at(this.sentinel)), "sentinel-pw").build(), null);
+        MasterLocator.Endpoint[] found = new MasterLocator.Endpoint[1];
+        Thread asking = new Thread(() -> {
+            try {
+                found[0] = located.master(System.nanoTime() + 3_000_000_000L);
+            } catch (IOException e) {
+                throw new IllegalStateException(e);
+            }
+        });
+        asking.start();
+        Thread.sleep(100L);
+        MasterLocator.Endpoint waited = located.master(System.nanoTime() + 3_000_000_000L);
+        asking.join(5000L);
+        assertEquals(found[0], waited);
+        assertEquals(1, this.sentinel.accepted(), "one lookup for both");
+        this.sentinel.delay(0L);
+
+        // A deadline already gone asks no sentinel.
+        located.lost(located.generation());
+        SocketTimeoutException gone = assertThrows(SocketTimeoutException.class, () -> located.master(System.nanoTime() - 1L));
+        assertTrue(gone.getMessage().contains("before a sentinel could be asked"), gone.getMessage());
+        assertEquals(1, this.sentinel.accepted());
+
+        // Interrupted while waiting: the command fails as interrupted, and the flag stays set.
+        located.lost(located.generation());
+        Thread.currentThread().interrupt();
+        try {
+            assertThrows(InterruptedIOException.class, () -> located.master(System.nanoTime() + 3_000_000_000L));
+            assertTrue(Thread.currentThread().isInterrupted());
+        } finally {
+            Thread.interrupted();
+        }
+    }
+
+    @Test
+    void anIdleConnectionToALostMasterIsNotReused() throws IOException {
+        try (RedisClient client = this.client(List.of(this.at(this.sentinel)), "sentinel-pw")) {
+            assertTrue(client.ping());
+            assertEquals(1, this.first.accepted());
+            client.locator.lost(0L);
+            assertTrue(client.ping(), "a loss another command reported, with a connection to the old master idle");
+            assertEquals(2, this.first.accepted(), "the idle connection of the old generation was closed, not reused");
+            assertEquals(2, this.sentinel.accepted());
+        }
+    }
+
+    @Test
+    void aFreshConnectionLostAfterTheCommandWasSentIsNotRetried() throws IOException {
+        try (RedisClient client = this.client(List.of(this.at(this.sentinel)), "sentinel-pw")) {
+            this.first.dropNextCommandNamed("INCR");
+            assertThrows(IOException.class, () -> client.incr("n"), "the INCR may have run: an outage, not a second INCR");
+            assertEquals(1L, this.first.commands().stream().filter("INCR n"::equals).count());
+            assertEquals(1L, client.incr("n"), "the next command finds the master again");
+            assertEquals(2, this.sentinel.accepted());
         }
     }
 

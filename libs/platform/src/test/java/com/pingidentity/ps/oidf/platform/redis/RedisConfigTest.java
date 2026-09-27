@@ -299,10 +299,18 @@ class RedisConfigTest {
                     DeploymentProfile.PRODUCTION), wrong.getKey());
             assertEquals(wrong.getKey(), e.setting());
         }
-        assertThrows(IllegalArgumentException.class, () -> RedisConfig.fromSettings(settings(Map.of("OIDF_REDIS_URL", "rediss://h",
-                "OIDF_REDIS_SENTINEL_MASTER", "m"), Map.of()), DeploymentProfile.PRODUCTION), "a master without sentinels");
-        assertThrows(IllegalArgumentException.class, () -> RedisConfig.fromSettings(settings(Map.of("OIDF_REDIS_URL", "rediss://h",
-                "OIDF_REDIS_SENTINELS", "s"), Map.of()), DeploymentProfile.PRODUCTION), "sentinels without a master");
+        // Sentinel settings that do not go together, or a sentinel that is not host[:port], are a setting refused
+        // (SettingRefused, naming it), as a pool or deadline value is - never taken for a bad URL.
+        for (Map.Entry<Map<String, String>, String> wrong : Map.of(
+                Map.of("OIDF_REDIS_URL", "rediss://h", "OIDF_REDIS_SENTINEL_MASTER", "m"), "OIDF_REDIS_SENTINELS",
+                Map.of("OIDF_REDIS_URL", "rediss://h", "OIDF_REDIS_SENTINELS", "s"), "OIDF_REDIS_SENTINEL_MASTER",
+                Map.of("OIDF_REDIS_URL", "rediss://h", "OIDF_REDIS_SENTINEL_MASTER", "m", "OIDF_REDIS_SENTINELS", "s:x"),
+                "OIDF_REDIS_SENTINELS").entrySet()) {
+            SettingRefused e = assertThrows(SettingRefused.class, () -> RedisConfig.fromSettings(settings(wrong.getKey(), Map.of()),
+                    DeploymentProfile.PRODUCTION), wrong.getKey().toString());
+            assertEquals(wrong.getValue(), e.setting());
+            assertTrue(e.getMessage().contains("OIDF_REDIS_SENTINEL"), e.getMessage());
+        }
     }
 
     @Test
