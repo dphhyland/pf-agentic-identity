@@ -11,8 +11,8 @@ import java.util.function.Function;
 import org.junit.jupiter.api.Test;
 
 /**
- * The deployment-wide policy on evidence: how long it may still live, whether it may name more than one
- * audience, and that production may shorten the lifetime cap but never lengthen it.
+ * The deployment-wide policy on evidence: how long it may live and may still live, whether it may name more
+ * than one audience, and that production may shorten the lifetime cap but never lengthen it.
  */
 class EvidencePolicyTest {
     private static final long NOW = 1_800_000_000L;
@@ -88,10 +88,30 @@ class EvidencePolicyTest {
     void evidenceThatLivesLongerThanTheCapIsRefusedByFormat() {
         EvidencePolicy p = new EvidencePolicy(3600L, false);
         assertEquals("invalid_svid", assertThrows(IssuanceException.class,
-                () -> p.check(spiffe(NOW + 3601L, List.of("a")), NOW)).error());
+                () -> p.check(spiffe(NOW + 3661L, List.of("a")), NOW)).error());
         assertEquals("invalid_instance_attestation", assertThrows(IssuanceException.class,
-                () -> p.check(wallet(NOW + 3601L, List.of("a")), NOW)).error());
-        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> p.check(spiffe(NOW + 3600L, List.of("a")), NOW));
+                () -> p.check(wallet(NOW + 3661L, List.of("a")), NOW)).error());
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> p.check(spiffe(NOW + 3660L, List.of("a")), NOW),
+                "the remaining-life check allows the usual 60 s for a clock behind the issuer's");
+    }
+
+    @Test
+    void theWholeLifetimeIsCappedWhenTheEvidenceSaysWhenItWasIssued() {
+        EvidencePolicy p = new EvidencePolicy(86400L, false);
+        // A year-long token in its last hour: little life left, but issued to live far longer than the cap.
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> p.check(issued(NOW - 365L * 86400L + 3600L, NOW + 3600L), NOW));
+        assertEquals("invalid_svid", e.error());
+        assertTrue(e.getMessage().contains("issued to live"), e.getMessage());
+        // EKS's default projected token lives exactly a day, and is accepted even from an issuer a few seconds ahead.
+        org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> p.check(issued(NOW + 5L, NOW + 5L + 86400L), NOW));
+        assertThrows(IssuanceException.class, () -> p.check(issued(NOW, NOW + 86401L), NOW));
+        assertEquals(NOW, issued(NOW, NOW + 60L).iatEpochSeconds());
+        assertEquals(0L, spiffe(NOW + 60L, List.of()).iatEpochSeconds(), "no iat: only the remaining life is capped");
+    }
+
+    private static InstanceIdentity issued(long iat, long exp) {
+        return new InstanceIdentity("spiffe", "spiffe://d/x", "d", null, Map.of(), exp, "spiffe-jwt", "digest", List.of(), iat);
     }
 
     @Test

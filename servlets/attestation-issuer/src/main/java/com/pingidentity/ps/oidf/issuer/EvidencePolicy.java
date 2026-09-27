@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.issuer;
 
 import java.util.Locale;
 import java.util.function.Function;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 
 /**
  * The deployment-wide policy on instance evidence, read from the environment once and applied to every
@@ -12,11 +13,13 @@ import java.util.function.Function;
  *
  * <ul>
  *   <li>{@code OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS} (system property
- *       {@code oidf.attester.max.evidence.lifetime.seconds}): the longest remaining life the attester accepts
- *       of a piece of evidence, default {@value #PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS} s (a day). Evidence
- *       is bound to its first presenter for as long as it lives, so this is also how long a stolen token can
- *       be presented before it dies, and why the production profile refuses a longer value: a rig may set one,
- *       production may only shorten it.</li>
+ *       {@code oidf.attester.max.evidence.lifetime.seconds}): the longest lifetime the attester accepts of a
+ *       piece of evidence, default {@value #PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS} s (a day). It caps the
+ *       whole lifetime ({@code exp - iat}) when the evidence has an {@code iat}, and what is left of it
+ *       ({@code exp - now}, with {@value #CLOCK_SKEW_SECONDS} s allowed for a clock behind the issuer's)
+ *       always. Evidence is bound to its first presenter for as long as it lives, so this is also how long a
+ *       stolen token can be presented before it dies, and why the production profile refuses a longer value:
+ *       a rig may set one, production may only shorten it.</li>
  *   <li>{@code OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE}: {@code true} refuses evidence whose {@code aud}
  *       names more than one party. Evidence minted for several audiences is presentable to every one of
  *       them, so the attester cannot know it was the intended recipient; default {@code false}, because the
@@ -33,6 +36,8 @@ public final class EvidencePolicy {
     public static final String SINGLE_AUDIENCE_PROPERTY = "oidf.attester.require.single.audience.evidence";
     public static final String PROFILE_ENV = "OIDF_DEPLOYMENT_PROFILE";
     public static final long PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS = 86400L;
+    /** Allowed on the remaining-life check, for a clock behind the evidence issuer's: the verifier's usual skew. */
+    public static final long CLOCK_SKEW_SECONDS = ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS;
 
     private final long maxEvidenceLifetimeSeconds;
     private final boolean requireSingleAudience;
@@ -110,8 +115,13 @@ public final class EvidencePolicy {
      *                           when the evidence lives longer than accepted or names more audiences than allowed
      */
     public void check(InstanceIdentity instance, long nowEpochSeconds) throws IssuanceException {
+        long lifetime = instance.iatEpochSeconds() > 0L ? instance.expEpochSeconds() - instance.iatEpochSeconds() : 0L;
+        if (lifetime > this.maxEvidenceLifetimeSeconds) {
+            throw refuse(instance, "the evidence was issued to live " + lifetime + " s, more than the " + this.maxEvidenceLifetimeSeconds
+                    + " s this attester accepts (" + MAX_LIFETIME_ENV + "); present shorter-lived evidence");
+        }
         long remaining = instance.expEpochSeconds() - nowEpochSeconds;
-        if (remaining > this.maxEvidenceLifetimeSeconds) {
+        if (remaining > this.maxEvidenceLifetimeSeconds + CLOCK_SKEW_SECONDS) {
             throw refuse(instance, "the evidence has " + remaining + " s of life left, more than the " + this.maxEvidenceLifetimeSeconds
                     + " s this attester accepts (" + MAX_LIFETIME_ENV + "); present shorter-lived evidence");
         }

@@ -41,7 +41,7 @@ public final class InMemoryEvidenceBindingStore implements EvidenceBindingStore 
     }
 
     @Override
-    public synchronized Binding bind(String evidenceDigest, String jkt, String clientId, long evidenceExpEpochSeconds) {
+    public synchronized Result bind(String evidenceDigest, String jkt, String clientId, long evidenceExpEpochSeconds) {
         if (evidenceDigest == null || evidenceDigest.isBlank() || jkt == null || jkt.isBlank()) {
             throw new IllegalArgumentException("evidence digest and jkt are required to bind evidence");
         }
@@ -49,11 +49,12 @@ public final class InMemoryEvidenceBindingStore implements EvidenceBindingStore 
         long now = this.clock.instant().getEpochSecond();
         Bound existing = this.bindings.get(evidenceDigest);
         if (existing != null && existing.expiresAt > now) {
-            return existing.jkt.equals(jkt) && existing.clientId.equals(client) ? Binding.BOUND : Binding.CONFLICT;
+            return existing.jkt.equals(jkt) && existing.clientId.equals(client)
+                    ? Result.bound() : Result.conflict(existing.jkt, existing.clientId);
         }
         // Absent, or expired with the evidence it described: this presenter takes the binding.
         this.bindings.put(evidenceDigest, new Bound(jkt, client, Math.max(evidenceExpEpochSeconds, now + 1L)));
-        return Binding.BOUND;
+        return Result.bound();
     }
 
     public synchronized int size() {

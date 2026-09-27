@@ -126,7 +126,7 @@ public final class RedisAttestationStore implements AttestationChallengeService,
     }
 
     @Override
-    public Binding bind(String evidenceDigest, String jkt, String clientId, long evidenceExpEpochSeconds) {
+    public Result bind(String evidenceDigest, String jkt, String clientId, long evidenceExpEpochSeconds) {
         if (evidenceDigest == null || evidenceDigest.isBlank() || jkt == null || jkt.isBlank()) {
             throw new IllegalArgumentException("evidence digest and jkt are required to bind evidence");
         }
@@ -140,21 +140,27 @@ public final class RedisAttestationStore implements AttestationChallengeService,
             for (int attempt = 0; attempt < 2; attempt++) {
                 Object reply = this.client.call("SET", key, value, "NX", "PX", Long.toString(ttlMillis));
                 if ("OK".equals(reply)) {
-                    return Binding.BOUND;
+                    return Result.bound();
                 }
                 Object bound = this.client.call("GET", key);
                 if (bound != null) {
-                    return value.equals(bound) ? Binding.BOUND : Binding.CONFLICT;
+                    return value.equals(bound) ? Result.bound() : conflictWith(String.valueOf(bound));
                 }
             }
             // A key that twice could be neither taken nor read: nothing was bound and nothing was learned about
             // who holds it, so this is the store failing to answer - not a conflict, which would audit a theft.
             LOGGER.error((Object) ("Redis evidence binding for " + key + " could be neither set nor read; the request is refused as unavailable"));
-            return Binding.STORE_UNAVAILABLE;
+            return Result.unavailable();
         } catch (IOException | RuntimeException e) {
             LOGGER.error((Object) "Redis evidence binding failed; the request is refused as unavailable", e);
-            return Binding.STORE_UNAVAILABLE;
+            return Result.unavailable();
         }
+    }
+
+    /** A conflict with the holder a bound value names: {@code "<jkt> <client>"}, the client possibly empty. */
+    static Result conflictWith(String held) {
+        int space = held.indexOf(' ');
+        return space < 0 ? Result.conflict(held, "") : Result.conflict(held.substring(0, space), held.substring(space + 1));
     }
 
     @Override

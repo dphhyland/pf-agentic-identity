@@ -101,7 +101,7 @@ class WalletInstanceAttestationValidatorTest {
         assertEquals(PROVIDER, id.workloadClaims().get("wallet_provider"));
         assertEquals(INSTANCE_ID, id.workloadClaims().get("wallet_instance"));
         assertNull(id.workloadClaims().get("instance_attestation"), "the raw WIA never leaves the attester (F-0002)");
-        assertEquals(InstanceIdentity.sha256Hex(w), id.evidenceDigest());
+        assertEquals(InstanceIdentity.sha256Hex(w.substring(0, w.lastIndexOf('.'))), id.evidenceDigest());
         assertEquals(AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, id.evidenceType());
         assertEquals(java.util.List.of(ATTESTER), id.audiences());
     }
@@ -214,7 +214,7 @@ class WalletInstanceAttestationValidatorTest {
     void spiffeInstanceIdentityHasNoBoundKey() throws Exception {
         // Cross-check the contract the endpoint relies on: SPIFFE binds no key, so no boundKey check runs.
         SpiffeSvid svid = new SpiffeSvid("spiffe://d/x", "d", "/x", List.of(ATTESTER),
-                NumericDate.now().getValue() + 600, NumericDate.now().getValue(), "raw");
+                NumericDate.now().getValue() + 600, NumericDate.now().getValue(), "header.payload.signature");
         assertNull(InstanceIdentity.ofSpiffe(svid).boundKey());
     }
 }

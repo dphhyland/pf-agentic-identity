@@ -65,10 +65,11 @@ class RedisLiveTest {
             assertEquals(Verdict.REPLAY, store.record(client1, "jti-1", 300L));
 
             String digest = unique("sha");
-            assertEquals(Binding.BOUND, store.bind(digest, "jkt-1", client1, now() + 120L));
-            assertEquals(Binding.BOUND, store.bind(digest, "jkt-1", client1, now() + 120L));
-            assertEquals(Binding.CONFLICT, store.bind(digest, "jkt-2", client1, now() + 120L));
-            assertEquals(Binding.CONFLICT, store.bind(digest, "jkt-1", client1 + "x", now() + 120L));
+            assertEquals(Binding.BOUND, store.bind(digest, "jkt-1", client1, now() + 120L).binding());
+            assertEquals(Binding.BOUND, store.bind(digest, "jkt-1", client1, now() + 120L).binding());
+            assertEquals(Binding.CONFLICT, store.bind(digest, "jkt-2", client1, now() + 120L).binding());
+            assertEquals("jkt-1", store.bind(digest, "jkt-2", client1, now() + 120L).holderJkt());
+            assertEquals(Binding.CONFLICT, store.bind(digest, "jkt-1", client1 + "x", now() + 120L).binding());
 
             // The keys are where the README says, and Redis holds the binding's TTL.
             Object ttl = client.call("TTL", "oidf:cas:evidence:" + digest);

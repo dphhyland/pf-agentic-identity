@@ -106,7 +106,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
     /**
      * The audit event for evidence presented by a second instance key or client: the rightful holder's evidence
      * has been used elsewhere, or the rightful holder is the one being refused because a thief presented first.
-     * Either way the deployment is told, with both keys' thumbprints.
+     * Either way the deployment is told, with both keys' thumbprints: {@code presented_jkt} for the key refused
+     * now, {@code bound_jkt} and {@code bound_client} for the key and client that hold the binding.
      */
     public static final String EVIDENCE_CONFLICT_EVENT = "attestation.evidence.conflict";
 
@@ -290,7 +291,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
         LOGGER.info((Object) ("Issued client attestation: client_id=" + clientId
                 + " format=" + instance.format() + " subject=" + instance.subject()
-                + " evidence_sha256=" + instance.evidenceDigest() + " ttl=" + ttl + "s"));
+                + " evidence_sha256=" + instance.evidenceDigest() + " instance_jkt=" + thumbprintOf(request.instanceKey)
+                + " ttl=" + ttl + "s"));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("attestation", attestation);
         body.put("expires_in", ttl);
@@ -299,13 +301,13 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     /**
      * Binds the evidence to the instance key and client once the key proof and every other check have passed,
-     * so a refused request never holds the binding. A conflict - the same
-     * evidence already bound to another key or client - is refused with 401 {@code instance_attestation_bound}
-     * and recorded as {@link #EVIDENCE_CONFLICT_EVENT} in the audit log, naming the evidence's digest and type,
-     * the client, and both keys' thumbprints. Evidence with nothing to digest (a format without a single token)
-     * is not bound. Residual risk, stated plainly: a thief who presents the evidence first wins the binding and
-     * the rightful holder is the one refused. That is detectable here, not preventable, until evidence is
-     * itself bound to the instance key.
+     * so a request refused by any of those checks never takes the binding. A conflict - the same evidence
+     * already bound to another key or client - is refused with 401 {@code instance_attestation_bound} and
+     * recorded as {@link #EVIDENCE_CONFLICT_EVENT} in the audit log, naming the evidence's digest and type, the
+     * client, the key presented now and the key and client that hold the binding. Evidence with nothing to
+     * digest (a format without a single token) is not bound. Residual risk, stated plainly: a thief who
+     * presents the evidence first wins the binding and the rightful holder is the one refused. That is
+     * detectable here, not preventable, until evidence is itself bound to the instance key.
      */
     private void bindEvidence(InstanceIdentity instance, Map<String, Object> instanceKey, String clientId)
             throws IssuanceException {
@@ -313,7 +315,9 @@ public class AttestationIssuanceServlet extends HttpServlet {
             return;
         }
         String jkt = thumbprintOf(instanceKey);
-        switch (evidenceBindings().bind(instance.evidenceDigest(), jkt, clientId, instance.expEpochSeconds())) {
+        EvidenceBindingStore.Result bound = evidenceBindings().bind(instance.evidenceDigest(), jkt, clientId,
+                instance.expEpochSeconds());
+        switch (bound.binding()) {
             case BOUND:
                 return;
             case STORE_UNAVAILABLE:
@@ -325,8 +329,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
                         .field("evidence_type", instance.evidenceType())
                         .field("instance_subject", instance.subject())
                         .field("presented_jkt", jkt)
-                        .description("the evidence is already bound to another instance key or client; presented again by "
-                                + jkt + " for " + clientId)
+                        .field("bound_jkt", bound.holderJkt())
+                        .field("bound_client", bound.holderClientId())
+                        .description("the evidence is bound to " + bound.holderJkt() + " for " + bound.holderClientId()
+                                + "; presented again by " + jkt + " for " + clientId)
                         .emit();
                 throw IssuanceException.instanceAttestationBound(
                         "this evidence is already bound to a different instance key or client; present fresh evidence");

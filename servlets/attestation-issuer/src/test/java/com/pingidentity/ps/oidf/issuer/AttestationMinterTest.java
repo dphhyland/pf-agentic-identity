@@ -78,7 +78,8 @@ class AttestationMinterTest {
         assertEquals("spiffe", workload.get("attested_by"));
         assertEquals(SPIFFE_ID, workload.get("spiffe_id"));
         assertNull(workload.get("svid"), "the raw evidence never leaves the attester (F-0002)");
-        assertEquals(InstanceIdentity.sha256Hex("raw.svid.token"), workload.get("instance_attestation_sha256"));
+        assertEquals(InstanceIdentity.sha256Hex("raw.svid"), workload.get("instance_attestation_sha256"),
+                "the digest covers the signing input, the first two segments");
         assertEquals("spiffe-jwt", workload.get("instance_attestation_type"));
         assertEquals(svid.expEpochSeconds(), ((Number) workload.get("instance_attestation_exp")).longValue());
         assertEquals(SPIFFE_ID, workload.get("subject"), "the spec's format-neutral workload.subject");
@@ -207,5 +208,16 @@ class AttestationMinterTest {
     void theDigestIsWhatSha256sumPrints() {
         // printf 'abc' | sha256sum
         assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", InstanceIdentity.sha256Hex("abc"));
+    }
+
+    @Test
+    void theEvidenceDigestCoversTheSigningInputAndNotTheSignature() {
+        // token='ab.c.sig'; printf %s "${token%.*}" | sha256sum
+        assertEquals(InstanceIdentity.sha256Hex("ab.c"), InstanceIdentity.evidenceDigest("ab.c.sig"));
+        assertEquals(InstanceIdentity.evidenceDigest("ab.c.sig"), InstanceIdentity.evidenceDigest("ab.c.other-sig \n"),
+                "whatever follows the second '.' is the signature's, which a verifier accepts in more than one encoding");
+        assertEquals(InstanceIdentity.sha256Hex("ab.c"), InstanceIdentity.evidenceDigest("ab.c."));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> InstanceIdentity.evidenceDigest("ab.c"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class, () -> InstanceIdentity.evidenceDigest("abc"));
     }
 }

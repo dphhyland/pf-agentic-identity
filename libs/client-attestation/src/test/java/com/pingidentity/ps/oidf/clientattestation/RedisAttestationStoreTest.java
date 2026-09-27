@@ -115,7 +115,7 @@ class RedisAttestationStoreTest {
             assertThrows(IllegalStateException.class, bad::issue, "the 0.3.0 contract still holds");
             assertEquals(Consumption.STORE_UNAVAILABLE, bad.consumeChallenge("anything"));
             assertEquals(Verdict.STORE_UNAVAILABLE, bad.record("client-a", "jti-1", 300L));
-            assertEquals(Binding.STORE_UNAVAILABLE, bad.bind("d", "k", "client-a", now() + 60L));
+            assertEquals(Binding.STORE_UNAVAILABLE, bad.bind("d", "k", "client-a", now() + 60L).binding());
             assertThrows(StoreUnavailableException.class, () -> bad.consume("anything"),
                     "the boolean view must not say 'unknown challenge' for an outage");
             assertThrows(StoreUnavailableException.class, () -> bad.firstSeen("client-a", "jti-1", 300L),
@@ -129,7 +129,7 @@ class RedisAttestationStoreTest {
         redis.close();
         assertEquals(Consumption.STORE_UNAVAILABLE, store.consumeChallenge(challenge));
         assertEquals(Verdict.STORE_UNAVAILABLE, store.record("client-a", "jti-9", 300L));
-        assertEquals(Binding.STORE_UNAVAILABLE, store.bind("d", "k", "client-a", now() + 60L));
+        assertEquals(Binding.STORE_UNAVAILABLE, store.bind("d", "k", "client-a", now() + 60L).binding());
         assertThrows(StoreUnavailableException.class, store::issue);
     }
 
@@ -149,7 +149,7 @@ class RedisAttestationStoreTest {
     void keysLiveUnderTheStoresNamespace() throws Exception {
         String challenge = store.issue();
         store.record("https://client.example", "jti-1", 300L);
-        store.bind("digest-1", "jkt-1", "https://client.example", now() + 60L);
+        store.bind("digest-1", "jkt-1", "https://client.example", now() + 60L).binding();
         assertEquals(java.util.Set.of(
                 "oidf:as:challenge:" + challenge,
                 "oidf:as:jti:https://client.example jti-1",
@@ -174,63 +174,74 @@ class RedisAttestationStoreTest {
 
     @Test
     void evidenceBindsToItsFirstPresenterAndTheSamePresenterMayReturn() {
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L));
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L),
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L).binding());
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L).binding(),
                 "re-presenting the same evidence with the same key is the rightful holder attesting again");
     }
 
     @Test
     void anotherKeyOrAnotherClientPresentingBoundEvidenceIsAConflict() {
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L));
-        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-2", "https://client.example", now() + 600L),
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L).binding());
+        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-2", "https://client.example", now() + 600L).binding(),
                 "a thief who presents second is refused");
-        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-1", "https://other.example", now() + 600L),
+        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-1", "https://other.example", now() + 600L).binding(),
                 "the same key for another client is not the same binding");
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L),
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "https://client.example", now() + 600L).binding(),
                 "the conflicts did not disturb the binding");
+        EvidenceBindingStore.Result conflict = store.bind("sha-1", "jkt-2", "https://other.example", now() + 600L);
+        assertEquals("jkt-1", conflict.holderJkt(), "a conflict names the key that holds the binding");
+        assertEquals("https://client.example", conflict.holderClientId());
+    }
+
+    @Test
+    void aHeldValueWithNoClientNamesTheKeyAndAnEmptyClient() {
+        assertEquals("jkt-1", RedisAttestationStore.conflictWith("jkt-1").holderJkt());
+        assertEquals("", RedisAttestationStore.conflictWith("jkt-1").holderClientId());
+        assertEquals("", RedisAttestationStore.conflictWith("jkt-1 ").holderClientId());
+        assertEquals("https://c.example/a b", RedisAttestationStore.conflictWith("jkt-1 https://c.example/a b").holderClientId());
     }
 
     @Test
     void aBindingLivesOnlyAsLongAsItsEvidence() throws Exception {
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "c", now() + 1L));
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "c", now() + 1L).binding());
         Thread.sleep(1100L);
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-2", "c", now() + 600L),
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-2", "c", now() + 600L).binding(),
                 "expired evidence expires its binding with it; a fresh presenter may take the key");
     }
 
     @Test
     void evidenceThatHasAlreadyExpiredIsHeldForASecondNotForever() throws Exception {
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "c", now() - 100L));
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "c", now() - 100L).binding());
         Thread.sleep(1100L);
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-2", "c", now() + 600L));
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-2", "c", now() + 600L).binding());
     }
 
     @Test
     void aKeyThatExpiresBetweenTheSetAndTheGetIsTakenOnTheSecondAttempt() {
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "c", now() + 600L));
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-1", "c", now() + 600L).binding());
         redis.vanishAfterNextNxMiss();
-        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-2", "c", now() + 600L),
+        assertEquals(Binding.BOUND, store.bind("sha-1", "jkt-2", "c", now() + 600L).binding(),
                 "SET NX lost to a key that then expired: the second SET NX takes it");
-        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-1", "c", now() + 600L),
+        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-1", "c", now() + 600L).binding(),
                 "and the binding now belongs to the second presenter");
     }
 
     @Test
     void aKeyThatCanNeitherBeTakenNorReadIsUnavailableNotAConflict() {
         redis.phantomKeys();
-        assertEquals(Binding.STORE_UNAVAILABLE, store.bind("sha-1", "jkt-1", "c", now() + 600L),
+        assertEquals(Binding.STORE_UNAVAILABLE, store.bind("sha-1", "jkt-1", "c", now() + 600L).binding(),
                 "no binding could be made or read: refused as an outage, and not audited as a theft nobody attempted");
     }
 
     @Test
     void bindingNeedsADigestAndAKey() {
-        assertThrows(IllegalArgumentException.class, () -> store.bind(null, "jkt", "c", now() + 60L));
-        assertThrows(IllegalArgumentException.class, () -> store.bind(" ", "jkt", "c", now() + 60L));
-        assertThrows(IllegalArgumentException.class, () -> store.bind("sha", null, "c", now() + 60L));
-        assertThrows(IllegalArgumentException.class, () -> store.bind("sha", " ", "c", now() + 60L));
-        assertEquals(Binding.BOUND, store.bind("sha-null-client", "jkt", null, now() + 60L),
+        assertThrows(IllegalArgumentException.class, () -> store.bind(null, "jkt", "c", now() + 60L).binding());
+        assertThrows(IllegalArgumentException.class, () -> store.bind(" ", "jkt", "c", now() + 60L).binding());
+        assertThrows(IllegalArgumentException.class, () -> store.bind("sha", null, "c", now() + 60L).binding());
+        assertThrows(IllegalArgumentException.class, () -> store.bind("sha", " ", "c", now() + 60L).binding());
+        assertEquals(Binding.BOUND, store.bind("sha-null-client", "jkt", null, now() + 60L).binding(),
                 "a null client binds as the empty client, the same as the in-memory store");
-        assertEquals(Binding.BOUND, store.bind("sha-null-client", "jkt", null, now() + 60L));
+        assertEquals(Binding.BOUND, store.bind("sha-null-client", "jkt", null, now() + 60L).binding());
     }
 
     @Test

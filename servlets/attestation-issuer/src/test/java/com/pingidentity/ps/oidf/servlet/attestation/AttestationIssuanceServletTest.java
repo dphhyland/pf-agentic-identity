@@ -940,6 +940,7 @@ class AttestationIssuanceServletTest {
     /** A GKE-projected service-account token signed by the cluster (test bundle) key. */
     private String ksaToken(String subject) throws Exception {
         JwtClaims claims = new JwtClaims();
+        claims.setJwtId(UUID.randomUUID().toString());
         claims.setIssuer(GKE_CLUSTER_ISSUER);
         claims.setSubject(subject);
         claims.setAudience(ISSUER);
@@ -1049,8 +1050,14 @@ class AttestationIssuanceServletTest {
         return jwk.toParams(JsonWebKey.OutputControlLevel.INCLUDE_PRIVATE);
     }
 
+    /**
+     * A JWT-SVID with a jti of its own. Without one, two tests minting for the same SPIFFE ID in the same second
+     * would mint the same header and payload - the same evidence, as the digest sees it - and the second, with its
+     * own instance key, would meet the first's binding in the process-wide store.
+     */
     private static String svid(PublicJsonWebKey signingKey, String sub, String audience, long expOffset) throws Exception {
         JwtClaims claims = new JwtClaims();
+        claims.setJwtId(UUID.randomUUID().toString());
         claims.setSubject(sub);
         claims.setAudience(audience);
         claims.setIssuedAtToNow();
@@ -1207,7 +1214,7 @@ class AttestationIssuanceServletTest {
         assertFalse(payload.contains(req.svid), "the raw SVID must not appear anywhere in the attestation (F-0002)");
         assertFalse(payload.contains("\"svid\""), payload);
         Map<String, Object> workload = workloadOf(attestation);
-        assertEquals(InstanceIdentity.sha256Hex(req.svid), workload.get("instance_attestation_sha256"));
+        assertEquals(InstanceIdentity.evidenceDigest(req.svid), workload.get("instance_attestation_sha256"));
         assertEquals("spiffe-jwt", workload.get("instance_attestation_type"));
         assertEquals(expOf(req.svid), ((Number) workload.get("instance_attestation_exp")).longValue());
         assertEquals(SPIFFE_ID, workload.get("spiffe_id"));
@@ -1228,7 +1235,7 @@ class AttestationIssuanceServletTest {
         assertFalse(payload.contains(req.svid), "the raw WIA must not appear in the attestation: it was raw in 0.3.0 too");
         assertFalse(payload.contains("\"instance_attestation\""), payload);
         Map<String, Object> workload = workloadOf(attestation);
-        assertEquals(InstanceIdentity.sha256Hex(req.svid), workload.get("instance_attestation_sha256"));
+        assertEquals(InstanceIdentity.evidenceDigest(req.svid), workload.get("instance_attestation_sha256"));
         assertEquals("wallet-instance-attestation", workload.get("instance_attestation_type"));
         assertEquals(expOf(req.svid), ((Number) workload.get("instance_attestation_exp")).longValue());
     }
@@ -1244,13 +1251,13 @@ class AttestationIssuanceServletTest {
         req.requestedDetails = List.of();
         Map<String, Object> workload = workloadOf((String) servlet.issue(req).get("attestation"));
         assertEquals("gke-sa-token", workload.get("instance_attestation_type"));
-        assertEquals(InstanceIdentity.sha256Hex(req.svid), workload.get("instance_attestation_sha256"));
+        assertEquals(InstanceIdentity.evidenceDigest(req.svid), workload.get("instance_attestation_sha256"));
         assertFalse(workload.containsKey("svid"));
     }
 
     /**
      * CAS §9.1: "It SHOULD refuse a later presentation by another key or client with {@code instance_attestation_bound}
-     * and record it." The record is the audit event, with both thumbprints' worth of detail.
+     * and record it." The record is the audit event, naming the key refused and the key that holds the binding.
      */
     @Test
     @Requirement("CAS §9.1")
@@ -1276,9 +1283,12 @@ class AttestationIssuanceServletTest {
         assertEquals("evidence_bound_elsewhere", event.reason());
         assertEquals(CLIENT_ID, event.subject());
         assertTrue(event.audit(), "a theft signal belongs in the audit log");
-        assertEquals(InstanceIdentity.sha256Hex(first.svid), event.fields().get("evidence_sha256"));
+        assertEquals(InstanceIdentity.evidenceDigest(first.svid), event.fields().get("evidence_sha256"));
         assertEquals("spiffe-jwt", event.fields().get("evidence_type"));
         assertEquals(Jwks.thumbprint(publicParams(thief)), event.fields().get("presented_jkt"));
+        assertEquals(Jwks.thumbprint(publicParams(instanceKey)), event.fields().get("bound_jkt"),
+                "the key that holds the binding is named: when a thief presented first, it is the thief's");
+        assertEquals(CLIENT_ID, event.fields().get("bound_client"));
         assertEquals(SPIFFE_ID, event.fields().get("instance_subject"));
 
         // The rightful holder is not disturbed by the attempt.
@@ -1317,13 +1327,136 @@ class AttestationIssuanceServletTest {
         assertNotNull(servlet.issue(wallet).get("attestation"), "the rightful key is issued: the refused presenter took no binding");
     }
 
+    /**
+     * CAS §9.1: the binding holds for the evidence, not for one encoding of it. A JWS verifier accepts one signed
+     * token in many strings - trailing whitespace, a stray character or padding in the signature, non-canonical
+     * trailing bits, the ECDSA {@code (r, n-s)} twin - and each re-encoding presented with a thief's key must meet
+     * the rightful key's binding, not take one of its own.
+     */
+    @Test
+    @Requirement("CAS §9.1")
+    void aReEncodedSvidIsTheSameEvidenceAndStaysBoundToItsFirstKey() throws Exception {
+        AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        assertReEncodingsMeetTheBinding(first, "spiffe-jwt");
+    }
+
+    @Test
+    @Requirement("CAS §9.1")
+    void aReEncodedCloudTokenIsTheSameEvidenceAndStaysBoundToItsFirstKey() throws Exception {
+        servlet.setClientResolver(fixedResolver(gkeConfig()));
+        servlet.setJwksCache(fakeJwksCache());
+        AttestationIssuanceServlet.IssuanceRequest first = new AttestationIssuanceServlet.IssuanceRequest();
+        first.clientId = CLIENT_ID;
+        first.instanceKey = publicParams(instanceKey);
+        first.svid = ksaToken("system:serviceaccount:demo:payment-agent");
+        first.proof = newProof(null);
+        first.requestedDetails = List.of();
+        assertReEncodingsMeetTheBinding(first, "gke-sa-token");
+    }
+
+    /** CAS §4.5: an auditor holding a captured token computes the digest the attestation carries. */
+    @Test
+    @Requirement("CAS §4.5")
+    void theDigestIsWhatAnAuditorComputesFromTheCapturedEvidence() throws Exception {
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        servlet.setInstanceValidators(walletRegistry());
+        String captured = wia(WALLET_INSTANCE_ID, publicParams(instanceKey), 600L);
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = captured + " ";
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+        Map<String, Object> workload = workloadOf((String) servlet.issue(req).get("attestation"));
+        // printf %s "${captured%.*}" | sha256sum
+        assertEquals(InstanceIdentity.sha256Hex(captured.substring(0, captured.lastIndexOf('.'))),
+                workload.get("instance_attestation_sha256"));
+    }
+
+    private void assertReEncodingsMeetTheBinding(AttestationIssuanceServlet.IssuanceRequest first, String evidenceType)
+            throws Exception {
+        Map<String, Object> workload = workloadOf((String) servlet.issue(first).get("attestation"));
+        String digest = (String) workload.get("instance_attestation_sha256");
+        assertEquals(evidenceType, workload.get("instance_attestation_type"));
+        assertEquals(InstanceIdentity.sha256Hex(first.svid.substring(0, first.svid.lastIndexOf('.'))), digest,
+                "the digest covers the header and payload as signed");
+
+        PublicJsonWebKey thief = ec("thief-re-encoder");
+        List<String> variants = reEncodings(first.svid);
+        for (String variant : variants) {
+            assertTrue(!variant.equals(first.svid) && verifiesUnder(variant, bundleKey), "a variant the verifier accepts: " + variant);
+            AttestationIssuanceServlet.IssuanceRequest stolen = new AttestationIssuanceServlet.IssuanceRequest();
+            stolen.clientId = first.clientId;
+            stolen.instanceKey = publicParams(thief);
+            stolen.svid = variant;
+            stolen.proof = proof(thief, ISSUER, UUID.randomUUID().toString(), null);
+            stolen.requestedDetails = List.of();
+            List<com.pingidentity.ps.oidf.federation.event.FederationEvent> events = eventsWhile(() -> {
+                IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(stolen), variant);
+                assertEquals("instance_attestation_bound", e.error(), variant);
+            });
+            assertEquals(1, events.size(), variant);
+            assertEquals(digest, events.get(0).fields().get("evidence_sha256"), variant);
+            assertEquals(Jwks.thumbprint(publicParams(thief)), events.get(0).fields().get("presented_jkt"));
+            assertEquals(Jwks.thumbprint(publicParams(instanceKey)), events.get(0).fields().get("bound_jkt"));
+        }
+
+        // The rightful key presenting a re-encoding is the same presenter with the same evidence.
+        AttestationIssuanceServlet.IssuanceRequest again = new AttestationIssuanceServlet.IssuanceRequest();
+        again.clientId = first.clientId;
+        again.instanceKey = publicParams(instanceKey);
+        again.svid = variants.get(variants.size() - 1);
+        again.proof = newProof(null);
+        again.requestedDetails = List.of();
+        assertEquals(digest, workloadOf((String) servlet.issue(again).get("attestation")).get("instance_attestation_sha256"));
+    }
+
+    /**
+     * Strings a JWS verifier accepts for one ES256 token, none equal to it: trailing space and newline, a stray
+     * character and padding in the signature, the last signature character with a different unused low bit, and
+     * the ECDSA {@code (r, n-s)} twin.
+     */
+    private static List<String> reEncodings(String compact) {
+        String[] parts = compact.split("\\.");
+        String signingInput = parts[0] + "." + parts[1] + ".";
+        String sig = parts[2];
+        String alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+        char last = sig.charAt(sig.length() - 1);
+        String nonCanonical = sig.substring(0, sig.length() - 1) + alphabet.charAt(alphabet.indexOf(last) ^ 1);
+        byte[] rs = org.jose4j.base64url.Base64Url.decode(sig);
+        java.math.BigInteger n = EllipticCurves.P256.getOrder();
+        java.math.BigInteger s = new java.math.BigInteger(1, java.util.Arrays.copyOfRange(rs, 32, 64));
+        byte[] twinS = n.subtract(s).toByteArray();
+        byte[] twin = java.util.Arrays.copyOf(rs, 64);
+        java.util.Arrays.fill(twin, 32, 64, (byte) 0);
+        int copy = Math.min(32, twinS.length);
+        System.arraycopy(twinS, twinS.length - copy, twin, 64 - copy, copy);
+        return List.of(
+                compact + " ",
+                compact + "\n",
+                signingInput + sig.substring(0, 10) + "!" + sig.substring(10),
+                compact + "==",
+                signingInput + nonCanonical,
+                signingInput + org.jose4j.base64url.Base64Url.encode(twin));
+    }
+
+    private static boolean verifiesUnder(String compact, PublicJsonWebKey key) {
+        try {
+            JsonWebSignature jws = new JsonWebSignature();
+            jws.setCompactSerialization(compact);
+            jws.setKey(key.getPublicKey());
+            return jws.verifySignature();
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
     @Test
     void theSameEvidenceForAnotherClientIsAConflictToo() throws Exception {
         AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
         servlet.issue(first);
         // The same workload, the same key, but the binding store already holds the evidence for another client.
         InMemoryEvidenceBindingStore store = new InMemoryEvidenceBindingStore();
-        store.bind(InstanceIdentity.sha256Hex(first.svid), Jwks.thumbprint(publicParams(instanceKey)), "https://other.example", expOf(first.svid));
+        store.bind(InstanceIdentity.evidenceDigest(first.svid), Jwks.thumbprint(publicParams(instanceKey)), "https://other.example", expOf(first.svid));
         servlet.setEvidenceBindingStore(store);
         AttestationIssuanceServlet.IssuanceRequest again = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
         again.svid = first.svid;
@@ -1337,7 +1470,7 @@ class AttestationIssuanceServletTest {
     @Test
     @Requirement("CAS §4.6")
     void aStoreThatCannotAnswerIsTemporarilyUnavailableNotARefusal() throws Exception {
-        servlet.setEvidenceBindingStore((digest, jkt, client, exp) -> EvidenceBindingStore.Binding.STORE_UNAVAILABLE);
+        servlet.setEvidenceBindingStore((digest, jkt, client, exp) -> EvidenceBindingStore.Result.unavailable());
         IssuanceException binding = assertThrows(IssuanceException.class,
                 () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
         assertEquals("temporarily_unavailable", binding.error());

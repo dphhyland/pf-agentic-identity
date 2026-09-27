@@ -26,12 +26,12 @@ import java.util.Map;
  * it, and the issuance endpoint requires it to equal the key being bound. {@code workloadClaims} are the
  * format-specific members embedded under the minted attestation's {@code workload}.
  *
- * <p>The evidence itself never leaves the attester. What the attestation carries about it is its SHA-256
- * ({@code evidenceDigest}, lower-case hex of the compact form as presented), the evidence type that validated
- * it ({@code evidenceType}, the client's {@code attestation_evidence} id) and its expiry - enough for an
- * auditor holding a captured token to match it, and for the attester to bind the evidence to the first key
- * that presents it, and nothing anyone downstream could present to the attester. 0.3.0 embedded the raw
- * token as {@code workload.svid} and {@code workload.instance_attestation} (finding F-0002).
+ * <p>The evidence itself never leaves the attester. What the attestation carries about it is a digest
+ * ({@code evidenceDigest}, see {@link #evidenceDigest(String)}: the SHA-256 of what the evidence's signature
+ * covers), the evidence type that validated it ({@code evidenceType}, the client's {@code attestation_evidence}
+ * id) and its expiry - enough for an auditor holding a captured token to match it, and for the attester to bind
+ * the evidence to the first key that presents it, and nothing anyone downstream could present to the attester.
+ * 0.3.0 embedded the raw token as {@code workload.svid} and {@code workload.instance_attestation} (finding F-0002).
  * {@code audiences} is the evidence's {@code aud}, kept so the attester can refuse evidence minted for more
  * than one audience when it is told to.
  */
@@ -45,6 +45,7 @@ public final class InstanceIdentity {
     private final String evidenceType;
     private final String evidenceDigest;
     private final List<String> audiences;
+    private final long iatEpochSeconds;
 
     /**
      * An identity with no evidence digest: for a validator that has no evidence token to digest (a device
@@ -57,13 +58,26 @@ public final class InstanceIdentity {
     }
 
     /**
+     * An identity whose evidence carries no {@code iat}, or whose {@code iat} the validator does not report.
+     *
      * @param evidenceType   the evidence type id that validated the instance ({@code spiffe-jwt}, {@code wallet-instance-attestation}, ...)
-     * @param evidenceDigest {@link #sha256Hex} of the evidence as presented, or null when there is none to digest
+     * @param evidenceDigest {@link #evidenceDigest(String)} of the evidence, or null when there is none to digest
      * @param audiences      the evidence's {@code aud} values, in order; empty when unknown
      */
     public InstanceIdentity(String format, String subject, String trustDomain, Map<String, Object> boundKey,
                             Map<String, Object> workloadClaims, long expEpochSeconds, String evidenceType,
                             String evidenceDigest, List<String> audiences) {
+        this(format, subject, trustDomain, boundKey, workloadClaims, expEpochSeconds, evidenceType, evidenceDigest,
+                audiences, 0L);
+    }
+
+    /**
+     * @param iatEpochSeconds the evidence's {@code iat}, epoch seconds, or 0 when it has none; the attester caps the
+     *                        evidence's whole lifetime ({@code exp - iat}) as well as what is left of it
+     */
+    public InstanceIdentity(String format, String subject, String trustDomain, Map<String, Object> boundKey,
+                            Map<String, Object> workloadClaims, long expEpochSeconds, String evidenceType,
+                            String evidenceDigest, List<String> audiences, long iatEpochSeconds) {
         this.format = format;
         this.subject = subject;
         this.trustDomain = trustDomain;
@@ -75,6 +89,7 @@ public final class InstanceIdentity {
         this.evidenceType = evidenceType;
         this.evidenceDigest = evidenceDigest;
         this.audiences = audiences == null ? List.of() : List.copyOf(audiences);
+        this.iatEpochSeconds = iatEpochSeconds;
     }
 
     /**
@@ -94,13 +109,37 @@ public final class InstanceIdentity {
         workload.put("spiffe_id", svid.spiffeId());
         return new InstanceIdentity(SpiffeInstanceAttestationValidator.FORMAT, svid.spiffeId(),
                 svid.trustDomain(), null, workload, svid.expEpochSeconds(), evidenceType,
-                sha256Hex(svid.raw()), svid.audiences());
+                evidenceDigest(svid.raw()), svid.audiences(), svid.iatEpochSeconds());
     }
 
-    /** SHA-256 of the UTF-8 bytes of {@code evidence}, lower-case hex - what {@code sha256sum} prints for it. */
-    public static String sha256Hex(String evidence) {
+    /**
+     * The digest an attestation carries for its evidence, and the key the evidence is bound under: the SHA-256,
+     * lower-case hex, of the evidence's JWS Signing Input (RFC 7515 §2) - its first two segments, header '.'
+     * payload, exactly the bytes its signature covers. Call it only on a compact JWS whose signature has verified.
+     *
+     * <p>The signature segment is left out on purpose. A verifier accepts many strings for one signed token: with
+     * trailing whitespace, with padding or stray characters in the signature, with non-canonical trailing bits,
+     * and for ECDSA the {@code (r, n-s)} twin. A digest over the whole string would give each of those a binding
+     * of its own, so a thief could re-encode stolen evidence and present it as new. Nothing in the first two
+     * segments can change without breaking the signature. Two tokens with the same header and payload are
+     * therefore the same evidence, whatever their signatures. An auditor holding a captured token computes the
+     * same value with {@code printf %s "${token%.*}" | sha256sum}.
+     *
+     * @throws IllegalArgumentException when {@code compactJws} has fewer than two '.' separators
+     */
+    public static String evidenceDigest(String compactJws) {
+        int headerEnd = compactJws.indexOf('.');
+        int payloadEnd = headerEnd < 0 ? -1 : compactJws.indexOf('.', headerEnd + 1);
+        if (payloadEnd < 0) {
+            throw new IllegalArgumentException("evidence is not a compact JWS: it has fewer than three segments");
+        }
+        return sha256Hex(compactJws.substring(0, payloadEnd));
+    }
+
+    /** SHA-256 of the UTF-8 bytes of {@code value}, lower-case hex - what {@code sha256sum} prints for it. */
+    public static String sha256Hex(String value) {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(evidence.getBytes(StandardCharsets.UTF_8));
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
             StringBuilder hex = new StringBuilder(digest.length * 2);
             for (byte b : digest) {
                 hex.append(Character.forDigit((b >> 4) & 0xF, 16)).append(Character.forDigit(b & 0xF, 16));
@@ -150,7 +189,7 @@ public final class InstanceIdentity {
         return this.evidenceType;
     }
 
-    /** SHA-256 of the evidence as presented, lower-case hex; null when the format has no single token to digest. */
+    /** {@link #evidenceDigest(String)} of the evidence; null when the format has no single token to digest. */
     public String evidenceDigest() {
         return this.evidenceDigest;
     }
@@ -158,5 +197,10 @@ public final class InstanceIdentity {
     /** The evidence's {@code aud} values; empty when unknown. */
     public List<String> audiences() {
         return this.audiences;
+    }
+
+    /** The evidence's {@code iat}, epoch seconds; 0 when it has none or the validator does not report it. */
+    public long iatEpochSeconds() {
+        return this.iatEpochSeconds;
     }
 }

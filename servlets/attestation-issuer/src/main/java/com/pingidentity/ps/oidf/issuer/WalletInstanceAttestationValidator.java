@@ -213,7 +213,18 @@ public final class WalletInstanceAttestationValidator implements InstanceAttesta
         workload.put("wallet_instance", subject);
         // The WIA itself stays here: the attestation carries its digest, type and expiry (F-0002).
         return new InstanceIdentity(FORMAT, subject, provider, boundKey, workload, exp,
-                AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, InstanceIdentity.sha256Hex(presented), aud);
+                AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, InstanceIdentity.evidenceDigest(presented), aud,
+                issuedAt(claims));
+    }
+
+    /** The WIA's {@code iat}, or 0 when it has none; a malformed one is treated as none, as {@code exp} bounds it anyway. */
+    static long issuedAt(JwtClaims claims) {
+        try {
+            NumericDate iat = claims.getIssuedAt();
+            return iat == null ? 0L : iat.getValue();
+        } catch (Exception e) {
+            return 0L;
+        }
     }
 
     @SuppressWarnings("unchecked")
