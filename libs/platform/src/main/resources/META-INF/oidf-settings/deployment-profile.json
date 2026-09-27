@@ -1,0 +1,37 @@
+{
+  "format": 1,
+  "component": "deployment-profile",
+  "module": "libs/platform",
+  "package": "com.pingidentity.ps.oidf.platform.profile",
+  "families": ["OIDF_DEPLOYMENT_", "OIDF_ACCEPTED_"],
+  "settings": [
+    {
+      "name": "OIDF_DEPLOYMENT_PROFILE",
+      "kind": "env",
+      "type": "choice",
+      "default": "production",
+      "choices": ["development", "production"],
+      "description": "The profile this process runs under: development, or production, which is also what unset means",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but development, in any case and trimmed, runs as production; rar-model alone reads development only when it is written exactly so (F-0160)"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_DEPLOYMENT_PROFILE"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ACCEPTED_RISKS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The risky switches this deployment accepts in production, comma-separated, each a risk id alone or with the last day it holds (expiry-log-mode@2026-12-31, UTC)",
+      "when_wrong": {"effect": "not-checked", "detail": "An entry that is empty, not a risk this release knows, dated wrongly or past its date, repeated, or without the date a dated risk needs is not accepted, and the start-up audit lists it; nothing refuses a deployment for it until PR-5"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_ACCEPTED_RISKS"}],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

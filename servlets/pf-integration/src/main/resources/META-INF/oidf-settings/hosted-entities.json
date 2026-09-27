@@ -1,0 +1,138 @@
+{
+  "format": 1,
+  "component": "hosted-entities",
+  "module": "servlets/pf-integration",
+  "package": "com.pingidentity.ps.oidf.servlet.trustanchor",
+  "families": ["OIDF_AUTHORITY_"],
+  "settings": [
+    {
+      "name": "OIDF_AUTHORITY_ENTITY_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "This authority's Entity Identifier; hosted agents are <id>/federation/agents/<slug> and resources <id>/federation/resources/<slug>; unset, it hosts nothing",
+      "when_wrong": {"effect": "first-request", "detail": "Unset: /federation/agents fails on its first request"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "authorityEntityId"},
+        {"from": "system-property", "name": "oidf.authority.entity_id"},
+        {"from": "env", "name": "OIDF_AUTHORITY_ENTITY_ID"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTHORITY_ADMIN_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token for enrolment, /federation/admin/* and /federation/registered-clients, compared in constant time; unset, every admin request is a 401",
+      "when_wrong": {"effect": "per-request", "detail": "Every admin request is a 401"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "adminToken"},
+        {"from": "system-property", "name": "oidf.authority.admin_token"},
+        {"from": "env", "name": "OIDF_AUTHORITY_ADMIN_TOKEN"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTHORITY_JDBC_URL",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A direct database for hosted agents, Trust Mark grants and the key history, for development; wins over the data store",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Driver missing: hosting is not configured, and with Trust Mark types or key history on PingFederate does not start. Wrong credentials: first use"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "jdbcUrl"},
+        {"from": "system-property", "name": "oidf.authority.jdbc.url"},
+        {"from": "env", "name": "OIDF_AUTHORITY_JDBC_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTHORITY_JDBC_USERNAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The user for OIDF_AUTHORITY_JDBC_URL",
+      "when_wrong": {"effect": "first-request", "detail": "Wrong: the first use of the store fails"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "init-param", "name": "jdbcUsername"},
+        {"from": "system-property", "name": "oidf.authority.jdbc.username"},
+        {"from": "env", "name": "OIDF_AUTHORITY_JDBC_USERNAME"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTHORITY_JDBC_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The password for OIDF_AUTHORITY_JDBC_URL",
+      "when_wrong": {"effect": "first-request", "detail": "Wrong: the first use of the store fails"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "jdbcPassword"},
+        {"from": "system-property", "name": "oidf.authority.jdbc.password"},
+        {"from": "env", "name": "OIDF_AUTHORITY_JDBC_PASSWORD"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTHORITY_DATA_STORE_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A PingFederate JDBC data store whose pool the authority's stores use; with neither this nor a JDBC URL everything is in memory, with a warning, and gone at the next restart",
+      "when_wrong": {"effect": "first-request", "detail": "An unknown id: the first use of the store fails"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "dataStoreId"},
+        {"from": "system-property", "name": "oidf.authority.data_store_id"},
+        {"from": "env", "name": "OIDF_AUTHORITY_DATA_STORE_ID"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "openBaoUrl",
+      "kind": "init-param",
+      "type": "string",
+      "default": null,
+      "description": "OpenBao's address for hosted agents' signing keys, on this servlet; unset, OIDF_OPENBAO_URL and its fallbacks (hosted-entity-signing)",
+      "when_wrong": {"effect": "per-request", "detail": "Wrong: a hosted agent's configuration answers 500"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "openBaoUrl"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "openBaoToken",
+      "kind": "init-param",
+      "type": "secret",
+      "default": null,
+      "description": "The OpenBao token, on this servlet; unset, OIDF_OPENBAO_TOKEN and its fallbacks",
+      "when_wrong": {"effect": "per-request", "detail": "Refused: a hosted agent's configuration answers 500"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "openBaoToken"}],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

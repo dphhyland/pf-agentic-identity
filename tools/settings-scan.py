@@ -11,11 +11,18 @@ src/main/resources/META-INF/oidf-settings/<component>.json in the module that re
 <modules>, and every catalogue there, and checks both ways:
 
   code to catalogue    every name a module reads is declared by some catalogue, in the kind it is read as - unless
-                       the module is exempt (below) or the name is in NOT_SETTINGS
+                       the module is exempt (below) or the name is in NOT_SETTINGS. An init-param or a plugin field
+                       must be declared by a catalogue of the module that reads it: it belongs to that module's
+                       servlets or plugin, and three servlets read three different `signingAlgorithm`s. An
+                       environment variable, a system property and a client's extended property are one per
+                       process, so any catalogue may declare them
   catalogue to code    every name a catalogue declares is read somewhere in the reactor, and at least once in the
-                       catalogue's own module; the catalogue's package has at least one of its reads
-  once                 a name is declared by one catalogue only, whichever modules read it: the component that
-                       owns it catalogues it, and the others read it under the same name
+                       catalogue's own module; the catalogue's package (or a package under it) has at least one of
+                       its reads. A removed name and a secret's _FILE variant are declared, and need no read: the
+                       resolver in platform.settings reads them
+  once                 a name is declared by one catalogue only (an init-param or plugin field, by one catalogue
+                       of its module), whichever modules read it: the component that owns it catalogues it, and
+                       the others read it under the same name
   well formed          each catalogue parses, names its own module and component, and has the members and shapes
                        the loader in platform.settings requires (the loader is the full check, run by ST-4's
                        generator and at run time; this is the part the scan needs to trust the names)
