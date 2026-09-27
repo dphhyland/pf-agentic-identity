@@ -6,7 +6,7 @@
   `authorization_details` field with `libs/rar-model`, a refused request is 400 `invalid_authorization_details`,
   and an instance ceiling keeps what its client's constrains. Closes [F-0034](../../findings/F-0034.yaml) and
   [F-0038](../../findings/F-0038.yaml); [F-0001](../../findings/F-0001.yaml) stays open until S1c; adds
-  [F-0100](../../findings/F-0100.yaml) (#37).
+  [F-0100](../../findings/F-0100.yaml) and [U-0110](../../findings/U-0110.yaml) (#37).
 
 ## Before you deploy
 
@@ -127,5 +127,7 @@ Residual risk:
 - A refused request is logged, not emitted as an audit event (plan item O-2), and the fingerprint is not in a
   health endpoint yet (O-4).
 - As in 0.3.0, the proof's `jti` is spent before the ceiling check, so a refused request needs a fresh proof.
+- The issuance criterion's check on PingFederate's engine classloader was run in unit tests, not on a booted server
+  ([U-0110](../../findings/U-0110.yaml)).
 - A models document that cannot be read takes `pf-runtime.war` down when attestation authentication is configured,
   as a broken bridge configuration does, until plan item S-9 lets the component refuse only its own traffic.
