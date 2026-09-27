@@ -92,7 +92,7 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`HostedEntityRegistry`** — `InMemoryHostedEntityRegistry` (tests, single node) or
   **`JdbcHostedEntityRegistry`** over `db/migration/V100__hosted_entity.sql` and `V101__hosted_entity_actor.sql`:
   `hosted_entity` plus an append-only `hosted_entity_audit_log` that records who made each change, written in the
-  same transaction as the change; JSON stored as text so Postgres and H2 run identical SQL.
+  same transaction as the change; JSON stored as text rather than as a database-specific JSON type.
   Numbered V100 so it never collides with `agent-registry`'s V200 on the shared classpath (both land on
   `servlets/attestation-issuer`); `device-instance` uses a separate, non-Flyway IDM/SCIM migration
   scheme, so it isn't part of this numbering at all.
@@ -193,7 +193,8 @@ in that order; the same names `attestation-issuer` uses, so one vault serves bot
 mvn -pl libs/openid-federation -am package     # or `mvn package` at the repo root; tests run with the build
 ```
 
-JDBC tests run the shipped migration against H2 in PostgreSQL mode. `LiveChainValidationTest` is
+The JDBC tests run the federation family's shipped migrations (V100-V103) on PostgreSQL, in a database of
+their own (`libs/testkit`; see [CONTRIBUTING.md](../../CONTRIBUTING.md#tests-that-need-postgres)). `LiveChainValidationTest` is
 skipped unless a captured chain is present at `/tmp/live-chain`. Versions come from `bom/pom.xml`.
 Consumers, by pom: `servlets/pf-integration`, `servlets/attestation-issuer`. Ships into PingFederate via
 `build/pingfederate/stage-modules.sh` (pf-runtime.war merge) and inside `oidf.war`
