@@ -9,8 +9,8 @@ prs: []
 verification: ''
 target_release: 0.6.0
 notes: >
-  Found by ST3B (2026-09-28). The RAR plugin's "Deny unless PERMIT" field went in 0.4.0 (S2a; docs/releases/0.4.0.md
-  item 23), and its catalogue was to record it as a removed name. platform.settings' loader takes a removed entry
+  Found by ST3B (2026-09-28). The RAR plugin's "Deny unless PERMIT" field went in 0.4.0 (S2a; the item "'Deny unless PERMIT' is gone" in
+  docs/releases/0.4.0.md), and its catalogue was to record it as a removed name. platform.settings' loader takes a removed entry
   only from env, system-property or init-param (Catalogue's reader refuses any other "from"), and a removed
   name is refused when it is set - but the plugin deliberately ignores a stored value under the old field, so that
   a 0.3.0 archive still imports and decides (verified on the rig, 2026-09-27, per AttestationAwareRarProcessor's

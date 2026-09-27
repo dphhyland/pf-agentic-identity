@@ -131,7 +131,7 @@
       "default": "spiffe-jwt",
       "choices": ["spiffe-jwt", "gke-sa-token", "gcp-id-token", "eks-sa-token", "aws-sts-web-identity", "aks-sa-token", "azure-mi-token", "wallet-instance-attestation"],
       "description": "The evidence type the client's instances present",
-      "when_wrong": {"effect": "per-request", "detail": "Not one of the types, spelt exactly: the client's configuration is refused (invalid_client) and the attester skips the client with a warning"},
+      "when_wrong": {"effect": "per-request", "detail": "Not one of the types, spelt exactly and in lower case (the format's choice reading ignores case; this reader does not): the client's configuration is refused (invalid_client) and the attester skips the client with a warning"},
       "profile": "any",
       "security": true,
       "sources": [],

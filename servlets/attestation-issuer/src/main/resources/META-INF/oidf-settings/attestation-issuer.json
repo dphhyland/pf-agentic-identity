@@ -24,7 +24,7 @@
       "type": "words",
       "default": null,
       "description": "Claims every instance-key proof must carry besides the protocol's, comma-separated: enforced by the issuance servlet and advertised as custom_claims_required; the init-param customClaimsRequired on each of those two servlets wins over the system property and the environment",
-      "when_wrong": {"effect": "per-request", "detail": "Read as given, split at commas; a claim a client does not send refuses its every issuance"},
+      "when_wrong": {"effect": "per-request", "detail": "Read as given, split at commas only (the format's words reading also splits at spaces and refuses a list of nothing, which this reader does not); a claim a client does not send refuses its every issuance"},
       "profile": "any",
       "security": true,
       "sources": [
@@ -41,7 +41,7 @@
       "type": "words",
       "default": null,
       "description": "Claims the client attestation service document advertises as custom_claims_supported, comma-separated; advertised only; the init-param customClaimsSupported on the metadata servlet wins over the system property and the environment",
-      "when_wrong": {"effect": "not-checked", "detail": "Read as given, split at commas; nothing enforces it"},
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given, split at commas only (the format's words reading also splits at spaces and refuses a list of nothing, which this reader does not); nothing enforces it"},
       "profile": "any",
       "security": false,
       "sources": [
@@ -71,7 +71,7 @@
       "type": "words",
       "default": "RS256,PS256,ES256",
       "description": "The algorithms the client attestation service document advertises as attestation_signing_alg_values_supported, comma-separated; on the metadata servlet, advertised only",
-      "when_wrong": {"effect": "not-checked", "detail": "Read as given, split at commas; blank is the default, and nothing checks it against the keys attestations are signed with"},
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given, split at commas only (the format's words reading also splits at spaces); blank, or a list of nothing such as \", ,\", is the default, and nothing checks it against the keys attestations are signed with"},
       "profile": "any",
       "security": false,
       "sources": [{"from": "init-param", "name": "attestationSigningAlgValuesSupported"}],

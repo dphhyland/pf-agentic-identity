@@ -8,7 +8,7 @@
     {
       "name": "JDBC URL",
       "kind": "plugin-field",
-      "type": "string",
+      "type": "secret",
       "default": null,
       "description": "The JDBC URL of the Identity Object Model database holding the agent instance registry, the same one device-enrolment's IDM_DATABASE_URL names, credentials included; a PingFederate data store replaces it (plan item PR-3) (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
       "when_wrong": {"effect": "per-request", "detail": "Wrong or unreachable: every lookup fails and the issuance is refused. Another database: every lookup resolves to an unknown instance"},
