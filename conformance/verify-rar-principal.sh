@@ -21,9 +21,14 @@
 #
 # Env:
 #   RAR_PLUGIN_JAR   the jar to lend the rig (default: the reactor's plugins/rar-paz-plugin/target build)
+#   OLD_PLUGIN_JAR   an older release's jar (gh release download v0.3.0 -p 'pf.plugins.pf-rar-paz-plugin.jar'):
+#                    the rig boots on it, an instance is created under it, the archive exported, the container
+#                    restarted on RAR_PLUGIN_JAR and the archive imported - the upgrade rehearsal, then the flows
 #   SKIP_UP=1        the rig is already up on the slot (an earlier run with KEEP_RIG=1)
 #   SKIP_AUTHOR=1 / SKIP_BUILD=1   passed through to up.sh
 #   KEEP_RIG=1       leave the rig running (the stub is still stopped, the configuration still removed)
+#   ONLY_CONFIGURE=1 configure the rig and stop there, leaving the stub and the configuration in place for
+#                    driving a flow by hand (SKIP_UP=1 KEEP_RIG=1 ./verify-rar-principal.sh afterwards cleans up)
 #   OUT_DIR          where the stub's request log and the PF log excerpt land (default conformance/.rar-principal)
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
@@ -48,8 +53,9 @@ done
 mkdir -p "$OUT"; : > "$OUT/pdp-requests.jsonl"; : > "$OUT/summary.txt"
 
 # ── the rig ──────────────────────────────────────────────────────────────────────────────────────
+# With OLD_PLUGIN_JAR, the rig comes up on that jar first (the rehearsal below restarts it on RAR_PLUGIN_JAR).
 if [[ "${SKIP_UP:-0}" != 1 ]]; then
-  ( cd "$HERE" && ./up.sh )
+  ( cd "$HERE" && RAR_PLUGIN_JAR="${OLD_PLUGIN_JAR:-$RAR_PLUGIN_JAR}" ./up.sh )
 fi
 PW="$(sed -n 's/^PING_IDENTITY_PASSWORD=//p' "$PF_AUTHOR_ENV")"
 [[ -n "$PW" ]] || { echo "ERROR: no PING_IDENTITY_PASSWORD in $PF_AUTHOR_ENV" >&2; exit 1; }
@@ -68,25 +74,6 @@ need() {  # need <expected-status> <what>  (after a pf call)
   [[ "$PF_STATUS" == "$1" ]] || { echo "ERROR: $2 answered HTTP $PF_STATUS (wanted $1)" >&2; exit 1; }
 }
 
-# ── the stub PDP on the host ─────────────────────────────────────────────────────────────────────
-python3 "$HERE/rar-principal/stub-pdp.py" "$STUB_PORT" "$OUT/pdp-requests.jsonl" &
-STUB_PID=$!
-cleanup() {
-  set +e
-  echo; echo "── tearing down ──"
-  pf DELETE "/oauth/clients/$CLIENT_ID" >/dev/null
-  for t in "${TYPES[@]}"; do pf DELETE "/oauth/authorizationDetailTypes/rarProbe_$t" >/dev/null; done
-  pf DELETE "/oauth/authorizationDetailProcessors/$INSTANCE_ID" >/dev/null
-  kill "$STUB_PID" 2>/dev/null
-  if [[ "${KEEP_RIG:-0}" != 1 ]]; then
-    ( cd "$HERE" && docker compose down --rmi local --volumes --remove-orphans ) >/dev/null 2>&1
-    docker rm -f "${PF_AUTHOR_NAME:-$PF_RIG_NAME-author}" >/dev/null 2>&1
-    echo "rig $PF_RIG_NAME is down"
-  fi
-}
-trap cleanup EXIT
-sleep 1
-
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────
 DETAIL_SALES='[{"type":"sales_agent","sales_regions":["EMEA"]}]'
 DETAIL_PAYMENT='[{"type":"payment_initiation","amount":"42.00","currency":"AUD","creditorName":"Acme"}]'
@@ -96,13 +83,21 @@ token() {  # token <form fields...>  -> the token endpoint's JSON; the status is
   TOKEN_STATUS="$(curl -sk -o "$tmp" -w '%{http_code}' -u "$CLIENT_ID:$CLIENT_SECRET" "$@" "$PF/as/token.oauth2")"
   cat "$tmp"; rm -f "$tmp"
 }
+jwt_sub() {  # the sub of a JWT, or "?" - the payload is base64url without padding, which base64 -d refuses
+  python3 -c 'import base64,json,sys
+try:
+    p = sys.argv[1].split(".")[1]; print(json.loads(base64.urlsafe_b64decode(p + "=" * (-len(p) % 4))).get("sub", "?"))
+except Exception: print("?")' "$1"
+}
 pdp_lines() { wc -l < "$OUT/pdp-requests.jsonl" | tr -d ' '; }
 pdp_since() {  # pdp_since <line-count>  -> the stub's requests after that line, one per line
   tail -n +"$(( $1 + 1 ))" "$OUT/pdp-requests.jsonl"
 }
-pf_log_lines() { docker logs "$PF_RIG_NAME" 2>&1 | grep -c 'RAR governance: type=' || true; }
+# The plugin's INFO lines, read from server.log itself: `docker logs` tails that file and lags it by seconds.
+pf_log_lines() { docker exec "$PF_RIG_NAME" grep -c 'RAR governance: type=' /opt/out/instance/log/server.log 2>/dev/null || true; }
 pf_log_since() {  # the plugin's INFO lines after the n-th
-  docker logs "$PF_RIG_NAME" 2>&1 | grep 'RAR governance: type=' | tail -n +"$(( $1 + 1 ))" | sed 's/.*RAR governance: //'
+  { docker exec "$PF_RIG_NAME" grep 'RAR governance: type=' /opt/out/instance/log/server.log 2>/dev/null || true; } \
+    | tail -n +"$(( $1 + 1 ))" | sed 's/.*RAR governance: //'
 }
 USER_HASH="$(sha16 suite-user)"; CLIENT_HASH="$(sha16 "$CLIENT_ID")"
 name_key() {  # name_key <sha256:16hex or -> -> what that hash is, if this run knows it
@@ -115,6 +110,7 @@ name_key() {  # name_key <sha256:16hex or -> -> what that hash is, if this run k
 }
 report() {  # report <flow> <pdp-line-count-before> <pf-log-count-before> <what happened at the endpoint>
   local flow="$1" pdp_before="$2" log_before="$3" outcome="$4" asked line
+  sleep 2   # the plugin logs before PingFederate answers, but the file is flushed on its own schedule
   echo; echo "── $flow: $outcome"
   while IFS= read -r line; do
     [[ -n "$line" ]] || continue
@@ -131,7 +127,7 @@ report() {  # report <flow> <pdp-line-count-before> <pf-log-count-before> <what 
   else
     echo "   PDP was not asked"
   fi
-  { echo "$flow: $outcome"; pf_log_since "$log_before" | sed 's/^/  /'; echo "  pdp: ${asked:-not asked}"; } >> "$OUT/summary.txt"
+  { echo "$flow: $outcome"; pf_log_since "$log_before" | sed 's/^/  /' || true; echo "  pdp: ${asked:-not asked}"; } >> "$OUT/summary.txt" || true
 }
 
 configure() {
@@ -160,6 +156,13 @@ configure() {
     processorMappings: [{subjectTokenType: "urn:ietf:params:oauth:token-type:access_token", subjectTokenProcessor: {id: "rarProbeBearer"},
       attributeContractFulfillment: {subject: {source: {type: "SUBJECT_TOKEN"}, value: "client_id"}}}]}')" >/dev/null
   need 201 "creating the token exchange processor policy"
+  # ...and the access token mapping the exchange issues through, or PingFederate refuses the exchange after
+  # the plugin has been asked ("Could not find a Access Token Mapping for the selected Policy Processor").
+  pf POST /oauth/accessTokenMappings "$(jq -cn '{context: {type: "TOKEN_EXCHANGE_PROCESSOR_POLICY", contextRef: {id: "rarProbeExchange"}},
+    accessTokenManagerRef: {id: "conformanceJwt"},
+    attributeContractFulfillment: {sub: {source: {type: "TOKEN_EXCHANGE_PROCESSOR_POLICY"}, value: "subject"}}}')" > "$OUT/exchange-mapping.json"
+  need 201 "creating the token exchange access token mapping"
+  EXCHANGE_MAPPING_ID="$(jq -r '.id // empty' "$OUT/exchange-mapping.json")"
   pf POST /oauth/clients "$(jq -cn --arg c "$CLIENT_ID" --arg s "$CLIENT_SECRET" '{
     clientId: $c, name: "RAR principal probe", enabled: true,
     grantTypes: ["CLIENT_CREDENTIALS", "AUTHORIZATION_CODE", "REFRESH_TOKEN", "CIBA", "TOKEN_EXCHANGE"],
@@ -180,6 +183,7 @@ unconfigure() {
   pf DELETE "/oauth/clients/$CLIENT_ID" >/dev/null
   for t in "${TYPES[@]}"; do pf DELETE "/oauth/authorizationDetailTypes/rarProbe_$t" >/dev/null; done
   pf DELETE "/oauth/authorizationDetailProcessors/$INSTANCE_ID" >/dev/null
+  [[ -n "${EXCHANGE_MAPPING_ID:-}" ]] && pf DELETE "/oauth/accessTokenMappings/$EXCHANGE_MAPPING_ID" >/dev/null
   pf DELETE /oauth/tokenExchange/processor/policies/rarProbeExchange >/dev/null
   pf DELETE /idp/tokenProcessors/rarProbeBearer >/dev/null
 }
@@ -195,11 +199,12 @@ wait_for_pf() {
 }
 
 # ── the stub PDP on the host ─────────────────────────────────────────────────────────────────────
-python3 "$HERE/rar-principal/stub-pdp.py" "$STUB_PORT" "$OUT/pdp-requests.jsonl" &
+python3 "$HERE/rar-principal/stub-pdp.py" "$STUB_PORT" "$OUT/pdp-requests.jsonl" > "$OUT/stub-pdp.log" 2>&1 &
 STUB_PID=$!
 cleanup() {
   set +e
   echo; echo "── tearing down ──"
+  [[ -n "${ADAPTER_ORIGINAL:-}" ]] && restore_adapter
   unconfigure
   kill "$STUB_PID" 2>/dev/null
   if [[ "${KEEP_RIG:-0}" != 1 ]]; then
@@ -240,6 +245,13 @@ else
   configure
 fi
 
+if [[ "${ONLY_CONFIGURE:-0}" == 1 ]]; then
+  trap - EXIT
+  echo "configured and left in place: stub PDP pid $STUB_PID on $STUB_PORT, client secret in $OUT/client-secret"
+  printf '%s\n' "$CLIENT_SECRET" > "$OUT/client-secret"
+  exit 0
+fi
+
 # ── the flows ────────────────────────────────────────────────────────────────────────────────────
 # 1. client credentials: the user key IS the client id; sales_agent reaches the PDP as principal_source=client,
 #    payment_initiation is refused before any PDP call (it needs a person).
@@ -260,10 +272,10 @@ if [[ -n "$AUTH_REQ_ID" ]]; then
   curl -sk -o /dev/null -X POST "$PF/ciba-sim/decision?auth_req_id=$AUTH_REQ_ID&action=allow"
   for _ in $(seq 1 10); do
     sleep 2
-    POLL="$(token -d grant_type=urn:openid:params:grant-type:ciba -d "auth_req_id=$AUTH_REQ_ID")"
+    # Not in a command substitution: TOKEN_STATUS must reach this loop, and the first 200 redeems the id.
+    token -d grant_type=urn:openid:params:grant-type:ciba -d "auth_req_id=$AUTH_REQ_ID" > "$OUT/ciba-token.json"
     if [[ "$TOKEN_STATUS" == 200 ]]; then break; fi
   done
-  echo "$POLL" > "$OUT/ciba-token.json"
   REFRESH_TOKEN="$(jq -r '.refresh_token // empty' "$OUT/ciba-token.json")"
   ACCESS_TOKEN="$(jq -r '.access_token // empty' "$OUT/ciba-token.json")"
   echo "   CIBA token poll: HTTP $TOKEN_STATUS, refresh token $([[ -n "$REFRESH_TOKEN" ]] && echo issued || echo 'not issued')"
@@ -285,12 +297,15 @@ else
 fi
 
 # 4. token exchange: PingFederate passes no user key; the plugin has no verified subject-token subject to
-#    read (the filter does not publish one yet), so the principal is none.
+#    read (the filter does not publish one yet), so the principal is none. The subject token is the CIBA
+#    access token, or failing that the client-credentials one: the plugin is asked before the subject token is
+#    validated, so which it is does not change what this shows.
+[[ -n "$ACCESS_TOKEN" ]] || ACCESS_TOKEN="$(jq -r '.access_token // empty' "$OUT/cc.json")"
 if [[ -n "$ACCESS_TOKEN" ]]; then
   p="$(pdp_lines)"; l="$(pf_log_lines)"
   token -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange -d "subject_token=$ACCESS_TOKEN" \
     -d subject_token_type=urn:ietf:params:oauth:token-type:access_token --data-urlencode "authorization_details=$DETAIL_SALES" > "$OUT/exchange.json"
-  report "token exchange, sales_agent" "$p" "$l" "token endpoint HTTP $TOKEN_STATUS $(jq -c 'del(.access_token)' "$OUT/exchange.json" | head -c 160)"
+  report "token exchange, sales_agent" "$p" "$l" "token endpoint HTTP $TOKEN_STATUS $(jq -c 'del(.access_token)' "$OUT/exchange.json" | head -c 160), token sub=$(jwt_sub "$(jq -r '.access_token // empty' "$OUT/exchange.json")")"
   p="$(pdp_lines)"; l="$(pf_log_lines)"
   token -d grant_type=urn:ietf:params:oauth:grant-type:token-exchange -d "subject_token=$ACCESS_TOKEN" \
     -d subject_token_type=urn:ietf:params:oauth:token-type:access_token --data-urlencode "authorization_details=$DETAIL_PAYMENT" > "$OUT/exchange-payment.json"
@@ -300,32 +315,50 @@ else
 fi
 
 # 5. authorization code, headless: PAR, then the HTML form login with the rig's test user, consent bypassed.
-p="$(pdp_lines)"; l="$(pf_log_lines)"
-JAR="$(mktemp)"
-PAR="$(curl -sk -u "$CLIENT_ID:$CLIENT_SECRET" -d response_type=code -d "redirect_uri=https://localhost/rar-probe/cb" -d scope=openid \
-  --data-urlencode "authorization_details=$DETAIL_PAYMENT" "$PF/as/par.oauth2")"
-REQUEST_URI="$(jq -r '.request_uri // empty' <<<"$PAR")"
-CODE=""
-if [[ -n "$REQUEST_URI" ]]; then
-  # shellcheck disable=SC1091
-  . "$HERE/secrets.env"
-  PAGE="$(curl -sk -c "$JAR" -b "$JAR" -L "$PF/as/authorization.oauth2?client_id=$CLIENT_ID&request_uri=$REQUEST_URI" -o "$OUT/login.html" -w '%{url_effective}')"
-  ACTION="$(grep -o 'action="[^"]*"' "$OUT/login.html" | head -1 | sed 's/action="//; s/"$//' | sed 's/&amp;/\&/g')"
-  [[ "$ACTION" == http* ]] || ACTION="$PF$ACTION"
-  [[ -n "$ACTION" && "$ACTION" != "$PF" ]] || ACTION="$PAGE"
-  LOCATION="$(curl -sk -c "$JAR" -b "$JAR" -o "$OUT/login-post.html" -w '%{redirect_url}' -d pf.username=suite-user --data-urlencode "pf.pass=$TF_VAR_test_user_password" \
-    -d pf.ok=clicked -d pf.cancel= "$ACTION")"
-  for _ in 1 2 3; do   # follow PF's own redirects until the callback, without following the callback itself
-    [[ "$LOCATION" == "$PF"* ]] || break
-    LOCATION="$(curl -sk -c "$JAR" -b "$JAR" -o /dev/null -w '%{redirect_url}' "$LOCATION")"
-  done
-  CODE="$(sed -n 's/.*[?&]code=\([^&]*\).*/\1/p' <<<"$LOCATION")"
-fi
-if [[ -n "$CODE" ]]; then
-  token -d grant_type=authorization_code -d "code=$CODE" -d "redirect_uri=https://localhost/rar-probe/cb" > "$OUT/code-token.json"
-  report "authorization code (PAR, form login, consent bypassed), payment_initiation" "$p" "$l" "callback reached with a code; token endpoint HTTP $TOKEN_STATUS"
-else
-  report "authorization code (PAR, form login)" "$p" "$l" "could not drive the flow to a code headlessly (last location: ${LOCATION:-none}; PAR: $(head -c 120 <<<"$PAR"))"
-fi
-rm -f "$JAR"
+#    PingFederate 13.1.3 asks the plugin once in this flow, at the resume after authentication
+#    (OAuthResumableRequestHandlerBase; path /as/<id>/resume/as/authorization.ping), with the authentication
+#    result's "subject" attribute as the user key - and the rig's login adapter has no such attribute, so the
+#    plugin knows nobody and refuses a payment. Driven twice: as the rig ships, and with "subject" mapped on
+#    the adapter by expression, which is what a deployment does to give the plugin a principal here.
+code_flow() {  # code_flow <label> <authorization_details json>
+  local label="$1" details="$2" p l jar par request_uri page action location code
+  p="$(pdp_lines)"; l="$(pf_log_lines)"
+  jar="$(mktemp)"
+  par="$(curl -sk -u "$CLIENT_ID:$CLIENT_SECRET" -d response_type=code -d "redirect_uri=https://localhost/rar-probe/cb" -d scope=openid \
+    --data-urlencode "authorization_details=$details" "$PF/as/par.oauth2")"
+  request_uri="$(jq -r '.request_uri // empty' <<<"$par")"
+  code=""; location=""
+  if [[ -n "$request_uri" ]]; then
+    # shellcheck disable=SC1091
+    . "$HERE/secrets.env"
+    curl -sk -c "$jar" -b "$jar" -L -o "$OUT/login.html" "$PF/as/authorization.oauth2?client_id=$CLIENT_ID&request_uri=$request_uri"
+    action="$(grep -o 'action="[^"]*"' "$OUT/login.html" | head -1 | sed 's/action="//; s/"$//' | sed 's/&amp;/\&/g')"
+    [[ "$action" == http* ]] || action="$PF$action"
+    location="$(curl -sk -c "$jar" -b "$jar" -o "$OUT/login-post.html" -w '%{redirect_url}' -d pf.username=suite-user \
+      --data-urlencode "pf.pass=$TF_VAR_test_user_password" -d pf.ok=clicked -d pf.cancel= -d pf.adapterId=conformanceLogin "$action")"
+    for _ in 1 2 3; do   # follow PingFederate's own redirects, never the callback
+      [[ "$location" == "$PF"* ]] || break
+      location="$(curl -sk -c "$jar" -b "$jar" -o /dev/null -w '%{redirect_url}' "$location")"
+    done
+    code="$(sed -n 's/.*[?&]code=\([^&]*\).*/\1/p' <<<"$location")"
+  fi
+  rm -f "$jar"
+  if [[ -n "$code" ]]; then
+    token -d grant_type=authorization_code -d "code=$code" -d "redirect_uri=https://localhost/rar-probe/cb" > "$OUT/code-token.json"
+    report "authorization code, $label" "$p" "$l" "callback reached with a code; token endpoint HTTP $TOKEN_STATUS, token sub=$(jwt_sub "$(jq -r '.access_token // empty' "$OUT/code-token.json")")"
+  else
+    report "authorization code, $label" "$p" "$l" "no code (last location: $(sed 's/\(error_description=[^&]*\).*/\1/' <<<"${location:-none}"); PAR: $(head -c 100 <<<"$par"))"
+  fi
+}
+ADAPTER_ORIGINAL="$(pf GET /idp/adapters/conformanceLogin | jq -c 'del(.attributeContract.extendedAttributes[]? | select(.name == "subject")) | del(.attributeMapping.attributeContractFulfillment.subject)')"
+restore_adapter() { pf PUT /idp/adapters/conformanceLogin "$ADAPTER_ORIGINAL" >/dev/null; }
+pf PUT /idp/adapters/conformanceLogin "$ADAPTER_ORIGINAL" >/dev/null; need 200 "resetting the login adapter"
+sleep 2
+code_flow "payment_initiation, login contract without subject (as the rig ships)" "$DETAIL_PAYMENT"
+pf PUT /idp/adapters/conformanceLogin "$(jq -c '.attributeContract.extendedAttributes = ((.attributeContract.extendedAttributes // []) + [{name: "subject"}])
+  | .attributeMapping.attributeContractFulfillment.subject = {source: {type: "EXPRESSION"}, value: "#this.get(\"username\")"}' <<<"$ADAPTER_ORIGINAL")" >/dev/null
+need 200 "mapping subject on the login adapter"
+sleep 2
+code_flow "payment_initiation, login contract with subject" "$DETAIL_PAYMENT"
+restore_adapter
 echo; echo "── done: $(date -u +%Y-%m-%dT%H:%M:%SZ) on PingFederate $(pf GET /version | jq -r .version) with $(basename "$RAR_PLUGIN_JAR") ($(unzip -p "$RAR_PLUGIN_JAR" META-INF/MANIFEST.MF | sed -n 's/^Implementation-Version: *//p' | tr -d '\r'))"

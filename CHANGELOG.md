@@ -18,6 +18,17 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
+- **The RAR plugin fails open only when the PDP is unreachable, and knows who it is deciding about** (plan
+  S2a and S2b; blocker B3 and the "fail-open catches everything" high): fail-open is confined to a connection
+  refused or reset, an unresolved name, a deadline, or HTTP 429/502/503/504 - a 401 from a wrong secret, a body
+  that is not JSON and a TLS failure now deny; "Deny unless PERMIT" is gone, the decision is always
+  deny-unless-PERMIT; the shared secret is stored encrypted; the PDP URL must be https unless
+  `OIDF_DEPLOYMENT_PROFILE=development`; `principal_source` is resolved per flow from the user key PingFederate
+  13.1.3 passes (client credentials -> `client`, refresh -> `authenticated`, CIBA -> `identity_hint`, token
+  exchange -> `none` until the filter publishes a verified subject) and `login_hint` / `_principal_sub` are
+  development-only; `payment_initiation` and `account_information` are refused before any PDP call without an
+  authenticated principal; the PDP request carries the attester `iss`; `conformance/verify-rar-principal.sh`
+  drives every flow on the rig.
 
 ## [0.3.0] - 2026-09-27
 

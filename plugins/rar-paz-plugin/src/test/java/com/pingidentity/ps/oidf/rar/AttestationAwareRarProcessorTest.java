@@ -238,7 +238,7 @@ class AttestationAwareRarProcessorTest {
     void aNullContextIsNobody() throws Exception {
         permit();
         LOG.setLevel(Level.WARNING);   // the INFO summary line is skipped on this path
-        new AttestationAwareRarProcessor(client, config(false)).enrich(salesDetail(), null, Map.of());
+        new AttestationAwareRarProcessor(client, config(false)).enrich(salesDetail(), null, null);
 
         ArgumentCaptor<String> source = ArgumentCaptor.forClass(String.class);
         verify(client).decide(anyString(), any(), any(), any(), any(), source.capture());
@@ -249,7 +249,8 @@ class AttestationAwareRarProcessorTest {
     void aCallerAssertedNameThatWasNotUsedIsNotedAtFine() throws Exception {
         permit();
         LOG.setLevel(Level.FINE);
-        AuthorizationDetail result = new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), context(), Map.of());
+        // A null parameter map, as the token-endpoint callers pass none, is logged as "-" rather than thrown at.
+        AuthorizationDetail result = new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), context(), null);
 
         ArgumentCaptor<String> owner = ArgumentCaptor.forClass(String.class);
         verify(client).decide(anyString(), any(), any(), owner.capture(), any(), any());

@@ -324,9 +324,14 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                     + "' (source=" + principal.source() + ")");
         }
         if (log.isLoggable(Level.INFO)) {
-            log.info("RAR governance: type=" + type + " flow=" + describe(flow) + " principalSource=" + principal.source()
+            // The path and the parameter NAMES say which of PingFederate's callers this was (the resume after
+            // authentication passes the mapped authentication attributes; the others pass none); the values
+            // are the person's and stay out of the log.
+            log.info("RAR governance: type=" + type + " flow=" + describe(flow) + " path=" + flow.requestPath()
+                    + " principalSource=" + principal.source()
                     + " principal=" + PrincipalResolver.hashForLog(principal.subject())
                     + " userKey=" + PrincipalResolver.hashForLog(userKey)
+                    + " paramKeys=" + (parameters == null ? "-" : parameters.keySet())
                     + " attestationClient=" + subject.getClientId() + " agentId=" + subject.getAgentId()
                     + " attester=" + subject.getAttesterIssuer() + " clientId=" + clientId);
         }
