@@ -1,0 +1,25 @@
+id: U-0110
+title: The issuance criterion's containment check on PingFederate's engine classloader, on a booted server
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S1b, S-9]
+prs: [37]
+recorded_in: docs/releases/unreleased/S1B.md, Notes; servlets/pf-integration/README.md, The attestation's authorization_details
+verify_by: >
+  A rig with the attestation filter passing through (OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false) and
+  ClientAttestationUtils.validateClientAttestation(#this) on a client-credentials access-token mapping, a statically
+  trusted attester, and a registered client. Send an attested token request whose authorization_details exceed the
+  attestation's: expect PingFederate's 400 invalid_grant with the criterion's Error Result, and in server.log the
+  engine classloader's "RAR containment models loaded: fingerprint=..." line (once) and "Attestation-based client
+  authentication failed [invalid_authorization_details] ...". Then set OIDF_RAR_MODELS to a truncated document and
+  expect every attested token refused with "the RAR containment models could not be loaded" in the log.
+verification: ''
+notes: >
+  2026-09-27, PR #37: the filter path was run on a booted PingFederate 13.1.3 (the rig, torn down after) and the
+  rar-model jar was seen in both server/default/deploy and pf-runtime.war. The criterion path ran only in unit
+  tests: CriterionTokenGateTest drives validateClientAttestation end to end with a real attestation and proof, with
+  PingFederate's OAuthIssuerUtils replaced by an issuer seam (within, outside, unreadable models, the
+  oidf_requested_access fallback, a repeated parameter). The rig has no mapping that runs the criterion, and building
+  one was out of this package's time. The engine classloader loads the
+  models on the criterion's first call, not at start-up, because nothing there has a start-up hook until plan item S-9.

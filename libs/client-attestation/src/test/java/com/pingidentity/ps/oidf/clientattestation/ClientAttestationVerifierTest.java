@@ -14,6 +14,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -31,11 +32,19 @@ class ClientAttestationVerifierTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // The verifiers built below with the public constructor take this classloader's model set: read it from
+        // an empty environment, so whatever the machine running the tests has set cannot change the answers.
+        AttestationRarModels.resetForTest(Map.of());
         attesterKey = TestJwts.ec("attester-1");
         instanceKey = TestJwts.ec("instance-1");
         resolver = (iss, chain) -> List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(attesterKey)));
         challengeService = new InMemoryAttestationChallengeService();
         verifier = newVerifier(false);
+    }
+
+    @AfterEach
+    void readTheProcessEnvironmentAgain() {
+        AttestationRarModels.resetForTest(null);
     }
 
     private ClientAttestationVerifier newVerifier(boolean challengeRequired) {
@@ -280,8 +289,12 @@ class ClientAttestationVerifierTest {
     }
 
     // ---- RFC 9396 authorization_details containment, through the full verify() overload -----------------
+    //
+    // The token gate is AuthorizationDetailsGate, with its own tests; these pin that verify() asks it, after
+    // authentication, with the model set the verifier was built with, and says which set that was.
 
     @Test
+    @Requirement("CAS §7.1")
     void rarContainmentGrantsRequestWithinAttestedEntitlement() throws Exception {
         List<Map<String, Object>> entitlement = List.of(Map.of(
                 "type", "sales_agent",
@@ -296,9 +309,13 @@ class ClientAttestationVerifierTest {
 
         assertEquals(1, result.grantedAuthorizationDetails().size());
         assertEquals(entitlement, result.entitledAuthorizationDetails());
+        assertEquals(com.pingidentity.ps.oidf.rar.model.RarModels.builtIn().fingerprint(), result.rarModelsFingerprint(),
+                "the result names the model set that checked it; with no models document that is the built-ins");
     }
 
+    /** CAS §7.1: "MUST reject requests exceeding it with invalid_authorization_details". 0.3.0 said access_denied. */
     @Test
+    @Requirement("CAS §7.1")
     void rarContainmentDeniesRequestExceedingAttestedEntitlement() throws Exception {
         List<Map<String, Object>> entitlement = List.of(Map.of(
                 "type", "sales_agent",
@@ -310,16 +327,59 @@ class ClientAttestationVerifierTest {
         ClientAttestationException ex = assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(att, pop(OP_ISSUER, "p1", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
-        assertEquals(ClientAttestationException.ACCESS_DENIED, ex.error());
+        assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, ex.error());
+        assertEquals(AuthorizationDetailsGate.EXCEEDS, ex.getMessage());
     }
 
     @Test
+    @Requirement("CAS §7.1")
     void rarContainmentDeniesWhenAttestationAssertsNoEntitlementAtAll() throws Exception {
         String requested = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]";
         ClientAttestationException ex = assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
-        assertEquals(ClientAttestationException.ACCESS_DENIED, ex.error());
+        assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, ex.error());
+    }
+
+    /**
+     * A BFF's request carries {@code _principal_sub}; a client may have written {@code _agent_id}. Both come off
+     * before the model is asked, and neither is in the grant.
+     */
+    @Test
+    void theMarkersInABffsRequestDoNotMakeItMalformed() throws Exception {
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L, Map.of("authorization_details",
+                List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA")))));
+        String requested = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"_principal_sub\":\"alice\","
+                + "\"_agent_id\":\"self-written\"}]";
+
+        ClientAttestationResult result = verifier.verify(att, pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID, requested);
+
+        assertEquals(List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"))),
+                result.grantedAuthorizationDetails());
+    }
+
+    /** The model set is the one the verifier was given, not the classloader's: a type only it models passes. */
+    @Test
+    void aVerifierBuiltWithAModelSetChecksWithThatSet() throws Exception {
+        com.pingidentity.ps.oidf.rar.model.RarModels files = com.pingidentity.ps.oidf.rar.model.RarModels.load(
+                "{\"types\":{\"https://scheme.example.org/files\":{\"fields\":{\"locations\":\"set\"}}}}");
+        ClientAttestationVerifier withFiles = ClientAttestationVerifier.withRarModels(resolver,
+                ClientAttestationConfig.builder().addAcceptedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                new InMemoryAttestationReplayCache(), challengeService, files);
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L, Map.of("authorization_details",
+                List.of(Map.of("type", "https://scheme.example.org/files", "locations", List.of("/a", "/b")))));
+        String requested = "[{\"type\":\"https://scheme.example.org/files\",\"locations\":[\"/a\"]}]";
+
+        ClientAttestationResult result = withFiles.verify(att, pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID, requested);
+
+        assertEquals(1, result.grantedAuthorizationDetails().size());
+        assertEquals(files.fingerprint(), result.rarModelsFingerprint());
+        ClientAttestationException builtIns = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(att, pop(OP_ISSUER, "p2", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
+        assertEquals(ClientAttestationException.INVALID_CLIENT, builtIns.error(),
+                "the built-ins have no model for the type, so the attestation's own details cannot be evaluated");
     }
 
     // ---- required-disclosed-claims policy ------------------------------------------------------------

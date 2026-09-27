@@ -75,8 +75,8 @@ sequenceDiagram
     A->>A: resolve client FROM EVIDENCE (try each client's trust config)
     A->>A: validate instance-key proof: sig under presented JWK, typ, aud,<br/>challenge consume, jti replay
     A->>A: custom proof claims; WIA cnf must equal instance_key
-    A->>A: workload introspection; asserted-context narrowing (intersect only)
-    A->>A: RAR ceiling — RarEntitlement.authorize(requested, ceiling)
+    A->>A: workload introspection; asserted-context narrowing (the model's meet)
+    A->>A: RAR ceiling - rar-model authorize(requested, ceiling, INHERIT); empty = the full ceiling
     A->>R: resolveOrMint(iss, client_id, format, subject)
     R-->>A: agent_id
     A->>V: sign (or inline JWK, dev)
@@ -239,7 +239,9 @@ completes before any authorisation happens:
      `jti` replay-checked.
    - **DPoP combined mode** — full RFC 9449 validation, then `Jwks.assertSameKey(cnf, proof.jwk)`;
      the challenge comes from `nonce`; `jti` replay-checked.
-7. *Then* authorisation: `RarEntitlement.authorize(requested, entitled)`.
+7. *Then* the token gate (`AuthorizationDetailsGate`, plan item S1b): the request's `authorization_details`
+   strictly within the attestation's, by `libs/rar-model`'s `contains`, after the `_principal_sub` and
+   `_agent_id` markers come off; 400 `invalid_authorization_details` when not.
 
 `DpopProofValidator` explicitly does not do replay or challenge binding — those are the caller's, and
 the verifier supplies them.
@@ -305,8 +307,8 @@ Issuance (`IssuanceException`) and verification (`ClientAttestationException`):
 | `invalid_client` | 400 | | `use_attestation_challenge` |
 | `invalid_svid` | 401 | | `use_fresh_attestation` |
 | `invalid_instance_attestation` | 401 | | `invalid_authorization_details` |
-| `invalid_instance_proof` | 401 | | `access_denied` |
-| `spiffe_id_not_authorized` | 403 | | `insufficient_disclosure` |
+| `invalid_instance_proof` | 401 | | `insufficient_disclosure` |
+| `spiffe_id_not_authorized` | 403 | | |
 | `instance_not_authorized` | 403 | | |
 | `access_denied` | 403 | | |
 | `instance_attestation_bound` | 401 | | |
@@ -422,8 +424,8 @@ it is left visible rather than filled with a plausible guess.
 | `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness | `DpopProofValidator`, `services/demo-rs` | Implemented |
 | `RFC9449 §6.1` | `cnf.jkt` equals the presented proof key's thumbprint | `DelegatedTokenValidator` | Implemented |
 | — | RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial — `unverified.md` item 10 |
-| `RFC9396 §7.1` | `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`; the RAR plugin compares every field by `libs/rar-model` (the PDP's answer against the request, a refresh against its grant) | Implemented |
-| `RFC9396 §6.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
+| `RFC9396 §6.1` | `authorization_details` containment, every field by its type's rule | `libs/rar-model`, asked by the token gate and the issuer (S1b) and by the RAR plugin for a PDP's answer and on refresh (S1c) | Implemented |
+| `RFC9396 §7.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
 | `RFC8693 §4.1` | `act` as a JSON object; outermost actor only is authorisable | `services/demo-rs` `ActChain`, `services/gm-api` `TokenClaims` | Implemented on the reading side |
 | `UNVERIFIED item 8` | `act` minted as a JSON string, not an object | `delegationActChain` | Divergence being corrected — whether PF can emit the object form is unresolved |
 | `RFC8693 §1.1` | Principal is the subject, agent is the actor | `plugins/rar-paz-plugin` | Implemented |
@@ -521,7 +523,7 @@ which is why they survive a module count changing and the paragraph above them d
 | ABCA replay | `AttestationReplayCacheTest` (4), `RedisAttestationStoreTest` (11) | First-use/replay; `(jti, client)` pairs independent; blank `jti` rejected; bounded cache evicts but stays usable. Redis: same contract cross-instance, **wrong password fails closed**, **Redis down fails closed**, survives stale connections |
 | ABCA `agent_id` extension | `ClientAttestationTest` (3), `AttestationMinterTest` (5) | Null when absent, parsed when present, doesn't perturb other fields; omitted rather than emitted blank |
 | RFC 9449 DPoP | `DpopProofValidatorTest` (9) | Valid accepted; `htu` ignores query/fragment; wrong method/URI/`typ` rejected; missing `jti` rejected; stale rejected; tampered signature rejected; disallowed alg rejected |
-| RFC 9396 containment | `RarEntitlementTest` (8) | Grants within entitlement; denies region/action outside; denies when nothing attested but something requested; grants nothing when nothing requested; missing `type` invalid; array parsing |
+| RFC 9396 containment | `AuthorizationDetailsGateTest` (20), `AsVectorRunnerTest` and `CasVectorRunnerTest` (the shared vectors through the token gate, the mint, the configuration and the asserted context), `RarModelVectorsTest` in `libs/rar-model`; `RarEntitlementTest` (8) for the unused old check | Grants within entitlement; denies region/action outside; denies when nothing attested but something requested; grants nothing when nothing requested; missing `type` invalid; array parsing |
 | RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (21), `PrincipalPerFlowTest` (8), `ClientAssertedPrincipalTest` (9), `AttestationSubjectTest` (7), `ModelContainmentTest` (16), `ModelGateTest` (9), `RefreshVectorsTest` (149), `ShadedJarCheck` (2) | A non-PERMIT always throws; fail-open only for an unreachable PDP, and it strips the internal `_principal_sub` and `_agent_id` markers; PERMIT merges and strips; a PDP that answered badly throws with its text, the principal hashed and no cause; the principal per OAuth flow, and payments refused before the PDP without an authenticated one. Subject parses the PF hook attribute shape, `agent_id`, `iss` and `rar_models_fingerprint` when published. The containment model: a detail it cannot read is refused before the PDP, a PDP answer it does not find within the request is refused, a refresh must be strictly within its grant, an attestation context with no fingerprint or another one is refused, and the library's `contains` vectors run through PingFederate's parse and refresh loop; the shaded jar carries the model only under its relocated package |
 | RFC 8693 `act` | `ClientAttestationUtilsTest` (3) | Prefers `agent_id` as the acting party; falls back to `client_id` when null or blank |
 | OIDF attester trust | `FederationAttesterKeyResolverTest` (3) | Resolves chain-validated keys; prefers dedicated attester metadata keys; rejects an unreachable attester |
@@ -727,11 +729,10 @@ rather than unverified claims. `delegationActChain` still reads the `act` claim 
 token-exchange processor validates that token before any token issues. *Closes when:* that remaining
 coupling is enforced in code, or accepted in writing.
 
-**~~`RarContainment` duplicates `RarEntitlement`.~~ Half-closed, 2026-09-27 (PR #36).** The RAR plugin
-shades and relocates the shared library, `libs/rar-model`, and asks it every containment question;
-`RarContainment` and its contract test are gone. The other copy goes with plan item S1b, when the
-authenticator and the attester move to the same library, and the attestation context's
-`rar_models_fingerprint` then shows the two classloaders hold one model. *Closes when:* S1b has merged.
+**~~`RarContainment` duplicates `RarEntitlement`.~~ Closed, 2026-09-27 (PRs #37 and #36).** The token gate and
+the issuer (S1b) and the RAR plugin (S1c) all ask `libs/rar-model`; the plugin shades and relocates it,
+`RarContainment` and its contract test are gone, `RarEntitlement` is unused until its deletion (F-0100), and
+the attestation context's `rar_models_fingerprint` shows the two classloaders hold one model.
 
 ### Nice to have
 

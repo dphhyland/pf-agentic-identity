@@ -179,4 +179,125 @@ class AttestationIssuanceConfigTest {
                 () -> AttestationIssuanceConfig.fromProperties(props));
         assertEquals("invalid_client", e.error());
     }
+
+    // ---- S1b: both ceilings held to the containment model; an instance's kept as authorized (F-0034) ----------
+
+    private static final com.pingidentity.ps.oidf.rar.model.RarModels MODELS =
+            com.pingidentity.ps.oidf.rar.model.RarModels.builtIn();
+
+    /**
+     * CAS §7: "instances[i].entitlement ⊆ entitlement MUST hold at registration time". The instance ceiling is
+     * {@code authorize(instance, client, INHERIT)} and the result is what the binding keeps: a field the client's
+     * ceiling constrains and the instance's leaves out is the client's. This used to check the instance's and keep
+     * it as written, so an instance that left out {@code max_txn_eur} was unconstrained on it however the client
+     * was constrained - wider than its client (the plan's "Found while designing" item 5, F-0034).
+     */
+    @Test
+    @Requirement({"CAS §7", "CAS §6.1"})
+    void anInstanceCeilingKeepsWhatTheClientsConstrainsAndItLeavesOut() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_ENTITLEMENT,
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\",\"APAC\"],\"max_txn_eur\":5000}]");
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"" + ID_EMEA + "\",\"entitlement\":[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]}]");
+
+        SpiffeBinding emea = AttestationIssuanceConfig.fromProperties(props, MODELS).bindingFor(ID_EMEA).orElseThrow();
+
+        assertEquals(1, emea.entitlement().size());
+        assertEquals(java.util.List.of("EMEA"), emea.entitlement().get(0).get("sales_regions"));
+        assertEquals(0, new java.math.BigDecimal("5000").compareTo((java.math.BigDecimal) emea.entitlement().get(0).get("max_txn_eur")),
+                "the client's limit is the instance's too, where the instance says nothing");
+    }
+
+    /** Blocker B1 at registration: a scalar above the client's is refused, not waved through with the arrays. */
+    @Test
+    @Requirement({"CAS §7", "CAS §6.1"})
+    void anInstanceLimitAboveTheClientsIsRefused() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_ENTITLEMENT,
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":5000}]");
+        props.put(AttestationIssuanceConfig.P_INSTANCES, "[{\"spiffe_id\":\"" + ID_EMEA + "\",\"entitlement\":"
+                + "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":5000.01}]}]");
+
+        IssuanceException e = assertThrows(IssuanceException.class, () -> AttestationIssuanceConfig.fromProperties(props, MODELS));
+
+        assertEquals("invalid_client", e.error());
+        assertTrue(e.getMessage().contains("exceeds the client-level ceiling"), e.getMessage());
+    }
+
+    @Test
+    void aCeilingTheModelRefusesMakesTheConfigurationInvalid() throws Exception {
+        Map<String, String> clientBad = baseProps();
+        clientBad.put(AttestationIssuanceConfig.P_ENTITLEMENT, "[{\"type\":\"no-such-type\"}]");
+        IssuanceException client = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(clientBad, MODELS));
+        assertEquals("invalid_client", client.error());
+        assertTrue(client.getMessage().startsWith(AttestationIssuanceConfig.P_ENTITLEMENT
+                + " is not a valid authorization_details array: "), client.getMessage());
+
+        Map<String, String> instanceBad = baseProps();
+        instanceBad.put(AttestationIssuanceConfig.P_INSTANCES, "[{\"spiffe_id\":\"" + ID_EMEA + "\",\"entitlement\":"
+                + "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"colour\":\"red\"}]}]");
+        IssuanceException instance = assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(instanceBad, MODELS));
+        assertEquals("invalid_client", instance.error());
+        assertTrue(instance.getMessage().contains("entitlement is not a valid authorization_details array"),
+                instance.getMessage());
+
+        Map<String, String> notJson = baseProps();
+        notJson.put(AttestationIssuanceConfig.P_INSTANCES, "[{\"spiffe_id\":");
+        assertEquals("invalid_client", assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(notJson, MODELS)).error());
+    }
+
+    /**
+     * CAS §6.1: an instance's entitlement "MUST be a subset of the client-level entitlement when both are present",
+     * and the client-level one is "OPTIONAL". With none, the instance's is held to the model and kept as written.
+     */
+    @Test
+    @Requirement("CAS §6.1")
+    void withNoClientCeilingAnInstanceCeilingIsHeldToTheModelAndKeptAsWritten() throws Exception {
+        Map<String, String> props = baseProps();
+        props.remove(AttestationIssuanceConfig.P_ENTITLEMENT);
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"" + ID_EMEA + "\",\"entitlement\":[{\"type\":\"sales_agent\",\"sales_regions\":[\"LATAM\"]}]}]");
+        assertEquals(java.util.List.of("LATAM"), AttestationIssuanceConfig.fromProperties(props, MODELS)
+                .bindingFor(ID_EMEA).orElseThrow().entitlement().get(0).get("sales_regions"));
+
+        props.put(AttestationIssuanceConfig.P_INSTANCES,
+                "[{\"spiffe_id\":\"" + ID_EMEA + "\",\"entitlement\":[{\"type\":\"no-such-type\"}]}]");
+        assertEquals("invalid_client", assertThrows(IssuanceException.class,
+                () -> AttestationIssuanceConfig.fromProperties(props, MODELS)).error());
+    }
+
+    /** Read by the model's reader: a limit is kept exactly as configured, not as the nearest double. */
+    @Test
+    void aConfiguredLimitIsKeptExactly() throws Exception {
+        Map<String, String> props = baseProps();
+        props.put(AttestationIssuanceConfig.P_ENTITLEMENT,
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":12345678901234567.5}]");
+
+        AttestationIssuanceConfig config = AttestationIssuanceConfig.fromProperties(props, MODELS);
+
+        assertEquals(new java.math.BigDecimal("12345678901234567.5"), config.clientCeiling().get(0).get("max_txn_eur"));
+    }
+
+    /** The one-argument parse takes this classloader's models, and says so when they could not be loaded. */
+    @Test
+    void theClassloadersModelsAreUsedAndTheirFailureIsAServerError() throws Exception {
+        java.lang.reflect.Method reset = com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.class
+                .getDeclaredMethod("resetForTest", Map.class);
+        reset.setAccessible(true);
+        try {
+            reset.invoke(null, Map.of(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS, "{\"types\":"));
+            IssuanceException e = assertThrows(IssuanceException.class,
+                    () -> AttestationIssuanceConfig.fromProperties(baseProps()));
+            assertEquals("server_error", e.error());
+
+            reset.invoke(null, Map.of());
+            assertEquals(ISSUER, AttestationIssuanceConfig.fromProperties(baseProps()).issuer());
+        } finally {
+            reset.invoke(null, (Object) null);
+        }
+    }
 }

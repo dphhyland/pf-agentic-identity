@@ -9,8 +9,8 @@ classpath for it. Plan item S1a of the production programme, closing the review'
 ([F-0001](../../docs/findings/F-0001.yaml)): the two containment checks this repository had,
 `RarEntitlement` in [libs/client-attestation](../client-attestation/README.md) and `RarContainment` in
 [plugins/rar-paz-plugin](../../plugins/rar-paz-plugin/README.md), compared five array fields and let every
-other value through. This library replaces both; the wiring is wave 2 (S1b the authenticator and the
-issuer, S1c the plugin), and until it lands nothing in a running PingFederate reads this module.
+other value through. This library replaces both: S1b wired the authenticator's token gate and the issuer, and
+S1c wires the plugin.
 
 ## What's here
 
@@ -86,9 +86,10 @@ The list-level rules, from CAS §7 rule 1 and RFC 9396 §6.1:
   path's `isEqualOrSubset` is this, once S1c wires it.
 - **`authorize(candidate, ceiling, mode)`** - the details granted for a candidate, in the candidate's order, or
   `EXCEEDS_CEILING` (CAS §7 rule 3, `reject`). Under `Omission.INHERIT` each granted detail carries the
-  ceiling's value for every constrained field the candidate omitted, nested objects included - the reading the
-  token endpoint has used since `RarEntitlement` (silence is a request for the whole of what the ceiling allows
-  there) extended from the five array fields to every rule. A limit sent without its unit (`"amount": "42.00"`
+  ceiling's value for every constrained field the candidate omitted, nested objects included - the reading
+  `RarEntitlement` gave the five array fields (silence is a request for the whole of what the ceiling allows
+  there), extended to every rule. The issuer mints with it; the authorization server's token gate asks
+  `contains` instead, because what it passes is what PingFederate issues, unfilled. A limit sent without its unit (`"amount": "42.00"`
   with no `currency`), in the detail or in an object inside it, takes the unit from the entry; an entry that has
   no unit to give is passed over, and when no same-type entry has one the request is `MALFORMED`. Under
   `Omission.STRICT` the granted detail is the candidate as sent and a constrained field it omits is a refusal. In
@@ -147,11 +148,11 @@ an `instructedAmount`, and a ceiling that says neither leaves both open.
 rules refuse as malformed; the object reads a member it leaves out as "no access" where a ceiling here reads an
 omitted field as unconstrained; and it names accounts a second way beside `accounts`. Figure 16 is refused by the
 built-in model as `UNDECLARED_FIELD`. A deployment that uses the object swaps it in with a models document (next
-section); a client then leaves the arrays out (`"access": {}`) where Figure 16 sends them empty, and `INHERIT`
-fills them from the ceiling.
+section); an issuance request then leaves the arrays out (`"access": {}`) where Figure 16 sends them empty, and
+`INHERIT` fills them from the ceiling. The token endpoint compares strictly, so a token request names them.
 
 What idp-agentic-demo sends is not visible from this repository; [U-0057](../../docs/findings/U-0057.yaml)
-records it. A field it sends that is not in the tables above is refused once S1b/S1c wire the model in, and
+records it. A field it sends that is not in the tables above is refused now that S1b wires the model in, and
 the fix is a models document that extends the type (next section), not a wider built-in.
 
 ## A models document
@@ -242,8 +243,8 @@ or contains, so that a plugin that shaded one build of this library and an authe
 answer differently over the same document, do not share a fingerprint. The reader refuses a name holding half a
 surrogate pair, which UTF-8 cannot carry, so two documents cannot hash alike and compare apart.
 
-S1b puts the fingerprint in health and in the attestation context and S1c makes the plugin deny on a mismatch,
-which is what keeps the classloaders in step. The built-ins' fingerprint is pinned in the vector file, so a
+S1b puts the fingerprint in the attestation context (`rar_models_fingerprint`; health is plan item O-4) and S1c
+makes the plugin deny on a mismatch, which is what keeps the classloaders in step. The built-ins' fingerprint is pinned in the vector file, so a
 change to a built-in model, or to `SEMANTICS`, is a deliberate change to that line.
 
 ## Size limits
@@ -288,9 +289,9 @@ either spelling or neither, so random pairs cross spellings often.
 
 ## What changes for consumers once S1b and S1c wire it in
 
-Nothing in this release's module set reads this library yet; these are the changes the wiring brings, written
-here now so that the upgrade note is ready when it lands
-([docs/releases/0.4.0.md](../../docs/releases/0.4.0.md), "Before you deploy").
+The authenticator and the issuer read this library from S1b, the plugin from S1c. These are the changes the
+wiring brings ([docs/releases/0.4.0.md](../../docs/releases/0.4.0.md), "Before you deploy", and S1b's own
+release note).
 
 - Every field of a request is compared. A request that relied on a scalar going unexamined - an amount above
   the ceiling's, a different creditor account, a later `validUntil` - is refused, and the authorization server
@@ -305,14 +306,16 @@ here now so that the upgrade note is ready when it lands
   `currency`, and a request must use the spelling of the ceiling that constrains it.
 - `account_information` has no `access` object, so RFC 9396 §7.1-shaped requests are refused until a models
   document swaps it in for `accounts`.
-- A ceiling that constrains a field the request omits fills that field in the grant - for every rule, not only
-  the five array fields - so tokens carry, say, `max_txn_eur` and `currency` explicitly.
-- The two copies of the check (`RarEntitlement`, `RarContainment`) go, with `RarContainmentContractTest`; the
-  instance-ceiling check in `AttestationIssuanceConfig` becomes `authorize(instance, client)` and keeps its
-  result, closing item 5 of the plan's "Found while designing".
+- At the issuer, a ceiling that constrains a field the request omits fills that field in the minted
+  attestation - for every rule, not only the five array fields - so attestations carry, say, `max_txn_eur` and
+  `currency` explicitly. At the token endpoint nothing is filled in: a field the attestation's details constrain
+  and the request leaves out is refused, so a client restates it.
+- `RarContainment` goes with `RarContainmentContractTest` (S1c), and `RarEntitlement`, unused from S1b, after
+  them ([F-0100](../../docs/findings/F-0100.yaml)); the instance-ceiling check in `AttestationIssuanceConfig`
+  is `authorize(instance, client)` and keeps its result, closing item 5 of the plan's "Found while designing".
 - The RAR plugin needs the same models document as the authenticator (`OIDF_RAR_MODELS_FILE` in one place for the
-  whole PingFederate process) and denies when the fingerprints differ; the fingerprint appears in health and in
-  the attestation context.
+  whole PingFederate process) and denies when the fingerprints differ; the fingerprint appears in the attestation
+  context, and in health once plan item O-4 lands.
 - `OIDF_RAR_EXTRA_TYPES` no longer makes a type acceptable on its own: a type needs a model, or the development
   profile.
 
