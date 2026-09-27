@@ -26,6 +26,7 @@ import java.util.Enumeration;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
@@ -75,8 +76,23 @@ public final class ClientAttestationUtils {
     private static volatile Boolean configuredIgnoreSslErrors;
     private static volatile String configuredTrustControllerHost;
     private static volatile String configuredTrustControllerBaseUrl;
+    /**
+     * How the issuance criterion learns the OP issuer of a request: PingFederate's {@code OAuthIssuerUtils}, whose
+     * static initializer reaches into PF's HiveMind registry and cannot run outside a booted server. A test seam,
+     * as the issuer-resolver constructor is for {@code ClientAttestationAuthFilter}; only tests replace it.
+     */
+    private static volatile Function<HttpServletRequest, String> issuerLookup = ClientAttestationUtils::pfIssuer;
 
     private ClientAttestationUtils() {
+    }
+
+    private static String pfIssuer(HttpServletRequest request) {
+        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+    }
+
+    /** Test-only, by reflection like {@link #resetMockAttesterResolverForTest}: the issuer lookup, {@code null} for PingFederate's. */
+    private static void setIssuerLookupForTest(Function<HttpServletRequest, String> lookup) {
+        issuerLookup = lookup != null ? lookup : ClientAttestationUtils::pfIssuer;
     }
 
     public static boolean validateClientAttestation(Object inObj) {
@@ -148,7 +164,7 @@ public final class ClientAttestationUtils {
                 return true;
             }
 
-            String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(request);
+            String opIssuer = ClientAttestationUtils.issuerLookup.apply(request);
 
             String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
             String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
