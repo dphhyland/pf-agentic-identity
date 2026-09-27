@@ -1,0 +1,29 @@
+id: F-0067
+title: 'The CIMD resolver takes every client''s bindings and trust roots from whatever OIDF_ATTESTER_CIMD_URL serves'
+severity: blocker
+area: attestation-issuer
+source: design
+status: open
+plan_items: [M-1, X-B02]
+prs: []
+verification: ''
+target_release: 0.8.0
+notes: >
+  `CimdClientResolver` (servlets/attestation-issuer) fetches one JSON document from `OIDF_ATTESTER_CIMD_URL`
+  (`AttesterResolvers.CIMD_URL_ENV`) and builds every client's issuance config from its `spiffe_mappings`
+  entries, `bundle` and `bundle_url` included (`CimdMapping.toConfig`), so whoever controls that URL, or
+  answers for it, chooses the keys the attester accepts and can mint instance attestations for any subject.
+  docs/client-attestation-architecture.md §2.5 gives its vouching as "TLS + control of the URL. Nothing else",
+  and §6 lists it under "Blocking for production" as what CAS §6.2 rule 3 forbids; `OIDF_CIMD_TRUST_BUNDLES`
+  exists in name, but the resolver chain never reads it. The fetch goes through `JdkHttpGetClient` with the
+  outbound URL policy told to trust the URL's host (`OutboundUrlPolicy.trusting`), a 15 s request timeout and
+  the policy's body cap; the result is cached for 300 s and served stale on error, and nothing ties an entry's
+  `client_id` to the URL. Not live in any checked-in configuration (the variable is unset), which is why it is
+  not an incident. Read in the worktree at 342c536 on 2026-09-27. Blocker by the register's rule, a control
+  that can be bypassed, and by the plan's wording: M-1 is one of the two "Phase 1 mitigations" that "close
+  two blockers until their full fixes land" - attestation-issuer refuses the variable unless
+  `OIDF_DEPLOYMENT_PROFILE=development` - and this finding becomes mitigated when it merges. X-B02 (Phase 5)
+  is the full fix: one document per client, security members refused at parse, trust roots only from
+  `OIDF_CIMD_TRUST_BUNDLES`, the fetch with no exemption, `client_id` equal to the URL, a size cap, bounded
+  staleness and the variable removed. Added at finalise of the D-1/D-2 pull request, because the plan's
+  traceability table names no finding for M-1 to mitigate.

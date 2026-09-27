@@ -1,0 +1,42 @@
+# The documentation checks, on every push to main and every pull request: the house style a machine can
+# check (tools/doc-lint.py, against its baseline), the findings register (tools/findings.py --check), and the
+# tools' own tests first, so a tool that has stopped checking cannot pass. Plain Python, no runtime setup:
+# the runner's python3 is enough, as it is for build.yml's lint job.
+#
+# Actions are pinned by commit, with the tag as a comment, and the checkout keeps no credentials: nothing
+# here needs to write, so nothing here can.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: the PingFederate version, from build/pf-version.env
+        # Nothing here runs PingFederate. tools/pf-version-check.py asks every workflow to read the one version
+        # file rather than carry a version of its own, and this keeps that rule uniform.
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
+      - name: the tools' own tests
+        run: python3 -m unittest discover -s tools/tests -v
+      - name: house style in every tracked document
+        # Em dashes, a short list of American spellings, scaffolding phrases and relative links that do not
+        # resolve, ratcheted against docs/development/doc-lint-baseline.txt: a document may not get worse.
+        run: python3 tools/doc-lint.py
+      - name: the findings register is well formed
+        # One YAML file per finding under docs/findings; every value allowed, every plan item one the plan names.
+        run: python3 tools/findings.py --check

@@ -1,0 +1,13 @@
+id: F-0059
+title: 'Cloud evidence validators: no per-type iss pin, GCP wildcards, Azure tid and managed-identity claim, nbf, a maximum lifetime, JWKS use=sig'
+severity: medium
+area: attestation-issuer
+source: reviewer-report
+status: open
+plan_items: [H-ATT-1]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. The six validators collapse into one base class with the fix.

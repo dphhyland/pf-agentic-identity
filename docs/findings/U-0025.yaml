@@ -1,0 +1,13 @@
+id: U-0025
+title: Whether getSigningJsonWebKeySet() pre-publishes next keys, and EC key replication
+area: pf-integration
+source: design
+status: open
+plan_items: [S6b]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 11
+verify_by: >
+  On the rig: rotate the signing key and read the JWKS before and after; on the cluster stack, an EC key
+  created on the console node read from an engine.
+verification: ''
+notes: ''

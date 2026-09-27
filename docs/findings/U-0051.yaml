@@ -1,0 +1,11 @@
+id: U-0051
+title: The Flyway Community licence
+area: platform
+source: design
+status: open
+plan_items: [DB-3]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Libraries
+verify_by: Read the licence text Flyway Community ships under and record whether it permits this use.
+verification: ''
+notes: ''

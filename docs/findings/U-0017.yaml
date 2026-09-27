@@ -1,0 +1,11 @@
+id: U-0017
+title: JWT-bearer never calls enrich
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2b]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 2
+verify_by: A JWT-bearer grant on the rig with the plugin logging its entry points.
+verification: ''
+notes: ''

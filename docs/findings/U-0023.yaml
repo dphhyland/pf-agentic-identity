@@ -1,0 +1,11 @@
+id: U-0023
+title: A failing load-on-startup init versus fail-soft
+area: pf-integration
+source: design
+status: open
+plan_items: [S9a]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 9
+verify_by: 'On the rig: a servlet with loadOnStartup whose init throws, and what the merged pf-runtime.war does.'
+verification: ''
+notes: ''

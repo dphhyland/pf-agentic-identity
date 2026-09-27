@@ -1,0 +1,19 @@
+id: F-0029
+title: Docs drift
+severity: medium
+area: docs
+source: review-2026-09-26
+status: open
+plan_items: [P0-7, D-1, D-2, D-3, D-4, D-5, D-6, D-7, D-8]
+prs: [8]
+verification: >
+  P0-7 (PR #8, merged as 8b9e435 on 2026-09-26) took the 13.0, javax and Railway leftovers out of the README,
+  the Dockerfile, the assemble script, the rig and the migration plan. Still open: the generated references
+  (D-3), OpenAPI (D-4), the operator set (D-5), the threat model (D-6), runbooks (D-7) and the developer guide
+  (D-8), all Phase 7; D-1 and D-2 are 0.4.0.
+target_release: 1.0.0
+notes: >
+  The review found documentation that described code as it used to be: coverage gaps claimed open months after
+  they closed, a monolith jar that no longer existed, 13.0 everywhere. The mechanical checks that exist
+  (coverage-report.py, build-showcase-docs.mjs, check-showcase-links.py, pf-version-check.py, and from 0.4.0
+  doc-lint.py and findings.py) catch what a machine can; D-3 to D-8 generate the rest from the code.

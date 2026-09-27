@@ -1,0 +1,15 @@
+id: F-0011
+title: No federation signing-key rollover
+severity: high
+area: pf-integration
+source: review-2026-09-26
+status: open
+plan_items: [S-6, S6a, S6b]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  The federation signs with one PingFederate key and publishes no retired keys, so a rotation breaks every
+  statement still in flight. S6a resolves PingFederate's current key on every signature and publishes retired
+  keys inside a grace period; S6b tracks first-seen times per kid and delays activation by one statement
+  lifetime. Whether PingFederate pre-publishes next keys is U-0025.

@@ -1,0 +1,13 @@
+id: U-0018
+title: Issuance criteria see context.OAuthAuthorizationDetails
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 3
+verify_by: >
+  An access token mapping on the rig with a criterion over context.OAuthAuthorizationDetails, exercised with
+  and without details.
+verification: ''
+notes: ''

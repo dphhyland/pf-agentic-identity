@@ -1,0 +1,14 @@
+id: U-0052
+title: GitHub merge queue and build attestations on a personal repository
+area: ci
+source: design
+status: open
+plan_items: [R-CI9, R-CI10]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Libraries
+verify_by: >
+  Read GitHub's documentation for the merge queue (whether it needs an organisation-owned repository) and for
+  artifact attestations (whether they need a public repository or GitHub Enterprise Cloud), and record the
+  sections.
+verification: ''
+notes: ''
