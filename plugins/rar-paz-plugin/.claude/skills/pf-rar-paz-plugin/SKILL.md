@@ -13,9 +13,12 @@ description: >-
 
 A PingFederate SDK `AuthorizationDetailProcessor` that turns RFC 9396
 `authorization_details` into a **policy decision**: for each requested entry it works out who the
-decision is about, POSTs to a **PingAuthorize governance-engine** or **AuthZEN** endpoint, **denies
-unless the decision is PERMIT**, and applies returned statements (downscoping/obligations). It is a
-Policy Enforcement Point at **token issuance** — complementary to per-API-call PEPs.
+decision is about, holds the entry to the **RAR containment model** (`libs/rar-model`, shaded in), POSTs
+to a **PingAuthorize governance-engine** or **AuthZEN** endpoint, **denies unless the decision is
+PERMIT**, applies returned statements (downscoping/obligations), and refuses a result the model does not
+find within the request - **the PDP may narrow, never widen**. A refresh must stay within its grant by
+the model's strict `contains`. It is a Policy Enforcement Point at **token issuance** — complementary to
+per-API-call PEPs.
 
 **PingFederate 13.1 only.** It reads the request through
 `AuthorizationDetailContext.getJakartaRequest()` and the user key through `getUserKey()`, which 13.0
@@ -25,7 +28,9 @@ does not have. The last build for 13.0.x is v0.1.5, on the frozen `pf-13.0` bran
 - RFC 9396 / RAR / `authorization_details` on **PingFederate** specifically.
 - Governing **token issuance/exchange** with **PingAuthorize** (as opposed to per-request API gating).
 - Editing this plugin's Java (`com.pingidentity.ps.oidf.rar.*`), its PF config, or its build/deploy.
-- "Why was this payment refused before the PDP was asked?" - the principal rules below.
+- "Why was this payment refused before the PDP was asked?" - the principal rules and the model below.
+- "Why did a PERMIT with statements, or a refresh, come back `invalid_authorization_details`?" - the
+  containment model below.
 - Consent/approval pages that should show the *specific* authorized operation, not just a scope.
 
 ## Architecture (one screen)
@@ -39,19 +44,24 @@ authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
   │    · token-exchange -> subject_token only from a filter-verified attribute, else none
   │    · anything else with a non-blank key -> authenticated; blank -> none
   │    · login_hint / _principal_sub -> client_asserted: switch on AND development only
+  ├─ ModelGate: the attestation context's rar_models_fingerprint must be the plugin's (when there is
+  │    a context), and the detail, markers stripped, one its type's RAR model reads - before any PDP call
   ├─ "Types requiring an authenticated principal" (payment_initiation, account_information):
   │    refused before any PDP call when the source is none or client
   ├─ PdpClient — the dialect seam, chosen at configure() time:
   │    · governance-engine (default) → GovernanceEngineRequestBuilder + GovernanceEngineClient
   │    · authzen                     → AuthZenRequestBuilder + AuthZenPdpClient
   ├─ deny unless decision.isPermit(); fail open ONLY on PdpUnavailableException, if configured
-  └─ StatementApplier: merge obligations into the granted detail
+  ├─ StatementApplier: merge obligations into a deep copy of the detail
+  └─ ModelGate: the result must be within the request (contains, the request as the ceiling)
+isEqualOrSubset(requested, granted) -> ModelGate: contains(granted, requested), strict
 ```
 All I/O + mapping live in framework-agnostic collaborators (`PrincipalResolver`, `GovernanceEngine*`,
 `AuthZen*`, `Decision*`, `PdpClient`/`HttpTransport`, `PdpResponses`, `StatementApplier`,
-`RarContainment`), unit-tested without the SDK. Only `AttestationAwareRarProcessor` touches the PF
-SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig)` constructor and
-`configure(Configuration, profile)` as seams.
+`ModelGate`), unit-tested without the SDK. Only `AttestationAwareRarProcessor` touches the PF
+SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig[, ModelGate])` constructors
+and `configure(Configuration, profile)` as seams. `RarContainment` is gone (S1c): every containment
+question goes to the model.
 
 ## Key facts that bite
 1. **The user key is a different thing per flow, and null in the browser flow unless the
@@ -80,8 +90,9 @@ SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig)` con
    older jar survives an upgrade (one `PluginConfigUtil` deobfuscation ERROR, then used as stored;
    rehearsed on the rig 2026-09-27); save the instance again to store it obfuscated.
 6. **Plugin loading needs a `PF-INF/<type>` marker + shaded deps.** `src/main/resources/PF-INF/
-   authorization-detail-processors` lists the class. Jackson is relocated INTO the jar (PF
-   isolates each deploy jar's classloader). A `META-INF/services` marker does NOT work.
+   authorization-detail-processors` lists the class. Jackson and `libs/rar-model` are relocated INTO
+   the jar (PF isolates each deploy jar's classloader); `ShadedJarCheck` fails the build if the model's
+   own package appears in it. A `META-INF/services` marker does NOT work.
 7. **Binding a type to the instance is per type and per client on 13.1**: `/oauth/authorizationDetailTypes`
    (`authorizationDetailProcessorRef`), and the client's `authorizationDetailTypes` lists type names.
 8. **TLS to an internal PDP: give the PDP certificate a SAN that matches the host PF dials.** The
@@ -105,6 +116,20 @@ SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig)` con
     is a PERMIT (governance engine). `authorised` must be a JSON boolean and `decision` a string,
     or the answer is refused. AuthZEN needs a boolean `decision`. Either dialect refuses content
     after the object and a member named twice.
+13. **The RAR model refuses what it cannot compare, before and after the PDP.** An undeclared field,
+    an unmodelled type (outside `development`), a flat `amount` without `currency` or a negative limit
+    is refused before any PDP call. After a PERMIT, a statement may lower, drop or add a constraint the
+    request left open; one that raises, adds or changes what was requested, or writes a field the type
+    does not declare (an AuthZEN `context` member other than `id`/`reason_*` is a statement), is
+    refused. A new field needs a models document with `extends` (`OIDF_RAR_MODELS_FILE`), and a new
+    type also needs `OIDF_RAR_EXTRA_TYPES` for PingFederate to bind it.
+14. **The attestation filter and the plugin must load one model set.** The filter publishes
+    `rar_models_fingerprint` in the attestation context (0.4.0 on); the plugin refuses a context
+    without it or with another value. Deploy the plugin and the filter from one release, with one
+    `OIDF_RAR_MODELS_FILE` for the whole PF process. No context at all is decided without the check.
+15. **A refresh is compared only when it restates `authorization_details`,** strictly: more, another
+    payee or another currency than the grant is `invalid_authorization_details`; a bare refresh
+    reissues the stored details without asking the plugin or the PDP (javap, 13.1.3).
 
 ## How to build
 ```bash

@@ -3,25 +3,28 @@
 > **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Formerly a standalone local repo, absorbed with history 2026-07-21; see [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
 A PingFederate **`AuthorizationDetailProcessor`** (RFC 9396 Rich Authorization Requests) that acts as a
-Policy Enforcement Point at token issuance: it works out who the decision is about, refuses the types that
-need a person when there is none, forwards each requested `authorization_details` entry - together with the
-client attestation's vouched subject / entitlement / workload - to a PDP decision, **denies unless the
-decision is PERMIT**, and applies any returned statements (downscoping / obligations). Two PDP dialects:
+Policy Enforcement Point at token issuance: it works out who the decision is about, holds each requested
+`authorization_details` entry to the RAR containment model, refuses the types that need a person when there
+is none, forwards the entry - together with the client attestation's vouched subject / entitlement / workload -
+to a PDP decision, **denies unless the decision is PERMIT**, applies any returned statements (downscoping /
+obligations), and refuses a result the model does not find within the request: **the PDP may narrow a
+request, never widen it**. A refresh must stay within the grant by the same model. Two PDP dialects:
 PingAuthorize's native governance engine, or an OpenID AuthZEN 1.0 PDP.
 
 Modelled on Ping's reference `RARAuthDetailsProcessor` but closes its gaps: it honours the decision (the
 reference read only `statements` and could never deny), maps a real principal rather than a hardcoded
 `"joe"`, passes the attested entitlement so policy can enforce `requested ⊆ attested`, confines the
-insecure-TLS switch to development deployments, and implements a real `isEqualOrSubset` for refresh-time
-narrowing.
+insecure-TLS switch to development deployments, and answers `isEqualOrSubset` for refresh-time narrowing with
+the containment model's strict `contains`.
 
 Status: unit-tested (the count is in the coverage dashboard a Build run publishes), and client credentials,
 CIBA, refresh, token exchange and the code flow driven against it on the rig on 2026-09-27 (PingFederate
 13.1.3.0, this jar at 0.4.0-SNAPSHOT) by
 [`conformance/verify-rar-principal.sh`](../../conformance/verify-rar-principal.sh), with an upgrade from the
 v0.3.0 jar rehearsed on the way - the evidence is under "Verified on the rig" below. The device flow and the
-JWT-bearer grant were not driven (U-0066, U-0017). The earlier live verification against PingAuthorize (2026-08-15, on the agentic
-demo's PingFederate 13.0.3) still describes the governance-engine dialect.
+JWT-bearer grant were not driven (U-0066, U-0017). The containment model's narrowing, widening and refresh answers
+were driven on the rig on 2026-09-27 as well ("Verified on the rig"). The earlier live verification against
+PingAuthorize (2026-08-15, on the agentic demo's PingFederate 13.0.3) still describes the governance-engine dialect.
 
 **PingFederate 13.1 only.** The plugin reads the request through
 `AuthorizationDetailContext.getJakartaRequest()` and the user key through `getUserKey()`, which 13.0 does not
@@ -31,7 +34,7 @@ have, so it does not link there. The last build for 13.0.x is v0.1.5.
 
 | Path | What |
 |---|---|
-| [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (`com.pingidentity.ps.oidf.rar`) + tests; `PF-INF` marker; shaded jackson |
+| [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (`com.pingidentity.ps.oidf.rar`) + tests; `PF-INF` marker; shaded jackson and [`libs/rar-model`](../../libs/rar-model/README.md) |
 | [`paz/`](paz) | PingAuthorize Trust Framework + policy-authoring scripts (PAP REST API) — **author-local** compose, see its README |
 | [`probe-decision.sh`](probe-decision.sh) | POSTs the plugin's exact governance-engine request shape to a PDP |
 | [`../../conformance/verify-rar-principal.sh`](../../conformance/verify-rar-principal.sh) | boots the rig with this jar and drives every flow at a stub PDP; the evidence below |
@@ -42,7 +45,13 @@ have, so it does not link there. The last build for 13.0.x is v0.1.5.
 A PF SDK plugin: `src/main/resources/PF-INF/authorization-detail-processors` names the class, the jar is
 `pf.plugins.pf-rar-paz-plugin.jar` (PF only picks up `pf.plugins.*` in `server/default/deploy`), and PF
 loads it on a per-plugin **isolated** classloader. That is why jackson is shaded and relocated into
-`com.pingidentity.ps.oidf.rar.shaded.jackson` — a bare jackson jar beside the plugin would fail to link.
+`com.pingidentity.ps.oidf.rar.shaded.jackson` — a bare jackson jar beside the plugin would fail to link — and
+why the containment model, `libs/rar-model`, is shaded and relocated into
+`com.pingidentity.ps.oidf.rar.shaded.rarmodel`: the jar carries its own copy under its own package, never the
+library's package, so it can never be the class another jar's code links to. `ShadedJarCheck` holds the built
+jar to that after `package` (no entry and no class reference under `com/pingidentity/ps/oidf/rar/model/`, and
+the relocated copy computes the library's fingerprint), and `tools/pf-linkcheck.py` against the 13.1.3 jars
+finds nothing unresolved in it (1,141 own classes, 2026-09-27).
 The PF SDK and servlet API are `provided`; HTTP is the JDK's `java.net.http`. The package name is in the
 descriptor, so it was left alone by the split-package unwind that renamed the libraries.
 
@@ -51,26 +60,119 @@ descriptor, so it was left alone by the split-package unwind that renamed the li
 ```
 authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
    ├─ AttestationSubject   ← request attribute com.pingidentity.ps.oidf.rar.attestation_context
+   ├─ strip _principal_sub / _agent_id from the detail, after reading them
    ├─ PrincipalResolver    ← context.getUserKey() read per flow (grant_type, request path):
    │                          client credentials -> client · refresh -> authenticated · CIBA -> identity_hint
    │                          token exchange -> subject_token (a filter-verified attribute) else none
    │                          any other non-blank key -> authenticated · blank -> none
    │                          login_hint / _principal_sub -> client_asserted, in development only
+   ├─ ModelGate: the context's rar_models_fingerprint must be this plugin's, when there is a context
+   ├─ ModelGate: the detail must be one its type's RAR model reads    (refused before any PDP call)
    ├─ types requiring an authenticated principal: refused before any PDP call when none or client
    ├─ GovernanceEngineRequestBuilder | AuthZenRequestBuilder   (PDP Dialect field)
    ├─ GovernanceEngineClient | AuthZenPdpClient  ─POST─▶ PDP    (PdpClient seam, JdkHttpTransport)
    ├─ deny unless decision.isPermit()   (fail-open only when the PDP is unreachable, and only if configured)
-   └─ StatementApplier: merge statements/obligations into the granted detail (dot-path)
+   ├─ StatementApplier: merge statements/obligations into a deep copy of the detail (dot-path)
+   └─ ModelGate: the result must be within the request               (the PDP may narrow, never widen)
+
+isEqualOrSubset(requested, granted) ─▶ ModelGate: contains(granted, requested), strict, markers stripped
 ```
 
 Only `AttestationAwareRarProcessor` touches the SDK; the resolver, the builders, clients, `DecisionResponse`,
-`StatementApplier` and `RarContainment` are plain code, tested without PF.
+`StatementApplier` and `ModelGate` are plain code, tested without PF.
 
-**`RarContainment`** duplicates the containment semantics of `RarEntitlement` in
-[`libs/client-attestation`](../../libs/client-attestation) on purpose — kept local so the plugin builds
-and loads standalone on its isolated classloader rather than shading the library in — and its javadoc
-carries the TODO to consolidate the two. Same set-valued fields (`actions`, `locations`, `datatypes`,
-`privileges`, `sales_regions`); if one changes, change both.
+## The containment model
+
+Every containment question the plugin asks goes to [`libs/rar-model`](../../libs/rar-model/README.md), shaded
+into this jar (plan item S1c, which closes blocker B1 with S1b). `RarContainment`, which compared `type` and five
+array fields and let every other value through, is gone with its contract test.
+
+| When | What the plugin asks the model | A no, or a question the model cannot answer |
+|---|---|---|
+| `enrich`, before the PDP | is the requested detail, markers stripped, one its type's model reads | refused before any PDP call: an unmodelled type, an undeclared field, a value of the wrong shape (a flat `amount` without its `currency`, a negative limit, an empty array), a size limit |
+| `enrich`, after a PERMIT | is the detail the PDP's statements produced within the request (the model's `contains`, the request as the ceiling) | refused: the PDP may narrow a request, never widen it |
+| `isEqualOrSubset` | is the refresh's detail within the detail already granted (`contains`, the grant as the ceiling) | `false`, which PingFederate answers with `invalid_authorization_details` |
+
+- **Narrowing.** A statement that lowers an amount, drops a region, or sets a limit the request left open is
+  granted: RFC 9396 section 7.1 lets the token's details differ from the request's ("there are some use cases
+  where the AS enriches the data in an authorization details object"), and the type's model says how. A
+  statement that raises an amount, changes the currency, adds a region, changes the type or writes a field the
+  type does not declare is refused. The refusal and its WARNING line name the type and, when the model refused,
+  the field - never a value - and the principal hashed.
+- **The grant is built on a deep copy of the request.** `StatementApplier` writes into nested maps in place, and
+  with the shallow copy `enrich` used to take, a statement such as `instructedAmount.amount` rewrote the request
+  it would then be compared with (`ModelContainmentTest.aNestedStatementCannotRewriteTheRequestItIsComparedWith`).
+- **The markers.** `_principal_sub` and `_agent_id` are read - by the principal resolver, and for the PAR-carried
+  agent - and then stripped before anything is asked; the model declares both forbidden, so a detail that reached
+  it with either would be malformed.
+- **Failing open** grants only a detail the model has checked, since the check comes before the PDP call.
+- **Types.** `OIDF_RAR_EXTRA_TYPES` still decides which types PingFederate may bind to the processor. A type
+  named there without a model is refused in production (`UNMODELLED_TYPE`); with
+  `OIDF_DEPLOYMENT_PROFILE=development` the library's common-fields model stands in. A type a models document
+  declares must also be named there before PingFederate will bind it.
+
+### The model set and its fingerprint
+
+The model set is read once per classloader from `OIDF_RAR_MODELS_FILE` or `OIDF_RAR_MODELS` - the settings the
+attestation filter reads, so one document serves the whole PingFederate process - and logged when PingFederate
+first instantiates the processor:
+`RAR models loaded: fingerprint=<64 hex> types=[...] commonFieldsFallback=false source=built-in`. Each instance's
+configure line repeats it as `rarModels=`. A document the library refuses leaves the plugin with no model: a
+SEVERE line says why, and every request is refused (`enrich` throws, `isEqualOrSubset` answers `false`) until the
+document is fixed and PingFederate restarted. Refusing only the owning component, with a 503 and health DOWN,
+is plan item S-9 (Phase 3).
+
+The attestation filter publishes its own model set's fingerprint in the attestation context as
+`rar_models_fingerprint` (plan item S1b). When a request carries that context, the plugin compares it with its
+own before it asks the model anything:
+
+- the same fingerprint: decided as above;
+- another fingerprint, or a context without the member (a filter from before 0.4.0), or a context that is not a
+  map: refused before any PDP call, and `isEqualOrSubset` answers `false`;
+- no context at all - a client the filter did not verify, or the authorization endpoint's resume, which the
+  filter never sees: nothing to compare, and the plugin decides as 0.4.0's principal work (PR #29) left it - the
+  PDP is asked about the request alone, with no attested ceiling - with the model's checks above.
+
+So this plugin with an attestation filter from before 0.4.0 refuses every request from an attested client:
+deploy the two from one release.
+
+### What PingFederate 13.1.3 asks on a refresh
+
+Read with `javap -c` from `pf-protocolengine` and `pingfederate-sdk` 13.1.3.0 on 2026-09-27
+(`RefreshTokenGrantProcessor.processGrant`, `AuthorizationDetailsServiceImpl.isEqualOrSubset`,
+`AuthorizationDetailsUtil.isEqualOrSubset`):
+
+- Only a refresh that carries `authorization_details` is compared. PingFederate parses it
+  (`new AuthorizationDetails(String)`, its own Jackson: a fraction becomes a `double`, a large integer a
+  `BigInteger`, and an entry that is not an object, or whose `type` is not a string, fails the parse), enriches
+  it with the grant's user key and the mapped attributes, then requires every requested detail to be within
+  some stored detail of the same type. It compares the types itself and asks the processor about each same-type
+  pair - copies of both details, a context with the request, the client id and the scope and no user key, and an
+  empty parameter map - taking the first yes. A `false` or an `AuthorizationDetailProcessingException` makes it
+  answer `invalid_authorization_details`; on success the token carries the requested (enriched) details.
+- A refresh without `authorization_details` reissues the stored details; no processor is called and the PDP is
+  not asked (F-0105).
+- An empty requested list (`[]`) asks no processor either, and issues no details.
+
+PingFederate also asks `isEqualOrSubset` outside refresh, and the strict answer applies there too: whether
+approved consent covers a request (`OAuthConsentManagerDefaultImpl.isGranted`, also asked on a refresh when
+"bypass authorization for approved consents" applies), which consent records an updated consent covers and which
+it revokes (`createOrUpdate`), which requested details are already approved at the authorization endpoint
+(`PingFederateAuthorizationProcessor.getApprovedAuthorizationDetails`), and which stored grant a request can
+reuse (`AccessGrantManagerJdbcImpl` and `AccessGrantManagerLDAPADImpl.getByAccessGrantCriteria`). Read from the
+bytecode only; none of these was driven (U-0115).
+
+### The vectors on the refresh path
+
+`RefreshVectorsTest` is the fourth of the plan's four runners over `libs/rar-model`'s vector file: each of its
+148 `contains` cases is sent through PingFederate's parse and the refresh loop above, to this plugin's
+`isEqualOrSubset`, and must answer as the library does - with the library's refusal reason wherever the plugin
+was the one asked. Six cases answer differently, each listed in the test with its reason, and the test fails if
+one of them stops differing: the three bookkeeping-marker cases (the plugin strips the markers by design), the
+empty-request case (PingFederate asks no processor), and two number cases that PingFederate's parse changes
+before the plugin is asked (`100e2147483647` becomes an infinite double, which PingFederate's own copy of the
+detail writes back as the string `"Infinity"`; `1e-999999999` becomes `0.0`). In none of them does PingFederate
+issue more than the grant: what the plugin compares is what PingFederate then issues.
 
 ## Who the decision is about
 
@@ -170,12 +272,13 @@ the other across classloaders:
   attester-minted instance identifier, when one was minted), `iss` (the attester that minted it - an
   `agent_id` is unique only within its issuing authority), `entitlement` (the attested
   `authorization_details` ceiling), `workload` (SPIFFE id / attestor / selectors, plus flat `spiffe_id`
-  and `attested_by`), `cnf_thumbprint`; and, once the filter verifies token-exchange subject tokens,
-  `verified_subject_token_sub` (`AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY`), the only thing the
-  `subject_token` principal source reads.
+  and `attested_by`), `cnf_thumbprint`, `rar_models_fingerprint` (the filter's `RarModels.fingerprint()`,
+  lower-case hex, published from S1b on and compared with the plugin's own: "The model set and its fingerprint"
+  above); and, once the filter verifies token-exchange subject tokens, `verified_subject_token_sub`
+  (`AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY`), the only thing the `subject_token` principal source reads.
 
 Absent context (a non-attestation client) falls back to `context.getClientId()` and sends no
-entitlement — policy decides on the request alone.
+entitlement — policy decides on the request alone, and the model's checks still apply.
 
 ## PDP dialects
 
@@ -214,6 +317,13 @@ was stored with all fifteen (2026-09-27). The version PingFederate shows for the
 
 `OIDF_DEPLOYMENT_PROFILE` is read straight from the environment until PR-1 (the platform library)
 centralises the profile; `development` (any case) is development, anything else including unset is production.
+The RAR model set reads the same variable through the library, which takes exactly `development` (whitespace
+trimmed) for its common-fields fallback, so `Development` relaxes the plugin's own switches and not the model.
+
+The model set's own settings are process environment, not instance fields, and the same for every component
+that loads the model: `OIDF_RAR_MODELS_FILE` (a models document, read once, UTF-8) or `OIDF_RAR_MODELS` (the
+document inline; not both). Unset, the model is the three built-in types. What a document may say is the
+library's README, "A models document".
 
 Supported RAR types are declared in code (`sales_agent`, `payment_initiation`, `account_information`),
 plus any the deployment names in `OIDF_RAR_EXTRA_TYPES` or the `oidf.rar.extra.types` system property
@@ -273,6 +383,30 @@ the upgrade rehearsal above are its run of 2026-09-27T03:40Z, on this plugin at 
 (`conformance/.rar-principal/summary.txt`, `pdp-requests.jsonl` and PingFederate's `server.log`, git-ignored).
 That `server.log` carries neither the test user's name nor the shared secret: the plugin's lines hash the
 principal, and the refusals PingFederate logs with their causes carry only the plugin's own text.
+
+**The containment model on the rig (2026-09-27T09:33Z, PingFederate 13.1.3.0, this jar at 0.4.0-SNAPSHOT,
+commit 6bca441).** The rig above on its own slot (`PF_RIG_NAME=pfai-s1c`), configured by
+`ONLY_CONFIGURE=1 conformance/verify-rar-principal.sh`, with the stub PDP swapped for one that answers PERMIT
+with an AuthZEN `context` (each member becomes a statement). The plugin logged `RAR models loaded:
+fingerprint=bbedb1a7...` with `commonFieldsFallback=true`, the rig being a development deployment, and its
+configure line carried the same `rarModels=`. Then:
+
+| Request | PDP context | Token endpoint |
+|---|---|---|
+| client credentials, `sales_agent` EMEA | `{"max_txn_eur": 100}` (a limit the request left open) | 200, granted EMEA with `max_txn_eur` 100 |
+| client credentials, `sales_agent` EMEA and APAC | `{"sales_regions": ["EMEA"], "max_txn_eur": 50}` | 200, granted EMEA with `max_txn_eur` 50 |
+| client credentials, `sales_agent` EMEA | `{"sales_regions": ["EMEA", "APAC"]}` (wider) | 400 `invalid_authorization_details`; WARNING "refusing the PDP's answer ... it is not within the request" |
+| client credentials, `sales_agent` EMEA | `{"trace": "x"}` (undeclared) | 400; WARNING names `'trace'` as a field `sales_agent` does not declare |
+| client credentials, `sales_agent` with `"tier": "gold"` | - | 400, and the PDP was not asked |
+| refresh of a CIBA grant for 42.00 AUD to Acme, asking for 43.00 | none | 400 `invalid_authorization_details`; "RAR refresh: ... not within the grant" |
+| the same refresh, asking for 42.00 to Mallory | none | 400 |
+| the same refresh, asking for 41.00 to Acme | none | 200, granted 41.00 |
+| the same grant, refreshed without `authorization_details` | none | 200, the stored 42.00 reissued; the PDP was not asked (F-0105) |
+
+PingFederate logged each refusal at ERROR as "Error during enrichment of authorization detail: sales_agent",
+with nothing of the PDP's answer: `APAC` appears nowhere in `server.log`. The attestation-context fingerprint
+was not exercised there: the probe client is secret-authenticated, and the filter publishes the fingerprint only
+from S1b on (U-0116).
 
 Not verified there: the device flow's user key (U-0066), the JWT-bearer grant (U-0017; `javap` finds no call
 to enrich in `JwtGrantProcessor`), the `subject` recipe on an authentication *policy* contract rather than an
