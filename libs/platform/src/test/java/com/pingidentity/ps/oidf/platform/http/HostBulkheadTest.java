@@ -90,6 +90,26 @@ class HostBulkheadTest {
     }
 
     @Test
+    void closingAPermitTwiceWhileAnotherIsHeldLeavesTheOtherCounted() throws Exception {
+        // With a second request to the same origin inside, a second close that gave back again would free two places
+        // and count the holder out, dropping the entry while it is still inside and letting max + 1 requests in.
+        HostBulkhead bulkhead = new HostBulkhead(2);
+        try (Bulkhead.Permit held = bulkhead.enter(A, millis(100))) {
+            Bulkhead.Permit twice = bulkhead.enter(A, millis(100));
+            twice.close();
+            twice.close();
+            assertEquals(1, bulkhead.inFlight(A), "the holder still counts");
+            assertEquals(1, bulkhead.origins());
+            try (Bulkhead.Permit next = bulkhead.enter(A, millis(100))) {
+                assertEquals(2, bulkhead.inFlight(A));
+                assertEquals(Reason.BULKHEAD_FULL, assertThrows(OutboundHttpException.class, () -> bulkhead.enter(A, millis(50))).reason(),
+                        "two places, both taken: the double close made no third");
+            }
+        }
+        assertEquals(0, bulkhead.origins());
+    }
+
+    @Test
     void aWaitingRequestGetsThePlaceWhenItIsGivenBack() throws Exception {
         HostBulkhead bulkhead = new HostBulkhead(1);
         Bulkhead.Permit held = bulkhead.enter(A, millis(1000));
