@@ -128,4 +128,14 @@
     the response and so has to sit outside it.
   </order>
 
+  <!-- The lifecycle listener (plan item F-2, libs/platform-pf, "lifecycle"): marks the webapp's copy of platform
+       as the webapp's, logs the start-up audit banner once, and at undeploy closes that copy's executors, MXBean
+       and Redis pools. Registered here by name, not by a @WebListener annotation. PingFederate 13.1.3 would run
+       an annotated one from WEB-INF/lib and not from server/default/deploy (U-0024, a probe on the rig,
+       2026-09-28), but the same jars sit in both places, and the engine's loader must never run it: a named
+       entry is one registration the assembler checks, in this war only, whatever a container scans, and a
+       consumer's war with metadata-complete="true" would silently drop an annotated one. The listener also
+       checks that its copy of platform is the war's own before it touches it. -->
+  <listener class="com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener"/>
+
 </war-filters>

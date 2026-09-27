@@ -1,6 +1,7 @@
 package au.com.idpartners.gm.servlet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
@@ -36,6 +37,12 @@ import java.util.logging.Logger;
  */
 public class GrantsServlet extends HttpServlet {
 
+    /**
+     * This war's component, as its health and start-up audit name it (plan items O-4 and F-2): S-9 names none for
+     * gm-api, so it has its own. This servlet and {@link McpServlet} are its two parts.
+     */
+    static final String COMPONENT = "GM_API";
+
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final Logger log = Logger.getLogger(getClass().getName());
 
@@ -45,10 +52,18 @@ public class GrantsServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        McpServlet.ServletConfigs cfg = McpServlet.ServletConfigs.of(config);
-        this.ops = new GrantOperations(
-                new PfTokenVerifier(cfg.audience()),
-                new PdpClient(cfg.pdpUrl(), cfg.pdpToken(), cfg.pdpTimeoutMs()));
+        var part = Startup.begin(COMPONENT, "GrantsServlet");
+        try {
+            McpServlet.ServletConfigs cfg = McpServlet.ServletConfigs.of(config);
+            this.ops = new GrantOperations(
+                    new PfTokenVerifier(cfg.audience()),
+                    new PdpClient(cfg.pdpUrl(), cfg.pdpToken(), cfg.pdpTimeoutMs()));
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
+        }
         log.info("Grant Management API ready; PDP at " + ops.pdp().getEvaluationUrl());
     }
 

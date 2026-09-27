@@ -71,8 +71,9 @@ calls (`lookup`/`describe`/`revoke`) — is for the same reason `GrantView` exis
 
 ## Build
 
-A BOM consumer like the rest of the reactor; only its groupId (`au.com.idpartners`) differs. Every
-runtime dependency is `provided`, version-less, on its real coordinates: `com.pingidentity.pingfederate:pingfederate-sdk`,
+A BOM consumer like the rest of the reactor; only its groupId (`au.com.idpartners`) differs. Apart from this
+repository's own `platform-pf` (and `platform` through it), every runtime dependency is `provided`, version-less, on
+its real coordinates: `com.pingidentity.pingfederate:pingfederate-sdk`,
 `jakarta.servlet:jakarta.servlet-api`, `org.bitbucket.b_c:jose4j` and `com.fasterxml.jackson.core:jackson-databind`
 and `jackson-core`. The PF SDK is Ping-licensed and not on Maven Central, so it must be installed into
 `~/.m2` first - the two `install:install-file` lines in `.github/actions/pf-provided-jars/action.yml` do it
@@ -86,9 +87,13 @@ ships as `jetty-jakarta-servlet-api-5.0.2.jar`. No version tool holds the servle
 mvn -pl services/gm-api/servlet -am verify     # from the repo root → target/gm-api.war
 ```
 
-**Bundle nothing**: PF isolates each deploy-dir artifact on its own classloader, so a second copy of a PF
-class would not be the same class (`rar-paz-plugin` shades jackson for the same reason - it needs jackson
-but must not collide with PF's). The war's `WEB-INF/lib` is empty.
+**Bundle nothing of PingFederate's**: PF isolates each deploy-dir artifact on its own classloader, so a second
+copy of a PF class would not be the same class (`rar-paz-plugin` shades jackson for the same reason - it needs
+jackson but must not collide with PF's). The war's `WEB-INF/lib` holds only `platform-pf` and `platform` (from
+0.5.0): this war's own copy, with its own lifecycle listener, `GM_API` component, health at
+`/gm-api/agentic-identity/health/{live,ready}` and start-up audit banner
+([libs/platform-pf](../../../libs/platform-pf/README.md#lifecycle)). On the rig (PingFederate 13.1.3.0, 2026-09-28)
+gm-api's webapp loader loaded them from its own `WEB-INF/lib`, not the engine's copies in `server/default/deploy`.
 
 ## Deploy and configure
 

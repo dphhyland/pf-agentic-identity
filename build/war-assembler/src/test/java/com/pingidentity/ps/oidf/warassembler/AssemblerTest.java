@@ -51,17 +51,19 @@ class AssemblerTest {
         String stock = Fixtures.text("fixtures/stock-like-web.xml");
         String merged = Fixtures.webXml(out);
         int end = stock.lastIndexOf("</web-app>");
-        assertEquals(stock.substring(0, end) + Fixtures.text("golden/shell-assembler-additions.txt") + stock.substring(end),
-                merged, "PingFederate's text untouched, and the block inserted before </web-app> is the shell script's");
+        assertEquals(stock.substring(0, end) + Fixtures.text("golden/shell-assembler-additions.txt")
+                + Fixtures.LIFECYCLE_LISTENER_BLOCK + stock.substring(end), merged,
+                "PingFederate's text untouched, and the block inserted before </web-app> is the shell script's, then F-2's listener");
         assertNotNull(Fixtures.entry(out, "WEB-INF/lib/oidf.jar"));
         assertNotNull(Fixtures.entry(out, "WEB-INF/lib/ssf-0.5.0-SNAPSHOT.jar"));
         assertNotNull(Fixtures.entry(out, "META-INF/MANIFEST.MF"));
-        assertTrue(r.out().contains("modules/: 2 jars, matching MANIFEST (MANIFEST/2 profile=production"), r.out());
+        assertTrue(r.out().contains("modules/: 3 jars, matching MANIFEST (MANIFEST/2 profile=production"), r.out());
         assertTrue(r.out().contains("namespace: jakarta.servlet (per the stock war); no staged jar references javax.servlet"));
         assertTrue(r.out().contains("web.xml: registered Fapi2Profile over /as/par.oauth2, /as/token.oauth2"));
         assertTrue(r.out().contains("chain /as/token.oauth2 (protocol): requestTracing > Fapi2Profile > OAuthErrorDescription"
                 + " > OidfAutoRegistration > ClientAttestationAuth > responseCaching"), r.out());
-        assertTrue(r.out().contains("4 order rules hold; no listener declared"), r.out());
+        assertTrue(r.out().contains("4 order rules hold; 1 listeners registered"), r.out());
+        assertTrue(r.out().contains("web.xml: registered the listener " + Fixtures.LIFECYCLE_LISTENER), r.out());
         assertEquals("", r.err());
         assertEquals("rw-r-----", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(out)),
                 "the stock war's rw-rw---- less group write, as cp under umask 022 left it");
@@ -157,7 +159,7 @@ class AssemblerTest {
                 Fixtures.stage(dir).toString(), "-", dir.resolve("out.war").toString());
         assertEquals(1, r.exit());
         assertTrue(r.err().contains("speaks javax.servlet, but these staged jars are compiled\n       against jakarta.servlet: oidf.jar"
-                + " ssf-0.5.0-SNAPSHOT.jar"), r.err());
+                + " platform-pf-0.5.0-SNAPSHOT.jar ssf-0.5.0-SNAPSHOT.jar"), r.err());
     }
 
     @Test
@@ -185,7 +187,7 @@ class AssemblerTest {
         assertEquals(0, r.exit(), r.err());
         assertTrue(Fixtures.webXml(first).contains("  <listener>\n    <listener-class>" + listener
                 + "</listener-class>\n  </listener>\n</web-app>"));
-        assertTrue(r.out().contains("1 listeners registered"), r.out());
+        assertTrue(r.out().contains("2 listeners registered"), r.out());
         Fixtures.Run again = run("--filters", declaration.toString(), first.toString(), modules.toString(), "-",
                 dir.resolve("second.war").toString());
         assertEquals(0, again.exit(), again.err());
@@ -225,6 +227,7 @@ class AssemblerTest {
         extra.put("WEB-INF/classes/" + Fixtures.classEntry(Fixtures.SSF_FILTER), Fixtures.classBytes("jakarta"));
         extra.put("WEB-INF/classes/readme.txt", new byte[0]);
         extra.put("WEB-INF/lib/oidf.jar", Fixtures.moduleJars("jakarta").get("oidf.jar"));
+        extra.put("WEB-INF/lib/platform-pf.jar", Fixtures.moduleJars("jakarta").get("platform-pf-0.5.0-SNAPSHOT.jar"));
         extra.put("WEB-INF/lib/notes.txt", new byte[0]);
         Path stock = Fixtures.war(dir, "stock.war", Fixtures.resource("fixtures/stock-like-web.xml"), extra);
         Path single = dir.resolve("unrelated.jar");
@@ -370,6 +373,20 @@ class AssemblerTest {
     void noArgumentsIsAUsageError() {
         PrintStream quiet = new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8);
         assertEquals(2, Assembler.run(new String[0], quiet, quiet));
+    }
+
+    @Test
+    void aDeclarationWithNoListenerSaysSo() throws IOException {
+        String declaration = Files.readString(Fixtures.shippedFilters())
+                .replace("<listener class=\"" + Fixtures.LIFECYCLE_LISTENER + "\"/>", "");
+        Path p = dir.resolve("filters-without-listener.xml");
+        Files.writeString(p, declaration);
+        Path out = dir.resolve("out.war");
+        Fixtures.Run r = run("--filters", p.toString(), stockLike("stock-like-web.xml").toString(), Fixtures.stage(dir).toString(), "-",
+                out.toString());
+        assertEquals(0, r.exit(), r.err());
+        assertTrue(r.out().contains("4 order rules hold; no listener declared"), r.out());
+        assertFalse(Fixtures.webXml(out).contains("<listener>"));
     }
 
     private Path withListener(String listener) throws IOException {

@@ -118,6 +118,77 @@ gm-api's `init` (a component name of its own, such as `GM_API`, since S-9 names 
 to start reads DOWN. The detail and info take the same bearer: the token is JVM-wide.
 
 <!-- lifecycle (F-2): add this package's section below this line -->
+## lifecycle
+
+`LifecycleListener` is the one `ServletContextListener` this repository ships (plan item F-2). It works on the copy
+of platform its own war loaded, and on no other:
+
+- **`contextInitialized`** marks that copy as the webapp's (`Lifecycle.markWebapp()`), registers its metrics MXBean
+  (`Metrics.registerMXBean()`), and arranges the start-up audit. It adds a servlet, `oidf-startup-audit`, with no
+  mapping and load-on-startup `Integer.MAX_VALUE`; the container initialises filters before servlets and
+  load-on-startup servlets in ascending order, so that servlet's `init` runs after the war's filters and other
+  load-on-startup servlets have registered their components, and it logs the banner, once, at INFO. A container
+  that will not add a servlet then (a listener that was itself added programmatically) gets the banner at once,
+  with whatever components had registered by then.
+- **`contextDestroyed`** runs the copy's `Lifecycle.shutdown` within five seconds (`SHUTDOWN_BUDGET`, under
+  `docker stop`'s default ten with PingFederate's own shutdown still to come) - the managed executors, the metrics
+  MXBean and the Redis pools, last registered first - and logs one line naming each close and how it ended. That line
+  reaches server.log when a war is undeployed (gm-api.war removed from `server/default/deploy` on the rig), but not
+  when the JVM stops: PingFederate stops its logging before it destroys its webapps' contexts (finding
+  [F-0210](../../docs/findings/F-0210.yaml)).
+
+**The loader check.** Before either, the listener compares the loader that defined its copy of `Lifecycle` with the
+war's own (`ServletContext.getClassLoader()`). The same jars sit in `server/default/deploy`, on the engine's loader,
+where the OGNL criteria run; a war whose loader asked its parent first would see that copy, and marking it or
+shutting it down would close what the criteria use. When the two loaders differ the listener logs a WARN and does
+nothing else.
+
+**Where it is registered, and why by name.** In `pf-runtime.war` through `build/pingfederate/filters.xml`, whose
+`<listener>` entry the war assembler writes into the war's `web.xml` and checks is there exactly once; in
+`oidf.war`'s and `gm-api.war`'s `web.xml`. It carries no `@WebListener` annotation. An annotated one would run: on the rig (PingFederate 13.1.3.0, Jetty
+12.0.36.1, 2026-09-28) a probe `@WebListener` in a jar in `pf-runtime.war`'s `WEB-INF/lib`, with no `web.xml` entry,
+ran once per boot, and the same jar in `server/default/deploy` ran in no context, the engine's or any other war's
+(finding [U-0024](../../docs/findings/U-0024.yaml)). It is registered by name all the same: the same jars sit in both
+places and the engine's loader must never run it, so the registration should not depend on which jars a container
+scans; a named entry is one registration the assembler checks, in the one war; and a war with
+`metadata-complete="true"` would silently drop an annotated listener.
+
+**The banner**, one INFO event on the logger `com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener`:
+
+| Line | What it says |
+|---|---|
+| `version` | this repository's version, from platform-pf's `pom.properties` (`BuildInfo`, as `/agentic-identity/info` reads it) |
+| `commit` | `unknown`: no build records the commit where a running PingFederate can read it (finding F-0190). `BuildInfo` is where it would be read, from a manifest entry the build sets from `GITHUB_SHA`; the banner follows it |
+| `PingFederate` | PingFederate's version, from `pf-commons.jar`'s `pom.properties` - the file PingFederate's own `VersionUtil` reads - through `BuildInfo`, not through PingFederate's internals |
+| `Java` | the running JVM's version |
+| `profile` | `development` or `production`, and how `OIDF_DEPLOYMENT_PROFILE` said so (`DeploymentProfile.describe`) |
+| `topology` | `standalone` until C-1 (Phase 4) can tell a cluster from one node |
+| `accepted risks` | each risk `OIDF_ACCEPTED_RISKS` accepts, with its expiry and what it lets happen |
+| `risk refusals` | how many entries did not parse, were unknown, expired or repeated; each is also logged at WARN, naming it, and its risk is not accepted. Nothing refuses a start for them until PR-5 (Phase 3; the Phase 2 plan's decision 7) |
+| `insecure TLS` | each setting that asked `InsecureTls` for a trust-all context in this war so far, and since when |
+| `JDK host names` | whether `jdk.internal.httpclient.disableHostnameVerification` turns the JDK HTTP client's host name check off for the whole JVM |
+| `components` | each registered component's state and reason, as health reads them |
+| `executors` | this copy's managed executors |
+| `metrics MXBean` | the name this copy's MXBean is registered under |
+| `platform` | where this copy of platform was loaded from: the war's `WEB-INF/lib` |
+
+Every value is one line of at most 256 characters, with control, format and separator characters replaced by `?`,
+because the profile and the risk refusals quote what an operator set. The audit refuses nothing and changes nothing;
+it is what PR-5 will turn into refused components.
+
+**gm-api.war** bundles platform-pf, and platform through it, in its own `WEB-INF/lib`, so it has its own copy: its
+own lifecycle, components, metrics MXBean and banner, and its own health under `/gm-api/agentic-identity/health/...`
+(the decision O-4 recorded above). `GrantsServlet` and `McpServlet` register the parts of a component of its own,
+`GM_API` (S-9 names none for gm-api), so a gm-api whose servlets failed to start reads `FAILED_CONFIG` in its
+banner and DOWN on its ready.
+
+**What it does not do.** It does not refuse a start: PR-5 does that. It does not make `ExecutorRegistry` refuse an
+unmarked copy (finding F-0200): that is one check in platform.exec, now that the webapp's copy is marked, and it is
+C-3's code to change; a standalone program using platform would then need to mark itself, which X-A01's service-kit
+is the place for. The engine's copy is never marked and never shut down: nothing runs a listener for
+`server/default/deploy`, and its MXBean stays until the JVM stops, which is what keeps the OGNL criteria's metrics
+visible (the Phase 2 plan's risk 12).
+
 <!-- internals (F-1, PfInternals): add this package's section below this line -->
 ## internals
 

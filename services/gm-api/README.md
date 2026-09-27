@@ -34,7 +34,9 @@ what a token introspection cannot see.
 `services/gm-api/servlet` builds like every other module in the reactor: it imports the repo BOM, and
 its dependencies carry no versions of their own. Only its groupId differs - it keeps the coordinates
 `au.com.idpartners:gm-api`, on the reactor's version (`tools/set-version.py` keeps it in step). Every
-runtime dependency is `provided` and comes from PingFederate at run time. At build time
+PingFederate dependency is `provided` and comes from PingFederate at run time; from 0.5.0 the war bundles only
+this repository's own `platform-pf` and `platform`, for its lifecycle listener, health and start-up audit
+([libs/platform-pf](../../libs/platform-pf/README.md#lifecycle)). At build time
 `pingfederate-sdk` is one of the two jars `.github/actions/pf-provided-jars/action.yml` installs from the
 public `pingidentity/pingfederate` image, and the rest come from Maven Central: `jose4j`,
 `jackson-databind` and `jackson-core` at the versions the BOM holds to the image, and `jakarta.servlet-api`
