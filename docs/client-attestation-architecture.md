@@ -422,7 +422,7 @@ it is left visible rather than filled with a plausible guess.
 | `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness | `DpopProofValidator`, `services/demo-rs` | Implemented |
 | `RFC9449 §6.1` | `cnf.jkt` equals the presented proof key's thumbprint | `DelegatedTokenValidator` | Implemented |
 | — | RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial — `unverified.md` item 10 |
-| `RFC9396 §7.1` | `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`, `RarContainment` | Implemented |
+| `RFC9396 §7.1` | `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`; the RAR plugin compares every field by `libs/rar-model` (the PDP's answer against the request, a refresh against its grant) | Implemented |
 | `RFC9396 §6.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
 | `RFC8693 §4.1` | `act` as a JSON object; outermost actor only is authorisable | `services/demo-rs` `ActChain`, `services/gm-api` `TokenClaims` | Implemented on the reading side |
 | `UNVERIFIED item 8` | `act` minted as a JSON string, not an object | `delegationActChain` | Divergence being corrected — whether PF can emit the object form is unresolved |
@@ -727,9 +727,11 @@ rather than unverified claims. `delegationActChain` still reads the `act` claim 
 token-exchange processor validates that token before any token issues. *Closes when:* that remaining
 coupling is enforced in code, or accepted in writing.
 
-**`RarContainment` duplicates `RarEntitlement`.** The PAZ plugin shades its own copy; the file carries
-the repo's one literal `TODO: consolidate the two into a shared library`. Two implementations of a
-containment rule will drift, and the drift is a privilege-escalation shape.
+**~~`RarContainment` duplicates `RarEntitlement`.~~ Half-closed, 2026-09-27 (PR #36).** The RAR plugin
+shades and relocates the shared library, `libs/rar-model`, and asks it every containment question;
+`RarContainment` and its contract test are gone. The other copy goes with plan item S1b, when the
+authenticator and the attester move to the same library, and the attestation context's
+`rar_models_fingerprint` then shows the two classloaders hold one model. *Closes when:* S1b has merged.
 
 ### Nice to have
 
