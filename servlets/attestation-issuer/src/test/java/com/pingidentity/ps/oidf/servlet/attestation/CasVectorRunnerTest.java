@@ -72,7 +72,7 @@ import org.junit.jupiter.api.TestFactory;
  * Every attestation the mint issues is then presented to the authorization server's token gate, with its own
  * details as the request, so what the attester writes is what the gate reads - the numbers included.
  *
- * <p>One case is answered differently on purpose, named in {@link #DIVERGENCES}.
+ * <p>Three answers differ on purpose, named in {@link #DIVERGENCES} with the text that makes them differ.
  */
 @Requirement({"CAS §7(1)", "CAS §7(2)", "CAS §7(3)"})
 class CasVectorRunnerTest {
@@ -83,11 +83,16 @@ class CasVectorRunnerTest {
     private static final String SPIFFE_ID = "spiffe://banking.demo/payment-agent";
     private static final ObjectMapper JSON = new ObjectMapper();
 
-    /** The case the attester answers differently from the library, and why. */
+    /** The cases the attester answers differently from the library, by surface and case name, and why. */
     static final Map<String, String> DIVERGENCES = Map.of(
-            "authorize: an empty candidate grants nothing",
-            "CAS §7 rule 2: an empty request is a request for the full ceiling, and an instance with no ceiling of "
-                    + "its own takes the client's");
+            "mint: authorize: an empty candidate grants nothing",
+            "CAS §7 rule 2: an empty request is a request for the full ceiling",
+            "configuration: authorize: an empty candidate grants nothing",
+            "an instance with no ceiling of its own takes the client's (CAS §7: \"ceiling(instance) = "
+                    + "instances[i].entitlement if present = entitlement (client-level) otherwise\")",
+            "configuration: authorize: an empty ceiling refuses any request",
+            "CAS §6.1: an instance's entitlement \"MUST be a subset of the client-level entitlement when both are "
+                    + "present\", and the client-level one is OPTIONAL; with none, the instance's is kept as written");
 
     private static PublicJsonWebKey bundleKey;
     private static PublicJsonWebKey attesterKey;
@@ -128,7 +133,8 @@ class CasVectorRunnerTest {
     @Test
     void everyDivergenceNamesACaseInTheFile() {
         Set<String> names = Vectors.load().stream().map(Vectors.Case::name).collect(Collectors.toSet());
-        for (String name : DIVERGENCES.keySet()) {
+        for (String key : DIVERGENCES.keySet()) {
+            String name = key.substring(key.indexOf(": ") + 2);
             assertTrue(names.contains(name), "no case named '" + name + "' in the vector file");
         }
     }
@@ -162,7 +168,7 @@ class CasVectorRunnerTest {
         }
         List<Map<String, Object>> minted = mintedDetails((String) body.get("attestation"));
         Object want;
-        if (DIVERGENCES.containsKey(c.name())) {
+        if (DIVERGENCES.containsKey("mint: " + c.name())) {
             want = models.fullCeiling(RarModels.details(ceiling));
         } else {
             assertEquals(null, c.expectedRefusal(), "'" + c.name() + "' was minted, where the case expects a refusal");
@@ -200,10 +206,14 @@ class CasVectorRunnerTest {
             return;
         }
         List<Map<String, Object>> kept = config.bindings().get(0).entitlement();
-        if (DIVERGENCES.containsKey(c.name())) {
-            assertEquals(List.of(), kept, "no ceiling of its own");
-            assertEquals(Vectors.canonical(RarModels.details(ceiling)),
-                    Vectors.canonical(config.effectiveCeiling(config.bindings().get(0))), "the client's applies");
+        if (DIVERGENCES.containsKey("configuration: " + c.name())) {
+            if (candidate.isEmpty()) {
+                assertEquals(List.of(), kept, "no ceiling of its own");
+                assertEquals(Vectors.canonical(RarModels.details(ceiling)),
+                        Vectors.canonical(config.effectiveCeiling(config.bindings().get(0))), "the client's applies");
+            } else {
+                assertEquals(Vectors.canonical(candidate), Vectors.canonical(kept), "kept as written");
+            }
             return;
         }
         assertEquals(null, c.expectedRefusal(), "'" + c.name() + "' was configured, where the case expects a refusal");

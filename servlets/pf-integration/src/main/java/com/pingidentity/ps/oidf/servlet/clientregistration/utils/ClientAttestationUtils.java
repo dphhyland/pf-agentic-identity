@@ -151,13 +151,6 @@ public final class ClientAttestationUtils {
                 return true;
             }
 
-            String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(request);
-
-            String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
-            String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
-            String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
-            String requestUri = request.getRequestURL() == null ? null : request.getRequestURL().toString();
-
             // The containment model the token gate asks. The engine classloader has no start-up hook, so this first
             // call is where it loads, once per classloader; a models document it cannot read refuses every attested
             // token here, and AttestationRarModels logs why once. Plan item S-9 (Phase 3) gives the component a
@@ -170,6 +163,14 @@ public final class ClientAttestationUtils {
                         + "could not be loaded (" + e.getMessage() + ")"));
                 return false;
             }
+
+            String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(request);
+
+            String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
+            String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
+            String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
+            String requestUri = request.getRequestURL() == null ? null : request.getRequestURL().toString();
+
             AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
                     ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
                     ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
@@ -268,8 +269,8 @@ public final class ClientAttestationUtils {
         }
         // The workload behind the client — SPIFFE ID, attestor and any introspected selectors. Surfaced
         // flat as well so an access-token attribute mapping (OGNL) can name the workload in the token.
-        Map<String, Object> workload = result.workload();
-        if (workload != null && !workload.isEmpty()) {
+        Map<String, Object> workload = result.workload(); // never null: the result holds an empty map for none
+        if (!workload.isEmpty()) {
             ctx.put("workload", workload);
             Object spiffeId = workload.get("spiffe_id");
             if (spiffeId != null) {

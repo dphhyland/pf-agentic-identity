@@ -109,6 +109,16 @@
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.parseRequest(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.asObjectList(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.mapEntitlementError(*</include>
+                                        <!-- S1b: what the attestation carries - the grant against the binding's ceiling
+                                             (authorize, INHERIT; the full ceiling for an empty request), the asserted
+                                             context's meet, the model set a mint uses - and the ceilings a client's
+                                             configuration is held to, an instance's kept as authorized (F-0034). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.grant(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.intersectCeilings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.rarModels(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.instanceCeiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig.clientCeiling(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.federationWalletValidatorFromEnv(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.PfIssuanceClientResolver.resolve(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadata(*</include>

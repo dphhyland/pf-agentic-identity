@@ -247,6 +247,11 @@
                                              subject the delegated act chain names. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.defaultConfig(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.actingPartySub(*</include>
+                                        <!-- S1b: what the RAR plugin is told - the attested ceiling and the fingerprint of the
+                                             model set that checked the request, which it compares with its own - and the
+                                             model's reason a refusal's log line carries (never the client's description). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.attestationContext(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.refusalDetail(*</include>
                                         <!-- FAPI 2.0 enforcement over PingFederate's own endpoints. checkClientAssertion
                                              and checkDpopProof are the rules. subjectOf, clientOfAccessToken and
                                              appliesTo decide WHOSE request it is and so whether the rules apply at
