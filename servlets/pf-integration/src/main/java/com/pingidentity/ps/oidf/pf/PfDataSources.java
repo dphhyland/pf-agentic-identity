@@ -28,6 +28,19 @@ public final class PfDataSources {
         return new DriverManagerDataSource(jdbcUrl, username, password);
     }
 
+    /**
+     * Refuses a {@code jdbc:h2:} or {@code jdbc:hsqldb:} URL (in any case) with a message naming PostgreSQL. Names
+     * the prefix only: the rest of a JDBC URL can carry a password.
+     */
+    static void refuseDroppedDatabase(String url) {
+        for (String dropped : new String[] {"jdbc:h2:", "jdbc:hsqldb:"}) {
+            if (url.regionMatches(true, 0, dropped, 0, dropped.length())) {
+                throw new IllegalArgumentException("a " + dropped + " URL is not supported: H2 and HSQLDB support was "
+                        + "dropped in 0.5.0; use PostgreSQL (a jdbc:postgresql: URL) or a PingFederate JDBC data store id");
+            }
+        }
+    }
+
     /** Connections from PF's own pool for a PF-configured JDBC data store id. */
     public static DataSource pfManaged(String dataStoreId) {
         return new PfManagedDataSource(dataStoreId);
@@ -48,15 +61,14 @@ public final class PfDataSources {
         /**
          * DriverManager only auto-registers drivers from the system classpath; a driver shipped inside
          * pf-runtime.war's WEB-INF/lib must be loaded explicitly (its static initializer self-registers).
+         * H2 and HSQLDB were dropped in 0.5.0: their URLs are refused here, so the component does not start
+         * on a database nothing tests against.
          */
         private static void ensureDriverLoaded(String url) {
+            refuseDroppedDatabase(url);
             String driverClass = null;
             if (url.startsWith("jdbc:postgresql:")) {
                 driverClass = "org.postgresql.Driver";
-            } else if (url.startsWith("jdbc:hsqldb:")) {
-                driverClass = "org.hsqldb.jdbc.JDBCDriver";
-            } else if (url.startsWith("jdbc:h2:")) {
-                driverClass = "org.h2.Driver";
             }
             if (driverClass != null) {
                 try {

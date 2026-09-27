@@ -41,6 +41,20 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
         return store;
     }
 
+    /**
+     * Refuses a {@code jdbc:h2:} or {@code jdbc:hsqldb:} {@code OIDF_SSF_JDBC_URL} (in any case) with a message naming
+     * PostgreSQL. Names the prefix only: the rest of a JDBC URL can carry a password.
+     */
+    static void refuseDroppedDatabase(String url) {
+        for (String dropped : new String[] {"jdbc:h2:", "jdbc:hsqldb:"}) {
+            if (url.regionMatches(true, 0, dropped, 0, dropped.length())) {
+                throw new IllegalArgumentException("a " + dropped + " SSF store URL is not supported: H2 and HSQLDB "
+                        + "support was dropped in 0.5.0; use PostgreSQL (a jdbc:postgresql: URL) or a PingFederate JDBC "
+                        + "data store id");
+            }
+        }
+    }
+
     /** Demo/dev {@link DataSource}: unpooled connections straight from {@link java.sql.DriverManager}. */
     private static final class DriverManagerDataSource implements DataSource {
         private final String url;
@@ -57,13 +71,14 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
         /**
          * DriverManager only auto-registers drivers from the system classpath; a driver shipped inside
          * pf-runtime.war's WEB-INF/lib must be loaded explicitly (its static initializer self-registers).
+         * H2 and HSQLDB were dropped in 0.5.0: their URLs are refused here, so the SSF store does not start on
+         * a database nothing tests against.
          */
         private static void ensureDriverLoaded(String url) {
+            refuseDroppedDatabase(url);
             String driverClass = null;
             if (url.startsWith("jdbc:postgresql:")) {
                 driverClass = "org.postgresql.Driver";
-            } else if (url.startsWith("jdbc:hsqldb:")) {
-                driverClass = "org.hsqldb.jdbc.JDBCDriver";
             }
             if (driverClass != null) {
                 try {
