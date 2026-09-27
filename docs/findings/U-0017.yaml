@@ -8,4 +8,7 @@ prs: []
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 2
 verify_by: A JWT-bearer grant on the rig with the plugin logging its entry points.
 verification: ''
-notes: ''
+notes: >
+  javap on pf-protocolengine-13.1.3.0.jar (2026-09-27): JwtGrantProcessor has no call to
+  AuthorizationDetailsUtil.enrich, and the seven classes that do call it are the other grants' handlers. The rig
+  script does not drive a JWT-bearer grant, which this item asks for.

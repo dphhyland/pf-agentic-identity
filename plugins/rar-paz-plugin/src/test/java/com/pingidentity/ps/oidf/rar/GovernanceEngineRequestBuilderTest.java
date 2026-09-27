@@ -10,6 +10,7 @@ import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GovernanceEngineRequestBuilderTest {
@@ -93,6 +94,102 @@ class GovernanceEngineRequestBuilderTest {
         assertEquals("alice", attrs.get("UserID"));
         assertEquals("payments-agent", attrs.get("actor"));
         assertEquals("https://rp.example.com", attrs.get("client_id"));
+    }
+
+    // ---- the server's attributes are written last, and a detail may not name one ---------------------
+
+    @Test
+    void aDetailFieldThatWouldOverwriteAServerAttributeIsRefused() {
+        GovernanceEngineConfig bare = GovernanceEngineConfig.builder().pdpUrl("https://pdp")
+                .attributePrefix("").prefixAttributesWithType(false).build();
+        GovernanceEngineRequestBuilder unprefixed = new GovernanceEngineRequestBuilder(bare, mapper);
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("type", "sales_agent");
+        detail.put("UserID", "mallory");
+        detail.put("principal_source", "authenticated");
+
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> unprefixed.build("sales_agent", detail, AttestationSubject.empty(), "alice", "client-1", "client"));
+        assertTrue(e.getMessage().contains("UserID"), e.getMessage());
+        assertTrue(e.getMessage().contains("principal_source"), e.getMessage());
+
+        // A mirror name, too: req_actions is what the builder derives from "actions".
+        Map<String, Object> mirror = new LinkedHashMap<>();
+        mirror.put("type", "sales_agent");
+        mirror.put("actions", List.of("read"));
+        mirror.put("req_actions", "write");
+        assertThrows(IllegalArgumentException.class,
+                () -> unprefixed.build("sales_agent", mirror, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
+    }
+
+    /**
+     * The attested-ceiling mirror is the builder's alone even when it writes none. An attestation that
+     * constrains no actions produces no {@code att_actions}; before 2026-09-27 a detail carrying its own
+     * {@code att_actions} then reached the PDP as the ceiling a {@code req_actions ⊆ att_actions} rule reads.
+     */
+    @Test
+    void aMirrorNameIsReservedEvenWhenThisRequestWritesNoMirror() {
+        GovernanceEngineConfig bare = GovernanceEngineConfig.builder().pdpUrl("https://pdp")
+                .attributePrefix("").prefixAttributesWithType(false).build();
+        GovernanceEngineRequestBuilder unprefixed = new GovernanceEngineRequestBuilder(bare, mapper);
+        Map<String, Object> forged = new LinkedHashMap<>();
+        forged.put("type", "sales_agent");
+        forged.put("actions", List.of("transfer"));
+        forged.put("att_actions", "transfer");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> unprefixed.build("sales_agent", forged, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
+        assertTrue(e.getMessage().contains("att_actions"), e.getMessage());
+
+        Map<String, Object> requested = new LinkedHashMap<>();
+        requested.put("type", "sales_agent");
+        requested.put("req_locations", "https://anywhere.example");
+        assertThrows(IllegalArgumentException.class,
+                () -> unprefixed.build("sales_agent", requested, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
+
+        assertEquals(2 * RarContainment.SET_FIELDS.length, GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.size());
+        for (String field : RarContainment.SET_FIELDS) {
+            assertTrue(GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.contains("req_" + field), field);
+            assertTrue(GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.contains("att_" + field), field);
+        }
+    }
+
+    @Test
+    void withAPrefixTheSameFieldNamesAreOrdinaryAndTheServerWritesLast() {
+        Map<String, Object> detail = new LinkedHashMap<>();
+        detail.put("type", "sales_agent");
+        detail.put("UserID", "mallory");
+        DecisionRequest req = builder.build("sales_agent", detail, AttestationSubject.empty(), "alice", "client-1", "authenticated");
+        assertEquals("mallory", req.getAttributes().get("idp.sales_agent.UserID"));
+        assertEquals("alice", req.getAttributes().get("UserID"));
+        List<String> order = new java.util.ArrayList<>(req.getAttributes().keySet());
+        assertTrue(order.indexOf("idp.sales_agent.UserID") < order.indexOf("UserID"), order.toString());
+        assertEquals("authenticated", req.getAttributes().get("principal_source"));
+    }
+
+    @Test
+    void theAttesterIssuerIsSentBesideTheActorAndTheAttestation() {
+        AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "payments-agent", "https://attester.example", null);
+        Map<String, Object> attrs = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
+                agent, "alice", "northwind-webapp", "authenticated").getAttributes();
+        assertEquals("payments-agent", attrs.get("actor"));
+        assertEquals("https://attester.example", attrs.get("actor_iss"));
+        assertEquals("https://attester.example", attrs.get("attestation.iss"));
+
+        AttestationSubject noIss = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "payments-agent");
+        Map<String, Object> without = builder.build("payment_initiation", Map.of("type", "payment_initiation"),
+                noIss, "alice", "northwind-webapp", "authenticated").getAttributes();
+        assertFalse(without.containsKey("actor_iss"));
+        assertFalse(without.containsKey("attestation.iss"));
+    }
+
+    @Test
+    void aNullSubjectOrDetailIsTolerated() {
+        Map<String, Object> attrs = builder.build("sales_agent", null, null, null, null, null).getAttributes();
+        assertEquals("unknown", attrs.get("UserID"));
+        assertFalse(attrs.containsKey("principal_source"));
+        assertFalse(attrs.containsKey("client_id"));
     }
 
     @Test

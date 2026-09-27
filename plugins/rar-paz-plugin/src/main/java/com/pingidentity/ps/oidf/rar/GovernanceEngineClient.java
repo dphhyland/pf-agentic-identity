@@ -11,8 +11,9 @@ import java.util.Map;
 
 /**
  * Sends a {@link DecisionRequest} to the governance engine (shared-secret header auth) and returns the parsed
- * {@link DecisionResponse}. A non-2xx status is a transport error and throws; the permit/deny call is left to
- * {@link DecisionResponse#isPermit()} so the caller decides how to enforce it.
+ * {@link DecisionResponse}. The status is read the way {@link PdpResponses} says - 429 and 502-504 are the
+ * engine being unavailable, every other non-2xx and a non-JSON answer are refusals - and the permit/deny
+ * call is left to {@link DecisionResponse#isPermit()} so the caller decides how to enforce it.
  */
 public final class GovernanceEngineClient implements PdpClient {
 
@@ -44,9 +45,6 @@ public final class GovernanceEngineClient implements PdpClient {
             headers.put(config.getSecretHeader(), config.getSecret());
         }
         HttpTransport.Response response = transport.post(config.getPdpUrl(), body, headers);
-        if (response.status() < 200 || response.status() >= 300) {
-            throw new IOException("governance engine returned HTTP " + response.status() + ": " + response.body());
-        }
-        return DecisionResponse.fromJson(response.body(), mapper);
+        return DecisionResponse.fromJson(PdpResponses.bodyOf(response, "governance engine"), mapper);
     }
 }

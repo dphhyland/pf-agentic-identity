@@ -69,6 +69,21 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
   until then.
 
+- **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
+  high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP
+  429/502/503/504, so a 401 from a wrong secret, a body that is not a JSON object, a status line or header the
+  client cannot parse (F-0093) and a TLS failure deny; a governance answer's `authorised` must be a boolean;
+  "Deny unless PERMIT" is gone and the decision is always deny-unless-PERMIT; the shared secret is an encrypted
+  field under the same name (the upgrade from v0.3.0 rehearsed on the rig); the PDP URL must be https and "Skip
+  TLS verification" is inert unless `OIDF_DEPLOYMENT_PROFILE=development`; the governance-engine request writes
+  the server's attributes last and refuses a field that names one, every `req_`/`att_` mirror included (F-0073);
+  `principal_source` is resolved per flow from the user key PingFederate 13.1.3 passes (client credentials
+  `client`, refresh and the code flow `authenticated`, CIBA `identity_hint`, token exchange `none` until the
+  filter publishes a verified subject, F-0074), and `login_hint` / `_principal_sub` are development-only;
+  `payment_initiation` and `account_information` are refused before any PDP call without an authenticated
+  principal; the PDP request carries the attester `iss`; logs carry the principal hashed;
+  `conformance/verify-rar-principal.sh` drives the flows on the rig.
+
 ## [0.3.0] - 2026-09-27
 
 The first release for PingFederate 13.1.3, and the release that completes OpenID Federation. Notes:
