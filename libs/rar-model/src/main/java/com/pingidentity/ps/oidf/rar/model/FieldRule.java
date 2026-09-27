@@ -122,7 +122,8 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
                 }
                 nested.check(asMap(value), where);
             }
-            case FORBIDDEN -> throw RarModelException.malformed(where + " is a forbidden field");
+            // FORBIDDEN, as the default so the switch has no branch nothing can reach.
+            default -> throw RarModelException.malformed(where + " is a forbidden field");
         }
     }
 
