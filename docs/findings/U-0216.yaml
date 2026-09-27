@@ -1,0 +1,23 @@
+id: U-0216
+title: That no consumer's federation fetches depend on a JVM proxy or on the JVM-wide switch that turns off host name checks
+area: consumers, oidf-jose
+source: design
+status: open
+plan_items: [S5a]
+prs: [60]
+recorded_in: docs/releases/unreleased/S5AR.md, Before you deploy
+verify_by: >
+  In each consumer's running PingFederate (pf-oidf-modules' rigs, idp-agentic-demo, domain-authority), read the
+  JVM's arguments for https.proxyHost, http.proxyHost and socksProxyHost, and for idp-agentic-demo, where
+  jdk.internal.httpclient.disableHostnameVerification is set, fetch each configured trust controller, anchor,
+  JWKS URI and PDP URL with curl and check its certificate names the host in the URL.
+verification: ''
+notes: >
+  JdkHttpClient no longer uses java.net.http. The JDK client took the JVM's default proxy selector (JDK 17
+  HttpClientImpl lines 304-306 and 359-360, read 2026-09-28), which reads the proxy system properties; platform's
+  OutboundHttp connects directly to the checked address with Proxy.NO_PROXY. And the JVM-wide
+  disableHostnameVerification property (F-0035) governs the JDK client only, so a certificate that does not name
+  the URL's host is now refused even with OIDF_FEDERATION_IGNORE_SSL_ERRORS on. On 2026-09-28 neither
+  pf-oidf-modules nor idp-agentic-demo sets a proxy property in its repository, and idp-agentic-demo's
+  pingfederate/Dockerfile:73 sets disableHostnameVerification; what the running deployments are started with was
+  not read.

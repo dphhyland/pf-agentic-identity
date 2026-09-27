@@ -1,0 +1,21 @@
+id: U-0215
+title: That 32 concurrent requests to one origin are enough for a node's busiest federation peer
+area: oidf-jose, platform
+source: design
+status: open
+plan_items: [S5a]
+prs: [60]
+recorded_in: libs/platform/README.md, the http section, the bulkhead; docs/releases/unreleased/S5AR.md
+verify_by: >
+  Once O-3's counters see OutboundHttpException reasons (S5d moves the call sites onto one client), read the
+  BULKHEAD_FULL count on the busiest node of each consumer after a day of traffic; until then, search a
+  PingFederate server log after a load test at the expected peak token rate for "places for", the text of the
+  refusal. None means the default holds; any means a peer is slow as well as busy, and either the peer or the
+  default changes.
+verification: ''
+notes: >
+  oidf-jose's JdkHttpClient shares one HostBulkhead of 32 places per origin across its loaded copy. A request that
+  finds every place taken waits for one until its own 15 s deadline, so only a peer that is slow as well as busy
+  can refuse anything: at 300 ms a request, 32 places serve about a hundred requests a second to one peer from one
+  node. There is no setting, deliberately, until a deployment shows it needs one; the trust controller, which
+  every chain resolution on a node may reach, is the peer most likely to.

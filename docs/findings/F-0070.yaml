@@ -3,10 +3,22 @@ title: 'JdkHttpClient.get sends a request to a URL that came from outside (CodeQ
 severity: medium
 area: oidf-jose
 source: pr-review
-status: open
+status: closed
 plan_items: [S5a]
-prs: []
-verification: ''
+prs: [60]
+verification: >
+  2026-09-28, PR #60 (package S5AR): JdkHttpClient no longer uses java.net.http; it sends through platform's
+  OutboundHttp, where AddressPolicy (OutboundUrlPolicy's rules) resolves the host once, checks every address, and
+  the socket connects only to one of those addresses, with TLS checking the certificate against the URL's host.
+  JdkHttpClientPinningTest aNameThatRebindsToLoopbackAfterTheCheckIsNeverFetchedFromLoopback: localhost, answered
+  with a public address by the policy's resolver and with loopback by the system resolver, reached a loopback
+  server through the old client at origin/main ab96458 (the body returned, one hit) and reaches nothing through
+  the new one (no hit, one resolution), on JDK 17, 20 and the pinned image's java 21.0.12.1. Alert 3's sink,
+  HttpRequest.Builder.uri at JdkHttpClient.java:68, is gone. The PR's CodeQL run is diff-informed (it reports only
+  on changed lines) and reported no java/ssrf result; whether CodeQL flags the request OutboundHttp.message builds
+  (an unchanged file) shows only in main's first full analysis after the merge. If it does, the sanitiser is
+  AddressPolicy.check, which every OutboundHttp.send passes before a socket is opened, together with the
+  connection pinned to the addresses it checked - the dismissal this finding allows, and David's to make.
 target_release: 0.5.0
 notes: >
   CodeQL's first run on main (2026-09-27) flags JdkHttpClient.get (libs/oidf-jose, alert 3): the URL a caller
