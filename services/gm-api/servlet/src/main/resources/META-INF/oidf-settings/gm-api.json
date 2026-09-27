@@ -10,7 +10,7 @@
       "kind": "init-param",
       "type": "url",
       "default": null,
-      "description": "The AuthZEN PDP's base URL for the grants and MCP servlets; /access/v1/evaluation is appended. Then AUTHZEN_BASE_URL; the shipped web.xml sets it, so AUTHZEN_BASE_URL is never read unless web.xml is edited (F-0015)",
+      "description": "The AuthZEN PDP's base URL for the grants and MCP servlets; /access/v1/evaluation is appended. Then AUTHZEN_BASE_URL; the shipped web.xml sets it, so AUTHZEN_BASE_URL is never read unless web.xml is edited (F-0238)",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Unset: the servlet does not start"
@@ -60,7 +60,7 @@
       "kind": "init-param",
       "type": "string",
       "default": null,
-      "description": "The aud this API answers to, the access token manager's audience claim; then GM_AUDIENCE; the shipped web.xml sets it, so GM_AUDIENCE is never read unless web.xml is edited (F-0015)",
+      "description": "The aud this API answers to, the access token manager's audience claim; then GM_AUDIENCE; the shipped web.xml sets it, so GM_AUDIENCE is never read unless web.xml is edited (F-0238)",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Unset: the servlet does not start; wrong, every token is a 401"

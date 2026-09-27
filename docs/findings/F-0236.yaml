@@ -1,0 +1,27 @@
+id: F-0236
+title: A second's SETs came out in the database collation's order, not jti order, on a glibc Postgres
+severity: medium
+area: ssf
+source: pr-review
+status: closed
+plan_items: [DB-1, S-10]
+prs: []
+verification: >
+  2026-09-28, branch prod/p2-settings-ssf-services: SsfStoreContract.aSecondsSetsComeBackInJtiOrderFromBothReads
+  failed for JdbcSsfStoreOnPostgresTest and LdmSsfStoreOnPostgresTest on postgres:16 (Debian, datcollate
+  en_US.utf8) - "_HjShOTuscVExtwmWGD97A" came before "HrM9Mmt1Q56Ks9rqAAoLTQ", String order puts it after "P5Ks..."
+  - and passed on postgres:16-alpine, whose datcollate is also en_US.utf8 but whose musl collation is bytewise.
+  With the four ORDER BY clauses on jti COLLATE "C", the servlets/ssf store suites (88 tests) pass on both
+  images, on JDK 17; the Build workflow now runs them on a Debian postgres:16 as well as the alpine service.
+target_release: 0.5.0
+notes: >
+  Found by the S5AR finaliser (2026-09-28) and fixed by ST3C. Since 0.4.0 both Postgres stores order the pending
+  queue by issued_at and then jti (F-0095's tiebreak), and the push executor holds a stream on peek's first SET
+  while it posts in dueForPush's order, so the two reads must agree with each other and with InMemorySsfStore,
+  which compares jti as Strings. A jti is base64url, mixed case with - and _, and a linguistic collation such as
+  glibc's en_US.utf8 - the default of the Debian postgres image and of most managed Postgres services - folds case
+  and ignores punctuation at its first level, so the database's order within a second was not jti order, and
+  depended on how the database was created. Both reads agreed with each other on one database, which is what the
+  hold needs; what differed was the order the contract promises and the in-memory store keeps. The stores now
+  order by jti COLLATE "C" (bytewise), which PostgreSQL always has. F-0095 stands: jti order is still not the
+  order the SETs were generated in, and S-10's sequence replaces it.

@@ -243,6 +243,24 @@ jobs:
           if ran == 0 or skipped:
               sys.exit("RedisLiveTest skipped tests or ran none: check the OIDF_TEST_REDIS_* variables")
           PY
+      - name: the SSF store suites again, on a glibc-collated Postgres
+        # The postgres service is the alpine image, whose musl collation is bytewise even under en_US.utf8. The
+        # Debian image's is glibc's en_US.utf8, which folds case and skips punctuation, and there the SSF stores
+        # returned a second's SETs out of jti order until they ordered by jti COLLATE "C" (F-0236). So the SSF
+        # store suites run once more against a Debian postgres:16 started here, reached on 5433 once it answers
+        # over TCP (the image's first start answers on its socket before the server that stays up); -am takes the
+        # modules ssf builds on from this build, and runs none of their tests. The credentials are as throwaway as
+        # the service's.
+        run: |
+          docker run -d --name glibc-postgres -e POSTGRES_USER=dashboard -e POSTGRES_PASSWORD=dashboard \
+            -e POSTGRES_DB=idm -p 127.0.0.1:5433:5432 postgres:16
+          for _ in $(seq 60); do
+            if docker exec glibc-postgres pg_isready -h 127.0.0.1 -U dashboard -d idm; then break; fi
+            sleep 2
+          done
+          OIDF_TEST_JDBC_URL=jdbc:postgresql://localhost:5433/idm OIDF_TEST_JDBC_USER=dashboard \
+            OIDF_TEST_JDBC_PASSWORD=dashboard mvn -pl servlets/ssf -am test -Djacoco.skip=true \
+            -Dtest='*OnPostgresTest' -Dsurefire.failIfNoSpecifiedTests=false
       - name: the coverage baseline, from a successful Build on main that this commit descends from
         # The ratchet below compares this build with the coverage-dashboard.json that a successful push Build on
         # main published: the newest one this commit descends from (a pull request's merge commit, a push, or a
