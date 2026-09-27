@@ -18,9 +18,9 @@ import java.util.function.Supplier;
  *
  * <p>The logger is the event's component's {@code logger} from its catalogue, a dot and the event's category -
  * {@code com.pingidentity.ps.oidf.federation.event.registration} - so an operator can raise or lower one family
- * without touching the rest; an event no catalogue declares is written under {@link #FALLBACK_LOGGER}. A failure
- * that belongs in the audit log is written at WARN; otherwise the level is the catalogue's ({@code debug} for a
- * chatty code, {@code info} for the rest; {@code info} for an uncatalogued one).
+ * without touching the rest; an event no catalogue declares is written under {@link #FALLBACK_LOGGER}. A code its
+ * catalogue marks {@code debug} (a chatty one) is written at DEBUG; otherwise a failure that belongs in the audit
+ * log is written at WARN and everything else, an uncatalogued code included, at INFO.
  *
  * <p>Before writing, the event is admitted by its catalogue ({@link EventCatalogues#admit}: an undeclared field
  * is dropped and counted) and passed through the {@link PiiPolicy} for {@link PiiPolicy.Destination#SERVER_LOG}.
@@ -78,15 +78,15 @@ public final class LoggingSink implements EventSink {
         }
     }
 
-    /** WARN for a failure that belongs in the audit log, else the catalogue's level, else INFO. */
+    /**
+     * DEBUG for a code its catalogue marks {@code debug}, whatever its outcome (a chatty family stays quiet, as the
+     * fetches always were); otherwise WARN for a failure that belongs in the audit log, and INFO for the rest.
+     */
     static Level level(Event event, EventCatalogue.Code declared) {
-        if (event.isFailure() && event.audit()) {
-            return Level.WARN;
-        }
         if (declared != null && declared.level() == EventCatalogue.Level.DEBUG) {
             return Level.DEBUG;
         }
-        return Level.INFO;
+        return event.isFailure() && event.audit() ? Level.WARN : Level.INFO;
     }
 
     /** The line this sink writes for {@code event}, every field it carries included. */

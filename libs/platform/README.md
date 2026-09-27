@@ -110,6 +110,60 @@ and shows it logs and never loads that class.
 <!-- profile (PR-1): add this package's section below this line -->
 <!-- tls (PR-1): add this package's section below this line -->
 <!-- events (O-1): add this package's section below this line -->
+
+## events
+
+Events moved here from `libs/openid-federation` (plan item O-1): `Event`, the record - code, outcome, reason,
+subject, partner, role, description, fields, request `jti`, audit, category and now component; `EventSink`, where
+events go; `Events`, this loader's sink, the first `configure` winning; `LoggingSink`, one line per event in
+server.log; and `LogSafe`, which digests anything shaped like a JWT, replaces control characters and caps a value's
+length. The privacy rule moved with them: `instance_subject` and `spiffe_id` are never recorded beside `agent_id`.
+openid-federation keeps façades over these until O-2 (Phase 3) moves the emitters.
+
+**Catalogues are data.** Each module that declares event codes ships `META-INF/oidf-events/<component>.json`, one
+per component, and lists its components in `META-INF/oidf-events/index.txt`. A catalogue names its component, its
+module, the logger its events are written on (the category is appended) and the audit log's `protocol` for them;
+gives every field one `PiiClass`; and gives every code a description, `audit`, `outcomes`, `level` (`debug` or
+`info`), the fields it may carry and `declaredOnly`. `audit` records the emitters' choice - an emitter still marks
+an event audit itself - and the scan below holds the two equal. `EventCatalogue.parse` refuses an unknown or missing member, a
+name outside its rule, a field an event carries that the catalogue does not classify, and a classified field no
+event carries. `EventCatalogues.load` reads every index a loader can see, each catalogue from its index's own jar;
+the same document seen twice (a module in the war and on the engine's classpath) is read once, and a second,
+different document for a component, or a code two components declare, is set aside and logged at ERROR. Today's
+catalogues: `federation` in libs/openid-federation, `attestation-issuer` in servlets/attestation-issuer.
+
+**Nothing uncatalogued reaches a log.** `Events.emit` admits every event through the catalogues before any sink
+sees it, and `LoggingSink` and platform-pf's audit sink admit it again (admitting twice changes nothing): the
+event's component becomes the catalogue's that declares its code, and a field that code does not declare is
+dropped and counted (`droppedFields()`; `uncataloguedEvents()` counts codes no catalogue declares, whose events keep
+their head and lose every field). The first drop of each code and field is a WARN line naming the field, never its
+value. O4 (plan item O-4) turns the counts into metrics.
+
+**The PII policy.** `PiiPolicy` says, for server.log and for PingFederate's audit log, what happens to each class:
+kept, replaced by `sha256:` and twelve hex digits, or dropped. The subject and partner are `PSEUDONYMOUS_ID`; the
+reason, role, request `jti` and description are operational and never removed. `PiiPolicy.DEFAULT` keeps every
+class in both logs, which is what reached them before the catalogues (checked 2026-09-28 against the emitters):
+
+| Class | What it holds | server.log | audit log |
+|---|---|---|---|
+| `OPERATIONAL` | modes, counts, endpoint names, decisions, times | kept | kept |
+| `PSEUDONYMOUS_ID` | client ids, entity identifiers, key ids, a workload's subject; the subject and partner | kept | kept (the subject and connection columns) |
+| `DIRECT_ID` | can name a person: `actor`'s self-declared name from `X-Federation-Actor` | kept - finding [F-0165](../../docs/findings/F-0165.yaml) | kept |
+| `NETWORK` | addresses and host names; no field today - the audit log's `ip` column is PingFederate's own | kept | kept |
+| `CREDENTIAL_DIGEST` | key thumbprints, evidence digests | kept | kept |
+
+An unkeyed digest of a guessable value can be reversed by guessing, so `DIGEST` hides a direct identifier from a
+casual reader of server.log, not from a determined one; whether to use it, or a keyed pseudonym, is the PII policy
+of plan item D-6 (Phase 7).
+
+`LoggingSink` writes on the catalogue's logger and the event's category
+(`com.pingidentity.ps.oidf.federation.event.registration`, as before): at DEBUG for a code the catalogue marks
+`debug`, at WARN for a failure marked audit, otherwise at INFO. It writes through `PlatformLog.get(String)` - the
+one line this package adds outside its own subpackage, a logger by name beside the logger by class. An
+uncatalogued code is written on `LoggingSink.FALLBACK_LOGGER`, the federation prefix, as it was.
+`EventsCataloguedTest` in servlets/pf-integration holds the emitters to the catalogues (see
+libs/openid-federation's README).
+
 <!-- metrics (O-3): add this package's section below this line -->
 <!-- health (O-4): add this package's section below this line -->
 <!-- redis (C-2): add this package's section below this line -->

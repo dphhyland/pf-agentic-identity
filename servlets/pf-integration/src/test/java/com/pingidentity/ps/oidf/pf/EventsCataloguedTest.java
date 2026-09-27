@@ -190,7 +190,7 @@ class EventsCataloguedTest {
     }
 
     @Test
-    void theCataloguesAuditFlagAndOutcomesCoverEveryEmitter() {
+    void theCataloguesAuditFlagMatchesEveryEmitterAndItsOutcomesCoverThem() {
         List<String> wrong = new ArrayList<>();
         for (Site site : sites) {
             for (String code : site.codes()) {
@@ -198,8 +198,9 @@ class EventsCataloguedTest {
                 if (declared == null) {
                     continue;
                 }
-                if (site.audit() && !declared.audit()) {
-                    wrong.add(site.where() + " " + code + " is audited but catalogued audit: false");
+                if (site.audit() != declared.audit()) {
+                    wrong.add(site.where() + " " + code + (site.audit() ? " is audited but catalogued audit: false"
+                            : " is not audited but catalogued audit: true"));
                 }
                 Event.Outcome outcome = site.failure() ? Event.Outcome.FAILURE : Event.Outcome.SUCCESS;
                 if (!declared.outcomes().contains(outcome)) {

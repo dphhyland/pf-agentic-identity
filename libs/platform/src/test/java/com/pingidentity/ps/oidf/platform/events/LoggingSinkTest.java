@@ -78,7 +78,8 @@ class LoggingSinkTest {
         Lines on = new Lines(true);
         sink(on, PiiPolicy.DEFAULT).emit(Event.builder(null, "shop.stock.checked").failure("x").audit().build());
         sink(on, PiiPolicy.DEFAULT).emit(Event.builder(null, "shop.stock.checked").build());
-        assertEquals(List.of(LoggingSink.Level.WARN, LoggingSink.Level.DEBUG), on.lines.stream().map(Line::level).toList());
+        assertEquals(List.of(LoggingSink.Level.DEBUG, LoggingSink.Level.DEBUG), on.lines.stream().map(Line::level).toList(),
+                "a debug code stays at DEBUG even when it is a refusal");
     }
 
     @Test
@@ -109,7 +110,10 @@ class LoggingSinkTest {
         Event audited = Event.builder("shop", "a.b").audit().build();
         EventCatalogue.Code debug = TestCatalogues.shop().code("shop.stock.checked").orElseThrow();
         EventCatalogue.Code info = TestCatalogues.shop().code("shop.order.placed").orElseThrow();
-        assertEquals(LoggingSink.Level.WARN, LoggingSink.level(refused, debug));
+        assertEquals(LoggingSink.Level.DEBUG, LoggingSink.level(refused, debug));
+        assertEquals(LoggingSink.Level.WARN, LoggingSink.level(refused, info));
+        assertEquals(LoggingSink.Level.WARN, LoggingSink.level(refused, null));
+        assertEquals(LoggingSink.Level.INFO, LoggingSink.level(audited, info));
         assertEquals(LoggingSink.Level.DEBUG, LoggingSink.level(failed, debug));
         assertEquals(LoggingSink.Level.DEBUG, LoggingSink.level(audited, debug));
         assertEquals(LoggingSink.Level.INFO, LoggingSink.level(failed, info));

@@ -180,6 +180,19 @@ characters (`OIDF_EVENTS_MAX_VALUE_LENGTH`), the admin token, the policy engine'
 `reason_user`. That covers the event lines only; the modules' ordinary log lines are written with the same care
 but not by the same code.
 
+Every code, and every field it may carry, is declared in its component's event catalogue: the federation events in
+`libs/openid-federation`'s
+[`META-INF/oidf-events/federation.json`](../../libs/openid-federation/src/main/resources/META-INF/oidf-events/federation.json),
+the attester's in `servlets/attestation-issuer`'s
+[`attestation-issuer.json`](../../servlets/attestation-issuer/src/main/resources/META-INF/oidf-events/attestation-issuer.json).
+The catalogue gives each field one PII class - `OPERATIONAL`, `PSEUDONYMOUS_ID` (a client id, an entity
+identifier, a workload's subject), `DIRECT_ID` (can name a person: `actor`, which carries whatever name an
+administrator sends in `X-Federation-Actor`), `NETWORK` or `CREDENTIAL_DIGEST` (a key's thumbprint, evidence's
+SHA-256). Today every class is written to both logs as it was before the catalogues existed; the policy that would
+digest or drop a class in one log is in place and not yet used (the platform README's "events" section). A field
+an event's catalogue does not declare is dropped before any log sees it, and counted: the first drop of each code
+and field is a WARN line naming the field, never its value.
+
 | Event | When | Audit |
 |---|---|---|
 | `federation.registration.created`, `.refreshed` | A client was registered, or its registration renewed or replaced - explicit or automatic, at which endpoint, until when, and whether its keys changed | Yes |
@@ -199,7 +212,7 @@ but not by the same code.
 | `federation.trust_mark.verified` | Another issuer's Trust Mark checked out | No |
 | `federation.client.authenticated`, `.refused` | A client authenticated at a federation endpoint, or was refused | Refused only |
 | `federation.key.retired`, `.revoked` | PingFederate's signing key changed since it last started, or a retired key was revoked | Yes |
-| `attestation.evidence.conflict` | The attester was shown instance evidence already bound to another instance key or client: read `evidence_sha256`, `evidence_type`, `instance_subject`, `presented_jkt` (the key refused) and `bound_jkt` and `bound_client` (the key and client that hold the binding). Either the rightful holder's evidence has been used elsewhere, or a thief presented it first and the rightful holder is the one refused: `bound_jkt` is then the thief's. Right after a workload restarts with a new key it is most likely neither (the attester's README, "Evidence binding") | Yes |
+| `attestation.evidence.conflict` | The attester was shown instance evidence already bound to another instance key or client: read `evidence_sha256`, `evidence_type`, `instance_subject`, `presented_jkt` (the key refused) and `bound_jkt` and `bound_client` (the key and client that hold the binding). Either the rightful holder's evidence has been used elsewhere, or a thief presented it first and the rightful holder is the one refused: `bound_jkt` is then the thief's. Right after a workload restarts with a new key it is most likely neither (the attester's README, "Evidence binding") | Yes, with `protocol` `Client Attestation` |
 
 Not everything is an event. Serving an Entity Configuration, a fetch, a list or a resolve isn't; a refusal at a
 federation endpoint is a line on `com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors` (INFO for a
@@ -212,7 +225,8 @@ request scope as each request starts and leave it when the request ends, however
 carries one caller's address into its next request. The address is the one PingFederate records for its own
 events: behind a proxy it is the proxy's, unless PingFederate's incoming proxy settings name the header that carries
 the client's (`forwarded_ip_address_header_name` on `pingfederate_incoming_proxy_settings`). `host` is PingFederate's
-own - the name of the node that wrote the record - and `protocol` is `OpenID Federation`. A record written off a
+own - the name of the node that wrote the record - and `protocol` is the component's, from its catalogue:
+`OpenID Federation` for the federation events, `Client Attestation` for the attester's. A record written off a
 request, by the sweeper or for a key rotation noticed at start-up, has no `ip`. The sweeper's lines carry a
 tracking id of their own, `oidf-sweep-` and eight hex digits.
 
