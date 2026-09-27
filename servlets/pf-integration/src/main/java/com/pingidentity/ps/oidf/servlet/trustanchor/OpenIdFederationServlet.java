@@ -26,6 +26,7 @@ import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
 import com.pingidentity.ps.oidf.federation.EndpointAuthPolicy;
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.FederationService;
@@ -65,7 +66,7 @@ extends RequestScopedServlet {
     private static final Log log = LogFactory.getLog(OpenIdFederationServlet.class);
     private static final String TRUST_MARK_STATUS = "/federation/trust_mark_status";
     /** Where a client's spent endpoint-assertion {@code jti} values are kept, apart from every other replay cache user. */
-    private static final String ENDPOINT_REPLAY_NAMESPACE = "oidf-endpoint-auth:";
+
     /** Each federation endpoint this servlet serves, by the §5.1.1 metadata name §8.8.1 builds its {@code _auth_methods} from. */
     static final Map<String, String> ENDPOINTS = Map.of(
             "/federation/fetch", "federation_fetch_endpoint",
@@ -172,7 +173,7 @@ extends RequestScopedServlet {
             }
             EndpointAuthPolicy endpointAuth = runtime.endpointAuth();
             // A spent jti is kept where attestation keeps its own - Redis when configured - so a replay is caught on any node.
-            service.endpointAuth(endpointAuth, (client, jti, ttl) -> AttestationSupport.replayCache().firstSeen(ENDPOINT_REPLAY_NAMESPACE + client, jti, ttl));
+            service.endpointAuth(endpointAuth, OpenIdFederationServlet::assertionNotSpent);
             if (endpointAuth.anyEnabled()) {
                 java.util.Map<String, String> modes = new java.util.TreeMap<>();
                 for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
@@ -205,6 +206,23 @@ extends RequestScopedServlet {
         }
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Federation servlet", e);
+        }
+    }
+
+    /**
+     * Where a spent client assertion {@code jti} is recorded: the shared store's {@code oidf:fed:endpoint:*} namespace
+     * (Redis when one is configured). A store that cannot answer is a 503 here, the status
+     * {@link FederationErrors} already gives {@link FederationError#TEMPORARILY_UNAVAILABLE}, and never a spent jti.
+     */
+    static boolean assertionNotSpent(String client, String jti, long ttl) {
+        switch (AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT).record(client, jti, ttl)) {
+            case FIRST_USE:
+                return true;
+            case STORE_UNAVAILABLE:
+                throw new FederationException(FederationError.TEMPORARILY_UNAVAILABLE,
+                        "the store that records spent client assertions is unavailable");
+            default:
+                return false;
         }
     }
 

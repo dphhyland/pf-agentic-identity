@@ -286,8 +286,7 @@ public final class ClientAttestationAuthFilter implements Filter {
             chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, result.agentId()), response);
         } catch (ClientAttestationException e) {
             LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()));
-            int status = ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error()) ? 400 : 401;
-            ClientAttestationAuthFilter.reject(httpResponse, status, e.error(), e.getMessage());
+            ClientAttestationAuthFilter.reject(httpResponse, ClientAttestationAuthFilter.statusFor(e), e.error(), e.getMessage());
         } catch (Throwable t) {
             // Fail closed: with attestation headers present, an internal error must never fall through to
             // PF with the original (credential-less) request.
@@ -436,6 +435,21 @@ public final class ClientAttestationAuthFilter implements Filter {
                     + FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV + "=false to let unbound clients accept any trusted attester.";
         }
         return null;
+    }
+
+    /**
+     * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch, 503 when the
+     * challenge or replay store could not answer (RFC 6749 §5.2 {@code temporarily_unavailable}: an outage of ours,
+     * never reported as a replay), 401 for everything the client got wrong.
+     */
+    static int statusFor(ClientAttestationException e) {
+        if (ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error())) {
+            return 400;
+        }
+        if (ClientAttestationException.TEMPORARILY_UNAVAILABLE.equals(e.error())) {
+            return 503;
+        }
+        return 401;
     }
 
     private static void reject(HttpServletResponse response, int status, String error, String description)

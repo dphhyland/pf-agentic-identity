@@ -11,7 +11,8 @@ import java.util.Map;
 
 /**
  * In-memory {@link AttestationChallengeService}. Challenges are random, size-bounded and expire after
- * a TTL; {@link #consume(String)} removes the challenge so it can only satisfy one request.
+ * a TTL; {@link #consumeChallenge(String)} removes the challenge so it can only satisfy one request. Memory
+ * never answers {@link Consumption#STORE_UNAVAILABLE}.
  *
  * <p>State is per-node — a clustered deployment should use {@link RedisAttestationStore} (or another
  * shared store) instead.
@@ -59,15 +60,15 @@ public final class InMemoryAttestationChallengeService implements AttestationCha
     }
 
     @Override
-    public synchronized boolean consume(String challenge) {
+    public synchronized Consumption consumeChallenge(String challenge) {
         if (challenge == null || challenge.isBlank()) {
-            return false;
+            return Consumption.UNKNOWN;
         }
         Long expiry = this.issued.remove(challenge);
         if (expiry == null) {
-            return false;
+            return Consumption.UNKNOWN;
         }
-        return expiry > Instant.now().getEpochSecond();
+        return expiry > Instant.now().getEpochSecond() ? Consumption.CONSUMED : Consumption.UNKNOWN;
     }
 
     @Override
