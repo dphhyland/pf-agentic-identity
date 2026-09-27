@@ -45,12 +45,65 @@
     <dependencies>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope><optional>true</optional></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- http (S5a): Apache HttpComponents Core 5's classic HTTP/1.1 message layer, behind platform.http only. Shaded
+             into this jar and relocated under platform.http.internal (the shade block below), so nothing outside this
+             jar ever loads it and it cannot meet the httpcore5 5.3.4 PingFederate 13.1.3 ships in server/default/lib.
+             Optional, so no consumer receives it as a dependency of its own: the shaded jar carries it. Apache-2.0, no
+             runtime dependencies of its own. The README's "http" section has why this and not httpclient5 or Jetty. -->
+        <dependency><groupId>org.apache.httpcomponents.core5</groupId><artifactId>httpcore5</artifactId><version>5.4.4</version><optional>true</optional></dependency>
     </dependencies>
 
     <build>
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!-- http (S5a): httpcore5 shaded in and relocated under platform.http.internal.hc5; the jar replaces the
+                 plain one under the same name. A plugin that shades platform relocates com.pingidentity.ps.oidf.platform.
+                 and so carries this along under its own package. No dependency-reduced pom: httpcore5 is optional, so
+                 no consumer inherits it anyway, and the default would write one into this directory. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <minimizeJar>true</minimizeJar>
+                            <artifactSet>
+                                <includes>
+                                    <include>org.apache.httpcomponents.core5:httpcore5</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.apache.hc.core5.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.platform.http.internal.hc5.</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>org.apache.httpcomponents.core5:httpcore5</artifact>
+                                    <excludes>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/**</exclude>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <addHeader>false</addHeader>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
 
             <!--
               Coverage gate on the decisions, 100% line + branch per METHOD as the other libraries do it. Each
