@@ -3,10 +3,16 @@ title: 'The showcase''s file:line citations into release.yml point at the wrong 
 severity: low
 area: showcase
 source: pr-review
-status: open
+status: closed
 plan_items: [D-3]
-prs: []
-verification: ''
+prs: [33]
+verification: >
+  2026-09-27, at origin/main 714e7ce: every citation of .github/workflows/release.yml in showcase/index.html's
+  DATA line (release.yml:10-25, 27-34, 266-267, 277-281, 283-293, 289-291, 290 twice, 291, 292, 293 and
+  384-392) was printed beside the lines it names, and each names the lines its statement describes: the header's
+  order and channels, the provided-jars step, the production stage, the dist/ copies of the module set,
+  oidf.war, the RAR plugin, the instance-registry datasource and gm-api.war, and the Packages deploy. PR #33
+  (package HYG) re-read and corrected them after the release gate's rewrite.
 target_release: 0.4.0
 notes: >
   showcase/index.html's DATA line cites .github/workflows/release.yml by line eleven times: the release assets,
