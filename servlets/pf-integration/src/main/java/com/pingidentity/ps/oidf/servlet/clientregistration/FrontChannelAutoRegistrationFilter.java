@@ -8,6 +8,7 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSetti
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.PfTracking;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
@@ -82,39 +83,50 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
 
     @Override
     public void init(FilterConfig config) throws ServletException {
-        PfAuditEventSink.install();
-        if (this.service != null) {
-            return;
-        }
-        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-        AutoRegistrationSettings configured = runtime.autoRegistration();
-        if (!configured.frontChannel()) {
-            LOGGER.info((Object)(FederationRuntimeConfig.AUTO_REGISTRATION_FRONT_CHANNEL_ENV + "=false: no automatic registration at the"
-                    + " authorization or PAR endpoints"));
-            return;
-        }
-        if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
-            // As at the token endpoint: refuse, but keep the web app - and this entity's own /.well-known - serving.
-            LOGGER.error((Object)("FrontChannelAutoRegistrationFilter: " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
-                    + " is unset - automatic registration at the authorization and PAR endpoints (OpenID Federation 1.0 §12.1.1)"
-                    + " is off until the trust anchor's keys are pinned"));
-            return;
-        }
+        var part = Startup.begin(Startup.AUTO_REGISTRATION, "FrontChannelAutoRegistrationFilter");
         try {
-            this.errorPage = FederationErrorPage.from(configured.errorPage());
-        } catch (IOException e) {
-            throw new ServletException(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV + " names " + configured.errorPage()
-                    + ", which cannot be read", e);
+            PfAuditEventSink.install();
+            if (this.service != null) {
+                return;
+            }
+            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+            AutoRegistrationSettings configured = runtime.autoRegistration();
+            if (!configured.frontChannel()) {
+                LOGGER.info((Object)(FederationRuntimeConfig.AUTO_REGISTRATION_FRONT_CHANNEL_ENV + "=false: no automatic registration at the"
+                        + " authorization or PAR endpoints"));
+                part.disabled();
+                return;
+            }
+            if (runtime.isTrustControllerConfigured() && !runtime.hasTrustAnchors()) {
+                // As at the token endpoint: refuse, but keep the web app - and this entity's own /.well-known - serving.
+                LOGGER.error((Object)("FrontChannelAutoRegistrationFilter: " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                        + " is unset - automatic registration at the authorization and PAR endpoints (OpenID Federation 1.0 §12.1.1)"
+                        + " is off until the trust anchor's keys are pinned"));
+                part.failedConfig(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: automatic registration at the"
+                        + " authorization and PAR endpoints is off until the trust anchor's keys are pinned");
+                return;
+            }
+            try {
+                this.errorPage = FederationErrorPage.from(configured.errorPage());
+            } catch (IOException e) {
+                throw new ServletException(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV + " names " + configured.errorPage()
+                        + ", which cannot be read", e);
+            }
+            try {
+                this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
+            } catch (RuntimeException e) {
+                throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
+            }
+            this.settings = configured;
+            this.failClosed = runtime.registration().failClosed();
+            this.replay = (clientId, jti, ttl) -> AttestationSupport.replayCache().firstSeen(REPLAY_NAMESPACE + clientId, jti, ttl);
+            LOGGER.info((Object)("FrontChannelAutoRegistrationFilter initialised (trust controller " + runtime.trustControllerHost() + ")"));
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
-        try {
-            this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
-        } catch (RuntimeException e) {
-            throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
-        }
-        this.settings = configured;
-        this.failClosed = runtime.registration().failClosed();
-        this.replay = (clientId, jti, ttl) -> AttestationSupport.replayCache().firstSeen(REPLAY_NAMESPACE + clientId, jti, ttl);
-        LOGGER.info((Object)("FrontChannelAutoRegistrationFilter initialised (trust controller " + runtime.trustControllerHost() + ")"));
     }
 
     @Override

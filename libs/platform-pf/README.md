@@ -78,6 +78,45 @@ are now on the logger `com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink`. 
 installs the sink in platform's registry directly, for the emitters O-2 moves; nothing calls it yet.
 
 <!-- health (O-4): add this package's section below this line -->
+## health
+
+`HealthServlet` serves the health endpoints (plan item O-4) from platform's decisions
+([libs/platform, health](../platform/README.md#health)). It is an `@WebServlet`, so it is mapped in whichever war has
+platform-pf's jar in `WEB-INF/lib` and answers from that war's own component registry:
+
+| Path | Who | Answer |
+|---|---|---|
+| `GET /agentic-identity/health/live` | anyone | 200 `{"status":"UP"}` while the webapp answers |
+| `GET /agentic-identity/health/ready` | anyone | 200 `{"status":"UP"}`, or 503 `{"status":"DOWN"}` when an enabled component is not ready |
+| `GET /agentic-identity/health` | the admin bearer | each component's state, reason and parts, the profile and the versions, with ready's code |
+| `GET /agentic-identity/info` | the admin bearer | `{"agentic-identity": ..., "commit": null, "pingfederate": ..., "java": ...}` |
+
+Live and ready say nothing but the status. The detail and info answer only a caller whose `Authorization` header
+is `Bearer <token>` for the static admin token the federation operator API uses (`OIDF_AUTHORITY_ADMIN_TOKEN`,
+system property `oidf.authority.admin_token` first) - Phase 2's decision 6 - and anyone else, including every caller
+of a deployment with no token set, gets the container's 404 for every method, as an unmapped path does.
+`HealthAccess` repeats pf-integration's `AdminBearer` rule, because platform-pf cannot depend on pf-integration
+(finding [F-0194](../../docs/findings/F-0194.yaml)); S8b (Phase 3) moves both to the operator scope
+`oidf.health.read`. Only GET and HEAD are served (405 otherwise, after the bearer check on the restricted two), and
+every answer is JSON with `Cache-Control: no-store`. `BuildInfo` reads the versions from the jars on each request:
+this repository's from platform-pf's `pom.properties`, PingFederate's from `pf-commons.jar`'s, the JVM's from the
+runtime; nothing records the commit yet (finding [F-0190](../../docs/findings/F-0190.yaml)).
+
+**Where it is mapped.** In `pf-runtime.war`, where `assemble-pf-runtime-war.sh` merges the staged jars, so on
+PingFederate's runtime port; `HealthPathsTest` holds the four paths clear of every servlet mapping in 13.1.3's stock
+`pf-runtime.war` web.xml (a fixture read from the image on 2026-09-28) and of every `@WebServlet` path in this
+repository. The engine's copy in `server/default/deploy` is never scanned for annotations and never serves a request.
+`oidf.war`, the demo-only packaging, bundles platform-pf through pf-integration and so answers at
+`/oidf/agentic-identity/health/...` from its own registry.
+
+**gm-api.war (the decision F-2 needs).** gm-api's web.xml has `metadata-complete="false"`, so once F-2 bundles
+platform-pf in it the container maps this servlet there too, at `/gm-api/agentic-identity/health/...` on the same
+runtime port. That is kept: gm-api.war is its own war and classloader with its own registry, so its health must
+be its own - the pf-runtime.war answer says nothing about whether gm-api deployed - and the plan's contract puts a
+service's health beside the service. Its readiness is UP until gm-api registers a part; F-2 registers one from
+gm-api's `init` (a component name of its own, such as `GM_API`, since S-9 names none) so that a gm-api that failed
+to start reads DOWN. The detail and info take the same bearer: the token is JVM-wide.
+
 <!-- lifecycle (F-2): add this package's section below this line -->
 <!-- internals (F-1, PfInternals): add this package's section below this line -->
 
