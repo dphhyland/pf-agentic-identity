@@ -1,0 +1,20 @@
+id: U-0058
+title: 'Not exercised on a booted 13.1.3: the evidence-conflict audit event, and a store outage at the token and federation endpoints'
+area: attestation-issuer, pf-integration
+source: pr-review
+status: open
+plan_items: [S3b, R-CI7]
+prs: []
+recorded_in: 'docs/releases/0.4.0.md, Package EVIDENCE'
+verify_by: >
+  A rig profile with attestation live - an attester client with a SPIFFE bundle, a bridge key, and Redis - that
+  presents the same evidence with two instance keys and reads attestation.evidence.conflict from audit.log, then
+  stops Redis mid-flow and expects 503 temporarily_unavailable from /as/token.oauth2 for an attested client and
+  from a federation endpoint whose client authentication is on.
+verification: ''
+notes: >
+  The rig runs attestation inert. What was exercised on a booted 13.1.3 on 2026-09-27 (PF_RIG_NAME=pfai-p1ev):
+  the challenge endpoint over verified TLS to Redis, its key under oidf:as:challenge:, and its 503 when the
+  certificate does not name the address. The conflict event and the filter's and federation endpoints' 503 are
+  covered by unit tests (AttestationIssuanceServletTest, ClientAttestationAuthFilterTest,
+  OpenIdFederationServletJtiGuardTest) and by the link check against the 13.1.3 jars, not by a boot.

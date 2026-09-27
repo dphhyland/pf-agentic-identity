@@ -53,7 +53,8 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   `instance_attestation_bound` and an `attestation.evidence.conflict` audit event; evidence lifetime capped
   at a day in production, the attestation's `exp` never past the evidence's.
 - **CIMD refused outside development** (M-1) - `OIDF_ATTESTER_CIMD_URL` is honoured only under
-  `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it.
+  `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it, and the CAS
+  document does not list `cimd` among its metadata sources.
 
 ## [0.3.0] - 2026-09-27
 

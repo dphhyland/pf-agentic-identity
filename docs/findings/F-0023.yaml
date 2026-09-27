@@ -13,7 +13,12 @@ verification: >
   DeploymentProfile.isProduction. Against redis:7-alpine with a self-signed certificate for localhost
   (RedisLiveTest, 2026-09-27): the handshake completes with the CA file; rediss://127.0.0.1 fails endpoint
   identification before AUTH; without the CA file the JVM's CAs refuse the certificate; redis:// is refused
-  under the production flag.
+  under the production flag. On a booted PingFederate 13.1.3 (conformance/up.sh as PF_RIG_NAME=pfai-p1ev,
+  2026-09-27, the deployed jars byte-identical to the build of 0c9f7a9): with OIDF_REDIS_URL rediss:// to a
+  redis:7-alpine by a name its certificate carries and OIDF_REDIS_CA_FILE naming the CA, the challenge endpoint
+  issued a challenge stored as oidf:as:challenge:<value> with a TTL of 300 s; by an address the certificate
+  does not name (192.168.65.254), it answered 503 temporarily_unavailable, server.log gave the cause as "No
+  subject alternative names matching IP address 192.168.65.254 found", and no key was written.
 target_release: 0.4.0
 notes: >
   The review rated MiniRedisClient's TLS handling medium; S3a lists what it lacks: endpoint identification

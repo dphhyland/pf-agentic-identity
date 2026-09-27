@@ -18,6 +18,9 @@ verification: >
   in-memory store), a second presenter is 401 instance_attestation_bound with an
   attestation.evidence.conflict audit event, evidence lifetime is capped at 86400 s in production and the
   attestation's exp never passes the evidence's. Residual risk recorded in servlets/attestation-issuer/README.md.
+  Verified again on 2026-09-27 at 0c9f7a9, after bind moved to SET NX PX and a key that can be neither taken nor
+  read became STORE_UNAVAILABLE rather than CONFLICT: mvn -o -B clean verify with Postgres and both Redis
+  instances, 2451 tests and no failures, RedisLiveTest 5 of 5 against redis:7-alpine plaintext and TLS.
 target_release: 0.4.0
 notes: >
   The minted attestation carries the raw platform token (`workload.svid`, and the six cloud validators'

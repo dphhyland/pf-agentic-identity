@@ -10,7 +10,10 @@ verification: >
   Mitigated by M-1 on 2026-09-27 (commit aca3f0c on prod/p1-evidence-binding). AttesterResolvers.fromEnvironment(props, env) adds the CIMD
   plugin only when EvidencePolicy.isProduction(env) is false, logs an ERROR naming OIDF_ATTESTER_CIMD_URL
   otherwise, and the federation and PingFederate sources keep serving (AttesterResolversTest: unset,
-  production and a typo all leave cimd out; development includes it). The full fix stays X-B02.
+  production and a typo all leave cimd out; development includes it). The CAS document's
+  client_metadata_sources_supported no longer lists cimd outside development either, however
+  OIDF_CIMD_TRUST_BUNDLES is set (ClientAttestationServiceMetadataServletTest, 2026-09-27). The full fix stays
+  X-B02.
 target_release: 0.8.0
 notes: >
   `CimdClientResolver` (servlets/attestation-issuer) fetches one JSON document from `OIDF_ATTESTER_CIMD_URL`
