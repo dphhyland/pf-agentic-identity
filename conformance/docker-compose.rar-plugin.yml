@@ -1,0 +1,22 @@
+# The RAR plugin, added to the rig for conformance/verify-rar-principal.sh and nothing else.
+#
+# The rig's image deliberately carries no pf-rar-paz-plugin (build/pingfederate/Dockerfile: "that's
+# agentic"). This override lends the running rig one jar - the one RAR_PLUGIN_JAR names, an absolute
+# path - by mounting it under /opt/in, which the base image's bootstrap copies over /opt/out at every
+# start, so PingFederate finds it in server/default/deploy under the pf.plugins. name it insists on.
+# The same mount takes the v0.3.0 jar from the GitHub release for the upgrade rehearsal, and the jar the
+# reactor just built for the flows, one container start each.
+#
+# OIDF_DEPLOYMENT_PROFILE=development is set here rather than in vars.env because it is what lets
+# the plugin dial the stub PDP the script runs on the host over plain http (host.docker.internal); the
+# rig's vars.env stays the production-shaped environment the conformance plans are run against.
+#
+#   COMPOSE_FILE=docker-compose.yml:docker-compose.rar-plugin.yml RAR_PLUGIN_JAR=/abs/path.jar ./up.sh
+services:
+  pingfederate:
+    volumes:
+      - ${RAR_PLUGIN_JAR:?set RAR_PLUGIN_JAR to the absolute path of pf.plugins.pf-rar-paz-plugin.jar}:/opt/in/instance/server/default/deploy/pf.plugins.pf-rar-paz-plugin.jar:ro
+    environment:
+      OIDF_DEPLOYMENT_PROFILE: development
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

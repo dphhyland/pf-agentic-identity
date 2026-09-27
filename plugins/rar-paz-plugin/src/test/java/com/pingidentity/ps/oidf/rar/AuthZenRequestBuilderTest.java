@@ -69,6 +69,18 @@ class AuthZenRequestBuilderTest {
         assertEquals(Map.of("type", "agent", "id", "agent-123"), context.get("actor"));
     }
 
+    /** Seen on the rig, 2026-09-27: a client-credentials principal is the client id, and must not be typed "user". */
+    @Test
+    void aClientPrincipalIsTypedClient() {
+        Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
+                AttestationSubject.empty(), "rar-principal-probe", "rar-principal-probe", "client");
+        assertEquals(Map.of("type", "client", "id", "rar-principal-probe"), node(req, "subject"));
+        assertEquals("client", node(req, "context").get("principal_source"));
+        Map<String, Object> hint = builder.build("sales_agent", Map.of("type", "sales_agent"),
+                AttestationSubject.empty(), "suite-user", "rar-principal-probe", "identity_hint");
+        assertEquals(Map.of("type", "user", "id", "suite-user"), node(hint, "subject"));
+    }
+
     @Test
     void fallsBackToClientSubjectWhenAttestationEmpty() {
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),

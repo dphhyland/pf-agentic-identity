@@ -19,8 +19,9 @@ import java.util.Map;
  *                 "attestation": { "entitlement": […], "workload": {…}, "cnf_thumbprint": "…", "iss": "…" } } }
  * </pre>
  *
- * <p>The subject is the <b>principal</b> the decision is about — the authenticated resource owner
- * first, then the OAuth client — with {@code subject.type} recording which one won. The attestation
+ * <p>The subject is the <b>principal</b> the decision is about — the resolved principal first, then the
+ * OAuth client — with {@code subject.type} recording what it is ({@code user}, or {@code client} when the
+ * principal source is {@code client} or the client was the fallback). The attestation
  * {@code sub} is never itself a subject.type candidate: it always names the registered client/agent
  * TYPE (equal to {@code client_id}), never a per-instance identity, so treating it as a distinct
  * "attestation subject" tier — and worse, labelling that tier {@code "agent"} — was a PDP
@@ -52,11 +53,14 @@ public final class AuthZenRequestBuilder {
         // always equals client_id (the registered client/agent TYPE), so a prior "attestation subject"
         // tier labelled "agent" was mislabelling the client as an agent. The only genuine agent identity
         // is agentId, and it belongs in context.actor below, never in the principal.
+        // subject.type says what the principal is, not where it came from: a client-credentials caller is
+        // its own principal (principal_source=client) and is a "client", not a "user". Seen on the rig
+        // (2026-09-27): before this, the resolver's client principal went out as {type: user}.
         String principal;
         String principalType;
         if (notBlank(resourceOwner)) {
             principal = resourceOwner;
-            principalType = "user";
+            principalType = PrincipalResolver.CLIENT.equals(principalSource) ? "client" : "user";
         } else if (notBlank(subj.getClientId())) {
             principal = subj.getClientId();
             principalType = "client";
