@@ -70,9 +70,12 @@ class SsfSupportBootTest {
 
         assertThrows(IllegalStateException.class, () -> SsfSupport.configure(JDBC));
 
-        assertThrows(IllegalStateException.class, SsfSupport::configuration, "not configured, not half-configured");
+        IllegalStateException notConfigured =
+                assertThrows(IllegalStateException.class, SsfSupport::configuration, "not configured, not half-configured");
         assertThrows(IllegalStateException.class, SsfSupport::store);
         assertThrows(IllegalStateException.class, SsfSupport::pushDeliveryService);
+        assertEquals(SsfSupport.NOT_CONFIGURED, notConfigured.getMessage(),
+                "what a request's error says while the store is down: both causes, not \"no servlet init ran\"");
     }
 
     @Test
