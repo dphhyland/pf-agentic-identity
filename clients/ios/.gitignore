@@ -1,0 +1,6 @@
+# Swift Package Manager and Xcode build output, and the per-user state Xcode writes beside a project.
+.build/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserdatad/
