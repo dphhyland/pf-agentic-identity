@@ -37,8 +37,9 @@
 #   PF_ARCHIVE_SHA256        optional: the archive's SHA-256, hex. Checked before the archive is decrypted
 #                            or imported; a mismatch stops the boot.
 #   OIDF_DEPLOYMENT_PROFILE  development lets a plaintext archive boot; production - the default when
-#                            unset, and what any other value counts as - refuses it. Read directly here
-#                            and by plugins/ciba-sim until plan item PR-1 (Phase 2) centralises the profile.
+#                            unset, and what any other value counts as - refuses it. The Java modules read
+#                            it through libs/platform's DeploymentProfile; DeploymentProfileShellTest holds
+#                            is_development to that rule (they differ only on padding, F-0161).
 #   PF_DATA_DIR              where the archive and keys go (default /opt/in/instance/server/default/data).
 #   PF_BOOTSTRAP             the base image's bootstrap (default /opt/bootstrap.sh); test-entrypoint.sh
 #                            points it at a stub.

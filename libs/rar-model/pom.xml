@@ -37,10 +37,13 @@
         </dependencies>
     </dependencyManagement>
 
-    <!-- No compile-scope dependencies at all. The plugin shades and relocates what it bundles and the
-         servlets take jose4j and Jackson from PingFederate; a JSON dependency here would be a third copy
-         in one of them, so the module reads and writes JSON itself (Json.java). -->
+    <!-- One compile-scope dependency: platform, for the deployment profile (plan item PR-1), which is JDK
+         only as this module is. The plugin shades and relocates both, and the servlets find platform
+         staged beside them. Nothing else: the servlets take jose4j and Jackson from PingFederate; a JSON
+         dependency here would be a third copy in one of them, so the module reads and writes JSON itself
+         (Json.java). -->
     <dependencies>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
     </dependencies>

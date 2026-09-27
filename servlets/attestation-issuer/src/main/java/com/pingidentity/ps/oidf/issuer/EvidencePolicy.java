@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.issuer;
 import java.util.Locale;
 import java.util.function.Function;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 
 /**
  * The deployment-wide policy on instance evidence, read from the environment once and applied to every
@@ -26,15 +27,14 @@ import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
  *       platforms that mint the cloud tokens decide their audience lists.</li>
  * </ul>
  *
- * <p>The profile is read from the environment directly. Plan item PR-1 (Phase 2) centralises it; until then
- * this and the store's {@code DeploymentProfile} are the whole definition.
+ * <p>The profile is platform's {@link DeploymentProfile} (plan item PR-1), the one rule every module reads.
  */
 public final class EvidencePolicy {
     public static final String MAX_LIFETIME_ENV = "OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS";
     public static final String MAX_LIFETIME_PROPERTY = "oidf.attester.max.evidence.lifetime.seconds";
     public static final String SINGLE_AUDIENCE_ENV = "OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE";
     public static final String SINGLE_AUDIENCE_PROPERTY = "oidf.attester.require.single.audience.evidence";
-    public static final String PROFILE_ENV = "OIDF_DEPLOYMENT_PROFILE";
+    public static final String PROFILE_ENV = DeploymentProfile.SETTING;
     public static final long PRODUCTION_MAX_EVIDENCE_LIFETIME_SECONDS = 86400L;
     /** Allowed on the remaining-life check, for a clock behind the evidence issuer's: the verifier's usual skew. */
     public static final long CLOCK_SKEW_SECONDS = ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS;
@@ -96,8 +96,7 @@ public final class EvidencePolicy {
 
     /** Everything but {@code OIDF_DEPLOYMENT_PROFILE=development} is production, an unset variable included. */
     public static boolean isProduction(Function<String, String> env) {
-        String value = env.apply(PROFILE_ENV);
-        return value == null || !"development".equals(value.trim().toLowerCase(Locale.ROOT));
+        return DeploymentProfile.of(env).isProduction();
     }
 
     public long maxEvidenceLifetimeSeconds() {

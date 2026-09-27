@@ -8,7 +8,7 @@ import com.pingidentity.ps.oidf.federation.SubordinateStatementCache;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import com.pingidentity.ps.oidf.issuer.ChainClientResolver;
-import com.pingidentity.ps.oidf.issuer.EvidencePolicy;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.issuer.CimdClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver;
@@ -66,7 +66,7 @@ final class AttesterResolvers {
      * unknown here and the discovery document's {@code resolver_plugins_active} omits {@code cimd} - while the
      * federation and PingFederate sources keep serving. Refusing the one source, rather than the attester, keeps
      * the blast radius to the clients that source describes. X-B02 (Phase 5) is the full fix and removes the
-     * variable. The profile is read from the environment directly; PR-1 (Phase 2) centralises it.
+     * variable. The profile is platform's {@link DeploymentProfile} (PR-1).
      */
     static IssuanceClientResolver fromEnvironment(Function<String, String> props, Function<String, String> env) {
         String signingJwk = firstSet(props.apply(SIGNING_JWK_PROPERTY), env.apply(SIGNING_JWK_ENV));
@@ -78,10 +78,10 @@ final class AttesterResolvers {
             plugins.add(new OpenIdFederationClientResolver(fedEntity, federationValidator(FederationRuntimeConfig.get(), fedEntity), signingJwk));
         }
         String cimdUrl = firstSet(props.apply(CIMD_URL_PROPERTY), env.apply(CIMD_URL_ENV));
-        if (cimdUrl != null && EvidencePolicy.isProduction(env)) {
-            LOGGER.error((Object) (CIMD_URL_ENV + " is set but " + EvidencePolicy.PROFILE_ENV + " is not development: the CIMD"
+        if (cimdUrl != null && DeploymentProfile.of(env).isProduction()) {
+            LOGGER.error((Object) (CIMD_URL_ENV + " is set but " + DeploymentProfile.SETTING + " is not development: the CIMD"
                     + " source is refused (M-1, F-0067), so clients only that document describes cannot be issued attestations."
-                    + " Unset it, or set " + EvidencePolicy.PROFILE_ENV + "=development on a rig"));
+                    + " Unset it, or set " + DeploymentProfile.SETTING + "=development on a rig"));
         } else if (cimdUrl != null) {
             LOGGER.info((Object) ("Attester resolver plugin: cimd -> " + cimdUrl));
             plugins.add(new CimdClientResolver(cimdUrl, signingJwk));
