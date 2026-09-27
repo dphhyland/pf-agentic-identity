@@ -244,8 +244,8 @@ class PushDeliveryServiceTest {
 
     /**
      * Deliberately untagged: RFC 8935 says nothing about how a transmitter shares one loop between streams.
-     * A receiver that is down costs one attempt per tick, and its SETs stay queued in order for when it is
-     * back; the stream after it in the batch is still delivered to in the same tick.
+     * A receiver that is down costs one attempt, not one per queued SET, and the stream after it in the
+     * batch is still delivered to in the same tick.
      */
     @Test
     void aStreamThatFailsGetsNoSecondAttemptInTheSameTick() {
@@ -269,6 +269,79 @@ class PushDeliveryServiceTest {
         assertEquals(0, down.get(1).deliveryAttempts());
         assertEquals(0, down.get(2).deliveryAttempts());
         assertEquals(StreamStatus.ENABLED, store.getStream("down").orElseThrow().status());
+    }
+
+    /**
+     * Deliberately untagged, as above. The failed SET waits out its backoff and the stream waits with it: in
+     * the ticks before it is due again nothing of the stream is posted, although its later SETs are due,
+     * because posting them would put them in front of the one that failed. When the receiver is back the
+     * failed SET goes first and the rest follow in the order they were issued.
+     */
+    @Test
+    void aFailedStreamWaitsOutItsOldestSetsBackoffAndThenDeliversInOrder() {
+        pushStream("s1", StreamStatus.ENABLED);
+        enqueueMany("s1", 3, 100);
+        List<String> posted = new ArrayList<>();
+        boolean[] receiverUp = {false};
+        PushDeliveryService service = svc((u, a, j) -> {
+            posted.add(j);
+            return receiverUp[0] ? PushDeliveryService.DeliveryResult.delivered()
+                    : PushDeliveryService.DeliveryResult.retryable(503, "down");
+        });
+
+        assertEquals(0, service.runOnce(1000));
+        assertEquals(List.of("jws-s1-0"), posted);
+        assertEquals(1005, store.peek("s1", 1).get(0).nextAttemptAt(), "the failed SET backs off 5 s");
+
+        receiverUp[0] = true;
+        assertEquals(0, service.runOnce(1004), "s1-1 and s1-2 are due, and wait behind s1-0");
+        assertEquals(List.of("jws-s1-0"), posted, "nothing was posted while the oldest SET was backing off");
+
+        assertEquals(3, service.runOnce(1005));
+        assertEquals(List.of("jws-s1-0", "jws-s1-0", "jws-s1-1", "jws-s1-2"), posted, "oldest first, the retried SET leading");
+        assertTrue(store.peek("s1", 10).isEmpty());
+    }
+
+    /** A SET issued to the stream while it waits queues behind the one that failed, not in front of it. */
+    @Test
+    void aSetIssuedDuringTheBackoffQueuesBehindTheOneThatFailed() {
+        pushStream("s1", StreamStatus.ENABLED);
+        store.enqueue(PendingSet.fresh("old", "s1", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-old", 100, 0));
+        List<String> posted = new ArrayList<>();
+        boolean[] receiverUp = {false};
+        PushDeliveryService service = svc((u, a, j) -> {
+            posted.add(j);
+            return receiverUp[0] ? PushDeliveryService.DeliveryResult.delivered()
+                    : PushDeliveryService.DeliveryResult.retryable(0, "connect timed out");
+        });
+
+        service.runOnce(1000);
+        store.enqueue(PendingSet.fresh("new", "s1", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-new", 1002, 0));
+        receiverUp[0] = true;
+        service.runOnce(1003);
+        service.runOnce(1005);
+
+        assertEquals(List.of("jws-old", "jws-old", "jws-new"), posted);
+    }
+
+    /**
+     * The oldest SET is read after the batch, so it can be gone by then - delivered by another node, or
+     * acknowledged by a poll. A stream with nothing older queued is not held.
+     */
+    @Test
+    void aStreamWhoseOldestSetHasGoneSinceTheBatchWasReadIsNotHeld() {
+        SsfStore racing = mock(SsfStore.class);
+        PendingSet p = PendingSet.fresh("j1", "s1", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws", 100, 0);
+        when(racing.dueForPush(300, 500)).thenReturn(List.of(p));
+        when(racing.getStream("s1")).thenReturn(Optional.of(Stream.builder().id("s1").audience("https://r")
+                .deliveryMethod(DeliveryMethod.PUSH).pushEndpointUrl("https://r/set")
+                .status(StreamStatus.ENABLED).build()));
+        when(racing.peek("s1", 1)).thenReturn(List.of());
+
+        assertEquals(1, new PushDeliveryService(racing, cfg,
+                (u, a, j) -> PushDeliveryService.DeliveryResult.delivered()).runOnce(300));
+
+        verify(racing).ack("s1", List.of("j1"));
     }
 
     /**

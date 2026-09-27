@@ -38,7 +38,7 @@ import org.apache.commons.logging.LogFactory;
  *
  * <p>One loop, one thread, and every stream behind it - so what one stream can cost the others is bounded
  * here (the Phase 1 stopgap for B5; S-10 replaces the loop with a leased engine): the store hands over only
- * the SETs of enabled push streams, a stream that fails a delivery gets no second attempt in the same tick,
+ * the SETs of enabled push streams, a stream whose delivery fails waits out that SET's backoff as a whole,
  * and no attempt outlives {@link #REQUEST_TIMEOUT}.
  */
 public final class PushDeliveryService {
@@ -123,18 +123,22 @@ public final class PushDeliveryService {
      * what is read for delivery is read after the expired SETs are gone, and a tick that cannot evict
      * delivers nothing rather than something it was configured to have discarded.
      *
-     * <p>A stream gets one failed attempt per tick. After a retryable failure its remaining SETs in the batch
-     * are left as they are - still due, still oldest first, read again next tick - so a receiver that is down
-     * costs one attempt (at most {@link #REQUEST_TIMEOUT}) per tick, not one per queued SET, and its SETs are
-     * delivered in order when it is back. Attempts are counted only on the SET that was tried, so a stream
-     * dead-letters after {@code pushRetryMaxAttempts} failed ticks, as before.
+     * <p>A stream that fails is held, whole. After a retryable failure nothing more of that stream is tried
+     * in the tick, and in later ticks nothing of it is tried while its oldest SET is still waiting out the
+     * backoff that failure set: its later SETs are due, but posting them would put them in front of the one
+     * that failed. So a receiver that is down costs one attempt (at most {@link #REQUEST_TIMEOUT}) per backoff
+     * step, not one per queued SET or one per tick, and when it is back its SETs arrive oldest first - from
+     * the one that failed, which is retried before anything behind it. Attempts are counted on the SET that
+     * was tried, the oldest, so the stream dead-letters when that SET has failed {@code pushRetryMaxAttempts}
+     * times, on the same backoff as before.
      */
     public int runOnce(long now) {
         evictExpired(now);
         int delivered = 0;
-        Set<String> failedThisTick = new HashSet<>();
+        Set<String> held = new HashSet<>();   // streams that get no more attempts this tick
+        Set<String> looked = new HashSet<>(); // streams whose oldest SET has been looked at this tick
         for (PendingSet p : this.store.dueForPush(now, BATCH)) {
-            if (failedThisTick.contains(p.streamId())) {
+            if (held.contains(p.streamId())) {
                 continue;
             }
             Optional<Stream> so = this.store.getStream(p.streamId());
@@ -145,6 +149,10 @@ public final class PushDeliveryService {
             Stream s = so.get();
             if (!s.isPushEnabled()) {
                 continue; // the store selects enabled push streams; this is the stream as it is now
+            }
+            if (looked.add(s.id()) && oldestIsBackingOff(s.id(), now)) {
+                held.add(s.id());
+                continue;
             }
             DeliveryResult r = safeDeliver(s, p);
             switch (r.outcome) {
@@ -160,11 +168,23 @@ public final class PushDeliveryService {
                 case RETRYABLE:
                 default:
                     handleRetry(s, p, r, now);
-                    failedThisTick.add(s.id());
+                    held.add(s.id());
                     break;
             }
         }
         return delivered;
+    }
+
+    /**
+     * Whether the stream's oldest queued SET is not due yet - a failed attempt's backoff - so that the due
+     * SETs behind it wait too. Asked once per stream per tick, before its first attempt. The oldest SET
+     * that is due is the first of its stream in the batch, so a stream whose oldest SET is due is never
+     * held here; one whose oldest SET is gone (delivered or evicted since the batch was read) is not
+     * either.
+     */
+    private boolean oldestIsBackingOff(String streamId, long now) {
+        List<PendingSet> oldest = this.store.peek(streamId, 1);
+        return !oldest.isEmpty() && oldest.get(0).nextAttemptAt() > now;
     }
 
     /**
@@ -309,9 +329,10 @@ public final class PushDeliveryService {
      * One exchange, bounded as a whole. {@code HttpRequest.timeout} is the wait for the response headers
      * and nothing after them: a receiver that sends its status line and then holds the body open would hold
      * the delivery thread past any deadline set on the request. So the future is waited on for the whole
-     * exchange and cancelled when the deadline passes - the JDK client cancels the request on
-     * {@code cancel(true)} from 16 on; that the socket is closed with it is U-0058, not verified here - and
-     * the body is read up to {@code bodyCap} bytes and not one more.
+     * exchange and cancelled when the deadline passes, and the body is read up to {@code bodyCap} bytes and
+     * not one more. The cancel closes the connection, so a stalled receiver keeps no socket of ours either:
+     * {@code PushDeliveryHttpTest} sees it close at the deadline, and without the cancel it stays open
+     * (U-0058, checked on JDK 17, 20 and 21.0.12.1, the runtime of the PingFederate 13.1.3 image).
      */
     static HttpResponse<String> send(HttpClient http, HttpRequest request, Duration deadline, int bodyCap)
             throws Exception {
