@@ -1,0 +1,12 @@
+id: U-0020
+title: PAR and bc-auth accept the bridge assertion
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 5
+verify_by: >
+  On the rig: a PAR request and a CIBA bc-auth request authenticated with the bridge's client assertion.
+verification: ''
+notes: ''

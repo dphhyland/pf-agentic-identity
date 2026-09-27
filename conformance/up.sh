@@ -81,7 +81,7 @@ fi
 # Build first: author.sh stages plugins/ciba-sim into the authoring server, because terraform/ciba.tf
 # can only instantiate a plugin PingFederate can see.
 if [[ "${SKIP_BUILD:-0}" != 1 || ! -f "$REPO/build/pingfederate/modules/MANIFEST" ]]; then
-  ( cd "$REPO" && mvn -q -DskipTests package && build/pingfederate/stage-modules.sh )
+  ( cd "$REPO" && mvn -q -DskipTests package && build/pingfederate/stage-modules.sh --profile conformance )
 fi
 
 if [[ "${SKIP_AUTHOR:-0}" != 1 ]]; then

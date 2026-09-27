@@ -1,0 +1,13 @@
+id: F-0051
+title: 'Federation load: TrustMarkIssuer.marked in one query, the hosted-entity EC cached, resolve capped and cached, a TTL on AuthZEN discovery'
+severity: medium
+area: openid-federation
+source: reviewer-report
+status: open
+plan_items: [H-FED-9]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items.

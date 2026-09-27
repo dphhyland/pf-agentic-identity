@@ -1,0 +1,16 @@
+id: F-0026
+title: 'Hardcoding: image bake-ins, tuning constants, RSA-only signing, domain vocabulary'
+severity: medium
+area: image, platform
+source: review-2026-09-26
+status: open
+plan_items: [R-I3, ST-3, S5b, S-6, H-RAR-1]
+prs: []
+verification: ''
+target_release: 0.9.0
+notes: >
+  The review's hardcoding class, as one finding: the image bakes in EULA acceptance, DEBUG logging, the
+  plaintext 9080 listener, ForceUnsupportedImport, required claims and mock attesters (R-I3, Phase 3); tuning
+  constants are literals (ST-3's catalogue); the federation signs RSA only (S-6 adds ES256, ES384 and PS256);
+  the RAR vocabulary is the demo's (H-RAR-1 and the per-type models of Workstream X). Phases 2 to 6; the last
+  of it lands with Phase 6.

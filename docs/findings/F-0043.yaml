@@ -1,0 +1,14 @@
+id: F-0043
+title: SSF poll acknowledgements are kept per node
+severity: medium
+area: ssf
+source: design
+status: open
+plan_items: [S10e]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while designing, item 14. What one node has acknowledged another has not, so a cluster delivers
+  duplicates after a failover and loses an acknowledgement with a node. Medium, part of B7. S10e keeps the
+  receiver's state in the store (an inbox keyed by iss and jti; the poll client under a leader lease).

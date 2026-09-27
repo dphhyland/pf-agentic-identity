@@ -1,0 +1,13 @@
+id: F-0038
+title: Ceiling refusals answer 401 access_denied instead of invalid_authorization_details
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [S4a]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  Found while designing, item 9. CAS section 7.1 requires `invalid_authorization_details`. Low: conformance
+  and client diagnostics, not exposure. S4a answers 400 `invalid_authorization_details`.

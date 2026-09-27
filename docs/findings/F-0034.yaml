@@ -1,0 +1,15 @@
+id: F-0034
+title: CAS instance ceilings can be wider than the client ceiling
+severity: high
+area: attestation-issuer
+source: design
+status: open
+plan_items: [S-1, S1b]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  Found while designing, item 5. parseInstances (AttestationIssuanceConfig.java:241-243,292-295 at f95b522)
+  checks an instance ceiling against the client's and then discards the result. High: a per-instance ceiling
+  can grant what the client ceiling refuses. S-1: the instance ceiling becomes authorize(instance, client)
+  when the configuration is parsed, and the mint authorizes against it.

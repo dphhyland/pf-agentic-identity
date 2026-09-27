@@ -1,0 +1,18 @@
+id: F-0032
+title: Omitting authorization_details at the token endpoint skips the attestation ceiling on code, CIBA and device grants
+severity: blocker
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while designing, item 3. Code, CIBA and device grants issue the details stored at authorize or PAR;
+  the filter's ceiling check reads only the token-request parameter, so leaving it out skips the check, and
+  details pushed at PAR are enriched with no attestation context. Blocker: the containment control can be
+  bypassed on three grant types by omitting a parameter, which the plan calls the most serious finding. S4d
+  maps the filter over PAR, bc-auth, introspect and revoke, rewrites the forwarded parameter to the granted
+  details, and adds a response belt on the token endpoint and an issuance criterion on
+  context.OAuthAuthorizationDetails.

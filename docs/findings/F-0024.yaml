@@ -1,0 +1,13 @@
+id: F-0024
+title: REQUIRE_COMPLIANT_DEVICE is parsed leniently
+severity: medium
+area: device-enrolment
+source: review-2026-09-26
+status: open
+plan_items: [ST-5, PR-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  A value that is not exactly `true` reads as off, so a typo disables the check silently. ST-5 makes every
+  boolean strict (a value that does not parse is refused); PR-3 forbids `false` in production.

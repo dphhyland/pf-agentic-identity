@@ -1,0 +1,15 @@
+id: F-0041
+title: 'The attestation_* extended properties are not in docs/extended-properties.json'
+severity: high
+area: pf-integration
+source: design
+status: open
+plan_items: [S4c, ST-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while designing, item 12. PingFederate drops an extended property it has not been told about, without
+  a word, so per-client attestation policy written to a client is lost. High: a policy an operator believes is
+  applied is not. S4c's start-up scan checks the properties are declared (ExtendedPropertyAccessor) and puts
+  clients with bad properties into health; ST-3 makes the file generated from the catalogue.

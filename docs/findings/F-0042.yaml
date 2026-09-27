@@ -1,0 +1,17 @@
+id: F-0042
+title: Five separate trust-all TLS implementations in main code
+severity: medium
+area: platform
+source: design
+status: open
+plan_items: [PR-1]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  Found while designing, item 13. CodeQL's first run on main (2026-09-27, after PR #18) lists six sites as
+  java/insecure-trustmanager, alerts 4 to 9: JdkHttpClient (oidf-jose), JdkHttpTransport (rar-paz-plugin),
+  HostedEntityRegistrar (device-enrolment), PfIntrospectionReceiverAuthenticator, PollReceiverClient and
+  SetVerifier (ssf) - one more than the design pass counted. The alerts close with PR-1. Each is its own switch to forget. PR-1 makes InsecureTls the only trust-all
+  constructor and adds a source scan that fails on any other X509TrustManager; PR-2 then forbids ignore-TLS in
+  every form in production.

@@ -33,9 +33,23 @@
 #                   causes a LinkageError (loader constraint violation) when PF-loaded jose4j types
 #                   (JwksEndpointKeyAccessor results) cross into module code.
 #   $4  OUT_WAR     path to write the assembled pf-runtime.war
+#   $5  PROFILE     optional: the staging profile the image is built for, production (the default) or
+#                   conformance. MODULES' MANIFEST names the profile stage-modules.sh staged for, and the
+#                   two must agree: a conformance stage carries the CIBA simulator, an approval oracle
+#                   that must never reach a production image, and a production stage assembled into a
+#                   conformance image boots a rig with no CIBA device that fails the FAPI-CIBA plan on
+#                   every module.
 set -euo pipefail
-STOCK_WAR="$1"; MODULES="$2"; JOSE4J_JAR="$3"; OUT_WAR="$4"
+STOCK_WAR="$1"; MODULES="$2"; JOSE4J_JAR="$3"; OUT_WAR="$4"; PROFILE="${5:-production}"
 MODULE_NAME="pf-oidf-modules-0.0.1-SNAPSHOT.jar"   # single-jar mode: keep the WEB-INF/lib entry name stable
+case "$PROFILE" in
+  production | conformance) ;;
+  *) echo "ERROR: the profile must be production or conformance, not '$PROFILE'" >&2; exit 2 ;;
+esac
+# The same digest stage-modules.sh wrote; GNU and busybox have sha256sum, macOS has shasum.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
 
 # On any failure, take the output war with us. The first thing this script does is copy the STOCK war
 # to OUT_WAR, so every check below - the MANIFEST checks, the namespace guard, the filter-mapping
@@ -46,7 +60,9 @@ MODULE_NAME="pf-oidf-modules-0.0.1-SNAPSHOT.jar"   # single-jar mode: keep the W
 # `rc=$?` must come first - anything before it clobbers the status we are testing. Reading the exit
 # status rather than setting a "we got there" flag at the bottom means a check added later is covered
 # automatically, with nothing to remember.
-work="$(mktemp -d)"; trap 'rc=$?; rm -rf "$work"; [[ $rc -eq 0 ]] || rm -f "$OUT_WAR"' EXIT
+work="$(mktemp -d)"
+finish() { rc=$?; rm -rf "$work"; [[ $rc -eq 0 ]] || rm -f "$OUT_WAR"; }
+trap finish EXIT
 cp "$STOCK_WAR" "$OUT_WAR"
 # Resolve OUT_WAR to an absolute path — the `zip` calls below run from inside $work, so a relative
 # OUT_WAR would land in the temp dir instead of the intended output.
@@ -60,28 +76,55 @@ if [[ -d "$MODULES" ]]; then
   manifest="$MODULES/MANIFEST"
   if [[ ! -f "$manifest" ]]; then
     echo "ERROR: $MODULES has no MANIFEST — it was not produced by build/pingfederate/stage-modules.sh." >&2
-    echo "       Run 'mvn -q -DskipTests package && build/pingfederate/stage-modules.sh'." >&2
+    echo "       Run 'mvn -q -DskipTests package && build/pingfederate/stage-modules.sh --profile $PROFILE'." >&2
     echo "       Hand-copying jars here is how modules have gone missing before." >&2
     exit 1
   fi
-  missing=""
-  while IFS= read -r want; do
-    [[ -z "$want" ]] && continue
-    [[ -f "$MODULES/$want" ]] || missing="$missing $want"
+  # MANIFEST v2 (stage-modules.sh): a header line, then a [section] per module group and one
+  # "<sha256>  <file>" line per jar. The header's profile must be this build's, and every jar must
+  # still have the digest it was staged with - a jar rebuilt or swapped after staging is the drift the
+  # v1 list of bare filenames let through. A v1 file has no header and is refused: it was staged by an
+  # older script, and the tree it came from is not this one.
+  header="$(head -n 1 "$manifest")"
+  header_re='^MANIFEST/2 profile=(production|conformance) built=[^ ]+ commit=[^ ]+$'
+  [[ "$header" =~ $header_re ]] || {
+    echo "ERROR: $manifest is not a v2 MANIFEST (its first line is '$header')." >&2
+    echo "       Re-run build/pingfederate/stage-modules.sh --profile $PROFILE after 'mvn package'." >&2
+    exit 1; }
+  staged_profile="${BASH_REMATCH[1]}"
+  [[ "$staged_profile" == "$PROFILE" ]] || {
+    echo "ERROR: modules/ was staged for the $staged_profile profile, and this image is being built for $PROFILE." >&2
+    echo "       Re-run build/pingfederate/stage-modules.sh --profile $PROFILE, or build for $staged_profile." >&2
+    exit 1; }
+  entry_re='^([0-9a-f]{64})  ([^/ ]+\.jar)$'
+  missing=""; listed=" "; wanted=0
+  while IFS= read -r line; do
+    case "$line" in
+      "MANIFEST/2 "* | "["*"]" | "") continue ;;
+    esac
+    [[ "$line" =~ $entry_re ]] || { echo "ERROR: $manifest has a line that is neither a section nor a jar: '$line'" >&2; exit 1; }
+    want_sum="${BASH_REMATCH[1]}"; want="${BASH_REMATCH[2]}"
+    listed="$listed$want "; wanted=$((wanted + 1))
+    if [[ ! -f "$MODULES/$want" ]]; then missing="$missing $want"; continue; fi
+    have_sum="$(sha256_of "$MODULES/$want")"
+    [[ "$have_sum" == "$want_sum" ]] || {
+      echo "ERROR: $want is not the jar that was staged: MANIFEST says sha256 $want_sum, the file is $have_sum." >&2
+      echo "       Re-run build/pingfederate/stage-modules.sh --profile $PROFILE after 'mvn package'." >&2
+      exit 1; }
   done < "$manifest"
   if [[ -n "$missing" ]]; then
     echo "ERROR: staged modules/ is incomplete — MANIFEST names jars that are not present:$missing" >&2
-    echo "       Re-run build/pingfederate/stage-modules.sh after 'mvn package'." >&2
+    echo "       Re-run build/pingfederate/stage-modules.sh --profile $PROFILE after 'mvn package'." >&2
     exit 1
   fi
   for present in "$MODULES"/*.jar; do
     base="$(basename "$present")"
-    grep -qxF "$base" "$manifest" || {
+    [[ "$listed" == *" $base "* ]] || {
       echo "ERROR: $base is in modules/ but not in MANIFEST — a stale or hand-added jar." >&2
-      echo "       Re-run build/pingfederate/stage-modules.sh so the directory matches the build." >&2
+      echo "       Re-run build/pingfederate/stage-modules.sh --profile $PROFILE so the directory matches the build." >&2
       exit 1; }
   done
-  echo "modules/: $(wc -l < "$manifest" | tr -d ' ') jars, matching MANIFEST"
+  echo "modules/: $wanted jars, matching MANIFEST ($header)"
   cp "$MODULES"/*.jar "$work/WEB-INF/lib/"
 else
   cp "$MODULES" "$work/WEB-INF/lib/$MODULE_NAME"

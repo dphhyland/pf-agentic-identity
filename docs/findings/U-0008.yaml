@@ -1,0 +1,14 @@
+id: U-0008
+title: Which PingOne capability emits device-compliance CAEP events
+area: device-enrolment
+source: design
+status: closed
+plan_items: []
+prs: []
+recorded_in: docs/unverified.md item 7
+verify_by: Nothing further is needed.
+verification: >
+  Overtaken by David's decision of 2026-09-26: device compliance comes from a Microsoft Intune adapter over
+  Graph, delivered as CAEP device-compliance-change into PingFederate's SSF receiver (plan, Decisions).
+  PingOne is no longer the assumed compliance source, so nothing relies on the answer. Recorded 2026-09-27.
+notes: ''

@@ -1,0 +1,14 @@
+id: F-0049
+title: 'LoggingUtil.cleanup() may strip PingFederate''s own audit context'
+severity: medium
+area: pf-integration
+source: reviewer-report
+status: open
+plan_items: [H-FED-7]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. PfAuditEventSink.java:154-156 (f95b522). To verify on the rig whether
+  cleanup() strips PingFederate's own audit context; if it does, save and restore it around the sink's write.
