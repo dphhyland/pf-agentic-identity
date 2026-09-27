@@ -10,7 +10,18 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 ## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Nothing has landed yet.
+hygiene. Notes in progress: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+
+- **SSF push cannot be starved or held** (S10-0, the B5 stopgap) - the stores select only enabled push
+  streams' SETs, a stream gets one failed attempt per tick, the POST has deadlines (connect 2 s, exchange
+  10 s, body read to 4 KiB), the loop starts from the load-on-startup servlet, and a store that is down at
+  boot is logged and retried instead of failing `pf-runtime.war`.
+- **device-enrolment's unauthenticated `POST /compliance` is gone** (M-2, the B4 mitigation) - compliance
+  reaches the registry through a verified SET at PingFederate's SSF receiver and nowhere else; the README
+  says why the device path is not production-usable until Phase 6.
+- **IOM schema v2 proposed** (X-A03) - [docs/device/iom-schema-v2-proposal.md](docs/device/iom-schema-v2-proposal.md),
+  the MAY attributes, view, roles, lease attributes and start-up check the device path needs, written as a
+  diff against the model as it is, for David to raise in idp-scim-service.
 
 ## [0.3.0] - 2026-09-27
 

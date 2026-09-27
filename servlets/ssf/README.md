@@ -39,8 +39,8 @@ account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Inte
 
 | Path | Class | What |
 |---|---|---|
-| `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that bootstraps `SsfSupport` at boot so the logout filter can emit immediately. |
-| `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API; starts the push-delivery loop. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
+| `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that bootstraps `SsfSupport` at boot, so the logout filter can emit immediately and the [push loop](#push-delivery) runs before any request arrives. |
+| `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
 | `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only), `returnImmediately`, `ack`. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. |
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err` on failure). Active only when `receiverExpectedIssuer` is set. |
 | `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
@@ -54,7 +54,8 @@ parameter is accepted only when a deployment opts in (`OIDF_SSF_LOGOUT_ALLOW_SUB
 with no real id tokens to hand); it is refused by default, closing the earlier unauthenticated-subject finding.
 
 Every servlet calls `SsfHttp.bootstrap` in `init()`: fail-soft. No issuer means the SSF endpoints stay
-disabled and PF boots regardless - SSF must never take the runtime web application down.
+disabled and PF boots regardless - SSF must never take the runtime web application down. A store that
+cannot be opened at boot is the same promise kept ([Boot](#boot)).
 
 ## Configuration
 
@@ -71,6 +72,59 @@ external base receivers use).
 | Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls`, `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
+
+## Push delivery
+
+`PushDeliveryService` is one loop on one thread for every push stream, ticking every
+`pushRetryBackoffSeconds`. What one stream can cost the others is bounded there, since 0.4.0 (S10-0, the
+Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is S-10, Phase 4):
+
+- **The store hands over only enabled push streams' SETs.** `SsfStore.dueForPush` is a join on the
+  stream's state in all three stores, not a filter the loop applies afterwards. The batch is 500 SETs
+  across every stream, oldest first, so before this the held SETs of a paused stream - or a poll stream's
+  queue, or a disabled stream's - were the whole batch every tick once there were 500 of them older than
+  anyone else's, and the enabled stream behind them was never read. SSF 1.0 §8.1.2.1: enabled, "The
+  Transmitter MUST transmit events over the stream, according to the stream's configured delivery method";
+  paused, "The Transmitter MUST NOT transmit events over the stream. The Transmitter SHOULD hold any events
+  it would have transmitted while paused"; disabled, "The Transmitter MUST NOT transmit events over the
+  stream". The loop reads the stream again before it posts, so a stream paused between selection and
+  delivery is still held.
+- **A stream gets one failed attempt per tick.** After a retryable failure its remaining SETs in the batch
+  are left as they are - still due, still in order, read again next tick. A receiver that is down costs one
+  attempt per tick, not one per queued SET. The attempt is counted on the SET that was tried, so a stream
+  still dead-letters (`paused`, with the reason recorded) after `pushRetryMaxAttempts` failed ticks.
+- **A POST ends at its deadline.** Connect 2 s; 10 s for the whole exchange, body included; at most 4 KiB
+  of a response body read (only a 400's body is used, for the log line). `HttpRequest.timeout` alone bounds
+  the wait for the headers and nothing after them, so the exchange is waited on as a whole and cancelled
+  when the deadline passes. These are constants (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`,
+  `RESPONSE_BODY_CAP`) until S-5 makes them settings. Before this, `HttpClient.newHttpClient()` had no
+  timeout at all: a receiver that accepted the connection and never answered held the thread, and every
+  stream's delivery, for as long as it kept the socket open.
+- **The loop starts at boot.** `SsfSupport.start` - what every servlet's `bootstrap` runs - starts it once
+  the store is open, and the first servlet to run it is `SsfConfigurationServlet`, `loadOnStartup=1`.
+  Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
+  until a receiver's first management request, and nothing at all on a node no receiver managed streams on.
+
+**What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
+older than another's still fills the batch, though now for one bounded attempt per tick; one thread; no
+leases, so every node in a cluster runs the loop against the shared store (F-0007, single node until
+v0.7.0); dead-letter drops nothing but pauses the stream. Push delivery has still not been run against the
+conformance suite: it needs a suite PingFederate can call back ([conformance/README.md](../../conformance/README.md)).
+
+## Boot
+
+`SsfSupport.start` never throws. It configures the transmitter (which, for the `tables` store, applies the
+DDL), runs the servlet layer's wiring (the receiver's PingFederate actions and polling, the audit source),
+and starts the push loop. A store that cannot be opened - the data store down at boot, the DDL refused - is
+one ERROR line naming the cause, the SSF endpoints staying off, and another try every 30 s
+(`SsfSupport.bootRetrySeconds`, a constant until S-5) until the store opens; the loops start on the try that
+succeeds. The stock behaviour until 0.4.0 was the exception escaping `SsfConfigurationServlet.init`, which
+loads at start-up - for a load-on-startup servlet that is the whole runtime web application failing to
+start ("Found while designing" 11) - and a `configure` that had already assigned its configuration before
+the store failed, so every later servlet found it "configured" and no store behind it.
+
+While the store is down the SSF endpoints throw `IllegalStateException` on use (the container's 500), the
+same as a transmitter with no issuer. The retry is logged each time it fails.
 
 ## SET expiry
 
@@ -191,11 +245,25 @@ push endpoint itself no longer has an open state: no configured token, no delive
   (and give the transmitter the same token in the stream's `authorization_header`). No known deployment
   enables the receiver today, so nothing live is affected; one that enables it without both will not start.
 
+### Upgrading to 0.4.0
+
+Nothing to configure. What changes on the first boot after the upgrade:
+
+- The push loop starts with PingFederate rather than with the first management request, so a node that
+  no receiver has ever managed a stream on starts delivering, and expiring, at boot.
+- Held SETs on a paused or disabled stream are no longer read for push. They were never delivered before
+  either; they still expire after `setTtlSeconds`, and deliver when the stream is enabled.
+- A receiver that takes longer than 10 s to answer a POST, or 2 s to accept the connection, is a retryable
+  failure now, and its stream dead-letters after `pushRetryMaxAttempts` such ticks (about 2.5 minutes at
+  the defaults). Before, the loop waited for it, and for nothing else.
+- A data store that is down when PingFederate boots no longer stops `pf-runtime.war` starting. Watch for
+  `SSF transmitter NOT started` in the server log: the SSF endpoints answer 500 until the retry succeeds.
+
 ### Upgrading
 
 | Store | What changes |
 |---|---|
-| `tables` | `owner_client_id` is added to an existing `ssf_streams` at boot - one nullable column, checked for first, so it is safe on every boot and on two nodes booting together. If it cannot be added the store does not come up. |
+| `tables` | `owner_client_id` is added to an existing `ssf_streams` at boot - one nullable column, checked for first, so it is safe on every boot and on two nodes booting together. If it cannot be added the store does not come up, and since 0.4.0 that is a logged retry rather than a failed boot ([Boot](#boot)). |
 | `ldm` | Nothing to apply. The owner is the `ownerClientId` attribute in `attrs`, and the entry trigger enforces MUST attributes only. The model repo should declare it a MAY attribute of `ssfStream` so `validate_entry` stops reporting it undeclared - **never a MUST**: the trigger runs on UPDATE, and the streams already there have none. It is deliberately not `clientId`, which `idm.entry` turns into its indexed `client_id` column. |
 | in-memory | Nothing. Streams do not survive a restart. |
 
