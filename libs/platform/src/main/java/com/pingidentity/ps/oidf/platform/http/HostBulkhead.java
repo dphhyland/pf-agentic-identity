@@ -34,10 +34,14 @@ public final class HostBulkhead implements Bulkhead {
     private final ConcurrentHashMap<String, Slot> slots = new ConcurrentHashMap<>();
 
     public HostBulkhead(int maxPerOrigin) {
+        this.maxPerOrigin = atLeastOne(maxPerOrigin);
+    }
+
+    static int atLeastOne(int maxPerOrigin) {
         if (maxPerOrigin < 1) {
             throw new IllegalArgumentException("maxPerOrigin must be at least 1");
         }
-        this.maxPerOrigin = maxPerOrigin;
+        return maxPerOrigin;
     }
 
     /** A bulkhead of {@link #DEFAULT_MAX_PER_ORIGIN} places for each origin. */
@@ -62,12 +66,8 @@ public final class HostBulkhead implements Bulkhead {
 
     @Override
     public Permit enter(String origin, Deadline deadline) throws OutboundHttpException {
-        Slot slot = this.slots.compute(origin, (key, existing) -> {
-            Slot counted = existing != null ? existing : new Slot(this.maxPerOrigin);
-            counted.users.incrementAndGet();
-            return counted;
-        });
-        boolean entered = false;
+        Slot slot = this.slots.compute(origin, this::join);
+        boolean entered;
         try {
             entered = slot.permits.tryAcquire(deadline.remainingNanos(), TimeUnit.NANOSECONDS);
         } catch (InterruptedException e) {
@@ -81,23 +81,49 @@ public final class HostBulkhead implements Bulkhead {
             throw new OutboundHttpException(OutboundHttpException.Reason.BULKHEAD_FULL, "all " + this.maxPerOrigin
                     + " places for " + origin + " stayed taken until the deadline");
         }
-        AtomicBoolean closed = new AtomicBoolean();
-        return () -> {
-            if (closed.compareAndSet(false, true)) {
-                slot.permits.release();
-                leave(origin);
-            }
-        };
+        return new Place(origin, slot);
+    }
+
+    /** Counts one more request against {@code origin}'s entry, making it if this is the only one. */
+    private Slot join(String origin, Slot existing) {
+        Slot slot = existing != null ? existing : new Slot(this.maxPerOrigin);
+        slot.users.incrementAndGet();
+        return slot;
     }
 
     /** One request to {@code origin} no longer holds or waits for a place; the entry goes with the last. */
     private void leave(String origin) {
-        this.slots.computeIfPresent(origin, (key, slot) -> slot.users.decrementAndGet() == 0 ? null : slot);
+        this.slots.computeIfPresent(origin, HostBulkhead::drop);
+    }
+
+    /** {@code slot} with one request fewer, or null - its entry removed - when that was the last. */
+    static Slot drop(String origin, Slot slot) {
+        return slot.users.decrementAndGet() == 0 ? null : slot;
     }
 
     @Override
     public String toString() {
         return "HostBulkhead[" + this.maxPerOrigin + " per origin, " + this.slots.size() + " origin(s) in flight]";
+    }
+
+    /** A place held for one request: closing it gives the place back once, however often it is closed. */
+    private final class Place implements Permit {
+        private final String origin;
+        private final Slot slot;
+        private final AtomicBoolean closed = new AtomicBoolean();
+
+        Place(String origin, Slot slot) {
+            this.origin = origin;
+            this.slot = slot;
+        }
+
+        @Override
+        public void close() {
+            if (this.closed.compareAndSet(false, true)) {
+                this.slot.permits.release();
+                leave(this.origin);
+            }
+        }
     }
 
     /** One origin's places, and how many requests hold or wait for one (changed only inside the map's compute calls). */

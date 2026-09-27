@@ -172,4 +172,46 @@ class OutboundUrlPolicyTest {
     void permissiveAllowsWhatStrictRefuses() {
         assertDoesNotThrow(() -> OutboundUrlPolicy.permissive().check("http://127.0.0.1:9999/x"));
     }
+
+    @Test
+    void settingsThatSayNothingUsefulFallBack() {
+        assertEquals(OutboundUrlPolicy.DEFAULT_MAX_BODY_BYTES,
+                policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, "0"), Map.of()).maxBodyBytes(), "zero is not a cap");
+        assertEquals(OutboundUrlPolicy.DEFAULT_MAX_BODY_BYTES,
+                policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, "  "), Map.of()).maxBodyBytes());
+        OutboundUrlPolicy lists = policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, " , SPIRE.internal,, "),
+                Map.of("spire.internal", "10.0.0.9"));
+        assertDoesNotThrow(() -> lists.check("https://spire.internal/x"), "empty entries are skipped, case is not kept");
+        assertThrows(IllegalArgumentException.class, () -> policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, "   "),
+                Map.of("spire.internal", "10.0.0.9")).check("https://spire.internal/x"));
+    }
+
+    @Test
+    void trustingTheSameEndpointTwiceIsTrustingItOnce() {
+        OutboundUrlPolicy once = policy(Map.of(), Map.of("controller.internal", "10.0.0.7"))
+                .trusting("https://controller.internal/oidf", "https://controller.internal/oidf")
+                .trusting("https://controller.internal/oidf");
+        assertDoesNotThrow(() -> once.check("https://controller.internal/oidf/x"));
+        assertThrows(IllegalArgumentException.class, () -> once.check("https://controller.internal/other"));
+    }
+
+    @Test
+    void aUrlWithNoSchemeIsRefusedWithoutTheHttpHint() {
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> strict().check("//anchor.example/x"));
+        assertTrue(e.getMessage().contains("(no scheme)") && !e.getMessage().contains(OutboundUrlPolicy.ALLOW_HTTP_ENV),
+                e.getMessage());
+        IllegalArgumentException http = assertThrows(IllegalArgumentException.class, () -> strict().check("http://anchor.example/x"));
+        assertTrue(http.getMessage().contains(OutboundUrlPolicy.ALLOW_HTTP_ENV), http.getMessage());
+    }
+
+    @Test
+    void aPathThatCouldClimbOutOfAnExemptPrefixIsNotExempt() {
+        // New with platform's rules: decoded once, a dot segment, a backslash or a percent sign could leave the
+        // prefix after the server's own normalisation, so such a path is screened like any other.
+        OutboundUrlPolicy p = policy(Map.of(), Map.of("controller.internal", "10.0.0.7"))
+                .trusting("https://controller.internal/oidf");
+        assertThrows(IllegalArgumentException.class, () -> p.check("https://controller.internal/oidf/../admin"));
+        assertThrows(IllegalArgumentException.class, () -> p.check("https://controller.internal/oidf/%252e%252e/admin"));
+        assertDoesNotThrow(() -> p.check("https://controller.internal/oidf/fetch?sub=https%3A%2F%2Fleaf.example"));
+    }
 }
