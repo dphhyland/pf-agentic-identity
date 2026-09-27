@@ -787,6 +787,14 @@ record layer (JDK 17 and 21, openjdk/jdk17u and jdk21u, read 2026-09-28). A body
 at a 1.2 s total, and a head sent a byte every 100 ms stops at a 700 ms header deadline (`OutboundHttpTest`). No
 watchdog thread is needed.
 
+A read also ends when its thread is interrupted, as the JDK client's `send` did, so closing a managed executor
+(C-3) stops a fetch stuck on a silent peer. A blocking socket read does not see `Thread.interrupt`, so no single
+read waits more than 250 ms (`DeadlineSocket.SLICE_MILLIS`): between waits the interrupt is looked at and the
+deadline checked, and a slice that runs out before the deadline is read again (the socket stays usable after a
+timed-out read). An interrupted read throws `InterruptedIOException`, the exchange fails with reason `IO`, and the
+thread keeps its interrupt ([F-0205](../../docs/findings/F-0205.yaml)). Connecting is not interruptible; it waits
+at most the connect deadline.
+
 The limits on what a peer can send: at most 100 headers, a status line or header line of at most 8192 bytes,
 HTTP/1.0 or 1.1, a status of 100 to 599, at most 8 interim (1xx) responses and never a 101, no `Content-Length`
 beside `Transfer-Encoding`, one `Content-Length` of plain digits, `Transfer-Encoding: chunked` and nothing else,
