@@ -27,15 +27,20 @@
 
 What changed:
 
-- **CI.** build.yml's `java` job gains a `redis:7-alpine` service and two steps. The first gives the service its
-  password over `docker exec ... CONFIG SET requirepass`, because a service container takes no command line
-  (actionlint 1.7.12 lists the keys a service accepts: credentials, env, image, options, ports, volumes). The
-  second runs `tools/ci/start-tls-redis.sh`, which makes a CA and a certificate for `DNS:localhost` only (the
-  CA's key is deleted once the certificate is signed; nothing is tracked), starts `redis:7-alpine` serving TLS
-  only on `127.0.0.1:6380` as the runner's user, waits for a `PONG` over TLS and prints the two TLS variables
-  into `$GITHUB_ENV`. The job sets only `OIDF_TEST_REDIS_*`: `OIDF_REDIS_URL` or `REDIS_URL` would configure
-  the stores themselves, and `AttestationSupportTest` skips itself when it sees either. The script works the
-  same on a Mac, and the client-attestation README and `RedisLiveTest`'s javadoc point at it.
+- **CI.** build.yml's `java` job gains a `redis:7-alpine` service and two steps.
+  - The first gives the service its password over `docker exec ... CONFIG SET requirepass`. GitHub documents
+    `command` and `entrypoint` for a service container (the workflow syntax reference, and the changelog of
+    2026-04-02, both read 2026-09-27), but actionlint 1.7.12, which the lint job pins, rejects both keys with
+    `unexpected key "command" for "services" section`. So the service starts on its image's own command until
+    the pinned actionlint accepts them.
+  - The second runs `tools/ci/start-tls-redis.sh`. It makes a CA and a certificate for `DNS:localhost` only
+    (the CA's key is deleted once the certificate is signed; nothing is tracked), starts `redis:7-alpine`
+    serving TLS only on `127.0.0.1:6380` as the runner's user, waits for a `PONG` over TLS and prints the two
+    TLS variables into `$GITHUB_ENV`. The TLS server is a step and not a service because its certificate is
+    made in the job, and services start before the first step.
+  - The job sets only `OIDF_TEST_REDIS_*`: `OIDF_REDIS_URL` or `REDIS_URL` would configure the stores
+    themselves, and `AttestationSupportTest` skips itself when it sees either. The script works the same on a
+    Mac, and the client-attestation README and `RedisLiveTest`'s javadoc point at it.
 - **CodeQL and Swift.** A `swift` entry on macos-latest with a manual `swift build --arch arm64` of
   AgentIdentityKit worked (PR #33's run 36309012583: Xcode 26.6, Swift 6.3.3, 27 rules, nothing found), but took
   13 min 35 s, 11 min 37 s of it the traced build, against about 5 min for Java. Running it only when

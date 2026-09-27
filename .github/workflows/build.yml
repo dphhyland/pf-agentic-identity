@@ -139,10 +139,10 @@ jobs:
     #
     # client-attestation's RedisLiveTest runs the attestation stores against a real Redis, which its fake
     # server cannot stand in for, and skips each half whose server the environment does not name. The plain
-    # half gets the redis service; the TLS half gets a second Redis, TLS only, that a step starts with a CA
-    # and a localhost certificate made for the run (a service container takes no command line, and TLS needs
-    # one). Only the OIDF_TEST_REDIS_* variables are set: OIDF_REDIS_URL or REDIS_URL would configure the
-    # stores themselves, and AttestationSupportTest skips itself when it sees either.
+    # half gets the redis service. The TLS half gets a second Redis, TLS only, that a step starts, because its
+    # CA and localhost certificate are made in the job and services start before the first step. Only the
+    # OIDF_TEST_REDIS_* variables are set: OIDF_REDIS_URL or REDIS_URL would configure the stores themselves,
+    # and AttestationSupportTest skips itself when it sees either.
     services:
       postgres:
         image: postgres:16-alpine
@@ -171,8 +171,10 @@ jobs:
         with:
           persist-credentials: false
       - name: the Redis service asks for a password, as a deployed Redis does
-        # A service container starts with its image's own command, so redis:7-alpine comes up open and is
-        # given its password here, before anything connects. The password is as throwaway as Postgres's.
+        # GitHub documents `command` for a service container (workflow syntax, read 2026-09-27), but the
+        # actionlint tools/ci/install-lint-tools.sh pins (1.7.12) rejects the key, so redis:7-alpine starts on
+        # its image's own command, open, and is given its password here, before anything connects. Move the
+        # password to `command:` once the pinned actionlint accepts it. It is as throwaway as Postgres's.
         env:
           REDIS_SERVICE: ${{ job.services.redis.id }}
         run: docker exec "$REDIS_SERVICE" redis-cli CONFIG SET requirepass redis-live-test
