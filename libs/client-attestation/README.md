@@ -84,11 +84,14 @@ Everything else is a `ClientAttestationConfig.builder()` call by the host.
 
 **Upgrading from 0.3.0.** Keys were `oidf:challenge:*` and `oidf:jti:*`; nothing reads those prefixes from
 0.4.0 on, so they are orphaned until their own TTL expires them - 300 s for a challenge, 360 s for a proof
-jti (max-age plus skew), 600 s for a federation client assertion. For that long after the first 0.4.0 node
-starts, a proof `jti` spent on a 0.3.0 node is not known to a 0.4.0 node and could be presented to it once
-more: replay protection across the two versions is per version during a rolling upgrade. Either drain the
-0.3.0 nodes before starting the first 0.4.0 one (nothing to flush; the old keys expire on their own), or
-accept the window. Flushing is not needed and `FLUSHDB` would also drop unconsumed challenges. A
+`jti` (max-age plus skew), up to 660 s for a federation endpoint's client assertion, and as long as its own
+`exp` allows, at most 86400 s, for an automatic registration's request object or client assertion. Until
+then a credential spent against 0.3.0 is not known to 0.4.0 and could be presented to it once more - after
+a stop-the-world upgrade as well as during a rolling one, since 0.4.0 never reads the old keys. Proofs that
+carry a required challenge cannot cross: a challenge issued by one version is unknown to the other. To close
+the rest, stop every 0.3.0 node and wait out the longest window before starting 0.4.0, or accept it (a
+replay needs an intercepted, spent credential). Nothing needs flushing - the old keys expire on their own -
+and `FLUSHDB` would also drop 0.4.0's live challenges and spent `jti`s. A
 production deployment whose URL is `redis://` must move to `rediss://` first, or it will not start
 attestation: see `docs/releases/0.4.0.md`.
 
