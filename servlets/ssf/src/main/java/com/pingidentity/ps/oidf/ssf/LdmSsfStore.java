@@ -249,14 +249,29 @@ public final class LdmSsfStore implements SsfStore {
         return removed;
     }
 
+    /**
+     * The stream's state is in the query (SsfStore#dueForPush): the pending entry joined to its parent
+     * stream entry, so the batch is only ever deliverable SETs. The same columns {@link #pendingSelect}
+     * names, qualified, because both sides of the join are {@code idm.entry}.
+     */
+    static final String SELECT_DUE_FOR_PUSH =
+            "SELECT p.parent_id::text AS stream_id, p.attrs::text AS attrs, "
+                    + "COALESCE(extract(epoch FROM p.expires_at)::bigint, 0) AS expires_epoch "
+                    + "FROM idm.entry p JOIN idm.entry s ON s.entry_uuid = p.parent_id AND ? = ANY (s.object_classes) "
+                    + "WHERE ? = ANY (p.object_classes) AND s.attrs->>'deliveryMethod' = ? AND s.attrs->>'streamStatus' = ? "
+                    + "AND (p.attrs->>'nextAttemptAt')::bigint <= ? "
+                    + "ORDER BY (p.attrs->>'issuedAt')::bigint LIMIT ?";
+
     @Override
     public List<PendingSet> dueForPush(long now, int max) {
-        return query(pendingSelect() + " WHERE ? = ANY (object_classes) AND (attrs->>'nextAttemptAt')::bigint <= ? "
-                        + "ORDER BY (attrs->>'issuedAt')::bigint LIMIT ?",
+        return query(SELECT_DUE_FOR_PUSH,
                 ps -> {
-                    ps.setString(1, PENDING_CLASS);
-                    ps.setLong(2, now);
-                    ps.setInt(3, Math.max(0, max));
+                    ps.setString(1, STREAM_CLASS);
+                    ps.setString(2, PENDING_CLASS);
+                    ps.setString(3, DeliveryMethod.PUSH.urn());
+                    ps.setString(4, StreamStatus.ENABLED.value());
+                    ps.setLong(5, now);
+                    ps.setInt(6, Math.max(0, max));
                 }, this::mapPending);
     }
 

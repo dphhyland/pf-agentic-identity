@@ -69,8 +69,14 @@ public interface SsfStore {
     int ack(String streamId, Collection<String> jtis);
 
     /**
-     * Push candidates across all streams whose {@code nextAttemptAt} is at or before {@code now}, oldest first,
-     * up to {@code max}. The push executor drives delivery from this.
+     * Push candidates whose {@code nextAttemptAt} is at or before {@code now}, oldest first, up to
+     * {@code max}, on streams that are {@link Stream#isPushEnabled() enabled push streams} and no others.
+     * The push executor drives delivery from this.
+     *
+     * <p>The stream's state is part of the selection, not a filter applied afterwards: the batch is
+     * {@code max} SETs across every stream, so the backlog of a paused, disabled or poll stream - which
+     * the executor would only skip - would otherwise fill it and keep the next stream's SETs from being
+     * read at all (B5).
      */
     List<PendingSet> dueForPush(long now, int max);
 

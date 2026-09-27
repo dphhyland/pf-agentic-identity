@@ -7,6 +7,9 @@ import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -19,11 +22,21 @@ import org.apache.commons.logging.LogFactory;
  * <p>Store selection follows {@code dataStoreId}: blank selects the per-node {@link InMemorySsfStore} (not
  * cluster-safe, not durable); a set id selects the PingFederate JDBC-backed store. The JDBC store is installed
  * by {@link #installStoreFactory} so this core has no compile-time dependency on the PF SDK.
+ *
+ * <p>{@link #start} is the boot path: it configures, runs the servlet layer's wiring, and starts the push
+ * loop, and it never throws. A store that cannot be opened when PingFederate boots - the data store down,
+ * its schema not applicable - is logged and tried again every {@link #bootRetrySeconds} until it can be,
+ * and the loops start then.
  */
 public final class SsfSupport {
 
     private static final Log LOGGER = LogFactory.getLog(SsfSupport.class);
     private static final Object LOCK = new Object();
+
+    /** How long a boot that could not open the store waits before trying again. A constant until S-5 makes it a setting. */
+    static volatile int bootRetrySeconds = 30;
+    private static ScheduledExecutorService bootRetry;
+    private static boolean bootRetryPending;
 
     private static volatile SsfConfiguration configuration;
     private static volatile SsfStore store;
@@ -58,40 +71,115 @@ public final class SsfSupport {
         }
     }
 
-    /** Idempotently configure the shared singletons from the first servlet's parsed configuration. */
+    /**
+     * Idempotently configure the shared singletons from the first servlet's parsed configuration. Throws
+     * what opening the store throws (a {@code tables} store applies its DDL here), and then leaves nothing
+     * behind: every singleton is built before any is assigned, so a failed configure is a transmitter that
+     * is not configured and can be configured again - not one with a configuration and no store, which is
+     * what an early assignment used to leave, with every later configure returning at the first check.
+     */
     public static void configure(SsfConfiguration config) {
         Objects.requireNonNull(config, "config");
         synchronized (LOCK) {
             if (configuration != null) {
                 return;
             }
-            configuration = config;
-            minter = new SetMinter(config.signingAlgorithm());
-            store = selectStore(config);
-            warnOfUnownedStreams(store, config);
-            setPublisher = buildPublisher(config);
-            streamService = new StreamManagementService(store, minter, config, setPublisher);
-            eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
-            scimSubjectService = new ScimSubjectService(store, eventEmitter, config);
-            emitService = new SsfEmitService(store, eventEmitter, config);
-            pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
+            SetMinter theMinter = new SetMinter(config.signingAlgorithm());
+            SsfStore theStore = selectStore(config);
+            warnOfUnownedStreams(theStore, config);
+            SetPublisher thePublisher = buildPublisher(config);
+            SsfEventEmitter theEmitter = new SsfEventEmitter(theStore, theMinter, config, thePublisher);
+            SsfReceiverService theReceiver = null;
+            PollReceiverClient thePollClient = null;
             if (receiverMayRun(config)) {
-                receiverService = new SsfReceiverService(new SetVerifier(
+                theReceiver = new SsfReceiverService(new SetVerifier(
                         config.receiverExpectedIssuer(), config.receiverAudience(),
                         SetVerifier.httpJwksSource(config.receiverJwksUrl(),
                                 config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
                 LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
                         + " (jwks " + config.receiverJwksUrl() + ")"));
                 if (config.receiverInstanceRegistry()) {
-                    installInstanceRegistryHandler(receiverService, store, config);
+                    installInstanceRegistryHandler(theReceiver, theStore, config);
                 }
                 if (config.receiverPollUrl() != null) {
-                    pollReceiverClient = new PollReceiverClient(receiverService,
+                    thePollClient = new PollReceiverClient(theReceiver,
                             PollReceiverClient.httpTransport(config.receiverPollUrl(),
                                     config.receiverPollToken(), config.receiverInsecureTls()),
                             config.pollMaxEvents());
                 }
             }
+            minter = theMinter;
+            store = theStore;
+            setPublisher = thePublisher;
+            streamService = new StreamManagementService(theStore, theMinter, config, thePublisher);
+            eventEmitter = theEmitter;
+            scimSubjectService = new ScimSubjectService(theStore, theEmitter, config);
+            emitService = new SsfEmitService(theStore, theEmitter, config);
+            pushDeliveryService = new PushDeliveryService(theStore, config, PushDeliveryService.httpClient());
+            receiverService = theReceiver;
+            pollReceiverClient = thePollClient;
+            configuration = config;
+        }
+    }
+
+    /**
+     * Bring the transmitter up: {@link #configure}, then the servlet layer's wiring ({@code afterConfigure}:
+     * the receiver's PF actions and polling, the audit source), then the push loop. Idempotent - every SSF
+     * servlet's {@code init} runs it, and at boot the first is {@code SsfConfigurationServlet}, which loads
+     * on start-up, so the loop runs before any request arrives. Returns whether the transmitter is up.
+     *
+     * <p>Never throws. Before 0.4.0 a store that could not be opened threw out of the servlet's
+     * {@code init}: for the load-on-startup servlet that is the whole runtime web application failing to
+     * start ("Found while designing" 11). Now it is an ERROR in the log, endpoints that stay disabled, and a
+     * retry every {@link #bootRetrySeconds} until the store can be opened; the loops start on the retry that
+     * succeeds. The wiring is guarded the same way: a failure there is logged and the loop still starts.
+     */
+    public static boolean start(SsfConfiguration config, Runnable afterConfigure) {
+        try {
+            configure(config);
+        } catch (RuntimeException e) {
+            LOGGER.error((Object) ("SSF transmitter NOT started: its store could not be opened (" + e
+                    + "). The SSF endpoints stay disabled and nothing is delivered; trying again in "
+                    + bootRetrySeconds + "s"), e);
+            scheduleBootRetry(config, afterConfigure);
+            return false;
+        }
+        try {
+            afterConfigure.run();
+        } catch (RuntimeException e) {
+            LOGGER.error((Object) ("SSF transmitter wiring failed after configuration: " + e), e);
+        }
+        startPushDelivery();
+        return true;
+    }
+
+    /** One retry in flight at a time: a second servlet's failed init joins the pending one. */
+    private static void scheduleBootRetry(SsfConfiguration config, Runnable afterConfigure) {
+        synchronized (LOCK) {
+            if (bootRetryPending) {
+                return;
+            }
+            if (bootRetry == null) {
+                bootRetry = Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "ssf-boot-retry");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
+            bootRetryPending = true;
+            bootRetry.schedule(() -> {
+                synchronized (LOCK) {
+                    bootRetryPending = false;
+                }
+                start(config, afterConfigure);
+            }, bootRetrySeconds, TimeUnit.SECONDS);
+        }
+    }
+
+    /** Whether a boot retry is scheduled and has not run yet. */
+    static boolean bootRetryPending() {
+        synchronized (LOCK) {
+            return bootRetryPending;
         }
     }
 
@@ -127,7 +215,7 @@ public final class SsfSupport {
         }
     }
 
-    /** Start the background push-delivery loop (idempotent). Called from a servlet init in the deployment. */
+    /** Start the background push-delivery loop (idempotent). {@link #start} calls it once the store is open. */
     public static void startPushDelivery() {
         PushDeliveryService local = pushDeliveryService;
         if (local != null) {
@@ -311,6 +399,12 @@ public final class SsfSupport {
     /** Test hook: reset all singletons so a fresh {@link #configure} takes effect. */
     static void resetForTests() {
         synchronized (LOCK) {
+            if (bootRetry != null) {
+                bootRetry.shutdownNow();
+                bootRetry = null;
+            }
+            bootRetryPending = false;
+            bootRetrySeconds = 30;
             if (pushDeliveryService != null) {
                 pushDeliveryService.stop();
             }

@@ -265,11 +265,19 @@ public final class JdbcSsfStore implements SsfStore {
         return removed;
     }
 
+    /** The stream's state is in the query (SsfStore#dueForPush): a JOIN, so the batch is only ever deliverable SETs. */
+    static final String SELECT_DUE_FOR_PUSH =
+            "SELECT p.* FROM ssf_pending_sets p JOIN ssf_streams s ON s.stream_id = p.stream_id "
+                    + "WHERE s.delivery_method = ? AND s.status = ? AND p.next_attempt_at <= ? "
+                    + "ORDER BY p.issued_at LIMIT ?";
+
     @Override
     public List<PendingSet> dueForPush(long now, int max) {
-        return query("SELECT * FROM ssf_pending_sets WHERE next_attempt_at <= ? ORDER BY issued_at LIMIT ?", ps -> {
-            ps.setLong(1, now);
-            ps.setInt(2, Math.max(0, max));
+        return query(SELECT_DUE_FOR_PUSH, ps -> {
+            ps.setString(1, DeliveryMethod.PUSH.name());
+            ps.setString(2, StreamStatus.ENABLED.value());
+            ps.setLong(3, now);
+            ps.setInt(4, Math.max(0, max));
         }, this::mapPending);
     }
 

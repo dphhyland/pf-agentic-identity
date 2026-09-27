@@ -128,6 +128,18 @@
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.backoffSeconds(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.evictExpired(*</include>
 
+                                        <!-- One loop for every stream (B5, the S10-0 stopgap): which SETs a tick reads (isPushEnabled is the
+                                             rule the stores select by and runOnce re-checks), one failed attempt per stream per tick (runOnce),
+                                             and a POST that ends at its deadline whatever the receiver does (send, CappedBody). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.Stream.isPushEnabled(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService$CappedBody.onNext(*</include>
+
+                                        <!-- Boot never throws: start() is up, or logged and retried; scheduleBootRetry() keeps it to one retry. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.scheduleBootRetry(*</include>
+
                                         <!-- Inbound signals: which subject a received SET acts on. -->
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>

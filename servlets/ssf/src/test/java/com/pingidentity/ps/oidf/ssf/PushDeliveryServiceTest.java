@@ -5,6 +5,7 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -17,8 +18,10 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.InOrder;
@@ -184,5 +187,136 @@ class PushDeliveryServiceTest {
         InOrder order = inOrder(working);
         order.verify(working).evictExpired(300);
         order.verify(working).dueForPush(eq(300L), anyInt());
+    }
+
+    // ─────────────────────────────── one stream cannot starve another (B5) ───────────────────────────────
+
+    private void enqueueMany(String streamId, int count, long firstIssuedAt) {
+        for (int i = 0; i < count; i++) {
+            store.enqueue(PendingSet.fresh(streamId + "-" + i, streamId, "k", SsfEventTypes.CAEP_SESSION_REVOKED,
+                    "jws-" + streamId + "-" + i, firstIssuedAt + i, 0));
+        }
+    }
+
+    /**
+     * SSF 1.0 §8.1.2.1, on a paused stream: "The Transmitter MUST NOT transmit events over the stream. The
+     * Transmitter SHOULD hold any events it would have transmitted while paused"; and on an enabled one:
+     * "The Transmitter MUST transmit events over the stream, according to the stream's configured delivery
+     * method". Both at once: the paused stream's held SETs are older than the enabled stream's and outnumber
+     * the batch (500), so before the store selected by stream state they were the whole batch, every tick,
+     * and the enabled stream was never read.
+     */
+    @Test
+    @Requirement("SSF §8.1.2.1")
+    void aPausedStreamsBacklogDoesNotKeepAnEnabledStreamFromDelivering() {
+        pushStream("paused", StreamStatus.PAUSED);
+        pushStream("live", StreamStatus.ENABLED);
+        enqueueMany("paused", 600, 100);
+        store.enqueue(PendingSet.fresh("j-live", "live", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-live", 900, 0));
+        List<String> posted = new ArrayList<>();
+
+        int delivered = svc((u, a, j) -> {
+            posted.add(j);
+            return PushDeliveryService.DeliveryResult.delivered();
+        }).runOnce(1000);
+
+        assertEquals(1, delivered);
+        assertEquals(List.of("jws-live"), posted, "the paused stream's 600 held SETs were not in the batch");
+        assertEquals(600, store.peek("paused", 1000).size(), "held, as §8.1.2.1 says, for when the stream is enabled");
+    }
+
+    /** §8.1.2.1 on a disabled stream: "The Transmitter MUST NOT transmit events over the stream". */
+    @Test
+    @Requirement("SSF §8.1.2.1")
+    void aDisabledStreamsBacklogDoesNotKeepAnEnabledStreamFromDelivering() {
+        pushStream("disabled", StreamStatus.DISABLED);
+        pushStream("live", StreamStatus.ENABLED);
+        enqueueMany("disabled", 600, 100);
+        store.enqueue(PendingSet.fresh("j-live", "live", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-live", 900, 0));
+
+        int delivered = svc((u, a, j) -> "jws-live".equals(j)
+                ? PushDeliveryService.DeliveryResult.delivered()
+                : PushDeliveryService.DeliveryResult.permanent(0, "must not be attempted")).runOnce(1000);
+
+        assertEquals(1, delivered);
+        assertEquals(600, store.peek("disabled", 1000).size());
+    }
+
+    /**
+     * Deliberately untagged: RFC 8935 says nothing about how a transmitter shares one loop between streams.
+     * A receiver that is down costs one attempt per tick, and its SETs stay queued in order for when it is
+     * back; the stream after it in the batch is still delivered to in the same tick.
+     */
+    @Test
+    void aStreamThatFailsGetsNoSecondAttemptInTheSameTick() {
+        pushStream("down", StreamStatus.ENABLED);
+        pushStream("up", StreamStatus.ENABLED);
+        enqueueMany("down", 3, 100);
+        store.enqueue(PendingSet.fresh("j-up", "up", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-up", 500, 0));
+        List<String> posted = new ArrayList<>();
+
+        int delivered = svc((u, a, j) -> {
+            posted.add(j);
+            return j.startsWith("jws-down") ? PushDeliveryService.DeliveryResult.retryable(503, "down")
+                    : PushDeliveryService.DeliveryResult.delivered();
+        }).runOnce(1000);
+
+        assertEquals(1, delivered);
+        assertEquals(List.of("jws-down-0", "jws-up"), posted, "one attempt on the failing stream, then the next stream");
+        List<PendingSet> down = store.peek("down", 10);
+        assertEquals(3, down.size(), "nothing of the failing stream's is lost");
+        assertEquals(1, down.get(0).deliveryAttempts(), "the SET that was tried is the one that counts an attempt");
+        assertEquals(0, down.get(1).deliveryAttempts());
+        assertEquals(0, down.get(2).deliveryAttempts());
+        assertEquals(StreamStatus.ENABLED, store.getStream("down").orElseThrow().status());
+    }
+
+    /**
+     * The store selects by the stream's state, and the executor reads the stream again before it posts: a
+     * stream paused between the two (a receiver's status update, another node's dead-letter) is not posted
+     * to, and its SET is held.
+     */
+    @Test
+    @Requirement("SSF §8.1.2.1")
+    void aStreamPausedAfterItsSetWasSelectedIsNotDeliveredTo() {
+        SsfStore racing = mock(SsfStore.class);
+        PendingSet p = PendingSet.fresh("j1", "s1", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws", 100, 0);
+        when(racing.dueForPush(300, 500)).thenReturn(List.of(p));
+        when(racing.getStream("s1")).thenReturn(Optional.of(Stream.builder().id("s1").audience("https://r")
+                .deliveryMethod(DeliveryMethod.PUSH).pushEndpointUrl("https://r/set")
+                .status(StreamStatus.PAUSED).build()));
+        PushDeliveryService.SetDeliveryClient client = mock(PushDeliveryService.SetDeliveryClient.class);
+
+        assertEquals(0, new PushDeliveryService(racing, cfg, client).runOnce(300));
+
+        verifyNoInteractions(client);
+        verify(racing, never()).ack(eq("s1"), org.mockito.ArgumentMatchers.any());
+        verify(racing, never()).recordAttempt(org.mockito.ArgumentMatchers.any(), anyLong());
+    }
+
+    /** A SET whose stream has been deleted from under it is acknowledged away, not posted and not retried. */
+    @Test
+    void aSetWhoseStreamIsGoneIsDropped() {
+        SsfStore orphaning = mock(SsfStore.class);
+        PendingSet p = PendingSet.fresh("j1", "gone", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws", 100, 0);
+        when(orphaning.dueForPush(300, 500)).thenReturn(List.of(p));
+        when(orphaning.getStream("gone")).thenReturn(Optional.empty());
+        PushDeliveryService.SetDeliveryClient client = mock(PushDeliveryService.SetDeliveryClient.class);
+
+        assertEquals(0, new PushDeliveryService(orphaning, cfg, client).runOnce(300));
+
+        verify(orphaning).ack("gone", List.of("j1"));
+        verifyNoInteractions(client);
+    }
+
+    @Test
+    void startIsIdempotentAndStopEndsIt() {
+        PushDeliveryService service = svc((u, a, j) -> PushDeliveryService.DeliveryResult.delivered());
+        assertFalse(service.isRunning());
+        service.start();
+        service.start();
+        assertTrue(service.isRunning());
+        service.stop();
+        assertFalse(service.isRunning());
     }
 }

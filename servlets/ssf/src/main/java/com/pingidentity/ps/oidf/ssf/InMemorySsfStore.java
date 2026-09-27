@@ -124,8 +124,9 @@ public final class InMemorySsfStore implements SsfStore {
 
     @Override
     public List<PendingSet> dueForPush(long now, int max) {
-        return this.pending.values().stream()
-                .flatMap(q -> q.values().stream())
+        return this.pending.entrySet().stream()
+                .filter(e -> getStream(e.getKey()).map(Stream::isPushEnabled).orElse(false))
+                .flatMap(e -> e.getValue().values().stream())
                 .filter(p -> p.nextAttemptAt() <= now)
                 .sorted(Comparator.comparingLong(PendingSet::issuedAt))
                 .limit(Math.max(0, max))
