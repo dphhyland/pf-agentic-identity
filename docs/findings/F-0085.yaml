@@ -1,0 +1,23 @@
+id: F-0085
+title: device-enrolment's refusals carry registry text to the caller, the device id and database messages among it
+severity: medium
+area: device-enrolment
+source: design
+status: open
+plan_items: [X-A11, X-A04]
+prs: []
+verification: ''
+target_release: 0.9.0
+notes: >
+  Found 2026-09-27 writing docs/device/ios-client-contract.md for X-I01a. EnrolmentHttpServer.route writes every
+  EnrolmentException's message as error_description (EnrolmentHttpServer.java:184-190 at ab74038), and
+  EnrolmentService builds several of those messages around a RegistryException's. A lost App Attest counter race
+  answers "App Attest assertion counter did not advance:" followed by IomInstanceRegistry's "App Attest counter did
+  not advance for device <device id>: <counter>" (EnrolmentService.java:563-566, IomInstanceRegistry.java:244-245),
+  so the client learns the registry's device id, which InstanceIdentifiers.newDeviceId says never leaves the
+  platform and which links every instance on one device. A storage failure during an enrolment answers "could not
+  record the enrolment: instance registry store error:" and the PostgreSQL driver's message
+  (EnrolmentService.java:261-262, IomInstanceRegistry.storage), to a caller nothing has authenticated yet. X-A11's
+  curated errors and X-A04's "no SQL text in errors" close it: a stable code and fixed text out, the detail in the
+  log. F-0046 is the same shape in the federation. The iOS kit reads only the error code, bar the counter race,
+  and shows the description in the sample app, which is where it was noticed.
