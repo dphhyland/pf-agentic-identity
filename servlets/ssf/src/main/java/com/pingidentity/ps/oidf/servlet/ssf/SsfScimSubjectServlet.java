@@ -6,9 +6,10 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 import com.pingidentity.ps.oidf.ssf.AuthContext;
 import com.pingidentity.ps.oidf.ssf.ScimSubjectService;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
+import com.pingidentity.ps.oidf.ssf.SsfSubjects;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
 import com.pingidentity.ps.oidf.ssf.StreamManagementService;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.io.IOException;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
@@ -180,6 +181,6 @@ public class SsfScimSubjectServlet extends HttpServlet {
             throw new IllegalArgumentException("missing SCIM user id in path");
         }
         String id = URLDecoder.decode(pathInfo.substring(1), StandardCharsets.UTF_8);
-        return SubjectId.fromCanonicalKey(id);
+        return SsfSubjects.fromCanonicalKey(id);
     }
 }

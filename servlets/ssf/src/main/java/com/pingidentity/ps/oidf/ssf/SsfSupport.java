@@ -7,6 +7,9 @@ import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.signals.SetMinter;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
+import java.time.Clock;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -95,7 +98,7 @@ public final class SsfSupport {
             if (configuration != null) {
                 return;
             }
-            SetMinter theMinter = new SetMinter(config.signingAlgorithm());
+            SetMinter theMinter = new SetMinter(config.signingAlgorithm(), new PfSetSigningKeys(config.signingAlgorithm()));
             SsfStore theStore = selectStore(config);
             warnOfUnownedStreams(theStore, config);
             SetPublisher thePublisher = buildPublisher(config);
@@ -105,8 +108,9 @@ public final class SsfSupport {
             if (receiverMayRun(config)) {
                 theReceiver = new SsfReceiverService(new SetVerifier(
                         config.receiverExpectedIssuer(), config.receiverAudience(),
-                        SetVerifier.httpJwksSource(config.receiverJwksUrl(),
-                                config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
+                        JwksHttpSource.of(config.receiverJwksUrl(),
+                                config.receiverJwksCacheSeconds(), config.receiverInsecureTls()),
+                        Clock.systemUTC(), SsfSubjects.FORMATS));
                 LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
                         + " (jwks " + config.receiverJwksUrl() + ")"));
                 if (config.receiverInstanceRegistry()) {

@@ -41,6 +41,7 @@
         <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
         <module>libs/openid-federation</module>
+        <module>libs/shared-signals</module>
         <module>libs/agent-registry</module>
         <module>libs/platform-pf</module>
         <module>build/war-assembler</module>

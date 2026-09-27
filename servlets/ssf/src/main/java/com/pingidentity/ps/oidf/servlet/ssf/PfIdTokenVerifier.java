@@ -1,7 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.access.JwksEndpointKeyAccessor;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.List;
 import java.util.Set;
 import jakarta.servlet.http.HttpServletRequest;

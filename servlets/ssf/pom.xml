@@ -38,6 +38,8 @@
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <!-- The SET model, minting, verification, subjects and event types, without PingFederate (plan item X-A14). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>shared-signals</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId></dependency>
         <!-- The agent instance registry: CAEP inbound signals suspend/revoke instances there. Dependency
              direction is one-way (servlets/ssf -> libs/device-instance) — device-instance and
@@ -152,9 +154,9 @@
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>
 
-                                        <!-- Outbound signals: which PF audit events become SETs, and their signing. -->
+                                        <!-- Outbound signals: which PF audit events become SETs (their signing is
+                                             libs/shared-signals' SetMinter.sign, gated there). -->
                                         <include>com.pingidentity.ps.oidf.ssf.AuditEventMapper.map(*</include>
-                                        <include>com.pingidentity.ps.oidf.ssf.SetMinter.sign(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.ssf.SsfAuditLogSource.attachTo(*</include>
 
                                         <!-- SCIM subject lifecycle: which stream a subject is added to or removed from. -->

@@ -8,6 +8,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import com.pingidentity.ps.oidf.signals.CaepRiscEvents;
+import com.pingidentity.ps.oidf.signals.SetMinter;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.List;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;

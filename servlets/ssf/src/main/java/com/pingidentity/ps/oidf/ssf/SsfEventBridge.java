@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.CaepRiscEvents;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;

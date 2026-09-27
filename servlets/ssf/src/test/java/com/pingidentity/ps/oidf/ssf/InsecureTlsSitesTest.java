@@ -39,12 +39,12 @@ class InsecureTlsSitesTest {
     }
 
     @Test
-    void theSetVerifiersJwksFetch() throws Exception {
-        assertEquals(List.of(), SetVerifier.httpJwksSource(rightName.url("/jwks"), 60, true).keys(true));
+    void theReceiversJwksFetch() throws Exception {
+        assertEquals(List.of(), JwksHttpSource.of(rightName.url("/jwks"), 60, true).keys(true));
         assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
-                () -> SetVerifier.httpJwksSource(wrongName.url("/jwks"), 60, true).keys(true))));
+                () -> JwksHttpSource.of(wrongName.url("/jwks"), 60, true).keys(true))));
         assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(Exception.class,
-                () -> SetVerifier.httpJwksSource(rightName.url("/jwks"), 60, false).keys(true))), "off: the chain is checked");
+                () -> JwksHttpSource.of(rightName.url("/jwks"), 60, false).keys(true))), "off: the chain is checked");
     }
 
     @Test
@@ -87,7 +87,7 @@ class InsecureTlsSitesTest {
     void eachSiteRecordsItsUseUnderItsOwnSetting() throws Exception {
         Set<String> receiver = Set.of("OIDF_SSF_RECEIVER_INSECURE_TLS");
         assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
-                () -> SetVerifier.httpJwksSource(rightName.url("/jwks"), 60, true)));
+                () -> JwksHttpSource.of(rightName.url("/jwks"), 60, true)));
         assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(
                 () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", true)));
         assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(() -> ReceiverStreamClient.httpTransport("t", true)));

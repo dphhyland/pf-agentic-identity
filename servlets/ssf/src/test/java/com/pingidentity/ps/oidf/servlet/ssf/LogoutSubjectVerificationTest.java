@@ -6,7 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import jakarta.servlet.http.HttpServletRequest;
 import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.jwk.RsaJsonWebKey;

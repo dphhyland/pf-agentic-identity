@@ -5,6 +5,8 @@ package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.RegistryException;
+import com.pingidentity.ps.oidf.signals.ReceivedSet;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;

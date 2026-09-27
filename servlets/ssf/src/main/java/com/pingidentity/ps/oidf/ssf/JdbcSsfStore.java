@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;

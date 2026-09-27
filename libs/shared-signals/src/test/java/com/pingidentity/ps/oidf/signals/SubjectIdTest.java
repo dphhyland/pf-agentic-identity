@@ -1,7 +1,7 @@
 /*
  * Subject identifier (RFC 9493) factories, parsing, and canonical keys.
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;

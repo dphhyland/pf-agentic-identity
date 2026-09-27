@@ -1,7 +1,7 @@
 /*
  * CAEP/RISC event payload shapes.
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;

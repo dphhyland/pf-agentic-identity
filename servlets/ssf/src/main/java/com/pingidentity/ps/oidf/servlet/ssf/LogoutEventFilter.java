@@ -4,7 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.ps.oidf.ssf.SsfEventBridge;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.io.IOException;
 import jakarta.servlet.Filter;
 import jakarta.servlet.FilterChain;

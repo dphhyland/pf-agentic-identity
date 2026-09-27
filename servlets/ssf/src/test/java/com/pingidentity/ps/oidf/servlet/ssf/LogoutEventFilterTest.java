@@ -13,7 +13,7 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.ArrayList;
 import java.util.List;
 import jakarta.servlet.FilterChain;

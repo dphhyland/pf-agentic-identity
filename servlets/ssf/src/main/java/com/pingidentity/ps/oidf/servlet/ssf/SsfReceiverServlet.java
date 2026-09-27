@@ -4,7 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.ps.oidf.platform.health.Startup;
-import com.pingidentity.ps.oidf.ssf.SetVerifier;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfReceiverService;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
