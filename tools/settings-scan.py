@@ -567,10 +567,10 @@ class Reactor:
         return list(unique.values()), unresolved
 
     def literal_names(self):
-        """Every whole string literal in main code, by module."""
+        """Every whole string literal in main code, by (module, package)."""
         out = {}
         for jf in self.files:
-            out.setdefault(jf.module, set()).update(value for _s, _e, value in jf.literals)
+            out.setdefault((jf.module, jf.package), set()).update(value for _s, _e, value in jf.literals)
         return out
 
 
@@ -876,7 +876,7 @@ def scan(root):
                 continue
             where = set(read_where.get((kind, name), set()))
             if kind in ("plugin-field", "extended-property"):
-                where |= {(module, None) for module, values in literals.items() if name in values}
+                where |= {place for place, values in literals.items() if name in values}
             if in_module:
                 where = {(module, package) for module, package in where if module == in_module}
             if not where:
@@ -887,8 +887,12 @@ def scan(root):
     for catalogue in catalogues:
         packages = set()
         for kind, name, _entry, must in catalogue.names():
-            if must:
-                packages |= {p for m, p in read_where.get((kind, name), set()) if m == catalogue.module and p}
+            if not must:
+                continue
+            places = set(read_where.get((kind, name), set()))
+            if kind in ("plugin-field", "extended-property"):
+                places |= {place for place, values in literals.items() if name in values}
+            packages |= {p for m, p in places if m == catalogue.module and p}
         if catalogue.entries and not any(p == catalogue.package or p.startswith(catalogue.package + ".") for p in packages):
             problems.append(f"{catalogue.path}: package {catalogue.package} reads none of its settings; the owning package"
                             f" is one of {', '.join(sorted(packages)) or 'none'}")
