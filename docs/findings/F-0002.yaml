@@ -5,7 +5,7 @@ area: attestation-issuer
 source: review-2026-09-26
 status: closed
 plan_items: [S-3, S3a, S3b]
-prs: []
+prs: [31]
 verification: >
   Closed by S3b on 2026-09-27 (commit aca3f0c on prod/p1-evidence-binding). Read in the worktree: InstanceIdentity.ofSpiffe no longer puts
   svid.raw() into workloadClaims, WalletInstanceAttestationValidator no longer puts the presented WIA

@@ -5,7 +5,7 @@ area: client-attestation
 source: review-2026-09-26
 status: closed
 plan_items: [S3a]
-prs: []
+prs: [31]
 verification: >
   Closed by S3a on 2026-09-27 (commit a7911f1 on prod/p1-evidence-binding). MiniRedisClient.sslParametersFor sets the HTTPS endpoint
   identification algorithm and the SNI name (MiniRedisClientTest), connect() calls startHandshake() before

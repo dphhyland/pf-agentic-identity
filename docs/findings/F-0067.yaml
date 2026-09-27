@@ -5,7 +5,7 @@ area: attestation-issuer
 source: design
 status: mitigated
 plan_items: [M-1, X-B02]
-prs: []
+prs: [31]
 verification: >
   Mitigated by M-1 on 2026-09-27 (commit aca3f0c on prod/p1-evidence-binding). AttesterResolvers.fromEnvironment(props, env) adds the CIMD
   plugin only when EvidencePolicy.isProduction(env) is false, logs an ERROR naming OIDF_ATTESTER_CIMD_URL
