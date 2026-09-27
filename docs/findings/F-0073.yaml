@@ -1,0 +1,24 @@
+id: F-0073
+title: A requested att_ or req_ field could stand in for the RAR plugin's attested-ceiling mirror in the governance-engine request
+severity: medium
+area: rar-paz-plugin
+source: pr-review
+status: closed
+plan_items: [S2a]
+prs: []
+verification: >
+  2026-09-27, commit c2924f2 on prod/p1-rar-plugin-principal: GovernanceEngineRequestBuilderTest
+  aMirrorNameIsReservedEvenWhenThisRequestWritesNoMirror sends a detail carrying its own att_actions beside
+  actions, under an attestation that constrains no actions, with an empty attribute prefix and the type prefix
+  off, and the builder refuses it; req_locations without locations likewise. refuseCollisions is in the
+  plugin's 100% METHOD gate.
+target_release: 0.4.0
+notes: >
+  Found on 2026-09-27 in the review of S2a's reserved-name rule, before its pull request. The governance-engine builder writes flat req_<field> and
+  att_<field> mirrors of the RFC 9396 set-valued fields for PingAuthorize policy to compare, but refused a
+  requested field only when it collided with a mirror THIS request produced. An attestation that constrains no
+  actions produces no att_actions, so a detail's own att_actions reached the PDP as if it were the attested
+  ceiling, and a req_actions-within-att_actions rule compared the request with the caller's own number. Only
+  reachable with an empty "Attribute Prefix" and "Prefix Attributes with Type" off (prefixed names always
+  contain a dot, and the mirrors never do), which is why it is medium. Every req_ and att_ name of every
+  set-valued field is now reserved in every request.

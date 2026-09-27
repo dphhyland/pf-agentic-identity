@@ -11,13 +11,16 @@ PingAuthorize's native governance engine, or an OpenID AuthZEN 1.0 PDP.
 
 Modelled on Ping's reference `RARAuthDetailsProcessor` but closes its gaps: it honours the decision (the
 reference read only `statements` and could never deny), maps a real principal rather than a hardcoded
-`"joe"`, passes the attested entitlement so policy can enforce `requested ⊆ attested`, scopes the
-insecure-TLS switch to a dev flag, and implements a real `isEqualOrSubset` for refresh-time narrowing.
+`"joe"`, passes the attested entitlement so policy can enforce `requested ⊆ attested`, confines the
+insecure-TLS switch to development deployments, and implements a real `isEqualOrSubset` for refresh-time
+narrowing.
 
-Status: unit-tested (the count is in the coverage dashboard a Build run publishes), and every OAuth flow
-driven against it on the rig on 2026-09-27 (PingFederate 13.1.3.0, this jar at 0.4.0-SNAPSHOT) by
-[`conformance/verify-rar-principal.sh`](../../conformance/verify-rar-principal.sh) - the evidence is under
-"Verified on the rig" below. The earlier live verification against PingAuthorize (2026-08-15, on the agentic
+Status: unit-tested (the count is in the coverage dashboard a Build run publishes), and client credentials,
+CIBA, refresh, token exchange and the code flow driven against it on the rig on 2026-09-27 (PingFederate
+13.1.3.0, this jar at 0.4.0-SNAPSHOT) by
+[`conformance/verify-rar-principal.sh`](../../conformance/verify-rar-principal.sh), with an upgrade from the
+v0.3.0 jar rehearsed on the way - the evidence is under "Verified on the rig" below. The device flow and the
+JWT-bearer grant were not driven (U-0066, U-0017). The earlier live verification against PingAuthorize (2026-08-15, on the agentic
 demo's PingFederate 13.0.3) still describes the governance-engine dialect.
 
 **PingFederate 13.1 only.** The plugin reads the request through
@@ -83,8 +86,8 @@ PingFederate 13.1.3 passes, read with `javap` from `pf-protocolengine` (the call
 | CIBA, at `/as/bc-auth.ciba` | the request policy's `IDENTITY_HINT_SUBJECT` (`CibaAuthenticationRequestHandler`) | `identity_hint` | user key = `suite-user` from `login_hint`; then the ciba-sim approves, the poll issues a token and a refresh token |
 | token exchange | `null` (`TokenExchangeRequest`; and enrich is skipped when the requested token type is `id-jag`) | `subject_token` only when the token-endpoint filter published `verified_subject_token_sub` in the attestation context, else `none` | user key none; `principal_source: none`; `payment_initiation` refused before the PDP. The filter publishes no verified subject yet (`delegationActChain` decodes the subject token without verifying it), so this is always `none` today |
 | authorization code | the authentication result's `subject` attribute, once, at the resume after login (`OAuthResumableRequestHandlerBase`, path `/as/<id>/resume/as/authorization.ping`); PAR does not enrich, and there is no second pass at consent | `authenticated`, or `none` when the contract has no `subject` | as the rig ships (an HTML-form adapter with `username` and no `subject`): user key none, the payment refused after the user signed in; with `subject` mapped on the adapter by expression from `username`: user key = `suite-user`, decided about `suite-user`, token issued for `suite-user` |
-| device flow | not driven; `UserAuthorizationRequestHandler` enriches at the user's approval with the mapped attributes | unverified | - |
-| JWT bearer | `JwtGrantProcessor` never calls enrich (javap) | - | not driven |
+| device flow | the approving user, as far as `javap` shows: `UserAuthorizationRequestHandler` enriches at the user's approval with the mapped attributes | `authenticated` (assumed; U-0066) | not driven |
+| JWT bearer | `JwtGrantProcessor` has no call to enrich (`javap`) | - | not driven (U-0017) |
 
 Two names are the caller's own: the `login_hint` request parameter and the `_principal_sub` marker a
 front-end folds into `authorization_details`. They are used only when the resolution above found nobody,
@@ -105,7 +108,12 @@ before any PDP call when the principal is `none` or `client`. `identity_hint`, `
 development) `client_asserted` pass, labelled, so policy can be stricter. A single `-` empties the list.
 
 The principal is logged hashed: `principal=sha256:<first 16 hex>` and `userKey=` likewise, so a server log
-never carries a user key, and the same person still matches across lines.
+never carries a user key, and the same person still matches across lines. The same goes for a refusal's text:
+PingFederate 13.1.3 logs a processor's exception with every cause at ERROR (seen on the rig, 2026-09-27), and a
+PDP's error body can name whom it was asked about, so the plugin carries a failure as text with the principal
+and the user key replaced by their hashes, and chains no PDP exception. The plugin logs through
+`java.util.logging`, which PingFederate writes to `server.log` as `ERROR [SystemErr]` whatever the level
+(F-0075).
 
 ## What fails open, and what does not
 
@@ -125,18 +133,23 @@ The switch that turned deny-unless-PERMIT off ("Deny unless PERMIT") is gone; th
 deny-unless-PERMIT. A value stored under the old name is carried by PingFederate and never read: 13.1.3
 hands an instance with no parent its stored configuration as it is (`ConfigurationUtil.createCompositeConfiguration`)
 and the admin API's `PluginConfigTranslator` raises no error for an undeclared field - both read with `javap`,
-2026-09-27 - and the rig's archive import carried the field, unread, the same day.
+2026-09-27. On the rig the same day, an archive exported under 0.3.0 (the instance held the field, `true`)
+imported under this jar, the instance on disk still held it beside the declared fields, the plugin configured
+and decided, and saving the instance again dropped it.
 
 ## Reserved attribute names (governance-engine dialect)
 
 The requested fields are written first and the server's attributes last, so nothing requested can overwrite
 them; and a requested field whose attribute name is one the server writes is refused outright, which turns
 into a denial. Reserved: `UserID`, `principal_source`, `actor`, `actor_iss`, `client_id`,
-`attestation.entitlement`, `attestation.workload`, `attestation.cnf_thumbprint`, `attestation.iss`, plus the
-`req_<field>` / `att_<field>` mirrors the request produces. With the default attribute prefix (`idp`, prefixed
-with the type) a requested field never lands on those names; with an empty prefix and the type prefix off it
-could, and `"UserID": "alice"` inside a detail would otherwise have named the principal. The AuthZEN dialect
-keeps the requested fields under `resource.properties` and has nothing to reserve.
+`attestation.entitlement`, `attestation.workload`, `attestation.cnf_thumbprint`, `attestation.iss`, and the
+`req_<field>` and `att_<field>` mirror of every set-valued field (`actions`, `locations`, `datatypes`,
+`privileges`, `sales_regions`) - in every request, whether or not it writes that mirror, because an
+`att_actions` the builder leaves unwritten (the attestation constrains no actions) would otherwise reach the
+PDP as the caller's own ceiling (F-0073). With the default attribute prefix (`idp`, prefixed with the type) a
+requested field never lands on those names; with an empty prefix and the type prefix off it could, and
+`"UserID": "alice"` inside a detail would otherwise have named the principal. The AuthZEN dialect keeps the
+requested fields under `resource.properties` and has nothing to reserve.
 
 ## Attestation-context bridge
 
@@ -183,11 +196,13 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Fail open on engine error | off | grants through an unreachable PDP only (above); never a wrong secret, a bad answer or a TLS failure |
 | Trust a client-asserted principal | off | `login_hint` / `_principal_sub` as the subject when nobody else is known - in development only, inert elsewhere, gone at 1.0 |
 | Trust the PAR-carried agent marker | off | where the attestation is not in the request (the authorization endpoint), take the agent instance from the `_agent_id` the attestation filter put in each entry at PAR; only for clients that must use PAR |
-| Skip TLS verification (dev only) / Request timeout (ms) | off / 10000 | the JDK client still checks the hostname (below) |
+| Skip TLS verification (dev only) / Request timeout (ms) | off / 10000 | trusts any PDP certificate only with `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere it is inert and configure logs a WARNING. The JDK client checks the hostname either way (below) |
 
-A switch missing from a stored configuration - an instance saved before the field existed, or one written
-through the admin API or an archive that left it out - reads as the default above, which is the secure
-value for every switch. The version PingFederate shows for the plugin is the jar's
+A switch missing from a stored configuration - an instance saved before the field existed (a 0.3.0 instance
+has no "Types requiring an authenticated principal"), or an archive written by hand that leaves it out -
+reads as the default above, which is the secure value for every switch. The admin API fills a missing field
+with the descriptor's default when it creates an instance: the rig's probe instance, posted with five fields,
+was stored with all fifteen (2026-09-27). The version PingFederate shows for the plugin is the jar's
 `Implementation-Version`, the project version it was built as.
 
 `OIDF_DEPLOYMENT_PROFILE` is read straight from the environment until PR-1 (the platform library)
@@ -207,17 +222,24 @@ field gives the archive the same treatment PingFederate gives its own client sec
 master key, handed to the plugin in the clear. S2c can add the reference form once the platform library's
 secret handling exists.
 
-**Upgrade rehearsal, plan to-verify item 7 (2026-09-27, 13.1.3.0).** The rig was booted with the v0.3.0 jar
-from the GitHub release, an instance created through the admin API with a plaintext "Shared Secret", one
-decision made (the stub PDP received the secret header), and the archive exported - it holds
-`<urn:Field name="Shared Secret">` in the clear. The container was then restarted on the 0.4.0 jar, the
-archive imported (`POST /configArchive/import?forceImport=true`, 200), the instance read back (the admin API
-shows the field as an `encryptedValue: OBF:JWE:…`; on disk the imported store still holds the plaintext, and
-carries the undeclared "Deny unless PERMIT" field, unread) and a decision made: PingFederate logged one ERROR,
-`[PluginConfigUtil] There was a problem deobfuscating the value for the field: Shared Secret`, handed the
-plugin the value as stored, and the stub PDP received the same secret header as before. So a stored plaintext
-value survives the switch; re-save the instance to store it obfuscated and stop the error.
-`OLD_PLUGIN_JAR=<the v0.3.0 jar> conformance/verify-rar-principal.sh` repeats the rehearsal.
+**Upgrade rehearsal, plan to-verify item 7 (2026-09-27, 13.1.3.0; U-0022).** The rig was booted with the
+v0.3.0 jar from the GitHub release, an instance created through the admin API with a plaintext "Shared Secret",
+one decision made (the stub PDP received the secret header), and the archive exported: it holds
+`<urn:Field name="Shared Secret">` in the clear. The container was then restarted on this jar and the archive
+imported (`POST /configArchive/import?forceImport=true`, 200). What followed:
+
+- the admin API reads the field back as an `encryptedValue` (`OBF:JWE:...`), while the instance on disk still
+  holds the plaintext, and the undeclared "Deny unless PERMIT" beside it;
+- PingFederate logged one ERROR after the import, `[PluginConfigUtil] There was a problem deobfuscating the
+  value for the field: Shared Secret`, and none at the decisions that followed;
+- the plugin was handed the value as stored: the stub PDP received the same secret header as before;
+- saving the instance again (a `PUT` of what the admin API read back) stored the secret encrypted - on disk a
+  191-character value beginning `eyJhbGci`, a JOSE header, and no plaintext - dropped "Deny unless PERMIT", and the next decision sent the same header
+  with no new ERROR.
+
+So a stored plaintext value survives the switch; save each instance again after upgrading to store it
+encrypted. `OLD_PLUGIN_JAR=<the v0.3.0 jar> conformance/verify-rar-principal.sh` repeats the rehearsal and
+prints each of those facts, never the secret.
 
 **TLS to the PDP.** Give the PDP a certificate whose subject alternative name is the host PF dials. "Skip
 TLS verification" trusts any certificate, but the JDK HTTP client still checks the hostname during the
@@ -238,12 +260,16 @@ AuthZEN PDP that answers PERMIT and appends every request to a JSONL file), conf
 the three built-in types, a bearer-token exchange policy and a secret-authenticated client through the
 admin API, drives the flows in the table above, prints per flow the user key PingFederate passed (matched by
 SHA-256 against the plugin's log line) and the `principal_source` the PDP received, removes what it
-configured and takes the rig down. `SKIP_UP=1 KEEP_RIG=1` reuses a running rig; `ONLY_CONFIGURE=1` leaves the
-configuration in place for driving a flow by hand. The evidence in the table was its run of
-2026-09-27T02:52Z (`conformance/.rar-principal/summary.txt` and `pdp-requests.jsonl`, git-ignored).
+configured and takes the rig down, image included. `SKIP_UP=1 KEEP_RIG=1` reuses a running rig;
+`ONLY_CONFIGURE=1` leaves the configuration in place for driving a flow by hand. The evidence in the table and
+the upgrade rehearsal above are its run of 2026-09-27T03:40Z, on this plugin at commit b497275
+(`conformance/.rar-principal/summary.txt`, `pdp-requests.jsonl` and PingFederate's `server.log`, git-ignored).
+That `server.log` carries neither the test user's name nor the shared secret: the plugin's lines hash the
+principal, and the refusals PingFederate logs with their causes carry only the plugin's own text.
 
-Not verified there: the device flow's user key, and the `subject` recipe on an authentication *policy*
-contract rather than an adapter mapping.
+Not verified there: the device flow's user key (U-0066), the JWT-bearer grant (U-0017; `javap` finds no call
+to enrich in `JwtGrantProcessor`), and the `subject` recipe on an authentication *policy* contract rather than
+an adapter mapping (U-0067).
 
 ## Build, test, deploy
 

@@ -1,0 +1,16 @@
+id: U-0067
+title: A subject attribute on an authentication policy contract, rather than on the adapter, reaches the RAR plugin as the user key
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S-2]
+prs: []
+recorded_in: 'docs/releases/0.4.0.md, Before you deploy, the item on giving the authentication contract a subject'
+verify_by: >
+  The code flow in verify-rar-principal.sh with the rig's login behind an authentication policy whose contract
+  maps subject, instead of the adapter mapping the script makes today.
+verification: ''
+notes: >
+  Verified on the rig on 2026-09-27 only with subject mapped on the HTML-form adapter by expression: the resume
+  after authentication then passed suite-user as the user key. The release note tells a deployment to give
+  "the authentication contract" a subject, which for a policy-driven deployment is the policy contract.

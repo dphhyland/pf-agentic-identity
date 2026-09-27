@@ -42,17 +42,19 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
-- **The RAR plugin fails open only when the PDP is unreachable, and knows who it is deciding about** (plan
-  S2a and S2b; blocker B3 and the "fail-open catches everything" high): fail-open is confined to a connection
-  refused or reset, an unresolved name, a deadline, or HTTP 429/502/503/504 - a 401 from a wrong secret, a body
-  that is not JSON and a TLS failure now deny; "Deny unless PERMIT" is gone, the decision is always
-  deny-unless-PERMIT; the shared secret is stored encrypted; the PDP URL must be https unless
-  `OIDF_DEPLOYMENT_PROFILE=development`; `principal_source` is resolved per flow from the user key PingFederate
-  13.1.3 passes (client credentials -> `client`, refresh -> `authenticated`, CIBA -> `identity_hint`, token
-  exchange -> `none` until the filter publishes a verified subject) and `login_hint` / `_principal_sub` are
-  development-only; `payment_initiation` and `account_information` are refused before any PDP call without an
-  authenticated principal; the PDP request carries the attester `iss`; `conformance/verify-rar-principal.sh`
-  drives every flow on the rig.
+- **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
+  high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP
+  429/502/503/504, so a 401 from a wrong secret, a body that is not a JSON object and a TLS failure deny;
+  "Deny unless PERMIT" is gone and the decision is always deny-unless-PERMIT; the shared secret is an encrypted
+  field under the same name (the upgrade from v0.3.0 rehearsed on the rig); the PDP URL must be https and "Skip
+  TLS verification" is inert unless `OIDF_DEPLOYMENT_PROFILE=development`; the governance-engine request writes
+  the server's attributes last and refuses a field that names one, every `req_`/`att_` mirror included (F-0073);
+  `principal_source` is resolved per flow from the user key PingFederate 13.1.3 passes (client credentials
+  `client`, refresh and the code flow `authenticated`, CIBA `identity_hint`, token exchange `none` until the
+  filter publishes a verified subject, F-0074), and `login_hint` / `_principal_sub` are development-only;
+  `payment_initiation` and `account_information` are refused before any PDP call without an authenticated
+  principal; the PDP request carries the attester `iss`; logs carry the principal hashed;
+  `conformance/verify-rar-principal.sh` drives the flows on the rig.
 
 ## [0.3.0] - 2026-09-27
 

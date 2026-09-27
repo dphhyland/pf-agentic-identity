@@ -70,26 +70,35 @@ SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig)` con
    stored value under that name is carried by PingFederate and ignored.
 4. **The PDP URL must be https unless `OIDF_DEPLOYMENT_PROFILE=development`** (unset is production):
    refused by the field's validator in the console/API, and again at configure for an archive import.
-   The rig's compose override sets `development` so the plugin may dial the host's stub over http.
+   "Skip TLS verification (dev only)" is inert outside development too (a WARNING at configure), so a
+   self-signed PDP is a TLS failure there, which denies. The rig runs as `development`, so the plugin
+   may dial the host's stub over http.
 5. **The shared secret is an encrypted field under the same name.** A plaintext value stored by an
    older jar survives an upgrade (one `PluginConfigUtil` deobfuscation ERROR, then used as stored;
-   rehearsed on the rig 2026-09-27); re-save the instance to store it obfuscated.
+   rehearsed on the rig 2026-09-27); save the instance again to store it obfuscated.
 6. **Plugin loading needs a `PF-INF/<type>` marker + shaded deps.** `src/main/resources/PF-INF/
    authorization-detail-processors` lists the class. Jackson is relocated INTO the jar (PF
    isolates each deploy jar's classloader). A `META-INF/services` marker does NOT work.
 7. **Binding a type to the instance is per type and per client on 13.1**: `/oauth/authorizationDetailTypes`
    (`authorizationDetailProcessorRef`), and the client's `authorizationDetailTypes` lists type names.
 8. **TLS to an internal PDP: give the PDP certificate a SAN that matches the host PF dials.** The
-   JDK HttpClient checks the hostname even when "Skip TLS verification" trusts every certificate.
-   Never set `-Djdk.internal.httpclient.disableHostnameVerification=true`: it is JVM-wide.
+   JDK HttpClient checks the hostname even when "Skip TLS verification" trusts every certificate (in
+   development, the only place it does). Never set
+   `-Djdk.internal.httpclient.disableHostnameVerification=true`: it is JVM-wide.
 9. **Reserved attribute names (governance engine).** `UserID`, `principal_source`, `actor`,
-   `actor_iss`, `client_id`, `attestation.*`, `req_*`/`att_*`: the server writes them last, and a
-   requested field that maps onto one is refused. Only reachable with an empty attribute prefix.
-10. **Secret header spelling.** The plugin defaults to `CLIENT-TOKEN` (hyphen); the `paz/`
+   `actor_iss`, `client_id`, `attestation.*`, and `req_<field>`/`att_<field>` for every set-valued
+   field whether or not the request writes that mirror: the server writes them last, and a requested
+   field that maps onto one is refused. Only reachable with an empty attribute prefix and the type
+   prefix off.
+10. **Logs carry the principal hashed, and PF logs the exception chain.** `principal=sha256:<16 hex>`
+    in the plugin's lines; a PDP failure is carried as redacted text because PingFederate 13.1.3 logs
+    a processor's exception with every cause at ERROR. The plugin's own lines arrive in `server.log`
+    as `ERROR [SystemErr]` (java.util.logging on stderr), whatever their level.
+11. **Secret header spelling.** The plugin defaults to `CLIENT-TOKEN` (hyphen); the `paz/`
     compose stack and every script there use `CLIENT_TOKEN` (underscore, the PDP's
     `JSON_API_HEADER_NAME`). Mixing the two defaults gives auth failures that look like policy
     failures - and from 0.4.0 they deny rather than fail open.
-11. **`isPermit()` trusts `authorised` over `decision`.** `{"authorised":true,"decision":"DENY"}`
+12. **`isPermit()` trusts `authorised` over `decision`.** `{"authorised":true,"decision":"DENY"}`
     is a PERMIT (governance engine). AuthZEN needs a boolean `decision`.
 
 ## How to build

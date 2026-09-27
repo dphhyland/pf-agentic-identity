@@ -131,7 +131,7 @@ report() {  # report <flow> <pdp-line-count-before> <pf-log-count-before> <what 
     echo "   PF passed user key: $(name_key "$userkey")   plugin: principal_source=$source principal=$(name_key "$principal")"
     echo "   log line: $line"
   done < <(pf_log_since "$log_before")
-  asked="$(pdp_since "$pdp_before" | jq -c '{subject: .body.subject, principal_source: .body.context.principal_source, resource_type: .body.resource.type, secret_header: (.headers["X-Probe-Secret"] // null)}')"
+  asked="$(pdp_since "$pdp_before" | jq -c '{subject: .body.subject, principal_source: .body.context.principal_source, resource_type: .body.resource.type, secret_header: (.headers["X-Probe-Secret"] // null)}' | sed "s/$SECRET/<the plaintext secret>/g")"
   if [[ -n "$asked" ]]; then
     echo "   PDP was asked: $asked"
   else
