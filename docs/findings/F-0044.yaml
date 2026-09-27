@@ -1,0 +1,18 @@
+id: F-0044
+title: The BOM compiled against Jackson 2.17.1 while PingFederate 13.1.3 ships 2.21.1
+severity: medium
+area: build
+source: design
+status: closed
+plan_items: [P0-4]
+prs: [10]
+verification: >
+  Closed by P0-4 in PR #10 (commit 1c266e3, merged as 11e9780 on 2026-09-26): bom/pom.xml pins
+  version.pf.jackson 2.21.1 (and jose4j 0.9.6, commons-lang3 3.18.0, commons-logging 1.1.1, log4j 2.25.4), and
+  Build's step 'the PF-provided libraries the BOM compiles against are the ones the image ships' runs
+  tools/pf-provided-versions.py against the jars extracted from the pinned image. Re-read in the worktree on
+  2026-09-27.
+target_release: 0.3.0
+notes: >
+  Found while designing, item 15. A module compiled and tested against one Jackson and run on another links at
+  build and may not at run time.

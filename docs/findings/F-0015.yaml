@@ -1,0 +1,14 @@
+id: F-0015
+title: gm-api demo URLs are baked into web.xml
+severity: high
+area: gm-api
+source: review-2026-09-26
+status: open
+plan_items: [X-C02]
+prs: []
+verification: ''
+target_release: 0.9.0
+notes: >
+  The demo's PDP and issuer URLs are literals in gm-api's web.xml, so a production build carries them. X-C02
+  moves the configuration to `GM_API_*` settings, off by default and fail-soft (503), with the old names as
+  renamed aliases.

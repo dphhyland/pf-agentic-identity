@@ -1,0 +1,15 @@
+id: F-0014
+title: ciba-sim ships in the production image
+severity: high
+area: image
+source: review-2026-09-26
+status: open
+plan_items: [X-D02, R-I1]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  The CIBA simulator built for the conformance rig is staged into every image, gated only by
+  `OIDF_CIBA_SIM_ENABLED`. X-D02 makes it a conformance-only staging profile: initiate, check and finished
+  refuse unless the flag is set and the profile is not production, with a required private
+  `OIDF_CIBA_SIM_DIR`; R-I1's MANIFEST records the profile and the assembler refuses a mismatch.

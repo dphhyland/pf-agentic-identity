@@ -1,0 +1,14 @@
+id: F-0020
+title: Encrypted request objects are accepted for a first registration
+severity: medium
+area: pf-integration
+source: review-2026-09-26
+status: open
+plan_items: [H-FED-1]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  RequestObject.java:122-124,178-180 and FederationClientBuilder.java:171-179 (f95b522): a JWE `alg` can be
+  copied into `request_object_signing_alg`. H-FED-1 refuses an encrypted request object for a first
+  registration in production and never copies a JWE alg.

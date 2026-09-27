@@ -1,0 +1,15 @@
+id: F-0010
+title: 'No fetch deadline; registration starvation'
+severity: high
+area: openid-federation, oidf-jose
+source: review-2026-09-26
+status: open
+plan_items: [S-5, S5a, S5b, S5c, S5d]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  The JDK's HttpRequest.timeout() stops at the response headers, so oidf-jose's readCapped has no deadline on
+  the body and a slow federation peer holds a registration open. S5a's OutboundHttp has connect, header and
+  total deadlines and a body cap; S5b threads a resolution budget through the validator and gateway; S5c
+  hardens explicit registration; S5d migrates every bypassing call site.

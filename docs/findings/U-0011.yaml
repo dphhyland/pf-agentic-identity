@@ -1,0 +1,13 @@
+id: U-0011
+title: demo-rs has no HTTP surface or replay cache
+area: demo-rs
+source: design
+status: open
+plan_items: [X-D01]
+prs: []
+recorded_in: docs/unverified.md item 10
+verify_by: >
+  X-D01: libs/rs-validation with a required replay store and a servlet filter, and a test that a replayed DPoP
+  proof is refused.
+verification: ''
+notes: 'DelegatedTokenValidator reports the proof''s jti so a caller can replay-cache it; no caller exists.'

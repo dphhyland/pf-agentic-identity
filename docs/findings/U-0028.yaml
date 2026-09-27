@@ -1,0 +1,13 @@
+id: U-0028
+title: 'Plugin classloader visibility; how PingFederate surfaces a CustomDataSourceDriverException; whether a Postgres driver is present'
+area: instance-registry-datasource
+source: design
+status: open
+plan_items: [X-A20, X-A21]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 14
+verify_by: >
+  On the rig: the datasource plugin with its dependencies shaded, an exception raised from retrieveValues, and
+  a look at the image's lib directory for a Postgres driver.
+verification: ''
+notes: ''

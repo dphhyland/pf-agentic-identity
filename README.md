@@ -55,7 +55,7 @@ names below carry the project version, written `<version>`.
 |---|---|---|
 | `plugins/rar-paz-plugin` | **RAR plugin**: RFC 9396 `AuthorizationDetailProcessor` → PingAuthorize governance engine (principal as `UserID`, agent as `actor` — RFC 8693 delegation) | `pf.plugins.pf-rar-paz-plugin.jar` |
 | `plugins/instance-registry-datasource` | **`CustomDataSourceDriver`** over the instance registry: an access-token mapping resolves an instance id to owner, status, compliance and user-verification recency at issuance — where revocation and the time-box bite | `pf.plugins.instance-registry-datasource.jar` |
-| `plugins/ciba-sim` | **CIBA authentication device for the conformance rig**: an `OOBAuthPlugin` that waits for an allow or deny recorded at `POST /ciba-sim/decision`, plus that servlet, in one jar. Answers 404 unless `OIDF_CIBA_SIM_ENABLED=true` | `pf.plugins.ciba-sim.jar` |
+| `plugins/ciba-sim` | **CIBA authentication device for the conformance rig**: an `OOBAuthPlugin` that waits for an allow or deny recorded at `POST /ciba-sim/decision`, plus that servlet, in one jar. Staged only by the conformance profile, and refuses every request unless `OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and `OIDF_CIBA_SIM_DIR` passes its checks ([README](plugins/ciba-sim/README.md)) | `pf.plugins.ciba-sim.jar` |
 
 ### `services/` — standalone services
 
@@ -102,6 +102,23 @@ What it does, what it configures, how to point a conformance suite at it and wha
 Open [showcase/index.html](showcase/index.html) in a browser for the servlet and plugin catalogue, shared libraries,
 ecosystem architecture and interactive policy simulation. No build step is required. See
 [showcase/README.md](showcase/README.md) for the local preview command and simulation boundaries.
+
+## Documentation
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) - building, the PingFederate jars, the Postgres-backed tests, worktrees,
+  generated files and what a pull request carries; [docs/development/style-guide.md](docs/development/style-guide.md)
+  is the house style.
+- [SECURITY.md](SECURITY.md) - supported versions, how to report a vulnerability, and the rule about config
+  archives and key material.
+- [docs/findings](docs/findings/README.md) - the findings register: every known defect (`F-`) and unverified
+  assumption (`U-`), one file each, with the plan item that closes it; `docs/unverified.md` keeps the long
+  form of the assumptions.
+- [docs/releases](docs/releases/README.md) - the release notes, each with a "Before you deploy" list, and
+  [CHANGELOG.md](CHANGELOG.md) for the one-paragraph history; [docs/operator](docs/operator/README.md) has the
+  upgrade guides.
+- [docs/configuration](docs/configuration/README.md), [docs/reference](docs/reference/README.md) and
+  [docs/security](docs/security/README.md) are where the generated settings reference, the endpoint and event
+  inventories and the threat model land in later phases; each README says what belongs there.
 
 ## Building
 
