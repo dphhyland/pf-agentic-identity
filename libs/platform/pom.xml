@@ -171,6 +171,11 @@
                                         <include>com.pingidentity.ps.oidf.platform.settings.WhenWrong.Effect.byId(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.Removed.refusal(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.Provenance.toString(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.refuseRemoved(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.pathOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Secret.toString(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.of(*</include>
                                         <!-- profile (PR-1): add gate includes below this line -->
                                         <!-- tls (PR-1): add gate includes below this line -->
                                         <!-- events (O-1): add gate includes below this line -->

@@ -22,8 +22,11 @@ pf-integration), ST3B and ST3C (the rest), and with the Phase 2 packages that ad
   lower-case words joined by hyphens, and the `component` member says the same name.
 - **In the module that reads the settings**, under `src/main/resources/META-INF/oidf-settings/`, so the file
   ships in that module's jar. `Catalogue.load` reads it from the caller's classloader: a servlet's jar in the
-  webapp, the engine's copy on the engine's loader, a plugin's own jar in the plugin's loader. A catalogue found
-  twice on one loader is refused, so two modules cannot ship one component.
+  webapp, the engine's copy on the engine's loader, a plugin's own jar in the plugin's loader. The webapp's
+  loader also sees the engine's copy: PingFederate stages each jar in `pf-runtime.war`'s `WEB-INF/lib` and in
+  `server/default/deploy`, which is on the webapp loader's parent, and Jetty's webapp loader returns both. So
+  copies of one file with identical bytes are accepted as one module's file, and copies that differ are
+  refused, naming two that differ: two modules cannot ship one component.
 - **Exactly one owning package.** The `package` member names the one Java package whose code resolves these
   settings. A module with several components has one file per component, each naming its own package; when two
   packages of one module read settings, they are two components, or one package resolves the settings and hands
@@ -94,27 +97,31 @@ hyphens), or `required-in-production`. The catalogue records it; the profile pac
 
 ## How a setting is resolved
 
-`Settings` resolves an entry in this order, and returns the value with its provenance - which source and
-which name supplied it, or `default`:
+`Settings` first refuses any of the catalogue's removed names that is set in its own source, whichever
+setting is being read, naming the replacement (or saying nothing replaces it) and the release it went in; see
+removed names below. It then resolves the entry in this order, and returns the value with its provenance -
+which source and which name supplied it, or `default`:
 
-1. A removed name whose replacement is this entry, set anywhere, is refused, naming the replacement and the
-   release it went in.
-2. The first of `sources` set to something not blank supplies the value, trimmed.
+1. The first of `sources` set to something not blank supplies the value, trimmed.
 3. For a `secret` with `file`, each source has a `_FILE` variant: `OIDF_X_FILE` for an environment variable,
    `oidf.x.file` for a system property, `xFile` for an init-param. The first one set names a file whose content,
    with one trailing newline trimmed, is the value. The name and its `_FILE` variant both set is refused, naming
    both. A file that cannot be read, is empty, or holds more than 64 KiB is refused, naming the file and never
-   its content.
-4. Each alias, read from its own sources in their order: used when nothing above supplied a value, with a
+   its content; so is a value that is not a path.
+3. Each alias, read from its own sources in their order: used when nothing above supplied a value, with a
    warning logged once; the same value under both names warns that the old one is redundant; different values
    are refused, naming both names and neither value.
-5. Otherwise the default, which may be none.
+4. Otherwise the default, which may be none.
 
 The value is then parsed as the type, by the strict parsers `FederationRuntimeConfig` used, with their
 messages: the setting's name and the value refused, never a secret's value.
 
 A removed name is `{"name": ..., "from": "env", "replacement": "OIDF_NEW" or null, "release": "0.4.0"}`. Its
-name, like every source name, alias name and `_FILE` variant, is declared once in a catalogue.
+name, like every source name, alias name and `_FILE` variant, is declared once in a catalogue. A replacement
+is a setting of the same catalogue, or null; a replacement the catalogue does not have is refused, so a typo
+there cannot quietly name nothing. Set in the source it was read from, a removed name is refused on the
+component's first read (`Catalogue.refuseRemoved`, which `Settings` calls before every value). It counts as
+declared for `UnknownKeys.find`, which leaves it to that refusal and its better message.
 
 ## An example
 

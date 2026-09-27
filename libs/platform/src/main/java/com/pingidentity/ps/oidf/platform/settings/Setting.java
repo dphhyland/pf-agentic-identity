@@ -7,11 +7,13 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import com.pingidentity.ps.oidf.platform.json.Json;
 
 /**
  * One entry of a settings catalogue ({@link Catalogue}): its name, kind and type, its default and range or
@@ -140,32 +142,27 @@ public final class Setting {
      * Resolves this setting's value from {@code from}. In order:
      *
      * <ol>
-     *   <li>a removed name whose replacement is this setting, set anywhere, is refused, naming the replacement
-     *       and the release it went in;</li>
      *   <li>the first of {@link #sources()} set to something not blank supplies the value, trimmed;</li>
      *   <li>for a secret with {@link #file()}, the first {@code _FILE} variant set names a file whose content,
      *       with one trailing newline trimmed, is the value; a direct name and a {@code _FILE} name both set is
      *       refused, naming both; a file that cannot be read, is empty or is larger than {@link #MAX_FILE_BYTES}
-     *       is refused, naming the file and never its content;</li>
+     *       is refused, naming the file and never its content, and so is a value that is not a path;</li>
      *   <li>each alias in turn: used, with a warning, when nothing above supplied a value; a warning when it
      *       holds the same value; refused, naming both names and neither value, when it holds another;</li>
      *   <li>otherwise the default, which may be none.</li>
      * </ol>
      *
-     * <p>The value is then parsed by {@link #parse}. {@link Settings} is the way in; this is its rule.
+     * <p>The value is then parsed by {@link #parse}. {@link Settings} is the way in; this is its rule. Removed
+     * names are the catalogue's rule, not one setting's: {@link Settings} refuses every one that is set, with
+     * {@link Catalogue#refuseRemoved}, before it resolves anything.
      *
      * @throws SettingRefused        for a refusal above or a value its type refuses
      * @throws IllegalArgumentException for a PingFederate-supplied kind, which has nothing to resolve
      */
-    Resolved resolve(Sources from, List<Removed> removed) {
+    Resolved resolve(Sources from) {
         if (!this.kind.resolved()) {
             throw new IllegalArgumentException(this.name + " is a " + this.kind.id() + ", which PingFederate supplies;"
                     + " parse the value it gives instead of resolving one");
-        }
-        for (Removed gone : removed) {
-            if (this.name.equals(gone.replacement()) && Parsers.blankToNull(from.get(gone.source(), gone.name())) != null) {
-                throw gone.refusal();
-            }
         }
         List<String> warnings = new ArrayList<>();
         SourceName direct = firstSet(from, this.sources);
@@ -179,7 +176,7 @@ public final class Setting {
             value = Parsers.blankToNull(from.get(direct.source(), direct.name()));
             provenance = new Provenance(direct.source(), direct.name(), null);
         } else if (fileName != null) {
-            Path path = Path.of(Parsers.blankToNull(from.get(fileName.source(), fileName.name())));
+            Path path = pathOf(fileName.name(), Parsers.blankToNull(from.get(fileName.source(), fileName.name())));
             value = readSecretFile(fileName.name(), path);
             provenance = new Provenance(fileName.source(), fileName.name(), path);
         }
@@ -208,6 +205,15 @@ public final class Setting {
             }
         }
         return null;
+    }
+
+    /** A {@code _FILE} variant's value as a path; a value the platform cannot make one of is refused, naming it. */
+    private Path pathOf(String variant, String value) {
+        try {
+            return Path.of(value);
+        } catch (InvalidPathException e) {
+            throw new SettingRefused(this.name, variant + " names " + Json.quote(value) + ", which is not a path");
+        }
     }
 
     /** A {@code _FILE} variant's file: its content with one trailing newline trimmed; refusals name the file, never its content. */

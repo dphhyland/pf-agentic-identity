@@ -9,6 +9,7 @@ import java.math.BigDecimal;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -143,8 +144,15 @@ public final class Catalogue {
      * Loads {@code <component>.json} from {@code loader}: the caller's own loader, so a plugin that shades
      * platform reads the catalogue it ships.
      *
-     * @throws IllegalArgumentException when the component name is not one, the file is missing or found more
-     *                                  than once (a catalogue has exactly one owning module), or it is refused
+     * <p>The same file can be found more than once, and that is accepted when every copy holds the same bytes.
+     * PingFederate stages each jar twice - in {@code pf-runtime.war}'s {@code WEB-INF/lib} and in
+     * {@code server/default/deploy}, which is on the server loader that is the webapp loader's parent - and
+     * Jetty's webapp loader returns both copies from {@code getResources}. Copies that differ are two modules
+     * shipping one component, which is refused, naming the first two that differ.
+     *
+     * @throws IllegalArgumentException when the component name is not one, the file is missing, found more than
+     *                                  once with different content (a catalogue has exactly one owning module),
+     *                                  or refused
      */
     public static Catalogue load(ClassLoader loader, String component) {
         if (component == null || !COMPONENT.matcher(component).matches()) {
@@ -160,22 +168,43 @@ public final class Catalogue {
         if (found.isEmpty()) {
             throw new IllegalArgumentException("no settings catalogue " + resource + " on the class path");
         }
-        if (found.size() > 1) {
-            throw new IllegalArgumentException(resource + " is on the class path " + found.size() + " times (" + found
-                    + "); a catalogue has exactly one owning module");
+        byte[] first = read(found.get(0), resource);
+        for (URL other : found.subList(1, found.size())) {
+            if (!Arrays.equals(first, read(other, resource))) {
+                throw new IllegalArgumentException(resource + " is on the class path " + found.size() + " times and "
+                        + found.get(0) + " and " + other + " differ; a catalogue has exactly one owning module");
+            }
         }
-        String text;
-        try (InputStream in = found.get(0).openStream()) {
-            text = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        } catch (IOException e) {
-            throw new IllegalArgumentException(resource + " could not be read", e);
-        }
-        Catalogue catalogue = parse(text, resource);
+        Catalogue catalogue = parse(new String(first, StandardCharsets.UTF_8), resource);
         if (!catalogue.component.equals(component)) {
             throw new IllegalArgumentException(resource + " names its component " + catalogue.component + "; the file and the"
                     + " component are named alike");
         }
         return catalogue;
+    }
+
+    private static byte[] read(URL url, String resource) {
+        try (InputStream in = url.openStream()) {
+            return in.readAllBytes();
+        } catch (IOException e) {
+            throw new IllegalArgumentException(resource + " could not be read", e);
+        }
+    }
+
+    /**
+     * Refuses the first of this catalogue's removed names that {@code from} sets to something not blank, naming
+     * its replacement, or saying nothing replaces it, and the release it went in. {@link Settings} calls it
+     * before every value it resolves, so a deployment that still sets a removed name is refused on its
+     * component's first read, whichever setting that read is for.
+     *
+     * @throws SettingRefused naming the removed name
+     */
+    public void refuseRemoved(Sources from) {
+        for (Removed gone : this.removed) {
+            if (Parsers.blankToNull(from.get(gone.source(), gone.name())) != null) {
+                throw gone.refusal();
+            }
+        }
     }
 
     /**
@@ -224,7 +253,7 @@ public final class Catalogue {
         List<Removed> removed = new ArrayList<>();
         List<Object> gone = r.list(top, "removed", "the document");
         for (int i = 0; i < gone.size(); i++) {
-            removed.add(r.removed(gone.get(i), "removed[" + i + "]", seen));
+            removed.add(r.removed(gone.get(i), "removed[" + i + "]", seen, settings));
         }
         return new Catalogue(component, module, owningPackage, families, settings, removed);
     }
@@ -491,7 +520,7 @@ public final class Catalogue {
             throw refuse(at, "default must be text, a number, true, false or null, not " + describe(value));
         }
 
-        Removed removed(Object value, String at, Set<String> seen) {
+        Removed removed(Object value, String at, Set<String> seen, Map<String, Setting> settings) {
             Map<String, Object> entry = object(value, at, REMOVED, Set.of());
             Source source = entry.get("from") instanceof String from ? Source.byId(from) : null;
             if (source == null) {
@@ -503,6 +532,9 @@ public final class Catalogue {
                 throw refuse(at, "replacement must be the name to set instead, or null, not " + describe(replacement));
             }
             String release = matching(entry, "release", at, RELEASE, "a release such as 0.4.0");
+            if (replacement != null && !settings.containsKey(replacement)) {
+                throw refuse(at, "replacement " + replacement + " is not a setting of this catalogue");
+            }
             return new Removed(name, source, (String) replacement, release);
         }
 

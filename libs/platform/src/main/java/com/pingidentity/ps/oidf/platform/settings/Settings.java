@@ -14,9 +14,10 @@ import java.util.function.Consumer;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 
 /**
- * One component's settings, read through its catalogue: each accessor finds the entry, resolves it from the
- * sources with the entry's own names, precedence, aliases, removed names and {@code _FILE} variant
- * ({@link Setting#resolve}), and parses it as the entry's type with its range or choices.
+ * One component's settings, read through its catalogue: each accessor finds the entry, refuses any of the
+ * catalogue's removed names that is set ({@link Catalogue#refuseRemoved}), resolves the entry from the sources
+ * with its own names, precedence, aliases and {@code _FILE} variant ({@link Setting#resolve}), and parses it as
+ * the entry's type with its range or choices.
  *
  * <pre>{@code
  * Settings federation = Settings.of("federation");          // META-INF/oidf-settings/federation.json, this class's loader
@@ -81,9 +82,14 @@ public final class Settings {
         return this.catalogue;
     }
 
-    /** The value of {@code name}, typed as its entry says, with its provenance. */
+    /**
+     * The value of {@code name}, typed as its entry says, with its provenance. Any of the catalogue's removed
+     * names set in the sources is refused first ({@link Catalogue#refuseRemoved}), whichever setting is asked for.
+     */
     public Resolved resolve(String name) {
-        Resolved resolved = this.catalogue.setting(name).resolve(this.sources, this.catalogue.removed());
+        Setting setting = this.catalogue.setting(name);
+        this.catalogue.refuseRemoved(this.sources);
+        Resolved resolved = setting.resolve(this.sources);
         resolved.warnings().forEach(this.warnings);
         return resolved;
     }

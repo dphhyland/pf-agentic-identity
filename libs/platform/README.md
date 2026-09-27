@@ -121,17 +121,21 @@ How a setting is read (plan items ST-1 and ST-2). The catalogue format is in
   setting (`setting()`) and the value refused. `jsonObject` reads with `platform.json`, not Jackson: the
   differences are listed in `FederationRuntimeConfigTest` and the ST12 release note.
 - `Catalogue` loads `META-INF/oidf-settings/<component>.json` from the caller's classloader and checks it
-  strictly: an unknown member, a missing one, a default its type refuses, a name declared twice, a catalogue
-  found twice on one loader are each refused, naming the file, the entry and the member.
+  strictly: an unknown member, a missing one, a default its type refuses, a name declared twice, a removed name
+  whose replacement is not in the catalogue are each refused, naming the file, the entry and the member. The
+  same file found more than once is accepted when the copies are identical - PingFederate stages each jar in
+  `pf-runtime.war` and in `server/default/deploy`, and the webapp's loader returns both - and refused when they
+  differ. `refuseRemoved(sources)` refuses any removed name that is set.
 - `Setting` is one entry: name, kind, type, default, range or choices, description, when it's wrong, profile
   class, security flag, sources in precedence order, aliases, and whether a secret may come from a `_FILE`
-  variant. Its resolution rule - removed names, sources, `_FILE`, aliases, default - is on `Setting.resolve`
-  and in the format page.
+  variant. Its resolution rule - sources, `_FILE`, aliases, default - is on `Setting.resolve` and in the
+  format page.
 - `Settings.of("<component>")` reads a catalogue through typed accessors (`bool`, `integer`, `longValue`,
   `duration`, `string`, `choice`, `httpsUrl`, `url`, `jsonObject`, `words`, `path`, `secret`), each checking the
   entry's type, so a reader converted to it keeps its meaning; `resolve` also returns the provenance, the
   source and name that supplied the value. `Sources` is the environment, the system properties and the
-  init-params (platform-pf's `InitParams` supplies those). A warning is logged once per loaded copy.
+  init-params (platform-pf's `InitParams` supplies those). Every read first refuses any of the catalogue's
+  removed names that is set, whichever setting it is for. A warning is logged once per loaded copy.
 - `UnknownKeys.find(environment, catalogues)` lists the `OIDF_*` names set under a catalogue's family that no
   catalogue declares. A mechanism only: nothing calls it at run time and nothing is refused for it until the
   start-up audit (PR-5) and the reader conversion (ST-5) wire it in, in Phase 3.
@@ -162,6 +166,7 @@ reading each hit; reads that refuse are left out.
 | libs/openid-federation | `FederationConfiguration` | `OIDF_FEDERATION_IGNORE_SSL_ERRORS` (init-param `ignoreSslErrors`); init-param `corsEnabled` | read as `false` |
 | libs/openid-federation | `AttestationMetadataConfig` | init-param `attestationChallengeEndpointEnabled` | read as `false` |
 | libs/client-attestation | `ClientAttestationChallengeServlet.init` | init-param `replayCacheMaxEntries` | warned and ignored |
+| libs/client-attestation | `ChallengeEndpointServlet.init` | init-params `challengeCacheMaxEntries`, `challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` | warned and ignored: the default |
 | servlets/ssf | `SsfConfiguration.parseBoolean` | `kafkaEnabled`, `introspectionInsecureTls`, `verificationEventEnabled`, `receiverInsecureTls`, `receiverActionsEnabled`, `receiverInstanceRegistry`, `auditEventsEnabled` (each init-param, `oidf.ssf.<name>`, `OIDF_SSF_<NAME>`) | read as `false` |
 | servlets/ssf | `LogoutEventFilter.allowSubParameter` | `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` (and its system property) | read as `false` |
 | servlets/attestation-issuer | `AttesterConfigurationServlet`, `AttestationIssuanceServlet`, `ClientAttestationServiceMetadataServlet` | init-param `challengeRequired`; init-param `challengeEndpointEnabled` | read as `false` |

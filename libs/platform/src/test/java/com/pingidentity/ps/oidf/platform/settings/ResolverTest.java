@@ -204,18 +204,33 @@ class ResolverTest {
     }
 
     @Test
-    void aRemovedNameIsRefusedOnlyWhenItsReplacementIsResolved() {
+    void aRemovedNameIsRefusedWhicheverSettingIsRead() {
         this.env.put("OIDF_EXAMPLE_STRICT", "true");
-        this.env.put("OIDF_EXAMPLE_LEGACY_CACHE", "on");
 
-        assertEquals("local", resolve("OIDF_EXAMPLE_MODE").value());
+        assertEquals("OIDF_EXAMPLE_STRICT was removed in 0.4.0; set OIDF_EXAMPLE_FAIL_CLOSED instead",
+                refused("OIDF_EXAMPLE_MODE").getMessage(), "a read of any setting refuses it, not only its replacement's");
     }
 
     @Test
-    void aRemovedNameWithNoReplacementSaysSo() {
+    void aRemovedNameWithNoReplacementIsRefusedAndSaysSo() {
         Removed gone = Catalogue.load(ResolverTest.class.getClassLoader(), "example").removed().get(1);
+        assertEquals(null, gone.replacement());
+        this.env.put("OIDF_EXAMPLE_LEGACY_CACHE", "on");
 
-        assertEquals("OIDF_EXAMPLE_LEGACY_CACHE was removed in 0.3.0 and nothing replaces it; unset it", gone.refusal().getMessage());
+        SettingRefused e = refused("OIDF_EXAMPLE_MODE");
+        assertEquals("OIDF_EXAMPLE_LEGACY_CACHE was removed in 0.3.0 and nothing replaces it; unset it", e.getMessage());
+        assertEquals("OIDF_EXAMPLE_LEGACY_CACHE", e.setting());
+    }
+
+    @Test
+    void aRemovedNameIsRefusedFromTheSourceItWasReadFrom() {
+        Catalogue example = Catalogue.load(ResolverTest.class.getClassLoader(), "example");
+        this.props.put("OIDF_EXAMPLE_LEGACY_CACHE", "on");
+        this.initParams.put("OIDF_EXAMPLE_STRICT", "true");
+
+        example.refuseRemoved(Sources.of(this.env::get, this.props::get, this.initParams::get));
+        assertEquals("local", resolve("OIDF_EXAMPLE_MODE").value(), "a removed environment variable is not refused when a"
+                + " system property or init-param of that name is set");
     }
 
     // ---- secrets and their _FILE variant --------------------------------------------------------------
@@ -263,6 +278,14 @@ class ResolverTest {
         SettingRefused e = refused("OIDF_EXAMPLE_TOKEN");
         assertEquals("OIDF_EXAMPLE_TOKEN and OIDF_EXAMPLE_TOKEN_FILE are both set; set one of them", e.getMessage());
         assertFalse(e.getMessage().contains("tok-"));
+    }
+
+    @Test
+    void aFileVariantThatIsNotAPathIsRefusedNamingIt() {
+        this.env.put("OIDF_EXAMPLE_TOKEN_FILE", "/run/secrets/tok\u0000en");
+
+        assertEquals("OIDF_EXAMPLE_TOKEN_FILE names '/run/secrets/tok\\u0000en', which is not a path",
+                refused("OIDF_EXAMPLE_TOKEN").getMessage());
     }
 
     @Test

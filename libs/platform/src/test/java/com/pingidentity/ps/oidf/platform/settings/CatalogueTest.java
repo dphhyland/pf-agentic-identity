@@ -107,17 +107,38 @@ class CatalogueTest {
                 () -> Catalogue.load(CatalogueTest.class.getClassLoader(), "absent")).getMessage());
     }
 
-    @Test
-    void aCatalogueOnTheClassPathTwiceIsRefused() throws IOException {
-        for (String jar : new String[] {"a", "b"}) {
-            Path file = this.dir.resolve(jar).resolve("META-INF/oidf-settings/example.json");
+    /** A loader over one directory per content, each holding META-INF/oidf-settings/example.json with that content. */
+    private URLClassLoader loaderWith(String... contents) throws IOException {
+        URL[] urls = new URL[contents.length];
+        for (int i = 0; i < contents.length; i++) {
+            Path jar = this.dir.resolve("jar" + i);
+            Path file = jar.resolve("META-INF/oidf-settings/example.json");
             Files.createDirectories(file.getParent());
-            Files.writeString(file, example());
+            Files.writeString(file, contents[i]);
+            urls[i] = jar.toUri().toURL();
         }
-        try (URLClassLoader loader = new URLClassLoader(new URL[] {this.dir.resolve("a").toUri().toURL(), this.dir.resolve("b").toUri().toURL()}, null)) {
+        return new URLClassLoader(urls, null);
+    }
+
+    @Test
+    void theSameCatalogueStagedTwiceIsAccepted() throws IOException {
+        // PingFederate stages each jar in pf-runtime.war's WEB-INF/lib and in server/default/deploy, and the
+        // webapp's loader returns both copies; identical copies are one module's file seen twice.
+        try (URLClassLoader loader = loaderWith(example(), example(), example())) {
+            assertEquals(3, Collections.list(loader.getResources("META-INF/oidf-settings/example.json")).size());
+            assertEquals("example", Catalogue.load(loader, "example").component());
+        }
+    }
+
+    @Test
+    void twoDifferentCataloguesForOneComponentAreRefused() throws IOException {
+        String other = example().replace("\"libs/platform\"", "\"libs/other\"");
+        try (URLClassLoader loader = loaderWith(example(), example(), other)) {
             String message = assertThrows(IllegalArgumentException.class, () -> Catalogue.load(loader, "example")).getMessage();
-            assertTrue(message.startsWith("META-INF/oidf-settings/example.json is on the class path 2 times ("), message);
-            assertTrue(message.endsWith("); a catalogue has exactly one owning module"), message);
+            assertEquals("META-INF/oidf-settings/example.json is on the class path 3 times and "
+                    + this.dir.resolve("jar0").toUri().toURL() + "META-INF/oidf-settings/example.json and "
+                    + this.dir.resolve("jar2").toUri().toURL() + "META-INF/oidf-settings/example.json differ; a catalogue has exactly one"
+                    + " owning module", message);
         }
     }
 
@@ -425,14 +446,17 @@ class CatalogueTest {
                 refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "env", "replacement", " ", "release", "0.4.0")))));
         assertEquals(WHERE + ": removed[0]: replacement must be the name to set instead, or null, not true",
                 refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "env", "replacement", true, "release", "0.4.0")))));
+        assertEquals(WHERE + ": removed[0]: replacement OIDF_EXAMPLE_TYPO is not a setting of this catalogue",
+                refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "env", "replacement", "OIDF_EXAMPLE_TYPO",
+                        "release", "0.4.0")))));
         assertEquals(WHERE + ": removed[0]: release must be a release such as 0.4.0, not 'v0.4.0'",
                 refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "env", "replacement", "X", "release", "v0.4.0")))));
         List<Object> removed = new ArrayList<>();
-        removed.add(Map.of("name", "oidf.example.gone", "from", "system-property", "replacement", "X", "release", "10.0.12"));
+        removed.add(Map.of("name", "oidf.example.gone", "from", "system-property", "replacement", "OIDF_EXAMPLE_MODE", "release", "10.0.12"));
         Map<String, Object> document = document();
         document.put("removed", removed);
         Catalogue parsed = Catalogue.parse(Json.write(document), WHERE);
-        assertEquals(new Removed("oidf.example.gone", Source.SYSTEM_PROPERTY, "X", "10.0.12"), parsed.removed().get(0));
+        assertEquals(new Removed("oidf.example.gone", Source.SYSTEM_PROPERTY, "OIDF_EXAMPLE_MODE", "10.0.12"), parsed.removed().get(0));
         assertTrue(parsed.declaredEnvironmentNames().stream().allMatch(name -> name.startsWith("OIDF_EXAMPLE_")),
                 "a removed system property is not an environment variable");
     }

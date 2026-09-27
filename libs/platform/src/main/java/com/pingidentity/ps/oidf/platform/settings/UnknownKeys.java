@@ -28,7 +28,8 @@ public final class UnknownKeys {
      * The names in {@code environment} that start with a family prefix of any of {@code catalogues} and that
      * none of them declares ({@link Catalogue#declaredEnvironmentNames()}: entries, aliases, {@code _FILE}
      * variants and removed names), sorted. Names outside every family are not this function's business: another
-     * component may own them.
+     * component may own them. A removed name is declared, not unknown: its catalogue refuses it with a better
+     * message, naming what replaces it ({@link Catalogue#refuseRemoved}, which {@link Settings} calls on every read).
      *
      * @param environment the process environment, for example {@link System#getenv()}
      * @param catalogues  every catalogue loaded
