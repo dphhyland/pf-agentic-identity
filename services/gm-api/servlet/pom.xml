@@ -2,194 +2,145 @@
 <project xmlns="http://maven.apache.org/POM/4.0.0"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
-  <modelVersion>4.0.0</modelVersion>
+    <modelVersion>4.0.0</modelVersion>
 
-  <groupId>au.com.idpartners</groupId>
-  <artifactId>gm-api</artifactId>
-  <!-- The reactor's version (tools/set-version.py moves it with the other poms); the coordinates stay
-       au.com.idpartners:gm-api. It joined the lockstep at 0.2.0, from a standalone 1.0.0. -->
-  <version>0.5.0-SNAPSHOT</version>
-  <packaging>war</packaging>
-  <name>Grant Evaluation API (PingFederate servlet)</name>
+    <!-- The reactor's version, moved with the other poms by tools/set-version.py. The coordinates stay
+         au.com.idpartners:gm-api: it joined the lockstep at 0.2.0, from a standalone 1.0.0. -->
+    <groupId>au.com.idpartners</groupId>
+    <artifactId>gm-api</artifactId>
+    <version>0.5.0-SNAPSHOT</version>
+    <packaging>war</packaging>
 
-  <description>
-    The Grant Evaluation API deployed inside PingFederate. Reads grants in-process via
-    AccessGrantManagerAccessor and validates tokens against PF's own signing keys, so
-    none of the sidecar's seams exist: no service account, no TLS trust, no JWKS fetch.
-  </description>
+    <name>Grant Evaluation API (PingFederate servlet)</name>
+    <description>The Grant Evaluation API deployed inside PingFederate. Reads grants in-process via
+        AccessGrantManagerAccessor and validates tokens against PF's own signing keys, so none of the
+        sidecar's seams exist: no service account, no TLS trust, no JWKS fetch.</description>
 
-  <properties>
-        <!-- A vendored tree with its own groupId (au.com.idpartners) and local.pingfederate:* conventions; it
-         is deliberately not a BOM consumer either. Its war ships as a release asset, not a Maven artifact. -->
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- The war ships as a release asset, not a Maven artifact. -->
         <maven.deploy.skip>true</maven.deploy.skip>
-    <maven.compiler.release>17</maven.compiler.release>
-    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-    <!-- PF_VERSION in build/pf-version.env; tools/pf-version-check.py holds this to it. -->
-    <pingfederate.version>13.1.3</pingfederate.version>
-  </properties>
+    </properties>
 
-  <dependencies>
-    <!-- All provided by PingFederate at runtime. Bundling any of them would break
-         linkage: PF isolates each deploy-dir artifact on its own classloader, so a
-         second copy of a PF class would not be the same class. -->
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>pingfederate-sdk</artifactId>
-      <version>${pingfederate.version}</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>jakarta-servlet-api</artifactId>
-      <version>5.0.2</version>
-      <scope>provided</scope>
-    </dependency>
-    <!-- jose4j: PF's own JWT library, and the type JwksEndpointKeyAccessor returns.
-         Using PF's copy means the JsonWebKeySet we get back is the class we expect. -->
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>jose4j</artifactId>
-      <version>1.x</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>jackson-databind</artifactId>
-      <version>2.x</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>jackson-core</artifactId>
-      <version>2.x</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>jackson-annotations</artifactId>
-      <version>2.x</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>commons-lang3</artifactId>
-      <version>3.x</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>commons-logging</artifactId>
-      <version>1.x</version>
-      <scope>provided</scope>
-    </dependency>
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
 
-    <!-- The @Requirement annotation only. Test-scoped and SOURCE-retention, so it never reaches
-         the war; this vendored tree imports no BOM, hence the explicit version. -->
-    <dependency>
-      <groupId>com.pingidentity.ps.oidf</groupId>
-      <artifactId>conformance</artifactId>
-      <version>0.5.0-SNAPSHOT</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>5.10.2</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
+    <dependencies>
+        <!-- All provided by PingFederate at run time. jose4j and jackson are at the versions the BOM holds
+             to the image (tools/pf-provided-versions.py); jakarta.servlet-api is the 5.0 API line the
+             image's Jetty ships as 5.0.2, checked member by member by tools/pf-linkcheck.py. Bundling any of them would break linkage: PF isolates each
+             deploy-dir artifact on its own classloader, so a second copy of a PF class would not be the
+             same class. -->
+        <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
+        <!-- jose4j: PF's own JWT library, and the type JwksEndpointKeyAccessor returns. Using PF's copy
+             means the JsonWebKeySet we get back is the class we expect. -->
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>provided</scope></dependency>
+        <!-- TypeReference is jackson-core's, imported directly. -->
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><scope>provided</scope></dependency>
+        <!-- No commons-lang3 or commons-logging: nothing here, main or test, reaches either (the
+             local.pingfederate era declared both; the war compiles and its tests pass without them). -->
 
-  <build>
-    <finalName>gm-api</finalName>
-    <plugins>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-war-plugin</artifactId>
-        <version>3.4.0</version>
-        <!-- Implementation-Version in the war's manifest: McpServlet reports it as the MCP server version,
-             so the version an agent sees is the one the pom says, not a literal that stops being true. -->
-        <configuration>
-          <archive>
-            <manifest>
-              <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
-            </manifest>
-          </archive>
-        </configuration>
-      </plugin>
-      <plugin>
-        <groupId>org.apache.maven.plugins</groupId>
-        <artifactId>maven-surefire-plugin</artifactId>
-        <version>3.2.5</version>
-      </plugin>
+        <!-- The @Requirement annotation only: SOURCE retention, so it never reaches the war. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
 
-      <!--
-        Coverage gate on the security-critical decision points: what the PDP is asked,
-        which requests are refused before it is asked at all, and how the answer is read
-        back. 100% line + branch, enforced — a missed branch here is a question asked on
-        the wrong subject, a guard that does not fire, or a deny read as a permit, not a
-        cosmetic gap.
+    <build>
+        <finalName>gm-api</finalName>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-war-plugin</artifactId>
+                <version>3.4.0</version>
+                <!-- Implementation-Version in the war's manifest: McpServlet reports it as the MCP server version,
+                     so the version an agent sees is the one the pom says, not a literal that stops being true. -->
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
 
-        Gated per METHOD, not per class, so the socket-bound and servlet-plumbing members
-        stay honestly out of scope: PdpClient.post/readAll open real connections, and the
-        McpServlet/GrantsServlet HTTP paths need a running PingFederate. Those are covered
-        by the deployed probes instead.
+            <!--
+              Coverage gate on the security-critical decision points: what the PDP is asked,
+              which requests are refused before it is asked at all, and how the answer is read
+              back. 100% line + branch, enforced — a missed branch here is a question asked on
+              the wrong subject, a guard that does not fire, or a deny read as a permit, not a
+              cosmetic gap.
 
-        Include patterns are jacoco's rendered METHOD names, not VM signatures: nested
-        classes join with '.' (not '$'), a constructor repeats the simple class name, and
-        parameters are fully-qualified type names. A pattern that matches nothing passes
-        silently, so every include below was verified to bind to the method it names.
-        Only the PfTokenVerifier constructor needs its parameter list spelled out — it is
-        overloaded, and the String-only sibling is not covered.
-      -->
-      <plugin>
-        <groupId>org.jacoco</groupId>
-        <artifactId>jacoco-maven-plugin</artifactId>
-        <version>0.8.12</version>
-        <executions>
-          <execution>
-            <id>prepare-agent</id>
-            <goals><goal>prepare-agent</goal></goals>
-          </execution>
-          <execution>
-            <id>report</id>
-            <phase>verify</phase>
-            <goals><goal>report</goal></goals>
-          </execution>
-          <execution>
-            <id>coverage-gate</id>
-            <phase>verify</phase>
-            <goals><goal>check</goal></goals>
-            <configuration>
-              <rules>
-                <rule>
-                  <element>METHOD</element>
-                  <includes>
-                    <!-- What the PDP is asked, and who it is asked about. -->
-                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.build(*</include>
-                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildSearchRequest(*</include>
-                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildDecisionRequest(*</include>
-                    <!-- The refusals that stop a request before the PDP ever sees it. -->
-                    <include>au.com.idpartners.gm.servlet.GrantEvaluator.authorise(*</include>
-                    <include>au.com.idpartners.gm.servlet.GrantView.isExpired(*</include>
-                    <!-- How the PDP's answer is turned into a permit, a deny, or a retry. -->
-                    <include>au.com.idpartners.gm.servlet.GrantOperations.evaluate(*</include>
-                    <include>au.com.idpartners.gm.servlet.GrantOperations.Decision.retryable(*</include>
-                    <!-- The subject the whole decision is about, parsed off the token. -->
-                    <include>au.com.idpartners.gm.servlet.TokenClaims.from(*</include>
-                    <include>au.com.idpartners.gm.servlet.PfTokenVerifier.PfTokenVerifier(com.pingidentity.access.JwksEndpointKeyAccessor*</include>
-                    <!-- The path parse that decides which grant a caller is acting on. -->
-                    <include>au.com.idpartners.gm.servlet.GrantsServlet.evaluateGrantIdFrom(*</include>
-                  </includes>
-                  <limits>
-                    <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
-                    <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
-                  </limits>
-                </rule>
-              </rules>
-            </configuration>
-          </execution>
-        </executions>
-      </plugin>
-    </plugins>
-  </build>
+              Gated per METHOD, not per class, so the socket-bound and servlet-plumbing members
+              stay honestly out of scope: PdpClient.post/readAll open real connections, and the
+              McpServlet/GrantsServlet HTTP paths need a running PingFederate. Those are covered
+              by the deployed probes instead.
+
+              Include patterns are jacoco's rendered METHOD names, not VM signatures: nested
+              classes join with '.' (not '$'), a constructor repeats the simple class name, and
+              parameters are fully-qualified type names. A pattern that matches nothing passes
+              silently, so every include below was verified to bind to the method it names.
+              Only the PfTokenVerifier constructor needs its parameter list spelled out — it is
+              overloaded, and the String-only sibling is not covered.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- What the PDP is asked, and who it is asked about. -->
+                                        <include>au.com.idpartners.gm.servlet.GrantEvaluator.build(*</include>
+                                        <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildSearchRequest(*</include>
+                                        <include>au.com.idpartners.gm.servlet.GrantEvaluator.buildDecisionRequest(*</include>
+                                        <!-- The refusals that stop a request before the PDP ever sees it. -->
+                                        <include>au.com.idpartners.gm.servlet.GrantEvaluator.authorise(*</include>
+                                        <include>au.com.idpartners.gm.servlet.GrantView.isExpired(*</include>
+                                        <!-- How the PDP's answer is turned into a permit, a deny, or a retry. -->
+                                        <include>au.com.idpartners.gm.servlet.GrantOperations.evaluate(*</include>
+                                        <include>au.com.idpartners.gm.servlet.GrantOperations.Decision.retryable(*</include>
+                                        <!-- The subject the whole decision is about, parsed off the token. -->
+                                        <include>au.com.idpartners.gm.servlet.TokenClaims.from(*</include>
+                                        <include>au.com.idpartners.gm.servlet.PfTokenVerifier.PfTokenVerifier(com.pingidentity.access.JwksEndpointKeyAccessor*</include>
+                                        <!-- The path parse that decides which grant a caller is acting on. -->
+                                        <include>au.com.idpartners.gm.servlet.GrantsServlet.evaluateGrantIdFrom(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
 </project>

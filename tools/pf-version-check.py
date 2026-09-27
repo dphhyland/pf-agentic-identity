@@ -14,7 +14,8 @@ What is checked, and against which key:
                                          PF_VERSION.0, the Terraform version is its major.minor, the
                                          digest is a sha256)
   bom/pom.xml                            <version.pingfederate>            = PF_SDK_MAVEN_VERSION
-  services/gm-api/servlet/pom.xml        <pingfederate.version>            = PF_VERSION
+  services/gm-api/servlet/pom.xml        no <pingfederate.version> of its own: it takes the SDK
+                                         version from the BOM, like every other module
   build/pingfederate/Dockerfile          FROM                              = PF_IMAGE@PF_IMAGE_DIGEST
                                          (a literal, so Dependabot can bump it; pf-version-sync.py
                                          then rewrites the env file from it)
@@ -104,8 +105,11 @@ def check_files(root, env, problems):
 
     gm = _read(root, "services/gm-api/servlet/pom.xml")
     got = _xml_text(gm, "pingfederate.version")
-    if got != env["PF_VERSION"]:
-        problems.append(f"services/gm-api/servlet/pom.xml: <pingfederate.version> is {got}, PF_VERSION is {env['PF_VERSION']}")
+    if gm is None:
+        problems.append("services/gm-api/servlet/pom.xml: missing")
+    elif got is not None:
+        problems.append(f"services/gm-api/servlet/pom.xml: carries <pingfederate.version> {got}; "
+                        f"it imports the BOM, whose <version.pingfederate> is the one")
 
     df = _read(root, "build/pingfederate/Dockerfile")
     froms = re.findall(r"^FROM\s+(\S+)", df or "", re.M)
