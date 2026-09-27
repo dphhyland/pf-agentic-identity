@@ -188,7 +188,7 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Field | Default | When it is wrong |
 |---|---|---|
 | PDP Dialect | `governance-engine` | `authzen` for an AuthZEN PDP; anything else is the governance engine |
-| PDP URL | required, `https://` | must be `https`; `http` only with `OIDF_DEPLOYMENT_PROFILE=development` (unset is production). The admin console and API refuse the field; an archive import of a plaintext URL fails configure and the instance denies everything |
+| PDP URL | required, `https://` (a placeholder the validator refuses) | must be `https`; `http` only with `OIDF_DEPLOYMENT_PROFILE=development` (unset is production). The admin console and API refuse the field. An archive import runs no validator, so there `configure` throws, and the plugin refuses every request that reaches the instance with `invalid_authorization_details`; what PingFederate itself does with such an instance is U-0068 |
 | PDP Domain Prefix / PDP Service / PDP Action | `idpartners.authorization_details` / `Authorization` / `authorize` | governance-engine dialect only |
 | Attribute Prefix / Prefix Attributes with Type | `idp` / on | an empty prefix with the type prefix off lets a requested field reach a reserved name, which is then refused |
 | Shared Secret Header / Shared Secret | `CLIENT-TOKEN` / required, **stored encrypted** | the same field name as before; a value stored in the clear by an older jar still works (below) but re-save it |

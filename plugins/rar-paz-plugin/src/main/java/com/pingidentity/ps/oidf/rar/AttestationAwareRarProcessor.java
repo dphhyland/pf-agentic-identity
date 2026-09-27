@@ -303,6 +303,13 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                                       AuthorizationDetailContext context,
                                       Map<String, Object> parameters) throws AuthorizationDetailProcessingException {
         String type = authDetail.getType();
+        if (config == null || client == null) {
+            // configure threw - a plaintext PDP URL outside development, say - or never ran. Refused as a
+            // processing failure, which PingFederate answers with invalid_authorization_details, rather than
+            // left to a NullPointerException below.
+            throw new AuthorizationDetailProcessingException("the processor for type '" + type
+                    + "' is not configured; see its configure error in the server log");
+        }
         HttpServletRequest request = requestOf(context);
         AttestationSubject subject = readSubject(request);
         // Detail on which the decision is made - a copy without the internal markers so they never reach the

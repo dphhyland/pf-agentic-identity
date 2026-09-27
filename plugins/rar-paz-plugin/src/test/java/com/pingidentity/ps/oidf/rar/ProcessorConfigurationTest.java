@@ -194,6 +194,23 @@ class ProcessorConfigurationTest {
                 stored("PDP URL", " http://pdp.internal/decide "), "development").getPdpUrl());
     }
 
+    /**
+     * An archive import runs no field validator, so a plaintext URL outside development stops configure; the
+     * instance left behind refuses every request as a processing failure rather than throwing a NullPointerException.
+     */
+    @Test
+    void anInstanceThatDidNotConfigureRefusesEveryRequest() {
+        AttestationAwareRarProcessor unconfigured = new AttestationAwareRarProcessor();
+        assertThrows(IllegalStateException.class,
+                () -> unconfigured.configure(stored("PDP URL", "http://pdp.internal/decide"), "production"));
+        AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
+                () -> unconfigured.enrich(payment(), context(), Map.of()));
+        assertTrue(e.getMessage().contains("not configured"), e.getMessage());
+        // Settings read but no PDP client built: the same refusal.
+        AttestationAwareRarProcessor noClient = new AttestationAwareRarProcessor(null, production(stored("PDP URL", PDP_URL)));
+        assertThrows(AuthorizationDetailProcessingException.class, () -> noClient.enrich(payment(), context(), Map.of()));
+    }
+
     /** The same rule sits on the field, so the admin console and the admin API say so before anything is stored. */
     @Test
     void thePdpUrlFieldCarriesTheHttpsValidator() {

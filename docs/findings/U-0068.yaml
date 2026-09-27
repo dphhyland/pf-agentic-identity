@@ -1,0 +1,19 @@
+id: U-0068
+title: What PingFederate 13.1.3 does with an authorization detail processor instance whose configure throws
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S-2]
+prs: []
+recorded_in: 'docs/releases/0.4.0.md, Before you deploy, the item on an https PDP URL'
+verify_by: >
+  On the rig under the production profile, import an archive whose RAR processor instance names an http PDP
+  URL, then read the admin API's view of the instance, the server log at import and at start, and the answer to
+  a token request carrying one of its types.
+verification: ''
+notes: >
+  From 0.4.0 the plugin's configure throws for a plaintext PDP URL outside development (the field validator
+  refuses it in the console and the admin API, but an archive import runs no validator), and enrich on an
+  instance that did not configure refuses with invalid_authorization_details (ProcessorConfigurationTest,
+  2026-09-27). Whether PingFederate refuses the import, disables the instance, logs the reason, or still routes
+  requests to it has not been seen: the rig runs as development.
