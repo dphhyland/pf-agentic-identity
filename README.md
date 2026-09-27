@@ -55,7 +55,7 @@ names below carry the project version, written `<version>`.
 |---|---|---|
 | `plugins/rar-paz-plugin` | **RAR plugin**: RFC 9396 `AuthorizationDetailProcessor` → PingAuthorize governance engine (principal as `UserID`, agent as `actor` — RFC 8693 delegation) | `pf.plugins.pf-rar-paz-plugin.jar` |
 | `plugins/instance-registry-datasource` | **`CustomDataSourceDriver`** over the instance registry: an access-token mapping resolves an instance id to owner, status, compliance and user-verification recency at issuance — where revocation and the time-box bite | `pf.plugins.instance-registry-datasource.jar` |
-| `plugins/ciba-sim` | **CIBA authentication device for the conformance rig**: an `OOBAuthPlugin` that waits for an allow or deny recorded at `POST /ciba-sim/decision`, plus that servlet, in one jar. Answers 404 unless `OIDF_CIBA_SIM_ENABLED=true` | `pf.plugins.ciba-sim.jar` |
+| `plugins/ciba-sim` | **CIBA authentication device for the conformance rig**: an `OOBAuthPlugin` that waits for an allow or deny recorded at `POST /ciba-sim/decision`, plus that servlet, in one jar. Staged only by the conformance profile, and refuses every request unless `OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and `OIDF_CIBA_SIM_DIR` passes its checks ([README](plugins/ciba-sim/README.md)) | `pf.plugins.ciba-sim.jar` |
 
 ### `services/` — standalone services
 

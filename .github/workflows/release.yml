@@ -140,7 +140,8 @@ jobs:
       - name: stage the module set
         # Writes modules/ + MANIFEST. assemble-pf-runtime-war.sh refuses a directory that does not match
         # its MANIFEST, so a partial stage fails the release rather than shipping a war that 500s.
-        run: bash build/pingfederate/stage-modules.sh
+        # The production profile: the CIBA simulator is a rig-only plugin and never ships in a release.
+        run: bash build/pingfederate/stage-modules.sh --profile production
 
       - name: assemble the release artifacts
         # Every copy is unconditional: a missing war or plugin jar fails the release instead of quietly
@@ -153,7 +154,8 @@ jobs:
           cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar dist/
           cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/
           cp services/gm-api/servlet/target/gm-api.war dist/
-          MODULES=$(grep -c . "$MANIFEST")
+          # MANIFEST/2 carries a header and [section] lines; only the "<sha256>  <file>" lines are jars.
+          MODULES=$(grep -cE '^[0-9a-f]{64}  ' "$MANIFEST")
           echo "MODULES=$MODULES" >> "$GITHUB_ENV"
 
           # Provenance: what a consumer needs to answer "which build is this, and am I behind?" The

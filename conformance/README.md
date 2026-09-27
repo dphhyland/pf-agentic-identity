@@ -35,9 +35,9 @@ listener on 9080 and the admin console on 9999 (`administrator`, password in `.a
 | 2 | `author.sh` | a **stock** PF 13.1.3 container with its admin API on `localhost:29999`, the cipher-list overlay and the CIBA plugin staged |
 | 3 | `apply.sh apply` | `terraform/` applied to it: OAuth server settings, a JWT access token manager and mappings, an OIDC policy, a login form and test user, the clients (below) |
 | 4 | `export.sh` | `data.zip` - PF's config archive, its whole saved state; refused if it would fail the suite |
-| 5 | `mvn package` + `stage-modules.sh` | the module jars, from this repo |
+| 5 | `mvn package` + `stage-modules.sh --profile conformance` | the nine module jars from this repo - the conformance profile, the CIBA simulator among them - and their v2 `MANIFEST` |
 | 6 | `compose-context.sh` | `.context/` - `build/pingfederate/`'s image build plus that archive |
-| 7 | `docker compose up --build` | the image, running, with `vars.env` and your licence details |
+| 7 | `docker compose up --build` | the image, built with `STAGING_PROFILE=conformance`, running with `vars.env` and your licence details |
 
 Steps 2-4 are how PF is configured **as code**: `terraform/` is the source, `data.zip` the built
 artefact the image imports at boot. There is no volume; a change made in the console is gone at the
@@ -95,9 +95,15 @@ PF_BASE_URL=https://your.host:port ./up.sh     # substitutes it into the archive
 The suite opens its own TLS handshakes against the token, authorization and userinfo endpoints and fails
 anything it does not like about the listener, so the listener has to be PF's own 9031, reached through
 a TLS-passthrough TCP proxy and not an HTTP edge that terminates TLS. `.context/` is the build context
-a deploy tool wants (`docker build .context`, or your platform's equivalent); the deployed service needs
-`.context/vars.env`'s values plus your DevOps credentials as its variables. The demo repo
-`pf-oidf-modules` deploys one such PF (project `pf-conformance`) and keeps the platform-specific pieces.
+a deploy tool wants - `docker build --build-arg STAGING_PROFILE=conformance .context`, or your platform's
+equivalent, and the build arg is not optional: `up.sh` stages `modules/` for the conformance profile,
+`compose-context.sh` accepts nothing else, and the assembler refuses to build that stage into an image for
+the default profile, production (`modules/ was staged for the conformance profile, and this image is being
+built for production`; verified 2026-09-27). What comes out is a conformance image: it carries the CIBA
+simulator, which runs only where the three settings `.context/vars.env` carries say so
+([plugins/ciba-sim](../plugins/ciba-sim/README.md)). The deployed service needs `.context/vars.env`'s
+values plus your DevOps credentials as its variables. The demo repo `pf-oidf-modules` deploys one such PF
+(project `pf-conformance`) and keeps the platform-specific pieces.
 
 ## Why it is shaped like this
 
@@ -142,9 +148,13 @@ the stand-in: an `OOBAuthPlugin` that answers `IN_PROGRESS` until an operator ha
 by time: the suite polls the token endpoint expecting `authorization_pending` before it decides, and two
 modules never decide. The plugin and the servlet are two classloaders in PF, so the handoff is a file
 named by the SHA-256 of the `auth_req_id` (`OIDF_CIBA_SIM_DIR`). The endpoint is an approval oracle
-keyed by that id alone, so it answers 404 unless `OIDF_CIBA_SIM_ENABLED=true`; `vars.env` turns it on
-because this is a rig. `author.sh` stages the jar into the authoring PF, which is why `up.sh` builds
-before it authors: `terraform/ciba.tf` can only instantiate a plugin PF can see.
+keyed by that id alone, so it answers 404 - and the plugin refuses every transaction - unless
+`OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and `OIDF_CIBA_SIM_DIR` is a private
+directory both halves check before every request ([plugins/ciba-sim](../plugins/ciba-sim/README.md));
+`vars.env` sets all three because this is a rig, and the jar is only in an image built for the conformance
+profile, which `docker-compose.yml` asks for and `up.sh` stages. `author.sh` stages the jar into the
+authoring PF, which is why `up.sh` builds before it authors: `terraform/ciba.tf` can only instantiate a
+plugin PF can see.
 
 **Three more small filters close what the FAPI-CIBA plan measures and PF does not do.** The signed
 request object's `exp`/`nbf` window is 720 minutes in 13.0.3 and 13.1.3 alike - compiled in, with no file
