@@ -166,7 +166,9 @@ PingFederate's jars (which the assembled war carries too), its Java runtime, the
 reported and never fail the build, because they are not ours to fix: a PingFederate version bump is what fixes
 them, and the job's summary lists them for the day the bump is chosen. Everything else is ours - the jars
 `stage-modules.sh` stages, anything the assembler adds to the war, the Alpine packages the Dockerfile's `apk add`
-installs - and a HIGH or CRITICAL finding there fails the job.
+installs - and a HIGH or CRITICAL finding there fails the job. A library one of our jars carries at the version
+PingFederate ships, with the same finding, counts as PingFederate's, since moving ours alone would leave the finding
+in the image.
 
 A finding of ours that cannot be fixed yet is accepted in `.github/grype.yaml`, one entry per vulnerability,
 package and version, each with its reason; the summary lists every accepted finding and names an entry that no

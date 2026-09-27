@@ -8,8 +8,9 @@ capability target built, BASE for the pingidentity/pingfederate image build/pf-v
 same way with the same configuration (.github/grype.yaml). A finding is PingFederate's when the base image's scan
 has the same vulnerability in the same package at the same version - its jars, which the assembled war carries
 as well, and its Go and Java runtimes. Everything else is ours: the jars stage-modules.sh stages, anything the
-assembler adds to the war, and the Alpine packages the Dockerfile's `apk add` installs. Ours at HIGH or CRITICAL
-fails; PingFederate's are counted and listed without failing, because a PingFederate version bump is what fixes
+assembler adds to the war, and the Alpine packages the Dockerfile's `apk add` installs. A library one of our jars
+carries at the version PingFederate ships, with the same finding, counts as PingFederate's: moving ours alone would
+leave the finding in the image. Ours at HIGH or CRITICAL fails; PingFederate's are counted and listed without failing, because a PingFederate version bump is what fixes
 them (build/pingfederate/README.md, "Scanning the image").
 
 The base image ships without apk's installed database (/lib/apk/db/installed), so a scan of it sees no Alpine

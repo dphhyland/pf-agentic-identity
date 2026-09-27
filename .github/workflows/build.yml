@@ -321,12 +321,12 @@ jobs:
   #
   # The scanner is grype and the SBOM syft's, both from tools/ci/install-lint-tools.sh at pinned versions and
   # checksums. grype rather than Trivy because it scans the syft SBOM this job publishes, so the package list
-  # published and the one scanned are the same document; Trivy's own release artefacts and actions were
-  # compromised in March 2026 (GHSA-69fq-xp46-6x23), which a checksum pin would have caught but which is no
-  # reason to prefer it. tools/ci/image-scan-gate.py fails on HIGH or CRITICAL findings in the layers this
-  # repository adds - its jars, the assembled war, the Alpine packages the Dockerfile installs - and reports the
-  # base image's own without failing: a PingFederate bump fixes those (build/pingfederate/README.md, "Scanning the
-  # image"). .github/grype.yaml names the findings of ours that are accepted, each with its reason.
+  # published and the one scanned are the same document. Not because of Trivy's compromise (a malicious v0.69.4
+  # release and force-pushed trivy-action tags on 2026-03-19, GHSA-69fq-xp46-6x23): a version pinned by checksum, as
+  # both tools are here, would not have fetched it. tools/ci/image-scan-gate.py fails on HIGH or CRITICAL findings
+  # in the layers this repository adds - its jars, the assembled war, the Alpine packages the Dockerfile installs -
+  # and reports the base image's own without failing: a PingFederate bump fixes those (build/pingfederate/README.md,
+  # "Scanning the image"). .github/grype.yaml names the findings of ours that are accepted, each with its reason.
   image:
     runs-on: ubuntu-latest
     permissions:
