@@ -91,7 +91,8 @@ class WalletInstanceAttestationValidatorTest {
 
     @Test
     void happyPathValidatesToWalletInstanceIdentity() throws Exception {
-        InstanceIdentity id = validate(wia(), config());
+        String w = wia();
+        InstanceIdentity id = validate(w, config());
         assertEquals("wallet", id.format());
         assertEquals(INSTANCE_ID, id.subject());
         assertEquals(PROVIDER, id.trustDomain());
@@ -99,6 +100,10 @@ class WalletInstanceAttestationValidatorTest {
         assertEquals(Jwks.thumbprint(instancePub), Jwks.thumbprint(id.boundKey()));
         assertEquals(PROVIDER, id.workloadClaims().get("wallet_provider"));
         assertEquals(INSTANCE_ID, id.workloadClaims().get("wallet_instance"));
+        assertNull(id.workloadClaims().get("instance_attestation"), "the raw WIA never leaves the attester (F-0002)");
+        assertEquals(InstanceIdentity.sha256Hex(w.substring(0, w.lastIndexOf('.'))), id.evidenceDigest());
+        assertEquals(AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, id.evidenceType());
+        assertEquals(java.util.List.of(ATTESTER), id.audiences());
     }
 
     @Test
@@ -209,7 +214,19 @@ class WalletInstanceAttestationValidatorTest {
     void spiffeInstanceIdentityHasNoBoundKey() throws Exception {
         // Cross-check the contract the endpoint relies on: SPIFFE binds no key, so no boundKey check runs.
         SpiffeSvid svid = new SpiffeSvid("spiffe://d/x", "d", "/x", List.of(ATTESTER),
-                NumericDate.now().getValue() + 600, NumericDate.now().getValue(), "raw");
+                NumericDate.now().getValue() + 600, NumericDate.now().getValue(), "header.payload.signature");
         assertNull(InstanceIdentity.ofSpiffe(svid).boundKey());
+    }
+
+    @Test
+    void theIssuedAtIsReadWhenPresentAndOtherwiseZero() throws Exception {
+        org.jose4j.jwt.JwtClaims none = new org.jose4j.jwt.JwtClaims();
+        assertEquals(0L, WalletInstanceAttestationValidator.issuedAt(none));
+        org.jose4j.jwt.JwtClaims numeric = new org.jose4j.jwt.JwtClaims();
+        numeric.setClaim("iat", 1_800_000_000L);
+        assertEquals(1_800_000_000L, WalletInstanceAttestationValidator.issuedAt(numeric));
+        org.jose4j.jwt.JwtClaims malformed = new org.jose4j.jwt.JwtClaims();
+        malformed.setClaim("iat", "yesterday");
+        assertEquals(0L, WalletInstanceAttestationValidator.issuedAt(malformed), "a malformed iat is none; exp still bounds the WIA");
     }
 }

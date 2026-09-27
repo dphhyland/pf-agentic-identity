@@ -132,6 +132,17 @@ public final class Stream {
         return this.eventsDelivered.contains(eventType);
     }
 
+    /**
+     * Whether the push executor may POST this stream's SETs: a push stream, and {@code enabled}. SSF 1.0
+     * §8.1.2.1 has the transmitter "MUST transmit events over the stream" when enabled and "MUST NOT
+     * transmit events over the stream" when paused or disabled; a poll stream is drained by its receiver.
+     * The one rule, asked by {@code SsfStore#dueForPush} when it selects and by {@code PushDeliveryService}
+     * again on the stream it reads back, so a status that changed between the two is still honoured.
+     */
+    public boolean isPushEnabled() {
+        return this.deliveryMethod == DeliveryMethod.PUSH && this.status == StreamStatus.ENABLED;
+    }
+
     public static final class Builder {
         private String id;
         private String audience;

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
@@ -67,9 +68,64 @@ class InMemorySsfStoreTest {
         assertEquals("j2", store.peek("s1", 10).get(0).jti());
     }
 
+    private Stream pushStream(String id, StreamStatus status) {
+        return Stream.builder()
+                .id(id)
+                .audience("https://receiver.example.com")
+                .deliveryMethod(DeliveryMethod.PUSH)
+                .pushEndpointUrl("https://receiver.example.com/set")
+                .eventsRequested(List.of(SsfEventTypes.CAEP_SESSION_REVOKED))
+                .status(status)
+                .build();
+    }
+
+    /**
+     * SSF 1.0 §8.1.2.1: enabled, "The Transmitter MUST transmit events over the stream, according to the
+     * stream's configured delivery method"; paused and disabled, "The Transmitter MUST NOT transmit events
+     * over the stream". The selection is the store's (SsfStore#dueForPush), so it is the store that is
+     * asked: a poll stream's SETs are its receiver's to poll for, never the push executor's.
+     */
+    @Test
+    @Requirement("SSF §8.1.2.1")
+    void dueForPushSelectsOnlyTheSetsOfEnabledPushStreams() {
+        store.createStream(pushStream("enabled", StreamStatus.ENABLED));
+        store.createStream(pushStream("paused", StreamStatus.PAUSED));
+        store.createStream(pushStream("disabled", StreamStatus.DISABLED));
+        store.createStream(pollStream("poll"));
+        for (String id : List.of("enabled", "paused", "disabled", "poll")) {
+            store.enqueue(PendingSet.fresh("j-" + id, id, "k", "e", "jws", 100, 0));
+        }
+
+        List<PendingSet> due = store.dueForPush(100, 10);
+
+        assertEquals(List.of("j-enabled"), due.stream().map(PendingSet::jti).toList());
+        assertEquals(1, store.peek("paused", 10).size(), "held, not dropped");
+        assertEquals(1, store.peek("poll", 10).size(), "left for the poll endpoint");
+    }
+
+    /**
+     * SETs issued in the same second come back from both reads in one order, by {@code jti}: the push executor
+     * holds a stream on {@code peek}'s first SET and posts in {@code dueForPush}'s order, so the two must agree
+     * (SsfStore#peek). Ten minted jtis, so the map's own iteration order is all but certain to be another one.
+     */
+    @Test
+    void aSecondsSetsComeBackInJtiOrderFromBothReads() {
+        store.createStream(pushStream("s1", StreamStatus.ENABLED));
+        List<String> minted = new java.util.ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            String jti = SetMinter.newJti();
+            minted.add(jti);
+            store.enqueue(PendingSet.fresh(jti, "s1", "k", "e", "jws", 100, 0));
+        }
+        List<String> sorted = minted.stream().sorted().toList();
+
+        assertEquals(sorted, store.peek("s1", 10).stream().map(PendingSet::jti).toList());
+        assertEquals(sorted, store.dueForPush(100, 10).stream().map(PendingSet::jti).toList());
+    }
+
     @Test
     void dueForPushRespectsNextAttemptTime() {
-        store.createStream(pollStream("s1"));
+        store.createStream(pushStream("s1", StreamStatus.ENABLED));
         store.enqueue(new PendingSet("j1", "s1", "k", "e", "jws", 100, 0, 0, 50));
         store.enqueue(new PendingSet("j2", "s1", "k", "e", "jws", 100, 0, 0, 200));
 

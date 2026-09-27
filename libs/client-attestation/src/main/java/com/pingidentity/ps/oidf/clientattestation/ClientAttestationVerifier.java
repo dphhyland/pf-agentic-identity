@@ -334,15 +334,30 @@ public final class ClientAttestationVerifier {
             }
             return;
         }
-        if (this.challengeService == null || !this.challengeService.consume(presentedChallenge)) {
+        if (this.challengeService == null) {
             throw ClientAttestationException.useChallenge("Unknown or expired attestation challenge");
+        }
+        switch (this.challengeService.consumeChallenge(presentedChallenge)) {
+            case CONSUMED:
+                return;
+            case STORE_UNAVAILABLE:
+                // An outage of ours, not a stale challenge of theirs: 503, so the client retries the same
+                // challenge later instead of fetching a new one that would meet the same store.
+                throw ClientAttestationException.temporarilyUnavailable("The attestation challenge store is unavailable");
+            default:
+                throw ClientAttestationException.useChallenge("Unknown or expired attestation challenge");
         }
     }
 
     private void enforceNoReplay(String clientId, String jti, long maxAgeSeconds) throws ClientAttestationException {
         long ttl = maxAgeSeconds + this.config.allowedClockSkewSeconds();
-        if (!this.replayCache.firstSeen(clientId, jti, ttl)) {
-            throw ClientAttestationException.invalidClient("Replay detected for proof jti");
+        switch (this.replayCache.record(clientId, jti, ttl)) {
+            case FIRST_USE:
+                return;
+            case STORE_UNAVAILABLE:
+                throw ClientAttestationException.temporarilyUnavailable("The attestation replay store is unavailable");
+            default:
+                throw ClientAttestationException.invalidClient("Replay detected for proof jti");
         }
     }
 

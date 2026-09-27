@@ -306,10 +306,22 @@ are already registered (`suite_base_urls`). The suite drives PF's login and cons
 `browser` block's selectors are the ids in PF's stock `html.form.login.template.html` and
 `oauth.approval.page.template.html`, and restyling those pages means changing the block.
 
+## The RAR plugin on this rig
+
+The image carries no RAR plugin. `verify-rar-principal.sh` lends the rig one for a run: it starts `up.sh` on
+its own slot (`PF_RIG_NAME=pfai-rar` by default) with `docker-compose.rar-plugin.yml` mounting the jar, runs
+`rar-principal/stub-pdp.py` on the host as an AuthZEN PDP that permits and records every request, configures a
+processor instance, the three built-in types, a token-exchange policy and a client through the admin API,
+drives client credentials, CIBA, refresh, token exchange and the code flow, prints per flow the user key
+PingFederate passed and the `principal_source` the plugin chose, and takes the rig down, image included.
+`OLD_PLUGIN_JAR=<an older release's jar>` first rehearses the upgrade from it. The evidence lands in
+`.rar-principal/` (git-ignored); the plugin's [README](../plugins/rar-paz-plugin/README.md) records what the
+runs showed.
+
 ## What is not in git, and must not be
 
 `.author.env`, `keys/`, `secrets.env`, `data*.zip`, `overlay/`, `suite/*.json`, `.context/`,
-terraform state. A config archive is a plain zip that contains `pf.jwk`, the master key that decrypts
+`.rar-principal/`, terraform state. A config archive is a plain zip that contains `pf.jwk`, the master key that decrypts
 every secret in it, beside the admin password hash. This directory ships it in plaintext into the
 image, which the build warns about loudly and correctly; `export.sh` says why that is tolerable for a
 PF whose key was generated minutes ago and protects three public JWKS and two generated secrets, and

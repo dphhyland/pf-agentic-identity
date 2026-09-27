@@ -17,7 +17,8 @@ import java.util.Set;
 /**
  * The AuthZEN dialect of {@link PdpClient}. POSTs the {@link AuthZenRequestBuilder} evaluation body to
  * the configured PDP URL (point it at the PDP's {@code /access/v1/evaluation}) with the same optional
- * shared-secret header as the governance-engine dialect, and maps the response:
+ * shared-secret header as the governance-engine dialect, reads the status the way {@link PdpResponses}
+ * says, and maps the response:
  *
  * <ul>
  *   <li>{@code decision} (boolean, required) → PERMIT / DENY.</li>
@@ -63,18 +64,13 @@ public final class AuthZenPdpClient implements PdpClient {
             headers.put(config.getSecretHeader(), config.getSecret());
         }
         HttpTransport.Response response = transport.post(config.getPdpUrl(), body, headers);
-        if (response.status() < 200 || response.status() >= 300) {
-            throw new IOException("AuthZEN PDP returned HTTP " + response.status() + ": " + response.body());
-        }
-        return parse(response.body());
+        return parse(PdpResponses.bodyOf(response, "AuthZEN PDP"));
     }
 
+    /** A body that is not a JSON object, or has no boolean {@code decision}, is refused: a PDP that answered, not one that permitted. */
     private DecisionResponse parse(String body) throws IOException {
-        JsonNode root = mapper.readTree(body == null ? "{}" : body);
-        if (!root.path("decision").isBoolean()) {
-            throw new IOException("AuthZEN response has no boolean 'decision': " + body);
-        }
-        boolean permit = root.get("decision").asBoolean();
+        JsonNode root = PdpResponses.jsonObjectOf(body, mapper, "AuthZEN");
+        boolean permit = decisionOf(root, body);
 
         List<DecisionResponse.Statement> statements = new ArrayList<>();
         JsonNode context = root.path("context");
@@ -103,5 +99,17 @@ public final class AuthZenPdpClient implements PdpClient {
             }
         }
         return new DecisionResponse(permit ? "PERMIT" : "DENY", permit, statements, body);
+    }
+
+    /**
+     * AuthZEN 1.0's {@code decision}: a JSON boolean, required. A string {@code "true"}, a number or no member
+     * at all is refused rather than read as anything.
+     */
+    static boolean decisionOf(JsonNode root, String body) throws IOException {
+        JsonNode decision = root.path("decision");
+        if (!decision.isBoolean()) {
+            throw new IOException("AuthZEN response has no boolean 'decision': " + PdpResponses.excerpt(body));
+        }
+        return decision.booleanValue();
     }
 }

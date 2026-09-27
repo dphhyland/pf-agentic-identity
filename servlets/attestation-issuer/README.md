@@ -40,28 +40,96 @@ registration selectors into the `workload` claim.
 ## Minting
 
 `AttestationMinter`: `iss` (the client's `attestation_issuer`), `sub` = `client_id`, `iat`/`exp`
-(`attestation_issued_ttl`), `cnf` (the instance key), `workload` (binding metadata + introspected
-attributes), `authorization_details` when an entitlement was granted, `agent_id` when a registry is
-configured. Signed by the client's own attester key (`AttesterSigningKey`): **OpenBao transit**
-(`attestation_signing_key_ref`, key never leaves the vault) or an inline private JWK
+(`attestation_issued_ttl`, and never past the evidence's own `exp`), `cnf` (the instance key), `workload`
+(binding metadata + introspected attributes), `authorization_details` when an entitlement was granted,
+`agent_id` when a registry is configured. Signed by the client's own attester key (`AttesterSigningKey`):
+**OpenBao transit** (`attestation_signing_key_ref`, key never leaves the vault) or an inline private JWK
 (`attestation_signing_jwk`, dev). `agent_id` (via [`agent-registry`](../../libs/agent-registry)) is
 opt-in: nothing in this module configures `AgentRegistrySupport`; unconfigured = no claim, configured but
 broken = `server_error`, never a silent attestation without identity.
+
+What `workload` says about the evidence is `instance_attestation_sha256`, `instance_attestation_type`
+(the evidence type that validated it: `spiffe-jwt`, `gke-sa-token`, `wallet-instance-attestation`, ...) and
+`instance_attestation_exp`. The digest is the SHA-256, lower-case hex, of the evidence's first two segments,
+header and payload - its JWS Signing Input (RFC 7515 §2), which is what its signature covers. An auditor
+holding a captured token computes it with `printf %s "${token%.*}" | sha256sum`. The signature segment is
+left out because a verifier accepts one signature in many encodings: jose4j 0.9.6 verifies a token with
+trailing whitespace, with stray characters or padding in its signature, with non-canonical trailing bits and,
+for ECDSA, as the `(r, n-s)` twin, and each of those has a different SHA-256 as a whole string. The evidence itself never leaves the attester: 0.3.0 embedded it as
+`workload.svid` (every SPIFFE-shaped type) and `workload.instance_attestation` (the wallet WIA), and since
+its audience is the attester, anyone who read an attestation could present it and be issued one for their
+own key (finding F-0002). The plugin and PingFederate's token mappings forward whatever `workload` carries,
+so removing it here removes it from the PDP and the tokens too; `AttestationIssuanceServletTest` decodes
+the minted JWT and looks for the token.
 
 Client config is the PF client's `attestation_*` extended properties (`AttestationIssuanceConfig`),
 resolved through `PfIssuanceClientResolver`, with a CIMD document and/or an OpenID Federation entity
 prepended when configured (`AttesterResolvers`).
 
+## Evidence binding
+
+Once the key proof and every other check have passed - last, just before minting, so a request refused by
+any of those checks never takes the binding - the evidence binds to `(instance key thumbprint, client)` in
+the shared store (`EvidenceBindingStore`, `oidf:cas:evidence:<digest>`, Redis `SET NX PX` with a
+`GET`-and-compare fallback, or the in-memory store per node) for as long as the evidence lives. A request
+that fails after the binding, at the signer say, keeps it; that presenter passed every check. The first
+presenter wins; the same key and client may present the same evidence again (a workload re-attesting from
+the evidence it still holds); a different key or client is refused with 401 `instance_attestation_bound`
+and the audit event `attestation.evidence.conflict` (failure reason `evidence_bound_elsewhere`, subject the
+client, fields `evidence_sha256`, `evidence_type`, `instance_subject`, `presented_jkt` for the key refused,
+and `bound_jkt` and `bound_client` for the key and client that hold the binding). The event goes through
+`FederationEvents`, so it reaches PingFederate's audit log the way the federation events do
+([docs/federation/operations.md](../../docs/federation/operations.md)). The issuance log line names the
+digest and the key it was issued for (`instance_jkt`).
+
+Because the digest covers header and payload only, the same token re-encoded meets the same binding, and two
+tokens with the same header and payload are the same evidence whatever their signatures. Only a key the
+attester trusts for that subject can produce a second one.
+
+A workload that regenerates its instance key while its evidence is still live meets its own binding. The
+SPIRE agent caches a JWT-SVID per SPIFFE ID and audience and returns the cached one until less than half its
+lifetime is left (spiffe/spire main, fetched 2026-09-27: `FetchJWTSVID` in `pkg/agent/manager/manager.go`,
+`JWTSVIDExpiresSoon` in `pkg/common/rotationutil/rotationutil.go`), and a projected cloud token is the same
+file until it rotates. There are three ways out: keep the instance key for the evidence's life, persisting it
+across restarts; wait for the cached evidence to rotate; or, on a SPIRE that has it, register the entry with
+a `jti` claim, which makes the agent bypass its cache and mint a fresh SVID for every fetch. A conflict
+right after a restart is most likely this, not a theft. Replicas that share a SPIFFE ID share the agent's
+cached SVID the same way, so give each its own SPIFFE ID or a `jti`.
+
+Residual risk, as the plan states it: a thief who uses the evidence first wins; detectable, not
+preventable, without key-bound evidence. The binding is then the thief's, and the rightful holder is the
+one refused and audited; the lifetime cap below bounds how long a stolen token stays presentable. Evidence
+with nothing to digest (a format whose evidence is not one token) is not bound.
+
+A challenge, replay or binding store that cannot answer is 503 `temporarily_unavailable` (CAS §4.6; the
+code is RFC 6749's, §4.1.2.1), never a refusal about the request. The caller retries with the same
+evidence and a fresh proof, because the proof's challenge or `jti` may have been spent before the store
+stopped answering. The issuer's proof jtis and bindings live under `oidf:cas:*`; its challenges are
+consumed from `oidf:as:challenge:*`, because the one challenge endpoint issues there, until plan item S4b
+gives the CAS its own.
+
 ## Configuration
 
-| Setting | Where | Notes |
+| Setting | Default | What it does | When it's wrong |
+|---|---|---|---|
+| `challengeRequired`, `customClaimsRequired` (init-params; `customClaimsRequired` also `oidf.attestation.custom.claims.required` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) | `false`, none | `challengeRequired` is read by all three servlets, `customClaimsRequired` by issuance + CAS metadata - keep them consistent | Not checked: a value other than `true` is `false` |
+| `openBaoUrl`/`openBaoToken` (init-param, else `oidf.openbao.url`/`OIDF_OPENBAO_URL`, then `OPENBAO_ADDR`/`BAO_ADDR`/`VAULT_ADDR`, token likewise) | unset | Transit signing | Per request: a client whose `attestation_signing_key_ref` needs the vault is `server_error` |
+| `OIDF_ATTESTER_FEDERATION_ENTITY`, `OIDF_ATTESTER_SIGNING_JWK` (sysprop `oidf.attester.*` or env) | unset | Extra client-metadata sources, consulted federation first, then CIMD, then the PF store. A federation entity is trusted only through a chain to one of the pinned anchors (`OIDF_FEDERATION_TRUST_ANCHOR_JWKS`), and an entity the anchor stops vouching for loses its clients within 300 s | An entity named with no anchor pinned: first request, the attester refuses to build its resolvers |
+| `OIDF_ATTESTER_CIMD_URL` (`oidf.attester.cimd.url`) | unset | A Client ID Metadata Document as a client source - honoured only under `OIDF_DEPLOYMENT_PROFILE=development` (plan item M-1, finding F-0067): the document hands the attester every client's bindings and trust roots, so whoever answers at the URL chooses the keys the attester accepts. X-B02 replaces it | Set outside development: first request, the `cimd` plugin is left out with an ERROR naming the variable, the discovery document's `resolver_plugins_active` omits `cimd`, and so does the CAS document's `client_metadata_sources_supported` even when `OIDF_CIMD_TRUST_BUNDLES` is set; clients only that document describes are unknown here, the other sources keep serving |
+| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` honours `OIDF_ATTESTER_CIMD_URL` and lets `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` exceed a day; anything else, unset included, is production. Read directly from the environment until PR-1 centralises it | Not checked beyond that: a typo is production |
+| `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` (`oidf.attester.max.evidence.lifetime.seconds`) | 86400 | The longest lifetime the attester accepts of a piece of evidence: of the whole (`exp - iat`) when it has an `iat`, and of what is left (`exp - now`, with 60 s allowed for a clock behind the issuer's) always. Longer-lived evidence is refused (`invalid_svid` / `invalid_instance_attestation`, naming the variable). A binding lives as long as its evidence, so this bounds how long a stolen token stays presentable | Not a positive number, or above 86400 under the production profile: first request, 500 `server_error` naming the variable |
+| `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE` (`oidf.attester.require.single.audience.evidence`) | `false` | `true` refuses evidence whose `aud` names more than one party: such evidence is presentable to each of them, so the attester cannot know it was the intended one | Neither `true` nor `false`: first request, 500 `server_error` naming the variable |
+| `OIDF_REDIS_URL` and its companions | unset | The shared store the challenges, proof jtis and evidence bindings live in; see [client-attestation](../../libs/client-attestation/README.md#configuration) for the URL, the CA file and the namespaces | As documented there; an unreachable store is 503 `temporarily_unavailable` here |
+| `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_TRUST_ANCHOR_JWKS` (`OIDF_TRUST_CONTROLLER_IGNORE_SSL`) or `OIDF_WALLET_PROVIDER_JWKS` (sysprop/env) | unset | Wallet-provider trust: federation-backed preferred, static map otherwise. `OIDF_TRUST_ANCHOR_JWKS` is the anchor's public JWK Set (the `jwks` claim of its entity configuration), captured once out of band; the keys are never fetched, and there is no fall-back to the static map (OpenID Federation 1.0 §4) | A host named without the anchor keys: first request, wallet trust is refused naming the variable |
+| `OIDF_ATTESTER_SPIRE_ENTRIES_URL`, `OIDF_ENTRA_AGENT_DIRECTORY` (sysprop/env) | unset | SPIRE selector introspection; the Entra Agent ID asserted-context resolver (`OIDF_CIMD_TRUST_BUNDLES` only adds `cimd` to the CAS document's `client_metadata_sources_supported`, and only under `OIDF_DEPLOYMENT_PROFILE=development`) | Not checked: an unreachable SPIRE endpoint yields no selectors; an unparseable directory registers no resolver |
+| `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `customClaimsSupported` (init-params on the CAS metadata servlet) | advertised as built | What the CAS document advertises | Not checked |
+
+### Error codes added in 0.4.0
+
+| Code | HTTP | When |
 |---|---|---|
-| `challengeRequired`, `customClaimsRequired` | init-param (`customClaimsRequired` also `oidf.attestation.custom.claims.required` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) | `challengeRequired` is read by all three servlets, `customClaimsRequired` by issuance + CAS metadata - keep them consistent. |
-| `openBaoUrl`/`openBaoToken` | init-param, else `oidf.openbao.url`/`OIDF_OPENBAO_URL` (then `OPENBAO_ADDR`/`BAO_ADDR`/`VAULT_ADDR`), token likewise | Transit signing. |
-| `OIDF_ATTESTER_CIMD_URL`, `OIDF_ATTESTER_FEDERATION_ENTITY`, `OIDF_ATTESTER_SIGNING_JWK` | sysprop `oidf.attester.*` or env | Extra client-metadata sources, consulted federation first, then CIMD, then the PF store. A federation entity is trusted only through a chain to one of the pinned anchors (`OIDF_FEDERATION_TRUST_ANCHOR_JWKS`) - naming one with no anchor pinned stops the attester starting - and an entity the anchor stops vouching for loses its clients within 300 s. |
-| `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_TRUST_ANCHOR_JWKS` (`OIDF_TRUST_CONTROLLER_IGNORE_SSL`) or `OIDF_WALLET_PROVIDER_JWKS` | sysprop/env | Wallet-provider trust: federation-backed preferred, static map otherwise. `OIDF_TRUST_ANCHOR_JWKS` is the anchor's public JWK Set (the `jwks` claim of its entity configuration), captured once out of band. Naming a host without it refuses wallet trust at the first issuance request, naming the variable - it never fetches the keys, and never falls back to the static map (OpenID Federation 1.0 §4). |
-| `OIDF_ATTESTER_SPIRE_ENTRIES_URL`, `OIDF_ENTRA_AGENT_DIRECTORY` | sysprop/env | SPIRE selector introspection; the Entra Agent ID asserted-context resolver (`OIDF_CIMD_TRUST_BUNDLES` only adds `cimd` to the CAS document's `metadata_sources`). |
-| `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `customClaimsSupported` | init-param on the CAS metadata servlet | |
+| `instance_attestation_bound` | 401 | The evidence is already bound to a different instance key or client (and `attestation.evidence.conflict` was audited) |
+| `temporarily_unavailable` | 503 | The challenge, replay or evidence-binding store could not answer; retry later with the same evidence and a fresh proof |
 
 ## Build and deploy
 

@@ -1,0 +1,7413 @@
+{
+  "description": "Named cases for the rar-model containment semantics: every rule, every malformed shape, the size limits and the models document. Run by RarModelVectorsTest through Vectors.run; the wave-2 runners (the authenticator, the issuer, the refresh path) read the same file through Vectors.load. Expectations compare canonical JSON, so member order and number spelling do not matter. The pinned fingerprints change only when a built-in model or RarModels.SEMANTICS changes, deliberately.",
+  "cases": [
+    {
+      "name": "set: a subset of the ceiling's values is contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)",
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts",
+            "create_opportunity"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "create_opportunity"
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "set: a value outside the ceiling is not contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "delete_account"
+          ]
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "set: a constrained field the candidate omits is not contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "set: a field the ceiling omits is unconstrained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "anything"
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "set: an empty array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set: null is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": null
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set: a string instead of an array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": "read"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set: a non-string element is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            1
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set: an empty array in the ceiling is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set: duplicate values compare as a set",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts",
+            "read_accounts"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts"
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "set: INHERIT fills the omitted constrained field from the ceiling",
+      "op": "authorize",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts",
+            "create_opportunity",
+            "submit_quote"
+          ],
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts"
+          ]
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "read_accounts"
+            ],
+            "sales_regions": [
+              "EMEA"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "set: STRICT refuses the omitted constrained field",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts"
+          ],
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "read_accounts"
+          ]
+        }
+      ],
+      "mode": "STRICT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "set: the meet is the intersection, sorted",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "c",
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "d",
+            "c",
+            "b"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "b",
+              "c"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "set: disjoint sets have no meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "b"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "set_of_values: account objects compare structurally",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "DE02100100109307118603"
+            },
+            {
+              "iban": "DE75512108001245126199"
+            }
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "DE75512108001245126199"
+            }
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "set_of_values: member order does not change a value",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "X",
+              "currency": "EUR"
+            }
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "currency": "EUR",
+              "iban": "X"
+            }
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "set_of_values: an account outside the ceiling is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "DE02100100109307118603"
+            }
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "DE02100100109307118603"
+            },
+            {
+              "iban": "GB33BUKB20201555555555"
+            }
+          ]
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "set_of_values: a null element is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": [
+            null
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set_of_values: an empty array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": []
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "set_of_values: numbers compare by value",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "accounts": [
+            1.0,
+            2
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": [
+            1
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "set_of_values: the meet keeps the common values",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "DE02100100109307118603"
+            },
+            {
+              "iban": "DE75512108001245126199"
+            }
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "account_information",
+          "accounts": [
+            {
+              "iban": "DE75512108001245126199"
+            },
+            {
+              "iban": "GB33BUKB20201555555555"
+            }
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "account_information",
+            "accounts": [
+              {
+                "iban": "DE75512108001245126199"
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "limit: a smaller value is contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 100
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit: an equal value is contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit: a larger value is not contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5001
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "limit: a decimal string compares by value",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "4999.99"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit: a number and a string of the same value are equal",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "5000"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000.0
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit: a non-numeric string is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "lots"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: exponent notation in a string is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "5e3"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: a boolean is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": true
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: null is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": null
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: an array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": [
+            5000
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: a negative number is malformed, not within every ceiling",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": -99999999
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: a negative decimal string is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "-1"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit: zero is a limit",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 0
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit: a decimal string of 64 digits is within the digit limit",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "1111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit: a decimal string of 65 digits is too large",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "11111111111111111111111111111111111111111111111111111111111111111"
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limit: INHERIT fills the omitted limit",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "sales_agent",
+            "max_txn_eur": 5000
+          }
+        ]
+      }
+    },
+    {
+      "name": "limit: the meet takes the smaller",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5000
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 100
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "max_txn_eur": 100
+          }
+        ]
+      }
+    },
+    {
+      "name": "limit: equal values with different spellings meet as the one that sorts first",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 100
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": "100.0"
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "max_txn_eur": "100.0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "limit with unit: within the amount and the same currency",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00",
+          "currency": "EUR"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit with unit: a different currency is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00",
+          "currency": "USD"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "limit with unit: an amount without its currency is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit with unit: a ceiling amount without its currency is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": 100
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit with unit: the currency alone constrains the currency",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "1000000",
+          "currency": "EUR"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "limit with unit: the currency alone refuses another currency",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "1",
+          "currency": "USD"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "limit with unit: INHERIT supplies the currency beside a sent amount",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "amount": "42.00",
+            "currency": "EUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "limit with unit: INHERIT supplies both when both are omitted",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "amount": "100.00",
+            "currency": "EUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "limit with unit: a negative flat amount is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00",
+          "currency": "AUD"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "-5000",
+          "currency": "AUD"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limit with unit: different currencies have no meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00",
+          "currency": "USD"
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "limit with unit: the meet takes the smaller amount",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "amount": "100.00",
+          "currency": "EUR"
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "amount": "42.00",
+          "currency": "EUR"
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "payment_initiation",
+            "amount": "42.00",
+            "currency": "EUR"
+          }
+        ]
+      }
+    },
+    {
+      "name": "amount: an instructedAmount within the ceiling",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)",
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "amount: a larger instructedAmount is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.51"
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "amount: a different currency is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "USD",
+            "amount": "1"
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "amount: a missing currency is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "amount": "1"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a missing amount is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: an extra member is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "amount": "1",
+            "currency": "EUR",
+            "note": "x"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a string instead of an object is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": "123.50"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a non-decimal amount is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "12,50"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a blank currency is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": " ",
+            "amount": "1"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a numeric currency is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": 978,
+            "amount": "1"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a negative amount is malformed, not within every ceiling",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "-1000000"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: a negative amount is malformed as a number too",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": -5
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "amount: the meet takes the smaller amount with an equal currency",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "payment_initiation",
+            "instructedAmount": {
+              "currency": "EUR",
+              "amount": "100"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "amount: different currencies have no meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "USD",
+            "amount": "100"
+          }
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "amount: RFC 9396 Figure 2 is within itself",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate",
+            "status",
+            "cancel"
+          ],
+          "locations": [
+            "https://example.com/payments"
+          ],
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          },
+          "creditorName": "Merchant A",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          },
+          "remittanceInformationUnstructured": "Ref Number Merchant"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate",
+            "status",
+            "cancel"
+          ],
+          "locations": [
+            "https://example.com/payments"
+          ],
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          },
+          "creditorName": "Merchant A",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          },
+          "remittanceInformationUnstructured": "Ref Number Merchant"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "amount: RFC 9396 Figure 2 with a smaller amount and fewer actions is within Figure 2",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §6.1"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate",
+            "status",
+            "cancel"
+          ],
+          "locations": [
+            "https://example.com/payments"
+          ],
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "123.50"
+          },
+          "creditorName": "Merchant A",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          },
+          "remittanceInformationUnstructured": "Ref Number Merchant"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ],
+          "locations": [
+            "https://example.com/payments"
+          ],
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100.00"
+          },
+          "creditorName": "Merchant A",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          },
+          "remittanceInformationUnstructured": "Ref Number Merchant"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: an earlier instant is contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59:59Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-06-30T00:00:00Z"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: a later instant is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59:59Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2027-01-01T00:00:00Z"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "instant_limit: offsets compare as instants",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:00:00Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:30:00+01:00"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: a date means the end of that day",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59:59Z"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: the next day is past a date",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2027-01-01T00:00:01Z"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "instant_limit: the next midnight is past a date",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2027-01-01T00:00:00Z"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "instant_limit: a date asks for the whole of its day",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59:59Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "instant_limit: a date is read in UTC under a date-time ceiling",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2027-01-01T00:00:00Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: a date within a date",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-01"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: not a timestamp is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "next year"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: a number is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": 20261231
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: a date-time without an offset is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59:59"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: a date-time without seconds is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59Z"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: a year of more than four digits is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "+999999999-12-31"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: a date that does not exist is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-02-30"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: a leap second is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-06-30T23:59:60Z"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: more than nine fraction digits are malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-06-30T00:00:00.1234567891Z"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "instant_limit: lower-case t and z are RFC 3339 too",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-06-30t00:00:00z"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: the last date there is",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "9999-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-06-30"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "instant_limit: the meet takes the earlier",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "b": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-06-30T12:00:00Z"
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "account_information",
+            "validUntil": "2026-06-30T12:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: the same object in another member order is equal",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "X",
+            "bic": "Y"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "bic": "Y",
+            "iban": "X"
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "equal: a different object is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE75512108001245126199"
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "equal: a string account compares exactly",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "debtorAccount": "acc-1"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "debtorAccount": "ACC-1"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "equal: a boolean equal to itself",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "recurringIndicator": true
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "recurringIndicator": true
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "equal: a different boolean is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "recurringIndicator": true
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "recurringIndicator": false
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "equal: a number equals the same value spelt differently",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "id": 42
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "id": 42.0
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "equal: null is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": null
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "equal: an empty object is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {}
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "equal: an empty array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": []
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "equal: a null inside an object is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": null
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "equal: a null inside an array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "debtorAccount": [
+            "a",
+            null
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "equal: INHERIT fills the omitted value",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "creditorAccount": {
+              "iban": "DE02100100109307118603"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: equal values meet as the value",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          }
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "payment_initiation",
+            "creditorAccount": {
+              "iban": "DE02100100109307118603"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "equal: different values have no meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE02100100109307118603"
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "iban": "DE75512108001245126199"
+          }
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "string: the same string is contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "string: a different string is not contained",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant B"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "string: strings compare exactly",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "merchant a"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "string: identifier compares by value",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "identifier": "intent-42"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "identifier": "intent-42"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "string: a different identifier is not contained",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "identifier": "intent-42"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "identifier": "intent-43"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "string: an identifier that is a number is malformed",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "identifier": 42
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "string: an identifier that is an object is malformed, even where the ceiling leaves it open",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §2.2"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "identifier": {
+            "$ne": null
+          }
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "string: a blank string is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorName": " "
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "string: an array is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "remittanceInformationUnstructured": [
+            "Ref"
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "string: a currency that is a number is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "currency": 978
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "string: purpose is a string",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "purpose": "quarterly review"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "purpose": "quarterly review"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "string: INHERIT fills the omitted value",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "creditorName": "Merchant A"
+          }
+        ]
+      }
+    },
+    {
+      "name": "string: different strings have no meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant B"
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "object: nested values within the ceiling's are contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a",
+              "/b"
+            ],
+            "owners": [
+              {
+                "iban": "DE02100100109307118603"
+              }
+            ]
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "owners": [
+              {
+                "iban": "DE02100100109307118603"
+              }
+            ]
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "object: a nested value outside the ceiling is not contained",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a",
+              "/b"
+            ],
+            "owners": [
+              {
+                "iban": "DE02100100109307118603"
+              }
+            ]
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "owners": [
+              {
+                "iban": "DE75512108001245126199"
+              }
+            ]
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "object: an omitted nested constrained field is not contained",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "mode": "r"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ]
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "object: a nested field the ceiling omits is unconstrained",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ]
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "mode": "rw"
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "object: an undeclared nested field is refused",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §6.1"
+      ],
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ]
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "other": 1
+          }
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "object: a string instead of an object is malformed",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": "all"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "object: an empty ceiling object constrains nothing inside but requires the object",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {}
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ]
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "object: an empty ceiling object is still a constrained field",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {}
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "object: type inside a nested object is an undeclared field",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "type": "x"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "object: INHERIT fills omitted nested fields",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "mode": "r"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ]
+          }
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "https://scheme.example.org/files",
+            "access": {
+              "paths": [
+                "/a"
+              ],
+              "mode": "r"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object: INHERIT fills the whole omitted object",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "mode": "r"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "https://scheme.example.org/files",
+            "access": {
+              "paths": [
+                "/a"
+              ],
+              "mode": "r"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object: INHERIT pairs a nested limit with the ceiling's unit",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/budgets": {
+              "fields": {
+                "o": {
+                  "rule": "object",
+                  "fields": {
+                    "budget": {
+                      "rule": "limit",
+                      "unit_field": "cur"
+                    },
+                    "cur": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 10,
+            "cur": "EUR"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 5
+          }
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "https://scheme.example.org/budgets",
+            "o": {
+              "budget": 5,
+              "cur": "EUR"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object: a nested limit with no unit anywhere is malformed under INHERIT",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/budgets": {
+              "fields": {
+                "o": {
+                  "rule": "object",
+                  "fields": {
+                    "budget": {
+                      "rule": "limit",
+                      "unit_field": "cur"
+                    },
+                    "cur": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/budgets"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 5
+          }
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "object: STRICT refuses a nested limit sent without its unit",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/budgets": {
+              "fields": {
+                "o": {
+                  "rule": "object",
+                  "fields": {
+                    "budget": {
+                      "rule": "limit",
+                      "unit_field": "cur"
+                    },
+                    "cur": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 10,
+            "cur": "EUR"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 5
+          }
+        }
+      ],
+      "mode": "STRICT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "object: the meet is taken field by field",
+      "op": "intersect",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "a": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a",
+              "/b"
+            ]
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/b",
+              "/c"
+            ],
+            "mode": "r"
+          }
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "https://scheme.example.org/files",
+            "access": {
+              "paths": [
+                "/b"
+              ],
+              "mode": "r"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object: a nested field with no meet means no detail",
+      "op": "intersect",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "a": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/a"
+            ]
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "https://scheme.example.org/files",
+          "access": {
+            "paths": [
+              "/b"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "alternatives: a candidate carrying instructedAmount and the flat amount is malformed",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "50"
+          },
+          "amount": "1000000",
+          "currency": "USD"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "alternatives: a ceiling carrying both spellings is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          },
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "alternatives: a flat amount is not within a ceiling that says instructedAmount",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "1000000",
+          "currency": "USD"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "alternatives: instructedAmount is not within a ceiling that says the flat amount",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "42",
+          "currency": "AUD"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "AUD",
+            "amount": "1000000"
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "alternatives: a currency alone still holds the candidate to the flat spelling",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "1000000"
+          }
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "alternatives: a ceiling that says neither leaves either open (1 of 2)",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ],
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "1000000"
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "alternatives: a ceiling that says neither leaves either open (2 of 2)",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ],
+          "amount": "1000000",
+          "currency": "USD"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "alternatives: the same spelling compares as before",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "50"
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "alternatives: INHERIT does not fill instructedAmount beside a flat amount",
+      "op": "authorize",
+      "requirements": [
+        "CAS §7.1"
+      ],
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "1000000",
+          "currency": "USD"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "alternatives: INHERIT does not fill the flat amount beside instructedAmount",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": "42",
+          "currency": "AUD"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "AUD",
+            "amount": "1000000"
+          }
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "alternatives: INHERIT fits the entry that uses the candidate's spelling",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        },
+        {
+          "type": "payment_initiation",
+          "amount": "42",
+          "currency": "AUD"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "10"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "amount": "10",
+            "currency": "AUD"
+          }
+        ]
+      }
+    },
+    {
+      "name": "alternatives: an entry that cannot pair the candidate's amount is passed over, and one that can exceeds it",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        },
+        {
+          "type": "payment_initiation",
+          "amount": "42",
+          "currency": "AUD"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "50"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "alternatives: an amount no entry can give a currency is malformed",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        },
+        {
+          "type": "payment_initiation",
+          "creditorName": "Merchant A"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "50"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "alternatives: INHERIT gives a silent candidate the ceiling's spelling",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "actions": [
+              "initiate"
+            ],
+            "instructedAmount": {
+              "currency": "EUR",
+              "amount": "100"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "alternatives: two spellings have no meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "amount": "50",
+          "currency": "EUR"
+        }
+      ],
+      "expect": {
+        "intersection": []
+      }
+    },
+    {
+      "name": "alternatives: a side that says neither meets either",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "payment_initiation",
+            "actions": [
+              "initiate"
+            ],
+            "instructedAmount": {
+              "currency": "EUR",
+              "amount": "100"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "accounts: RFC 9396 §7.1's access object is not in the built-in model",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §6.1"
+      ],
+      "ceiling": [
+        {
+          "type": "account_information",
+          "accounts": [
+            "A"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "access": {
+            "transactions": [
+              "B"
+            ]
+          }
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "accounts: RFC 9396 Figure 16 is refused by the built-in model",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [],
+            "balances": [],
+            "transactions": []
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "accounts: a document can swap accounts for the access object",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "account_information": {
+              "extends": "account_information",
+              "fields": {
+                "accounts": "forbidden",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "accounts": "set_of_values",
+                    "balances": "set_of_values",
+                    "transactions": "set_of_values"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ],
+            "balances": [
+              {
+                "iban": "DE2310010010123456789"
+              }
+            ],
+            "transactions": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ]
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [
+              {
+                "iban": "DE2310010010123456789"
+              }
+            ],
+            "balances": [
+              {
+                "iban": "DE2310010010123456789"
+              }
+            ],
+            "transactions": [
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ]
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "accounts: that document still refuses Figure 16's empty arrays",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "account_information": {
+              "extends": "account_information",
+              "fields": {
+                "accounts": "forbidden",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "accounts": "set_of_values",
+                    "balances": "set_of_values",
+                    "transactions": "set_of_values"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ],
+            "balances": [
+              {
+                "iban": "DE2310010010123456789"
+              }
+            ],
+            "transactions": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ]
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [],
+            "balances": [],
+            "transactions": []
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "accounts: that document fills what the request leaves out of the access object",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "account_information": {
+              "extends": "account_information",
+              "fields": {
+                "accounts": "forbidden",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "accounts": "set_of_values",
+                    "balances": "set_of_values",
+                    "transactions": "set_of_values"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ],
+            "balances": [
+              {
+                "iban": "DE2310010010123456789"
+              }
+            ],
+            "transactions": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ]
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "access": {},
+          "recurringIndicator": true
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "account_information",
+            "access": {
+              "accounts": [
+                {
+                  "iban": "DE2310010010123456789"
+                },
+                {
+                  "maskedPan": "123456xxxxxx1234"
+                }
+              ],
+              "balances": [
+                {
+                  "iban": "DE2310010010123456789"
+                }
+              ],
+              "transactions": [
+                {
+                  "iban": "DE2310010010123456789"
+                },
+                {
+                  "maskedPan": "123456xxxxxx1234"
+                }
+              ]
+            },
+            "recurringIndicator": true
+          }
+        ]
+      }
+    },
+    {
+      "name": "accounts: that document refuses the accounts field it forbade",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "account_information": {
+              "extends": "account_information",
+              "fields": {
+                "accounts": "forbidden",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "accounts": "set_of_values",
+                    "balances": "set_of_values",
+                    "transactions": "set_of_values"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "account_information",
+          "access": {
+            "accounts": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ],
+            "balances": [
+              {
+                "iban": "DE2310010010123456789"
+              }
+            ],
+            "transactions": [
+              {
+                "iban": "DE2310010010123456789"
+              },
+              {
+                "maskedPan": "123456xxxxxx1234"
+              }
+            ]
+          },
+          "recurringIndicator": true
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "accounts": [
+            "B"
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "numbers: 1e999999999 is too large, not a gigabyte of zeros",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "amount": 100,
+          "currency": "EUR"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "amount": "50",
+          "currency": 1e999999999
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: 1e2147483647 is too large",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "identifier": "r1"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "identifier": 1e2147483647
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: 100e2147483647 is too large wherever it is",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "id": 100e2147483647
+          }
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: 1e-999999999 is too large",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 1e-999999999
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: 65 digits are too large",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "id": 99999999999999999999999999999999999999999999999999999999999999999
+          }
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: 64 digits are within the limit",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "id": 9999999999999999999999999999999999999999999999999999999999999999
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "numbers: 1E+63 is 64 digits written out",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 1E+63
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 5e3
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "numbers: a ceiling is held to the limit too",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 1E+64
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: a literal longer than the reader's cap is too large",
+      "op": "parse",
+      "text": "[{\"type\":\"sales_agent\",\"max_txn_eur\":100000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000}]",
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "numbers: an exponent past the range of an int is malformed",
+      "op": "parse",
+      "text": "[{\"type\":\"sales_agent\",\"max_txn_eur\":1e2147483649}]",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "numbers: the last exponent a scale holds is read, then too large",
+      "op": "parse",
+      "text": "[{\"type\":\"sales_agent\",\"max_txn_eur\":1e2147483648}]",
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "parse: a well-formed list is read and checked",
+      "op": "parse",
+      "text": "[{\"type\":\"payment_initiation\",\"instructedAmount\":{\"currency\":\"EUR\",\"amount\":\"123.50\"}}]",
+      "expect": "ok"
+    },
+    {
+      "name": "parse: a duplicate member name is malformed",
+      "op": "parse",
+      "text": "[{\"type\":\"sales_agent\",\"actions\":[\"read\"],\"actions\":[\"delete\"]}]",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "parse: half a surrogate pair is malformed",
+      "op": "parse",
+      "text": "[{\"type\":\"sales_agent\",\"purpose\":\"\\ud800\"}]",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "parse: a Unicode escape takes ASCII hex digits only",
+      "op": "parse",
+      "text": "[{\"type\":\"sales_agent\",\"purpose\":\"\\u00٠١\"}]",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "parse: nesting past the reader's cap is too large",
+      "op": "parse",
+      "text": "[{\"type\":\"payment_initiation\",\"creditorAccount\":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}]",
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "parse: blank text is an empty list",
+      "op": "parse",
+      "text": "  ",
+      "expect": "ok"
+    },
+    {
+      "name": "forbidden: _principal_sub in a candidate is refused",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "_principal_sub": "alice"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "forbidden: _agent_id in a candidate is refused",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "_agent_id": "agent-7"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "forbidden: a forbidden field in the ceiling is refused",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "_agent_id": "agent-7"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "undeclared: a field the built-in type does not declare is refused",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §6.1"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "discount": 50
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "undeclared: a field in the ceiling the type does not declare is refused",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "discount": 50
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "type: a detail with no type is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "actions": [
+            "read_accounts"
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "type: a blank type is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": " "
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "type: a non-string type is malformed",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": 1
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "type: an unmodelled type is refused in production",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "expect": {
+        "refused": "UNMODELLED_TYPE"
+      }
+    },
+    {
+      "name": "type: an unmodelled type falls back to the common fields in development",
+      "op": "contains",
+      "requirements": [
+        "RFC9396 §2.2"
+      ],
+      "models": {
+        "development": true
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "actions": [
+            "read",
+            "write"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "actions": [
+            "read"
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "type: the development fallback still refuses fields outside the common set",
+      "op": "contains",
+      "models": {
+        "development": true
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "actions": [
+            "read"
+          ],
+          "path": "/x"
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "type: a different type is never contained",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "lists: a candidate must fit one ceiling entry, never a union of them",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "APAC"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA",
+            "APAC"
+          ]
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "lists: a candidate may fit a later same-type entry",
+      "op": "contains",
+      "requirements": [
+        "CAS §7(1)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "APAC"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "APAC"
+          ]
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "lists: every candidate detail needs a containing entry",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "APAC"
+          ]
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "lists: an empty candidate is within any ceiling",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "candidate": [],
+      "expect": true
+    },
+    {
+      "name": "lists: nothing is within an empty ceiling",
+      "op": "contains",
+      "ceiling": [],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "lists: a malformed ceiling is refused even when the candidate is empty",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "candidate": [],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "authorize: an empty candidate grants nothing",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "candidate": [],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": []
+      }
+    },
+    {
+      "name": "authorize: exceeding the ceiling is refused",
+      "op": "authorize",
+      "requirements": [
+        "CAS §7(3)",
+        "CAS §7.1"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "AMER"
+          ]
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "authorize: no same-type entry is refused",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "authorize: an empty ceiling refuses any request",
+      "op": "authorize",
+      "ceiling": [],
+      "candidate": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "EXCEEDS_CEILING"
+      }
+    },
+    {
+      "name": "authorize: STRICT grants the candidate as sent",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA",
+            "APAC"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "mode": "STRICT",
+      "expect": {
+        "granted": [
+          {
+            "type": "sales_agent",
+            "sales_regions": [
+              "EMEA"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "authorize: INHERIT uses the first entry the candidate fits",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ],
+          "max_txn_eur": 100
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA",
+            "APAC"
+          ],
+          "max_txn_eur": 5000
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "APAC"
+          ]
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "sales_agent",
+            "sales_regions": [
+              "APAC"
+            ],
+            "max_txn_eur": 5000
+          }
+        ]
+      }
+    },
+    {
+      "name": "authorize: INHERIT refuses a malformed candidate rather than repairing it",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "authorize: INHERIT refuses an undeclared field",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "discount": 50
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "authorize: INHERIT refuses a malformed candidate even when no ceiling entry has its type",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "authorize: INHERIT refuses an undeclared field even when no ceiling entry has its type",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "discount": 50
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "authorize: each granted detail keeps the candidate's order",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "b"
+          ]
+        }
+      ],
+      "mode": "STRICT",
+      "expect": {
+        "granted": [
+          {
+            "type": "payment_initiation",
+            "actions": [
+              "initiate"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "b"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "fullCeiling: the ceiling itself is what an empty request is granted",
+      "op": "fullCeiling",
+      "requirements": [
+        "CAS §7(2)"
+      ],
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        },
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "expect": {
+        "granted": [
+          {
+            "type": "sales_agent",
+            "sales_regions": [
+              "EMEA"
+            ]
+          },
+          {
+            "type": "payment_initiation",
+            "actions": [
+              "initiate"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "fullCeiling: a malformed ceiling is refused",
+      "op": "fullCeiling",
+      "ceiling": [
+        {
+          "type": "sales_agent",
+          "actions": null
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "intersect: only same-type pairs meet",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        },
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a",
+            "b"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "intersect: a field one side omits takes the other's value",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "EMEA"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "max_txn_eur": 100
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "sales_regions": [
+              "EMEA"
+            ],
+            "max_txn_eur": 100
+          }
+        ]
+      }
+    },
+    {
+      "name": "intersect: an asserted context narrows an evidenced ceiling to the types it shares",
+      "op": "intersect",
+      "requirements": [
+        "CAS §7(3)"
+      ],
+      "a": [
+        {
+          "type": "account_information",
+          "actions": [
+            "read"
+          ]
+        },
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "account_information",
+          "actions": [
+            "read"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "account_information",
+            "actions": [
+              "read"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "intersect: duplicate meets collapse",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "intersect: the order of the arguments does not change the result (1 of 2)",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate",
+            "cancel"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "cancel"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "b"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "b"
+            ]
+          },
+          {
+            "type": "payment_initiation",
+            "actions": [
+              "cancel"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "intersect: the order of the arguments does not change the result (2 of 2)",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "cancel"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "b"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a",
+            "b"
+          ]
+        },
+        {
+          "type": "payment_initiation",
+          "actions": [
+            "initiate",
+            "cancel"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "b"
+            ]
+          },
+          {
+            "type": "payment_initiation",
+            "actions": [
+              "cancel"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "intersect: a malformed argument is refused",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "intersect: an unmodelled type is refused",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "x"
+        }
+      ],
+      "b": [
+        {
+          "type": "x"
+        }
+      ],
+      "expect": {
+        "refused": "UNMODELLED_TYPE"
+      }
+    },
+    {
+      "name": "intersect: a meet of more than 16 entries is too large",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r0"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r1"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r2"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r3"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r4"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r5"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r6"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r7"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r8"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r9"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r10"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r11"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r12"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r13"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r14"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r15"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a0"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a1"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a2"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a3"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a4"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a5"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a6"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a7"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a8"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a9"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a10"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a11"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a12"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a13"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a14"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a15"
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "intersect: a meet of 16 entries is returned",
+      "op": "intersect",
+      "a": [
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r00"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r01"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r02"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r03"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r04"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r05"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r06"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r07"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r08"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r09"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r10"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r11"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r12"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r13"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r14"
+          ]
+        },
+        {
+          "type": "sales_agent",
+          "sales_regions": [
+            "r15"
+          ]
+        }
+      ],
+      "b": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a"
+          ]
+        }
+      ],
+      "expect": {
+        "intersection": [
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r00"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r01"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r02"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r03"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r04"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r05"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r06"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r07"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r08"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r09"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r10"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r11"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r12"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r13"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r14"
+            ]
+          },
+          {
+            "type": "sales_agent",
+            "actions": [
+              "a"
+            ],
+            "sales_regions": [
+              "r15"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "limits: 17 details are too large",
+      "op": "validate",
+      "details": [
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limits: 16 details are within the limit",
+      "op": "validate",
+      "details": [
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        },
+        {
+          "type": "sales_agent"
+        }
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "limits: a container nested deeper than 8 is too large",
+      "op": "validate",
+      "details": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "n": {
+              "n": {
+                "n": {
+                  "n": {
+                    "n": {
+                      "n": {
+                        "n": {
+                          "n": "leaf"
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limits: a container at depth 8 is within the limit",
+      "op": "validate",
+      "details": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "n": {
+              "n": {
+                "n": {
+                  "n": {
+                    "n": {
+                      "n": {
+                        "n": "leaf"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "limits: an array of 257 elements is too large",
+      "op": "validate",
+      "details": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a0",
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5",
+            "a6",
+            "a7",
+            "a8",
+            "a9",
+            "a10",
+            "a11",
+            "a12",
+            "a13",
+            "a14",
+            "a15",
+            "a16",
+            "a17",
+            "a18",
+            "a19",
+            "a20",
+            "a21",
+            "a22",
+            "a23",
+            "a24",
+            "a25",
+            "a26",
+            "a27",
+            "a28",
+            "a29",
+            "a30",
+            "a31",
+            "a32",
+            "a33",
+            "a34",
+            "a35",
+            "a36",
+            "a37",
+            "a38",
+            "a39",
+            "a40",
+            "a41",
+            "a42",
+            "a43",
+            "a44",
+            "a45",
+            "a46",
+            "a47",
+            "a48",
+            "a49",
+            "a50",
+            "a51",
+            "a52",
+            "a53",
+            "a54",
+            "a55",
+            "a56",
+            "a57",
+            "a58",
+            "a59",
+            "a60",
+            "a61",
+            "a62",
+            "a63",
+            "a64",
+            "a65",
+            "a66",
+            "a67",
+            "a68",
+            "a69",
+            "a70",
+            "a71",
+            "a72",
+            "a73",
+            "a74",
+            "a75",
+            "a76",
+            "a77",
+            "a78",
+            "a79",
+            "a80",
+            "a81",
+            "a82",
+            "a83",
+            "a84",
+            "a85",
+            "a86",
+            "a87",
+            "a88",
+            "a89",
+            "a90",
+            "a91",
+            "a92",
+            "a93",
+            "a94",
+            "a95",
+            "a96",
+            "a97",
+            "a98",
+            "a99",
+            "a100",
+            "a101",
+            "a102",
+            "a103",
+            "a104",
+            "a105",
+            "a106",
+            "a107",
+            "a108",
+            "a109",
+            "a110",
+            "a111",
+            "a112",
+            "a113",
+            "a114",
+            "a115",
+            "a116",
+            "a117",
+            "a118",
+            "a119",
+            "a120",
+            "a121",
+            "a122",
+            "a123",
+            "a124",
+            "a125",
+            "a126",
+            "a127",
+            "a128",
+            "a129",
+            "a130",
+            "a131",
+            "a132",
+            "a133",
+            "a134",
+            "a135",
+            "a136",
+            "a137",
+            "a138",
+            "a139",
+            "a140",
+            "a141",
+            "a142",
+            "a143",
+            "a144",
+            "a145",
+            "a146",
+            "a147",
+            "a148",
+            "a149",
+            "a150",
+            "a151",
+            "a152",
+            "a153",
+            "a154",
+            "a155",
+            "a156",
+            "a157",
+            "a158",
+            "a159",
+            "a160",
+            "a161",
+            "a162",
+            "a163",
+            "a164",
+            "a165",
+            "a166",
+            "a167",
+            "a168",
+            "a169",
+            "a170",
+            "a171",
+            "a172",
+            "a173",
+            "a174",
+            "a175",
+            "a176",
+            "a177",
+            "a178",
+            "a179",
+            "a180",
+            "a181",
+            "a182",
+            "a183",
+            "a184",
+            "a185",
+            "a186",
+            "a187",
+            "a188",
+            "a189",
+            "a190",
+            "a191",
+            "a192",
+            "a193",
+            "a194",
+            "a195",
+            "a196",
+            "a197",
+            "a198",
+            "a199",
+            "a200",
+            "a201",
+            "a202",
+            "a203",
+            "a204",
+            "a205",
+            "a206",
+            "a207",
+            "a208",
+            "a209",
+            "a210",
+            "a211",
+            "a212",
+            "a213",
+            "a214",
+            "a215",
+            "a216",
+            "a217",
+            "a218",
+            "a219",
+            "a220",
+            "a221",
+            "a222",
+            "a223",
+            "a224",
+            "a225",
+            "a226",
+            "a227",
+            "a228",
+            "a229",
+            "a230",
+            "a231",
+            "a232",
+            "a233",
+            "a234",
+            "a235",
+            "a236",
+            "a237",
+            "a238",
+            "a239",
+            "a240",
+            "a241",
+            "a242",
+            "a243",
+            "a244",
+            "a245",
+            "a246",
+            "a247",
+            "a248",
+            "a249",
+            "a250",
+            "a251",
+            "a252",
+            "a253",
+            "a254",
+            "a255",
+            "a256"
+          ]
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limits: an array of 256 elements is within the limit",
+      "op": "validate",
+      "details": [
+        {
+          "type": "sales_agent",
+          "actions": [
+            "a0",
+            "a1",
+            "a2",
+            "a3",
+            "a4",
+            "a5",
+            "a6",
+            "a7",
+            "a8",
+            "a9",
+            "a10",
+            "a11",
+            "a12",
+            "a13",
+            "a14",
+            "a15",
+            "a16",
+            "a17",
+            "a18",
+            "a19",
+            "a20",
+            "a21",
+            "a22",
+            "a23",
+            "a24",
+            "a25",
+            "a26",
+            "a27",
+            "a28",
+            "a29",
+            "a30",
+            "a31",
+            "a32",
+            "a33",
+            "a34",
+            "a35",
+            "a36",
+            "a37",
+            "a38",
+            "a39",
+            "a40",
+            "a41",
+            "a42",
+            "a43",
+            "a44",
+            "a45",
+            "a46",
+            "a47",
+            "a48",
+            "a49",
+            "a50",
+            "a51",
+            "a52",
+            "a53",
+            "a54",
+            "a55",
+            "a56",
+            "a57",
+            "a58",
+            "a59",
+            "a60",
+            "a61",
+            "a62",
+            "a63",
+            "a64",
+            "a65",
+            "a66",
+            "a67",
+            "a68",
+            "a69",
+            "a70",
+            "a71",
+            "a72",
+            "a73",
+            "a74",
+            "a75",
+            "a76",
+            "a77",
+            "a78",
+            "a79",
+            "a80",
+            "a81",
+            "a82",
+            "a83",
+            "a84",
+            "a85",
+            "a86",
+            "a87",
+            "a88",
+            "a89",
+            "a90",
+            "a91",
+            "a92",
+            "a93",
+            "a94",
+            "a95",
+            "a96",
+            "a97",
+            "a98",
+            "a99",
+            "a100",
+            "a101",
+            "a102",
+            "a103",
+            "a104",
+            "a105",
+            "a106",
+            "a107",
+            "a108",
+            "a109",
+            "a110",
+            "a111",
+            "a112",
+            "a113",
+            "a114",
+            "a115",
+            "a116",
+            "a117",
+            "a118",
+            "a119",
+            "a120",
+            "a121",
+            "a122",
+            "a123",
+            "a124",
+            "a125",
+            "a126",
+            "a127",
+            "a128",
+            "a129",
+            "a130",
+            "a131",
+            "a132",
+            "a133",
+            "a134",
+            "a135",
+            "a136",
+            "a137",
+            "a138",
+            "a139",
+            "a140",
+            "a141",
+            "a142",
+            "a143",
+            "a144",
+            "a145",
+            "a146",
+            "a147",
+            "a148",
+            "a149",
+            "a150",
+            "a151",
+            "a152",
+            "a153",
+            "a154",
+            "a155",
+            "a156",
+            "a157",
+            "a158",
+            "a159",
+            "a160",
+            "a161",
+            "a162",
+            "a163",
+            "a164",
+            "a165",
+            "a166",
+            "a167",
+            "a168",
+            "a169",
+            "a170",
+            "a171",
+            "a172",
+            "a173",
+            "a174",
+            "a175",
+            "a176",
+            "a177",
+            "a178",
+            "a179",
+            "a180",
+            "a181",
+            "a182",
+            "a183",
+            "a184",
+            "a185",
+            "a186",
+            "a187",
+            "a188",
+            "a189",
+            "a190",
+            "a191",
+            "a192",
+            "a193",
+            "a194",
+            "a195",
+            "a196",
+            "a197",
+            "a198",
+            "a199",
+            "a200",
+            "a201",
+            "a202",
+            "a203",
+            "a204",
+            "a205",
+            "a206",
+            "a207",
+            "a208",
+            "a209",
+            "a210",
+            "a211",
+            "a212",
+            "a213",
+            "a214",
+            "a215",
+            "a216",
+            "a217",
+            "a218",
+            "a219",
+            "a220",
+            "a221",
+            "a222",
+            "a223",
+            "a224",
+            "a225",
+            "a226",
+            "a227",
+            "a228",
+            "a229",
+            "a230",
+            "a231",
+            "a232",
+            "a233",
+            "a234",
+            "a235",
+            "a236",
+            "a237",
+            "a238",
+            "a239",
+            "a240",
+            "a241",
+            "a242",
+            "a243",
+            "a244",
+            "a245",
+            "a246",
+            "a247",
+            "a248",
+            "a249",
+            "a250",
+            "a251",
+            "a252",
+            "a253",
+            "a254",
+            "a255"
+          ]
+        }
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "limits: an object of 257 members is too large",
+      "op": "validate",
+      "details": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "m0": 0,
+            "m1": 1,
+            "m2": 2,
+            "m3": 3,
+            "m4": 4,
+            "m5": 5,
+            "m6": 6,
+            "m7": 7,
+            "m8": 8,
+            "m9": 9,
+            "m10": 10,
+            "m11": 11,
+            "m12": 12,
+            "m13": 13,
+            "m14": 14,
+            "m15": 15,
+            "m16": 16,
+            "m17": 17,
+            "m18": 18,
+            "m19": 19,
+            "m20": 20,
+            "m21": 21,
+            "m22": 22,
+            "m23": 23,
+            "m24": 24,
+            "m25": 25,
+            "m26": 26,
+            "m27": 27,
+            "m28": 28,
+            "m29": 29,
+            "m30": 30,
+            "m31": 31,
+            "m32": 32,
+            "m33": 33,
+            "m34": 34,
+            "m35": 35,
+            "m36": 36,
+            "m37": 37,
+            "m38": 38,
+            "m39": 39,
+            "m40": 40,
+            "m41": 41,
+            "m42": 42,
+            "m43": 43,
+            "m44": 44,
+            "m45": 45,
+            "m46": 46,
+            "m47": 47,
+            "m48": 48,
+            "m49": 49,
+            "m50": 50,
+            "m51": 51,
+            "m52": 52,
+            "m53": 53,
+            "m54": 54,
+            "m55": 55,
+            "m56": 56,
+            "m57": 57,
+            "m58": 58,
+            "m59": 59,
+            "m60": 60,
+            "m61": 61,
+            "m62": 62,
+            "m63": 63,
+            "m64": 64,
+            "m65": 65,
+            "m66": 66,
+            "m67": 67,
+            "m68": 68,
+            "m69": 69,
+            "m70": 70,
+            "m71": 71,
+            "m72": 72,
+            "m73": 73,
+            "m74": 74,
+            "m75": 75,
+            "m76": 76,
+            "m77": 77,
+            "m78": 78,
+            "m79": 79,
+            "m80": 80,
+            "m81": 81,
+            "m82": 82,
+            "m83": 83,
+            "m84": 84,
+            "m85": 85,
+            "m86": 86,
+            "m87": 87,
+            "m88": 88,
+            "m89": 89,
+            "m90": 90,
+            "m91": 91,
+            "m92": 92,
+            "m93": 93,
+            "m94": 94,
+            "m95": 95,
+            "m96": 96,
+            "m97": 97,
+            "m98": 98,
+            "m99": 99,
+            "m100": 100,
+            "m101": 101,
+            "m102": 102,
+            "m103": 103,
+            "m104": 104,
+            "m105": 105,
+            "m106": 106,
+            "m107": 107,
+            "m108": 108,
+            "m109": 109,
+            "m110": 110,
+            "m111": 111,
+            "m112": 112,
+            "m113": 113,
+            "m114": 114,
+            "m115": 115,
+            "m116": 116,
+            "m117": 117,
+            "m118": 118,
+            "m119": 119,
+            "m120": 120,
+            "m121": 121,
+            "m122": 122,
+            "m123": 123,
+            "m124": 124,
+            "m125": 125,
+            "m126": 126,
+            "m127": 127,
+            "m128": 128,
+            "m129": 129,
+            "m130": 130,
+            "m131": 131,
+            "m132": 132,
+            "m133": 133,
+            "m134": 134,
+            "m135": 135,
+            "m136": 136,
+            "m137": 137,
+            "m138": 138,
+            "m139": 139,
+            "m140": 140,
+            "m141": 141,
+            "m142": 142,
+            "m143": 143,
+            "m144": 144,
+            "m145": 145,
+            "m146": 146,
+            "m147": 147,
+            "m148": 148,
+            "m149": 149,
+            "m150": 150,
+            "m151": 151,
+            "m152": 152,
+            "m153": 153,
+            "m154": 154,
+            "m155": 155,
+            "m156": 156,
+            "m157": 157,
+            "m158": 158,
+            "m159": 159,
+            "m160": 160,
+            "m161": 161,
+            "m162": 162,
+            "m163": 163,
+            "m164": 164,
+            "m165": 165,
+            "m166": 166,
+            "m167": 167,
+            "m168": 168,
+            "m169": 169,
+            "m170": 170,
+            "m171": 171,
+            "m172": 172,
+            "m173": 173,
+            "m174": 174,
+            "m175": 175,
+            "m176": 176,
+            "m177": 177,
+            "m178": 178,
+            "m179": 179,
+            "m180": 180,
+            "m181": 181,
+            "m182": 182,
+            "m183": 183,
+            "m184": 184,
+            "m185": 185,
+            "m186": 186,
+            "m187": 187,
+            "m188": 188,
+            "m189": 189,
+            "m190": 190,
+            "m191": 191,
+            "m192": 192,
+            "m193": 193,
+            "m194": 194,
+            "m195": 195,
+            "m196": 196,
+            "m197": 197,
+            "m198": 198,
+            "m199": 199,
+            "m200": 200,
+            "m201": 201,
+            "m202": 202,
+            "m203": 203,
+            "m204": 204,
+            "m205": 205,
+            "m206": 206,
+            "m207": 207,
+            "m208": 208,
+            "m209": 209,
+            "m210": 210,
+            "m211": 211,
+            "m212": 212,
+            "m213": 213,
+            "m214": 214,
+            "m215": 215,
+            "m216": 216,
+            "m217": 217,
+            "m218": 218,
+            "m219": 219,
+            "m220": 220,
+            "m221": 221,
+            "m222": 222,
+            "m223": 223,
+            "m224": 224,
+            "m225": 225,
+            "m226": 226,
+            "m227": 227,
+            "m228": 228,
+            "m229": 229,
+            "m230": 230,
+            "m231": 231,
+            "m232": 232,
+            "m233": 233,
+            "m234": 234,
+            "m235": 235,
+            "m236": 236,
+            "m237": 237,
+            "m238": 238,
+            "m239": 239,
+            "m240": 240,
+            "m241": 241,
+            "m242": 242,
+            "m243": 243,
+            "m244": 244,
+            "m245": 245,
+            "m246": 246,
+            "m247": 247,
+            "m248": 248,
+            "m249": 249,
+            "m250": 250,
+            "m251": 251,
+            "m252": 252,
+            "m253": 253,
+            "m254": 254,
+            "m255": 255,
+            "m256": 256
+          }
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limits: a string of 2049 characters is too large",
+      "op": "validate",
+      "details": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limits: a string of 2048 characters is within the limit",
+      "op": "validate",
+      "details": [
+        {
+          "type": "payment_initiation",
+          "creditorName": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      ],
+      "expect": "ok"
+    },
+    {
+      "name": "limits: a member name of 2049 characters is too large",
+      "op": "validate",
+      "details": [
+        {
+          "type": "payment_initiation",
+          "creditorAccount": {
+            "kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk": "v"
+          }
+        }
+      ],
+      "expect": {
+        "refused": "TOO_LARGE"
+      }
+    },
+    {
+      "name": "limits: a list entry that is not an object is malformed",
+      "op": "details",
+      "details": [
+        {
+          "type": "sales_agent"
+        },
+        "sales_agent"
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "limits: a value that is not an array is malformed",
+      "op": "details",
+      "details": {
+        "type": "sales_agent"
+      },
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "load: a document may declare a type with every rule",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "types": [
+          "https://scheme.example.org/files",
+          "sales_agent",
+          "payment_initiation",
+          "account_information"
+        ]
+      }
+    },
+    {
+      "name": "load: a declared type is compared by its rules",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files",
+          "locations": [
+            "https://example.com/files"
+          ],
+          "max_files": 10,
+          "budget": "100",
+          "budget_currency": "EUR",
+          "access": {
+            "paths": [
+              "/a",
+              "/b"
+            ],
+            "mode": "rw"
+          },
+          "owner": "alice",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "locations": [
+            "https://example.com/files"
+          ],
+          "max_files": 3,
+          "budget": "99.99",
+          "budget_currency": "EUR",
+          "access": {
+            "paths": [
+              "/a"
+            ],
+            "mode": "rw"
+          },
+          "owner": "alice",
+          "validUntil": "2026-06-30"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "load: a declared type refuses its forbidden field",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "secret": "x"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "load: a declared type refuses an undeclared field",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/files": {
+              "fields": {
+                "locations": "set",
+                "permissions": "set_of_values",
+                "max_files": "limit",
+                "budget": {
+                  "rule": "limit",
+                  "unit_field": "budget_currency"
+                },
+                "budget_currency": "string",
+                "instructedAmount": "amount",
+                "validUntil": "instant_limit",
+                "owner": "equal",
+                "access": {
+                  "rule": "object",
+                  "fields": {
+                    "paths": "set",
+                    "mode": "string",
+                    "owners": "set_of_values"
+                  }
+                },
+                "secret": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/files"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/files",
+          "size": 1
+        }
+      ],
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
+      "name": "load: extending a built-in adds a field",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "payment_initiation": {
+              "extends": "payment_initiation",
+              "fields": {
+                "remittanceInformationStructured": "equal"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "remittanceInformationStructured": "RF18539007547034"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "remittanceInformationStructured": "RF18539007547034"
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "load: an extended built-in keeps its inherited fields",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "payment_initiation": {
+              "extends": "payment_initiation",
+              "fields": {
+                "remittanceInformationStructured": "equal"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "50"
+          }
+        }
+      ],
+      "expect": true
+    },
+    {
+      "name": "load: a document naming a built-in without extends is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "payment_initiation": {
+              "fields": {
+                "amount": "limit"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: a built-in extending a different base is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "payment_initiation": {
+              "extends": "sales_agent",
+              "fields": {
+                "amount": "limit",
+                "currency": "equal"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: a built-in extending a type of the document's own is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "extends": "payment_initiation",
+              "fields": {}
+            },
+            "payment_initiation": {
+              "extends": "x",
+              "fields": {}
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: an extension keeps the base's alternatives",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "payment_initiation": {
+              "extends": "payment_initiation",
+              "fields": {
+                "remittanceInformationStructured": "equal"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "100"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "payment_initiation",
+          "instructedAmount": {
+            "currency": "EUR",
+            "amount": "50"
+          },
+          "amount": "1",
+          "currency": "EUR"
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "load: a limit whose unit sits in another spelling is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "extends": "payment_initiation",
+              "fields": {
+                "fee": {
+                  "rule": "limit",
+                  "unit_field": "currency"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: an unknown rule is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "fields": {
+                "f": "subset"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: an unknown key is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {},
+          "version": 1
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: redefining an inherited field is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "extends": "sales_agent",
+              "fields": {
+                "sales_regions": "equal"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: an inherited field may be made forbidden",
+      "op": "contains",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "extends": "sales_agent",
+              "fields": {
+                "max_txn_eur": "forbidden"
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "x"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "x",
+          "max_txn_eur": 1
+        }
+      ],
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "load: a unit_field must name an equal field of the same object",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "fields": {
+                "amount": {
+                  "rule": "limit",
+                  "unit_field": "currency"
+                }
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: extending an unknown type is refused",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "extends": "y",
+              "fields": {}
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: a type declared earlier may be extended",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "fields": {
+                "a": "set"
+              }
+            },
+            "y": {
+              "extends": "x",
+              "fields": {
+                "b": "set"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "types": [
+          "x",
+          "y"
+        ]
+      }
+    },
+    {
+      "name": "load: an object rule needs its fields",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {
+            "x": {
+              "fields": {
+                "access": "object"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "refused": "MODEL_INVALID"
+      }
+    },
+    {
+      "name": "load: an empty document adds nothing",
+      "op": "load",
+      "models": {
+        "document": {
+          "types": {}
+        }
+      },
+      "expect": {
+        "types": [
+          "sales_agent",
+          "payment_initiation",
+          "account_information"
+        ]
+      }
+    },
+    {
+      "name": "load: the built-in fingerprint is pinned",
+      "op": "fingerprint",
+      "expect": {
+        "fingerprint": "cc03c1e3c87257ab131a3c7969253bc3ff16640f1cc50c96ef9715ff0f762315"
+      }
+    },
+    {
+      "name": "load: the development fallback changes the fingerprint",
+      "op": "fingerprint",
+      "models": {
+        "development": true
+      },
+      "expect": {
+        "fingerprint": "bbedb1a74a42a92c117e2a746b5b0655eeffb9d4b30958d7d79e20b7a0b09426"
+      }
+    },
+    {
+      "name": "load: a declared type changes the fingerprint",
+      "op": "fingerprint",
+      "models": {
+        "document": {
+          "types": {
+            "payment_initiation": {
+              "extends": "payment_initiation",
+              "fields": {
+                "remittanceInformationStructured": "equal"
+              }
+            }
+          }
+        }
+      },
+      "expect": {
+        "fingerprint": "8faac415a321628d95cb3a85e89bed64ebadfdc96eff718ddd901d3f482895d9"
+      }
+    }
+  ]
+}

@@ -1,0 +1,59 @@
+# The iOS client (clients/ios, plan item X-I01a) on a macOS runner: the Swift package is built and its unit tests
+# run, and the sample app is built for the simulator, where it needs no signing. App Attest, the Secure Enclave and
+# a PingOne sign-in exist on no runner, so the tests use the package's fakes, and InteropTests skips itself: it
+# needs the enrolment service's Java running beside it, which clients/ios/tools/interop/run.sh does on a Mac.
+#
+# macos-latest is a standard GitHub-hosted runner, and "GitHub Actions usage is free for self-hosted runners and
+# for public repositories that use standard GitHub-hosted runners" (GitHub docs, "GitHub Actions billing", read
+# 2026-09-27); this repository is public, so the job costs nothing. It runs only when the client, its contract or
+# this file changes, which is also why it is not a required check: a pull request that touches none of them would
+# wait for it forever.
+#
+# Actions are pinned by commit, with the tag as a comment, and the checkout keeps no credentials: nothing here
+# needs to write, so nothing here can.
+name: iOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'clients/ios/**'
+      - 'docs/device/ios-client-contract.md'
+      - '.github/workflows/ios.yml'
+  pull_request:
+    paths:
+      - 'clients/ios/**'
+      - 'docs/device/ios-client-contract.md'
+      - '.github/workflows/ios.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    runs-on: macos-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: the PingFederate version, from build/pf-version.env
+        # Nothing here runs PingFederate. tools/pf-version-check.py asks every workflow to read the one version
+        # file rather than carry a version of its own, and this keeps that rule uniform.
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
+      - name: the toolchain the runner image gives
+        run: |
+          xcodebuild -version
+          swift --version
+      - name: the package builds
+        run: swift build --package-path clients/ios/AgentIdentityKit
+      - name: the package's tests pass, with fakes for the platform
+        run: swift test --package-path clients/ios/AgentIdentityKit
+      - name: the sample app builds for the simulator, unsigned
+        run: >-
+          xcodebuild -project clients/ios/SampleApp/SampleApp.xcodeproj -scheme SampleApp
+          -destination 'generic/platform=iOS Simulator' CODE_SIGNING_ALLOWED=NO build

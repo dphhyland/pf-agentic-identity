@@ -33,16 +33,26 @@ final class SsfHttp {
     }
 
     /**
-     * Fail-soft servlet bootstrap: install the JDBC store factory and configure the transmitter from
-     * init-params / {@code oidf.ssf.*} system properties / {@code OIDF_SSF_*} env vars. If SSF isn't configured
-     * (e.g. no issuer), it logs and returns {@code false} rather than throwing — a servlet must never break the
-     * runtime web application just because SSF is absent. Returns {@code true} once configured.
+     * Fail-soft servlet bootstrap: install the JDBC store factory, parse the transmitter's configuration from
+     * init-params / {@code oidf.ssf.*} system properties / {@code OIDF_SSF_*} env vars, and hand it to
+     * {@link SsfSupport#start}, which configures, wires the receiver and the audit source, and starts the
+     * push loop. If SSF isn't configured (e.g. no issuer), it logs and returns {@code false} rather than
+     * throwing — a servlet must never break the runtime web application just because SSF is absent. A store
+     * that cannot be opened is {@code false} too, with an ERROR and a retry ({@link SsfSupport#start}), not
+     * an exception out of {@code init}. Returns {@code true} once the transmitter is up.
      */
     static boolean bootstrap(ServletConfig config) {
         SsfSupport.installStoreFactory(new PfJdbcStoreFactory());
+        SsfConfiguration cfg;
         try {
-            SsfConfiguration cfg = SsfConfiguration.fromServletConfig(config);
-            SsfSupport.configure(cfg);
+            cfg = SsfConfiguration.fromServletConfig(config);
+        } catch (IllegalArgumentException e) {
+            log.info((Object) ("SSF transmitter not configured (" + e.getMessage() + "); endpoints disabled "
+                    + "until an issuer is set (init-param 'issuer', system property 'oidf.ssf.issuer', or "
+                    + "env OIDF_SSF_ISSUER)"));
+            return false;
+        }
+        return SsfSupport.start(cfg, () -> {
             wireReceiver();
             if (cfg.auditEventsEnabled()) {
                 try {
@@ -52,13 +62,7 @@ final class SsfHttp {
                     log.info((Object) ("SSF audit source unavailable: " + t));
                 }
             }
-            return true;
-        } catch (IllegalArgumentException e) {
-            log.info((Object) ("SSF transmitter not configured (" + e.getMessage() + "); endpoints disabled "
-                    + "until an issuer is set (init-param 'issuer', system property 'oidf.ssf.issuer', or "
-                    + "env OIDF_SSF_ISSUER)"));
-            return false;
-        }
+        });
     }
 
     /**

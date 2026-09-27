@@ -7,6 +7,9 @@ import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -19,11 +22,30 @@ import org.apache.commons.logging.LogFactory;
  * <p>Store selection follows {@code dataStoreId}: blank selects the per-node {@link InMemorySsfStore} (not
  * cluster-safe, not durable); a set id selects the PingFederate JDBC-backed store. The JDBC store is installed
  * by {@link #installStoreFactory} so this core has no compile-time dependency on the PF SDK.
+ *
+ * <p>{@link #start} is the boot path: it configures, runs the servlet layer's wiring, and starts the push
+ * loop, and it never throws. A store that cannot be opened when PingFederate boots - the data store down,
+ * its schema not applicable - is logged and tried again every {@link #bootRetrySeconds} until it can be,
+ * and the loops start then.
  */
 public final class SsfSupport {
 
     private static final Log LOGGER = LogFactory.getLog(SsfSupport.class);
     private static final Object LOCK = new Object();
+
+    /**
+     * What every accessor throws before {@link #configure} has succeeded: no SSF servlet has initialised, SSF
+     * has no issuer, or the store has not opened yet ({@link #start} logs which, and retries the last).
+     */
+    static final String NOT_CONFIGURED =
+            "SSF transmitter is not configured: no issuer, or its store has not opened yet (see the SSF lines in the server log)";
+
+    /** How long a boot that could not open the store waits before trying again. A constant until S-5 makes it a setting. */
+    static volatile int bootRetrySeconds = 30;
+    private static ScheduledExecutorService bootRetry;
+    private static boolean bootRetryPending;
+    /** Whether a failed start has been logged; the stack trace goes with the first only. */
+    private static boolean bootFailureLogged;
 
     private static volatile SsfConfiguration configuration;
     private static volatile SsfStore store;
@@ -58,40 +80,153 @@ public final class SsfSupport {
         }
     }
 
-    /** Idempotently configure the shared singletons from the first servlet's parsed configuration. */
+    /**
+     * Idempotently configure the shared singletons from the first servlet's parsed configuration. Throws
+     * what opening the store throws (a {@code tables} store applies its DDL here), and then leaves nothing
+     * behind: every singleton is built before any is assigned, so a failed configure is a transmitter that
+     * is not configured and can be configured again - not one with a configuration and no store, which is
+     * what an early assignment used to leave, with every later configure returning at the first check.
+     */
     public static void configure(SsfConfiguration config) {
         Objects.requireNonNull(config, "config");
         synchronized (LOCK) {
             if (configuration != null) {
                 return;
             }
-            configuration = config;
-            minter = new SetMinter(config.signingAlgorithm());
-            store = selectStore(config);
-            warnOfUnownedStreams(store, config);
-            setPublisher = buildPublisher(config);
-            streamService = new StreamManagementService(store, minter, config, setPublisher);
-            eventEmitter = new SsfEventEmitter(store, minter, config, setPublisher);
-            scimSubjectService = new ScimSubjectService(store, eventEmitter, config);
-            emitService = new SsfEmitService(store, eventEmitter, config);
-            pushDeliveryService = new PushDeliveryService(store, config, PushDeliveryService.httpClient());
+            SetMinter theMinter = new SetMinter(config.signingAlgorithm());
+            SsfStore theStore = selectStore(config);
+            warnOfUnownedStreams(theStore, config);
+            SetPublisher thePublisher = buildPublisher(config);
+            SsfEventEmitter theEmitter = new SsfEventEmitter(theStore, theMinter, config, thePublisher);
+            SsfReceiverService theReceiver = null;
+            PollReceiverClient thePollClient = null;
             if (receiverMayRun(config)) {
-                receiverService = new SsfReceiverService(new SetVerifier(
+                theReceiver = new SsfReceiverService(new SetVerifier(
                         config.receiverExpectedIssuer(), config.receiverAudience(),
                         SetVerifier.httpJwksSource(config.receiverJwksUrl(),
                                 config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
                 LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
                         + " (jwks " + config.receiverJwksUrl() + ")"));
                 if (config.receiverInstanceRegistry()) {
-                    installInstanceRegistryHandler(receiverService, store, config);
+                    installInstanceRegistryHandler(theReceiver, theStore, config);
                 }
                 if (config.receiverPollUrl() != null) {
-                    pollReceiverClient = new PollReceiverClient(receiverService,
+                    thePollClient = new PollReceiverClient(theReceiver,
                             PollReceiverClient.httpTransport(config.receiverPollUrl(),
                                     config.receiverPollToken(), config.receiverInsecureTls()),
                             config.pollMaxEvents());
                 }
             }
+            minter = theMinter;
+            store = theStore;
+            setPublisher = thePublisher;
+            streamService = new StreamManagementService(theStore, theMinter, config, thePublisher);
+            eventEmitter = theEmitter;
+            scimSubjectService = new ScimSubjectService(theStore, theEmitter, config);
+            emitService = new SsfEmitService(theStore, theEmitter, config);
+            pushDeliveryService = new PushDeliveryService(theStore, config, PushDeliveryService.httpClient());
+            receiverService = theReceiver;
+            pollReceiverClient = thePollClient;
+            configuration = config;
+        }
+    }
+
+    /**
+     * Bring the transmitter up: {@link #configure}, then the servlet layer's wiring ({@code afterConfigure}:
+     * the receiver's PF actions and polling, the audit source), then the push loop. Idempotent - every SSF
+     * servlet's {@code init} runs it, and at boot the first is {@code SsfConfigurationServlet}, which loads
+     * on start-up, so the loop runs before any request arrives. Returns whether the transmitter is up.
+     *
+     * <p>Never throws. Before 0.4.0 a store that could not be opened threw out of the servlet's
+     * {@code init} - for the load-on-startup servlet, at boot ("Found while designing" 11) - and Jetty fails
+     * the whole {@code pf-runtime.war} on a load-on-startup servlet that throws: every runtime endpoint
+     * answers 503 (seen on 13.1.3 with another such servlet's init throwing, U-0076). Now it is an ERROR in
+     * the log, SSF endpoints that fail while PingFederate's own serve, and a retry every
+     * {@link #bootRetrySeconds} until the store can be opened; the loops start on the retry that succeeds.
+     * The wiring is guarded the same way: a failure there is logged and the loop still starts.
+     */
+    public static boolean start(SsfConfiguration config, Runnable afterConfigure) {
+        try {
+            configure(config);
+        } catch (RuntimeException e) {
+            logBootFailure(config, e);
+            scheduleBootRetry(config, afterConfigure);
+            return false;
+        }
+        try {
+            afterConfigure.run();
+        } catch (RuntimeException e) {
+            LOGGER.error((Object) ("SSF transmitter wiring failed after configuration: " + e), e);
+        }
+        startPushDelivery();
+        return true;
+    }
+
+    /**
+     * One ERROR per failed start, naming the cause chain with the {@code jdbcUrl} replaced: a JDBC URL can
+     * carry a password, and the messages repeat it ({@code DriverManager}'s "No suitable driver found for"
+     * and the store factory's missing-driver message both end with it). The exception goes with the line,
+     * for its stack trace, on the first failure only - a retry every 30 s would otherwise repeat it for as
+     * long as the store is down - and never when a {@code jdbcUrl} is set, because a logged exception prints
+     * its messages as they are. Returns the exception that was logged with the line, or null.
+     */
+    static Throwable logBootFailure(SsfConfiguration config, RuntimeException e) {
+        String line = "SSF transmitter NOT started: " + describe(e, config.jdbcUrl()) + ". The SSF endpoints "
+                + "fail and nothing is delivered until it starts; it is tried again every " + bootRetrySeconds + "s";
+        Throwable stack;
+        synchronized (LOCK) {
+            stack = bootFailureLogged || config.jdbcUrl() != null ? null : e;
+            bootFailureLogged = true;
+        }
+        if (stack == null) {
+            LOGGER.error((Object) line);
+        } else {
+            LOGGER.error((Object) line, stack);
+        }
+        return stack;
+    }
+
+    /** The cause chain on one line, at most eight deep, with {@code jdbcUrl} replaced wherever it appears. */
+    static String describe(Throwable e, String jdbcUrl) {
+        StringBuilder chain = new StringBuilder();
+        int depth = 0;
+        for (Throwable t = e; t != null && depth < 8; t = t.getCause(), depth++) {
+            chain.append(depth == 0 ? "" : "; caused by ").append(t.getClass().getName());
+            if (t.getMessage() != null) {
+                chain.append(": ").append(t.getMessage());
+            }
+        }
+        String line = chain.toString();
+        return jdbcUrl == null || jdbcUrl.isEmpty() ? line : line.replace(jdbcUrl, "<jdbcUrl>");
+    }
+
+    /** One retry in flight at a time: a second servlet's failed init joins the pending one. */
+    private static void scheduleBootRetry(SsfConfiguration config, Runnable afterConfigure) {
+        synchronized (LOCK) {
+            if (bootRetryPending) {
+                return;
+            }
+            if (bootRetry == null) {
+                bootRetry = Executors.newSingleThreadScheduledExecutor(r -> {
+                    Thread t = new Thread(r, "ssf-boot-retry");
+                    t.setDaemon(true);
+                    return t;
+                });
+            }
+            bootRetryPending = true;
+            bootRetry.schedule(() -> {
+                synchronized (LOCK) {
+                    bootRetryPending = false;
+                }
+                start(config, afterConfigure);
+            }, bootRetrySeconds, TimeUnit.SECONDS);
+        }
+    }
+
+    /** Whether a boot retry is scheduled and has not run yet. */
+    static boolean bootRetryPending() {
+        synchronized (LOCK) {
+            return bootRetryPending;
         }
     }
 
@@ -127,7 +262,7 @@ public final class SsfSupport {
         }
     }
 
-    /** Start the background push-delivery loop (idempotent). Called from a servlet init in the deployment. */
+    /** Start the background push-delivery loop (idempotent). {@link #start} calls it once the store is open. */
     public static void startPushDelivery() {
         PushDeliveryService local = pushDeliveryService;
         if (local != null) {
@@ -209,15 +344,16 @@ public final class SsfSupport {
                     + "' configured but no JDBC store factory installed; falling back to in-memory (per-node)"));
             return new InMemorySsfStore();
         }
-        LOGGER.info((Object) ("SSF store: JDBC data store '" + config.dataStoreId() + "' dialect '"
-                + config.storeDialect() + "' (cluster-safe, durable)"));
+        // The URL itself is not logged: a JDBC URL can carry a password.
+        String source = config.jdbcUrl() != null ? "the jdbcUrl setting" : "JDBC data store '" + config.dataStoreId() + "'";
+        LOGGER.info((Object) ("SSF store: " + source + ", dialect '" + config.storeDialect() + "' (cluster-safe, durable)"));
         return factory.create(config);
     }
 
     public static SsfConfiguration configuration() {
         SsfConfiguration local = configuration;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -225,7 +361,7 @@ public final class SsfSupport {
     public static SsfStore store() {
         SsfStore local = store;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -233,7 +369,7 @@ public final class SsfSupport {
     public static SetMinter minter() {
         SetMinter local = minter;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -241,7 +377,7 @@ public final class SsfSupport {
     public static StreamManagementService streamService() {
         StreamManagementService local = streamService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -249,7 +385,7 @@ public final class SsfSupport {
     public static SsfEventEmitter eventEmitter() {
         SsfEventEmitter local = eventEmitter;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -257,7 +393,7 @@ public final class SsfSupport {
     public static ScimSubjectService scimSubjectService() {
         ScimSubjectService local = scimSubjectService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -265,7 +401,7 @@ public final class SsfSupport {
     public static SsfEmitService emitService() {
         SsfEmitService local = emitService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -273,7 +409,7 @@ public final class SsfSupport {
     public static PushDeliveryService pushDeliveryService() {
         PushDeliveryService local = pushDeliveryService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -311,6 +447,13 @@ public final class SsfSupport {
     /** Test hook: reset all singletons so a fresh {@link #configure} takes effect. */
     static void resetForTests() {
         synchronized (LOCK) {
+            if (bootRetry != null) {
+                bootRetry.shutdownNow();
+                bootRetry = null;
+            }
+            bootRetryPending = false;
+            bootRetrySeconds = 30;
+            bootFailureLogged = false;
             if (pushDeliveryService != null) {
                 pushDeliveryService.stop();
             }

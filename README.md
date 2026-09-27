@@ -33,6 +33,7 @@ names below carry the project version, written `<version>`.
 | Path | What it is | Artifact |
 |---|---|---|
 | `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-<version>.jar` |
+| `libs/rar-model` | The **RFC 9396 containment model**: per-type field rules (sets, limits with a unit, `instructedAmount`, instants, equality, strings, nested objects, forbidden fields), one spelling for a thing a type can say two ways, three built-in types, more from a models document, and `contains` / `authorize` / `intersect` over lists held to fixed limits, with a fingerprint of the effective model. JDK only. Closes blocker B1 once S1b/S1c wire it into the authenticator, the issuer and the plugin | `rar-model-<version>.jar` |
 | `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-<version>.jar` |
 | `libs/openid-federation` | **OpenID Federation 1.0** (Final): trust-chain validation against pinned anchors, metadata policy, constraints, Trust Marks (verify and issue), the federation endpoints' logic, hosted entities and their key history, the AuthZEN policy decision client, and the event API - no PingFederate code | `openid-federation-<version>.jar` |
 | `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-<version>.jar` |
@@ -65,6 +66,8 @@ names below carry the project version, written `<version>`.
 | `services/device-enrolment` | The **agent platform backend** — Client Attester for device-resident agents: enrolment ceremony (App Attest + PingOne passkey + Secure Enclave key), owns the instance registry, mints Client Attestations, enforces the user-verification time-box server-side. Not a PF extension | `device-enrolment-<version>.jar` |
 | `services/demo-rs` | **Resource-server validation** that closes the loop: AS signature, DPoP proof, `cnf.jkt` equals the proof key's thumbprint (the check people skip), then the RFC 8693 `act` chain. A library, no HTTP surface | `demo-rs-<version>.jar` |
 | `services/harness` | **Verification CLIs run by hand** over the real classes - attestation issuance and verification, a CAEP SET - with each self-verify walk also run as a smoke test under `mvn test`. Not shipped | `harness-<version>.jar` |
+
+[`clients/ios/`](clients/ios/README.md) is the **reference iOS client** of `services/device-enrolment`: a Swift package and a sample app, built and tested on macOS by their own workflow, a skeleton until X-I01b; the protocol it speaks is [docs/device/ios-client-contract.md](docs/device/ios-client-contract.md).
 
 `build/pingfederate/` builds the AS image from the reactor's **modular jars**
 (`stage-modules.sh` → `modules/`, merged into `pf-runtime.war` at root context and onto the engine
