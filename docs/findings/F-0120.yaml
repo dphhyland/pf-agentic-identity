@@ -1,0 +1,21 @@
+id: F-0120
+title: Every release publishes the CIBA simulator to GitHub Packages
+severity: low
+area: ciba-sim, release
+source: pr-review
+status: open
+plan_items: [X-D02]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  Found while verifying F-0014 for PR #33 on 2026-09-27. plugins/ciba-sim sets no maven.deploy.skip, so a
+  release's `mvn -B -DskipTests deploy` (release.yml line 392) publishes com.pingidentity.ps.oidf:ciba-sim to
+  GitHub Packages with the other modules, although the release stages the production profile and, from 0.4.0,
+  leaves the jar out of its assets (PR #19). v0.3.0's release (2026-09-27T00:14Z) also carries
+  pf.plugins.ciba-sim.jar among its assets. The simulator refuses every request outside
+  OIDF_DEPLOYMENT_PROFILE=development, so a consumer who pulls it gets a jar that does nothing in production,
+  but a conformance-only test double has no reason to be published. The fix is
+  `<maven.deploy.skip>true</maven.deploy.skip>` in plugins/ciba-sim/pom.xml, as services/harness has, once it
+  is checked that no consumer resolves the artefact: nothing in this repository does, and the rig builds it
+  from the reactor.

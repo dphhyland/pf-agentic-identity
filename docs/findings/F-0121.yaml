@@ -1,0 +1,26 @@
+id: F-0121
+title: Documentation that later changes made false, found by PR #33 outside what it fixed
+severity: low
+area: docs
+source: pr-review
+status: open
+plan_items: [D-8]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: |
+  Found while PR #33 re-read the showcase and the device READMEs on 2026-09-27, and left for the packages that
+  own the code, so that parallel pull requests do not collide:
+  - showcase DATA, modules[13] (libs/conformance): the statusNote says CI "fails when the committed copy is
+    stale", and the dashboard has not been committed since PR #15 (plan decision 18); features[0] counts 192
+    @Requirement uses in 52 test files across 14 modules and facts[3] 14 dependent poms, where a grep on
+    2026-09-27 finds @Requirement in 135 test files under 16 module directories and 17 poms besides its own
+    that depend on it.
+  - showcase DATA, modules[6] (instance-registry-datasource) facts[5], the PF-INF/custom-drivers settings row
+    and the SDK plugins page's intro call the descriptor name unverified (item 9), where docs/unverified.md
+    item 9 now says item 4 settled it.
+  - javadoc: servlets/ssf InstanceRegistryReceiverHandler and services/device-enrolment CaepEventHandler still
+    describe device-enrolment's direct compliance endpoint, which PR #28 removed; nothing calls
+    CaepEventHandler any more, and X-A18 retires it.
+  - CONTRIBUTING.md's generated-files paragraph still says the move out of git is a concurrent pull request
+    "until it merges"; PR #15 merged on 2026-09-27.
