@@ -1367,6 +1367,9 @@ class AttestationIssuanceServletTest {
                 "the key that holds the binding is named: when a thief presented first, it is the thief's");
         assertEquals(CLIENT_ID, event.fields().get("bound_client"));
         assertEquals(SPIFFE_ID, event.fields().get("instance_subject"));
+        assertEquals("attestation-issuer", event.component(), "its catalogue is the attester's own");
+        assertEquals("Client Attestation", com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.protocolOf(event.toEvent(),
+                com.pingidentity.ps.oidf.platform.events.EventCatalogues.current()), "the audit log's protocol column");
 
         // The rightful holder is not disturbed by the attempt.
         AttestationIssuanceServlet.IssuanceRequest again = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
