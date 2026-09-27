@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.fapi2;
 
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.Violation;
 import java.io.IOException;
 import java.util.Collections;
@@ -90,25 +91,36 @@ public final class Fapi2ProfileFilter implements Filter {
 
     @Override
     public void init(FilterConfig config) {
-        String setting = config == null ? null : config.getInitParameter("clients");
-        if (setting == null || setting.isBlank()) {
-            setting = System.getProperty(CLIENTS_PROPERTY);
-        }
-        if (setting == null || setting.isBlank()) {
-            setting = this.environment.apply(CLIENTS_ENV);
-        }
-        Set<String> listed = new LinkedHashSet<>();
-        for (String id : (setting == null ? "" : setting).split(",")) {
-            if (!id.isBlank()) {
-                listed.add(id.trim());
+        var part = Startup.begin(Startup.FAPI, "Fapi2ProfileFilter");
+        try {
+            String setting = config == null ? null : config.getInitParameter("clients");
+            if (setting == null || setting.isBlank()) {
+                setting = System.getProperty(CLIENTS_PROPERTY);
             }
+            if (setting == null || setting.isBlank()) {
+                setting = this.environment.apply(CLIENTS_ENV);
+            }
+            Set<String> listed = new LinkedHashSet<>();
+            for (String id : (setting == null ? "" : setting).split(",")) {
+                if (!id.isBlank()) {
+                    listed.add(id.trim());
+                }
+            }
+            this.clients = Set.copyOf(listed);
+            if (this.clients.isEmpty()) {
+                part.disabled();
+            }
+            LOGGER.info((Object) (this.clients.isEmpty()
+                    ? "FAPI 2.0 enforcement off (" + CLIENTS_ENV + " names no client): requests pass through unchanged"
+                    : "FAPI 2.0 enforcement ON for " + (this.clients.contains(EVERY_CLIENT) ? "every client" : this.clients)
+                            + ": client assertions must name the issuer as a string aud, and DPoP proofs must be"
+                            + " signed with " + Fapi2RequestPolicy.ALLOWED_ALGORITHMS));
+        } catch (RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
-        this.clients = Set.copyOf(listed);
-        LOGGER.info((Object) (this.clients.isEmpty()
-                ? "FAPI 2.0 enforcement off (" + CLIENTS_ENV + " names no client): requests pass through unchanged"
-                : "FAPI 2.0 enforcement ON for " + (this.clients.contains(EVERY_CLIENT) ? "every client" : this.clients)
-                        + ": client assertions must name the issuer as a string aud, and DPoP proofs must be"
-                        + " signed with " + Fapi2RequestPolicy.ALLOWED_ALGORITHMS));
     }
 
     @Override

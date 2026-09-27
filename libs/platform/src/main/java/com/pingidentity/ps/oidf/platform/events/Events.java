@@ -15,7 +15,8 @@ import com.pingidentity.ps.oidf.platform.log.PlatformLog;
  * (docs/development/classloaders.md).
  *
  * <p>{@link #emit} admits the event through this loader's catalogues first ({@link EventCatalogues#admit}), so no
- * sink - a test's capture included - is handed a field the event's code does not declare.
+ * sink - a test's capture included - is handed a field the event's code does not declare, and then counts it in
+ * {@code oidf_events_total} ({@link EventMetrics}) before any sink runs.
  */
 public final class Events {
     private static final PlatformLog LOG = PlatformLog.get(Events.class);
@@ -66,7 +67,11 @@ public final class Events {
             return;
         }
         try {
-            sink().emit(EventCatalogues.current().admit(event));
+            EventCatalogues catalogues = EventCatalogues.current();
+            Event admitted = catalogues.admit(event);
+            // Counted before any sink runs, so an event a failing sink loses is still counted (O-4).
+            EventMetrics.count(catalogues, admitted);
+            sink().emit(admitted);
         } catch (RuntimeException ignored) {
             // A failing sink never fails the request the event describes.
         }

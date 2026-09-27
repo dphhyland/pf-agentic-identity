@@ -1,0 +1,24 @@
+id: U-0200
+title: No event has been seen counted in oidf_events_total inside a running PingFederate, and gm-api's own health is not built yet
+area: platform, platform-pf
+source: design
+status: open
+plan_items: [O-4, F-2]
+prs: [53]
+recorded_in: libs/platform/README.md, health; libs/platform-pf/README.md, health
+verify_by: >
+  Boot the rig with a flow that emits a catalogued event - a federation client's token request, which runs the
+  chain validation that emits federation.chain.validated or federation.chain.refused - and list
+  com.pingidentity.ps.oidf:type=Metrics,* in the running JVM (an Attach API client inside the container, as package
+  O4 used on 2026-09-28). Expect oidf_events_total rows for the code and outcome in the webapp's MXBean, and, when the
+  OGNL criterion emits, in the engine's. After F-2 bundles platform-pf in gm-api.war, check that
+  /gm-api/agentic-identity/health/live answers and that its ready follows gm-api's own part.
+verification: ''
+notes: >
+  Package O4 (2026-09-28) tested the counting through Events.emit in platform's tests (EventMetricsTest), on JDK 17
+  and 20. On the rig (PingFederate 13.1.3.0, conformance profile, the pinned image's java 21.0.12.1) the four
+  endpoints answered as documented and the component lines reached server.log through commons-logging at INFO and
+  WARN, but the requests tried - /federation/fetch and /federation/resolve for an unknown subject - emitted no event
+  in the rig's inert federation, so no metric was registered and an Attach API client found no
+  com.pingidentity.ps.oidf:type=Metrics MXBean. The gm-api decision (libs/platform-pf's README) is a design until F-2
+  bundles platform-pf there.

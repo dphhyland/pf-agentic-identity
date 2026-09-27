@@ -1,0 +1,19 @@
+id: F-0201
+title: The SSF Kafka publisher's producer thread is started by the Kafka client and never closed in production
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [S-10]
+prs: [51]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Package C3 (2026-09-28) moved every thread the repository's PingFederate code starts onto platform.exec. One it
+  does not start itself: when the SSF transmitter's Kafka fan-out is on, KafkaSetPublisher builds a KafkaProducer
+  by reflection, and the Kafka client starts its own network thread. SetPublisher.close() closes the producer,
+  but only SsfSupport.resetForTests calls it (read 2026-09-28 in servlets/ssf); nothing registers it with the
+  lifecycle, so the producer and its thread outlive an undeploy of pf-runtime.war even after F-2 runs the
+  lifecycle's shutdown. The fix is to register the publisher's close with platform.lifecycle where SsfSupport
+  builds it - SSF delivery code that C3 was not to change - and it fits S-10's emission outbox (S10d), which
+  replaces the direct fan-out.

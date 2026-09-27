@@ -268,6 +268,29 @@
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.objectName(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.copyOf(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.begin(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.parts(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.refresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.passes(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.move(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.publish(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.worst(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.reasons(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.stateFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.reasonOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.clean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.failed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.finish(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.readiness(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.serving(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.detail(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.count(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.counterFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.useRegistry(*</include>
                                         <!-- redis (C-2): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.redact(*</include>
@@ -310,6 +333,23 @@
                                         <include>com.pingidentity.ps.oidf.platform.redis.WindowCount.of(*</include>
                                         <!-- http (S5a): add gate includes below this line -->
                                         <!-- exec (C-3): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.relocated(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.checkName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.create(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.claim(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.release(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.every(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.after(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.nonNegativeNanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.positiveNanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.whenClosed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.runHook(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutor.awaitEnd(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.every(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.after(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.startDaemon(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
