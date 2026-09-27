@@ -332,6 +332,14 @@ with the descriptor's default when it creates an instance: the rig's probe insta
 was stored with all fifteen (2026-09-27). The version PingFederate shows for the plugin is the jar's
 `Implementation-Version`, the project version it was built as.
 
+One setting is not a field: `OIDF_RAR_EXTRA_TYPES` (the system property `oidf.rar.extra.types` first), the
+types PingFederate may bind to the processor beyond the three built in, whitespace- or comma-separated. PingFederate
+reads the supported types from the descriptor before any instance is configured, so it cannot be an instance
+field. The fields, their defaults, profile classes and what a wrong value does are in the
+[rar-pdp-processor](src/main/resources/META-INF/oidf-settings/rar-pdp-processor.json) settings catalogue;
+the removed "Deny unless PERMIT" is not there, because the catalogue format records a removed name only for
+an environment variable, a system property or an init-param ([F-0231](../../docs/findings/F-0231.yaml)).
+
 `OIDF_DEPLOYMENT_PROFILE` is read through libs/platform's `DeploymentProfile` (plan item PR-1), shaded into
 the jar under `com.pingidentity.ps.oidf.rar.shaded.platform`; `development` (trimmed, any case) is development,
 anything else including unset is production.

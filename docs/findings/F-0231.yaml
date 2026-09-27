@@ -1,0 +1,19 @@
+id: F-0231
+title: 'The settings catalogue cannot record a removed plugin field, such as the RAR plugin''s "Deny unless PERMIT"'
+severity: low
+area: platform, rar-paz-plugin
+source: design
+status: open
+plan_items: [ST-5, PR-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST3B (2026-09-28). The RAR plugin's "Deny unless PERMIT" field went in 0.4.0 (S2a; docs/releases/0.4.0.md
+  item 23), and its catalogue was to record it as a removed name. platform.settings' loader takes a removed entry
+  only from env, system-property or init-param (Catalogue's reader refuses any other "from"), and a removed
+  name is refused when it is set - but the plugin deliberately ignores a stored value under the old field, so that
+  a 0.3.0 archive still imports and decides (verified on the rig, 2026-09-27, per AttestationAwareRarProcessor's
+  DENY_ON_NON_PERMIT_REMOVED). Recording it needs a removed kind for plugin fields whose meaning is "ignored" rather
+  than "refused", decided with ST-5 (which converts the readers) or PR-3 (the plugin GUI rules). Until then the
+  plugin's README says why the catalogue does not list it.
