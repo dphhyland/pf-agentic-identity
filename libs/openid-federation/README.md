@@ -157,6 +157,20 @@ question for a policy engine, and this package is how one is asked - with no Pin
   local refusal is final, and both permits' obligations apply), **`CachingPolicyDecisionPoint`** (permits and denials
   for a while, keyed on a hash of the request; failures never).
 
+## `federation.event` - the event codes
+
+`FederationEvents` names the federation's event codes, and `META-INF/oidf-events/federation.json` in this module
+catalogues them: what each records, whether it belongs in the audit log, its outcomes, its level and the fields it may
+carry, each field with one PII class (plan item O-1). Events themselves now live in `libs/platform`'s
+`platform.events` ([its README](../platform/README.md#events)); `FederationEvent`, `FederationEvents`,
+`FederationEventSink`, `LoggingEventSink` and `LogSafe` here are façades over it, kept so the emitters compile
+unchanged, deprecated for removal when plan item O-2 (Phase 3) moves them. A field an emitter adds that the
+catalogue does not declare for its code is dropped before any sink sees it, so a new field means a catalogue
+entry: `EventsCataloguedTest` in `servlets/pf-integration` scans every emitter in the reactor and fails on an
+uncatalogued code or field, and on a catalogued code nothing emits unless the catalogue marks it `declaredOnly`
+(thirteen are, among them `attestation.client.verified` and `.refused`). What an operator sees is in
+[docs/federation/operations.md](../../docs/federation/operations.md#reading-the-logs).
+
 ## Configuration
 
 The anchors' pinned keys are not a `FederationConfiguration` setting: they are passed to

@@ -1,0 +1,24 @@
+id: F-0166
+title: The event description is free text that no PII class covers, and can carry a person's name to both logs
+severity: low
+area: platform, openid-federation, pf-integration, attestation-issuer
+source: reviewer-report
+status: open
+plan_items: [O-1, D-6]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found by O1's adversarial review (2026-09-28). The catalogues give every event field one PII class, but the
+  description (`desc=` in server.log, part of the audit log's description column) is free text the emitters fill
+  from outside values: the `reason` member of an administrator's request body (HostedEntityAdmin,
+  FederationAdminServlet), an external policy decision point's `reason_admin` (RegistrationPolicy,
+  TokenIssuancePolicy, HostedEntityServlet), exception messages (RegistrationService, TokenIssuancePolicy,
+  RegistrationPolicy, HostedEntityServlet), and client ids and JWK thumbprints (AttestationIssuanceServlet's evidence
+  conflict, beside the fields that carry the same values under their own classes). An administrator's free-text
+  reason can name a person as readily as X-Federation-Actor can (F-0165). O1 gave the description its own treatment
+  per log in platform.events.PiiPolicy (withDescription: keep, digest or drop), so a policy that digests or drops a
+  class can do the same to the description, and PiiPolicy.DEFAULT keeps it in both logs, as before. What O1 does
+  not do is split the description into classified parts: an emitter still writes outside values into it. Who and
+  when: the PII policy of plan item D-6 (Phase 7) decides the description's treatment in each log, and O-2 (Phase
+  3), which moves the emitters, can move outside values out of the description into classified fields.

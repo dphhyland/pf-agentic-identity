@@ -51,6 +51,32 @@ catalogue gives. A null config has no init-params. Nothing calls it yet: the rea
 ST-5 (Phase 3). The extended properties and plugin fields PingFederate supplies are parsed, not resolved
 (`Settings.parse`), so they need no source here.
 <!-- audit (O-1): add this package's section below this line -->
+
+## audit
+
+`PfAuditSink` is PingFederate's event sink (plan item O-1), the logic `PfAuditEventSink` in servlets/pf-integration
+held until now; that class stays as a delegating shim, so its callers' `install()` is unchanged. Every event goes to
+server.log through a `LoggingSink`; an event marked audit, while `OIDF_EVENTS_AUDIT` is not `false`, also goes to
+PingFederate's audit log through the SDK's `LoggingUtil`. Before either write the event is admitted again by its
+catalogue (`readmit`: `Events.emit` has counted it), and the audit record is passed through the `PiiPolicy` for the
+audit log, the caller's address as `NETWORK` (platform's README, "events").
+
+The record's columns: `event` (the code), `status`, `subject` (the event's subject), `connectionid` (its partner),
+`protocol`, `role`, `ip` (the caller's address, from the supplier the sink is given - pf-integration's
+`PfRequestScope`), the request `jti` and a description carrying the reason and fields. `protocol` is per component, from
+its catalogue's `auditProtocol`: `OpenID Federation` for `federation`, `Client Attestation` for
+`attestation-issuer`, and `DEFAULT_PROTOCOL` (`OpenID Federation`) for a component with no catalogue. The writer
+calls `LoggingUtil.init`, the setters, `log` and, in a `finally`, `cleanup`, in the order `PfAuditEventSink` did,
+and puts `protocol` in the log4j `ThreadContext` under the key PingFederate's own AuditLogger uses, never through
+`LoggingUtil.setProtocol`, which on 13.0 and 13.1 writes the `ip` column. Whether `cleanup` also strips
+PingFederate's own audit context is finding [F-0049](../../docs/findings/F-0049.yaml) (H-FED-7, Phase 3).
+
+`OIDF_EVENTS_AUDIT` (system property `oidf.events.audit` first) and `OIDF_EVENTS_MAX_VALUE_LENGTH` keep their names
+and meanings: audit is on unless the value is `false`, and a value that is neither `true` nor `false` leaves it on
+with a WARN; the cap is `LogSafe`'s, and a value that is not a number is warned about and ignored. Both WARN lines
+are now on the logger `com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink`. `PfAuditSink.install(Supplier)`
+installs the sink in platform's registry directly, for the emitters O-2 moves; nothing calls it yet.
+
 <!-- health (O-4): add this package's section below this line -->
 <!-- lifecycle (F-2): add this package's section below this line -->
 <!-- internals (F-1, PfInternals): add this package's section below this line -->

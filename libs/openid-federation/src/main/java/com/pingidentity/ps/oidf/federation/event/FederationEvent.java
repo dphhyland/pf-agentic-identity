@@ -1,36 +1,41 @@
 /*
- * One thing that happened in the federation subsystem, recorded once.
+ * One thing that happened in the federation subsystem, recorded once - a façade over platform's Event.
  */
 package com.pingidentity.ps.oidf.federation.event;
 
-import java.util.Collections;
-import java.util.LinkedHashMap;
+import com.pingidentity.ps.oidf.platform.events.Event;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Objects;
 
 /**
  * A decision or action worth recording: a chain validated or refused, a client registered, a statement
- * served, a PDP consulted.
+ * served, a PDP consulted. The same record as {@link Event} in {@code platform.events}, where events now live
+ * (plan item O-1): this façade keeps every emitter compiling unchanged, and converts both ways without loss.
  *
  * <p>{@code code} is a stable, dotted machine code ({@code federation.registration.created}) - the
- * contract a log consumer branches on, never prose. {@code outcome} is success or failure, and a failure
+ * contract a log consumer branches on, never prose - declared with its fields in
+ * {@code META-INF/oidf-events/federation.json}. {@code outcome} is success or failure, and a failure
  * carries a short {@code reason} code. {@code subject} is who the event is about (an entity id or client
  * id), {@code partner} the other party (the trust anchor, the attester). {@code audit} marks events that
- * also belong in PingFederate's security audit log. Every value is passed through {@link LogSafe} by the
- * sinks, so a caller cannot put a token or a forged line into a log through an event.
+ * also belong in PingFederate's security audit log. {@code component} is the catalogue the code is declared in.
+ * Every value is passed through {@link LogSafe} by the sinks, so a caller cannot put a token or a forged line
+ * into a log through an event.
  *
  * <p>Privacy rule (from {@code libs/agent-registry}): an instance's subject is never recorded beside its
  * {@code agent_id}. The builder drops {@code instance_subject} and {@code spiffe_id} from any event that
  * carries {@code agent_id}.
+ *
+ * @deprecated Emit through {@link com.pingidentity.ps.oidf.platform.events.Events}; the emitters move with plan
+ *     item O-2 (Phase 3), which removes this façade.
  */
+@Deprecated(since = "0.5.0", forRemoval = true)
 public record FederationEvent(String code, Outcome outcome, String reason, String subject, String partner,
                               String role, String description, Map<String, String> fields, String requestJti,
-                              boolean audit, String category) {
+                              boolean audit, String category, String component) {
 
     /** Fields the privacy rule removes when {@code agent_id} is present. */
-    static final List<String> NEVER_BESIDE_AGENT_ID = List.of("instance_subject", "spiffe_id");
+    static final List<String> NEVER_BESIDE_AGENT_ID = Event.NEVER_BESIDE_AGENT_ID;
 
     public enum Outcome {
         SUCCESS, FAILURE;
@@ -38,131 +43,123 @@ public record FederationEvent(String code, Outcome outcome, String reason, Strin
         public String code() {
             return this.name().toLowerCase(Locale.ROOT);
         }
+
+        Event.Outcome platform() {
+            return this == SUCCESS ? Event.Outcome.SUCCESS : Event.Outcome.FAILURE;
+        }
+
+        static Outcome of(Event.Outcome outcome) {
+            return outcome == Event.Outcome.SUCCESS ? SUCCESS : FAILURE;
+        }
     }
 
     public FederationEvent {
-        Objects.requireNonNull(code, "code");
-        outcome = outcome == null ? Outcome.SUCCESS : outcome;
-        fields = fields == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(fields));
-        category = category == null || category.isBlank() ? categoryOf(code) : category;
+        Event normalised = new Event(code, outcome == null ? null : outcome.platform(), reason, subject, partner, role,
+                description, fields, requestJti, audit, category, component);
+        outcome = Outcome.of(normalised.outcome());
+        fields = normalised.fields();
+        category = normalised.category();
+        component = normalised.component();
     }
 
-    /**
-     * The logger family of a code: the second segment of a {@code federation.*} code
-     * ({@code federation.registration.created} → {@code registration}), otherwise the first
-     * ({@code attestation.client.verified} → {@code attestation}).
-     */
+    /** The record as it was before events had a component: the component is {@link Event#DEFAULT_COMPONENT}'s. */
+    public FederationEvent(String code, Outcome outcome, String reason, String subject, String partner, String role,
+                           String description, Map<String, String> fields, String requestJti, boolean audit,
+                           String category) {
+        this(code, outcome, reason, subject, partner, role, description, fields, requestJti, audit, category, null);
+    }
+
+    /** See {@link Event#categoryOf}. */
     static String categoryOf(String code) {
-        String[] parts = code.split("\\.");
-        return parts.length >= 3 && "federation".equals(parts[0]) ? parts[1] : parts[0];
+        return Event.categoryOf(code);
     }
 
     public boolean isFailure() {
         return this.outcome == Outcome.FAILURE;
     }
 
+    /** This event as platform's. */
+    public Event toEvent() {
+        return new Event(this.code, this.outcome.platform(), this.reason, this.subject, this.partner, this.role,
+                this.description, this.fields, this.requestJti, this.audit, this.category, this.component);
+    }
+
+    /** Platform's event as this façade's. */
+    public static FederationEvent from(Event event) {
+        return new FederationEvent(event.code(), Outcome.of(event.outcome()), event.reason(), event.subject(),
+                event.partner(), event.role(), event.description(), event.fields(), event.requestJti(), event.audit(),
+                event.category(), event.component());
+    }
+
+    /** Starts an event of {@code code}; its component is the catalogue's that declares the code. */
     public static Builder builder(String code) {
         return new Builder(code);
     }
 
-    /** Fluent construction; {@link #emit()} hands the event to {@link FederationEvents}. */
+    /** Fluent construction over platform's builder; {@link #emit()} hands the event to {@link FederationEvents}. */
     public static final class Builder {
-        private final String code;
-        private Outcome outcome = Outcome.SUCCESS;
-        private String reason;
-        private String subject;
-        private String partner;
-        private String role;
-        private String description;
-        private final Map<String, String> fields = new LinkedHashMap<>();
-        private String requestJti;
-        private boolean audit;
-        private String category;
+        private final Event.Builder delegate;
 
         private Builder(String code) {
-            this.code = Objects.requireNonNull(code, "code");
+            this.delegate = Event.builder(null, code);
         }
 
         public Builder success() {
-            this.outcome = Outcome.SUCCESS;
-            this.reason = null;
+            this.delegate.success();
             return this;
         }
 
         /** Marks the event a failure with a short machine {@code reason} ({@code signature}, {@code no_route_to_anchor}). */
         public Builder failure(String reasonCode) {
-            this.outcome = Outcome.FAILURE;
-            this.reason = reasonCode;
+            this.delegate.failure(reasonCode);
             return this;
         }
 
         public Builder subject(String value) {
-            this.subject = value;
+            this.delegate.subject(value);
             return this;
         }
 
         public Builder partner(String value) {
-            this.partner = value;
+            this.delegate.partner(value);
             return this;
         }
 
         /** PingFederate's audit {@code role} column: {@code OP}, {@code TA}, {@code ATTESTER}, ... */
         public Builder role(String value) {
-            this.role = value;
+            this.delegate.role(value);
             return this;
         }
 
         public Builder description(String value) {
-            this.description = value;
+            this.delegate.description(value);
             return this;
         }
 
         /** Adds a field; a {@code null} value is skipped, a collection is joined with spaces. */
         public Builder field(String name, Object value) {
-            if (name != null && value != null) {
-                String rendered;
-                if (value instanceof Iterable<?> iterable) {
-                    StringBuilder joined = new StringBuilder();
-                    for (Object item : iterable) {
-                        if (joined.length() > 0) {
-                            joined.append(' ');
-                        }
-                        joined.append(item);
-                    }
-                    rendered = joined.toString();
-                } else {
-                    rendered = String.valueOf(value);
-                }
-                this.fields.put(name, rendered);
-            }
+            this.delegate.field(name, value);
             return this;
         }
 
         public Builder requestJti(String value) {
-            this.requestJti = value;
+            this.delegate.requestJti(value);
             return this;
         }
 
         /** Marks the event as belonging in PingFederate's security audit log as well as the server log. */
         public Builder audit() {
-            this.audit = true;
+            this.delegate.audit();
             return this;
         }
 
         public Builder category(String value) {
-            this.category = value;
+            this.delegate.category(value);
             return this;
         }
 
         public FederationEvent build() {
-            Map<String, String> safeFields = new LinkedHashMap<>(this.fields);
-            if (safeFields.containsKey("agent_id")) {
-                for (String forbidden : NEVER_BESIDE_AGENT_ID) {
-                    safeFields.remove(forbidden);
-                }
-            }
-            return new FederationEvent(this.code, this.outcome, this.reason, this.subject, this.partner, this.role,
-                    this.description, safeFields, this.requestJti, this.audit, this.category);
+            return from(this.delegate.build());
         }
 
         /** Builds the event and hands it to the configured sink. */
