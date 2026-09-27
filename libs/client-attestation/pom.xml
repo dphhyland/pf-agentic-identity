@@ -130,7 +130,14 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.redisStore(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.redisClient(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.conflictWith(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.doPost(*</include>
+                                        <!-- S4b: which method a challenge endpoint answers, which namespace it issues into and
+                                             which settings reach it - each endpoint its own, never the other's. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.issue(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseInt(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseLong(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.init(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

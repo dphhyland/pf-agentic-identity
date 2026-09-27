@@ -36,6 +36,9 @@ import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import com.pingidentity.ps.oidf.issuer.RemoteJwksCache;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet;
 import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -468,11 +471,85 @@ class AttestationIssuanceServletTest {
     @Test
     @Requirement("CAS §4.1")
     void presentedChallengeIsConsumedOnceThenRefused() throws Exception {
-        String challenge = AttestationSupport.challengeService().issue();
+        String challenge = AttestationSupport.challengeService(StoreNamespace.CAS).issue();
         servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())); // consumes it
         IssuanceException e = assertThrows(IssuanceException.class,
                 () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())));
         assertEquals("invalid_instance_proof", e.error());
+    }
+
+    /**
+     * CAS §4.1: "a challenge issued by one party MUST NOT be accepted by the other", and "the CAS MUST reject an
+     * Instance Key Proof presenting a challenge it did not issue". The authorization server's endpoint issues into
+     * {@code oidf:as:challenge:*}; the attester looks in {@code oidf:cas:challenge:*}, refuses, and spends nothing.
+     */
+    @Test
+    @Requirement("CAS §4.1")
+    void aChallengeFromTheAuthorizationServersEndpointIsRefusedAndLeftUnspent() throws Exception {
+        String challenge = challengeFrom(new ClientAttestationChallengeServlet(), "POST");
+
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+        assertTrue(e.getMessage().contains("challenge"), e.getMessage());
+        assertEquals(Consumption.CONSUMED, AttestationSupport.challengeService(StoreNamespace.AS).consumeChallenge(challenge),
+                "the refusal left the authorization server's challenge for the token endpoint");
+    }
+
+    /**
+     * The other direction: a challenge from the attester's endpoint, echoed in a PoP at the token endpoint, meets a
+     * verifier wired as {@code ClientAttestationAuthFilter} and {@code ClientAttestationUtils} wire it - over
+     * {@link AttestationSupport#challengeService()}, the authorization server's store - and is refused with
+     * {@code use_attestation_challenge}.
+     */
+    @Test
+    @Requirement("CAS §4.1")
+    void aChallengeFromTheAttestersEndpointIsRefusedAtTheTokenEndpoint() throws Exception {
+        String challenge = challengeFrom(new AttestationIssuanceChallengeServlet(), "GET");
+        String attestation = (String) servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())).get("attestation");
+
+        JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(publicParams(attesterKey));
+        ClientAttestationVerifier tokenEndpoint = new ClientAttestationVerifier(
+                new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub))),
+                ClientAttestationConfig.builder().addAcceptedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                AttestationSupport.replayCache(), AttestationSupport.challengeService());
+        JwtClaims pop = new JwtClaims();
+        pop.setIssuer(CLIENT_ID);
+        pop.setAudience(OP_ISSUER);
+        pop.setJwtId("pop-" + UUID.randomUUID());
+        pop.setIssuedAtToNow();
+        pop.setClaim("challenge", challenge);
+        String popJwt = signCompact(instanceKey, "ES256", "oauth-client-attestation-pop+jwt", pop);
+
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> tokenEndpoint.verify(attestation, popJwt, null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.useChallenge("-").error(), e.error());
+        assertEquals(Consumption.CONSUMED, AttestationSupport.challengeService(StoreNamespace.CAS).consumeChallenge(challenge),
+                "the refusal left the attester's challenge for the attester");
+    }
+
+    /** CAS §4.1 end to end: the attester's own endpoint issues a challenge its issuance endpoint takes once. */
+    @Test
+    @Requirement("CAS §4.1")
+    void aChallengeFromTheAttestersEndpointIsTakenOnceByTheAttester() throws Exception {
+        String challenge = challengeFrom(new AttestationIssuanceChallengeServlet(), "GET");
+        assertNotNull(servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())).get("attestation"));
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+    }
+
+    /** Fetches a challenge from an endpoint as a client would, through the container's entry point. */
+    private static String challengeFrom(jakarta.servlet.http.HttpServlet endpoint, String method) throws Exception {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getMethod()).thenReturn(method);
+        when(req.getRemoteAddr()).thenReturn("10.0.4." + (1 + new java.util.Random().nextInt(250)));
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        StringWriter body = new StringWriter();
+        when(resp.getWriter()).thenReturn(new PrintWriter(body));
+        endpoint.service((jakarta.servlet.ServletRequest) req, (jakarta.servlet.ServletResponse) resp);
+        org.mockito.Mockito.verify(resp).setStatus(200);
+        return (String) JsonUtil.parseJson(body.toString()).get("attestation_challenge");
     }
 
     @Test

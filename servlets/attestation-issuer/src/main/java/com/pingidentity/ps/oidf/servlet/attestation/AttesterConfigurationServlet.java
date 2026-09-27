@@ -143,7 +143,10 @@ public class AttesterConfigurationServlet extends HttpServlet {
         List<String> algorithms = sortedAlgorithms(ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS);
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("attestation_endpoint", baseUrl + "/federation/attestation");
-        m.put("challenge_endpoint", baseUrl + "/federation/attestation-challenge");
+        // The attester's challenge endpoint, for the instance-key proof. The token endpoint's challenges come from
+        // the authorization server's own endpoint, which its metadata names; a challenge from one is refused at the
+        // other (CAS §4.1), so this document names only the attester's.
+        m.put("challenge_endpoint", baseUrl + AttestationIssuanceChallengeServlet.PATH);
         // The PF token endpoint that accepts the minted attestation as client authentication
         // (attest_jwt_client_auth, via ClientAttestationAuthFilter). Advertised so a client SDK can run
         // the whole flow from the PF host alone.

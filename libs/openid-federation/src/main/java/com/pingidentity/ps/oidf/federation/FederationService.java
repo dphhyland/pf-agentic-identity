@@ -323,6 +323,9 @@ public final class FederationService {
             openidProvider.put("client_attestation_pop_methods_supported", popMethods);
         }
         if (attestationMetadata.challengeEndpointEnabled()) {
+            // The authorization server's challenge endpoint (ABCA-10 §6.1; client-attestation's
+            // ClientAttestationChallengeServlet). Never the attester's /federation/attestation/challenge: a challenge
+            // from there is refused at the token endpoint (CAS §4.1).
             openidProvider.put("challenge_endpoint", fedBase + "/federation/attestation-challenge");
         }
         metadata.put("openid_provider", openidProvider);
