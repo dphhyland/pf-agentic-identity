@@ -424,7 +424,7 @@ it is left visible rather than filled with a plausible guess.
 | `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness | `DpopProofValidator`, `services/demo-rs` | Implemented |
 | `RFC9449 §6.1` | `cnf.jkt` equals the presented proof key's thumbprint | `DelegatedTokenValidator` | Implemented |
 | — | RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial — `unverified.md` item 10 |
-| `RFC9396 §6.1` | `authorization_details` containment, every field by its type's rule | `libs/rar-model`, asked by the token gate and the issuer (S1b); `RarContainment` in the plugin until S1c | Implemented |
+| `RFC9396 §6.1` | `authorization_details` containment, every field by its type's rule | `libs/rar-model`, asked by the token gate and the issuer (S1b) and by the RAR plugin for a PDP's answer and on refresh (S1c) | Implemented |
 | `RFC9396 §7.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
 | `RFC8693 §4.1` | `act` as a JSON object; outermost actor only is authorisable | `services/demo-rs` `ActChain`, `services/gm-api` `TokenClaims` | Implemented on the reading side |
 | `UNVERIFIED item 8` | `act` minted as a JSON string, not an object | `delegationActChain` | Divergence being corrected — whether PF can emit the object form is unresolved |
@@ -524,7 +524,7 @@ which is why they survive a module count changing and the paragraph above them d
 | ABCA `agent_id` extension | `ClientAttestationTest` (3), `AttestationMinterTest` (5) | Null when absent, parsed when present, doesn't perturb other fields; omitted rather than emitted blank |
 | RFC 9449 DPoP | `DpopProofValidatorTest` (9) | Valid accepted; `htu` ignores query/fragment; wrong method/URI/`typ` rejected; missing `jti` rejected; stale rejected; tampered signature rejected; disallowed alg rejected |
 | RFC 9396 containment | `AuthorizationDetailsGateTest` (20), `AsVectorRunnerTest` and `CasVectorRunnerTest` (the shared vectors through the token gate, the mint, the configuration and the asserted context), `RarModelVectorsTest` in `libs/rar-model`; `RarEntitlementTest` (8) for the unused old check | Grants within entitlement; denies region/action outside; denies when nothing attested but something requested; grants nothing when nothing requested; missing `type` invalid; array parsing |
-| RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (21), `PrincipalPerFlowTest` (8), `ClientAssertedPrincipalTest` (9), `AttestationSubjectTest` (6) | A non-PERMIT always throws; fail-open only for an unreachable PDP, and it strips the internal `_principal_sub` and `_agent_id` markers; PERMIT merges and strips; a PDP that answered badly throws with its text, the principal hashed and no cause; the principal per OAuth flow, and payments refused before the PDP without an authenticated one. Subject parses the PF hook attribute shape, `agent_id` and `iss` when published |
+| RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (21), `PrincipalPerFlowTest` (8), `ClientAssertedPrincipalTest` (9), `AttestationSubjectTest` (7), `ModelContainmentTest` (16), `ModelGateTest` (9), `RefreshVectorsTest` (149), `ShadedJarCheck` (2) | A non-PERMIT always throws; fail-open only for an unreachable PDP, and it strips the internal `_principal_sub` and `_agent_id` markers; PERMIT merges and strips; a PDP that answered badly throws with its text, the principal hashed and no cause; the principal per OAuth flow, and payments refused before the PDP without an authenticated one. Subject parses the PF hook attribute shape, `agent_id`, `iss` and `rar_models_fingerprint` when published. The containment model: a detail it cannot read is refused before the PDP, a PDP answer it does not find within the request is refused, a refresh must be strictly within its grant, an attestation context with no fingerprint or another one is refused, and the library's `contains` vectors run through PingFederate's parse and refresh loop; the shaded jar carries the model only under its relocated package |
 | RFC 8693 `act` | `ClientAttestationUtilsTest` (3) | Prefers `agent_id` as the acting party; falls back to `client_id` when null or blank |
 | OIDF attester trust | `FederationAttesterKeyResolverTest` (3) | Resolves chain-validated keys; prefers dedicated attester metadata keys; rejects an unreachable attester |
 | OIDF trust anchor keys | `TrustAnchorTest`, `TrustChainValidatorAnchorKeyTest`, `TrustChainValidatorIntermediateTest`, `HttpTrustControllerGatewayAnchorTest`, `FederationRuntimeConfigTrustAnchorTest`, `ConfiguredAnchorAgreementTest`, filter init tests | Only pinned keys verify the anchor's statements, whatever its host serves; an intermediate's keys must be the ones the anchor's statement asserts; a superior without `jwks` cannot vouch; the anchor's entity configuration verifies before its fetch endpoint is used and is retrieved once more on a mismatch; unusable key sets (private, symmetric, no or duplicate `kid`) refused; a host without keys refuses every chain and names the variable; mock attesters still resolve |
@@ -729,10 +729,10 @@ rather than unverified claims. `delegationActChain` still reads the `act` claim 
 token-exchange processor validates that token before any token issues. *Closes when:* that remaining
 coupling is enforced in code, or accepted in writing.
 
-**`RarContainment` duplicates `RarEntitlement`.** The PAZ plugin shades its own copy; the file carries
-the repo's one literal `TODO: consolidate the two into a shared library`. Two implementations of a
-containment rule will drift, and the drift is a privilege-escalation shape. *Half closed (S1b):* the token
-gate and the issuer ask `libs/rar-model`, and `RarEntitlement` is unused; the plugin moves in S1c.
+**~~`RarContainment` duplicates `RarEntitlement`.~~ Closed, 2026-09-27 (PRs #37 and #36).** The token gate and
+the issuer (S1b) and the RAR plugin (S1c) all ask `libs/rar-model`; the plugin shades and relocates it,
+`RarContainment` and its contract test are gone, `RarEntitlement` is unused until its deletion (F-0100), and
+the attestation context's `rar_models_fingerprint` shows the two classloaders hold one model.
 
 ### Nice to have
 
