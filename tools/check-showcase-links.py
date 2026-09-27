@@ -2,7 +2,7 @@
 """Every file:line box on the showcase pages points at a file in this repository, and at lines it has.
 
 The pages promise a boxed link to the file behind each statement. This keeps the mechanical half of that
-promise: each `src` in showcase/index.html's DATA, and each link from showcase/federation.html into the
+promise: each `src` in showcase/index.html's DATA, and each link from the other showcase pages into the
 repository, names a tracked file, and every line it names exists in that file. It can't tell whether the lines
 still say what the statement says - that is a reading job, for whoever changes the code - but it catches the file
 that moved and the line past the end. A reference into a sibling repository (`pf-oidf-modules:path`) is not
@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 PAGE = ROOT / "showcase" / "index.html"
-PAGES = [ROOT / "showcase" / "federation.html"]
+PAGES = [ROOT / "showcase" / "federation.html", ROOT / "showcase" / "conformance.html"]
 HREF_RE = re.compile(r'<a\b[^>]*\bhref="([^"]+)"[^>]*>')
 LINES_RE = re.compile(r"^\d+(-\d+)?(,\d+(-\d+)?)*$")
 DOC_LINK_RE = re.compile(r"#doc:([^\s\"'()#`<>\]]+)")

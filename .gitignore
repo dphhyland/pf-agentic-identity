@@ -41,3 +41,6 @@ data*.zip
 .vscode/
 .claude/worktrees/
 dependency-reduced-pom.xml
+
+# The hosted microsite is assembled from showcase/ by tools/build-microsite.py; the pages are the source.
+build/microsite/
