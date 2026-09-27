@@ -66,6 +66,8 @@ names below carry the project version, written `<version>`.
 | `services/demo-rs` | **Resource-server validation** that closes the loop: AS signature, DPoP proof, `cnf.jkt` equals the proof key's thumbprint (the check people skip), then the RFC 8693 `act` chain. A library, no HTTP surface | `demo-rs-<version>.jar` |
 | `services/harness` | **Verification CLIs run by hand** over the real classes - attestation issuance and verification, a CAEP SET - with each self-verify walk also run as a smoke test under `mvn test`. Not shipped | `harness-<version>.jar` |
 
+[`clients/ios/`](clients/ios/README.md) is the **reference iOS client** of `services/device-enrolment`: a Swift package and a sample app, built and tested on macOS by their own workflow, a skeleton until X-I01b; the protocol it speaks is [docs/device/ios-client-contract.md](docs/device/ios-client-contract.md).
+
 `build/pingfederate/` builds the AS image from the reactor's **modular jars**
 (`stage-modules.sh` → `modules/`, merged into `pf-runtime.war` at root context and onto the engine
 classpath — the `pf-oidf-modules.jar` monolith is gone), and [`conformance/`](conformance/README.md)
