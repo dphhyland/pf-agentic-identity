@@ -1,7 +1,7 @@
 # Vendored Identity Object Model migrations
 
-Copies of the model repo's migrations, applied in filename order by `SsfStoresOnPostgresTest` to build the
-schema `LdmSsfStore` writes to. They are **copies, not the source of truth**.
+Copies of the model repo's migrations, applied in filename order by `SsfStoresOnPostgresTest` and
+`LdmSsfStoreOnPostgresTest` to build the schema `LdmSsfStore` writes to. They are **copies, not the source of truth**.
 
 | File | Source |
 |---|---|
