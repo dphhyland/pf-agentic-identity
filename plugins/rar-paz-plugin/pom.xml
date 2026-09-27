@@ -156,6 +156,12 @@
                 it; refuseCollisions and mirrorNames, a detail field that would overwrite a server attribute;
                 and the config's profile and type-list parsing.
 
+                A nested class's methods are named with a dot, as jacoco names them in the check (JavaNames
+                turns '$' into '.'; read in org.jacoco.report 0.8.12, 2026-09-27) and as the coverage dashboard
+                reads them: PrincipalResolver$Flow.is* and PdpUrlPolicy$Validator.validate(* matched nothing
+                in jacoco until S1c spelt them this way, and every include is a method name, not a wildcard,
+                because the dashboard matches names exactly.
+
                 Gated per METHOD, not per class, so the rest stays honestly out of scope rather than
                 behind a lowered number. The request builders' mapping, the PDP clients' header paths and
                 the processor's other PF-SDK entry points (configure/validate/getUserConsentDescription)
@@ -187,8 +193,19 @@
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.isEqualOrSubset(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.refreshVerdict(*</include>
-                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.*</include>
-                                        <include>com.pingidentity.ps.oidf.rar.ModelGate$Verdict.*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.sourceOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.loaded(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.fingerprint(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.strip(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.deepCopy(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.copyValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.within(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.fingerprintProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.shortForm(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.listOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.ModelGate.Verdict.isRefused(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationSubject.fromAttribute(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.DecisionResponse.isPermit(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.DecisionResponse.decisionOf(*</include>
@@ -203,7 +220,10 @@
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.requiresAuthenticatedPrincipal(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.hashForLog(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.redact(*</include>
-                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver$Flow.is*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isClientCredentials(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isRefresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isTokenExchange(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.Flow.isCiba(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.canonicalPath(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.decode(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpResponses.bodyOf(*</include>
@@ -213,7 +233,7 @@
                                         <include>com.pingidentity.ps.oidf.rar.JdkHttpTransport.classify(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.problem(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.check(*</include>
-                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy$Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.Validator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.refuseCollisions(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.mirrorNames(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.profileOf(*</include>
