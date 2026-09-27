@@ -39,6 +39,9 @@
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
+        <!-- The containment model: the filter loads it at init and the criterion on first use. Staged beside
+             this module's jar by build/pingfederate/stage-modules.sh. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
@@ -250,6 +253,16 @@
                                              (EndpointUrlTest covers the unreadable case). -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.endpointUrl(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.endpointPath(*</include>
+                                        <!-- S1b: what the RAR plugin is told - the attested ceiling and the fingerprint of the
+                                             model set that checked the request, which it compares with its own - and the
+                                             model's reason a refusal's log line carries (never the client's description). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.attestationContext(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.refusalDetail(*</include>
+                                        <!-- S1b: the issuance criterion's own token gate - idp-agentic-demo's only gate - where
+                                             no filter verified first: load the models or refuse, check the request strictly
+                                             within the attestation, refuse a repeated parameter, and stash what was granted. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.verifyAtTheCriterion(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.requireAtMostOnce(*</include>
                                         <!-- FAPI 2.0 enforcement over PingFederate's own endpoints. checkClientAssertion
                                              and checkDpopProof are the rules. subjectOf, clientOfAccessToken and
                                              appliesTo decide WHOSE request it is and so whether the rules apply at

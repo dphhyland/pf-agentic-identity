@@ -334,13 +334,18 @@ public final class AttestationFlowHarness {
                 "privileges", List.of("quota:standard")));
     }
 
-    /** A token request's {@code authorization_details} asking to act in one region with one action. */
+    /**
+     * A token request's {@code authorization_details} asking to act in one region with one action. It restates the
+     * entitlement's {@code privileges}: the token gate compares strictly (plan item S1b), so a field the attestation
+     * constrains and the request leaves out is refused rather than filled in.
+     */
     static List<Map<String, Object>> requestedAccess(String region, String action) {
         return List.of(Map.of(
                 "type", "sales_agent",
                 "actions", List.of(action),
                 "locations", List.of("https://crm.contoso.com/api"),
-                "sales_regions", List.of(region)));
+                "sales_regions", List.of(region),
+                "privileges", List.of("quota:standard")));
     }
 
     /** Serialize a list of objects to a compact JSON array (jose4j only serializes maps). */

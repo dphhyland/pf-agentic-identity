@@ -50,6 +50,17 @@ import java.util.Set;
  */
 public final class GovernanceEngineRequestBuilder implements DecisionRequestBuilder {
 
+    /**
+     * RFC 9396 set-valued fields mirrored as flat, dot-free scalars for PingAuthorize policy: the four common
+     * fields of section 2.2 that are arrays of strings, and this deployment's {@code sales_regions}.
+     *
+     * <p>The PDP's vocabulary, not the containment rule. This list used to be {@code RarContainment}'s, which
+     * compared these five fields and nothing else; since S1c the plugin holds the PDP's answer to the RAR
+     * containment model, every field a type declares, after the PDP has answered. A policy that compares
+     * {@code req_*} with {@code att_*} is an extra rule of the deployment's, never the only one.
+     */
+    static final String[] SET_FIELDS = {"actions", "locations", "datatypes", "privileges", "sales_regions"};
+
     /** The attribute names this builder writes itself; a requested field may not map onto any of them. */
     static final Set<String> RESERVED_ATTRIBUTES = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             "UserID", "principal_source", "actor", "actor_iss", "client_id",
@@ -60,19 +71,10 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
      * field: reserved in every request, including one that leaves a mirror unwritten, because a policy that
      * compares {@code req_actions} with {@code att_actions} cannot tell the builder's value from a caller's.
      */
-    static final Set<String> MIRROR_ATTRIBUTES = mirrorNames(RarContainment.SET_FIELDS);
+    static final Set<String> MIRROR_ATTRIBUTES = mirrorNames(SET_FIELDS);
 
     private final GovernanceEngineConfig config;
     private final ObjectMapper mapper;
-
-    /**
-     * RFC 9396 set-valued fields mirrored as flat, dot-free scalars for PingAuthorize policy.
-     *
-     * <p>The same list containment uses, not a copy of it. These two travel together by construction:
-     * the {@code att_*}/{@code req_*} attributes below are what a policy compares, so a field the
-     * builder mirrors but containment ignores (or the reverse) is a rule that looks enforced and is not.
-     */
-    private static final String[] SET_FIELDS = RarContainment.SET_FIELDS;
 
     public GovernanceEngineRequestBuilder(GovernanceEngineConfig config, ObjectMapper mapper) {
         this.config = config;

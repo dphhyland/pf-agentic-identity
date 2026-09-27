@@ -11,14 +11,25 @@ import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.lang.JoseException;
-import com.pingidentity.ps.oidf.clientattestation.RarEntitlement;
-import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
+import com.pingidentity.ps.oidf.rar.model.Json;
+import com.pingidentity.ps.oidf.rar.model.Omission;
+import com.pingidentity.ps.oidf.rar.model.RarModelException;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 
 /**
  * Typed view of a client's attestation-issuance configuration, parsed from its {@code attestation_*}
  * extended properties. Holds the attester identity, the SPIFFE trust bundle used to validate SVIDs, the
  * signer selection (OpenBao transit key reference or inline JWK), the issued-attestation TTL, an optional
  * client-level RFC 9396 entitlement ceiling, and the one-to-many list of {@link SpiffeBinding}s.
+ *
+ * <p>Both ceilings are read by the containment model's own reader ({@code libs/rar-model}), so a limit is
+ * compared exactly as configured, and held to the model when the configuration is parsed: a ceiling the model
+ * refuses - a type with no model, an undeclared field, a value its rule cannot compare - makes the client's
+ * configuration invalid here, rather than failing every issuance later. An instance's ceiling is
+ * {@code authorize(instance, client, INHERIT)}: it must sit within the client's, and it is kept as authorized,
+ * with every field the client's ceiling constrains and the instance's leaves out filled from the client's
+ * (CAS §7: "instances[i].entitlement ⊆ entitlement MUST hold at registration time").
  *
  * <p>This class is pure data + parsing (no PingFederate types), so it is unit-testable offline. In the
  * runtime a resolver reads the properties off a PF {@code Client} and calls {@link #fromProperties}; the
@@ -96,11 +107,30 @@ public final class AttestationIssuanceConfig {
     }
 
     /**
-     * Parses the {@code attestation_*} property map into a config, validating the required shape.
+     * Parses the {@code attestation_*} property map into a config, validating the required shape, with this
+     * classloader's containment models ({@link AttestationRarModels}).
      *
-     * @throws IssuanceException {@code invalid_client} if a required property is missing or malformed
+     * @throws IssuanceException {@code invalid_client} if a required property is missing or malformed;
+     *                           {@code server_error} if the containment models could not be loaded
      */
     public static AttestationIssuanceConfig fromProperties(Map<String, String> props) throws IssuanceException {
+        RarModels models;
+        try {
+            models = AttestationRarModels.get();
+        } catch (RarModelException e) {
+            throw IssuanceException.serverError("the RAR containment models could not be loaded: " + e.getMessage());
+        }
+        return fromProperties(props, models);
+    }
+
+    /**
+     * As {@link #fromProperties(Map)}, holding the ceilings to the model set given.
+     *
+     * @throws IssuanceException {@code invalid_client} if a required property is missing or malformed, or a
+     *                           ceiling is one the model refuses
+     */
+    public static AttestationIssuanceConfig fromProperties(Map<String, String> props, RarModels models)
+            throws IssuanceException {
         String issuer = trimmed(props.get(P_ISSUER));
         if (issuer == null) {
             throw IssuanceException.invalidClient("missing " + P_ISSUER);
@@ -148,7 +178,7 @@ public final class AttestationIssuanceConfig {
             }
         }
 
-        List<Map<String, Object>> ceiling = parseAuthDetails(trimmed(props.get(P_ENTITLEMENT)), P_ENTITLEMENT);
+        List<Map<String, Object>> ceiling = clientCeiling(trimmed(props.get(P_ENTITLEMENT)), models);
         String signingKeyRef = trimmed(props.get(P_SIGNING_KEY_REF));
         Map<String, Object> signingJwk = parseObject(trimmed(props.get(P_SIGNING_JWK)), P_SIGNING_JWK);
         String trustDomain = trimmed(props.get(P_TRUST_DOMAIN));
@@ -159,7 +189,7 @@ public final class AttestationIssuanceConfig {
                     + " is " + evidenceType);
         }
         String evidenceIssuer = trimmed(props.get(P_EVIDENCE_ISSUER));
-        List<SpiffeBinding> bindings = parseInstances(trimmed(props.get(P_INSTANCES)), ceiling);
+        List<SpiffeBinding> bindings = parseInstances(trimmed(props.get(P_INSTANCES)), ceiling, models);
         String assertedContextResolverId = trimmed(props.get(P_ASSERTED_CONTEXT_RESOLVER));
 
         return new AttestationIssuanceConfig(issuer, ttl, bundleKeys, ceiling, signingKeyRef, signingJwk,
@@ -242,15 +272,17 @@ public final class AttestationIssuanceConfig {
         return binding.entitlement().isEmpty() ? this.clientCeiling : binding.entitlement();
     }
 
-    private static List<SpiffeBinding> parseInstances(String json, List<Map<String, Object>> clientCeiling)
-            throws IssuanceException {
+    private static List<SpiffeBinding> parseInstances(String json, List<Map<String, Object>> clientCeiling,
+                                                      RarModels models) throws IssuanceException {
         if (json == null) {
             return List.of();
         }
         Object parsed;
         try {
-            parsed = JsonUtil.parseJson("{\"v\":" + json + "}").get("v");
-        } catch (JoseException e) {
+            // The model's reader, not jose4j's: a ceiling in here is compared by the model, and jose4j would read
+            // its decimals as doubles.
+            parsed = Json.parse(json);
+        } catch (IllegalArgumentException e) {
             throw IssuanceException.invalidClient(P_INSTANCES + " is not valid JSON");
         }
         if (!(parsed instanceof List)) {
@@ -277,7 +309,7 @@ public final class AttestationIssuanceConfig {
                 throw IssuanceException.invalidClient(
                         P_INSTANCES + " entry is missing an instance id (spiffe_id / subject / wallet_instance)");
             }
-            List<Map<String, Object>> entitlement = asObjectList(entry.get("entitlement"), "entitlement");
+            List<Map<String, Object>> declared = asObjectList(entry.get("entitlement"), "entitlement");
             Map<String, Object> metadata = asObject(entry.get("metadata"), "metadata");
             // Phase 2.3: the same firewall as the request-time checks in AttestationIssuanceServlet,
             // applied at config-parse time. Binding metadata rides unmodified into the minted
@@ -289,28 +321,50 @@ public final class AttestationIssuanceConfig {
                         P_INSTANCES + " entry '" + subject + "' metadata must not set agent_id: "
                                 + "it is minted by the attester, never configured");
             }
-            // Defense: a per-instance entitlement must sit within the client-level ceiling.
-            if (!entitlement.isEmpty() && clientCeiling != null && !clientCeiling.isEmpty()) {
-                try {
-                    RarEntitlement.authorize(entitlement, clientCeiling);
-                } catch (ClientAttestationException e) {
-                    throw IssuanceException.invalidClient(
-                            "instance '" + subject + "' entitlement exceeds the client-level ceiling");
-                }
-            }
-            out.add(new SpiffeBinding(subject, entitlement, metadata));
+            out.add(new SpiffeBinding(subject, instanceCeiling(subject, declared, clientCeiling, models), metadata));
         }
         return out;
     }
 
-    private static List<Map<String, Object>> parseAuthDetails(String json, String field) throws IssuanceException {
-        if (json == null) {
-            return List.of();
+    /**
+     * The client-level ceiling: read by the model's reader and held to the model, or empty when none is
+     * configured.
+     */
+    private static List<Map<String, Object>> clientCeiling(String json, RarModels models) throws IssuanceException {
+        try {
+            return models.validate(RarModels.parseDetails(json), P_ENTITLEMENT);
+        } catch (RarModelException e) {
+            throw IssuanceException.invalidClient(
+                    P_ENTITLEMENT + " is not a valid authorization_details array: " + e.getMessage());
+        }
+    }
+
+    /**
+     * An instance's ceiling as it is kept. With a client-level ceiling it is
+     * {@code authorize(instance, client, INHERIT)} and the result is what the binding holds: within the client's
+     * ceiling, in the instance's order, with every field the client's constrains and the instance's leaves out
+     * taken from the client's. This used to check the instance's against the client's and keep the instance's
+     * as written, so a field the instance left out was unconstrained for it however the client's constrained
+     * it - an instance ceiling wider than its client's (the plan's "Found while designing" item 5, F-0034).
+     * Without one, the instance's is held to the model and kept as written.
+     */
+    static List<Map<String, Object>> instanceCeiling(String subject, List<Map<String, Object>> entitlement,
+                                                     List<Map<String, Object>> clientCeiling, RarModels models)
+            throws IssuanceException {
+        if (entitlement.isEmpty()) {
+            return entitlement;
         }
         try {
-            return RarEntitlement.parseArray(json);
-        } catch (ClientAttestationException e) {
-            throw IssuanceException.invalidClient(field + " is not a valid authorization_details array");
+            return clientCeiling.isEmpty()
+                    ? models.validate(entitlement, P_INSTANCES + " entitlement")
+                    : models.authorize(entitlement, clientCeiling, Omission.INHERIT);
+        } catch (RarModelException e) {
+            if (e.reason() == RarModelException.Reason.EXCEEDS_CEILING) {
+                throw IssuanceException.invalidClient(
+                        "instance '" + subject + "' entitlement exceeds the client-level ceiling");
+            }
+            throw IssuanceException.invalidClient("instance '" + subject
+                    + "' entitlement is not a valid authorization_details array: " + e.getMessage());
         }
     }
 

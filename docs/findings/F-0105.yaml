@@ -1,0 +1,28 @@
+id: F-0105
+title: A refresh without authorization_details reissues the stored details without asking the PDP again
+severity: medium
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [S4d]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Split from F-0031 on 2026-09-27 (PR #36), which closed the half a processor can reach. javap -c of
+  RefreshTokenGrantProcessor.processGrant (pf-protocolengine 13.1.3.0): when the refresh request carries no
+  authorization_details, the token carries the grant's stored details and nothing is enriched, so the PDP is not
+  asked again, and the details are not compared with the grant. Driven on the rig the same day: a CIBA grant for
+  42.00 AUD refreshed without the parameter was issued 42.00 again and the stub PDP received nothing. RFC 9396
+  section 7: "If the client does not specify the authorization_details token request parameters, the AS determines
+  the resulting authorization_details at its discretion", so this is PingFederate's choice, not a violation. What it
+  means here: a policy change after issuance is not seen until the grant ends, and a grant issued before 0.4.0 -
+  whose details were compared on five array fields only - is reissued unexamined for its lifetime. Where
+  PingFederate reuses approved consent ("bypass authorization for approved consents" on, and a client that does not
+  bypass the approval page), the bare refresh does reach the plugin's isEqualOrSubset, through
+  OAuthConsentManagerDefaultImpl.isGranted: whether the stored details are within the user's consent, not the grant,
+  and a no revokes the grant (U-0115). Medium: the details were within policy when issued. S4d's issuance criterion
+  on context.OAuthAuthorizationDetails would hold every issued token, a bare refresh included, to the attestation
+  ceiling; re-asking the PDP on a bare refresh has no plan item and needs a decision. Until then: short
+  refresh-token lifetimes for the types that matter, and revoke grants issued before 0.4.0 that carry payment or
+  account types.

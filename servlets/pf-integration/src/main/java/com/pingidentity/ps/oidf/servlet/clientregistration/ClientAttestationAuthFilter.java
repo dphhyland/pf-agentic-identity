@@ -13,8 +13,11 @@ import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
+import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.rar.model.RarModelException;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
@@ -103,6 +106,8 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     private volatile boolean bridgeConfigured;
     private volatile boolean requireHostedAgent;
+    /** The RAR model set the token gate asks, loaded at {@code init} when attestation authentication is live. */
+    private volatile RarModels rarModels;
     private final Function<HttpServletRequest, String> issuerResolver;
     private final Supplier<String> tokenEndpointBaseUrl;
 
@@ -180,6 +185,17 @@ public final class ClientAttestationAuthFilter implements Filter {
                     }
                 }
             }
+            // The containment model the token gate asks, once per classloader: a models document that cannot be
+            // read would leave the gate enforcing something other than what the deployment wrote, so the filter
+            // refuses to start - the same contract as a broken bridge configuration above. Plan item S-9 (Phase 3)
+            // replaces refusing to start with a filter that starts and refuses only attestation traffic.
+            try {
+                this.rarModels = AttestationRarModels.get();
+            }
+            catch (RarModelException e) {
+                throw new ServletException("attest_jwt_client_auth: the RAR containment models could not be loaded: "
+                        + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
+            }
             LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
         }
     }
@@ -225,11 +241,12 @@ public final class ClientAttestationAuthFilter implements Filter {
             // the container rebuilds from the Host header the client wrote.
             String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, this.tokenEndpointBaseUrl.get(),
                     ClientAttestationUtils.endpointPath(httpRequest));
-            ClientAttestationVerifier verifier = new ClientAttestationVerifier(
+            ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(
                     ClientAttestationUtils.attesterResolver(opIssuer),
                     ClientAttestationUtils.defaultConfig(opIssuer, endpointUrl),
                     AttestationSupport.replayCache(),
-                    AttestationSupport.challengeService());
+                    AttestationSupport.challengeService(),
+                    this.rarModels);
             String authorizationDetails = httpRequest.getParameter("authorization_details");
             if (authorizationDetails == null || authorizationDetails.isBlank()) {
                 authorizationDetails = httpRequest.getParameter("oidf_requested_access");
@@ -297,7 +314,8 @@ public final class ClientAttestationAuthFilter implements Filter {
             }
             chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, result.agentId()), response);
         } catch (ClientAttestationException e) {
-            LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()));
+            LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()
+                    + ClientAttestationUtils.refusalDetail(e)));
             ClientAttestationAuthFilter.reject(httpResponse, ClientAttestationAuthFilter.statusFor(e), e.error(), e.getMessage());
         } catch (Throwable t) {
             // Fail closed: with attestation headers present, an internal error must never fall through to
@@ -450,13 +468,21 @@ public final class ClientAttestationAuthFilter implements Filter {
     }
 
     /**
-     * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch, 503 when the
-     * challenge or replay store could not answer ({@code temporarily_unavailable}, RFC 6749 §4.1.2.1's code for the
-     * condition, used at this endpoint by plan item S3a: an outage of ours, never reported as a replay), 401 for
-     * everything the client got wrong.
+     * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch and for
+     * {@code authorization_details} the token gate refuses, 503 when the challenge or replay store could not
+     * answer ({@code temporarily_unavailable}, RFC 6749 §4.1.2.1's code for the condition, used at this endpoint
+     * by plan item S3a: an outage of ours, never reported as a replay), 401 for everything else the client got
+     * wrong.
+     *
+     * <p>The 400 for {@code invalid_authorization_details} is RFC 6749 §5.2's rule for the token endpoint: "The
+     * authorization server responds with an HTTP 400 (Bad Request) status code (unless specified otherwise)".
+     * RFC 9396 §6 gives the refusal no status of its own and likens it to {@code invalid_scope}, which §5.2
+     * answers with 400. 0.3.0 answered both refusals with 401: {@code access_denied} for a request outside the
+     * attestation's details, {@code invalid_authorization_details} for a malformed one.
      */
     static int statusFor(ClientAttestationException e) {
-        if (ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error())) {
+        if (ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error())
+                || ClientAttestationException.INVALID_AUTHORIZATION_DETAILS.equals(e.error())) {
             return 400;
         }
         if (ClientAttestationException.TEMPORARILY_UNAVAILABLE.equals(e.error())) {
