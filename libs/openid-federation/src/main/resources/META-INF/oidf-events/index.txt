@@ -1,0 +1,2 @@
+# The event catalogues of libs/openid-federation, one component per line (platform.events.EventCatalogue).
+federation

@@ -1,0 +1,2 @@
+# The event catalogues of servlets/attestation-issuer, one component per line (platform.events.EventCatalogue).
+attestation-issuer
