@@ -33,8 +33,9 @@ HEADINGS = ["Changelog", "Before you deploy", "Notes"]
 ITEM = re.compile(r"^(\d+)\. (.*)$")
 # An item's opening: a bold title, "**...**".
 BOLD_TITLE = re.compile(r"^\*\*[^*\n]+\*\*")
-# A reference to a list item by its number: "item 3", "items 4 and 5", "item 17's".
-ITEM_BY_NUMBER = re.compile(r"\bitems?\s+\d", re.IGNORECASE)
+# A reference to a list item by its number: "item 3", "items 4 and 5", "item 17's", "item #3", "no. 3".
+# A bare "#3" is not caught: fragments cite pull requests that way ("PR #33").
+ITEM_BY_NUMBER = re.compile(r"\bitems?\s+#?\d|\bno\.\s*\d", re.IGNORECASE)
 # A Markdown inline link's target: "](target)" or "](target#anchor)".
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 FENCE = re.compile(r"^\s*(```|~~~)")
@@ -144,6 +145,10 @@ def _check_items(section, first_line_no):
         where = f"line {first_line_no + offset}"
         if FENCE.match(line):
             fenced = not fenced
+            if not line.startswith(" "):
+                if fenced:
+                    problems.append(f"{where}: a fenced block at the left margin; indent it into its item")
+                continue
         if fenced or not line.strip() or line.startswith(" "):
             continue
         m = ITEM.match(line)
@@ -279,6 +284,10 @@ def fold_page(page_lines, fragments, page_dir):
         end += len(added)
 
     f_start, _ = _section_bounds(lines, r"^## Findings closed\b", "'## Findings closed'", where)
+    for frag in fragments:
+        heading = f"## Package {frag['id']}:"
+        if any(lines[i].startswith(heading) for i, _ in _unfenced(lines)):
+            raise FragmentError(f"{where} already has a '{heading}' section; rename the fragment or fold it by hand")
     packages = []
     for frag in fragments:
         packages.append(f"## Package {frag['id']}: {frag['title']}")
@@ -336,10 +345,22 @@ def assemble(root, version):
         changelog_lines = f.read().splitlines()
     new_page = fold_page(page_lines, fragments, "docs/releases")
     new_changelog = fold_changelog(changelog_lines, fragments)
-    with open(page, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_page) + "\n")
-    with open(changelog, "w", encoding="utf-8") as f:
-        f.write("\n".join(new_changelog) + "\n")
+    # Write both files beside their targets first, then move them into place, so a failed write leaves
+    # neither file half folded.
+    staged = []
+    try:
+        for target, new_lines in ((page, new_page), (changelog, new_changelog)):
+            tmp = target + ".release-notes.tmp"
+            staged.append((tmp, target))
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("\n".join(new_lines) + "\n")
+    except OSError as e:
+        for tmp, _ in staged:
+            if os.path.isfile(tmp):
+                os.remove(tmp)
+        raise FragmentError(f"could not write the folded files: {e}") from e
+    for tmp, target in staged:
+        os.replace(tmp, target)
     for frag in fragments:
         os.remove(frag["path"])
     return fragments

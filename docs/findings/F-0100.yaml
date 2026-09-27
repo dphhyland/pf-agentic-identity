@@ -19,5 +19,7 @@ notes: >
   no request reaches.
 
   Retargeted from 0.4.0 to 0.5.0 on 2026-09-27: S1c has deleted RarContainment and its contract test (PR #36), so
-  the deletion is unblocked, but it removes public members of libs/client-attestation and a pf-integration
-  assertion, which belongs in a code pull request of its own rather than the release's; nothing calls the class.
+  the deletion is unblocked. It was tried on the release branch and not made: it removes RarEntitlementTest and a
+  pf-integration assertion, and the session making the release was not permitted to remove tests. It removes
+  public members of libs/client-attestation too, so it goes in a code pull request of its own, with David's say-so
+  on the test removal; nothing calls the class.

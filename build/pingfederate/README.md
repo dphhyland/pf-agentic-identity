@@ -42,10 +42,13 @@ for the other one. A third value is refused by both. The image records it as the
 docker inspect --format '{{index .Config.Labels "io.github.dphhyland.pf-agentic-identity.staging-profile"}}' <image>
 ```
 
-Verified 2026-09-27 on 13.1.3: a production build has the eight jars in `server/default/deploy` and in the
-war's `WEB-INF/lib`, no `pf.plugins.ciba-sim.jar` and no `/opt/ciba-sim`; a conformance build has nine and
-the directory as `drwx------ ping`; a production `modules/` built with `STAGING_PROFILE=conformance` fails
-at the assembler, and `STAGING_PROFILE=staging` fails at the first `RUN`. The conformance image booted
+Verified 2026-09-27 on 13.1.3, before `rar-model` joined the staged jars (S1b): a production build had the then
+eight jars in `server/default/deploy` and in the war's `WEB-INF/lib`, no `pf.plugins.ciba-sim.jar` and no
+`/opt/ciba-sim`; a conformance build had nine and the directory as `drwx------ ping`. With `rar-model` it is nine
+and ten: 0.4.0's release dry run staged the production nine and its rig the conformance ten (2026-09-27, see
+[docs/releases/0.4.0.md](../../docs/releases/0.4.0.md#what-we-verified)). Also verified before S1b: a production
+`modules/` built with `STAGING_PROFILE=conformance` fails at the assembler, and `STAGING_PROFILE=staging` fails
+at the first `RUN`. The conformance image booted
 through `conformance/up.sh`: the token endpoint answered, a bare `POST /ciba-sim/decision` was a 400 and
 not a 404 (every check in the simulator's gate passed on the running PF), a recorded decision appeared in
 `/opt/ciba-sim` as a `0600` file, and the PingFederate JVM had `Umask: 0077` and the profile in its

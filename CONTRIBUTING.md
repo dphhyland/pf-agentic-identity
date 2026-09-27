@@ -104,10 +104,13 @@ review, Merge order, Upgrade notes, Findings, Unverified. Before opening one:
 2. The adversarial review: a second reader told to assume the change is wrong, who tests the security,
    correctness and documentation claims and reports pass or fail. Its verdict and each issue's resolution go
    in the body.
-3. A release-note fragment: one bullet under `Unreleased` in [CHANGELOG.md](CHANGELOG.md), naming the plan
-   item.
-4. An upgrade note in `docs/releases/<version>.md` under "Before you deploy" for anything a consumer must
-   change (create the page from the previous one's shape if it is missing).
+3. A release-note fragment, `docs/releases/unreleased/<ID>.md`, named for the package: its changelog bullet
+   naming the plan item, and its notes. The shape is in
+   [docs/releases/unreleased/README.md](docs/releases/unreleased/README.md), and `python3
+   tools/release-notes.py check` (the Docs workflow runs it) refuses a malformed one. Do not edit
+   CHANGELOG.md's `Unreleased` section or a release page directly: the release folds the fragments into both.
+4. An upgrade note for anything a consumer must change: an item under the fragment's "Before you deploy",
+   opening with a bold title, and named by that title, never by its number, since the fold renumbers it.
 5. The findings: `Closes F-NNNN` in the body, and the finding's file updated - status, `prs`, verification
    with a date. A new defect or assumption gets a new file.
 6. Tests for every behaviour change; a new decision method joins its module's 100% jacoco METHOD gate (the
@@ -118,9 +121,10 @@ release notes. The maintainer merges.
 
 ## Releasing
 
-The maintainer cuts a release. A pull request sets every pom to the version (`python3 tools/set-version.py
-<version>`), gives the changelog's `Unreleased` heading the version and date, and finishes
-`docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
+The maintainer cuts a release. A pull request folds the fragments (`python3 tools/release-notes.py assemble
+<version>`, which appends them to `docs/releases/<version>.md` and CHANGELOG.md's `Unreleased` section and
+deletes them), sets every pom to the version (`python3 tools/set-version.py <version>`), gives the changelog's
+`Unreleased` heading the version and date, and finishes `docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
 [release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
 order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps and stops once
 `dist/` is assembled, publishing nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.

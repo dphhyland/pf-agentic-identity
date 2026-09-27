@@ -190,8 +190,9 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 The 2026-09-27 runs are 0.4.0's: a rig built from the release branch (`PF_RIG_NAME=pfai-rel`, its modules built at
 `714e7ce`, PingFederate 13.1.3.0 by its admin API) against this directory's own suite, `suite/suite-compose.yml`, on
 port 51643. A suite whose origin is not one of `terraform/variables.tf`'s `suite_base_urls` needs it added before
-authoring, or PAR refuses the suite's redirect URI (`Invalid redirect_uri`) and most FAPI 2.0 modules fail at their
-first step: `TF_VAR_suite_base_urls='["https://www.certification.openid.net","https://host.docker.internal:51643"]'`
+authoring, or most FAPI 2.0 modules fail at their first step, PAR (`CheckPAREndpointResponse201WithNoError`, "Invalid
+pushed authorization request endpoint response http status code" - most likely PingFederate refusing the suite's
+redirect URI, which that run did not read from its answer): `TF_VAR_suite_base_urls='["https://www.certification.openid.net","https://host.docker.internal:51643"]'`
 did it here, and the first FAPI 2.0 run, made without it, failed 37 modules that way (plan `NUqXtDeHzKzcl`).
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:

@@ -23,9 +23,10 @@ B7 (clustering) for 0.7.0. The [findings register](docs/findings/README.md) is t
 and the release notes' "Known gaps" say what a deployment should plan around.
 
 **One PingFederate node only, until 0.7.0.** Attestation challenges and replay state (without Redis), the
-challenge endpoints' caps, SSF streams (without a data store) and the SSF push loop are per node, and nothing
-leases the push loop: on two nodes a challenge from one is refused at the other, a spent proof can be presented
-again at the other, and a push receiver can get a SET twice. The cluster story - Redis-backed state, leases,
+challenge endpoints' caps, SSF streams (without a data store), the SSF push loop and the SSF receiver's dedupe
+are per node, and nothing leases the push loop: on two nodes a challenge from one is refused at the other, a
+spent proof or registration request object can be presented again at the other, a push receiver can get a SET
+twice, and an inbound SET can be acted on once per node. The cluster story - Redis-backed state, leases,
 JDBC client storage - is Phase 4 of the production programme. What goes wrong on two nodes, item by item:
 [docs/operator/deployment-limits.md](docs/operator/deployment-limits.md).
 
@@ -36,7 +37,7 @@ PF has two very different extension mechanisms, and the tree mirrors them. **Ser
 on the webapp classloader. **Plugins** implement a PF SDK SPI: discovered via a `PF-INF/` descriptor,
 must be named `pf.plugins.*.jar`, and load on a per-plugin *isolated* classloader (which is why the
 RAR plugin shades its jackson). Pure **libs** know nothing about PF at all; **services** are
-standalone processes PF trusts or calls. Twenty reactor modules, `bom/` included — the one place a
+standalone processes PF trusts or calls. Twenty reactor modules, `bom/` included - the one place a
 shared dependency version is written down, imported by every module pom except the vendored
 `services/gm-api`. `libs/conformance` is the odd one out: a single annotation, test-scoped everywhere
 and deliberately absent from `stage-modules.sh`, so nothing it carries reaches the PF image. Artefact

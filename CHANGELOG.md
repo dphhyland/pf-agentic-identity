@@ -78,8 +78,8 @@ hygiene, and one PingFederate node only until 0.7.0
   from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`, strict `contains`, `authorize` with inheritance, and the meet
   `intersect`, over lists held to fixed limits (numbers by the digits they would write); a SHA-256 fingerprint of
   the effective model and the library's semantics; 244 vectors in a test-jar and seeded property tests. The
-  library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
-  until then.
+  library alone: S1b and S1c, below, move the authenticator, the issuer and the plugin onto it, and with them B1
+  is closed in this release.
 
 - **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
   high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP

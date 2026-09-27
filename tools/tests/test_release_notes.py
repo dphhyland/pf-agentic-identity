@@ -184,11 +184,21 @@ class CheckTest(unittest.TestCase):
         self.assertIn("is empty", self.check(NO_ITEMS.replace("None.\n", ""), "B2.md")[2])
 
     def test_a_reference_by_number_is_refused_anywhere(self):
-        for ref in ("see item 2", "items 1 and 2", "Item 17's text", "(item 3)"):
+        for ref in ("see item 2", "items 1 and 2", "Item 17's text", "(item 3)", "item #4", "see no. 3"):
             with self.subTest(ref=ref):
                 code, _, err = self.check(GOOD.replace("Residual risk: none.", ref))
                 self.assertEqual(1, code)
                 self.assertIn("refers to an item by its number", err)
+
+    def test_a_pull_request_number_is_not_an_item(self):
+        self.assertEqual(0, self.check(GOOD.replace("Residual risk: none.", "Merged as PR #33."))[0])
+
+    def test_a_fence_at_the_left_margin_inside_an_item_is_named(self):
+        text = GOOD.replace("   - another\n", "   - another\n```sh\necho hi\n```\n")
+        code, _, err = self.check(text)
+        self.assertEqual(1, code)
+        self.assertIn("a fenced block at the left margin", err)
+        self.assertNotIn("not a numbered item", err)
 
     def test_a_plan_item_id_is_not_a_number(self):
         self.assertEqual(0, self.check(GOOD.replace("Residual risk: none.", "plan item S4d and item S-9"))[0])
@@ -276,6 +286,24 @@ class AssembleTest(unittest.TestCase):
         self.assertIn("nothing written", err)
         self.assertEqual(PAGE, self.tree.read("docs/releases/9.9.0.md"))
         self.assertEqual(CHANGELOG, self.tree.read("CHANGELOG.md"))
+        self.assertTrue(self.tree.exists("docs/releases/unreleased/A1.md"))
+
+    def test_a_package_already_on_the_page_is_refused(self):
+        self.tree.write("docs/releases/unreleased/OLD.md", GOOD.replace("# The thing (A1)", "# Again (OLD)"))
+        code, _, err = self.tree.run("assemble", "9.9.0")
+        self.assertEqual(1, code)
+        self.assertIn("already has a '## Package OLD:' section", err)
+        self.assertEqual(PAGE, self.tree.read("docs/releases/9.9.0.md"))
+        self.assertTrue(self.tree.exists("docs/releases/unreleased/A1.md"))
+
+    def test_a_failed_write_leaves_both_files_as_they_were(self):
+        os.makedirs(os.path.join(self.tree.root, "CHANGELOG.md.release-notes.tmp"))
+        code, _, err = self.tree.run("assemble", "9.9.0")
+        self.assertEqual(1, code)
+        self.assertIn("could not write", err)
+        self.assertEqual(PAGE, self.tree.read("docs/releases/9.9.0.md"))
+        self.assertEqual(CHANGELOG, self.tree.read("CHANGELOG.md"))
+        self.assertFalse(self.tree.exists("docs/releases/9.9.0.md.release-notes.tmp"))
         self.assertTrue(self.tree.exists("docs/releases/unreleased/A1.md"))
 
     def test_a_page_without_its_sections_is_refused(self):
