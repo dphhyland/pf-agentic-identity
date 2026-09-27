@@ -1,0 +1,15 @@
+id: F-0016
+title: 'The RAR plugin''s fail-open catches everything'
+severity: high
+area: rar-paz-plugin
+source: review-2026-09-26
+status: open
+plan_items: [S2a]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  'Fail open on engine error' treats any failure - a wrong secret, a malformed body, a TLS failure - as a
+  transport error and permits. S2a fails open only on connect or reset, the deadline, and 502, 503, 504 and
+  429; removes the 'Deny unless PERMIT' switch (the behaviour is always deny unless PERMIT); writes server
+  attributes last; and requires https outside development.

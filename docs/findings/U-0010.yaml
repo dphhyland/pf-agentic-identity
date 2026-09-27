@@ -1,0 +1,14 @@
+id: U-0010
+title: The PingFederate access token mapping for the instance registry
+area: instance-registry-datasource
+source: design
+status: open
+plan_items: [X-A21]
+prs: []
+recorded_in: docs/unverified.md item 9
+verify_by: >
+  The datasource plugin in a booted PingFederate: a filter field reaching retrieveValues the way the GUI
+  descriptor implies, and an issuance criterion gating on the returned booleans (X-A21's rig Terraform and
+  tests).
+verification: ''
+notes: If PingFederate does not pick the plugin up it ignores the jar silently.

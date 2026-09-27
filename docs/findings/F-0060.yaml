@@ -1,0 +1,14 @@
+id: F-0060
+title: 'Issuance endpoint: no body cap or rate limit, every PingFederate client enumerated per request, internal URLs in errors'
+severity: medium
+area: attestation-issuer
+source: reviewer-report
+status: open
+plan_items: [H-ATT-2]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. H-ATT-2: a body cap and a rate limit, a cached client-binding index,
+  catch-all error handling with CAS section 4.6 errors and no internal URLs.

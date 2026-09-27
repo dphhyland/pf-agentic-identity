@@ -1,0 +1,23 @@
+id: F-0069
+title: 'release.yml''s green-Build gate fails while Build on the tagged commit is still running'
+severity: medium
+area: release, ci
+source: phase-0-review
+status: open
+plan_items: [P0-8]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  The v0.3.0 tag landed seven seconds after PR #11's merge commit 97e5650 (2026-09-26T23:12Z): Build run
+  36278704385 on the commit was created at 23:12:21Z, Release run 36278709651 at 23:12:28Z, and the
+  release's step "a green Build on this commit" read the check runs at 23:12:35Z, saw `java` in_progress and
+  failed - the step treats anything but success as a failure and never waits. Build succeeded at 23:16:12Z.
+  So on 2026-09-27 `gh release view v0.3.0` answers "release not found": the first 13.1 release is tagged
+  and not published. The gate fails closed, so nothing unsafe happened; medium because the release process
+  does not do what release.yml's own comment says ("the Build workflow is green on this exact commit")
+  whenever a tag is pushed straight after a merge, which is how every release will be tagged. Two fixes,
+  either is enough: the step waits, polling the check runs until every required one has completed or a
+  deadline passes, and only then judges; or the tag is pushed only once Build on the commit is green. Until
+  one lands, David re-runs the failed run on the tag (`gh run rerun 36278709651`); that publishes 0.3.0
+  (P0-8) and closes nothing here.

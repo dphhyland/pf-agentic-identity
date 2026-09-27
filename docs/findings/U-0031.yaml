@@ -1,0 +1,13 @@
+id: U-0031
+title: 'OpenID Federation 1.0: the six passages the key designs rest on'
+area: openid-federation
+source: design
+status: open
+plan_items: [S6a, S7a, H-FED-8]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, OIDF 1.0
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: >
+  Section 11.1 (rollover), 8.7, the 8.4.2 status values, where a Subordinate Statement's jwks comes from,
+  18.1, and the sentence that Federation Entity Keys SHOULD NOT serve other protocols.

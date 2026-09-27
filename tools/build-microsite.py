@@ -24,6 +24,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SHOWCASE = ROOT / "showcase"
 DEPLOY = SHOWCASE / "deploy"
 PAGES = ["index.html", "federation.html", "conformance.html"]
+# Written by tools/build-showcase-docs.mjs and never tracked; index.html loads it with a script tag.
+DOCS_JS = "docs.js"
 REMOTE = "https://github.com/dphhyland/pf-agentic-identity"
 # An image has to be a file the browser can draw, so these are copied rather than linked.
 ASSET_RE = re.compile(r'"\.\./(docs/assets/[^"]+)"')
@@ -84,8 +86,13 @@ def main():
         shutil.rmtree(out)
     (site / "assets").mkdir(parents=True)
 
+    if not (SHOWCASE / DOCS_JS).exists():
+        print(f"{SHOWCASE / DOCS_JS} is missing: run `npm ci --prefix tools` then "
+              "`node tools/build-showcase-docs.mjs` first, or the site carries no documents.", file=sys.stderr)
+        return 1
+
     assets = set()
-    for name in PAGES:
+    for name in PAGES + [DOCS_JS]:
         html, used = rewrite((SHOWCASE / name).read_text(), blob_base)
         (site / name).write_text(html)
         assets |= used
@@ -95,8 +102,9 @@ def main():
     for f in ("Dockerfile", "nginx.conf", "railway.toml"):
         shutil.copy2(DEPLOY / f, out / f)
 
-    left = sum(len(LINK_RE.findall((site / p).read_text())) for p in PAGES)
-    print(f"built {out} from {ref[:12]}: {len(PAGES)} pages, {len(assets)} images, "
+    left = sum(len(LINK_RE.findall((site / p).read_text())) for p in PAGES + [DOCS_JS])
+    docs = (site / DOCS_JS).read_text().count('"title":')
+    print(f"built {out} from {ref[:12]}: {len(PAGES)} pages, {docs} documents, {len(assets)} images, "
           f"{len(list((site / 'screens').iterdir()))} screens, {left} unresolved ../ links")
     return 1 if left else 0
 

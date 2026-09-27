@@ -1,0 +1,14 @@
+id: F-0039
+title: Registration responses ignore OIDF_FEDERATION_SIGNING_ALG
+severity: medium
+area: pf-integration
+source: design
+status: open
+plan_items: [S6a]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while designing, item 10. A documented setting with no effect on one signer: registration responses
+  are signed as if the default were set. Medium, the same class as the review's lenient-parsing findings: a
+  setting that does not do what its row says. S6a reads the shared algorithm setting for every signer.

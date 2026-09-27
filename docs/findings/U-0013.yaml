@@ -1,0 +1,16 @@
+id: U-0013
+title: 'How the MDM''s device identifier maps to the registry''s device id'
+area: device-enrolment
+source: design
+status: open
+plan_items: [X-A15, X-A17]
+prs: []
+recorded_in: docs/unverified.md item 12
+verify_by: >
+  The PingOne half is overtaken (U-0008). What remains: the mapping from the MDM's device identifier to the
+  registry's device id, which X-A15 (complex iss_sub subjects resolved through MDM ids) and X-A17 (correlation
+  at enrolment) settle, with an end-to-end run on an Intune-managed iPhone.
+verification: ''
+notes: >
+  CaepEventHandler accepts the likely subject shapes; without the mapping the loop does not close on real
+  signals.

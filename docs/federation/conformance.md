@@ -56,7 +56,7 @@ Every test that pins a clause of the specification says which, with `@Requiremen
 section, and the paragraph or list item from the published text's anchors (`#section-8.1.1-2.2`). A test that
 pins a place where we deliberately depart from the text is tagged with the departure, never the clause.
 
-The [coverage dashboard](../coverage-dashboard.md) joins the tags to the [conformance matrix](conformance-matrix.md),
+The coverage dashboard joins the tags to the [conformance matrix](conformance-matrix.md),
 one row per requirement implemented, and shows any row nothing pins. On 2026-09-25: 349 OpenID Federation
 requirements pinned by 655 tests, and 209 of the 216 matrix rows across the repo pinned.
 
@@ -72,5 +72,7 @@ Three more measures:
   93% of PingFederate's side (712 of 767). It runs weekly in CI and by hand (`mvn -Pmutation verify` on either
   module), and fails below 85%.
 
-To run them: `mvn verify` from the repository root, then `python3 tools/coverage-report.py` to regenerate the
-dashboard. [`docs/federation/conformance-matrix.md`](conformance-matrix.md) says how the ids are written.
+To run them: `mvn verify` from the repository root, then `python3 tools/coverage-report.py` to write the
+dashboard to `docs/coverage-dashboard.md` (not tracked; CI publishes it as the `coverage-dashboard` artefact of
+every Build run whose reactor build completes). [`docs/federation/conformance-matrix.md`](conformance-matrix.md)
+says how the ids are written.

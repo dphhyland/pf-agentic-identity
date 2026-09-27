@@ -1,0 +1,13 @@
+id: U-0021
+title: The Rfc7523bis behaviour with a string aud
+area: pf-integration
+source: design
+status: open
+plan_items: []
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 6
+verify_by: >
+  On the rig with Rfc7523bisCompliantAudienceVerification on: a client assertion whose aud is the issuer as a
+  string, and one that names the token endpoint.
+verification: ''
+notes: 'PR #7 describes the bytecode''s audience set, not an observed rejection.'

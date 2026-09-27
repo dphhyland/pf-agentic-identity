@@ -1,31 +1,47 @@
 #!/usr/bin/env node
-// Renders every tracked Markdown document into the showcase's DOCS_HTML, so the documents the page shows are the
-// ones in the repository rather than a copy that drifts from them.
+// Renders every tracked Markdown document into showcase/docs.js, so the documents the page shows are the ones in
+// the repository rather than a copy that drifts from them.
 //
 //   npm ci --prefix tools
-//   node tools/build-showcase-docs.mjs          rewrites the DOCS_HTML line of showcase/index.html
-//   node tools/build-showcase-docs.mjs --check  exits 1, naming each document, when that line is not current
+//   node tools/build-showcase-docs.mjs          writes showcase/docs.js
+//
+// docs.js is generated and git-ignored (plan decision 18; the rendered documents were a line of index.html until
+// 2026-09-27, which every documentation change regenerated and which conflicted whenever two met). It declares
+// `const DOCS_HTML = {...}`, one entry per document, and index.html loads it with a script tag before its own
+// script; when it is missing the page still works and its Documentation view says how to build it. CI builds it
+// after the reactor and the dashboard on every Build run that gets that far, and uploads showcase/ as the
+// `showcase` artefact. The coverage dashboard, which tools/coverage-report.py writes after `mvn verify` and which
+// is not tracked either, is rendered too when the last build left one, so the artefact carries the dashboard of
+// the run that built it.
 //
 // The page loads no libraries, so this renders the way it expects: headings carry ids (lower case, anything that
 // isn't a letter or digit turned into one hyphen), a Mermaid block is shown as its source in pre.mermaid-src, a
-// link to another tracked document becomes #doc:<path>, a link to any other file in the repository is made
-// relative to showcase/, and "</" is escaped so no document can close the page's script. marked is pinned in
-// tools/package.json: another version renders differently, and --check would fail on every document.
+// link to another rendered document becomes #doc:<path>, a link to any other file in the repository is made
+// relative to showcase/, and "</" is escaped so no document can close a script. marked is pinned in
+// tools/package.json: another version renders differently, and a page built elsewhere would differ.
 import { execFileSync } from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Marked } from 'marked';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const PAGE = path.join(ROOT, 'showcase', 'index.html');
-const PREFIX = 'const DOCS_HTML = ';
+const OUT = path.join(ROOT, 'showcase', 'docs.js');
 // Skills are instructions to an assistant, not documentation; the showcase's own README describes the page itself.
 const EXCLUDED = [/(^|\/)\.claude\//, /^showcase\//];
+// Documents the build writes rather than anyone tracks. Rendered when present, so a showcase built after
+// `mvn verify` and tools/coverage-report.py carries that build's dashboard; the page's documentation index
+// names it either way and says how to make it when it is absent.
+const GENERATED = ['docs/coverage-dashboard.md'];
 
 function trackedDocuments() {
   const out = execFileSync('git', ['ls-files', '-z', '*.md'], { cwd: ROOT, encoding: 'utf8' });
-  return out.split('\0').filter(p => p && !EXCLUDED.some(re => re.test(p))).sort();
+  return out.split('\0').filter(p => p && !EXCLUDED.some(re => re.test(p)));
+}
+
+function documents() {
+  const built = GENERATED.filter(p => existsSync(path.join(ROOT, p)));
+  return { all: [...trackedDocuments(), ...built].sort(), built };
 }
 
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&#39;': "'" };
@@ -125,8 +141,7 @@ function render(doc, source, documents) {
   return { title: title || doc, html };
 }
 
-function renderAll() {
-  const documents = trackedDocuments();
+function renderAll(documents) {
   const known = new Set(documents);
   const rendered = {};
   for (const doc of documents) {
@@ -135,36 +150,18 @@ function renderAll() {
   return rendered;
 }
 
-function line(rendered) {
-  return PREFIX + JSON.stringify(rendered).replace(/<\//g, '<\\/') + ';';
-}
-
-function currentLine(page) {
-  const start = page.indexOf(PREFIX);
-  if (start < 0) {
-    throw new Error(`showcase/index.html has no line starting "${PREFIX}"`);
-  }
-  const end = page.indexOf('\n', start);
-  return { start, end, text: page.slice(start, end) };
-}
-
-const page = readFileSync(PAGE, 'utf8');
-const current = currentLine(page);
-const rendered = renderAll();
-const wanted = line(rendered);
-
 if (process.argv.includes('--check')) {
-  if (current.text === wanted) {
-    console.log(`showcase/index.html carries every document as it is now (${Object.keys(rendered).length})`);
-    process.exit(0);
-  }
-  const was = JSON.parse(current.text.slice(PREFIX.length, -1));
-  const differ = [...new Set([...Object.keys(was), ...Object.keys(rendered)])].sort()
-    .filter(doc => JSON.stringify(was[doc]) !== JSON.stringify(rendered[doc]));
-  console.error('showcase/index.html is behind these documents - run node tools/build-showcase-docs.mjs:');
-  differ.forEach(doc => console.error(`  ${doc}${!(doc in rendered) ? ' (no longer tracked)' : !(doc in was) ? ' (new)' : ''}`));
-  process.exit(1);
+  console.error('build-showcase-docs.mjs has no --check: showcase/docs.js is generated and not tracked, so there '
+    + 'is nothing committed to compare it with. Build it, then run tools/check-showcase-links.py.');
+  process.exit(2);
 }
 
-writeFileSync(PAGE, page.slice(0, current.start) + wanted + page.slice(current.end));
-console.log(`wrote ${Object.keys(rendered).length} documents into showcase/index.html`);
+const { all, built } = documents();
+const rendered = renderAll(all);
+const file = '// Generated by tools/build-showcase-docs.mjs from the repository\'s Markdown; not tracked, do not edit.\n'
+  + 'const DOCS_HTML = ' + JSON.stringify(rendered).replace(/<\//g, '<\\/') + ';\n';
+writeFileSync(OUT, file);
+const unbuilt = GENERATED.filter(p => !built.includes(p));
+console.log(`wrote showcase/docs.js: ${all.length} documents`
+  + (built.length ? `, including the generated ${built.join(', ')}` : '')
+  + (unbuilt.length ? ` (without ${unbuilt.join(', ')}: not built here - python3 tools/coverage-report.py after mvn verify)` : ''));

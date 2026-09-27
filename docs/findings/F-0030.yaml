@@ -1,0 +1,16 @@
+id: F-0030
+title: The user key PingFederate hands enrich differs per flow, and is the client id under client credentials
+severity: medium
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2b]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  Found while designing, item 1; characterised with javap on 13.1.3 (2026-09-26): code and PAR resume the
+  authentication subject; refresh the grant's user key; CIBA the identity hint; client credentials the client
+  id; token exchange null; JWT-bearer never calls enrich. A naive getUserKey() would treat a client id as a
+  user. Medium: a design constraint S2b's per-flow `principal_source` honours, and one that would be high if
+  it were mishandled. Confirming it on a booted PingFederate is U-0016 and U-0017.

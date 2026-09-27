@@ -103,6 +103,23 @@ Open [showcase/index.html](showcase/index.html) in a browser for the servlet and
 ecosystem architecture and interactive policy simulation. No build step is required. See
 [showcase/README.md](showcase/README.md) for the local preview command and simulation boundaries.
 
+## Documentation
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) - building, the PingFederate jars, the Postgres-backed tests, worktrees,
+  generated files and what a pull request carries; [docs/development/style-guide.md](docs/development/style-guide.md)
+  is the house style.
+- [SECURITY.md](SECURITY.md) - supported versions, how to report a vulnerability, and the rule about config
+  archives and key material.
+- [docs/findings](docs/findings/README.md) - the findings register: every known defect (`F-`) and unverified
+  assumption (`U-`), one file each, with the plan item that closes it; `docs/unverified.md` keeps the long
+  form of the assumptions.
+- [docs/releases](docs/releases/README.md) - the release notes, each with a "Before you deploy" list, and
+  [CHANGELOG.md](CHANGELOG.md) for the one-paragraph history; [docs/operator](docs/operator/README.md) has the
+  upgrade guides.
+- [docs/configuration](docs/configuration/README.md), [docs/reference](docs/reference/README.md) and
+  [docs/security](docs/security/README.md) are where the generated settings reference, the endpoint and event
+  inventories and the threat model land in later phases; each README says what belongs there.
+
 ## Building
 
 ```

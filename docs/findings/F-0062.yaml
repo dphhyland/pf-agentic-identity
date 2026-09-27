@@ -1,0 +1,16 @@
+id: F-0062
+title: The divergence-5 sub flip is still pending
+severity: medium
+area: attestation-issuer
+source: reviewer-report
+status: open
+plan_items: [H-ATT-7]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. Claim dictionary divergence 5: the attestation's `sub` is the opaque
+  instance id until OIDF_ATTESTATION_SUB=client_id flips it to the registered client id, which is what the
+  draft means; `agent_id` carries the instance id in both modes. The flip lands at 1.0 once consumers confirm
+  they read `agent_id` (Phase 7). A planned breaking change rather than an exposure.

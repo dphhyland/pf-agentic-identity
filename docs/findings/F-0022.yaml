@@ -1,0 +1,15 @@
+id: F-0022
+title: Logout signal replay
+severity: medium
+area: ssf
+source: review-2026-09-26
+status: open
+plan_items: [H-SSF-6]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  LogoutEventFilter emits CAEP session-revoked from the `id_token_hint` presented at /idp/init_logout.openid;
+  it bounds neither the token's age nor whether PingFederate's logout succeeded, and does not check the token
+  type, so a captured hint can raise the signal again. H-SSF-6: emit only when the logout succeeded, bound the
+  id_token's age, check the token type.

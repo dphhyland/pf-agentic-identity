@@ -4,10 +4,35 @@ Every release of pf-agentic-identity, newest first, in the shape [Keep a Changel
 describes: one heading per version with its date, and a few lines on what the version was for. A version is a
 tag of this repository (`git tag -l 'v*'`); the dates are the tags' own. Where a version has release notes
 under [docs/releases](docs/releases/), the heading links to them. The convention for the version in progress:
-it sits under `Unreleased` with the version the poms declare, and the heading becomes `[0.3.0] - <date>` when
-David tags it.
+it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), and the heading becomes
+`[<version>] - <date>` when David tags it.
 
-## [Unreleased] - 0.3.0, the poms' version since 2026-09-26
+## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
+
+Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
+hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+
+- **Information architecture and style** (D-1) - `docs/{operator,configuration,reference,security,development,findings,releases}`
+  each with a README saying what belongs there; `SECURITY.md`, `CONTRIBUTING.md` and a pull request template;
+  the house style in `docs/development/style-guide.md`, with `tools/doc-lint.py` checking what a machine can
+  against a dated baseline, in a new `docs.yml` workflow.
+- **Findings register** (D-2) - one YAML file per finding under `docs/findings` (`F-` defects, `U-` unverified
+  assumptions), seeded from the 2026-09-26 review, the reviewer reports, the plan's "Found while designing"
+  list and `docs/unverified.md`; `tools/findings.py --check` in CI, `--gate` for a release, `list` and `index`
+  on demand.
+- **CI hygiene** (R-CI1 to R-CI4) - every action pinned to a commit with least-privilege tokens; actionlint,
+  zizmor, shellcheck and `terraform validate` in the lint job; the secrets guard's content scan extended to private
+  JWKs and every PEM kind, with gitleaks over the whole history beside it; CodeQL for Java, Actions, Python and
+  JavaScript; Dependabot; the rig's Terraform lock file committed; CODEOWNERS.
+
+- **Generated files leave git** (plan decision 18; R-CI5's publish step, brought forward from Phase 2):
+  `docs/coverage-dashboard.md` and `.html` and the showcase's rendered documents (now `showcase/docs.js`) are
+  generated and git-ignored; a CI Build whose reactor build completes publishes them as its `coverage-dashboard`
+  and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
+  strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
+  device-instance's Postgres suite against a service container.
+
+## [0.3.0] - 2026-09-27
 
 The first release for PingFederate 13.1.3, and the release that completes OpenID Federation. Notes:
 [docs/releases/0.3.0.md](docs/releases/0.3.0.md); the move from v0.1.5:
@@ -72,7 +97,8 @@ Tier 0/1/2 security work. Supersedes v0.1.0.
 The release workflow, so a consumer could tell when it was behind. It published its Maven artefacts and then
 failed before creating a release; nothing consumed it.
 
-[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.1.5...main
+[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.3.0...main
+[0.3.0]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.3.0
 [v0.1.5]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.3

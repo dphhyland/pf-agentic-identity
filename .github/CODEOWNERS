@@ -1,0 +1,4 @@
+# Every path has the same owner: the repository's. GitHub reads this file from .github/, and branch
+# protection's "require review from code owners" is what gives it teeth - an owner setting, listed
+# under "Owner actions" in the Phase 1 CI pull request.
+* @dphhyland
