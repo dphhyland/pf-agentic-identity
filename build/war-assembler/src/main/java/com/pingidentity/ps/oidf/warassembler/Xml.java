@@ -27,6 +27,14 @@ final class Xml {
      */
     static Document parse(byte[] bytes, String what) throws Refusal {
         try {
+            return builder().parse(new ByteArrayInputStream(bytes));
+        } catch (SAXException | IOException e) {
+            throw new Refusal("ERROR: " + what + " is not well-formed XML this assembler accepts: " + e.getMessage());
+        }
+    }
+
+    private static DocumentBuilder builder() {
+        try {
             DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
             factory.setNamespaceAware(true);
             factory.setFeature(XMLConstants.FEATURE_SECURE_PROCESSING, true);
@@ -37,11 +45,9 @@ final class Xml {
             factory.setExpandEntityReferences(false);
             DocumentBuilder builder = factory.newDocumentBuilder();
             builder.setErrorHandler(THROWING);
-            return builder.parse(new ByteArrayInputStream(bytes));
-        } catch (SAXException e) {
-            throw new Refusal("ERROR: " + what + " is not well-formed XML this assembler accepts: " + e.getMessage());
-        } catch (ParserConfigurationException | IOException e) {
-            throw new Refusal("ERROR: could not read " + what + ": " + e);
+            return builder;
+        } catch (ParserConfigurationException e) {
+            throw new IllegalStateException("the JDK's own DOM parser does not take its own features", e);
         }
     }
 

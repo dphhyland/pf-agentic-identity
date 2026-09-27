@@ -1,10 +1,10 @@
 package com.pingidentity.ps.oidf.warassembler;
 
 import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Merges a {@link Declaration} into a stock descriptor, and checks a descriptor against one.
@@ -116,8 +116,9 @@ final class Merge {
     /** The stock bytes with the new elements inserted before the root's end tag, in the stock file's encoding. */
     static byte[] splice(byte[] original, WebXml stock, List<Declaration.Filter> filters, List<String> listeners,
                          String what) throws Refusal {
-        String encoding = stock.document.getInputEncoding();
-        Charset charset = encoding == null ? StandardCharsets.UTF_8 : Charset.forName(encoding);
+        // The declaration's encoding; with none, what the parser detected (a byte order mark), else UTF-8.
+        Charset charset = Charset.forName(Objects.requireNonNullElse(stock.document.getXmlEncoding(),
+                Objects.requireNonNullElse(stock.document.getInputEncoding(), "UTF-8")));
         String text = new String(original, charset);
         int end = text.lastIndexOf("</" + stock.root.getTagName());
         if (end < 0) {

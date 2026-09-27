@@ -91,8 +91,7 @@ final class Assembler {
 
     static void assemble(Path filtersXml, Path stockWar, Path modules, String jose4j, Path outWar, String profile,
                          PrintStream out) throws Refusal, IOException {
-        String version = Assembler.class.getPackage().getImplementationVersion();
-        out.println("war-assembler " + (version == null ? "(unpackaged)" : version) + ", declaration " + filtersXml);
+        out.println("war-assembler " + version() + ", declaration " + filtersXml);
         Declaration declaration = Declaration.parse(Files.readAllBytes(filtersXml), filtersXml.toString());
         List<Staged> staged = stage(modules, jose4j, profile, out);
         Stock stock = readStock(stockWar);
@@ -108,11 +107,7 @@ final class Assembler {
             WebXml result = verifyWar(temp, staged, declaration, outWar.getFileName().toString());
             merged.notes().forEach(out::println);
             Chains.describe(result, declaration).forEach(out::println);
-            try {
-                Files.move(temp, outWar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            } catch (AtomicMoveNotSupportedException e) {
-                Files.move(temp, outWar, StandardCopyOption.REPLACE_EXISTING);
-            }
+            moveIntoPlace(temp, outWar);
         } finally {
             Files.deleteIfExists(temp);
         }
@@ -310,6 +305,20 @@ final class Assembler {
         WebXml result = WebXml.parse(webXml, warName + " WEB-INF/web.xml");
         Merge.verify(result, declaration, warName + " WEB-INF/web.xml");
         return result;
+    }
+
+    static String version() {
+        String version = Assembler.class.getPackage().getImplementationVersion();
+        return version == null ? "(unpackaged)" : version;
+    }
+
+    /** Atomically where the file system can; the temporary file is always in OUT_WAR's own directory. */
+    static void moveIntoPlace(Path temp, Path outWar) throws IOException {
+        try {
+            Files.move(temp, outWar, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            Files.move(temp, outWar, StandardCopyOption.REPLACE_EXISTING);
+        }
     }
 
     private static void deleteQuietly(Path p) {
