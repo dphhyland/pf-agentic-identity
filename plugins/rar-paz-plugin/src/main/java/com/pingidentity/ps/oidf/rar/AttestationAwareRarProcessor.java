@@ -93,8 +93,8 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      * can pin that a value stored under it is ignored. PingFederate 13.1.3 hands an instance with no parent
      * its stored configuration as it is ({@code ConfigurationUtil.createCompositeConfiguration}, javap
      * 2026-09-27), and the admin API's {@code PluginConfigTranslator} raises no error for a field the
-     * descriptor does not declare (its message keys are duplicate, encrypted-value, inherited and parent,
-     * javap 2026-09-27), so a stored extra is carried and never read.
+     * descriptor does not declare (its keys: duplicate, bad encrypted value, inherited, parent, empty entry;
+     * javap 2026-09-27). On the rig a 0.3.0 archive holding it imported and the instance decided (2026-09-27).
      */
     static final String DENY_ON_NON_PERMIT_REMOVED = "Deny unless PERMIT";
     private static final String FAIL_OPEN = "Fail open on engine error";
