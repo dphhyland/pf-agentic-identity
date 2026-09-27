@@ -94,10 +94,15 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   failure set: its later SETs are due, but posting them would put them in front of the one that failed. So a
   receiver that is down costs one attempt per backoff step (5, 10, 20, 40 s at the defaults), not one per
   queued SET or one per tick, and when it is back the SET that failed goes first and the rest follow in the
-  order they were issued. The attempts are counted on that oldest SET, and the stream dead-letters (`paused`,
-  with the reason recorded) when it has failed `pushRetryMaxAttempts` times: about 75 s after the first
-  failure at the defaults when the receiver refuses at once, as before, and about 100 s when every attempt
-  runs to the 10 s deadline.
+  store's order: by `issuedAt`, and SETs issued in the same second by `jti`. `issuedAt` is in seconds and the
+  `jti` is random, so within a second that is not the order the SETs were generated in (F-0095). The
+  attempts are counted on the stream's first SET, and the stream dead-letters (`paused`, with the reason
+  recorded) when it has failed `pushRetryMaxAttempts` times: about 75 s after the first failure at the
+  defaults when the receiver refuses at once, as before, and about 100 s when every attempt runs to the 10 s
+  deadline - for a burst of SETs issued in one second as for one SET. Both reads of the queue, `peek` (which
+  the hold asks) and `dueForPush`, use that one order in all three stores; ordered by `issuedAt` alone,
+  Postgres returned a burst in whatever order its rows lay, the retry moved from SET to SET, and five SETs of
+  one second took 130 s to dead-letter (`SsfStoresOnPostgresTest`, 2026-09-27).
 - **A POST ends at its deadline.** Connect 2 s; 10 s for the whole exchange, body included; at most 4 KiB
   of a response body read (only a 400's body is used, for the log line). `HttpRequest.timeout` alone bounds
   the wait for the headers and nothing after them, so the exchange is waited on as a whole and cancelled
@@ -119,16 +124,19 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   arrive, and the annotation's `loadOnStartup` is honoured in the merged `pf-runtime.war`.
 
 The selection and the loop are tested against the stores as they run. `SsfStoresOnPostgresTest` runs the
-`tables` and `ldm` stores' `dueForPush`, and three ticks of the loop over each, against Postgres - the `ldm`
-store on the model repo's `0000` and `0001` migrations, vendored under `src/test/resources/idm` - and CI's
-`java` job runs it against its Postgres service. The `tables` store's selection and the same three ticks were
-also run once on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships (2026-09-27).
+`tables` and `ldm` stores' `dueForPush`, three ticks of the loop over each, and a burst of one second's SETs,
+against Postgres - the `ldm` store on the model repo's `0000` and `0001` migrations, vendored under
+`src/test/resources/idm` - and CI's `java` job runs it against its Postgres service. The `tables` store's
+selection and the same three ticks were also run once on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships
+(2026-09-27).
 
 **What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
 older than another's still fills the batch, and a receiver that answers slowly but successfully holds the
 loop for as long as its SETs take, up to 10 s each; one thread; no leases, so every node in a cluster runs
-the loop against the shared store (F-0007, single node until v0.7.0); dead-letter drops nothing but pauses
-the stream. Push delivery has still not been run against the conformance suite: it needs a suite PingFederate
+the loop against the shared store (F-0007, single node until v0.7.0); the order of SETs issued in the same
+second (F-0095). Dead-letter keeps the SETs already queued and pauses the stream, but nothing is queued for
+a stream that is not enabled, so every event raised while it is paused is lost, not held (F-0017; S10c,
+S10d). Push delivery has still not been run against the conformance suite: it needs a suite PingFederate
 can call back ([conformance/README.md](../../conformance/README.md)).
 
 ## Boot
@@ -140,7 +148,12 @@ one ERROR line naming the cause, SSF endpoints that fail, and another try every 
 (`SsfSupport.bootRetrySeconds`, a constant until S-5) until the store opens; the loops start on the try that
 succeeds. While it is down the SSF endpoints throw `IllegalStateException` on use (the container's 500, with
 `SsfSupport.NOT_CONFIGURED` in the log), the same as a transmitter with no issuer, and PingFederate's own
-endpoints are untouched. Each failed try is logged.
+endpoints are untouched. The events PingFederate raises in that window are lost, not queued: a logout's SET
+is skipped with a WARN (`SSF session-revoked emission skipped`), the audit source is attached only once the
+store opens, and a SCIM change answers 500 (F-0017; S10d). The ERROR line names the cause chain, with the
+`jdbcUrl` replaced by `<jdbcUrl>` - a JDBC URL can carry a password, and the driver's messages repeat it.
+The stack trace goes with the first failure only, and never for a `jdbcUrl` store. A failure no retry can
+cure, such as a missing JDBC driver, is still retried: the line says what it is.
 
 Seen on the rig on 2026-09-27 (PingFederate 13.1.3, the branch's jars at `e858f9e`), with a `tables` store on a
 `jdbcUrl` whose database was started about two seconds after PingFederate: the ERROR at 03:42:28,675 UTC,
@@ -287,10 +300,12 @@ Nothing to configure. What changes on the first boot after the upgrade:
   failure now, and its stream dead-letters when its oldest SET has failed `pushRetryMaxAttempts` times
   (about 100 s at the defaults). Before, the loop waited for it, and for nothing else.
 - A stream whose delivery fails sends nothing more until the SET that failed is due again, and then sends
-  that SET first. Until 0.4.0 the SETs behind it were tried in the meantime, and could arrive first.
+  that SET first. Until 0.4.0 the SETs behind it were tried in the meantime, and could arrive first. SETs
+  issued in the same second go in `jti` order, not the order they were generated in (F-0095).
 - A data store that is down when PingFederate boots no longer stops `pf-runtime.war` starting - until 0.4.0
   every runtime endpoint answered 503 ([Boot](#boot)). Watch for `SSF transmitter NOT started` in the server
-  log: the SSF endpoints answer 500 until a retry opens the store.
+  log: the SSF endpoints answer 500 until a retry opens the store, and the logouts and audit events
+  PingFederate serves in the meantime send no SET.
 
 ### Upgrading
 

@@ -42,12 +42,16 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
-- **SSF push cannot be starved or held** (S10-0, the B5 stopgap) - the stores select only enabled push
-  streams' SETs; a stream whose delivery fails waits out its oldest SET's backoff as a whole, so its SETs keep
-  their order; the POST has deadlines (connect 2 s, exchange 10 s, body read to 4 KiB) and its connection is
-  closed at the deadline; the loop starts from the load-on-startup servlet; a store that is down at boot is
-  logged and retried every 30 s instead of failing `pf-runtime.war`; and the stores' push selection runs
-  against Postgres in CI (`SsfStoresOnPostgresTest`).
+- **SSF push is no longer starved by paused, disabled or poll backlogs, and no single POST holds it past
+  10 s** (S10-0, the B5 stopgap) - the stores select only enabled push streams' SETs; a stream whose delivery
+  fails waits out its first SET's backoff as a whole, so the SET that failed goes first and the rest follow
+  by `issuedAt`, SETs of the same second by `jti` rather than in the order they were generated (F-0095); the
+  POST has deadlines (connect 2 s, exchange 10 s, body read to 4 KiB) and its connection is closed at the
+  deadline; the loop starts from the load-on-startup servlet; a store that is down at boot is logged, without
+  its `jdbcUrl`, and retried every 30 s instead of failing `pf-runtime.war`; and the stores' push selection
+  runs against Postgres in CI (`SsfStoresOnPostgresTest`). An enabled stream with 500 due SETs older than
+  another's still fills the batch, and a slow receiver still holds the one thread for up to 10 s a SET, until
+  S-10.
 - **device-enrolment's unauthenticated `POST /compliance` is gone** (M-2, the B4 mitigation) - compliance
   reaches the registry through a verified SET at PingFederate's SSF receiver and nowhere else; the README
   says why the device path is not production-usable until Phase 6.
