@@ -1,0 +1,21 @@
+id: U-0094
+title: Which spellings of the CIBA backchannel path PingFederate 13.1.3 routes to its CIBA handler
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [S2b]
+prs: []
+recorded_in: 'plugins/rar-paz-plugin/README.md, Who the decision is about, the CIBA row'
+verify_by: >
+  On the rig, send the backchannel authentication request to /as/bc-auth.ciba;x, /as/bc-auth%2Eciba and
+  /as/bc-auth.ciba/ as well as /as/bc-auth.ciba, and read what PingFederate answers and the principal_source
+  the stub PDP records for each.
+verification: ''
+notes: >
+  The plugin labels a request CIBA (identity_hint) from the path of getRequestURI, which is sent as the client
+  spelled it. The review of 2026-09-27 found that a path with path parameters would not have read as CIBA, so if
+  PingFederate routed it to the CIBA handler the hint would have been labelled authenticated. From commit
+  30b4f4b the plugin reads the path as a Servlet 6 container maps it (path parameters removed, escapes decoded,
+  empty and dot segments resolved; PrincipalResolverTest), so any spelling the container maps to
+  /as/bc-auth.ciba reads as CIBA, and reading more paths as CIBA only lowers the label. Which spellings
+  PingFederate itself accepts at that endpoint, and whether it serves CIBA at any other path, was not driven.

@@ -13,35 +13,32 @@ import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailContext;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * Who the PDP decides <em>about</em>.
+ * Who the PDP decides <em>about</em> when PingFederate knows nobody.
  *
- * <p>PingFederate's {@code AuthorizationDetailContext} carries no resource owner that holds in every flow
- * (13.1's {@code getUserKey()} is the client id under client credentials), so the processor reads the
- * principal out-of-band. One source is trustworthy — a request attribute an authn
- * hook set server-side. Two are not: the {@code login_hint} request parameter and the
- * {@code _principal_sub} marker a BFF folds into {@code authorization_details}. Both are simply what
- * the caller sent, and the resolution treated all three alike.
- *
- * <p>That is a subtle failure, because nothing looks broken: the attestation verifies, the chain
- * validates, the PDP returns a sound decision. It is just a decision about the wrong human — a client
- * asserting {@code login_hint=alice} got Alice's entitlements evaluated. These tests pin the default
- * (refuse), the escape hatch (a deliberate operator choice), and the {@code principal_source} that lets
- * policy tell the two apart when the hatch is open.
+ * <p>Two names are the caller's own: the {@code login_hint} request parameter and the {@code _principal_sub}
+ * marker a BFF folds into {@code authorization_details}. Treating either as the principal lets a client name
+ * whoever it likes and have the PDP decide about that person - nothing looks broken, the attestation verifies,
+ * the decision is sound, and it is about the wrong human. From 0.4.0 they are honoured only when the operator
+ * switched it on AND {@code OIDF_DEPLOYMENT_PROFILE=development} (plan decision 9); at 1.0 they go. These
+ * tests pin the default (refuse), the two halves of the escape hatch, and the {@code principal_source} that
+ * lets policy tell the sources apart when it is open.
  */
 class ClientAssertedPrincipalTest {
 
     private final PdpClient client = mock(PdpClient.class);
 
-    private static GovernanceEngineConfig config(boolean allowClientAsserted) {
+    private static GovernanceEngineConfig config(boolean allowClientAsserted, String profile) {
         return GovernanceEngineConfig.builder()
                 .pdpUrl("https://pdp/governance-engine")
-                .denyOnNonPermit(false)                       // isolate the principal question
                 .allowClientAssertedPrincipal(allowClientAsserted)
+                .deploymentProfile(profile)
+                .authenticatedPrincipalTypes(Set.of())    // isolate the principal question from the type rule
                 .build();
     }
 
@@ -55,14 +52,13 @@ class ClientAssertedPrincipalTest {
         return new AuthorizationDetail(detail);
     }
 
-    /** A context whose request carries the given login_hint and/or authn-hook attribute. */
-    private static AuthorizationDetailContext contextWith(String loginHint, String authenticatedAttribute) {
+    /** A context whose request carries the given login_hint, with the user key PingFederate passed (or none). */
+    private static AuthorizationDetailContext contextWith(String loginHint, String userKey) {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getParameter("login_hint")).thenReturn(loginHint);
-        when(request.getAttribute("com.pingidentity.ps.oidf.rar.resource_owner_sub"))
-                .thenReturn(authenticatedAttribute);
+        when(request.getRequestURI()).thenReturn("/as/authorization.oauth2");
         // The way PingFederate 13.1 builds it: a jakarta request, which the plugin reads with getJakartaRequest().
-        return new AuthorizationDetailContext.Builder().withRequest(request).withClientId("agent-client").build();
+        return new AuthorizationDetailContext.Builder().withRequest(request).withClientId("agent-client").withUserKey(userKey).build();
     }
 
     private void permit() throws Exception {
@@ -85,7 +81,7 @@ class ClientAssertedPrincipalTest {
 
     @Test
     void aLoginHintIsNotThePrincipalByDefault() throws Exception {
-        String[] asked = askedAbout(config(false), detailWithPrincipalMarker(null),
+        String[] asked = askedAbout(config(false, "development"), detailWithPrincipalMarker(null),
                 contextWith("alice", null));
 
         assertNull(asked[0], "login_hint is a query parameter, not an authenticated identity");
@@ -94,18 +90,36 @@ class ClientAssertedPrincipalTest {
 
     @Test
     void aPrincipalMarkerInTheDetailIsNotThePrincipalByDefault() throws Exception {
-        String[] asked = askedAbout(config(false), detailWithPrincipalMarker("alice"),
+        String[] asked = askedAbout(config(false, "development"), detailWithPrincipalMarker("alice"),
                 contextWith(null, null));
 
         assertNull(asked[0], "_principal_sub is caller-supplied like any other authorization_details field");
         assertEquals("none", asked[1]);
     }
 
-    // ---- an authn hook's attribute is trusted, and labelled as such --------------------------------
+    // ---- the switch alone is not enough: production ignores it ---------------------------------------
 
     @Test
-    void anAuthenticatedPrincipalIsUsedAndLabelled() throws Exception {
-        String[] asked = askedAbout(config(false), detailWithPrincipalMarker(null),
+    void theSwitchIsInertOutsideDevelopment() throws Exception {
+        String[] asked = askedAbout(config(true, "production"), detailWithPrincipalMarker("alice"),
+                contextWith("alice", null));
+
+        assertNull(asked[0], "a production deployment never takes the caller's word for the principal");
+        assertEquals("none", asked[1]);
+    }
+
+    @Test
+    void anUnsetProfileIsProduction() throws Exception {
+        String[] asked = askedAbout(config(true, null), detailWithPrincipalMarker("alice"), contextWith(null, null));
+
+        assertEquals("none", asked[1]);
+    }
+
+    // ---- what PingFederate authenticated is trusted, and labelled as such -----------------------------
+
+    @Test
+    void anAuthenticatedUserKeyIsUsedAndLabelled() throws Exception {
+        String[] asked = askedAbout(config(false, "production"), detailWithPrincipalMarker(null),
                 contextWith(null, "alice"));
 
         assertEquals("alice", asked[0]);
@@ -113,23 +127,24 @@ class ClientAssertedPrincipalTest {
     }
 
     /**
-     * The one that would let the fix be bypassed: a request that carries both. The server-side attribute
-     * must win, and a caller must not be able to override it by also sending a hint.
+     * The one that would let the fix be bypassed: a request that carries both. PingFederate's key must win,
+     * and a caller must not be able to override it by also sending a hint - even in development with the
+     * switch on.
      */
     @Test
     void anAuthenticatedPrincipalWinsOverAClientAssertedOne() throws Exception {
-        String[] asked = askedAbout(config(true), detailWithPrincipalMarker("mallory"),
+        String[] asked = askedAbout(config(true, "development"), detailWithPrincipalMarker("mallory"),
                 contextWith("mallory", "alice"));
 
-        assertEquals("alice", asked[0], "the authn hook's attribute is the only trustworthy source");
+        assertEquals("alice", asked[0], "the user key PingFederate passed is the only trustworthy source");
         assertEquals("authenticated", asked[1]);
     }
 
-    // ---- the escape hatch, for a deployment whose only caller is a trusted BFF ---------------------
+    // ---- the escape hatch: the switch on, in development ---------------------------------------------
 
     @Test
-    void aLoginHintIsUsedWhenTheOperatorEnabledIt() throws Exception {
-        String[] asked = askedAbout(config(true), detailWithPrincipalMarker(null),
+    void aLoginHintIsUsedInDevelopmentWhenTheOperatorEnabledIt() throws Exception {
+        String[] asked = askedAbout(config(true, "development"), detailWithPrincipalMarker(null),
                 contextWith("alice", null));
 
         assertEquals("alice", asked[0]);
@@ -138,8 +153,8 @@ class ClientAssertedPrincipalTest {
     }
 
     @Test
-    void aPrincipalMarkerIsUsedWhenTheOperatorEnabledIt() throws Exception {
-        String[] asked = askedAbout(config(true), detailWithPrincipalMarker("alice"),
+    void aPrincipalMarkerIsUsedInDevelopmentWhenTheOperatorEnabledIt() throws Exception {
+        String[] asked = askedAbout(config(true, " Development "), detailWithPrincipalMarker("alice"),
                 contextWith(null, null));
 
         assertEquals("alice", asked[0]);
@@ -152,7 +167,7 @@ class ClientAssertedPrincipalTest {
     void theMarkerIsStrippedRegardlessOfWhetherItWasTrusted() throws Exception {
         permit();
         AuthorizationDetail detail = detailWithPrincipalMarker("alice");
-        new AttestationAwareRarProcessor(client, config(true)).enrich(detail, contextWith(null, null), Map.of());
+        new AttestationAwareRarProcessor(client, config(true, "development")).enrich(detail, contextWith(null, null), Map.of());
 
         assertNull(detail.getDetail().get("_principal_sub"),
                 "consumed as the principal, but it must never reach the consent page or the token");

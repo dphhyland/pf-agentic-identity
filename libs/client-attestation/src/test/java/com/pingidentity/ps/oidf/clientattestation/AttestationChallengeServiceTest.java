@@ -39,4 +39,21 @@ class AttestationChallengeServiceTest {
         Thread.sleep(1100L);
         assertFalse(service.consume(challenge), "challenge must expire after its TTL");
     }
+
+    @Test
+    void consumptionIsConsumedThenUnknownAndNeverUnavailable() {
+        InMemoryAttestationChallengeService service = new InMemoryAttestationChallengeService();
+        String challenge = service.issue();
+        assertTrue(service.consumeChallenge(challenge) == AttestationChallengeService.Consumption.CONSUMED);
+        assertTrue(service.consumeChallenge(challenge) == AttestationChallengeService.Consumption.UNKNOWN);
+        assertTrue(service.consumeChallenge(null) == AttestationChallengeService.Consumption.UNKNOWN);
+    }
+
+    @Test
+    void anExpiredChallengeIsUnknownNotConsumed() throws Exception {
+        InMemoryAttestationChallengeService service = new InMemoryAttestationChallengeService(16, 1L);
+        String challenge = service.issue();
+        Thread.sleep(1100L);
+        assertTrue(service.consumeChallenge(challenge) == AttestationChallengeService.Consumption.UNKNOWN);
+    }
 }

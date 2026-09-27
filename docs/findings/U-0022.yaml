@@ -2,12 +2,20 @@ id: U-0022
 title: An encrypted-field upgrade of a stored plaintext secret
 area: rar-paz-plugin
 source: design
-status: open
+status: closed
 plan_items: [S2a]
-prs: []
+prs: [29]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 7
 verify_by: >
   On the rig: a plugin instance saved with the plaintext secret field, the jar replaced by one declaring the
   field encrypted, and the instance read back.
-verification: ''
+verification: >
+  2026-09-27, PingFederate 13.1.3.0, OLD_PLUGIN_JAR=<v0.3.0 release jar> conformance/verify-rar-principal.sh at
+  b497275: an instance created under v0.3.0 with a plaintext "Shared Secret" exported with the secret in the
+  clear; imported under the 0.4.0-SNAPSHOT jar (HTTP 200) it read back through the admin API as an OBF:JWE
+  encryptedValue while the disk still held the plaintext; PingFederate logged one ERROR ("There was a problem
+  deobfuscating the value for the field: Shared Secret") after the import and none at the decisions; the
+  plugin sent the stub PDP the same secret. Saving the instance again stored the value encrypted (on disk no
+  plaintext) and the next decision sent the same secret with no new ERROR. The upgrade note says to save each
+  instance again.
 notes: ''

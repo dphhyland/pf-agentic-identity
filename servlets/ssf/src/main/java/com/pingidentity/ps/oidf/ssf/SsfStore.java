@@ -62,15 +62,30 @@ public interface SsfStore {
 
     void enqueue(PendingSet set);
 
-    /** Oldest-first pending SETs for a stream, up to {@code max} (poll delivery / inspection). */
+    /**
+     * A stream's pending SETs, up to {@code max}, in the store's order: oldest {@code issuedAt} first, and
+     * SETs issued in the same second by {@code jti} (poll delivery / inspection, and the push executor's
+     * hold). {@link #dueForPush} returns the same order, so the first SET of a stream in its batch is the
+     * first here whenever it is due. {@code issuedAt} is in seconds, so without the second key the SETs of
+     * a burst came back in whatever order the database chose, and the two reads could disagree about which
+     * SET of a stream comes first. The {@code jti} is random, so within a second this is not the order the
+     * SETs were generated in (F-0095).
+     */
     List<PendingSet> peek(String streamId, int max);
 
     /** Delete acked/delivered SETs by {@code jti} for a stream (poll ack / push success). */
     int ack(String streamId, Collection<String> jtis);
 
     /**
-     * Push candidates across all streams whose {@code nextAttemptAt} is at or before {@code now}, oldest first,
-     * up to {@code max}. The push executor drives delivery from this.
+     * Push candidates whose {@code nextAttemptAt} is at or before {@code now}, in {@link #peek}'s order
+     * (oldest first, then by {@code jti}), up to {@code max}, on streams that are
+     * {@link Stream#isPushEnabled() enabled push streams} and no others. The push executor drives delivery
+     * from this.
+     *
+     * <p>The stream's state is part of the selection, not a filter applied afterwards: the batch is
+     * {@code max} SETs across every stream, so the backlog of a paused, disabled or poll stream - which
+     * the executor would only skip - would otherwise fill it and keep the next stream's SETs from being
+     * read at all (B5).
      */
     List<PendingSet> dueForPush(long now, int max);
 

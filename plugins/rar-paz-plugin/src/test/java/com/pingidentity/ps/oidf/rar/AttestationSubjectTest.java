@@ -65,6 +65,24 @@ class AttestationSubjectTest {
     }
 
     @Test
+    void parsesTheAttesterIssuerAndTheVerifiedSubjectTokenSubject() {
+        Map<String, Object> attr = new LinkedHashMap<>();
+        attr.put("client_id", "https://rp.example.com");
+        attr.put("iss", "https://attester.example");
+        attr.put(AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY, "alice");
+        AttestationSubject s = AttestationSubject.fromAttribute(attr);
+        assertEquals("https://attester.example", s.getAttesterIssuer());
+        assertEquals("alice", s.getVerifiedSubjectTokenSubject());
+        assertEquals("agent-9", s.withAgentId("agent-9").getAgentId());
+        assertEquals("https://attester.example", s.withAgentId("agent-9").getAttesterIssuer());
+
+        AttestationSubject blank = AttestationSubject.fromAttribute(Map.of("iss", " ", "sub", ""));
+        assertNull(blank.getAttesterIssuer());
+        assertNull(blank.getSubject());
+        assertNull(AttestationSubject.empty().getVerifiedSubjectTokenSubject());
+    }
+
+    @Test
     void agentIdIsNullWhenNotPublished() {
         Map<String, Object> attr = Map.of("sub", "https://rp.example.com", "client_id", "https://rp.example.com");
         AttestationSubject s = AttestationSubject.fromAttribute(attr);

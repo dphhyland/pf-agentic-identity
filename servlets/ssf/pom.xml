@@ -55,6 +55,10 @@
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- SsfStoresOnPostgresTest: the tables and ldm stores' SQL against a real Postgres, from IDM_TEST_JDBC_URL
+             (CI's service container) or Testcontainers, as device-instance's registry suite finds one. -->
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
@@ -127,6 +131,23 @@
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.handleRetry(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.backoffSeconds(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.evictExpired(*</include>
+
+                                        <!-- One loop for every stream (B5, the S10-0 stopgap): which SETs a tick reads (isPushEnabled is the
+                                             rule the stores select by and runOnce re-checks), a failing stream held whole until its oldest SET
+                                             is due again (runOnce, oldestIsBackingOff), and a POST that ends at its deadline whatever the
+                                             receiver does (send, CappedBody). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.Stream.isPushEnabled(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.oldestIsBackingOff(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(*</include>
+
+                                        <!-- Boot never throws: start() is up, or logged and retried; scheduleBootRetry() keeps it to one retry;
+                                             logBootFailure() and describe() keep the jdbcUrl, which can carry a password, out of the log. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.scheduleBootRetry(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.logBootFailure(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.describe(*</include>
 
                                         <!-- Inbound signals: which subject a received SET acts on. -->
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>

@@ -97,8 +97,40 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestation.workload(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.RarEntitlement.within(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.issue(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.consume(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter.allow(*</include>
+                                        <!-- S3a/S3b: the store verdicts are tri-state, and an outage must reach the caller as
+                                             STORE_UNAVAILABLE (503), never as a replay, an unknown challenge or a conflict;
+                                             the binding of evidence to its first presenter; and the TLS parameters that
+                                             keep the store's password off the wire until the peer is verified. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.consumeChallenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.bind(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.consumeChallenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryEvidenceBindingStore.bind(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache.firstSeen(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.consume(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceChallenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslParametersFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.isIpLiteral(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DeploymentProfile.isProduction(*</include>
+                                        <!-- S3a: which CA a rediss:// connection trusts, the transport rule, the redaction
+                                             that keeps a Redis password out of log messages, which store each surface
+                                             gets and the remembered refusal of plaintext, the holder a conflict names,
+                                             and the challenge endpoint's 503. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslContextFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.caFileFromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.transportRefusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.redact(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.challengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.replayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.evidenceBindingStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.configureChallengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.configureReplayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.redisStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.redisClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.conflictWith(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.doPost(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

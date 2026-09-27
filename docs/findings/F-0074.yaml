@@ -1,0 +1,22 @@
+id: F-0074
+title: The token-endpoint filter publishes no verified subject-token subject, so the RAR plugin decides every token exchange about nobody
+severity: medium
+area: pf-integration, rar-paz-plugin
+source: design
+status: open
+plan_items: [S4c]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  PingFederate 13.1.3 passes no user key to enrich for the token-exchange grant (TokenExchangeRequest passes
+  null, javap 2026-09-27; seen on the rig the same day). S2b's resolver takes a token exchange's principal from
+  one place only, verified_subject_token_sub in the attestation context the filter publishes as the request
+  attribute com.pingidentity.ps.oidf.rar.attestation_context, and nothing publishes it:
+  ClientAttestationUtils.attestationContext writes sub, client_id, agent_id, iss, entitlement, workload and
+  cnf_thumbprint, and delegationActChain decodes the subject_token without verifying it. So principal_source
+  is none, payment_initiation and account_information are refused before the PDP, and other types reach it
+  about the client. That fails closed, which is why this is not higher, but token exchange cannot carry a
+  person's payment today. The fix belongs with S4c's "delegationActChain nests only a PF-signed, verified
+  subject_token": once the filter verifies the subject token as PingFederate-signed, publish its sub under
+  verified_subject_token_sub in the same map, and pin the key in RarContextKeyTest beside the attribute name.

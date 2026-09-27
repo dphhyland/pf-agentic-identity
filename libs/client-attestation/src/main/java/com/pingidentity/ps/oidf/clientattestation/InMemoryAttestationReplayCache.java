@@ -15,7 +15,8 @@ import org.apache.commons.logging.LogFactory;
  * {@link SubordinateStatementCache}.
  *
  * <p>State is per-node. A clustered PingFederate deployment should use {@link RedisAttestationStore}
- * (or another shared store) to make replay detection cluster-wide.
+ * (or another shared store) to make replay detection cluster-wide. Memory never answers
+ * {@link Verdict#STORE_UNAVAILABLE}.
  */
 public final class InMemoryAttestationReplayCache implements AttestationReplayCache {
     private static final Log LOGGER = LogFactory.getLog(InMemoryAttestationReplayCache.class);
@@ -44,7 +45,7 @@ public final class InMemoryAttestationReplayCache implements AttestationReplayCa
     }
 
     @Override
-    public synchronized boolean firstSeen(String clientId, String jti, long ttlSeconds) {
+    public synchronized Verdict record(String clientId, String jti, long ttlSeconds) {
         if (jti == null || jti.isBlank()) {
             throw new IllegalArgumentException("jti is required for replay protection");
         }
@@ -53,11 +54,11 @@ public final class InMemoryAttestationReplayCache implements AttestationReplayCa
         Long expiry = this.seen.get(key);
         if (expiry != null && expiry > now) {
             LOGGER.debug((Object) ("replay DETECTED for clientId=" + clientId + " jti=" + jti));
-            return false;
+            return Verdict.REPLAY;
         }
         long ttl = ttlSeconds > 0L ? ttlSeconds : 1L;
         this.seen.put(key, now + ttl);
-        return true;
+        return Verdict.FIRST_USE;
     }
 
     public synchronized int size() {

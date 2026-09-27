@@ -78,10 +78,10 @@
                     <!--
                       Coverage gate on the enrolment decision points that are fully exercised today:
                       which CAEP event type a SET is dispatched to, which paths the HTTP server binds
-                      a handler on, how a compliance signal is admitted, and whether an authentication
-                      meets a required assurance level. 100% line + branch, enforced - a missed branch
-                      here is an event applied to the wrong subject, an unrouted endpoint, or a device
-                      accepted at an assurance it never reached.
+                      a handler on, and whether an authentication meets a required assurance level.
+                      100% line + branch, enforced - a missed branch here is an event applied to the
+                      wrong subject, an unrouted endpoint, or a device accepted at an assurance it never
+                      reached. (EnrolmentHttpServer.compliance was gated here until M-2 removed it.)
 
                       Gated per METHOD, not per class, so the parts still short of full coverage stay
                       honestly out of scope rather than being gated at a ratio that means nothing:
@@ -100,7 +100,6 @@
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.enrolment.CaepEventHandler.applyOne(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.EnrolmentHttpServer.route(*</include>
-                                        <include>com.pingidentity.ps.oidf.enrolment.EnrolmentHttpServer.compliance(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.UserAuthentication.meetsAssurance(*</include>
                                     </includes>
                                     <limits>
