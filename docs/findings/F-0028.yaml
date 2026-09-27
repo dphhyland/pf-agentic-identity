@@ -1,0 +1,15 @@
+id: F-0028
+title: 'Built but unwired: the agent registry, App Attest assertions, asserted context, attestation_required, dead federation code'
+severity: medium
+area: attestation-issuer, device-enrolment, pf-integration
+source: review-2026-09-26
+status: open
+plan_items: [X-A22, X-A07, X-A08, X-B10, S4c, H-FED-10]
+prs: []
+verification: ''
+target_release: 0.9.0
+notes: >
+  Code that exists and nothing calls: the agent registry (X-A22 wires it, Phase 5), App Attest assertions on
+  re-mint and UV refresh (X-A07, X-A08, Phase 6), asserted context via Microsoft Graph (X-B10, Phase 5), the
+  `attestation_required` client property (S4c enforces it, Phase 3), and the federation's dead code (H-FED-10
+  removes it, Phase 3).

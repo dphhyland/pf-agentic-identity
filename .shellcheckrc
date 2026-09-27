@@ -1,0 +1,5 @@
+# shellcheck's settings for every tracked script. build.yml's lint job runs tools/ci/lint-shell.sh, which is
+# shellcheck over `git ls-files '*.sh'` from the repository root, so the same command from a checkout gives the
+# same answer. A script that sources a file whose path is only known at run time (secrets.env, pf-version.env
+# through $HERE) carries its own `disable=SC1091` beside the line.
+source-path=SCRIPTDIR

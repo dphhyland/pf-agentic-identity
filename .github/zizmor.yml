@@ -1,0 +1,16 @@
+# zizmor's configuration (https://docs.zizmor.sh/configuration/): the findings this repository accepts, each
+# with its reason. build.yml's lint job runs `zizmor --config .github/zizmor.yml .` with the regular persona
+# and the online audits, and a finding not accepted here fails the build. Name the file when running it by
+# hand too: zizmor 1.30.1 discovers it from the repository root, and in a git worktree it does not.
+rules:
+  self-repository:
+    # GitHub documents `uses: $/path` for an action in the running repository (Workflow syntax, "$/path/to/action",
+    # read 2026-09-27) and zizmor prefers it to `./path`. actionlint 1.7.12 rejects the form ("ref is missing"),
+    # so the workflows keep `./.github/actions/pf-provided-jars` until the actionlint tools/ci/install-lint-tools.sh
+    # pins accepts `$/`; then drop this entry and change the five `uses:` lines.
+    ignore:
+      - build.yml
+      - codeql.yml
+      - conformance-federation.yml
+      - mutation.yml
+      - release.yml

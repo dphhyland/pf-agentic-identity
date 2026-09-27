@@ -1,0 +1,15 @@
+id: F-0066
+title: 'The showcase''s packaging statements describe the 13.0.3 build'
+severity: low
+area: docs
+source: phase-0-review
+status: open
+plan_items: [P0-7]
+prs: [13]
+verification: ''
+target_release: 0.4.0
+notes: >
+  PR #11's adversarial review (2026-09-26) found about a dozen DATA statements in showcase/index.html still
+  saying eight jars, three filter mappings, the 13.0.3 Dockerfile and SDK 13.0.0.3, each with a file:line
+  citation that check-showcase-links.py checks for existence only. PR #13 (open on 2026-09-27) rewrites them
+  for the 13.1.3 build.

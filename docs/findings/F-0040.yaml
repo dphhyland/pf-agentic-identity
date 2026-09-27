@@ -1,0 +1,15 @@
+id: F-0040
+title: SsfConfigurationServlet lets a boot-time database error escape
+severity: high
+area: ssf
+source: design
+status: open
+plan_items: [S-9, S9a]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while designing, item 11. The servlet loads at start-up and a database error in its init escapes: the
+  SSF instance of F-0013, a component failure taking pf-runtime.war down, and high for the same reason. S9a:
+  init never throws, and shared state is published atomically (which also fixes the SSF half-configured
+  state).

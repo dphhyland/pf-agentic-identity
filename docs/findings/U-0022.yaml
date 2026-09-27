@@ -1,0 +1,13 @@
+id: U-0022
+title: An encrypted-field upgrade of a stored plaintext secret
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2a]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 7
+verify_by: >
+  On the rig: a plugin instance saved with the plaintext secret field, the jar replaced by one declaring the
+  field encrypted, and the instance read back.
+verification: ''
+notes: ''

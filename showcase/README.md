@@ -4,9 +4,10 @@ A single-page HTML site, branded for ID Partners, that presents this repository 
 servlets, SDK plugins, libraries and services, the gates a token request passes, packaging, a
 PingFederate set-up guide, standards and assurance, and every tracked document rendered as a page.
 
-`index.html` carries its CSS, JavaScript, data, documents and logos inline. The only external files
-are the PingFederate console screens in `screens/`. No build step or network access is needed to
-view it.
+`index.html` carries its CSS, JavaScript, data and logos inline. Beside it sit the PingFederate console
+screens in `screens/` and `docs.js`, the rendered documents, which is generated and not tracked (see
+"Keeping it current"). No network access is needed to view it; without `docs.js` every view but
+Documentation works, and that one says how to build it.
 
 For a local preview with working links into the repository, run this from the repository root:
 
@@ -46,16 +47,46 @@ error` on and TLS verification skipped.
 ## Keeping it current
 
 The page was generated from the code, READMEs and Terraform, then audited claim by claim. Two parts of that
-are now mechanical, and CI checks both:
+are mechanical, and CI runs both on every Build whose reactor build completes:
 
-- **The documents.** `node tools/build-showcase-docs.mjs` renders every tracked Markdown file into the page's
-  `DOCS_HTML` (run `npm ci --prefix tools` once first; the renderer is pinned). Run it after changing any
-  document - the coverage dashboard included - or `--check` fails the build.
+- **The documents.** `node tools/build-showcase-docs.mjs` renders every tracked Markdown file - and the
+  coverage dashboard, when `python3 tools/coverage-report.py` has left one at `docs/coverage-dashboard.md` -
+  into `showcase/docs.js`, which `index.html` loads before its own script (run `npm ci --prefix tools` once
+  first; the renderer is pinned). Until 2026-09-27 the documents were a line of `index.html`, which every
+  documentation change regenerated and which conflicted whenever two such changes met; `docs.js` is git-ignored
+  instead, the same decision as the dashboard (plan decision 18). CI builds it once the reactor build and the
+  dashboard have passed, and uploads `showcase/` as the run's `showcase` artefact. Locally, rebuild it after
+  changing a document; there is no `--check`, because nothing is committed to compare with.
 - **The source links.** `python3 tools/check-showcase-links.py` fails when a boxed link names a file that isn't
-  tracked or a line past its end, on this page or on `federation.html`.
+  tracked or a line past its end, on this page, on `federation.html` or on `conformance.html`, and when a
+  `#doc:` link or the documentation index names a document `docs.js` does not carry - so build `docs.js` first.
+  A citation of the generated dashboard is checked against the copy the last build left, and noted rather than
+  failed when there is none.
 
 Neither can tell whether a statement still says what the code does. When the code behind one moves, re-read
 the statement, not just the line numbers.
 
-`federation.html` is a page of its own: the OpenID Federation story in plain language, with the file behind each
-part. The index links to it from the sidebar.
+## The other two pages
+
+`federation.html` is the OpenID Federation story in plain language, with the file behind each part.
+`conformance.html` is what the OpenID Foundation's suite says about a PingFederate built from `conformance/`:
+the six plans and their results, the two FAPI 2.0 rules a filter in this repository enforces because the
+product cannot be configured to, the CIBA gap no configuration closes, and what has not been tested at all.
+Its results table is `conformance/README.md`'s, and it repeats that README's own point that a run against a
+suite you host is not a certification. The index links to both from the sidebar.
+
+## Hosting it
+
+Served from the repository root the pages reach the code with relative links. Hosted on their own there is no
+repository beside them, so `tools/build-microsite.py` rewrites every such link to the file on GitHub at one
+commit, keeping the lines, and copies in the images:
+
+```sh
+python3 tools/build-microsite.py --ref main     # -> build/microsite/ (git-ignored)
+railway up build/microsite --path-as-root --service site
+```
+
+`showcase/deploy/` holds the nginx image that serves the result. The site runs at
+https://agentic-identity.idpartners.global (Railway project `agentic-identity-site`), which needs a CNAME from
+that host to the service's `*.up.railway.app` target. Rebuild and redeploy after changing any page: the pages
+are the source, `build/microsite/` is only an artefact.

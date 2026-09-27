@@ -56,10 +56,11 @@
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
             <!--
-              Coverage gate on the decisions: what a recorded decision reads back as (and when it has
-              gone stale), what the authenticator answers PingFederate for each, and what the endpoint
-              will and will not record. 100% line + branch, per METHOD; configure() and
-              getPluginDescriptor() are SDK plumbing and stay out.
+              Coverage gate on the decisions: whether the simulator may run here at all (the switch, the
+              deployment profile, the directory's owner and mode), what a recorded decision reads back as
+              (and when it has gone stale), what the authenticator answers PingFederate for each, and what
+              the endpoint will and will not record. 100% line + branch, per METHOD; configure(),
+              getPluginDescriptor() and the read of this process's user are plumbing and stay out.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -89,7 +90,12 @@
                                         <include>com.pingidentity.ps.oidf.cibasim.DecisionStore.txIdFor(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.SimOobAuthenticator.initiate(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.SimOobAuthenticator.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.cibasim.SimOobAuthenticator.finished(*</include>
                                         <include>com.pingidentity.ps.oidf.cibasim.CibaSimDecisionServlet.handle(*</include>
+                                        <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.enabled(*</include>
+                                        <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.isProduction(*</include>
+                                        <include>com.pingidentity.ps.oidf.cibasim.SimulatorGate.directoryRefusal(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -1,6 +1,9 @@
 # CI build: the whole platform, on every push/PR. The two provided PF jars (pf-protocolengine +
 # pingfederate-sdk) are extracted from the public pingidentity/pingfederate image — running PF needs
 # a license, extracting jars does not — so the reactor builds with no private dependencies at all.
+#
+# Every action is pinned to a commit, with the tag it was resolved from beside it (Dependabot moves both).
+# Each job holds the token permissions it needs and nothing more, and no checkout leaves the token on disk.
 name: Build
 
 on:
@@ -31,8 +34,14 @@ jobs:
   # archives left behind. Match on the filename anywhere in the tree instead.
   secrets-guard:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # gitleaks walks every commit behind the one under test.
+          fetch-depth: 0
+          persist-credentials: false
       - name: no config archive or key material may be tracked
         run: |
           tracked="$(git ls-files \
@@ -47,32 +56,69 @@ jobs:
           fi
           echo "clean: no PF config archive or key material is tracked"
 
-      - name: no age identity or private key may be tracked (content scan)
-        # Filename globs cannot catch an age identity, which may be called anything at all. The pattern
-        # matches a REAL key - the prefix plus actual bech32 payload - not the bare prefix: this guard's
-        # first version flagged pf-entrypoint.sh, which documents the variable in a comment, and failed
-        # two builds before anyone looked at CI. A guard that cries wolf gets excluded, not fixed.
-        # Filename globs cannot catch an age identity, which may be called anything at all. The archive
-        # is encrypted to a public recipient (committed on purpose); the identity that decrypts it is
-        # the secret, and it belongs in a password manager and a sealed runtime variable - never here.
-        run: |
-          hits="$(git grep -l -E 'AGE-SECRET-KEY-1[A-Z0-9]{20,}|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY' -- . \
-                  ':!.github/workflows/build.yml' || true)"
-          if [ -n "$hits" ]; then
-            echo "::error::These contain an age identity or a private key:"
-            printf '%s\n' "$hits"
-            exit 1
-          fi
-          echo "clean: no age identity or private key is tracked"
+      - name: no private key of any shape may be tracked (content scan)
+        # Filename globs cannot catch an age identity, which may be called anything at all, a PEM block in
+        # any text file, or a private JWK among the public ones. tools/ci/secrets-scan.py knows the shapes -
+        # an age identity with its payload (the bare prefix is not one: this guard's first version flagged
+        # pf-entrypoint.sh, which names the variable in a comment, and failed two builds before anyone looked;
+        # a guard that cries wolf gets excluded, not fixed), every PEM private-key header, a JSON object with
+        # "kty" and "d" - and names the files it skips on purpose; tools/tests/test_secrets_scan.py holds it to
+        # the fixtures and documents here. The archive is encrypted to a public recipient (committed on
+        # purpose); the identity that decrypts it is the secret, and it belongs in a password manager and a
+        # sealed runtime variable - never here.
+        run: python3 tools/ci/secrets-scan.py
 
-  # The versions this repo writes down agree with each other: every pom carries one project version
-  # (tools/set-version.py), and every reference to a PingFederate matches build/pf-version.env
-  # (tools/pf-version-check.py). Both are plain Python with unit tests of their own, run here first, so a
-  # tool that has stopped checking cannot pass the build.
+      - name: gitleaks, over every commit behind this one
+        # The general-purpose scanner beside the house rules: API tokens, cloud credentials, JWTs and the
+        # rest of its rule set, over the whole history reachable from the commit under test - a pull
+        # request's merge with main, main itself on a push, the branch on a run by hand. The history takes
+        # under two seconds (344 commits, 2026-09-27), so nothing narrower is worth its gap: gitleaks-action,
+        # which this step replaced, read one page of thirty commits per pull request and main's first-parent
+        # line on a push, and fetched its binary without a checksum; the binary here is the one
+        # tools/ci/install-lint-tools.sh checks. --redact keeps a found secret out of a public log.
+        # .gitleaks.toml says what the default rules misread here and why; .gitleaksignore records the one
+        # historical finding, with what it was.
+        run: |
+          tools/ci/install-lint-tools.sh "$RUNNER_TEMP/lint-tools" gitleaks
+          "$RUNNER_TEMP/lint-tools/gitleaks" git . --redact --no-banner --log-opts=HEAD
+
+  # What is checked before anything is compiled: the workflows (actionlint, with shellcheck over every run
+  # block; zizmor, with .github/zizmor.yml naming the accepted findings), every tracked shell script
+  # (shellcheck), the rig's Terraform (fmt, and validate against the committed lock file), the Python tools'
+  # own tests, and the versions this repo writes down agreeing with each other: one project version across
+  # the reactor (tools/set-version.py) and one PingFederate everywhere it is named (tools/pf-version-check.py).
+  # The linters are pinned by version and checksum in tools/ci/install-lint-tools.sh, and each check is a
+  # script or a one-line command, so a checkout gives the same answer the job does.
   lint:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: the pinned linters
+        run: |
+          tools/ci/install-lint-tools.sh "$RUNNER_TEMP/lint-tools" actionlint shellcheck zizmor
+          echo "$RUNNER_TEMP/lint-tools" >> "$GITHUB_PATH"
+      - name: actionlint, with shellcheck over every run block
+        run: actionlint -no-color
+      - name: zizmor over the workflows, with the online audits
+        # The configuration is named rather than discovered: zizmor 1.30.1 looks for .github/zizmor.yml from
+        # the repository root it detects, and in a git worktree it does not find it (seen 2026-09-27). The
+        # token is for the audits that ask GitHub about the pinned actions (known-vulnerable-actions,
+        # impostor-commit); it writes nothing.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: zizmor --no-progress --config .github/zizmor.yml .
+      - name: shellcheck over every tracked script
+        run: tools/ci/lint-shell.sh
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: 1.15.8
+          terraform_wrapper: false
+      - name: terraform fmt, and validate against the committed lock file
+        run: tools/ci/lint-terraform.sh
       - name: the tools' own tests
         run: python3 -m unittest discover -s tools/tests -v
       - name: one project version across the reactor
@@ -82,12 +128,35 @@ jobs:
 
   java:
     runs-on: ubuntu-latest
+    # device-instance's IOM registry suite runs against a real Postgres: its invariants are JSONB operators,
+    # partial unique indexes and plpgsql triggers, which no in-memory database has. Before this it found one
+    # through Testcontainers when the runner's Docker allowed it, and would be skipped, not failed, when it
+    # did not - so whether the suite ran was the runner's decision. A service container makes it run every
+    # time. The job runs on the runner itself, so the service is reached at localhost on the mapped port, and
+    # the health check holds the job until Postgres answers. The credentials are throwaway: the suite drops
+    # and rebuilds the schema, and nothing outlives the job.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: dashboard
+          POSTGRES_PASSWORD: dashboard
+          POSTGRES_DB: idm
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: the PingFederate version, from build/pf-version.env
         # The one place the version is written down; the composite action reads the same file itself.
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
         with: { distribution: temurin, java-version: '17', cache: maven }
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
@@ -96,30 +165,50 @@ jobs:
         # BOM's version.pf.* properties. A module compiled against a different jackson or commons-logging
         # than the one on PF's classpath links at build and may not at run time.
         run: python3 tools/pf-provided-versions.py --lib pf-lib --bom bom/pom.xml
-      - name: reactor build (tests on, coverage gates enforced)
+      - name: reactor build (tests on, coverage gates enforced, the IOM registry suite on the Postgres service)
         # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
         # stopping at package builds the artifacts and silently skips every gate.
+        env:
+          IDM_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
+          IDM_TEST_JDBC_USER: dashboard
+          IDM_TEST_JDBC_PASSWORD: dashboard
         run: mvn verify
-      - name: coverage dashboard is current
-        # The dashboard is generated from the jacoco reports the step above just produced. Checking
-        # it here is what stops it drifting from the code the way a hand-maintained status table
-        # does - which is the failure this repo has already had to correct once.
-        run: python3 tools/coverage-report.py --check
-      - name: the showcase carries the documents as they are, and its source links resolve
-        # The showcase inlines every tracked document and cites a file and lines under each statement; both drift
-        # the moment the docs or the code move. These fail the build instead: regenerate with
-        # node tools/build-showcase-docs.mjs, and fix a reference check-showcase-links.py names.
+      - name: coverage dashboard, generated from this build
+        # Generated from the jacoco and surefire reports the step above just produced, and published rather
+        # than committed: a reactor-wide file that every test change regenerated conflicted in Phase 0's
+        # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module that has
+        # tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate
+        # includes no method - so a build that quietly skipped tests cannot produce a clean-looking page.
+        run: python3 tools/coverage-report.py --strict
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        # Uploaded even when --strict fails, so the page that names the gap can be read.
+        if: ${{ !cancelled() }}
+        with:
+          name: coverage-dashboard
+          path: |
+            docs/coverage-dashboard.md
+            docs/coverage-dashboard.html
+      - name: the showcase's documents are built, and its source links resolve
+        # The showcase renders every tracked document, and the dashboard the step above wrote, into
+        # showcase/docs.js (generated, not tracked - the same decision as the dashboard), and cites a file and
+        # lines under each hand-written statement. check-showcase-links.py fails the build when a citation
+        # names a file that is not tracked or a line past its end, or a document the page does not carry:
+        # fix the reference it names.
         run: |
           npm ci --prefix tools --no-audit --no-fund
-          node tools/build-showcase-docs.mjs --check
+          node tools/build-showcase-docs.mjs
           python3 tools/check-showcase-links.py
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: showcase
+          path: showcase/
       - name: every PingFederate and servlet member the artifacts link resolves on this image
         # The assemble script's namespace guard catches a jar built for the other servlet line; this
         # catches the member-level break (OAuthIssuerUtils went jakarta with no overload in 13.1) and
         # will catch the next member the SDK removes - getRequest(), the bridged javax getter the plugin
         # read until 0.3.0, is deprecated for removal in 13.1 and gone from the plugin since PR #7.
         run: python3 tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .
-      - uses: actions/upload-artifact@v7
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: pf-artifacts
           path: |

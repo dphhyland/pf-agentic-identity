@@ -1,0 +1,17 @@
+id: F-0005
+title: B5 SSF push can stall completely
+severity: blocker
+area: ssf
+source: review-2026-09-26
+status: open
+plan_items: [S10-0, S-10, S10a, S10b, S10c, S10d]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  One oldest-first batch of 500 across every stream starves push; HttpClient.newHttpClient() has no timeouts
+  and runs on a single-thread loop; the loop starts only when a management servlet first initialises. S10-0
+  (Phase 1) selects only enabled push streams, gives the client timeouts and starts the loop from the
+  load-on-startup servlet - the status becomes mitigated when it merges; S-10 (Phase 4) is the leased delivery
+  engine. Push delivery has never been run against the conformance suite: it needs a suite that PingFederate
+  can call back.

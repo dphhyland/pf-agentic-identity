@@ -1,0 +1,16 @@
+id: F-0009
+title: Attestation policy is dead on the filter path
+severity: high
+area: pf-integration
+source: review-2026-09-26
+status: open
+plan_items: [S-4, S4a, S4b, S4c, S4d]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Per-client attestation policy (the `attestation_*` extended properties) is read by the OGNL criterion route
+  and not by ClientAttestationAuthFilter, so a deployment that gates the token endpoint with the filter never
+  applies it. The broad defaults are David's decision (2026-08-24); the finding is that the opt-in route is
+  ignored when the filter runs. S4c's AttestationPolicyResolver is shared by both routes; F-0041 (the
+  properties are not declared) compounds this.

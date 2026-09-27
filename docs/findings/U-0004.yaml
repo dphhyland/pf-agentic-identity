@@ -1,0 +1,16 @@
+id: U-0004
+title: 'The 13.1.3 client-authentication model the federation''s clients report'
+area: pf-integration
+source: design
+status: open
+plan_items: [X-L01]
+prs: []
+recorded_in: docs/unverified.md item 14
+verify_by: >
+  On the rig under PF_PROFILE=federation-op: register a relying party, read the client back over
+  /pf-admin-api/v1/oauth/clients, and compare isUseClientAuthenticationModel and getClientAuthenticationTypes
+  with what ClientAuthenticationModelTest pins.
+verification: ''
+notes: >
+  Characterised from javap of pf-protocolengine 13.1.3.0 (2026-09-26, commit 621336e), not from a booted
+  PingFederate. The number U-0004 was given in docs/unverified.md before the register existed and is kept.

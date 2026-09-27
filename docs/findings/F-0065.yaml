@@ -1,0 +1,15 @@
+id: F-0065
+title: 'AuthZEN context merged into details without an allow-list; no per-type validate(); no reference policies or safe probe'
+severity: medium
+area: rar-paz-plugin
+source: reviewer-report
+status: open
+plan_items: [H-RAR-1]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. H-RAR-1: an allow-list for the AuthZEN context merged into details,
+  per-type validate(), a shading clean-up, reference PingAuthorize policies for all three types with decision
+  tests, and a probe script without default secrets.

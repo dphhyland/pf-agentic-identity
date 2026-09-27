@@ -17,11 +17,22 @@ somebody typed into a README went stale twice.
 Both outputs render from one data pass, so they cannot disagree with each other.
 
 Usage:
-    tools/coverage-report.py            regenerate docs/coverage-dashboard.md and .html
-    tools/coverage-report.py --check    exit 1 if either committed dashboard is stale
+    tools/coverage-report.py                write docs/coverage-dashboard.md and .html; exit 1 if the
+                                            build they describe is incomplete (below)
+    tools/coverage-report.py --no-strict    write them and exit 0 regardless
 
 Run `mvn -o verify` first; without it the jacoco and surefire reports are missing or stale and
 the numbers below are whatever the last build left behind.
+
+Neither output is tracked (plan decision 18): a file every test change regenerated reactor-wide
+conflicted in Phase 0's parallel merges. CI runs this after `mvn verify` on every Build whose reactor
+build completes and publishes both as the `coverage-dashboard` artefact, strict failure or not; a run
+that fails in `mvn verify` publishes none. Locally they land at the same paths, git-ignored.
+
+Strict, the default, is what stops a build that quietly skipped tests from producing a
+clean-looking page: a module with test sources and no surefire report, a module that configures
+jacoco and has no jacoco.xml, or a jacoco check that includes no method, is written into both
+outputs as an incomplete build and makes the exit status 1.
 """
 
 import argparse
@@ -31,9 +42,11 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 
+# The checkout this reads and writes. Everything below resolves paths against it when called, not at
+# import, so the tests point it at a fixture reactor.
 ROOT = pathlib.Path(__file__).resolve().parent.parent
-DASHBOARD = ROOT / "docs" / "coverage-dashboard.md"
-DASHBOARD_HTML = ROOT / "docs" / "coverage-dashboard.html"
+DASHBOARD = "docs/coverage-dashboard.md"
+DASHBOARD_HTML = "docs/coverage-dashboard.html"
 
 # servlets/oidf-war is a war assembly with no Java; services/harness is verification CLIs, not
 # production code. Neither is gated, and saying so here stops them reading as an oversight.
@@ -56,8 +69,7 @@ PRIMITIVES = {"B": "byte", "C": "char", "D": "double", "F": "float",
 REQUIREMENT_RE = re.compile(r'@Requirement\s*\(\s*(?:\{)?\s*((?:"[^"]*"\s*,?\s*)+)', re.S)
 TEST_METHOD_RE = re.compile(r"\bvoid\s+(\w+)\s*\(")
 TYPE_DECL_RE = re.compile(r"\b(?:class|interface|enum|record)\s+\w+")
-ANNOTATION = ROOT / ("libs/conformance/src/main/java/com/pingidentity/ps/oidf/"
-                     "conformance/Requirement.java")
+ANNOTATION = "libs/conformance/src/main/java/com/pingidentity/ps/oidf/conformance/Requirement.java"
 CODE_TAG_RE = re.compile(r"\{@code ([^}]+)\}")
 # Dots are legal in a prefix: AUTHZEN-1.0 carries its version. Lowercase is not, which is what
 # keeps SdJwt.java and the other file and method names in that javadoc out of the vocabulary.
@@ -119,6 +131,15 @@ def floor_sentence(mods):
     return "Some modules also have a floor under the whole module, and the build fails below it: " + "; ".join(parts) + "."
 
 
+def jacoco_block(module):
+    """The jacoco plugin block of a module's pom, or None when the module does not configure jacoco."""
+    pom = ROOT / module / "pom.xml"
+    if not pom.is_file():
+        return None
+    block = JACOCO_BLOCK_RE.search(pom.read_text())
+    return block.group(1) if block else None
+
+
 def gate_includes(module):
     """The <include> patterns in a module's jacoco check rule — i.e. what CI actually enforces.
 
@@ -126,13 +147,24 @@ def gate_includes(module):
     whole pom also picks up maven-shade's artifact includes, which are not coverage patterns and
     match no method.
     """
-    pom = ROOT / module / "pom.xml"
-    if not pom.is_file():
-        return []
-    block = JACOCO_BLOCK_RE.search(pom.read_text())
-    if not block:
-        return []
-    return [m.strip() for m in INCLUDE_RE.findall(block.group(1))]
+    block = jacoco_block(module)
+    return [m.strip() for m in INCLUDE_RE.findall(block)] if block else []
+
+
+# JUnit's test annotations. A class whose tests are all @ParameterizedTest or @RepeatedTest has no plain
+# @Test in it, and a missing report there must count as a gap too; the boundary keeps @TestInstance and
+# @Testcontainers, which mark no test, out.
+TEST_ANNOTATION_RE = re.compile(r"@(Test|ParameterizedTest|RepeatedTest|TestFactory|TestTemplate)\b")
+
+
+def has_tests(module):
+    """Whether the module has a test source that declares a test - so surefire should have run it.
+
+    Any file under src/test/java would over-count: a module can carry test helpers and no tests, and
+    surefire writes no report for a module that ran nothing.
+    """
+    return any(TEST_ANNOTATION_RE.search(p.read_text(errors="replace"))
+               for p in (ROOT / module / "src" / "test" / "java").rglob("*.java"))
 
 
 def coverage(module):
@@ -222,7 +254,7 @@ def vocabulary():
     Hardcoding the list here would give the repo two vocabularies that drift apart, which is the
     exact failure the annotation exists to stop. Adding a prefix to the javadoc adds it here.
     """
-    text = ANNOTATION.read_text()
+    text = (ROOT / ANNOTATION).read_text()
     found = set()
     for tag in CODE_TAG_RE.findall(text):
         first = tag.strip().strip('"{').split()[0] if tag.strip() else ""
@@ -294,11 +326,35 @@ def pct(missed, covered):
     return 100.0 if total == 0 else (covered / total) * 100.0
 
 
+def problems(mods):
+    """What the build these reports came from failed to produce, one line per gap.
+
+    A module with test sources and no surefire report, or a jacoco configuration and no jacoco.xml,
+    is a build that skipped something - `-DskipTests`, a `-pl` subset, a test run that never
+    reached verify. A jacoco check that includes no method is a gate that enforces nothing. Any of
+    them would otherwise leave a page that reads as green, and the whole point of reading the gate
+    out of the pom was that nothing here can be quietly satisfied.
+    """
+    found = []
+    for m in mods:
+        if m["has_tests"] and not m["tests"]:
+            found.append(f"{m['name']}: has test sources and no surefire report under "
+                         "target/surefire-reports - were the tests run?")
+        if m["jacoco"] and not m["jacoco_report"]:
+            found.append(f"{m['name']}: configures jacoco and has no report at "
+                         "target/site/jacoco/jacoco.xml - was verify run?")
+        if m["jacoco"] and not m.get("gated"):
+            found.append(f"{m['name']}: its jacoco check includes no method, so it gates nothing")
+    return found
+
+
 def collect():
     """One pass over the build outputs; both renderers read from this and nothing else."""
     mods = []
     for module in modules():
-        entry = {"name": module, "not_gated": NOT_GATED.get(module), "tests": tests(module)}
+        entry = {"name": module, "not_gated": NOT_GATED.get(module), "tests": tests(module),
+                 "has_tests": has_tests(module), "jacoco": jacoco_block(module) is not None,
+                 "jacoco_report": (ROOT / module / "target" / "site" / "jacoco" / "jacoco.xml").is_file()}
         if module in NOT_GATED:
             mods.append(entry)
             continue
@@ -342,11 +398,26 @@ def collect():
         "failing_total": sum(len(m["failing"]) for m in gated),
         "tests": (sum(t[0] for t in all_tests), sum(t[1] for t in all_tests),
                   sum(t[2] for t in all_tests)),
+        "problems": problems(mods),
         "requirements": reqs,
         "by_spec": by_spec,
         "matrix": matrix,
         "suspect": sorted(s for s in by_spec if s not in known),
     }
+
+
+def test_cell(t):
+    """A module's test count for the tables, with what surefire skipped or failed beside it.
+
+    A skipped suite is how a missing Postgres hides: the count still reads as a number, so the
+    skips are shown next to it rather than folded into a total nobody reads per module.
+    """
+    if not t:
+        return "—"
+    run, failed, skipped = t
+    notes = [f"{failed} failed"] if failed else []
+    notes += [f"{skipped} skipped"] if skipped else []
+    return f"{run}" + (f" ({', '.join(notes)})" if notes else "")
 
 
 def render_md(d):
@@ -356,15 +427,25 @@ def render_md(d):
     w("# Coverage dashboard")
     w("")
     w("Generated by `tools/coverage-report.py` from each module's jacoco report and a scan of")
-    w("`@Requirement` annotations. Do not edit by hand — CI regenerates it and fails if the")
-    w("committed copy differs, which is what stops it drifting the way prose status tables do.")
-    w("The same data renders to `coverage-dashboard.html` for reading in a browser.")
-    w("")
-    w("Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.")
+    w("`@Requirement` annotations. Not tracked: CI regenerates it from every Build run whose reactor build")
+    w("completes and publishes it as that run's `coverage-dashboard` artefact, which is what stops it")
+    w("drifting the way prose status tables do. For a local copy run `python3 tools/coverage-report.py`")
+    w("after `mvn -o verify`; the numbers are only as fresh as the last build. The same data renders to")
+    w("`coverage-dashboard.html` for reading in a browser.")
     w("")
     run, failed, skipped = d["tests"]
     w(f"**{run} tests, {failed} failed, {skipped} skipped** (surefire, summed over the reactor).")
     w("")
+
+    if d["problems"]:
+        w("## Incomplete build")
+        w("")
+        w("**The build this page describes did not produce every report it should have.** The")
+        w("generator exits 1 for these, so a build that skipped tests cannot pass as green:")
+        w("")
+        for problem in d["problems"]:
+            w(f"- {problem}")
+        w("")
 
     w("## Critical-method gates")
     w("")
@@ -385,8 +466,7 @@ def render_md(d):
             continue
         status = "green" if not m["failing"] else f"**{len(m['failing'])} failing**"
         instr = f"{m['instruction']:.0f}%" if m["instruction"] is not None else "—"
-        t = f"{m['tests'][0]}" if m["tests"] else "—"
-        w(f"| `{m['name']}` | {m['gated']} | {status} | {instr} | {t} |")
+        w(f"| `{m['name']}` | {m['gated']} | {status} | {instr} | {test_cell(m['tests'])} |")
         for f in m["failing"]:
             w(f"| | | `{f}` | | |")
 
@@ -510,7 +590,7 @@ def inline(text):
 
 
 LOGOS = {
-    # Light and dark wordmarks from the ID Partners brand board, embedded so the committed page
+    # Light and dark wordmarks from the ID Partners brand board, embedded so the published page
     # needs no network and the artifact CSP has nothing to block.
     "light": ROOT / "docs" / "assets" / "idpartners-logo-primary.png",
     "dark": ROOT / "docs" / "assets" / "idpartners-logo-white-orange.png",
@@ -632,6 +712,9 @@ details.spec[hidden] { display: none; }
 .callout .item { display: grid; gap: 2px; max-width: 80ch; }
 .callout .item strong { color: var(--ink); }
 .callout .tag { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent); font-weight: 700; }
+.callout.crit { background: var(--crit-soft); }
+.callout.crit .tag { color: var(--crit); }
+.callout.crit ul.plain { margin: 0; font-family: var(--mono); font-size: 13px; }
 .legend { font-size: 13px; color: var(--ink-3); margin-top: 8px; }
 footer { font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
 @media (prefers-reduced-motion: reduce) { details.spec summary .chev { transition: none; } }
@@ -694,8 +777,17 @@ def render_html(d):
     w("<div><h1>Coverage and conformance</h1>"
       "<p class=\"lede\">Are the methods that decide something covered, and is what the docs claim "
       "also executed? Generated from jacoco, surefire and the <code>@Requirement</code> "
-      "annotations; CI fails if this page drifts from the build.</p></div>")
+      "annotations by every CI Build run whose reactor build completes, and published as its "
+      "<code>coverage-dashboard</code> artefact; not tracked, so it cannot drift from the build.</p></div>")
     w("</header>")
+
+    # An incomplete build comes first: nothing below it may be read as green.
+    if d["problems"]:
+        w('<section class="callout crit"><div class="item"><span class="tag">incomplete build</span>'
+          "<strong>The build this page describes did not produce every report it should have.</strong>"
+          "<span>The generator exits 1 for these, so a build that skipped tests cannot pass as green.</span>"
+          "</div><ul class=\"plain\">"
+          + "".join(f"<li>{e(problem)}</li>" for problem in d["problems"]) + "</ul></section>")
 
     # Tiles
     test_pill = ('<span class="pill good">passing</span>' if failed == 0
@@ -741,9 +833,8 @@ def render_html(d):
                    f'<span>{m["instruction"]:.0f}%</span></span>')
         else:
             bar = "—"
-        t = str(m["tests"][0]) if m["tests"] else "—"
         w(f'<tr><td><code>{e(m["name"])}</code></td><td class="num">{m["gated"]}</td>'
-          f'<td>{pill}</td><td>{bar}</td><td class="num">{t}</td></tr>')
+          f'<td>{pill}</td><td>{bar}</td><td class="num">{e(test_cell(m["tests"]))}</td></tr>')
         for f in m["failing"]:
             w(f'<tr class="fail"><td></td><td colspan="4">{e(f)}</td></tr>')
     w("</tbody></table></div>")
@@ -843,35 +934,36 @@ def render_html(d):
     w("</section>")
 
     w("<footer>Same data as <code>coverage-dashboard.md</code>. Regenerate with "
-      "<code>python3 tools/coverage-report.py</code> after <code>mvn -o verify</code>; "
-      "<code>--check</code> is what CI runs.</footer>")
+      "<code>python3 tools/coverage-report.py</code> after <code>mvn -o verify</code>; CI runs the "
+      "same on every Build whose reactor build completes and publishes both files as the "
+      "<code>coverage-dashboard</code> artefact.</footer>")
     w("</main>")
     w(f"<script>{JS}</script>")
     return "\n".join(out) + "\n"
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--check", action="store_true",
-                    help="exit 1 if either committed dashboard differs from freshly generated output")
-    args = ap.parse_args()
+def main(argv=None):
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--strict", action=argparse.BooleanOptionalAction, default=True,
+                    help="exit 1 when the build left a module without the reports it should have, or a "
+                         "gate that includes no method (the default; --no-strict writes the same pages "
+                         "and exits 0)")
+    args = ap.parse_args(argv)
 
     data = collect()
-    outputs = [(DASHBOARD, render_md(data)), (DASHBOARD_HTML, render_html(data))]
-    if args.check:
-        stale = [p for p, generated in outputs
-                 if (p.read_text() if p.is_file() else "") != generated]
-        for p in stale:
-            print(f"{p.relative_to(ROOT)} is stale — run tools/coverage-report.py", file=sys.stderr)
-        if stale:
-            return 1
-        print("docs/coverage-dashboard.md and .html are up to date")
-        return 0
-
-    for p, generated in outputs:
-        p.parent.mkdir(parents=True, exist_ok=True)
-        p.write_text(generated)
-        print(f"wrote {p.relative_to(ROOT)}")
+    # Written before the verdict either way: an incomplete build is easier to read about on the page
+    # that names the gap than in a step that printed nothing else.
+    for rel, generated in ((DASHBOARD, render_md(data)), (DASHBOARD_HTML, render_html(data))):
+        path = ROOT / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(generated)
+        print(f"wrote {rel}")
+    for problem in data["problems"]:
+        print(f"incomplete build: {problem}", file=sys.stderr)
+    if data["problems"] and args.strict:
+        print(f"{len(data['problems'])} gap(s) in the build: the dashboard is written, and says so "
+              "(--no-strict to exit 0 anyway)", file=sys.stderr)
+        return 1
     return 0
 
 

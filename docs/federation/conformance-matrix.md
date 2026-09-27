@@ -3,7 +3,9 @@
 One row per requirement of [OpenID Federation 1.0 Final](https://openid.net/specs/openid-federation-1_0.html)
 (17 February 2026) that this repo implements, and where. The coverage report reads this file: each row's
 id is joined to the tests tagged with it (`@Requirement("OIDFED §x.y")`), so a row nothing pins shows up on
-the [coverage dashboard](../coverage-dashboard.md) as unpinned.
+the coverage dashboard as unpinned (`docs/coverage-dashboard.md` - not tracked: `python3 tools/coverage-report.py`
+writes it after `mvn verify`, and CI publishes it as the `coverage-dashboard` artefact of every Build run whose
+reactor build completes).
 
 How the ids are written:
 

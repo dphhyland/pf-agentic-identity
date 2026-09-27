@@ -1,0 +1,13 @@
+id: U-0029
+title: Whether token responses are compressed
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 15
+verify_by: >
+  On the rig: a token request with Accept-Encoding, and the response's Content-Encoding. The response belt
+  buffers the body and must see it uncompressed.
+verification: ''
+notes: ''

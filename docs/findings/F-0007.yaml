@@ -1,0 +1,16 @@
+id: F-0007
+title: B7 No clustering story
+severity: blocker
+area: cluster
+source: review-2026-09-26
+status: open
+plan_items: [C-1, C-2, C-3, C-4, C-6, C-7, S-10]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Challenge, replay and binding state is per node in memory unless a store is configured, SSF push is not
+  leased, and replication of client writes made through MgmtFactory is unverified (U-0027). Phase 1 documents
+  the platform as single node until v0.7.0; Phase 4 delivers the topology (C-1), the platform Redis client
+  (C-2), managed executors (C-3), leases (C-4), the reference stacks (C-6) and the cluster verification suite
+  (C-7), whose dated results go in docs/operator/clustering.md.

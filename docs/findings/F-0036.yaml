@@ -1,0 +1,15 @@
+id: F-0036
+title: CAS proofs without iat can be replayed after the 300 s jti window
+severity: high
+area: attestation-issuer
+source: design
+status: open
+plan_items: [S4c]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while designing, item 7. The replay store forgets a `jti` after 300 s and a proof with no `iat` is not
+  bounded by age, so the same proof authenticates again afterwards; the CAS specification contradicts itself
+  here (section 4.3 versus 5.3.1). High: replay of a proof of possession. S4c requires `iat` and `exp` with
+  `exp - iat` at most 300 s and derives replay retention from the acceptance window.

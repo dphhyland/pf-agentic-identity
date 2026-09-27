@@ -46,10 +46,8 @@ on:
         type: boolean
         default: false
 
-permissions:
-  contents: write     # create the release
-  packages: write     # publish to GitHub Packages
-  checks: read        # the required Build check runs on the tagged commit
+# The one job holds the permissions it needs; the workflow itself grants none.
+permissions: {}
 
 concurrency:
   group: release-${{ github.ref }}
@@ -58,20 +56,27 @@ concurrency:
 jobs:
   release:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write     # create the release
+      packages: write     # publish to GitHub Packages
+      checks: read        # the required Build check runs on the tagged commit
     env:
       # The release tag, as given: the pushed tag, or the dispatch input. VERSION (below) is it without the v.
       RELEASE_TAG: ${{ github.event.inputs.version || github.ref_name }}
       DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run == true }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false   # gh and mvn deploy take the token from their own env, never from git
       - name: the PingFederate version, from build/pf-version.env
         # The one place the version is written down; the composite action reads the same file itself.
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+        # No Maven cache: a release builds from what Central serves, not from a cache any pull request's build
+        # could have written (a restored cache is runtime input, and this workflow publishes what it builds).
         with:
           distribution: temurin
           java-version: '17'
-          cache: maven
           server-id: github          # matches <distributionManagement><id>github</id>
           server-username: MAVEN_USERNAME
           server-password: MAVEN_TOKEN
@@ -89,7 +94,7 @@ jobs:
             exit 1
           }
           echo "VERSION=$VERSION" >> "$GITHUB_ENV"
-          echo "COMMIT=$(git rev-parse HEAD^{commit})" >> "$GITHUB_ENV"
+          echo "COMMIT=$(git rev-parse 'HEAD^{commit}')" >> "$GITHUB_ENV"
 
       - name: a green Build on this commit
         # The check runs the Build workflow left on the tagged commit, by job name. The API returns the
@@ -97,7 +102,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          runs="$(gh api --paginate "repos/${{ github.repository }}/commits/$COMMIT/check-runs?per_page=100" \
+          runs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$COMMIT/check-runs?per_page=100" \
                     --jq '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion)"')"
           echo "check runs on $COMMIT:"; printf '%s\n' "$runs" | sed 's/^/  /'
           missing=0
@@ -135,7 +140,8 @@ jobs:
       - name: stage the module set
         # Writes modules/ + MANIFEST. assemble-pf-runtime-war.sh refuses a directory that does not match
         # its MANIFEST, so a partial stage fails the release rather than shipping a war that 500s.
-        run: bash build/pingfederate/stage-modules.sh
+        # The production profile: the CIBA simulator is a rig-only plugin and never ships in a release.
+        run: bash build/pingfederate/stage-modules.sh --profile production
 
       - name: assemble the release artifacts
         # Every copy is unconditional: a missing war or plugin jar fails the release instead of quietly
@@ -148,7 +154,8 @@ jobs:
           cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar dist/
           cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/
           cp services/gm-api/servlet/target/gm-api.war dist/
-          MODULES=$(grep -c . "$MANIFEST")
+          # MANIFEST/2 carries a header and [section] lines; only the "<sha256>  <file>" lines are jars.
+          MODULES=$(grep -cE '^[0-9a-f]{64}  ' "$MANIFEST")
           echo "MODULES=$MODULES" >> "$GITHUB_ENV"
 
           # Provenance: what a consumer needs to answer "which build is this, and am I behind?" The
@@ -158,7 +165,7 @@ jobs:
             echo "commit:       $COMMIT"
             echo "tag:          $RELEASE_TAG"
             echo "built:        $(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            echo "run:          ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo "run:          $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
             echo "pingfederate: $PF_VERSION, built and link-checked against ${PF_IMAGE}@${PF_IMAGE_DIGEST}"
             echo
             echo "PingFederate line: 13.1.x (jakarta.servlet), from 0.2.0. These artifacts do NOT load on"
@@ -180,7 +187,7 @@ jobs:
             echo "pf.plugins.pf-rar-paz-plugin.jar, pf.plugins.instance-registry-datasource.jar, gm-api.war."
           } > dist/PROVENANCE.txt
 
-          ( cd dist && sha256sum * > SHA256SUMS )
+          ( cd dist && sha256sum -- * > SHA256SUMS )
           # Where each dist file came from in the reactor (the target/ file deploy will publish, not the
           # staged copy), so the deploy step can prove it published the same bytes. A basename can name
           # two reactor files: oidf.jar is servlets/pf-integration's module (what stage-modules.sh
@@ -200,7 +207,7 @@ jobs:
               sha256sum "$f" | sed "s|  dist/.*|  $src|"
             done ) > dist-sources.sha256
           cat dist-sources.sha256
-          echo "--- release contents"; ls -la dist | sed 's/^/  /'
+          echo "--- release contents"; ls -la dist
           echo "--- PROVENANCE"; cat dist/PROVENANCE.txt
 
       - name: dry run stops here

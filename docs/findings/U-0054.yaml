@@ -1,0 +1,13 @@
+id: U-0054
+title: ClientAttestationAuth over /as/par.oauth2 is not characterised as an upgrade hazard
+area: pf-integration
+source: phase-0-review
+status: open
+plan_items: [S4d]
+prs: []
+recorded_in: 'PR #11, Unverified; docs/operator/upgrading/0.1.5-to-0.3.0.md step 2'
+verify_by: >
+  Trace what the filter does with an attested client's PAR request, which v0.1.5 let through unfiltered, and
+  say so in the upgrade guide.
+verification: ''
+notes: ''

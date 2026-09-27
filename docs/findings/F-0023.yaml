@@ -1,0 +1,21 @@
+id: F-0023
+title: 'Redis over rediss:// without endpoint identification; redis:// allowed in production'
+severity: medium
+area: client-attestation
+source: review-2026-09-26
+status: closed
+plan_items: [S3a]
+prs: []
+verification: >
+  Closed by S3a on 2026-09-27 (commit a7911f1 on prod/p1-evidence-binding). MiniRedisClient.sslParametersFor sets the HTTPS endpoint
+  identification algorithm and the SNI name (MiniRedisClientTest), connect() calls startHandshake() before
+  AUTH, sslContextFor trusts OIDF_REDIS_CA_FILE, and the constructor refuses redis:// when
+  DeploymentProfile.isProduction. Against redis:7-alpine with a self-signed certificate for localhost
+  (RedisLiveTest, 2026-09-27): the handshake completes with the CA file; rediss://127.0.0.1 fails endpoint
+  identification before AUTH; without the CA file the JVM's CAs refuse the certificate; redis:// is refused
+  under the production flag.
+target_release: 0.4.0
+notes: >
+  The review rated MiniRedisClient's TLS handling medium; S3a lists what it lacks: endpoint identification
+  (the HTTPS algorithm), SNI, the handshake completed before AUTH, an optional CA file, and `redis://` refused
+  in production. Closed with S3a.

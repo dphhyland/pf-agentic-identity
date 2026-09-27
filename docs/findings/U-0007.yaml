@@ -1,0 +1,13 @@
+id: U-0007
+title: The CAEP Interoperability Profile is a draft, not Final
+area: ssf
+source: design
+status: open
+plan_items: []
+prs: []
+recorded_in: docs/unverified.md item 6
+verify_by: >
+  The OIDF membership vote (26 September to 10 October 2026); re-read the specifications index afterwards and
+  update the profile's status wherever the docs cite it.
+verification: ''
+notes: 'Treated as guidance, not a requirement; not cited as normative.'

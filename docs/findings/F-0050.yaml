@@ -1,0 +1,15 @@
+id: F-0050
+title: 'Federation correctness: authority_hints for sub=self, isTrustAnchor by EntityId.same, commit only the validated route, metadata_policy after the signature'
+severity: medium
+area: openid-federation
+source: reviewer-report
+status: open
+plan_items: [H-FED-8]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. Four fixes: the /federation/entity?sub=self authority_hints; isTrustAnchor
+  via EntityId.same with validated anchor ids; commit only the validated route's statements and normalise
+  cache keys; parse metadata_policy after the signature check.

@@ -1,0 +1,13 @@
+id: U-0019
+title: The code grant ignores a narrower authorization_details parameter at the token endpoint
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 4
+verify_by: >
+  On the rig: authorize with one set of details, redeem the code with a narrower set, and read what the token
+  carries.
+verification: ''
+notes: ''

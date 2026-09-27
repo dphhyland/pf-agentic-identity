@@ -1,0 +1,25 @@
+id: F-0002
+title: B2 Raw platform evidence embedded in attestations
+severity: blocker
+area: attestation-issuer
+source: review-2026-09-26
+status: closed
+plan_items: [S-3, S3a, S3b]
+prs: []
+verification: >
+  Closed by S3b on 2026-09-27 (commit aca3f0c on prod/p1-evidence-binding). Read in the worktree: InstanceIdentity.ofSpiffe no longer puts
+  svid.raw() into workloadClaims, WalletInstanceAttestationValidator no longer puts the presented WIA
+  there (the note above saying the WIA was not raw was wrong: it was, as workload.instance_attestation),
+  and AttestationMinter writes instance_attestation_sha256, _type and _exp. AttestationIssuanceServletTest
+  decodes the minted JWT for the SPIFFE, GKE and wallet paths and asserts the raw token is absent and the
+  digest is sha256 of it; ClientAttestationUtils.attestationContext and the plugin's AttestationSubject
+  forward the workload map whole, so nothing downstream can see what the issuer no longer writes. The
+  evidence binds to its first presenter (EvidenceBindingStore, Redis SET NX against redis:7-alpine and the
+  in-memory store), a second presenter is 401 instance_attestation_bound with an
+  attestation.evidence.conflict audit event, evidence lifetime is capped at 86400 s in production and the
+  attestation's exp never passes the evidence's. Residual risk recorded in servlets/attestation-issuer/README.md.
+target_release: 0.4.0
+notes: >
+  The minted attestation carries the raw platform token (`workload.svid`, and the six cloud validators'
+  tokens; not the wallet WIA) whose audience is the attester, and the issuer checks the key proof only against
+  the caller's key: anyone who sees an attestation can re-mint for their own key until the evidence expires.

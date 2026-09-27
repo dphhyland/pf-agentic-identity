@@ -1,0 +1,16 @@
+id: F-0037
+title: One servlet serves both AS and CAS challenges
+severity: medium
+area: client-attestation, attestation-issuer
+source: design
+status: open
+plan_items: [S4b]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  Found while designing, item 8. ABCA-10 section 6.1 says POST; CAS section 4.1 says GET, and that a challenge
+  issued by one must not be accepted by the other. Medium: cross-acceptance loosens the binding of a challenge
+  to its endpoint. S4b: the AS keeps POST /federation/attestation-challenge (namespace oidf:as:challenge:),
+  the CAS gets GET /federation/attestation/challenge (oidf:cas:challenge:), and the metadata is fixed to
+  match.
