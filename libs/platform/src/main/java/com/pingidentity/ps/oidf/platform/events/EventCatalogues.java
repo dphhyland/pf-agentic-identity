@@ -7,8 +7,8 @@ import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
+import java.net.URLConnection;
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
@@ -49,7 +49,7 @@ public final class EventCatalogues {
     private final AtomicLong uncataloguedEvents = new AtomicLong();
     private final Set<String> warned = Collections.synchronizedSet(new LinkedHashSet<>());
 
-    private EventCatalogues(Map<String, EventCatalogue> components, Map<String, EventCatalogue.Code> codes,
+    EventCatalogues(Map<String, EventCatalogue> components, Map<String, EventCatalogue.Code> codes,
                             List<String> problems) {
         this.components = Collections.unmodifiableMap(components);
         this.codes = Collections.unmodifiableMap(codes);
@@ -59,15 +59,16 @@ public final class EventCatalogues {
     /** The catalogues of the loader this copy of platform was loaded by. */
     public static EventCatalogues current() {
         EventCatalogues local = current;
-        if (local == null) {
-            synchronized (LOCK) {
-                if (current == null) {
-                    current = load(EventCatalogues.class.getClassLoader());
-                }
-                local = current;
+        return local != null ? local : loadOnce();
+    }
+
+    private static EventCatalogues loadOnce() {
+        synchronized (LOCK) {
+            if (current == null) {
+                current = load(EventCatalogues.class.getClassLoader());
             }
+            return current;
         }
-        return local;
     }
 
     /** Tests only: use {@code catalogues} as this loader's until {@link #forget()}. */
@@ -86,104 +87,57 @@ public final class EventCatalogues {
 
     /** A set of catalogues, with the same duplicate rules {@link #load} applies. */
     public static EventCatalogues of(List<EventCatalogue> catalogues) {
-        Builder builder = new Builder();
+        CatalogueCollector builder = new CatalogueCollector();
         for (EventCatalogue catalogue : catalogues) {
             builder.add(catalogue, null, "a catalogue passed in");
         }
         return builder.build();
     }
 
-    /** Every catalogue {@code loader} can see, read through the indexes. */
+    /** Every catalogue {@code loader} can see, read through the indexes; every problem logged once, at ERROR. */
     public static EventCatalogues load(ClassLoader loader) {
-        Builder builder = new Builder();
-        Enumeration<URL> indexes;
+        CatalogueCollector collector = new CatalogueCollector();
         try {
-            indexes = loader.getResources(EventCatalogue.INDEX);
+            Enumeration<URL> indexes = loader.getResources(EventCatalogue.INDEX);
+            while (indexes.hasMoreElements()) {
+                readIndex(collector, indexes.nextElement());
+            }
         } catch (IOException e) {
-            builder.problems.add("the event catalogue indexes could not be listed: " + e.getMessage());
-            return builder.build();
+            collector.problem("the event catalogue indexes could not be listed: " + e.getMessage());
         }
-        while (indexes.hasMoreElements()) {
-            URL index = indexes.nextElement();
-            String text;
-            try {
-                text = read(index);
-            } catch (IOException e) {
-                builder.problems.add(index + " could not be read: " + e.getMessage());
-                continue;
-            }
-            for (String line : text.split("\n")) {
-                String name = line.strip();
-                if (!name.isEmpty() && !name.startsWith("#")) {
-                    builder.read(index, name);
-                }
-            }
-        }
-        EventCatalogues loaded = builder.build();
-        for (String problem : loaded.problems) {
+        EventCatalogues loaded = collector.build();
+        for (String problem : loaded.problems()) {
             LOG.error("Event catalogue: " + LogSafe.value(problem), null);
         }
         return loaded;
     }
 
-    static String read(URL url) throws IOException {
-        try (InputStream in = url.openStream()) {
-            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
+    /** Reads every component {@code index} lists; {@code #} starts a comment line. */
+    static void readIndex(CatalogueCollector collector, URL index) {
+        String text;
+        try {
+            text = read(index);
+        } catch (IOException e) {
+            collector.problem(index + " could not be read: " + e.getMessage());
+            return;
+        }
+        for (String line : text.split("\n")) {
+            String name = line.strip();
+            if (!name.isEmpty() && !name.startsWith("#")) {
+                collector.read(index, name);
+            }
         }
     }
 
-    /** Collects catalogues and the problems met on the way. */
-    static final class Builder {
-        private final Map<String, EventCatalogue> components = new LinkedHashMap<>();
-        private final Map<String, String> sources = new LinkedHashMap<>();
-        private final Map<String, EventCatalogue.Code> codes = new LinkedHashMap<>();
-        private final List<String> problems = new ArrayList<>();
-
-        void read(URL index, String name) {
-            if (!EventCatalogue.COMPONENT.matcher(name).matches()) {
-                this.problems.add(index + " lists " + LogSafe.quoted(name) + ", which is not a component name");
-                return;
-            }
-            String text;
-            EventCatalogue catalogue;
-            try {
-                text = EventCatalogues.read(new URL(index, name + ".json"));
-                catalogue = EventCatalogue.parse(text);
-            } catch (IOException | IllegalArgumentException e) {
-                this.problems.add("the catalogue of " + name + " beside " + index + " was left out: " + e.getMessage());
-                return;
-            }
-            if (!catalogue.component().equals(name)) {
-                this.problems.add(name + ".json beside " + index + " names the component " + catalogue.component()
-                        + "; it was left out");
-                return;
-            }
-            this.add(catalogue, text, index.toString());
-        }
-
-        void add(EventCatalogue catalogue, String text, String where) {
-            String name = catalogue.component();
-            if (this.components.containsKey(name)) {
-                if (text == null || !text.equals(this.sources.get(name))) {
-                    this.problems.add("a second, different catalogue of " + name + " (" + where + ") was set aside");
-                }
-                return;
-            }
-            for (String code : catalogue.codes().keySet()) {
-                EventCatalogue.Code other = this.codes.get(code);
-                if (other != null) {
-                    this.problems.add(name + " declares " + code + ", which " + other.component()
-                            + " declares; the catalogue of " + name + " was set aside");
-                    return;
-                }
-            }
-            this.components.put(name, catalogue);
-            this.sources.put(name, text);
-            this.codes.putAll(catalogue.codes());
-        }
-
-        EventCatalogues build() {
-            return new EventCatalogues(this.components, this.codes, this.problems);
+    /**
+     * The text at {@code url}, read without the JDK's jar cache, so that reading a catalogue out of a webapp's
+     * jar does not hold the jar open after an undeploy.
+     */
+    static String read(URL url) throws IOException {
+        URLConnection connection = url.openConnection();
+        connection.setUseCaches(false);
+        try (InputStream in = connection.getInputStream()) {
+            return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 

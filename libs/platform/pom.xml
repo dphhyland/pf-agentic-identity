@@ -116,6 +116,41 @@
                                         <!-- profile (PR-1): add gate includes below this line -->
                                         <!-- tls (PR-1): add gate includes below this line -->
                                         <!-- events (O-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.events.Event.Event(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Event.categoryOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Event.withoutInstanceBesideAgent(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Event.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Events.configure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Events.sink(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.Events.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LogSafe.configureMaxValueLength(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LogSafe.value(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LogSafe.quoted(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LogSafe.digestTokens(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LoggingSink.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LoggingSink.level(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.LoggingSink.format(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.members(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.text(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.name(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.bool(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.pii(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.level(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogue.outcomes(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogues.current(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogues.load(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogues.readIndex(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogues.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventCatalogues.warnOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.CatalogueCollector.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.CatalogueCollector.add(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.PiiPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.with(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.PiiPolicy.treat(*</include>
                                         <!-- metrics (O-3): add gate includes below this line -->
                                         <!-- health (O-4): add gate includes below this line -->
                                         <!-- redis (C-2): add gate includes below this line -->

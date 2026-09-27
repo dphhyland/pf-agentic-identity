@@ -78,6 +78,25 @@ public record Event(String code, Outcome outcome, String reason, String subject,
                 this.fields, this.requestJti, this.audit, this.category, this.component);
     }
 
+    /** {@code fields} with the privacy rule applied: no {@code instance_subject} or {@code spiffe_id} beside {@code agent_id}. */
+    static Map<String, String> withoutInstanceBesideAgent(Map<String, String> fields) {
+        Map<String, String> safe = new LinkedHashMap<>(fields);
+        if (safe.containsKey("agent_id")) {
+            for (String forbidden : NEVER_BESIDE_AGENT_ID) {
+                safe.remove(forbidden);
+            }
+        }
+        return safe;
+    }
+
+    /** The component named, else the one whose catalogue declares {@code code}, else {@link #DEFAULT_COMPONENT}. */
+    static String resolve(String component, String code, EventCatalogues catalogues) {
+        if (component != null) {
+            return component;
+        }
+        return catalogues.componentOf(code).orElse(DEFAULT_COMPONENT);
+    }
+
     /**
      * Starts an event of {@code code} for {@code component}. A {@code null} component is resolved from this
      * loader's catalogues when the event is built: the component whose catalogue declares the code, or
@@ -180,16 +199,9 @@ public record Event(String code, Outcome outcome, String reason, String subject,
 
         /** The event, with the privacy rule applied and its component resolved. */
         public Event build() {
-            Map<String, String> safeFields = new LinkedHashMap<>(this.fields);
-            if (safeFields.containsKey("agent_id")) {
-                for (String forbidden : NEVER_BESIDE_AGENT_ID) {
-                    safeFields.remove(forbidden);
-                }
-            }
-            String resolved = this.component != null ? this.component
-                    : EventCatalogues.current().componentOf(this.code).orElse(DEFAULT_COMPONENT);
             return new Event(this.code, this.outcome, this.reason, this.subject, this.partner, this.role,
-                    this.description, safeFields, this.requestJti, this.audit, this.category, resolved);
+                    this.description, withoutInstanceBesideAgent(this.fields), this.requestJti, this.audit, this.category,
+                    resolve(this.component, this.code, EventCatalogues.current()));
         }
 
         /** Builds the event and hands it to this loader's sink. */

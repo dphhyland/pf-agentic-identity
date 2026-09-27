@@ -30,7 +30,7 @@ public final class Events {
     public static void configure(EventSink newSink) {
         synchronized (LOCK) {
             if (configured) {
-                if (newSink != sink && LOG.isDebugEnabled()) {
+                if (newSink != sink) {
                     LOG.debug("The event sink is already configured; a second configuration was ignored");
                 }
                 return;
@@ -48,15 +48,16 @@ public final class Events {
     /** The sink events currently go to. */
     public static EventSink sink() {
         EventSink local = sink;
-        if (local == null) {
-            synchronized (LOCK) {
-                if (sink == null) {
-                    sink = new LoggingSink();
-                }
-                local = sink;
+        return local != null ? local : defaultSink();
+    }
+
+    private static EventSink defaultSink() {
+        synchronized (LOCK) {
+            if (sink == null) {
+                sink = new LoggingSink();
             }
+            return sink;
         }
-        return local;
     }
 
     /** Admits {@code event} through this loader's catalogues and hands it to the sink; never throws. */
