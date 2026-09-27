@@ -27,6 +27,21 @@ final class OpenIDConnectTests: XCTestCase {
                                                     nonce: "n", state: "s", pkce: pkce, acrValues: nil))["acr_values"])
     }
 
+    /// `+`, `&` and `=` in a value are percent-encoded, so a server that form-decodes the query reads the value
+    /// sent, and the redirect URI is encoded exactly as the token request encodes it.
+    func testTheAuthenticationRequestEncodesEveryValueAsTheTokenRequestDoes() throws {
+        let redirect = URL(string: "com.example.app+dev:/callback")!
+        let url = AuthorizationRequest.url(authorizationEndpoint: endpoint, clientID: "client-1", redirectURI: redirect,
+                                           nonce: "n-1", state: "s-1", pkce: PKCE(verifier: "v-1"),
+                                           acrValues: "Passkey+AAL2 policy&x=y")
+        let query = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)?.percentEncodedQuery)
+        XCTAssertFalse(query.contains("+"), query)
+        XCTAssertTrue(query.contains("&acr_values=Passkey%2BAAL2%20policy%26x%3Dy"), query)
+        XCTAssertTrue(query.contains("&redirect_uri=" + TokenRequest.formEncode(redirect.absoluteString) + "&"), query)
+        XCTAssertEqual(items(url)["acr_values"], "Passkey+AAL2 policy&x=y")
+        XCTAssertEqual(items(url)["redirect_uri"], redirect.absoluteString)
+    }
+
     /// RFC 7636 Appendix B's example verifier and challenge (read at rfc-editor.org on 2026-09-27).
     func testPKCEIsS256() {
         XCTAssertEqual(PKCE(verifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk").challenge,

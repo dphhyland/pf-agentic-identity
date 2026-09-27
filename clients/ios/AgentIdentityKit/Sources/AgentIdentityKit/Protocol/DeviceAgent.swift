@@ -100,9 +100,9 @@ public struct RemintRecovery: Equatable, Sendable {
 /// through `EnrolmentClient`, so every path runs under test with fakes. The order of each ceremony and every
 /// retry is the contract's (docs/device/ios-client-contract.md).
 ///
-/// One agent holds one instance key. A new enrolment, after `forget()`, is a new agent with a new key: the key's
-/// thumbprint is the attestation's `cnf`, which every resource server sees, so reusing a key across instances
-/// would link them.
+/// One agent holds one instance key and enrols it once. `forget()` ends the agent, and a new enrolment is a new
+/// agent over a new key: the key's thumbprint is the attestation's `cnf`, which every resource server sees, so
+/// reusing a key across instances would link them.
 ///
 /// Concurrent calls share one ceremony. Two re-mints racing each other would race the App Attest counter too,
 /// and the loser would be refused, so a call that arrives while a re-mint (or an enrolment) is under way waits
@@ -126,6 +126,7 @@ public actor DeviceAgent {
     private let clock: @Sendable () -> Date
     private var enrolling: Task<Enrolment, Error>?
     private var reminting: Task<Enrolment, Error>?
+    private var forgotten = false
 
     /// - Parameters:
     ///   - audience: the service's `ENROLMENT_ISSUER`, which every key proof names as `aud`. Not the base URL
@@ -154,8 +155,10 @@ public actor DeviceAgent {
     /// waiting on the 300 s challenge; the attestation itself is a network round trip to Apple and no prompt.
     /// Nothing is retried here: a refusal leaves the agent unenrolled, and calling `enrol()` again starts over
     /// with a new challenge, a new sign-in and a new App Attest key, because the old key committed to the old
-    /// challenge and Apple says to discard a key whose attestation the server did not verify.
+    /// challenge and Apple says to discard a key whose attestation the server did not verify. After `forget()`
+    /// it throws `forgotten`.
     public func enrol() async throws -> Enrolment {
+        guard !forgotten else { throw AgentIdentityError.forgotten }
         if let enrolling { return try await enrolling.value }
         guard case .unenrolled = state else { throw AgentIdentityError.alreadyEnrolled }
         let task = Task { try await self.runEnrolment() }
@@ -192,9 +195,12 @@ public actor DeviceAgent {
         try await refreshUserVerification(instanceID: enrolment.instanceID)
     }
 
-    /// Drops the enrolment: after `unknown_instance` or `instance_not_active`, when the app decides to enrol
-    /// again. The Secure Enclave key is the app's to delete; a new enrolment takes a new one.
+    /// Ends the agent: after `unknown_instance` or `instance_not_active`, or when the app decides to enrol again.
+    /// The enrolment is dropped and `enrol()` throws `forgotten` from then on, so this agent never enrols its key
+    /// twice. A new enrolment is a new `DeviceAgent` over a new key; the Secure Enclave key is the app's to
+    /// delete. An enrolment or a re-mint already under way is returned to its caller and not kept.
     public func forget() {
+        forgotten = true
         state = .unenrolled
     }
 
@@ -214,7 +220,10 @@ public actor DeviceAgent {
         let enrolment = Enrolment(instanceID: response.instanceId, appAttestKeyID: keyID,
                                   attestation: response.attestation,
                                   attestationExpiresAt: clock().addingTimeInterval(TimeInterval(response.expiresIn)))
-        state = .enrolled(enrolment)
+        // A forget() that arrived while the enrolment was out stands: the enrolment is returned, not kept.
+        if !forgotten {
+            state = .enrolled(enrolment)
+        }
         return enrolment
     }
 

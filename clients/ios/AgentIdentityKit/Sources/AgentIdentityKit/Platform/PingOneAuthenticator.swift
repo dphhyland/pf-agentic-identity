@@ -41,7 +41,7 @@ public final class PingOneAuthenticator: NSObject, Authenticator, ASWebAuthentic
 
     private let configuration: Configuration
     private let session: URLSession
-    /// Held for as long as the sheet is up: nothing else keeps the session alive once `start()` returns.
+    /// The sheet under way, held until it has answered.
     @MainActor private var webSession: ASWebAuthenticationSession?
 
     public init(configuration: Configuration, session: URLSession = .shared) {
@@ -83,26 +83,33 @@ public final class PingOneAuthenticator: NSObject, Authenticator, ASWebAuthentic
         return discovery
     }
 
+    /// The sheet can answer through its completion handler and through `start()` returning false, and a session
+    /// that fails to start may use both. A checked continuation traps on a second resume, so the first answer is
+    /// the one taken.
     @MainActor
     private func present(_ url: URL) async throws -> URL {
+        guard Self.window() != nil else {
+            throw AgentIdentityError.authorization("there is no window to present the sign-in sheet from")
+        }
         defer { webSession = nil }
         return try await withCheckedThrowingContinuation { continuation in
+            let answer = FirstAnswer(continuation)
             let sheet = ASWebAuthenticationSession(url: url, callbackURLScheme: configuration.redirectURI.scheme) {
                 callback, error in
                 if let callback {
-                    continuation.resume(returning: callback)
+                    answer.resume(with: .success(callback))
                 } else if let error = error as? ASWebAuthenticationSessionError, error.code == .canceledLogin {
-                    continuation.resume(throwing: AgentIdentityError.authorization("the owner cancelled the sign-in"))
+                    answer.resume(with: .failure(AgentIdentityError.authorization("the owner cancelled the sign-in")))
                 } else {
-                    continuation.resume(throwing: AgentIdentityError.authorization(
-                        error?.localizedDescription ?? "the sign-in returned no callback"))
+                    answer.resume(with: .failure(AgentIdentityError.authorization(
+                        error?.localizedDescription ?? "the sign-in returned no callback")))
                 }
             }
             sheet.presentationContextProvider = self
             sheet.prefersEphemeralWebBrowserSession = configuration.ephemeralSession
             webSession = sheet
             if !sheet.start() {
-                continuation.resume(throwing: AgentIdentityError.authorization("the sign-in sheet could not start"))
+                answer.resume(with: .failure(AgentIdentityError.authorization("the sign-in sheet could not start")))
             }
         }
     }
@@ -125,14 +132,39 @@ public final class PingOneAuthenticator: NSObject, Authenticator, ASWebAuthentic
         return idToken
     }
 
+    /// The app's key window, or its first. `present` refuses to start without one, so the empty window here is
+    /// only for one that closed while the sheet was starting.
     @MainActor
     public func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        Self.window() ?? ASPresentationAnchor()
+    }
+
+    @MainActor
+    private static func window() -> ASPresentationAnchor? {
         #if canImport(UIKit)
         let windows = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.flatMap(\.windows)
-        return windows.first { $0.isKeyWindow } ?? windows.first ?? UIWindow()
+        return windows.first { $0.isKeyWindow } ?? windows.first
         #else
-        return NSApplication.shared.keyWindow ?? NSWindow()
+        return NSApplication.shared.keyWindow ?? NSApplication.shared.windows.first
         #endif
+    }
+}
+
+/// A checked continuation resumed by whichever answer comes first; later ones are dropped.
+private final class FirstAnswer: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<URL, Error>?
+
+    init(_ continuation: CheckedContinuation<URL, Error>) {
+        self.continuation = continuation
+    }
+
+    func resume(with result: Result<URL, Error>) {
+        let pending = lock.withLock { () -> CheckedContinuation<URL, Error>? in
+            defer { continuation = nil }
+            return continuation
+        }
+        pending?.resume(with: result)
     }
 }
 #endif

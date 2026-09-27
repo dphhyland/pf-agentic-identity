@@ -51,14 +51,20 @@ public struct ServerRefusal: Error, Equatable, Sendable {
 public enum AgentIdentityError: Error, Equatable {
     /// The service refused, with a code from `ServerCode`.
     case refused(ServerRefusal)
-    /// A status the contract does not have, or a body that is not the error shape.
+    /// A reply that is not a refusal and not the route's answer: a non-200 whose body is not the error shape, or a
+    /// 200 that does not decode as the route's reply. A non-200 in the error shape is `refused`, whatever its
+    /// status.
     case unexpectedResponse(status: Int, body: String)
     /// The request never got an HTTP answer.
     case transport(String)
     /// A re-mint or a refresh with nothing enrolled.
     case notEnrolled
-    /// An enrolment while one is held: `forget()` first, and enrol with a new instance key.
+    /// An enrolment while one is held. A new enrolment is a new `DeviceAgent` over a new instance key, after
+    /// `forget()` on this one.
     case alreadyEnrolled
+    /// An enrolment after `forget()`. This agent's key was enrolled, or was about to be, and a key reused across
+    /// instances would link them, so a new enrolment is a new `DeviceAgent` over a new key.
+    case forgotten
     /// `DCAppAttestService.isSupported` is false: the server requires the attestation, so there is no
     /// enrolment to attempt.
     case appAttestUnsupported
@@ -87,7 +93,9 @@ public enum AgentIdentityError: Error, Equatable {
         case .notEnrolled:
             return "not enrolled"
         case .alreadyEnrolled:
-            return "already enrolled: forget the enrolment first"
+            return "already enrolled: forget this agent, then enrol a new one with a new key"
+        case .forgotten:
+            return "this agent was forgotten: enrol a new one with a new key"
         case .appAttestUnsupported:
             return "App Attest is not supported on this device"
         case .keyIdentifierNotDecodable(let detail), .malformedKey(let detail), .secureEnclave(let detail),

@@ -4,8 +4,9 @@ import Foundation
 /// (`EnrolmentHttpServer`'s constructor) under whatever base URL the app gives. The service has no version
 /// prefix today; when X-A11 moves it under `/v1`, the base URL carries the prefix and nothing here changes.
 ///
-/// A 200 is decoded as the reply the route documents. Anything else is decoded as the refusal shape and
-/// thrown as `AgentIdentityError.refused`, or, when the body is not that shape, as `unexpectedResponse`.
+/// A 200 is decoded as the reply the route documents, and one that does not decode is `unexpectedResponse`.
+/// Anything else is decoded as the refusal shape and thrown as `AgentIdentityError.refused`, whatever the status,
+/// or, when the body is not that shape, as `unexpectedResponse`.
 public struct EnrolmentClient: Sendable {
 
     public enum Route: String, CaseIterable, Sendable {

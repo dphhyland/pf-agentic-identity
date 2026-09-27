@@ -118,16 +118,83 @@ final class DeviceAgentTests: XCTestCase {
         XCTAssertEqual(state, .unenrolled)
     }
 
-    func testASecondEnrolmentNeedsForgetFirst() async throws {
+    func testASecondEnrolmentIsRefusedWhileOneIsHeld() async throws {
         let rig = try await enrolled()
         do {
             _ = try await rig.agent.enrol()
             XCTFail("enrolled twice")
         } catch AgentIdentityError.alreadyEnrolled {
         }
+        XCTAssertEqual(rig.service.bodies("enrol").count, 1)
+    }
+
+    /// forget() ends the agent. Enrolling again on it would send the same instance key for a second instance,
+    /// and the key's thumbprint in both attestations' cnf would link them; a new enrolment is a new agent.
+    func testAForgottenAgentNeverEnrolsItsKeyAgain() async throws {
+        let rig = try await enrolled()
         await rig.agent.forget()
         let state = await rig.agent.state
         XCTAssertEqual(state, .unenrolled)
+        do {
+            _ = try await rig.agent.enrol()
+            XCTFail("a forgotten agent enrolled its key again")
+        } catch AgentIdentityError.forgotten {
+        }
+        XCTAssertEqual(rig.service.routes(), ["enrol/challenge", "enrol"])
+        XCTAssertEqual(rig.authenticator.nonces.count, 1)
+        XCTAssertEqual(rig.appAttest.attested.count, 1)
+
+        // The same holds for an agent forgotten before it ever enrolled, and for one that resumed a kept enrolment.
+        let kept = Enrolment(instanceID: "instance-9", appAttestKeyID: try AppAttestKeyID(apple: Data(count: 32).base64EncodedString()),
+                             attestation: "old", attestationExpiresAt: Date(timeIntervalSince1970: 0))
+        for other in [self.rig(), self.rig(state: .enrolled(kept))] {
+            await other.agent.forget()
+            do {
+                _ = try await other.agent.enrol()
+                XCTFail("a forgotten agent enrolled")
+            } catch AgentIdentityError.forgotten {
+            }
+            XCTAssertEqual(other.service.routes(), [])
+        }
+    }
+
+    /// Two callers at once share one enrolment: two would bind one instance key to two instances.
+    func testConcurrentEnrolmentsShareOneCeremony() async throws {
+        let rig = rig()
+        // The service takes its time, so the second caller arrives while the first enrolment is on the wire.
+        rig.service.delay("enrol", nanoseconds: 500_000_000)
+        async let first = rig.agent.enrol()
+        async let second = rig.agent.enrol()
+        let (a, b) = try await (first, second)
+        XCTAssertEqual(a, b)
+        XCTAssertEqual(rig.service.routes(), ["enrol/challenge", "enrol"])
+        XCTAssertEqual(rig.authenticator.nonces.count, 1)
+        XCTAssertEqual(rig.appAttest.attested.count, 1)
+    }
+
+    /// The app forgot the agent while its enrolment was on the wire: the answer is returned to the caller that
+    /// asked, and not kept, so the agent stays unenrolled and cannot enrol again.
+    func testAForgetDuringAnEnrolmentStands() async throws {
+        let rig = rig()
+        rig.service.delay("enrol", nanoseconds: 300_000_000)
+        async let enrolled = rig.agent.enrol()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        await rig.agent.forget()
+        let enrolment = try await enrolled
+        XCTAssertEqual(enrolment.instanceID, "instance-1")
+        let state = await rig.agent.state
+        XCTAssertEqual(state, .unenrolled)
+        do {
+            _ = try await rig.agent.currentAttestation()
+            XCTFail("a forgotten enrolment was used")
+        } catch AgentIdentityError.notEnrolled {
+        }
+        do {
+            _ = try await rig.agent.enrol()
+            XCTFail("a forgotten agent enrolled its key again")
+        } catch AgentIdentityError.forgotten {
+        }
+        XCTAssertEqual(rig.service.bodies("enrol").count, 1)
     }
 
     // ---- re-mint ---------------------------------------------------------------------------------------------
@@ -181,6 +248,39 @@ final class DeviceAgentTests: XCTestCase {
         XCTAssertEqual(proofs.map { $0.payload["challenge"] as? String }, ["challenge-2", "challenge-3"])
         XCTAssertNotEqual(proofs[0].payload["jti"] as? String, proofs[1].payload["jti"] as? String)
         XCTAssertEqual(enrolment.attestation, "attestation-1")
+    }
+
+    /// A refused refresh is reported, and nothing more is sent: not another sign-in, not another re-mint.
+    func testARefusedRefreshGoesToTheApp() async throws {
+        let rig = try await enrolled()
+        rig.service.refuseUserVerification(FakeService.refusal(401, ServerCode.userAuthenticationFailed,
+                                                               "the authenticated user does not own this instance"))
+        do {
+            try await rig.agent.refreshUserVerification()
+            XCTFail("a refused refresh was taken")
+        } catch AgentIdentityError.refused(let refusal) {
+            XCTAssertEqual(refusal.code, ServerCode.userAuthenticationFailed)
+        }
+        XCTAssertEqual(rig.service.routes().dropFirst(2), ["user-verification"])
+        XCTAssertEqual(rig.authenticator.nonces.count, 2)
+        let state = await rig.agent.state
+        XCTAssertNotEqual(state, .unenrolled, "a refusal does not forget the enrolment by itself")
+    }
+
+    /// The time-box fired and the refresh the re-mint made for it was refused: that refusal is the re-mint's
+    /// answer, and the re-mint is not tried again.
+    func testARefusedRefreshInsideARemintGoesToTheApp() async throws {
+        let rig = try await enrolled()
+        rig.service.refuseReissue(FakeService.refusal(401, ServerCode.userVerificationRequired, "older"))
+        rig.service.refuseUserVerification(FakeService.refusal(401, ServerCode.userAuthenticationFailed,
+                                                               "the authenticated user does not own this instance"))
+        do {
+            _ = try await rig.agent.remint()
+            XCTFail("re-minted through a refused refresh")
+        } catch AgentIdentityError.refused(let refusal) {
+            XCTAssertEqual(refusal.code, ServerCode.userAuthenticationFailed)
+        }
+        XCTAssertEqual(rig.service.routes().dropFirst(2), ["enrol/challenge", "attestation", "user-verification"])
     }
 
     func testASecondTimeBoxRefusalGoesToTheApp() async throws {
@@ -271,7 +371,7 @@ final class DeviceAgentTests: XCTestCase {
     func testConcurrentRemintsShareOneCeremony() async throws {
         let rig = try await enrolled()
         // The service takes its time, so the second caller arrives while the first re-mint is on the wire.
-        rig.service.delayReissue(nanoseconds: 500_000_000)
+        rig.service.delay("attestation", nanoseconds: 500_000_000)
         async let first = rig.agent.remint()
         async let second = rig.agent.remint()
         let (a, b) = try await (first, second)
@@ -283,7 +383,7 @@ final class DeviceAgentTests: XCTestCase {
     /// The app forgot the enrolment while a re-mint was on the wire: the re-mint's answer does not bring it back.
     func testAForgetDuringARemintStands() async throws {
         let rig = try await enrolled()
-        rig.service.delayReissue(nanoseconds: 300_000_000)
+        rig.service.delay("attestation", nanoseconds: 300_000_000)
         async let reminted = rig.agent.remint()
         try await Task.sleep(nanoseconds: 100_000_000)
         await rig.agent.forget()

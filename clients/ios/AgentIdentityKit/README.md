@@ -13,7 +13,8 @@ The protocol layer, `Sources/AgentIdentityKit/Protocol`, is pure and runs under 
 - **`DeviceAgent`** - the state machine: `enrol()`, `remint()`, `currentAttestation()`,
   `refreshUserVerification()`, `forget()`. A re-mint recovers from `user_verification_required` (the owner signs
   in again), a lost App Attest counter race and a spent challenge, each once, with new values every time
-  (`RemintRecovery`); concurrent callers share one ceremony.
+  (`RemintRecovery`); concurrent callers share one ceremony. `forget()` ends the agent: it never enrols its key
+  twice.
 - **`EnrolmentClient`** and **`Messages`** - the four requests under the server's field names, and the refusal
   shape (`ServerRefusal`, `ServerCode`).
 - **`Commitments`** - the attestation's `clientDataHash`, the assertion's, and the enrolment nonce.
@@ -53,8 +54,9 @@ let attestation = try await agent.currentAttestation() // re-minted within a min
 ```
 
 Keep the `Enrolment` between launches and pass it back as `state: .enrolled(...)`. After `unknown_instance` or
-`instance_not_active`, `forget()`, delete the key and enrol again with a new one: the key's thumbprint is the
-attestation's `cnf`, so a key reused across instances would link them. App Attest keys do not survive a
+`instance_not_active`, call `forget()` on the agent and delete its key. To enrol again, make a new key and a new
+`DeviceAgent` over it: the key's thumbprint is the attestation's `cnf`, so a key reused across instances would link
+them, and a forgotten agent's `enrol()` throws `forgotten`. App Attest keys do not survive a
 reinstall, a device migration or a restore from backup (Apple, "Establishing your app's integrity", read
 2026-09-27), so after any of those the enrolment is spent too.
 
@@ -65,7 +67,7 @@ swift build --package-path clients/ios/AgentIdentityKit
 swift test --package-path clients/ios/AgentIdentityKit
 ```
 
-67 tests, one of them skipped: the protocol against fakes; the vectors the server's own classes print
+73 tests, one of them skipped: the protocol against fakes; the vectors the server's own classes print
 ([tools/vectors](../tools/vectors/README.md)); the real macOS 27.2 App Attest objects in `libs/app-attest`, which
 the kit's commitments reproduce; RFC 7515's and RFC 7636's worked examples. The skipped one, `InteropTests`, runs
 the kit against the service's own Java over HTTP when [tools/interop](../tools/interop/README.md) starts it; it

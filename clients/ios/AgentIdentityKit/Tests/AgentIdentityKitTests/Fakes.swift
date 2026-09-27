@@ -130,7 +130,7 @@ final class FakeService: HTTPTransport, @unchecked Sendable {
     private var reissueRefusals: [HTTPReply] = []
     private var enrolRefusal: HTTPReply?
     private var userVerificationRefusal: HTTPReply?
-    private var reissueDelay: UInt64 = 0
+    private var delays: [String: UInt64] = [:]
 
     var requests: [Request] { lock.withLock { _requests } }
     func routes() -> [String] { requests.map(\.route) }
@@ -140,7 +140,8 @@ final class FakeService: HTTPTransport, @unchecked Sendable {
     func refuseReissue(_ replies: HTTPReply...) { lock.withLock { reissueRefusals += replies } }
     func refuseEnrol(_ reply: HTTPReply) { lock.withLock { enrolRefusal = reply } }
     func refuseUserVerification(_ reply: HTTPReply) { lock.withLock { userVerificationRefusal = reply } }
-    func delayReissue(nanoseconds: UInt64) { lock.withLock { reissueDelay = nanoseconds } }
+    /// Holds every request to `route` back before it is answered, so a test can act while it is on the wire.
+    func delay(_ route: String, nanoseconds: UInt64) { lock.withLock { delays[route] = nanoseconds } }
 
     static func refusal(_ status: Int, _ code: String, _ description: String) -> HTTPReply {
         reply(status, ["error": code, "error_description": description])
@@ -153,8 +154,7 @@ final class FakeService: HTTPTransport, @unchecked Sendable {
     func post(_ url: URL, body: Data) async throws -> HTTPReply {
         let route = String(url.path.dropFirst(Self.base.path.count))
         let json = (try? JSONSerialization.jsonObject(with: body) as? [String: Any]) ?? [:]
-        let delay = lock.withLock { reissueDelay }
-        if route == "attestation" && delay > 0 {
+        if let delay = lock.withLock({ delays[route] }), delay > 0 {
             try await Task.sleep(nanoseconds: delay)
         }
         return lock.withLock {

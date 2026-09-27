@@ -12,9 +12,9 @@ verify_by: >
   build, REQUIRE_COMPLIANT_DEVICE=false): an enrolment answers 200 and a re-mint carrying an assertion answers
   200. Capture at least three attestation objects and three assertions per environment (development and
   production) with the sample app's capture action, which records the clientDataHash inputs, the key identifier
-  exactly as generateKey returned it and the App ID, into libs/app-attest/src/test/resources/fixtures in the shape
-  of the macOS 27.2 files, and pin them in tests as MacOsAttestationTest and MacOsAssertionTest do (X-A07). Record
-  how the key identifier decoded.
+  exactly as generateKey returned it and the bundle id (the App ID is the team id, a dot and the bundle id), into
+  libs/app-attest/src/test/resources/fixtures in the shape of the macOS 27.2 files, and pin them in tests as
+  MacOsAttestationTest and MacOsAssertionTest do (X-A07). Record how the key identifier decoded.
 verification: ''
 notes: >
   What the kit does with App Attest was checked on 2026-09-27 against synthetic objects in the server's shapes

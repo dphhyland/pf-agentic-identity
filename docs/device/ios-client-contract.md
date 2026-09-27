@@ -274,8 +274,8 @@ clientDataHash = SHA-256( UTF-8( jkt + "|" + challenge ) )
 `clientDataHash(String, String, String)`, appends `"|" + build` and is not an iOS value. The server recomputes the
 hash from the JWK and the challenge in the request and gives it to `AppAttestVerifier.verifyAttestation`, which
 compares the credential certificate's nonce with `SHA-256(authenticatorData || clientDataHash)`. A JWK that is not
-the one the app committed to therefore fails as `invalid_attestation`, with Apple's `nonce_mismatch` in the prose,
-never as a bad key.
+the one the app committed to therefore fails as `invalid_attestation`, with libs/app-attest's `nonce_mismatch` in
+the prose, never as a bad key.
 
 ### clientDataHash for an assertion
 
@@ -378,14 +378,16 @@ the kit throws `AgentIdentityError.refused` with the status, code and descriptio
 | `user_authentication_failed` | 401 | the ID token did not verify, or its `sub` is not the owner's (`refreshUserVerification`) | reported; if it recurs, the issuer or client id is wrong |
 | `insufficient_assurance` | 403 | the token's `acr` is not in `PINGONE_ACR_AAL2` | reported: the app's `acr_values` and the service's list disagree |
 | `invalid_key_proof` | 401 | a check in `EnclaveKeyProofValidator` failed, or the `jti` was seen before | reported: the wrong key, a device clock more than a minute ahead, or a bug |
-| `unknown_instance` | 404 | no such instance | reported; the app forgets the enrolment and enrols again with a new key |
+| `unknown_instance` | 404 | no such instance | reported; the app calls `forget()`, deletes the key, and enrols again with a new key and a new `DeviceAgent` |
 | `instance_not_active` | 403 | suspended or revoked | reported; a suspended instance resumes only from the registry side, a revoked one never |
 | `device_not_compliant` | 403 | the device is not `COMPLIANT`, never assessed included | reported; nothing the device does changes it |
 | `user_verification_required` | 401 | the owner's last verification is older than `UV_MAX_AGE_SECONDS` | the one the kit recovers: the owner signs in again, `POST /user-verification`, then a new re-mint, once |
 | `server_error` | 500 | a registry or dependency failure, or anything unhandled | reported; the app tries later, and every call builds new values |
 
-A status the table does not have, or a body that is not the error shape, is `unexpectedResponse` with the status
-and the start of the body; a request that got no HTTP answer is `transport`. Neither is retried.
+Any non-200 reply in the error shape is `refused` with its own status and code, including a status or a code the
+table does not have, and is reported. A non-200 reply whose body is not the error shape, or a 200 that is not the
+route's reply, is `unexpectedResponse` with the status and the start of the body; a request that got no HTTP answer
+is `transport`. Neither is retried.
 
 ## The counter race and the retry
 
@@ -409,7 +411,9 @@ spent challenge. A re-mint is at most four requests to `/attestation`.
 
 The kit also keeps itself out of the race. Concurrent calls to `DeviceAgent.remint()` or `currentAttestation()`
 share one ceremony, and so do concurrent enrolments: two re-mints of one instance from one app would race the
-counter against each other.
+counter against each other, and two enrolments would bind one instance key to two instances. For the same reason
+`forget()` ends an agent: it never enrols its key again, and an enrolment or a re-mint under way when it is
+called is returned to its caller and not kept.
 
 ## The interop run
 

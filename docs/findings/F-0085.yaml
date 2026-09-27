@@ -17,7 +17,8 @@ notes: >
   so the client learns the registry's device id, which InstanceIdentifiers.newDeviceId says never leaves the
   platform and which links every instance on one device. A storage failure during an enrolment answers "could not
   record the enrolment: instance registry store error:" and the PostgreSQL driver's message
-  (EnrolmentService.java:261-262, IomInstanceRegistry.storage), to a caller nothing has authenticated yet. X-A11's
-  curated errors and X-A04's "no SQL text in errors" close it: a stable code and fixed text out, the detail in the
-  log. F-0046 is the same shape in the federation. The iOS kit reads only the error code, bar the counter race,
-  and shows the description in the sample app, which is where it was noticed.
+  (EnrolmentService.java:261-262, IomInstanceRegistry.storage), to a caller whose token and attestation have just
+  been verified, before any curated error exists. X-A11's curated errors and X-A04's "no SQL text in errors" close
+  it: a stable code and fixed text out, the detail in the log. F-0046 is the same shape in the federation. The iOS
+  kit reads only the error code, bar the counter race, and shows the description in the sample app, which is where
+  it was noticed.

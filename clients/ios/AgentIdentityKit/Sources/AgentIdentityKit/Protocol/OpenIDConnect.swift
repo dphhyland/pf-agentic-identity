@@ -44,24 +44,30 @@ public enum AuthorizationRequest {
     /// `auth_time` REQUIRED in the ID token and is "equivalent to prompt=login" (§3.1.2.1): the server measures
     /// the time-box from `auth_time`, so a stale session is no use. `acr_values` names the sign-on policy the
     /// service's `PINGONE_ACR_AAL2` lists, when the app knows it.
+    ///
+    /// Every value is encoded as the token request encodes it (`TokenRequest.formEncode`). `URLComponents`
+    /// leaves `+` alone in a query value, and a server that form-decodes the query reads a bare `+` as a space,
+    /// so a redirect URI with `+` in it would differ between the two requests and the code exchange would fail.
     public static func url(authorizationEndpoint: URL, clientID: String, redirectURI: URL, nonce: String,
                            state: String, pkce: PKCE, acrValues: String?) -> URL {
         var components = URLComponents(url: authorizationEndpoint, resolvingAgainstBaseURL: false)!
-        var items = (components.queryItems ?? []) + [
-            URLQueryItem(name: "response_type", value: "code"),
-            URLQueryItem(name: "client_id", value: clientID),
-            URLQueryItem(name: "redirect_uri", value: redirectURI.absoluteString),
-            URLQueryItem(name: "scope", value: "openid"),
-            URLQueryItem(name: "state", value: state),
-            URLQueryItem(name: "nonce", value: nonce),
-            URLQueryItem(name: "code_challenge", value: pkce.challenge),
-            URLQueryItem(name: "code_challenge_method", value: "S256"),
-            URLQueryItem(name: "max_age", value: "0"),
+        var fields = [
+            ("response_type", "code"),
+            ("client_id", clientID),
+            ("redirect_uri", redirectURI.absoluteString),
+            ("scope", "openid"),
+            ("state", state),
+            ("nonce", nonce),
+            ("code_challenge", pkce.challenge),
+            ("code_challenge_method", "S256"),
+            ("max_age", "0"),
         ]
         if let acrValues, !acrValues.isEmpty {
-            items.append(URLQueryItem(name: "acr_values", value: acrValues))
+            fields.append(("acr_values", acrValues))
         }
-        components.queryItems = items
+        components.percentEncodedQueryItems = (components.percentEncodedQueryItems ?? []) + fields.map {
+            URLQueryItem(name: TokenRequest.formEncode($0.0), value: TokenRequest.formEncode($0.1))
+        }
         return components.url!
     }
 }
@@ -101,7 +107,7 @@ public enum TokenRequest {
     }
 
     /// Percent-encoding with RFC 3986's unreserved set only, so `:`, `/` and `+` in a redirect URI or a code
-    /// survive the form decoding on the other side.
+    /// survive the form decoding on the other side. The authorization request uses it too.
     static func formEncode(_ value: String) -> String {
         var allowed = CharacterSet()
         allowed.insert(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
