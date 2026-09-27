@@ -19,6 +19,7 @@ import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.Claims;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 
 /**
  * Verifies an attestation-based client authentication ({@code attest_jwt_client_auth}), in either
@@ -48,13 +49,40 @@ public final class ClientAttestationVerifier {
     private final ClientAttestationConfig config;
     private final AttestationReplayCache replayCache;
     private final AttestationChallengeService challengeService;
+    private final RarModels rarModels;
 
+    /**
+     * A verifier that checks {@code authorization_details} with this classloader's model set
+     * ({@link AttestationRarModels}).
+     *
+     * @throws IllegalStateException when that model set could not be loaded
+     */
     public ClientAttestationVerifier(AttesterKeyResolver attesterKeyResolver, ClientAttestationConfig config,
                                      AttestationReplayCache replayCache, AttestationChallengeService challengeService) {
+        this(attesterKeyResolver, config, replayCache, challengeService, AttestationRarModels.require());
+    }
+
+    private ClientAttestationVerifier(AttesterKeyResolver attesterKeyResolver, ClientAttestationConfig config,
+                                      AttestationReplayCache replayCache, AttestationChallengeService challengeService,
+                                      RarModels rarModels) {
         this.attesterKeyResolver = Objects.requireNonNull(attesterKeyResolver, "attesterKeyResolver");
         this.config = Objects.requireNonNull(config, "config");
         this.replayCache = Objects.requireNonNull(replayCache, "replayCache");
         this.challengeService = challengeService;
+        this.rarModels = Objects.requireNonNull(rarModels, "rarModels");
+    }
+
+    /**
+     * A verifier that checks {@code authorization_details} with the model set given: the one a component loaded
+     * at start-up, so a request never meets a model set it could not load. A factory rather than a second public
+     * constructor, because the flow harness builds a verifier from {@code getConstructors()[0]}.
+     */
+    public static ClientAttestationVerifier withRarModels(AttesterKeyResolver attesterKeyResolver,
+                                                          ClientAttestationConfig config,
+                                                          AttestationReplayCache replayCache,
+                                                          AttestationChallengeService challengeService,
+                                                          RarModels rarModels) {
+        return new ClientAttestationVerifier(attesterKeyResolver, config, replayCache, challengeService, rarModels);
     }
 
     /**
@@ -76,11 +104,12 @@ public final class ClientAttestationVerifier {
     }
 
     /**
-     * As {@link #verify(String, String, String, String, String, String)}, additionally authorizing the
-     * token request's RFC 9396 {@code authorization_details} against the entitlement the attestation
-     * asserts. Authentication (attestation + proof of possession) is verified first; only then is the
-     * requested access authorized. The returned result carries both the attested entitlement and the
-     * granted (authorized) details.
+     * As {@link #verify(String, String, String, String, String, String)}, additionally checking the request's
+     * RFC 9396 {@code authorization_details} against the attestation's own, strictly
+     * ({@link AuthorizationDetailsGate}: CAS §7.1). Authentication (attestation + proof of possession) is verified
+     * first; only then is the requested access checked. The returned result carries the attestation's details,
+     * the granted ones (the request's own, without this repository's two markers) and the fingerprint of the
+     * model set that checked them.
      *
      * @param requestedAuthorizationDetailsJson the {@code authorization_details} request parameter (JSON array), or null
      */
@@ -129,13 +158,13 @@ public final class ClientAttestationVerifier {
                     ? this.verifyPopMode(attestation, popHeader)
                     : this.verifyDpopMode(attestation, dpopHeader, requestMethod, requestUri);
 
-            // ... then authorize the requested access against the attested RFC 9396 entitlement.
-            List<Map<String, Object>> entitled = attestation.authorizationDetails();
-            List<Map<String, Object>> granted =
-                    RarEntitlement.authorize(RarEntitlement.parseArray(requestedAuthorizationDetailsJson), entitled);
+            // ... then check the requested access against the attestation's own (CAS §7.1).
+            List<Map<String, Object>> granted = AuthorizationDetailsGate.check(this.rarModels,
+                    requestedAuthorizationDetailsJson, attestationHeader);
             return new ClientAttestationResult(authenticated.clientId(), authenticated.cnfJwk(),
-                    authenticated.mode(), authenticated.attesterIssuer(), authenticated.proofJti(), entitled, granted,
-                    attestation.workload(), attestation.agentId());
+                    authenticated.mode(), authenticated.attesterIssuer(), authenticated.proofJti(),
+                    attestation.authorizationDetails(), granted, attestation.workload(), attestation.agentId(),
+                    this.rarModels.fingerprint());
         } catch (ClientAttestationException e) {
             throw e;
         } catch (Exception e) {

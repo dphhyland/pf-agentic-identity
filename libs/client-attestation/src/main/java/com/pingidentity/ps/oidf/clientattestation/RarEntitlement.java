@@ -28,7 +28,15 @@ import org.jose4j.lang.JoseException;
  * an EMEA-only {@code sales_agent} into a {@code sales_agent} with no region at all, which everything
  * downstream reads as "any region" — narrowing by omission produced a wider grant than the ceiling
  * (CAS §7: the issued details MUST be a subset of the ceiling).
+ *
+ * <p><b>Nothing uses this class any more</b> (plan item S1b, 0.4.0): the token gate is
+ * {@link AuthorizationDetailsGate} and the attester asks {@code libs/rar-model} directly, both comparing every
+ * field rather than the five here. It stays only because {@code plugins/rar-paz-plugin}'s
+ * {@code RarContainmentContractTest} reads this file's {@code SET_FIELDS} from disk and fails when it is missing.
+ * Plan item S1c deletes that test with {@code RarContainment}; delete this class and {@code RarEntitlementTest}
+ * after it ({@code docs/findings/F-0100.yaml}).
  */
+@Deprecated(since = "0.4.0", forRemoval = true)
 public final class RarEntitlement {
     private RarEntitlement() {
     }
