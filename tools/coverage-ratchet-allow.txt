@@ -1,0 +1,15 @@
+# Reductions the coverage ratchet allows (tools/coverage-report.py --baseline; CONTRIBUTING.md "Generated files").
+#
+# The ratchet fails a build that has lost ground against the last successful Build on main: a jacoco check gone
+# or including fewer methods, or fewer pinned conformance-matrix rows. When that loss is the point of the change -
+# dead code deleted with its <include>, a check's execution id renamed, a module moved, a matrix row retired -
+# add a line here in the same pull request, so the review sees it and the push to main that follows reads it too.
+# Copy the names from the ratchet's failure line. One per line:
+#
+#   check <module> <execution id>     the check may be gone
+#   method <module> <method>          the method may leave the module's checks
+#   row <matrix row>                  the row may no longer be pinned
+#
+# for example `method libs/decide com.example.Gate.decide(java.lang.String)`. An allowance only takes its item
+# out of the baseline: nothing here lets a gated method fall below 100%. Once the baseline no longer has the item,
+# the line allows nothing, the ratchet says so in the step summary, and the next change can delete it.

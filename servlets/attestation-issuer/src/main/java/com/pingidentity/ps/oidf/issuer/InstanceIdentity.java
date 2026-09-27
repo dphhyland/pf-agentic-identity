@@ -10,6 +10,8 @@ import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.SortedMap;
+import java.util.SortedSet;
 
 /**
  * A validated instance identity, independent of the attestation <em>format</em> that proved it. A SPIFFE
@@ -34,6 +36,12 @@ import java.util.Map;
  * 0.3.0 embedded the raw token as {@code workload.svid} and {@code workload.instance_attestation} (finding F-0002).
  * {@code audiences} is the evidence's {@code aud}, kept so the attester can refuse evidence minted for more
  * than one audience when it is told to.
+ *
+ * <p>{@code selectors} are what the validator proved about the instance, in one namespace (plan item X-B01, see
+ * {@link EvidenceSelectors}): built only inside a validator, from claims of evidence it verified, after every check
+ * passed. Nothing the servlet does afterwards - binding metadata, introspected attributes, the caller-asserted
+ * context - can add to them, because this class has no way to change them once built. The minted attestation does
+ * not carry them.
  */
 public final class InstanceIdentity {
     private final String format;
@@ -46,6 +54,7 @@ public final class InstanceIdentity {
     private final String evidenceDigest;
     private final List<String> audiences;
     private final long iatEpochSeconds;
+    private final EvidenceSelectors selectors;
 
     /**
      * An identity with no evidence digest: for a validator that has no evidence token to digest (a device
@@ -78,6 +87,18 @@ public final class InstanceIdentity {
     public InstanceIdentity(String format, String subject, String trustDomain, Map<String, Object> boundKey,
                             Map<String, Object> workloadClaims, long expEpochSeconds, String evidenceType,
                             String evidenceDigest, List<String> audiences, long iatEpochSeconds) {
+        this(format, subject, trustDomain, boundKey, workloadClaims, expEpochSeconds, evidenceType, evidenceDigest,
+                audiences, iatEpochSeconds, EvidenceSelectors.none());
+    }
+
+    /**
+     * @param selectors what the validator proved about the instance ({@link EvidenceSelectors}); only a validator in
+     *                  this package can build a non-empty set
+     */
+    public InstanceIdentity(String format, String subject, String trustDomain, Map<String, Object> boundKey,
+                            Map<String, Object> workloadClaims, long expEpochSeconds, String evidenceType,
+                            String evidenceDigest, List<String> audiences, long iatEpochSeconds,
+                            EvidenceSelectors selectors) {
         this.format = format;
         this.subject = subject;
         this.trustDomain = trustDomain;
@@ -90,6 +111,7 @@ public final class InstanceIdentity {
         this.evidenceDigest = evidenceDigest;
         this.audiences = audiences == null ? List.of() : List.copyOf(audiences);
         this.iatEpochSeconds = iatEpochSeconds;
+        this.selectors = selectors == null ? EvidenceSelectors.none() : selectors;
     }
 
     /**
@@ -105,11 +127,18 @@ public final class InstanceIdentity {
      * itself, or a cloud platform token mapped onto a SPIFFE identity. The raw token is digested, never kept.
      */
     public static InstanceIdentity ofSpiffe(SpiffeSvid svid, String evidenceType) {
+        return ofSpiffe(svid, evidenceType, EvidenceSelectors.none());
+    }
+
+    /**
+     * As {@link #ofSpiffe(SpiffeSvid, String)}, with the selectors the validator proved from the same evidence.
+     */
+    public static InstanceIdentity ofSpiffe(SpiffeSvid svid, String evidenceType, EvidenceSelectors selectors) {
         LinkedHashMap<String, Object> workload = new LinkedHashMap<>();
         workload.put("spiffe_id", svid.spiffeId());
         return new InstanceIdentity(SpiffeInstanceAttestationValidator.FORMAT, svid.spiffeId(),
                 svid.trustDomain(), null, workload, svid.expEpochSeconds(), evidenceType,
-                evidenceDigest(svid.raw()), svid.audiences(), svid.iatEpochSeconds());
+                evidenceDigest(svid.raw()), svid.audiences(), svid.iatEpochSeconds(), selectors);
     }
 
     /**
@@ -202,5 +231,14 @@ public final class InstanceIdentity {
     /** The evidence's {@code iat}, epoch seconds; 0 when it has none or the validator does not report it. */
     public long iatEpochSeconds() {
         return this.iatEpochSeconds;
+    }
+
+    /**
+     * What the validator proved about this instance: {@code <source>:<name>} to a sorted set of values, sorted and
+     * unmodifiable; empty when the validator declares no selectors. See {@link EvidenceSelectors} for what reaches it
+     * and what does not.
+     */
+    public SortedMap<String, SortedSet<String>> selectors() {
+        return this.selectors.asMap();
     }
 }
