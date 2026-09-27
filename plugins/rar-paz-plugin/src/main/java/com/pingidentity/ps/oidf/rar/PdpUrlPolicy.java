@@ -40,7 +40,7 @@ final class PdpUrlPolicy {
             return "PDP URL is not a URL: " + e.getMessage();
         }
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(java.util.Locale.ROOT);
-        if (uri.getHost() == null || uri.getHost().isBlank()) {
+        if (uri.getHost() == null) {
             return "PDP URL has no host";
         }
         if ("https".equals(scheme)) {

@@ -101,11 +101,30 @@ class AuthZenPdpClientTest {
         assertEquals(List.of("EMEA"), r.getStatements().get(0).getPayload());
     }
 
+    /** A PDP that answered with anything but a JSON 2xx is refused, and only "not serving" reads as unreachable. */
     @Test
     @Requirement("AUTHZEN-1.0 §10.1")
-    void nonSuccessStatusThrows() {
-        StubTransport t = new StubTransport(new HttpTransport.Response(500, "boom"));
-        assertThrows(IOException.class, () -> decide(t));
+    void nonSuccessStatusThrowsAndOnlyUnavailableStatusesFailOpen() {
+        for (int status : new int[] {400, 401, 403, 404, 500, 302}) {
+            IOException e = assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(status, "boom"))));
+            assertFalse(e instanceof PdpUnavailableException, "HTTP " + status + " is a refusal, not an outage");
+        }
+        for (int status : new int[] {429, 502, 503, 504}) {
+            assertThrows(PdpUnavailableException.class, () -> decide(new StubTransport(new HttpTransport.Response(status, "later"))));
+        }
+    }
+
+    @Test
+    void aNonJsonAnswerAndAMalformedOneAreRefused() {
+        IOException html = assertThrows(IOException.class,
+                () -> decide(new StubTransport(new HttpTransport.Response(200, "<html>login</html>", "text/html"))));
+        assertFalse(html instanceof PdpUnavailableException);
+        assertTrue(html.getMessage().contains("text/html"), html.getMessage());
+        IOException malformed = assertThrows(IOException.class,
+                () -> decide(new StubTransport(new HttpTransport.Response(200, "{\"decision\": tru"))));
+        assertFalse(malformed instanceof PdpUnavailableException);
+        assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(200, "", "application/json"))));
+        assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(200, null, "application/json"))));
     }
 
     @Test
@@ -113,5 +132,23 @@ class AuthZenPdpClientTest {
     void missingBooleanDecisionThrows() {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":\"PERMIT\"}"));
         assertThrows(IOException.class, () -> decide(t));
+    }
+
+    @Test
+    void theAttesterIssuerRidesWithTheActor() throws Exception {
+        StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":true}"));
+        AttestationSubject subject = new AttestationSubject("c", "c", List.of(), Map.of(), null, "agent-1", "https://attester", null);
+        client(t).decide("sales_agent", Map.of("type", "sales_agent"), subject, "alice", "c", "authenticated");
+        assertTrue(t.body.contains("\"actor\":{\"type\":\"agent\",\"id\":\"agent-1\",\"iss\":\"https://attester\"}"), t.body);
+        assertTrue(t.body.contains("\"attestation\":{\"iss\":\"https://attester\"}"), t.body);
+    }
+
+    @Test
+    void noSecretHeaderIsSentWithoutASecret() throws Exception {
+        GovernanceEngineConfig bare = GovernanceEngineConfig.builder().pdpUrl("https://pdp/access/v1/evaluation").secret("").build();
+        StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":true}"));
+        new AuthZenPdpClient(bare, t, new AuthZenRequestBuilder(bare), mapper)
+                .decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "c", "none");
+        assertFalse(t.headers.containsKey("CLIENT-TOKEN"));
     }
 }

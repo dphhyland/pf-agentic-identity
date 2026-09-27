@@ -98,6 +98,17 @@ class AuthZenRequestBuilderTest {
     }
 
     @Test
+    void theAttesterIssuerRidesWithTheActorAndTheAttestation() {
+        AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "payments-agent", "https://attester.example", null);
+        Map<String, Object> context = node(builder.build("payment_initiation", Map.of("type", "payment_initiation"),
+                agent, "alice", "northwind-webapp", "authenticated"), "context");
+        assertEquals(Map.of("type", "agent", "id", "payments-agent", "iss", "https://attester.example"), context.get("actor"));
+        assertEquals(Map.of("iss", "https://attester.example"), context.get("attestation"));
+        assertEquals("authenticated", context.get("principal_source"));
+    }
+
+    @Test
     void attestedEntitlementRidesInContext() {
         List<Map<String, Object>> entitlement = List.of(Map.of("type", "sales_agent",
                 "sales_regions", List.of("EMEA")));

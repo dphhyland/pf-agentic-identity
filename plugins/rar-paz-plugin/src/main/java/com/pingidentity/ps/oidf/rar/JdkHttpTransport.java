@@ -87,7 +87,9 @@ public final class JdkHttpTransport implements HttpTransport {
             return e;
         }
         boolean unreachable = false;
-        for (Throwable t = e; t != null; t = t.getCause() == t ? null : t.getCause()) {
+        // Bounded: initCause forbids a direct self-cause and nothing else, so a longer cycle is constructible.
+        Throwable t = e;
+        for (int depth = 0; t != null && depth < 16; t = t.getCause(), depth++) {
             if (t instanceof SSLException) {
                 return e;
             }

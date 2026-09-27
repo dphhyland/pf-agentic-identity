@@ -138,13 +138,18 @@ final class PrincipalResolver {
         if (principal == null) {
             return "-";
         }
+        byte[] digest = sha256().digest(principal.getBytes(StandardCharsets.UTF_8));
+        StringBuilder hex = new StringBuilder(16);
+        for (int i = 0; i < 8; i++) {
+            hex.append(String.format("%02x", digest[i]));
+        }
+        return "sha256:" + hex;
+    }
+
+    /** SHA-256 is an algorithm every Java platform must provide; the checked exception has no reachable path. */
+    private static MessageDigest sha256() {
         try {
-            byte[] digest = MessageDigest.getInstance("SHA-256").digest(principal.getBytes(StandardCharsets.UTF_8));
-            StringBuilder hex = new StringBuilder(16);
-            for (int i = 0; i < 8; i++) {
-                hex.append(String.format("%02x", digest[i]));
-            }
-            return "sha256:" + hex;
+            return MessageDigest.getInstance("SHA-256");
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is a required JDK algorithm", e);
         }

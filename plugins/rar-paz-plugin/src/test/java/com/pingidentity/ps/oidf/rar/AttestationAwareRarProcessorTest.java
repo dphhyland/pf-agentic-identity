@@ -4,6 +4,8 @@ import com.pingidentity.sdk.authorizationdetails.AuthorizationDetail;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailContext;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailProcessingException;
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import jakarta.servlet.http.HttpServletRequest;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -11,34 +13,46 @@ import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+
+import javax.net.ssl.SSLHandshakeException;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Covers {@link AttestationAwareRarProcessor#enrich}: the internal {@code _principal_sub} marker must
- * never survive into the granted detail — on the PERMIT path or on the fail-open path — and the
- * enforcement knobs (deny-unless-PERMIT, fail-open) must behave as configured.
+ * Covers {@link AttestationAwareRarProcessor#enrich}: the internal markers must never survive into the
+ * granted detail - on the PERMIT path or on the fail-open path - the decision is deny-unless-PERMIT with no
+ * switch to say otherwise, and fail-open grants through exactly one failure class, the PDP being unreachable.
  */
 class AttestationAwareRarProcessorTest {
 
     private static final String PRINCIPAL_KEY = "_principal_sub";
+    private static final Logger LOG = Logger.getLogger(AttestationAwareRarProcessor.class.getName());
 
     private final PdpClient client = mock(PdpClient.class);
 
-    private static GovernanceEngineConfig config(boolean denyOnNonPermit, boolean failOpen) {
+    @AfterEach
+    void restoreLogging() {
+        LOG.setLevel(null);
+    }
+
+    private static GovernanceEngineConfig config(boolean failOpen) {
         return GovernanceEngineConfig.builder()
                 .pdpUrl("https://pdp/governance-engine")
-                .denyOnNonPermit(denyOnNonPermit)
                 .failOpenOnError(failOpen)
                 .build();
     }
@@ -52,16 +66,30 @@ class AttestationAwareRarProcessorTest {
         return new AuthorizationDetail(detail);
     }
 
-    private static AuthorizationDetailContext context() {
-        // 13.1: the public constructor is forRemoval; the Builder is the way in
-        return new AuthorizationDetailContext.Builder().withClientId("agent-client").build();
+    private static AuthorizationDetail salesDetail() {
+        Map<String, Object> detail = new HashMap<>();
+        detail.put("type", "sales_agent");
+        detail.put("sales_regions", List.of("EMEA"));
+        return new AuthorizationDetail(detail);
     }
 
+    /** A context with an authenticated user key, as the authorization endpoint passes one (13.1: the Builder is the way in). */
+    private static AuthorizationDetailContext context() {
+        return new AuthorizationDetailContext.Builder().withClientId("agent-client").withUserKey("alice").build();
+    }
+
+    private void permit() throws Exception {
+        when(client.decide(anyString(), any(), any(), any(), any(), any()))
+                .thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
+    }
+
+    // ---- fail-open: one failure class, and only when asked ------------------------------------------
+
     @Test
-    void failOpenStripsThePrincipalMarker() throws Exception {
-        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenThrow(new IOException("pdp unreachable"));
-        AttestationAwareRarProcessor processor =
-                new AttestationAwareRarProcessor(client, config(true, true));
+    void failOpenGrantsTheCleanedDetailWhenThePdpIsUnreachable() throws Exception {
+        when(client.decide(anyString(), any(), any(), any(), any(), any()))
+                .thenThrow(new PdpUnavailableException("connection refused"));
+        AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor(client, config(true));
 
         AuthorizationDetail result = processor.enrich(paymentDetail(), context(), Map.of());
 
@@ -71,14 +99,44 @@ class AttestationAwareRarProcessorTest {
     }
 
     @Test
+    void anUnreachablePdpDeniesWhenFailOpenIsOff() throws Exception {
+        PdpUnavailableException down = new PdpUnavailableException("connection refused");
+        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenThrow(down);
+        AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor(client, config(false));
+
+        AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
+                () -> processor.enrich(paymentDetail(), context(), Map.of()));
+        assertSame(down, e.getCause());
+    }
+
+    /** The high from the review: fail-open used to catch everything. A PDP that answered badly is not "unreachable". */
+    @Test
+    void failOpenDoesNotCoverAPdpThatAnsweredBadly() throws Exception {
+        for (Exception refused : List.of(
+                new IOException("AuthZEN PDP returned HTTP 401"),
+                new IOException("response is not JSON"),
+                new SSLHandshakeException("PKIX path building failed"),
+                new IllegalArgumentException("field collides with a server attribute"))) {
+            PdpClient failing = mock(PdpClient.class);
+            when(failing.decide(anyString(), any(), any(), any(), any(), any())).thenThrow(refused);
+            AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor(failing, config(true));
+
+            AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
+                    () -> processor.enrich(paymentDetail(), context(), Map.of()), refused.toString());
+            assertSame(refused, e.getCause(), refused.toString());
+        }
+    }
+
+    // ---- the decision ---------------------------------------------------------------------------------
+
+    @Test
     @Requirement({"RFC9396 §7.1", "PF-SDK §AuthorizationDetailProcessor.enrich"})
     void permitMergesStatementsAndStripsThePrincipalMarker() throws Exception {
         when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse(
                 "PERMIT", true,
                 List.of(new DecisionResponse.Statement("access.limit", "100.00")),
                 "{}"));
-        AttestationAwareRarProcessor processor =
-                new AttestationAwareRarProcessor(client, config(true, false));
+        AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor(client, config(false));
 
         AuthorizationDetail result = processor.enrich(paymentDetail(), context(), Map.of());
 
@@ -87,37 +145,153 @@ class AttestationAwareRarProcessorTest {
         assertInstanceOf(Map.class, access);
         assertEquals("100.00", ((Map<?, ?>) access).get("limit"));
 
-        // The marker is consumed as the principal, not forwarded to the PDP as a payload field.
+        // The marker is consumed, not forwarded to the PDP as a payload field.
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> sent = ArgumentCaptor.forClass(Map.class);
         verify(client).decide(anyString(), sent.capture(), any(), any(), any(), any());
         assertFalse(sent.getValue().containsKey(PRINCIPAL_KEY));
     }
 
+    /** There is no switch: a non-PERMIT is refused, whatever the configuration says. */
     @Test
     @Requirement("PF-SDK §AuthorizationDetailProcessor.enrich")
-    void denyThrowsWhenConfiguredToDenyOnNonPermit() throws Exception {
+    void aDenyIsAlwaysRefused() throws Exception {
         when(client.decide(anyString(), any(), any(), any(), any(), any()))
                 .thenReturn(new DecisionResponse("DENY", false, List.of(), "{}"));
-        AttestationAwareRarProcessor processor =
-                new AttestationAwareRarProcessor(client, config(true, false));
+        AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor(client, config(true));
 
         AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
                 () -> processor.enrich(paymentDetail(), context(), Map.of()));
         assertTrue(e.getMessage().contains("payment_initiation"), e.getMessage());
+        assertNull(e.getCause());
+    }
+
+    // ---- the types that need a person -----------------------------------------------------------------
+
+    @Test
+    void aPaymentIsRefusedBeforeThePdpWhenThePrincipalIsTheClient() throws Exception {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getParameter("grant_type")).thenReturn("client_credentials");
+        when(request.getRequestURI()).thenReturn("/as/token.oauth2");
+        AuthorizationDetailContext cc = new AuthorizationDetailContext.Builder()
+                .withRequest(request).withClientId("agent-client").withUserKey("agent-client").build();
+
+        AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
+                () -> new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), cc, Map.of()));
+        assertTrue(e.getMessage().contains("client"), e.getMessage());
+        verify(client, never()).decide(anyString(), any(), any(), any(), any(), any());
     }
 
     @Test
-    void engineErrorThrowsWithTheCauseWhenNotFailingOpen() throws Exception {
-        IOException boom = new IOException("pdp unreachable");
-        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenThrow(boom);
-        AttestationAwareRarProcessor processor =
-                new AttestationAwareRarProcessor(client, config(true, false));
+    void aPaymentIsRefusedBeforeThePdpWhenThereIsNoPrincipal() throws Exception {
+        AuthorizationDetailContext nobody = new AuthorizationDetailContext.Builder().withClientId("agent-client").build();
 
-        AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
-                () -> processor.enrich(paymentDetail(), context(), Map.of()));
-        assertSame(boom, e.getCause());
+        assertThrows(AuthorizationDetailProcessingException.class,
+                () -> new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), nobody, Map.of()));
+        verify(client, never()).decide(anyString(), any(), any(), any(), any(), any());
     }
+
+    @Test
+    void aTypeOffTheListReachesThePdpAsTheClient() throws Exception {
+        permit();
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getParameter("grant_type")).thenReturn("client_credentials");
+        AuthorizationDetailContext cc = new AuthorizationDetailContext.Builder()
+                .withRequest(request).withClientId("agent-client").withUserKey("agent-client").build();
+
+        new AttestationAwareRarProcessor(client, config(false)).enrich(salesDetail(), cc, Map.of());
+
+        ArgumentCaptor<String> owner = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> source = ArgumentCaptor.forClass(String.class);
+        verify(client).decide(anyString(), any(), any(), owner.capture(), any(), source.capture());
+        assertEquals("agent-client", owner.getValue());
+        assertEquals("client", source.getValue());
+    }
+
+    @Test
+    void anOperatorCanEmptyTheList() throws Exception {
+        permit();
+        GovernanceEngineConfig none = GovernanceEngineConfig.builder().pdpUrl("https://pdp")
+                .authenticatedPrincipalTypes(Set.of()).build();
+        AuthorizationDetailContext nobody = new AuthorizationDetailContext.Builder().withClientId("agent-client").build();
+
+        assertEquals("42.00", new AttestationAwareRarProcessor(client, none).enrich(paymentDetail(), nobody, Map.of())
+                .getDetail().get("amount"));
+    }
+
+    // ---- what reaches the PDP about the principal -----------------------------------------------------
+
+    @Test
+    void theAuthenticatedUserKeyIsThePrincipal() throws Exception {
+        permit();
+        new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), context(), Map.of());
+
+        ArgumentCaptor<String> owner = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> source = ArgumentCaptor.forClass(String.class);
+        verify(client).decide(anyString(), any(), any(), owner.capture(), any(), source.capture());
+        assertEquals("alice", owner.getValue());
+        assertEquals("authenticated", source.getValue());
+    }
+
+    /** A null context is not something PingFederate passes; the code tolerates it rather than NPE into a server_error. */
+    @Test
+    void aNullContextIsNobody() throws Exception {
+        permit();
+        LOG.setLevel(Level.WARNING);   // the INFO summary line is skipped on this path
+        new AttestationAwareRarProcessor(client, config(false)).enrich(salesDetail(), null, Map.of());
+
+        ArgumentCaptor<String> source = ArgumentCaptor.forClass(String.class);
+        verify(client).decide(anyString(), any(), any(), any(), any(), source.capture());
+        assertEquals("none", source.getValue());
+    }
+
+    @Test
+    void aCallerAssertedNameThatWasNotUsedIsNotedAtFine() throws Exception {
+        permit();
+        LOG.setLevel(Level.FINE);
+        AuthorizationDetail result = new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), context(), Map.of());
+
+        ArgumentCaptor<String> owner = ArgumentCaptor.forClass(String.class);
+        verify(client).decide(anyString(), any(), any(), owner.capture(), any(), any());
+        assertEquals("alice", owner.getValue(), "the authenticated key wins; the marker is merely noted");
+        assertFalse(result.getDetail().containsKey(PRINCIPAL_KEY));
+    }
+
+    // ---- the flow, from the request -------------------------------------------------------------------
+
+    @Test
+    void theFlowIsReadFromTheRequestAndUnknownWithoutOne() {
+        assertSame(PrincipalResolver.Flow.UNKNOWN, AttestationAwareRarProcessor.flowOf(null));
+
+        HttpServletRequest token = mock(HttpServletRequest.class);
+        when(token.getParameter("grant_type")).thenReturn(" refresh_token ");
+        when(token.getRequestURI()).thenReturn("/as/token.oauth2");
+        assertEquals(new PrincipalResolver.Flow("refresh_token", "/as/token.oauth2"), AttestationAwareRarProcessor.flowOf(token));
+
+        HttpServletRequest blank = mock(HttpServletRequest.class);
+        when(blank.getParameter("grant_type")).thenReturn(" ");
+        when(blank.getRequestURI()).thenReturn("/as/bc-auth.ciba");
+        assertEquals(new PrincipalResolver.Flow(null, "/as/bc-auth.ciba"), AttestationAwareRarProcessor.flowOf(blank));
+
+        HttpServletRequest broken = mock(HttpServletRequest.class);
+        when(broken.getParameter("grant_type")).thenThrow(new IllegalStateException("recycled"));
+        assertSame(PrincipalResolver.Flow.UNKNOWN, AttestationAwareRarProcessor.flowOf(broken));
+    }
+
+    @Test
+    void aRequestThatCannotBeReadStillGetsADecision() throws Exception {
+        permit();
+        HttpServletRequest broken = mock(HttpServletRequest.class);
+        when(broken.getAttribute(anyString())).thenThrow(new IllegalStateException("recycled"));
+        when(broken.getParameter(anyString())).thenThrow(new IllegalStateException("recycled"));
+        AuthorizationDetailContext ctx = new AuthorizationDetailContext.Builder()
+                .withRequest(broken).withClientId("agent-client").withUserKey("alice").build();
+
+        assertEquals("EMEA", ((List<?>) new AttestationAwareRarProcessor(client, config(false))
+                .enrich(salesDetail(), ctx, Map.of()).getDetail().get("sales_regions")).get(0));
+    }
+
+    // ---- the descriptor and the id --------------------------------------------------------------------
 
     @Test
     void aDeploymentAddsItsOwnTypesToTheBuiltInOnes() {
@@ -136,20 +310,22 @@ class AttestationAwareRarProcessorTest {
         assertInstanceOf(AttestationAwareRarProcessor.class, new au.idp.rar.FedRar());
     }
 
-    private static AuthorizationDetail markedDetail() {
+    // ---- the PAR-carried agent marker -----------------------------------------------------------------
+
+    private static AuthorizationDetail markedDetail(Object marker) {
         Map<String, Object> detail = new HashMap<>();
         detail.put("type", "https://schemas.example/v1/retrieve_customer_offer");
         detail.put("purpose", "https://w3id.org/dpv#PersonalisedBenefits");
-        detail.put(AttestationAwareRarProcessor.AGENT_DETAIL_KEY, "agent-7");
+        detail.put(AttestationAwareRarProcessor.AGENT_DETAIL_KEY, marker);
         return new AuthorizationDetail(detail);
     }
 
     @Test
     @SuppressWarnings({"unchecked", "rawtypes"})
     void thePARCarriedMarkerNamesTheAgentWhereTheAttestationIsNotInTheRequest() throws Exception {
-        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
-        GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").denyOnNonPermit(true).trustAgentMarker(true).build();
-        AuthorizationDetail result = new AttestationAwareRarProcessor(client, trusting).enrich(markedDetail(), context(), Map.of());
+        permit();
+        GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").trustAgentMarker(true).build();
+        AuthorizationDetail result = new AttestationAwareRarProcessor(client, trusting).enrich(markedDetail("agent-7"), context(), Map.of());
 
         ArgumentCaptor<Map> sent = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
@@ -161,13 +337,40 @@ class AttestationAwareRarProcessorTest {
     }
 
     @Test
-    void theMarkerIsIgnoredUnlessConfiguredButAlwaysStripped() throws Exception {
-        when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
-        AuthorizationDetail result = new AttestationAwareRarProcessor(client, config(true, false)).enrich(markedDetail(), context(), Map.of());
+    void theMarkerIsIgnoredUnlessConfiguredOrBlankOrNotAStringButAlwaysStripped() throws Exception {
+        permit();
+        GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").trustAgentMarker(true).build();
+        for (Object[] c : new Object[][] {
+                {config(false), "agent-7"}, {trusting, " "}, {trusting, 42}}) {
+            PdpClient pdp = mock(PdpClient.class);
+            when(pdp.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
+            AuthorizationDetail result = new AttestationAwareRarProcessor(pdp, (GovernanceEngineConfig) c[0])
+                    .enrich(markedDetail(c[1]), context(), Map.of());
+
+            ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
+            verify(pdp).decide(anyString(), any(), subject.capture(), any(), any(), any());
+            assertNull(subject.getValue().getAgentId(), String.valueOf(c[1]));
+            assertFalse(result.getDetail().containsKey(AttestationAwareRarProcessor.AGENT_DETAIL_KEY));
+        }
+    }
+
+    /** The filter's verified context names the agent; the marker is then not consulted. */
+    @Test
+    void aVerifiedAgentIdWinsOverTheMarker() throws Exception {
+        permit();
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getAttribute(AttestationSubject.REQUEST_ATTRIBUTE)).thenReturn(Map.of(
+                "sub", "agent-client", "client_id", "agent-client", "agent_id", "agent-verified", "iss", "https://attester"));
+        AuthorizationDetailContext ctx = new AuthorizationDetailContext.Builder()
+                .withRequest(request).withClientId("agent-client").withUserKey("alice").build();
+        GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").trustAgentMarker(true).build();
+
+        new AttestationAwareRarProcessor(client, trusting).enrich(markedDetail("agent-7"), ctx, Map.of());
 
         ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
         verify(client).decide(anyString(), any(), subject.capture(), any(), any(), any());
-        assertEquals(null, subject.getValue().getAgentId());
-        assertFalse(result.getDetail().containsKey(AttestationAwareRarProcessor.AGENT_DETAIL_KEY));
+        assertEquals("agent-verified", subject.getValue().getAgentId());
+        assertEquals("https://attester", subject.getValue().getAttesterIssuer());
     }
+
 }

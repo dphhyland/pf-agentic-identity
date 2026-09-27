@@ -4,6 +4,9 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.util.stream.Collectors.toSet;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -16,21 +19,25 @@ import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.Predicate;
 import org.junit.jupiter.api.Test;
 import org.sourceid.saml20.adapter.conf.Configuration;
 import org.sourceid.saml20.adapter.conf.Field;
 import org.sourceid.saml20.adapter.gui.CheckBoxFieldDescriptor;
 import org.sourceid.saml20.adapter.gui.FieldDescriptor;
+import org.sourceid.saml20.adapter.gui.TextFieldDescriptor;
+import org.sourceid.saml20.adapter.gui.validation.ValidationException;
 
 /**
- * What an instance's stored configuration turns into, and the version PingFederate shows for the plugin.
+ * What an instance's stored configuration turns into, the descriptor PingFederate shows, and the version.
  *
  * <p>A field can be missing from a stored configuration: the instance was saved before the field existed, or
  * the admin API or an archive left it out. PingFederate 13.1.3 hands an instance with no parent its stored
  * configuration as it is, and fills a child instance's gaps from the descriptor's defaults. The switches used
  * to be read with the one-argument {@code getBooleanFieldValue}, which reads a missing field as false. A missing
- * "Deny unless PERMIT" therefore turned the check off, and a PDP's DENY was granted.
+ * "Deny unless PERMIT" therefore turned the check off, and a PDP's DENY was granted; from 0.4.0 that switch is
+ * gone and a stored value under its name is never read.
  */
 class ProcessorConfigurationTest {
 
@@ -42,7 +49,6 @@ class ProcessorConfigurationTest {
      */
     private static final Map<String, Predicate<GovernanceEngineConfig>> SWITCHES = Map.of(
             "Prefix Attributes with Type", GovernanceEngineConfig::isPrefixAttributesWithType,
-            "Deny unless PERMIT", GovernanceEngineConfig::isDenyOnNonPermit,
             "Fail open on engine error", GovernanceEngineConfig::isFailOpenOnError,
             "Trust a client-asserted principal", GovernanceEngineConfig::isAllowClientAssertedPrincipal,
             "Trust the PAR-carried agent marker", GovernanceEngineConfig::isTrustAgentMarker,
@@ -57,28 +63,34 @@ class ProcessorConfigurationTest {
         return configuration;
     }
 
+    private static GovernanceEngineConfig production(Configuration configuration) {
+        return AttestationAwareRarProcessor.settings(configuration, GovernanceEngineConfig.PROFILE_PRODUCTION);
+    }
+
     @Test
     void aConfigurationWithoutTheSwitchesReadsAsTheSecureDefaults() {
-        GovernanceEngineConfig settings = AttestationAwareRarProcessor.settings(stored("PDP URL", PDP_URL));
+        GovernanceEngineConfig settings = production(stored("PDP URL", PDP_URL));
 
-        assertTrue(settings.isDenyOnNonPermit(), "a missing field must not turn deny-unless-PERMIT off");
-        assertFalse(settings.isFailOpenOnError(), "nor turn fail-open on");
+        assertFalse(settings.isFailOpenOnError(), "a missing field must not turn fail-open on");
         assertFalse(settings.isAllowClientAssertedPrincipal(), "nor let the caller name the principal");
         assertFalse(settings.isTrustAgentMarker(), "nor trust the PAR-carried agent marker");
         assertFalse(settings.isInsecureTls(), "nor skip TLS verification");
         assertTrue(settings.isPrefixAttributesWithType(), "and the PDP attributes keep their usual names");
+        assertEquals(GovernanceEngineConfig.DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES, settings.getAuthenticatedPrincipalTypes(),
+                "and payments and account queries need a person");
+        assertEquals("production", settings.getDeploymentProfile());
     }
 
     /** The defaults fill a gap; they never override what an operator stored. Every switch here is stored flipped. */
     @Test
     void whatIsStoredIsWhatIsRead() {
-        GovernanceEngineConfig defaults = AttestationAwareRarProcessor.settings(stored("PDP URL", PDP_URL));
+        GovernanceEngineConfig defaults = production(stored("PDP URL", PDP_URL));
         Configuration configuration = stored("PDP URL", PDP_URL, "PDP Domain Prefix", "bank.rar", "PDP Service", "Payments",
                 "PDP Action", "decide", "Attribute Prefix", "x", "Shared Secret Header", "X-PDP-KEY", "Shared Secret", "s3cret",
-                "Request timeout (ms)", "2500");
+                "Request timeout (ms)", "2500", "Types requiring an authenticated principal", "payment_initiation, transfer");
         SWITCHES.forEach((name, read) -> configuration.addField(new Field(name, Boolean.toString(!read.test(defaults)))));
 
-        GovernanceEngineConfig settings = AttestationAwareRarProcessor.settings(configuration);
+        GovernanceEngineConfig settings = production(configuration);
 
         SWITCHES.forEach((name, read) -> assertEquals(!read.test(defaults), read.test(settings), name));
         assertEquals(PDP_URL, settings.getPdpUrl());
@@ -89,6 +101,7 @@ class ProcessorConfigurationTest {
         assertEquals("X-PDP-KEY", settings.getSecretHeader());
         assertEquals("s3cret", settings.getSecret());
         assertEquals(2500, settings.getTimeoutMillis());
+        assertEquals(Set.of("payment_initiation", "transfer"), settings.getAuthenticatedPrincipalTypes());
     }
 
     /**
@@ -98,7 +111,7 @@ class ProcessorConfigurationTest {
      */
     @Test
     void everyCheckboxDefaultsToWhatAMissingFieldReadsAs() {
-        GovernanceEngineConfig missing = AttestationAwareRarProcessor.settings(stored("PDP URL", PDP_URL));
+        GovernanceEngineConfig missing = production(stored("PDP URL", PDP_URL));
         List<FieldDescriptor> checkboxes = new AttestationAwareRarProcessor().getPluginDescriptor()
                 .getGuiConfigDescriptor().getFields().stream().filter(CheckBoxFieldDescriptor.class::isInstance).toList();
 
@@ -110,12 +123,46 @@ class ProcessorConfigurationTest {
         }
     }
 
-    /** Through configure and enrich, as PingFederate calls them: a PDP's DENY is refused with the field missing. */
+    /** The switch that turned deny-unless-PERMIT off is gone from the descriptor, and a stored value under its name is not read. */
     @Test
-    void aProcessorConfiguredWithoutTheSwitchStillRefusesADeny() throws Exception {
+    void theDenySwitchIsGoneAndAStoredValueIsIgnored() throws Exception {
+        List<FieldDescriptor> fields = new AttestationAwareRarProcessor().getPluginDescriptor().getGuiConfigDescriptor().getFields();
+        assertTrue(fields.stream().noneMatch(f -> f.getName().equals(AttestationAwareRarProcessor.DENY_ON_NON_PERMIT_REMOVED)));
+
+        HttpServer pdp = denyingPdp();
+        try {
+            AttestationAwareRarProcessor switchedOff = new AttestationAwareRarProcessor();
+            switchedOff.configure(stored("PDP URL", url(pdp), "Shared Secret", "s",
+                    AttestationAwareRarProcessor.DENY_ON_NON_PERMIT_REMOVED, "false"), "development");
+            AuthorizationDetailProcessingException denied = assertThrows(AuthorizationDetailProcessingException.class,
+                    () -> switchedOff.enrich(payment(), context(), Map.of()));
+            assertTrue(denied.getMessage().contains("DENY"), denied.getMessage());
+        } finally {
+            pdp.stop(0);
+        }
+    }
+
+    /** Through configure and enrich, as PingFederate calls them: a PDP's DENY is refused with every switch missing. */
+    @Test
+    void aProcessorConfiguredWithoutTheSwitchesStillRefusesADeny() throws Exception {
+        HttpServer pdp = denyingPdp();
+        try {
+            AttestationAwareRarProcessor unset = new AttestationAwareRarProcessor();
+            unset.configure(stored("PDP URL", url(pdp)), "development");
+            AuthorizationDetailProcessingException denied = assertThrows(AuthorizationDetailProcessingException.class,
+                    () -> unset.enrich(payment(), context(), Map.of()));
+            assertTrue(denied.getMessage().contains("DENY"), denied.getMessage());
+        } finally {
+            pdp.stop(0);
+        }
+    }
+
+    /** The AuthZEN dialect through configure as well, with the client-asserted switch on outside development (a warning, no effect). */
+    @Test
+    void theAuthZenDialectIsChosenByTheField() throws Exception {
         HttpServer pdp = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
-        pdp.createContext("/decide", exchange -> {
-            byte[] body = "{\"decision\":\"DENY\",\"authorised\":false}".getBytes(UTF_8);
+        pdp.createContext("/access/v1/evaluation", exchange -> {
+            byte[] body = "{\"decision\":true}".getBytes(UTF_8);
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(200, body.length);
             try (OutputStream out = exchange.getResponseBody()) {
@@ -124,20 +171,95 @@ class ProcessorConfigurationTest {
         });
         pdp.start();
         try {
-            String url = "http://127.0.0.1:" + pdp.getAddress().getPort() + "/decide";
-            AttestationAwareRarProcessor unset = new AttestationAwareRarProcessor();
-            unset.configure(stored("PDP URL", url));
-            AuthorizationDetailProcessingException denied = assertThrows(AuthorizationDetailProcessingException.class,
-                    () -> unset.enrich(payment(), context(), Map.of()));
-            assertTrue(denied.getMessage().contains("DENY"), denied.getMessage());
-
-            AttestationAwareRarProcessor switchedOff = new AttestationAwareRarProcessor();
-            switchedOff.configure(stored("PDP URL", url, "Deny unless PERMIT", "false"));
-            assertEquals("42.00", switchedOff.enrich(payment(), context(), Map.of()).getDetail().get("amount"),
-                    "an operator who stored the switch off still gets what they stored");
+            AttestationAwareRarProcessor authzen = new AttestationAwareRarProcessor();
+            // http, so development; the client-asserted switch is exercised through the warning branch below.
+            authzen.configure(stored("PDP URL", "http://127.0.0.1:" + pdp.getAddress().getPort() + "/access/v1/evaluation",
+                    "PDP Dialect", " AuthZEN ", "Trust a client-asserted principal", "true"), "development");
+            assertEquals("42.00", authzen.enrich(payment(), context(), Map.of()).getDetail().get("amount"));
         } finally {
             pdp.stop(0);
         }
+        AttestationAwareRarProcessor warned = new AttestationAwareRarProcessor();
+        warned.configure(stored("PDP URL", PDP_URL, "Trust a client-asserted principal", "true"), "production");
+    }
+
+    // ---- the PDP URL: https, or development ------------------------------------------------------------
+
+    @Test
+    void aPlaintextPdpUrlIsRefusedOutsideDevelopment() {
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> production(stored("PDP URL", "http://pdp.internal/decide")));
+        assertTrue(e.getMessage().contains("OIDF_DEPLOYMENT_PROFILE=development"), e.getMessage());
+        assertEquals("http://pdp.internal/decide", AttestationAwareRarProcessor.settings(
+                stored("PDP URL", " http://pdp.internal/decide "), "development").getPdpUrl());
+    }
+
+    /** The same rule sits on the field, so the admin console and the admin API say so before anything is stored. */
+    @Test
+    void thePdpUrlFieldCarriesTheHttpsValidator() {
+        FieldDescriptor url = field("PDP URL");
+        boolean refused = false;
+        for (FieldDescriptor.FieldValidationWrapper v : url.getValidationChain()) {
+            try {
+                v.getValidator().validate(new Field("PDP URL", "http://pdp.internal/decide"));
+            } catch (ValidationException e) {
+                refused |= e.getMessage().contains("https");
+            }
+        }
+        // Under a development profile the validator would pass; the test JVM is production (the variable is unset).
+        assertEquals(!GovernanceEngineConfig.PROFILE_DEVELOPMENT.equals(AttestationAwareRarProcessor.deploymentProfile()), refused);
+    }
+
+    // ---- the secret ------------------------------------------------------------------------------------
+
+    /** Same field name as every stored instance uses, now declared encrypted: the archive holds it obfuscated. */
+    @Test
+    void theSharedSecretIsAnEncryptedFieldUnderTheSameName() {
+        FieldDescriptor secret = field(AttestationAwareRarProcessor.PDP_SECRET);
+        assertInstanceOf(TextFieldDescriptor.class, secret);
+        assertTrue(((TextFieldDescriptor) secret).isEncrypted());
+        assertEquals("Shared Secret", secret.getName());
+        assertFalse(((TextFieldDescriptor) field("PDP URL")).isEncrypted(), "and nothing else is");
+    }
+
+    @Test
+    void theTypeListFieldDefaultsToPaymentsAndAccounts() {
+        assertEquals("payment_initiation,account_information", field(AttestationAwareRarProcessor.AUTHENTICATED_PRINCIPAL_TYPES).getDefaultValue());
+        assertNotNull(field("Fail open on engine error"));
+        assertNull(fieldOrNull("Deny unless PERMIT"));
+    }
+
+    // ---- the config's own parsing ----------------------------------------------------------------------
+
+    @Test
+    void theProfileIsDevelopmentOrProduction() {
+        assertEquals("development", GovernanceEngineConfig.profileOf("development"));
+        assertEquals("development", GovernanceEngineConfig.profileOf(" DEVELOPMENT "));
+        assertEquals("production", GovernanceEngineConfig.profileOf("production"));
+        assertEquals("production", GovernanceEngineConfig.profileOf("staging"));
+        assertEquals("production", GovernanceEngineConfig.profileOf(null));
+        assertEquals("production", GovernanceEngineConfig.profileOf(""));
+    }
+
+    @Test
+    void theTypeListIsParsedAndADashMeansNone() {
+        assertEquals(GovernanceEngineConfig.DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES, GovernanceEngineConfig.authenticatedPrincipalTypesOf(null));
+        assertEquals(GovernanceEngineConfig.DEFAULT_AUTHENTICATED_PRINCIPAL_TYPES, GovernanceEngineConfig.authenticatedPrincipalTypesOf("  "));
+        assertEquals(Set.of("a", "b", "c"), GovernanceEngineConfig.authenticatedPrincipalTypesOf("a, b\n c,"));
+        assertEquals(Set.of(), GovernanceEngineConfig.authenticatedPrincipalTypesOf("-"));
+        assertEquals(Set.of("a"), GovernanceEngineConfig.authenticatedPrincipalTypesOf("-, a"));
+        assertEquals(Set.of("a"), GovernanceEngineConfig.authenticatedPrincipalTypesOf(",a"));
+    }
+
+    @Test
+    void theClientAssertedSwitchNeedsTheProfile() {
+        assertTrue(GovernanceEngineConfig.builder().pdpUrl(PDP_URL).allowClientAssertedPrincipal(true)
+                .deploymentProfile("development").build().isClientAssertedPrincipalHonoured());
+        assertFalse(GovernanceEngineConfig.builder().pdpUrl(PDP_URL).allowClientAssertedPrincipal(true)
+                .deploymentProfile("production").build().isClientAssertedPrincipalHonoured());
+        assertFalse(GovernanceEngineConfig.builder().pdpUrl(PDP_URL).allowClientAssertedPrincipal(false)
+                .deploymentProfile("development").build().isClientAssertedPrincipalHonoured());
+        assertThrows(IllegalStateException.class, () -> GovernanceEngineConfig.builder().build());
     }
 
     @Test
@@ -152,6 +274,35 @@ class ProcessorConfigurationTest {
                 new AttestationAwareRarProcessor().getPluginDescriptor().getVersion());
     }
 
+    private static FieldDescriptor field(String name) {
+        FieldDescriptor field = fieldOrNull(name);
+        assertNotNull(field, name);
+        return field;
+    }
+
+    private static FieldDescriptor fieldOrNull(String name) {
+        return new AttestationAwareRarProcessor().getPluginDescriptor().getGuiConfigDescriptor().getFields().stream()
+                .filter(f -> f.getName().equals(name)).findFirst().orElse(null);
+    }
+
+    private static HttpServer denyingPdp() throws Exception {
+        HttpServer pdp = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        pdp.createContext("/decide", exchange -> {
+            byte[] body = "{\"decision\":\"DENY\",\"authorised\":false}".getBytes(UTF_8);
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, body.length);
+            try (OutputStream out = exchange.getResponseBody()) {
+                out.write(body);
+            }
+        });
+        pdp.start();
+        return pdp;
+    }
+
+    private static String url(HttpServer pdp) {
+        return "http://127.0.0.1:" + pdp.getAddress().getPort() + "/decide";
+    }
+
     private static AuthorizationDetail payment() {
         Map<String, Object> detail = new HashMap<>();
         detail.put("type", "payment_initiation");
@@ -161,6 +312,6 @@ class ProcessorConfigurationTest {
     }
 
     private static AuthorizationDetailContext context() {
-        return new AuthorizationDetailContext.Builder().withClientId("agent-client").build();
+        return new AuthorizationDetailContext.Builder().withClientId("agent-client").withUserKey("alice").build();
     }
 }

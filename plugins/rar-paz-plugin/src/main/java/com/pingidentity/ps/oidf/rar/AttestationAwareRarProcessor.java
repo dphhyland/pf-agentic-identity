@@ -143,7 +143,12 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
 
     @Override
     public void configure(Configuration configuration) {
-        this.config = settings(configuration, deploymentProfile());
+        configure(configuration, deploymentProfile());
+    }
+
+    /** {@link #configure(Configuration)} under a named profile, so a test can be production or development at will. */
+    void configure(Configuration configuration, String profile) {
+        this.config = settings(configuration, profile);
         HttpTransport transport = new JdkHttpTransport(config.isInsecureTls(), config.getTimeoutMillis());
         String dialect = configuration.getFieldValue(PDP_DIALECT);
         if (DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim())) {
@@ -296,9 +301,9 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         HttpServletRequest request = requestOf(context);
         AttestationSubject subject = readSubject(request);
         // Detail on which the decision is made - a copy without the internal markers so they never reach the
-        // governance engine as payload fields, the consent page, or the issued token.
-        Map<String, Object> base = authDetail.getDetail();
-        Map<String, Object> detail = base == null ? new HashMap<>() : new HashMap<>(base);
+        // governance engine as payload fields, the consent page, or the issued token. (The SDK's
+        // AuthorizationDetail always holds a map: getType() reads it without a null check.)
+        Map<String, Object> detail = new HashMap<>(authDetail.getDetail());
         Object principalInDetail = detail.remove(PRINCIPAL_DETAIL_KEY);
         Object agentInDetail = detail.remove(AGENT_DETAIL_KEY);
         if (subject.getAgentId() == null && config.isTrustAgentMarker() && agentInDetail instanceof String marked && !marked.isBlank()) {
