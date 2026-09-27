@@ -27,6 +27,11 @@ verification: >
   naming another server, a proof for that server was refused and one for the advertised URL issued a token - so
   the servlet path, the issuer and the token endpoint base URL read (no warning logged) all behave on a booted server
   as the unit tests assume.
+  2026-09-27, after the review: commit 980df9c counts PingFederate's runtime context path once, in the issuer (the
+  first cut added it again; EndpointUrlTest and ClientAttestationAuthFilterEndpointTest now drive a /sso context),
+  and commit bcd5363 gives the OGNL criterion the filter's seams, so CriterionEndpointTest drives it alone with a
+  Host header naming another server; reverting its htu to getRequestURL() fails three of its five tests. What the
+  rig did not exercise is registered as U-0120 to U-0124.
 target_release: 0.4.0
 notes: >
   In DPoP combined mode the filter and the OGNL criterion expected the proof's htu to be the request URL, which

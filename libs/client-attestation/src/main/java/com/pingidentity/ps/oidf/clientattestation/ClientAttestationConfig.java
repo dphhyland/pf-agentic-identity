@@ -85,8 +85,9 @@ public final class ClientAttestationConfig {
      * resource identifier. draft-ietf-oauth-attestation-based-client-auth-10 §5.1: "When the JWT is presented
      * to an Authorization Server, the [RFC8414] issuer identifier URL of the Authorization Server MUST be
      * used. [...] A Client Attestation PoP JWT is intended for a single audience, Clients MUST generate JWTs
-     * for each target." One value, not a set: a server that also accepted, say, its token endpoint URL would
-     * accept a PoP minted for another server that happens to share that URL's shape. {@code null} when
+     * for each target." One value, not a set: a server that also accepted the request URL, which a servlet
+     * container rebuilds from the {@code Host} header, would accept a PoP minted for another server whose
+     * endpoint shares this one's path, sent with a {@code Host} header naming that server. {@code null} when
      * unset, and then PoP mode is refused as a misconfiguration rather than checked against nothing.
      */
     public String expectedAudience() {
@@ -96,9 +97,11 @@ public final class ClientAttestationConfig {
     /**
      * The URL of the endpoint the proof is presented to, which a DPoP proof's {@code htu} must name (RFC 9449
      * §4.3, item 9). It comes from this server's configuration - for PingFederate, the endpoint URL it
-     * advertises for its issuer - and never from the request's {@code Host} header, {@code X-Forwarded-*} or
-     * the request URL a servlet container rebuilds from them: those are the caller's to write, and a proof
-     * minted for another server would otherwise pass with a {@code Host} header naming that server.
+     * advertises for its issuer - and is not rebuilt from the request's {@code Host} header, {@code X-Forwarded-*}
+     * or the request URL a servlet container derives from them: those are the caller's to write, and a proof
+     * minted for another server would otherwise pass with a {@code Host} header naming that server. PingFederate
+     * itself still consults the request when it picks its issuer: it chooses among the virtual host names and
+     * issuers it has configured by the request's host, and takes the port from the request.
      */
     public String expectedHtu() {
         return this.expectedHtu;

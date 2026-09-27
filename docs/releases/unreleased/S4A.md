@@ -31,16 +31,25 @@
    401 `invalid_client` and "DPoP proof verification failed: DPoP 'htu' mismatch: got '<the proof's htu>',
    expected '<the configured URL>'" (on the OGNL route, 400 `invalid_grant` and that text in `server.log`). What
    to change: make PingFederate's base URL (Server Settings > Federation Info) the URL clients use, which the
-   issuer in its tokens and discovery needs anyway, or add that name to its virtual host names; on the OGNL route
-   only, `extproperties.attestation_expected_htu` still pins one client's `htu`, if the deployment declares that
-   extended property. idp-agentic-demo is affected as it stands (read on 2026-09-27): its concierge sends `htu`
-   `https://pingfederate:9031/as/token.oauth2`, the compose default of `PF_TOKEN_URL`, while its PingFederate
-   advertises `https://localhost:9031`.
+   issuer in its tokens and discovery needs anyway. Adding the client's name to PingFederate's virtual host names
+   also works, but it moves the issuer: for a request that names a virtual host, PingFederate answers with that
+   name and the request's port as its issuer (`BaseUrlUtil.getCurrentBaseUrl`, 13.1.3, javap), so the PoP `aud`
+   the server expects under **A client attestation PoP must be addressed to PingFederate's issuer, and to nothing
+   else** and the `iss` of the tokens it issues change for those requests too. A PoP-mode client that reaches
+   PingFederate by that name but addresses its PoP to the base URL is then refused. On the OGNL route only,
+   `extproperties.attestation_expected_htu` still pins one client's `htu`, if the deployment declares that
+   extended property. In idp-agentic-demo (9eee704, read on 2026-09-27) the concierge (`agent/auth.py`) sends its
+   `PF_TOKEN_URL` as the `htu`, so it is affected when it runs with `TOKEN_MODE=pingfederate` and a `PF_TOKEN_URL`
+   whose host is neither PingFederate's base URL nor one of its virtual host names; its compose file defaults
+   `TOKEN_MODE` to `local` and sets no `PF_TOKEN_URL`. Its Entra bridge authenticates in PoP mode with `aud`
+   `PF_ISSUER` and sends no DPoP header, so this item does not touch it; its virtual-host caveat above does.
 
 3. **`ClientAttestationConfig` takes one expected audience.** For code that builds the verifier from
    libs/client-attestation: `Builder.acceptedAudiences(Set)` and `Builder.addAcceptedAudience(String)` are
    replaced by `Builder.expectedAudience(String)`, and `acceptedAudiences()` by `expectedAudience()`. Code that
-   calls the old methods no longer compiles. Pass the one identifier the verifying server answers to: an
+   calls the old methods no longer compiles; the one such caller found on 2026-09-27 is pf-oidf-modules'
+   `demo/spiffe-bootstrap/harness/BootstrapHttpHarness.java`, which calls `addAcceptedAudience(OP_ISSUER)` and
+   becomes `expectedAudience(OP_ISSUER)`. Pass the one identifier the verifying server answers to: an
    authorization server's issuer, or a resource server's resource identifier. DPoP combined mode is refused
    ("Server misconfigured: no expected DPoP htu") when neither `expectedHtu` nor the `requestUri` argument names
    the endpoint.
@@ -73,7 +82,7 @@ when the request's host is one of them, and the base URL for a host it does not 
 `ProviderConfigurationInfoHandler` builds `token_endpoint` from the token endpoint base URL or the issuer, and
 `pushed_authorization_request_endpoint` from the issuer; `pf-runtime.war` maps `*.oauth2` to its controller, so
 the servlet path is the whole path. `ReceivingServerBindingTest`, `HtuComparisonTest`,
-`ClientAttestationAuthFilterEndpointTest` and `EndpointUrlTest` pin the rules (`@Requirement` ABCA-10 §5.1 and
+`ClientAttestationAuthFilterEndpointTest`, `CriterionEndpointTest` and `EndpointUrlTest` pin the rules (`@Requirement` ABCA-10 §5.1 and
 §7.2(7), RFC7519 §2 and §4.1.3, RFC9449 §4.3(8) and §4.3(9)); the new decision methods are in their modules'
 100% METHOD gates; the full reactor passes `mvn -o -B clean verify` with the Postgres suites on JDK 20, and the
 changed modules on JDK 17 as well; `tools/pf-linkcheck.py` resolves every PingFederate member the artefacts link on
@@ -82,7 +91,12 @@ the 13.1.3 image. On a booted PingFederate 13.1.3 (the conformance rig, these mo
 combined-mode proof naming the advertised `token_endpoint` were issued tokens; the token endpoint as audience,
 `[issuer, another]`, and a proof naming another server were refused with the descriptions above; at PAR the filter
 expected `/as/par.oauth2`; and over the plain listener, with `Host` and `X-Forwarded-Host` naming another server, the
-same answers came back. Found on the way: the bridge signer cannot sign PS256 with an RSA key (F-0112, open).
+same answers came back. Found on the way: the bridge signer cannot sign PS256 with an RSA key (F-0112, open). The
+review of 2026-09-27 found that the first cut counted PingFederate's runtime context path twice (the issuer
+already carries it, as 13.1.3's `run.properties` and `OAuthIssuer.constructCurrentRequestUrl` show); the path is
+now the servlet path and path info alone, and `EndpointUrlTest` and `ClientAttestationAuthFilterEndpointTest`
+drive a `/sso` context. `CriterionEndpointTest` drives the OGNL criterion on its own with a `Host` header naming
+another server; reverting its `htu` to the request URL fails three of its five tests.
 
 Residual risk. When PingFederate matches the request's host to one of its virtual host names or issuers, it takes
 the port from the request (`BaseUrlUtil.getPort`), so a PoP or proof for another port of that same host name is
@@ -93,4 +107,6 @@ not a valid DNS name (an underscore, say) cannot be an expected `htu`, so combin
 token endpoint base URL is read from PingFederate internals (`MgmtFactory.getAuthzServerManager()`); if it cannot
 be read, the token endpoint stays under the issuer and a proof naming the base URL is refused. On the OGNL route
 `extproperties.attestation_expected_htu` can point the `htu` wherever an administrator writes; S4c makes per-client
-attestation properties tighten-only.
+attestation properties tighten-only. Not exercised on a booted PingFederate (U-0120 to U-0124): the OGNL
+criterion's servlet path, a virtual host name's port, a configured token endpoint base URL, a non-root runtime
+context path, and a forged `Host` over the HTTPS listener.
