@@ -49,8 +49,8 @@ import javax.net.ssl.TrustManagerFactory;
  * (the HTTPS endpoint identification algorithm, RFC 2818 §3.1), with the host sent as SNI. The handshake is
  * run to completion before anything is written, so the password in {@code AUTH} never travels before the
  * peer is verified. Under the production profile a plaintext {@code redis://} URL is refused: the same
- * password would otherwise cross the network in the clear. Plan item PR-1 (Phase 2) centralises the profile
- * read; until then {@link DeploymentProfile} is the whole definition.
+ * password would otherwise cross the network in the clear. The profile is platform's
+ * ({@link DeploymentProfile}, plan item PR-1).
  *
  * <p>Reply mapping: simple strings and bulk strings → {@link String}, integers → {@link Long},
  * nil → {@code null}, arrays → {@link List}. A Redis {@code -ERR} reply throws

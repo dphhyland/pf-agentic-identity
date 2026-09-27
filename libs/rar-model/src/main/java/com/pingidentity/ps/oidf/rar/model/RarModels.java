@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.rar.model;
 
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -56,11 +57,11 @@ public final class RarModels {
     /** The models document inline. Setting both this and the file is refused. */
     public static final String ENV_MODELS = "OIDF_RAR_MODELS";
     /**
-     * The deployment profile. Read directly here until plan item PR-1 centralises it in the platform
-     * library; unset means production, and only the exact value {@value #DEVELOPMENT_PROFILE} enables
-     * the common-fields fallback.
+     * The deployment profile, read through platform's {@code DeploymentProfile} (plan item PR-1): unset means
+     * production, and only the exact value {@value #DEVELOPMENT_PROFILE}, trimmed, enables the common-fields
+     * fallback - stricter than the profile rule, which takes any case (finding F-0160).
      */
-    public static final String ENV_PROFILE = "OIDF_DEPLOYMENT_PROFILE";
+    public static final String ENV_PROFILE = DeploymentProfile.SETTING;
     /** The profile value that enables the common-fields fallback. */
     public static final String DEVELOPMENT_PROFILE = "development";
     /**
@@ -143,7 +144,7 @@ public final class RarModels {
                 throw RarModelException.modelInvalid(ENV_MODELS_FILE + " could not be read: " + e.getMessage());
             }
         }
-        boolean development = DEVELOPMENT_PROFILE.equals(trimmed(env.get(ENV_PROFILE)));
+        boolean development = DeploymentProfile.isExactlyDevelopment(env::get);
         return load(json, development);
     }
 

@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -39,13 +40,20 @@ public final class PfIntrospectionReceiverAuthenticator implements ReceiverAuthe
         this.client = Objects.requireNonNull(client, "client");
     }
 
-    /** Runtime factory: a JDK-HttpClient introspection call with HTTP Basic client authentication. */
+    /** The switch that trusts any certificate on the introspection call (init-param {@code introspectionInsecureTls}). */
+    static final String INTROSPECTION_INSECURE_TLS = "OIDF_SSF_INTROSPECTION_INSECURE_TLS";
+
+    /**
+     * Runtime factory: a JDK-HttpClient introspection call with HTTP Basic client authentication. {@code trustAllTls}
+     * trusts any certificate chain through platform's {@link InsecureTls}, for a development PingFederate serving
+     * self-signed TLS; the host name is still checked.
+     */
     public static PfIntrospectionReceiverAuthenticator forEndpoint(String endpoint, String clientId,
                                                                    String clientSecret, boolean trustAllTls) {
         Objects.requireNonNull(endpoint, "introspection endpoint");
         String basic = Base64.getEncoder().encodeToString(
                 (clientId + ":" + clientSecret).getBytes(StandardCharsets.UTF_8));
-        HttpClient http = trustAllTls ? trustAllClient() : HttpClient.newHttpClient();
+        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), INTROSPECTION_INSECURE_TLS, trustAllTls).build();
         IntrospectionClient jdk = token -> {
             String form = "token=" + java.net.URLEncoder.encode(token, StandardCharsets.UTF_8)
                     + "&token_type_hint=access_token";
@@ -80,30 +88,6 @@ public final class PfIntrospectionReceiverAuthenticator implements ReceiverAuthe
         }
         String clientId = asString(resp.get("client_id"));
         return AuthContext.active(clientId, parseScopes(resp.get("scope")));
-    }
-
-    /** Accept-any-cert HTTP client for dev PF instances serving self-signed TLS ({@code introspectionInsecureTls}). */
-    private static HttpClient trustAllClient() {
-        try {
-            javax.net.ssl.TrustManager[] trustAll = {new javax.net.ssl.X509TrustManager() {
-                public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
-                    // dev trust-all
-                }
-
-                public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
-                    // dev trust-all
-                }
-
-                public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                    return new java.security.cert.X509Certificate[0];
-                }
-            }};
-            javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
-            ssl.init(null, trustAll, new java.security.SecureRandom());
-            return HttpClient.newBuilder().sslContext(ssl).build();
-        } catch (Exception e) {
-            throw new IllegalStateException("failed to build trust-all HTTP client", e);
-        }
     }
 
     /** RFC 7662 {@code scope} is a space-delimited string; some ATMs emit a JSON array — accept both. */

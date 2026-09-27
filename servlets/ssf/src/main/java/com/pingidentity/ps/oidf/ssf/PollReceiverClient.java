@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -118,9 +119,18 @@ public final class PollReceiverClient {
         }
     }
 
-    /** Runtime transport: POST JSON to the remote poll endpoint with a bearer token. */
+    /**
+     * The receiver's switch that trusts any certificate on its outbound calls (init-param {@code receiverInsecureTls}),
+     * as InsecureTls names it.
+     */
+    static final String RECEIVER_INSECURE_TLS = "OIDF_SSF_RECEIVER_INSECURE_TLS";
+
+    /**
+     * Runtime transport: POST JSON to the remote poll endpoint with a bearer token. {@code insecureTls} trusts any
+     * certificate chain through platform's {@link InsecureTls}; the host name is still checked.
+     */
     public static PollTransport httpTransport(String pollUrl, String bearerToken, boolean insecureTls) {
-        HttpClient http = insecureTls ? TrustAll.client() : HttpClient.newHttpClient();
+        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), RECEIVER_INSECURE_TLS, insecureTls).build();
         return bodyJson -> {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(pollUrl))
                     .header("Content-Type", "application/json")
@@ -135,34 +145,5 @@ public final class PollReceiverClient {
             }
             return resp.body();
         };
-    }
-
-    /** Shared dev trust-all HTTP client builder. */
-    static final class TrustAll {
-        private TrustAll() {
-        }
-
-        static HttpClient client() {
-            try {
-                javax.net.ssl.TrustManager[] trustAll = {new javax.net.ssl.X509TrustManager() {
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
-                        // dev trust-all
-                    }
-
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
-                        // dev trust-all
-                    }
-
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                        return new java.security.cert.X509Certificate[0];
-                    }
-                }};
-                javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
-                ssl.init(null, trustAll, new java.security.SecureRandom());
-                return HttpClient.newBuilder().sslContext(ssl).build();
-            } catch (Exception e) {
-                throw new IllegalStateException("failed to build trust-all HTTP client", e);
-            }
-        }
     }
 }

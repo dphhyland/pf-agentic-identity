@@ -1,68 +1,46 @@
 /*
- * The default event sink: one line per event in the server log.
+ * The default event sink: one line per event in the server log - a façade over platform's LoggingSink.
  */
 package com.pingidentity.ps.oidf.federation.event;
 
-import java.util.Map;
-import org.apache.commons.logging.Log;
-import org.apache.commons.logging.LogFactory;
+import com.pingidentity.ps.oidf.platform.events.LoggingSink;
+import java.util.Objects;
 
 /**
- * Writes each event as one line through commons-logging, which PingFederate routes to log4j2 and so to
- * {@code server.log} (where PF's own pattern adds the timestamp and its {@code trackingid}):
+ * Writes each event as one line in {@code server.log}, through platform's {@link LoggingSink}:
  *
  * <pre>event=federation.registration.created outcome=success subject=https://rp.example partner=https://ta.example type=automatic desc="registered from trust chain"</pre>
  *
- * <p>The logger is {@code com.pingidentity.ps.oidf.federation.event.<category>}, so an operator can raise
- * or lower one family ({@code ...event.fetch} is chatty) without touching the rest. A failure that
- * belongs in the audit log is written at WARN, fetches at DEBUG, everything else at INFO. Every value
- * goes through {@link LogSafe}.
+ * <p>The logger is {@code com.pingidentity.ps.oidf.federation.event.<category>} - the {@code logger} the
+ * federation catalogue names - so an operator can raise or lower one family ({@code ...event.fetch} is chatty)
+ * without touching the rest. A failure that belongs in the audit log is written at WARN, a code the catalogue
+ * marks {@code debug} (fetches) at DEBUG, everything else at INFO. A field the event's code does not declare is
+ * dropped and counted, and every value goes through {@link LogSafe}.
+ *
+ * @deprecated Use {@link LoggingSink}; plan item O-2 (Phase 3) removes this façade.
  */
+@Deprecated(since = "0.5.0", forRemoval = true)
+@SuppressWarnings("removal")
 public final class LoggingEventSink implements FederationEventSink {
     public static final String LOGGER_PREFIX = "com.pingidentity.ps.oidf.federation.event.";
 
-    @Override
-    public void emit(FederationEvent event) {
-        try {
-            Log log = LogFactory.getLog(LOGGER_PREFIX + event.category());
-            if ("fetch".equals(event.category())) {
-                if (log.isDebugEnabled()) {
-                    log.debug(format(event));
-                }
-            } else if (event.isFailure() && event.audit()) {
-                log.warn(format(event));
-            } else if (log.isInfoEnabled()) {
-                log.info(format(event));
-            }
-        } catch (RuntimeException ignored) {
-            // Recording an event never fails the request it describes.
-        }
+    private final LoggingSink delegate;
+
+    public LoggingEventSink() {
+        this(new LoggingSink());
     }
 
-    /** The line this sink writes for {@code event}. */
+    LoggingEventSink(LoggingSink delegate) {
+        this.delegate = Objects.requireNonNull(delegate, "delegate");
+    }
+
+    @Override
+    public void emit(FederationEvent event) {
+        this.delegate.emit(event.toEvent());
+    }
+
+    /** The line this sink writes for {@code event}, every field it carries included. */
     public static String format(FederationEvent event) {
-        StringBuilder line = new StringBuilder(160);
-        line.append("event=").append(LogSafe.quoted(event.code()));
-        line.append(" outcome=").append(event.outcome().code());
-        if (event.reason() != null) {
-            line.append(" reason=").append(LogSafe.quoted(event.reason()));
-        }
-        if (event.subject() != null) {
-            line.append(" subject=").append(LogSafe.quoted(event.subject()));
-        }
-        if (event.partner() != null) {
-            line.append(" partner=").append(LogSafe.quoted(event.partner()));
-        }
-        for (Map.Entry<String, String> field : event.fields().entrySet()) {
-            line.append(' ').append(LogSafe.value(field.getKey()).replace(' ', '_').replace('=', '_'))
-                    .append('=').append(LogSafe.quoted(field.getValue()));
-        }
-        if (event.requestJti() != null) {
-            line.append(" request_jti=").append(LogSafe.quoted(event.requestJti()));
-        }
-        if (event.description() != null) {
-            line.append(" desc=").append(LogSafe.quoted(event.description()));
-        }
-        return line.toString();
+        return LoggingSink.format(event.toEvent());
     }
 }

@@ -48,6 +48,14 @@ public final class PlatformLog {
         return of(owner.getName(), COMMONS);
     }
 
+    /**
+     * The logger for a name that is not one class's: an event family's, whose name the event catalogue gives
+     * ({@code com.pingidentity.ps.oidf.federation.event.registration}).
+     */
+    public static PlatformLog get(String name) {
+        return of(name, COMMONS);
+    }
+
     /** The logger for a name, through commons-logging or through {@link System.Logger}. */
     static PlatformLog of(String name, boolean commons) {
         return new PlatformLog(commons ? CommonsLoggingSink.of(name) : new JdkSink(name));

@@ -332,8 +332,9 @@ with the descriptor's default when it creates an instance: the rig's probe insta
 was stored with all fifteen (2026-09-27). The version PingFederate shows for the plugin is the jar's
 `Implementation-Version`, the project version it was built as.
 
-`OIDF_DEPLOYMENT_PROFILE` is read straight from the environment until PR-1 (the platform library)
-centralises the profile; `development` (any case) is development, anything else including unset is production.
+`OIDF_DEPLOYMENT_PROFILE` is read through libs/platform's `DeploymentProfile` (plan item PR-1), shaded into
+the jar under `com.pingidentity.ps.oidf.rar.shaded.platform`; `development` (trimmed, any case) is development,
+anything else including unset is production.
 The RAR model set reads the same variable through the library, which takes exactly `development` (whitespace
 trimmed) for its common-fields fallback, so `Development` relaxes the plugin's own switches and not the model.
 
@@ -382,7 +383,11 @@ as older notes for this plugin said: the JDK reads the property once for the who
 `java.net.http` client in that PingFederate stops checking hostnames - this repo's federation fetches, the
 OpenBao signer and the SSF servlet's push, poll and introspection calls, not only this plugin's. Any
 certificate from a trusted CA would then pass for any host. (Read from the JDK in the 13.1.3 image,
-OpenJDK 21.0.12.1: `AbstractAsyncSSLConnection` takes the flag from a static field, 2026-09-26.)
+OpenJDK 21.0.12.1: `AbstractAsyncSSLConnection` takes the flag from a static field, 2026-09-26; run in that
+image's JDK against a self-signed certificate for another name on 2026-09-28: refused without the flag, accepted
+with it.) The trust-all itself is libs/platform's `InsecureTls` (plan item PR-1), shaded into the jar: the
+first instance configured with it honoured logs one WARN naming the field, and the use is recorded for the
+start-up audit. `JdkHttpTransportInsecureTlsTest` holds the hostname check to a certificate for the wrong name.
 
 ## Verified on the rig
 

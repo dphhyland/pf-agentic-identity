@@ -1,0 +1,52 @@
+{
+  "component": "attestation-issuer",
+  "module": "servlets/attestation-issuer",
+  "description": "The attester: client attestations minted for agent instances, and the binding of instance evidence to an instance key.",
+  "logger": "com.pingidentity.ps.oidf.federation.event",
+  "auditProtocol": "Client Attestation",
+  "fields": {
+    "bound_client": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The client id that holds the evidence's binding."
+    },
+    "bound_jkt": {
+      "pii": "CREDENTIAL_DIGEST",
+      "description": "The JWK thumbprint of the instance key that holds the evidence's binding."
+    },
+    "evidence_sha256": {
+      "pii": "CREDENTIAL_DIGEST",
+      "description": "The SHA-256 of the instance evidence presented."
+    },
+    "evidence_type": {
+      "pii": "OPERATIONAL",
+      "description": "The kind of instance evidence presented."
+    },
+    "instance_subject": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "The workload's own subject from its evidence (a SPIFFE id, for one). Never recorded beside agent_id."
+    },
+    "presented_jkt": {
+      "pii": "CREDENTIAL_DIGEST",
+      "description": "The JWK thumbprint of the instance key refused now."
+    }
+  },
+  "events": {
+    "attestation.evidence.conflict": {
+      "description": "The attester was shown instance evidence already bound to another instance key or client, and refused it.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "evidence_sha256",
+        "evidence_type",
+        "instance_subject",
+        "presented_jkt",
+        "bound_jkt",
+        "bound_client"
+      ],
+      "declaredOnly": false
+    }
+  }
+}
