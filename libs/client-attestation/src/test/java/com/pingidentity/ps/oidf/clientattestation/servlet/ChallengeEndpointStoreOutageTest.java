@@ -54,4 +54,12 @@ class ChallengeEndpointStoreOutageTest {
         assertTrue(body.toString().contains("\"temporarily_unavailable\""), body.toString());
         assertTrue(!body.toString().contains("attestation_challenge"), body.toString());
     }
+
+    @Test
+    void aRequestWithNoCallerAddressMeetsTheSameOutage() throws Exception {
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        when(resp.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
+        new ClientAttestationChallengeServlet().doPost(null, resp);
+        org.mockito.Mockito.verify(resp).setStatus(503);
+    }
 }

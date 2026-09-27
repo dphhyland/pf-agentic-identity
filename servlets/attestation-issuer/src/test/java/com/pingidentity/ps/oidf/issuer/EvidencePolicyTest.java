@@ -35,6 +35,9 @@ class EvidencePolicyTest {
         assertEquals(86400L, p.maxEvidenceLifetimeSeconds());
         assertFalse(p.requireSingleAudience());
         assertEquals(86400L, EvidencePolicy.defaults().maxEvidenceLifetimeSeconds());
+        EvidencePolicy blank = EvidencePolicy.fromEnvironment(none(), k -> "  ");
+        assertEquals(86400L, blank.maxEvidenceLifetimeSeconds(), "a blank variable is an unset one");
+        assertFalse(blank.requireSingleAudience());
     }
 
     @Test

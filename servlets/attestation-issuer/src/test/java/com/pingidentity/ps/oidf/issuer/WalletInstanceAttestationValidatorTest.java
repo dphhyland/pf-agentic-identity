@@ -217,4 +217,16 @@ class WalletInstanceAttestationValidatorTest {
                 NumericDate.now().getValue() + 600, NumericDate.now().getValue(), "header.payload.signature");
         assertNull(InstanceIdentity.ofSpiffe(svid).boundKey());
     }
+
+    @Test
+    void theIssuedAtIsReadWhenPresentAndOtherwiseZero() throws Exception {
+        org.jose4j.jwt.JwtClaims none = new org.jose4j.jwt.JwtClaims();
+        assertEquals(0L, WalletInstanceAttestationValidator.issuedAt(none));
+        org.jose4j.jwt.JwtClaims numeric = new org.jose4j.jwt.JwtClaims();
+        numeric.setClaim("iat", 1_800_000_000L);
+        assertEquals(1_800_000_000L, WalletInstanceAttestationValidator.issuedAt(numeric));
+        org.jose4j.jwt.JwtClaims malformed = new org.jose4j.jwt.JwtClaims();
+        malformed.setClaim("iat", "yesterday");
+        assertEquals(0L, WalletInstanceAttestationValidator.issuedAt(malformed), "a malformed iat is none; exp still bounds the WIA");
+    }
 }

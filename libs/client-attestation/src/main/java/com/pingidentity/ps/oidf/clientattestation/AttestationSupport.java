@@ -143,6 +143,24 @@ public final class AttestationSupport {
         return redis;
     }
 
+    /** Forgets every store, the shared client and any refusal, so a test starts from nothing. */
+    static void reset() {
+        synchronized (LOCK) {
+            if (redis != null) {
+                redis.close();
+            }
+            redis = null;
+            redisRefusal = null;
+            REDIS_STORES.clear();
+            MEMORY_CHALLENGES.clear();
+            MEMORY_REPLAYS.clear();
+            memoryEvidence = null;
+            challengeTtlSeconds = AttestationChallengeService.DEFAULT_TTL_SECONDS;
+            challengeMaxEntries = AttestationChallengeService.DEFAULT_MAX_ENTRIES;
+            replayMaxEntries = AttestationReplayCache.DEFAULT_MAX_ENTRIES;
+        }
+    }
+
     private static String redisUrl() {
         String url = System.getProperty("oidf.redis.url");
         if (url == null || url.isBlank()) {

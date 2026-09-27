@@ -67,6 +67,30 @@ class MiniRedisClientTest {
     }
 
     @Test
+    void theTransportRuleIsTlsInProductionAndEitherInDevelopment() {
+        assertNull(MiniRedisClient.transportRefusal(true, true));
+        assertNull(MiniRedisClient.transportRefusal(true, false));
+        assertNull(MiniRedisClient.transportRefusal(false, false));
+        assertTrue(MiniRedisClient.transportRefusal(false, true).contains("rediss://"));
+    }
+
+    @Test
+    void aRefusedUrlNeverCarriesItsPasswordIntoTheMessage() {
+        // java.net.URI finds no host in a name with an underscore, and quotes the whole input when it cannot parse.
+        IllegalArgumentException noHost = assertThrows(IllegalArgumentException.class,
+                () -> new MiniRedisClient("rediss://:s3cret@redis_cache:6379", null, true));
+        assertFalse(noHost.getMessage().contains("s3cret"), noHost.getMessage());
+        assertTrue(noHost.getMessage().contains("rediss://***@redis_cache:6379"), noHost.getMessage());
+        IllegalArgumentException unparsable = assertThrows(IllegalArgumentException.class,
+                () -> new MiniRedisClient("rediss://:s3 cret@cache.example.com", null, true));
+        assertFalse(unparsable.getMessage().contains("s3"), unparsable.getMessage());
+        assertEquals("rediss://***@h:1/0", MiniRedisClient.redact("rediss://u:p@ss/w@h:1/0"));
+        assertEquals("rediss://h:1", MiniRedisClient.redact("rediss://h:1"));
+        assertEquals("no-scheme@h", MiniRedisClient.redact("no-scheme@h"));
+        assertNull(MiniRedisClient.redact(null));
+    }
+
+    @Test
     void plaintextIsAllowedInDevelopmentAndTlsIsAllowedEverywhere() {
         try (MiniRedisClient dev = new MiniRedisClient("redis://cache.example.com", null, false)) {
             assertFalse(dev.tls());
@@ -120,6 +144,11 @@ class MiniRedisClientTest {
         IllegalArgumentException noCert = assertThrows(IllegalArgumentException.class,
                 () -> MiniRedisClient.sslContextFor(empty.toString()));
         assertTrue(noCert.getMessage().contains(MiniRedisClient.CA_FILE_ENV), noCert.getMessage());
+        Path zero = dir.resolve("zero.pem");
+        Files.writeString(zero, "");
+        IllegalArgumentException none = assertThrows(IllegalArgumentException.class,
+                () -> MiniRedisClient.sslContextFor(zero.toString()));
+        assertTrue(none.getMessage().contains("holds no certificate"), none.getMessage());
     }
 
     @Test

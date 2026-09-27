@@ -86,19 +86,24 @@ final class MiniRedisClient implements Closeable {
      * @throws IllegalArgumentException for a URL this client does not accept, or a CA file it cannot use
      */
     MiniRedisClient(String url, String caFile, boolean production) {
-        URI uri = URI.create(url.trim());
+        URI uri;
+        try {
+            uri = URI.create(url.trim());
+        } catch (IllegalArgumentException e) {
+            // URI's own message quotes the input, password and all; this one does not.
+            throw new IllegalArgumentException("Redis URL is not a valid URI: " + redact(url));
+        }
         String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase();
         if (!scheme.equals("redis") && !scheme.equals("rediss")) {
             throw new IllegalArgumentException("Unsupported Redis URL scheme: " + uri.getScheme());
         }
         if (uri.getHost() == null) {
-            throw new IllegalArgumentException("Redis URL has no host: " + url);
+            throw new IllegalArgumentException("Redis URL has no host: " + redact(url));
         }
         this.tls = scheme.equals("rediss");
-        if (!this.tls && production) {
-            throw new IllegalArgumentException("the Redis URL is redis:// (plaintext); the production profile accepts"
-                    + " rediss:// only, because the password in AUTH would otherwise cross the network in the clear."
-                    + " Use rediss://, or set " + DeploymentProfile.PROFILE_ENV + "=development on a rig");
+        String refusal = transportRefusal(this.tls, production);
+        if (refusal != null) {
+            throw new IllegalArgumentException(refusal);
         }
         this.sslContext = this.tls ? sslContextFor(caFile) : null;
         this.host = uri.getHost();
@@ -232,6 +237,35 @@ final class MiniRedisClient implements Closeable {
         return base;
     }
 
+    /**
+     * Why a URL's transport is refused, or null when it is allowed: the production profile accepts {@code rediss://}
+     * only, because the password in {@code AUTH} would otherwise cross the network in the clear.
+     */
+    static String transportRefusal(boolean tls, boolean production) {
+        if (tls || !production) {
+            return null;
+        }
+        return "the Redis URL is redis:// (plaintext); the production profile accepts rediss:// only, because the"
+                + " password in AUTH would otherwise cross the network in the clear. Use rediss://, or set "
+                + DeploymentProfile.PROFILE_ENV + "=development on a rig";
+    }
+
+    /**
+     * {@code url} with its userinfo replaced by {@code ***}, for messages that reach a log: everything between the
+     * scheme's {@code ://} and the last {@code @}, so a password with an unencoded {@code @} or {@code /} goes too.
+     */
+    static String redact(String url) {
+        if (url == null) {
+            return null;
+        }
+        int authority = url.indexOf("://");
+        int at = url.lastIndexOf('@');
+        if (authority < 0 || at < authority) {
+            return url;
+        }
+        return url.substring(0, authority + 3) + "***" + url.substring(at);
+    }
+
     static boolean isIpLiteral(String host) {
         return host.startsWith("[") || IPV4.matcher(host).matches();
     }
@@ -244,11 +278,7 @@ final class MiniRedisClient implements Closeable {
      */
     static SSLContext sslContextFor(String caFile) {
         if (caFile == null || caFile.isBlank()) {
-            try {
-                return SSLContext.getDefault();
-            } catch (GeneralSecurityException e) {
-                throw new IllegalStateException("no default SSLContext", e);
-            }
+            return jvmDefaultContext();
         }
         Path path = Path.of(caFile.trim());
         try (InputStream in = Files.newInputStream(path)) {
@@ -270,6 +300,14 @@ final class MiniRedisClient implements Closeable {
         } catch (IOException | GeneralSecurityException e) {
             throw new IllegalArgumentException(CA_FILE_ENV + " names " + path + ", which cannot be used as a CA file: "
                     + e.getMessage(), e);
+        }
+    }
+
+    private static SSLContext jvmDefaultContext() {
+        try {
+            return SSLContext.getDefault();
+        } catch (GeneralSecurityException e) {
+            throw new IllegalStateException("no default SSLContext", e);
         }
     }
 

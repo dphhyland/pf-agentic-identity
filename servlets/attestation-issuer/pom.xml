@@ -132,6 +132,18 @@
                                         <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.ofSpiffe(*</include>
                                         <!-- M-1: the CAS document does not advertise a CIMD source the attester refuses. -->
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadataSources(*</include>
+                                        <!-- S3b: the digest that keys the binding, which covers only what the evidence's
+                                             signature covers; the refusal's error by format; which stores the
+                                             attester uses when none is injected; the thumbprint the binding holds; and
+                                             the WIA's iat, which the whole-lifetime cap reads. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.evidenceDigest(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.refuse(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.firstSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.issuedAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.challengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.replayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.evidenceBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.thumbprintOf(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
