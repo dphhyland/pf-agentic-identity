@@ -13,9 +13,9 @@
 # and the one run of it (pull request #33, run 36309012583, 2026-09-27) took 13 min 35 s on macos-latest - 11 min
 # 37 s of it the traced `swift build` of AgentIdentityKit - against about 5 min for Java, and found nothing with
 # 27 rules. Running it only when clients/ios changes would leave every other pull request without a category
-# main has, which code scanning reports on the pull request as "Code scanning cannot determine the alerts
-# introduced by this pull request, because 1 configuration present on refs/heads/main was not found"
-# (github/codeql discussion 18506, for /language:swift; GitHub's own documents do not describe the case).
+# main has, which github/codeql discussion 18506 (for /language:swift) says code scanning reports on the pull
+# request as "Code scanning cannot determine the alerts introduced by this pull request, because 1
+# configuration present on refs/heads/main was not found". GitHub's own documents do not describe the case.
 name: CodeQL
 
 on:

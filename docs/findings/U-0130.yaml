@@ -22,7 +22,9 @@ notes: >
   which reports it for /language:swift - and a GitHub staff answer in community discussion 153284 says to keep
   such an analysis running on pull requests; GitHub's own documents do not describe the case (read
   2026-09-27). Swift on every event works: PR #33's run 36309012583 (2026-09-27) analysed AgentIdentityKit on
-  macos-latest (Xcode 26.6, Swift 6.3.3, inside CodeQL's supported "Swift 5.4-6.3") with a manual
-  `swift build --arch arm64`, as GitHub's CodeQL build notes recommend, and found nothing with 27 rules. But it
-  took 13 min 35 s, 11 min 37 s of it the traced build, against about 5 min for Java, on every pull request.
-  So codeql.yml leaves Swift out for now, and this records the question.
+  macos-latest, runner image macos-26-arm64 20260907.0351.1, with a manual `swift build --arch arm64`, as
+  GitHub's CodeQL build notes recommend, and found nothing with 27 rules. That run's log names no toolchain;
+  the iOS workflow's run 36307528301, on the same image version half an hour earlier, printed Xcode 26.6 and
+  Swift 6.3.3, inside CodeQL's supported "Swift 5.4-6.3". But the analysis took 13 min 35 s, 11 min 37 s of it
+  the traced build, against about 5 min for Java, on every pull request. So codeql.yml leaves Swift out for
+  now, and this records the question.

@@ -21,8 +21,9 @@ verification: >
   OIDF_CIBA_SIM_ENABLED=true, OIDF_DEPLOYMENT_PROFILE=development and OIDF_CIBA_SIM_DIR is an absolute,
   non-symlink directory owned by the process user with mode 0700; SimulatorGateTest (8), DecisionStoreTest (8),
   CibaSimDecisionServletTest (6) and SimOobAuthenticatorTest (5) passed. Left over, both outside the image:
-  v0.3.0's release assets carry the simulator with its old single switch (fixed from 0.4.0), and every release
-  still publishes it to GitHub Packages (F-0120).
+  v0.1.5's and v0.3.0's release assets carry the simulator with its old single switch (fixed from 0.4.0; no
+  earlier release carries it, `gh release view` 2026-09-27), and every release still publishes it to GitHub
+  Packages (F-0120).
 target_release: 0.4.0
 notes: >
   The CIBA simulator built for the conformance rig is staged into every image, gated only by

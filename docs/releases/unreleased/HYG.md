@@ -46,12 +46,14 @@ What changed:
     themselves, and `AttestationSupportTest` skips itself when it sees either. The script works the same on a
     Mac, and the client-attestation README and `RedisLiveTest`'s javadoc point at it.
 - **CodeQL and Swift.** A `swift` entry on macos-latest with a manual `swift build --arch arm64` of
-  AgentIdentityKit worked (PR #33's run 36309012583: Xcode 26.6, Swift 6.3.3, 27 rules, nothing found), but took
-  13 min 35 s, 11 min 37 s of it the traced build, against about 5 min for Java. Running it only when
-  clients/ios changes would leave every other pull request without a category main has, which code scanning
+  AgentIdentityKit worked (PR #33's run 36309012583, on runner image macos-26-arm64 20260907.0351.1: 27 rules,
+  nothing found), but took 13 min 35 s, 11 min 37 s of it the traced build, against about 5 min for Java. That
+  run's log names no toolchain; the iOS workflow's run 36307528301, on the same image version half an hour
+  earlier, printed Xcode 26.6 and Swift 6.3.3. Running Swift only when clients/ios changes would leave every
+  other pull request without a category main has, which github/codeql discussion 18506 says code scanning
   reports as "Code scanning cannot determine the alerts introduced by this pull request, because 1
-  configuration present on refs/heads/main was not found" (github/codeql discussion 18506). So codeql.yml says
-  why Swift is not analysed, and U-0130 records the options.
+  configuration present on refs/heads/main was not found"; GitHub's own documents do not describe the case. So
+  codeql.yml says why Swift is not analysed, and U-0130 records the question and the options.
 - **The register.** F-0014 is closed with the staging, assembler and gate evidence below. F-0066 is closed: no
   statement describes the 13.0.3 build except the history PR #13 kept. F-0120 (every release publishes the
   simulator to GitHub Packages), F-0121 (documentation later changes made false, left for the packages that own

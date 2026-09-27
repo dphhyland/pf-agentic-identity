@@ -14,8 +14,8 @@ notes: |
   - showcase DATA, modules[13] (libs/conformance): the statusNote says CI "fails when the committed copy is
     stale", and the dashboard has not been committed since PR #15 (plan decision 18); features[0] counts 192
     @Requirement uses in 52 test files across 14 modules and facts[3] 14 dependent poms, where a grep on
-    2026-09-27 finds @Requirement in 135 test files under 16 module directories and 17 poms besides its own
-    that depend on it.
+    2026-09-27 finds 721 @Requirement uses in 134 test files under 16 module directories, and 16 module poms
+    that depend on it at test scope (the BOM also manages its version).
   - showcase DATA, modules[6] (instance-registry-datasource) facts[5], the PF-INF/custom-drivers settings row
     and the SDK plugins page's intro call the descriptor name unverified (item 9), where docs/unverified.md
     item 9 now says item 4 settled it.
