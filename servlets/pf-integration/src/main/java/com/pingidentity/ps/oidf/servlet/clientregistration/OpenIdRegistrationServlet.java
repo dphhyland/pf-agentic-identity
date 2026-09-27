@@ -14,6 +14,7 @@ import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
 
 /**
@@ -40,17 +41,25 @@ extends RequestScopedServlet {
     }
 
     public void init(ServletConfig config) throws ServletException {
-        PfAuditEventSink.install();
-        super.init(config);
-        if (this.RegistrationService != null) {
-            return;
-        }
+        var part = Startup.begin(Startup.FEDERATION, "OpenIdRegistrationServlet");
         try {
-            RegistrationConfiguration registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
-            this.RegistrationService = new RegistrationService(registrationConfiguration);
-        }
-        catch (Exception e) {
-            throw new ServletException("Failed to initialize OpenID Registration servlet", e);
+            PfAuditEventSink.install();
+            super.init(config);
+            if (this.RegistrationService != null) {
+                return;
+            }
+            try {
+                RegistrationConfiguration registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
+                this.RegistrationService = new RegistrationService(registrationConfiguration);
+            }
+            catch (Exception e) {
+                throw new ServletException("Failed to initialize OpenID Registration servlet", e);
+            }
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
     }
 

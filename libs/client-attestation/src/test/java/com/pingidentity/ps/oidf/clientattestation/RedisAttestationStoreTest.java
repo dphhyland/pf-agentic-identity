@@ -10,6 +10,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.Consumption;
 import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache.Verdict;
 import com.pingidentity.ps.oidf.clientattestation.EvidenceBindingStore.Binding;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.redis.RedisClient;
+import com.pingidentity.ps.oidf.platform.redis.RedisConfig;
 import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
@@ -30,12 +33,39 @@ class RedisAttestationStoreTest {
 
     /** A store over a plaintext URL, as a development rig runs it; the fake server speaks no TLS. */
     private static RedisAttestationStore store(String url, StoreNamespace namespace, long ttlSeconds) {
-        return new RedisAttestationStore(new MiniRedisClient(url, null, false), true, namespace, ttlSeconds, Clock.systemUTC());
+        return new RedisAttestationStore(client(url), true, namespace, ttlSeconds, Clock.systemUTC());
+    }
+
+    /** Platform's client over a plaintext URL, as a development rig runs it. */
+    private static RedisClient client(String url) {
+        return new RedisClient(RedisConfig.builder(url).profile(DeploymentProfile.DEVELOPMENT).build());
+    }
+
+    @Test
+    void keysAZeroFourZeroNodeWroteAreFoundWhereItWroteThem() throws Exception {
+        // A rolling upgrade: a 0.4.0 node wrote these with MiniRedisClient's raw commands; a 0.5.0 node reads them.
+        try (RedisClient raw = client(redis.url());
+             RedisAttestationStore cas = store(redis.url(), StoreNamespace.CAS, 300L)) {
+            raw.call("SET", "oidf:as:challenge:issued-by-0.4.0", "1", "EX", "300");
+            assertEquals(Consumption.CONSUMED, store.consumeChallenge("issued-by-0.4.0"));
+            raw.call("SET", "oidf:as:jti:https://client.example spent-on-0.4.0", "1", "NX", "EX", "300");
+            assertEquals(Verdict.REPLAY, store.record("https://client.example", "spent-on-0.4.0", 300L));
+            raw.call("SET", "oidf:cas:evidence:sha-0.4.0", "jkt-1 https://client.example", "NX", "PX", "600000");
+            assertEquals(Binding.BOUND, cas.bind("sha-0.4.0", "jkt-1", "https://client.example", now() + 600L).binding());
+            assertEquals(Binding.CONFLICT, cas.bind("sha-0.4.0", "jkt-2", "https://client.example", now() + 600L).binding());
+        }
+        // And what 0.5.0 writes is where 0.4.0 would look.
+        String challenge = store.issue();
+        assertTrue(redis.keys().contains(StoreNamespace.AS.challengeKey(challenge)), redis.keys().toString());
+        assertEquals("oidf:as:challenge:" + challenge, StoreNamespace.AS.challengeKey(challenge));
+        assertEquals("oidf:fed:endpoint:jti:c j", StoreNamespace.FED_ENDPOINT.jtiKey("c", "j"));
+        assertEquals("oidf:admin:dpop:jti: j", StoreNamespace.ADMIN_DPOP.jtiKey(null, "j"));
+        assertEquals("oidf:cas:evidence:d", StoreNamespace.CAS.evidenceKey("d"));
     }
 
     @Test
     void thePublicConstructorReadsTheProfileAndRefusesPlaintextInProduction() {
-        if (DeploymentProfile.isProduction(System::getenv)) {
+        if (DeploymentProfile.current().isProduction()) {
             assertThrows(IllegalArgumentException.class, () -> new RedisAttestationStore(redis.url(), 300L));
             assertThrows(IllegalArgumentException.class, () -> new RedisAttestationStore(redis.url(), StoreNamespace.CAS, 300L));
         }
@@ -251,7 +281,7 @@ class RedisAttestationStoreTest {
 
     @Test
     void aSharedClientIsNotClosedByAViewThatDoesNotOwnIt() throws Exception {
-        MiniRedisClient client = new MiniRedisClient(redis.url(), null, false);
+        RedisClient client = client(redis.url());
         RedisAttestationStore view = new RedisAttestationStore(client, false, StoreNamespace.FED_ENDPOINT, 300L,
                 Clock.fixed(Instant.now(), ZoneOffset.UTC));
         assertEquals(Verdict.FIRST_USE, view.record("c", "j", 300L));

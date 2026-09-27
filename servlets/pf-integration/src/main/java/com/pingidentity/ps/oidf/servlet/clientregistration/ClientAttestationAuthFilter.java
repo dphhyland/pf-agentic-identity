@@ -16,6 +16,7 @@ import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
@@ -137,66 +138,77 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        this.requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
-                System.getenv(REQUIRE_HOSTED_AGENT_ENV));
-        // Signing keys are per client and resolved per request, so what is checked here is whether bridge
-        // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
-        // signing configured is one where this filter passes everything through and those clients are
-        // authenticated by nothing - the failure that must not be silent. Per-client absence is a
-        // different thing and is a 401 for that client, not a boot failure for everyone.
+        var part = Startup.begin(Startup.ATTESTATION_AUTH, "ClientAttestationAuthFilter");
         try {
-            this.bridgeConfigured = BridgeSigners.isConfigured();
-        }
-        catch (IllegalStateException e) {
-            // A broken or superseded configuration is a deployment error, and the container contract for
-            // that is ServletException - an IllegalStateException out of init is not reliably surfaced.
-            throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
-        }
-        if (!this.bridgeConfigured) {
-            if (BridgeSigners.isRequired()) {
-                throw new ServletException("attest_jwt_client_auth: no bridge signing configured. Set "
-                        + BridgeSigners.BACKING_ENV + " and " + BridgeSigners.KEYS_ENV + ", or set "
-                        + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV
-                        + "=false to deploy without attestation-based client authentication.");
+            this.requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
+                    System.getenv(REQUIRE_HOSTED_AGENT_ENV));
+            // Signing keys are per client and resolved per request, so what is checked here is whether bridge
+            // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
+            // signing configured is one where this filter passes everything through and those clients are
+            // authenticated by nothing - the failure that must not be silent. Per-client absence is a
+            // different thing and is a 401 for that client, not a boot failure for everyone.
+            try {
+                this.bridgeConfigured = BridgeSigners.isConfigured();
             }
-            LOGGER.warn((Object) ("attest_jwt_client_auth: no bridge signing and "
-                    + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV + "=false - attestation headers will "
-                    + "pass through and PF will enforce each client's configured authentication."));
-        } else {
-            // Attestation authentication is live, so an attester that is not statically trusted resolves
-            // through a trust chain to the deployment's anchor, whose keys are pinned out of band (OpenID
-            // Federation 1.0 §4). A pinned JWKS that is not a usable public key set can never work: refuse
-            // to start. An absent one is refused per attester instead - failing init would also stop this
-            // web app's own /.well-known/openid-federation, which a self-anchored PF has to serve before
-            // its keys can be captured - so say so once, loudly, here.
-            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-            if (runtime.isTrustControllerConfigured()) {
-                if (!runtime.hasTrustAnchors()) {
-                    LOGGER.error((Object) ("attest_jwt_client_auth: " + FederationRuntimeConfig.HOST_ENV + " names "
-                            + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
-                            + " is unset - every attester resolved through the federation is refused until the trust"
-                            + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
-                } else {
-                    try {
-                        runtime.trustAnchors();
-                    }
-                    catch (RuntimeException e) {
-                        throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
+            catch (IllegalStateException e) {
+                // A broken or superseded configuration is a deployment error, and the container contract for
+                // that is ServletException - an IllegalStateException out of init is not reliably surfaced.
+                throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
+            }
+            if (!this.bridgeConfigured) {
+                if (BridgeSigners.isRequired()) {
+                    throw new ServletException("attest_jwt_client_auth: no bridge signing configured. Set "
+                            + BridgeSigners.BACKING_ENV + " and " + BridgeSigners.KEYS_ENV + ", or set "
+                            + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV
+                            + "=false to deploy without attestation-based client authentication.");
+                }
+                LOGGER.warn((Object) ("attest_jwt_client_auth: no bridge signing and "
+                        + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV + "=false - attestation headers will "
+                        + "pass through and PF will enforce each client's configured authentication."));
+                part.disabled();
+            } else {
+                // Attestation authentication is live, so an attester that is not statically trusted resolves
+                // through a trust chain to the deployment's anchor, whose keys are pinned out of band (OpenID
+                // Federation 1.0 §4). A pinned JWKS that is not a usable public key set can never work: refuse
+                // to start. An absent one is refused per attester instead - failing init would also stop this
+                // web app's own /.well-known/openid-federation, which a self-anchored PF has to serve before
+                // its keys can be captured - so say so once, loudly, here.
+                FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+                if (runtime.isTrustControllerConfigured()) {
+                    if (!runtime.hasTrustAnchors()) {
+                        LOGGER.error((Object) ("attest_jwt_client_auth: " + FederationRuntimeConfig.HOST_ENV + " names "
+                                + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                                + " is unset - every attester resolved through the federation is refused until the trust"
+                                + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
+                        part.degraded(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: every attester resolved through"
+                                + " the federation is refused; statically trusted attesters are unaffected");
+                    } else {
+                        try {
+                            runtime.trustAnchors();
+                        }
+                        catch (RuntimeException e) {
+                            throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
+                        }
                     }
                 }
+                // The containment model the token gate asks, once per classloader: a models document that cannot be
+                // read would leave the gate enforcing something other than what the deployment wrote, so the filter
+                // refuses to start - the same contract as a broken bridge configuration above. Plan item S-9 (Phase 3)
+                // replaces refusing to start with a filter that starts and refuses only attestation traffic.
+                try {
+                    this.rarModels = AttestationRarModels.get();
+                }
+                catch (RarModelException e) {
+                    throw new ServletException("attest_jwt_client_auth: the RAR containment models could not be loaded: "
+                            + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
+                }
+                LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
             }
-            // The containment model the token gate asks, once per classloader: a models document that cannot be
-            // read would leave the gate enforcing something other than what the deployment wrote, so the filter
-            // refuses to start - the same contract as a broken bridge configuration above. Plan item S-9 (Phase 3)
-            // replaces refusing to start with a filter that starts and refuses only attestation traffic.
-            try {
-                this.rarModels = AttestationRarModels.get();
-            }
-            catch (RarModelException e) {
-                throw new ServletException("attest_jwt_client_auth: the RAR containment models could not be loaded: "
-                        + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
-            }
-            LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
     }
 

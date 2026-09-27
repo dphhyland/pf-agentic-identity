@@ -506,8 +506,343 @@ An event the engine's copy emits - from an OGNL criterion - is counted in the en
 copy's MXBean stays registered.
 
 <!-- health (O-4): add this package's section below this line -->
+## health
+
+What the health endpoints decide (plan item O-4), with no servlet API; platform-pf's `HealthServlet` serves it
+([libs/platform-pf, health](../platform-pf/README.md#health)).
+
+**Components and their parts.** One S-9 component can be served by more than one class - automatic registration
+by a filter at the token endpoint and another at the authorization and PAR endpoints - and `ComponentRegistry`
+holds one state per name, retiring the earlier handle when a name registers again. So a servlet or filter
+registers a *part* from its `init`, through `Startup.begin(component, part)`, and `ComponentParts` publishes the
+component's state to the registry: the worst state among its enabled parts, `DISABLED` when none is enabled.
+Worst first: `FAILED_CONFIG`, `REFUSED`, `FAILED_DEPENDENCY`, `STARTING`, `DEGRADED`, `READY`. The reason is each
+part in that state as `part: reason`, joined with `; `. `Startup` holds S-9's nine names as constants and this
+loader's `ComponentParts`; statics are per loader, and nothing in the engine's copy runs an `init`, so the engine's
+registry stays empty ([classloaders](../../docs/development/classloaders.md), rule 1).
+
+A part starts `STARTING`. Its `init` wraps what it did before in `try`, and says what it found:
+
+```java
+var part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+try {
+    ... init as it was, with part.disabled() or part.failedConfig(reason) where it switches off or refuses ...
+} catch (ServletException | RuntimeException | Error e) {
+    part.failed(e);
+    throw e;
+} finally {
+    part.finish();
+}
+```
+
+`failed` records `FAILED_DEPENDENCY` when the exception or one of its causes (16 at most, never round a cycle) is an
+`IOException`, `UncheckedIOException`, `SQLException`, `TimeoutException` or `LinkageError` (a jar missing where it
+runs), and `FAILED_CONFIG` for anything else; the reason is the message, with the deepest cause's when it says
+something the message does not. `init` rethrows unchanged, so whether it throws is what it was: S9a (Phase 3) makes
+`init` never throw. `finish` makes a part still starting ready. A disabled part stays disabled, and registering a
+part again (a second `init`) starts it afresh and retires the earlier handle. A reason is cut to one line of 256
+characters, as the registry cuts it.
+
+There is no supervisor (S9a). The one retry is a probe: a part that failed on a dependency something else keeps
+retrying - the SSF transmitter's boot retry - passes a check with `failedDependency(reason, probe)`, and
+`ComponentParts.refresh()`, which health calls before it reads, makes the part ready once the check returns.
+
+**Which class serves which component**, and when today's configuration enables it (inferred, as S9a infers it in
+development):
+
+| Component | Part (class) | Enabled | Starts |
+|---|---|---|---|
+| `FEDERATION` | `OpenIdFederationServlet` | always | at deploy |
+| `FEDERATION` | `OpenIdRegistrationServlet` (explicit registration, a federation endpoint) | always | first request |
+| `AUTO_REGISTRATION` | `TokenEndpointAutoRegistrationFilter` | always; `FAILED_CONFIG` while the anchor's keys are not pinned | at deploy |
+| `AUTO_REGISTRATION` | `FrontChannelAutoRegistrationFilter` | unless `OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=false`; `FAILED_CONFIG` while the keys are not pinned | at deploy |
+| `ATTESTATION_AUTH` | `ClientAttestationAuthFilter` | unless no bridge signing is configured and `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`; `DEGRADED` while the keys are not pinned | at deploy |
+| `ATTESTATION_ISSUER` | `AttestationIssuanceServlet` | always | first request |
+| `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | first request |
+| `SSF` | `SsfConfigurationServlet` | when the transmitter's settings parse (an issuer is set) | at deploy |
+| `SSF_RECEIVER` | `SsfReceiverServlet` | when SSF is and a receiver issuer is set | first request |
+| `OPERATOR_API` | `FederationAdminServlet` | when `OIDF_AUTHORITY_ADMIN_TOKEN` is set | first request |
+| `FAPI` | `Fapi2ProfileFilter` | when `OIDF_FAPI2_CLIENTS` names a client | at deploy |
+
+The SSF states are read after `SsfHttp.bootstrap`, which never throws, by servlets/ssf's `SsfComponents`. A part
+that starts on its path's first request is absent until then, and readiness ignores it (finding
+[F-0193](../../docs/findings/F-0193.yaml)); a transmitter setting that does not parse reads as SSF not configured,
+as the bootstrap reads it (F-0191).
+
+**Readiness.** `Health.readiness` is `DOWN` when an enabled component is neither `READY` nor `DEGRADED` - starting,
+failed or refused - and `UP` otherwise, disabled components and no components at all included. `DEGRADED` counts
+as ready, per S-9: a dependency blip must not eject every node at once. Liveness is always `UP`. `Health.status`
+is the whole body of both, `{"status":"UP"}`; `Health.detail` is the document only an authorised caller sees:
+the status, the deployment profile, the versions and every component with its state, reason, the time it entered
+the state and its parts. A PingFederate that names a trust controller before its anchor's keys are pinned is
+therefore not ready (finding [F-0192](../../docs/findings/F-0192.yaml)).
+
+**Every event counts itself.** `Events.emit` counts each event it admits in `oidf_events_total{code,outcome}`
+(`EventMetrics`, the one class this package adds to platform.events) before any sink runs, as the metrics section
+above describes: both labels are declared sets taken from the catalogues this loader reads, so an uncatalogued code
+counts as `other` and raises the fold counter, and the counter is registered once per loader on the first event -
+in the engine's registry for an event an OGNL criterion emits. With today's two catalogues that is 41 codes and two
+outcomes, 126 series. Two gauges read the catalogues' own counts: `oidf_events_dropped_fields` and
+`oidf_events_uncatalogued`. A registration the registry refuses is logged once and the events go uncounted;
+counting never fails an event.
+
 <!-- redis (C-2): add this package's section below this line -->
+
+## redis
+
+`RedisClient` is the platform's Redis client (plan item C-2): 0.4.0's `MiniRedisClient` from client-attestation,
+moved here with S3a's rules unchanged and a bounded pool, a deadline on every command, key prefixes, the commands
+leases and rate limits need, and Sentinel added. It speaks RESP itself, so no Redis library reaches PingFederate's
+loaders. client-attestation's stores are its first user; X-D01's replay store and C-4's leases are the next. The
+plan's X-A02 ("Absorbs X-A02", under C-2) is defined nowhere else in the plan; this package takes it as absorbed.
+
+**What 0.4.0 did, and still does.** A URL is `redis://[user[:password]@]host[:port][/db]` or `rediss://`.
+`rediss://` verifies the server as a browser does - the chain, to the JVM's CAs or the PEM file
+`OIDF_REDIS_CA_FILE` names; the name, by the HTTPS endpoint identification algorithm; the host as SNI - and
+completes the handshake before `AUTH` is written. Under the production profile `redis://` is refused, the
+decision `ProfileGuard.forbidInProduction` makes and the message 0.4.0 wrote. No message quotes a URL's userinfo.
+One thing is kept that should not be: the userinfo is decoded twice, so a `+` in a password is a space
+([F-0180](../../docs/findings/F-0180.yaml)). Nothing connects until the first command.
+
+**The pool and the deadlines.** At most `OIDF_REDIS_POOL_SIZE` connections are open at once, in use or idle (0.4.0
+opened as many as the load asked for and kept four). A command waits up to `OIDF_REDIS_BORROW_TIMEOUT_MS` for one,
+and then has `OIDF_REDIS_COMMAND_TIMEOUT_MS` for everything else: connecting, the handshake, `AUTH` and `SELECT`,
+finding the master, the command and the one retry. Each read waits only what is left of that; a command's own
+bytes are written untimed, since they fit a socket's send buffer ([F-0181](../../docs/findings/F-0181.yaml)). An
+exhausted pool, a deadline passed and a
+closed client are an `IOException`, which the stores answer as `STORE_UNAVAILABLE` - the same 503 as a Redis that
+is down. An error reply is a `RedisErrorReply` (an `IllegalStateException`, as 0.4.0 threw) and is not retried. A
+command that fails on a reused connection is retried once on a fresh one, as 0.4.0 did, because the server may
+have closed an idle connection. That retry can run a command twice when the first one ran and only its reply was
+lost - a `SET NX` then answers "already set" and a `DEL` "nothing deleted", a verdict rather than an outage -
+exactly as 0.4.0's could; nothing else is retried after a command was sent. A reply past 64 KiB for a line, 64 MiB for a bulk string or a million array
+elements is a protocol failure, not an allocation.
+
+**Key prefixes.** `client.keyspace("oidf:as")` is a `RedisKeyspace`: every key it is given becomes
+`oidf:as:<key>`. client-attestation's four namespaces are keyspaces over one client, and write byte for byte the
+keys 0.4.0 wrote - `oidf:as:*`, `oidf:cas:*`, `oidf:fed:endpoint:*`, `oidf:admin:dpop:*` - so a rolling upgrade
+from 0.4.0 finds the challenges and spent proofs the old nodes recorded. `RedisClientTest` and client-attestation's
+`RedisAttestationStoreTest` write keys the 0.4.0 way and find them.
+
+**The commands.** `set` and `setIfAbsent` (`SET ... [NX] PX`), `get`, `del`, `incr`, `pexpire`, and `eval`, which
+sends a `RedisScript` by its SHA-1 (`EVALSHA`) and by its source (`EVAL`) when Redis answers `NOSCRIPT` - after a
+restart or a `SCRIPT FLUSH`. Three scripts are built in: `compareAndDelete` and `compareAndExtend`, which release
+and renew a lease only while it still holds the caller's token (C-4), and `countInWindow`, a fixed-window counter
+for rate limits (X-A11) that increments and, when the key has no TTL, sets the window's, in one atomic step, so a
+counter never lives without one. It answers the count and the time the window has left.
+
+**Sentinel.** With `OIDF_REDIS_SENTINEL_MASTER` and `OIDF_REDIS_SENTINELS` set, the client asks each sentinel in
+turn `SENTINEL get-master-addr-by-name`, connects where the first answer says, and checks with `ROLE` that the
+server is the master. Each sentinel gets an equal share of what is left of the command's deadline - of 3000 ms and
+two sentinels, the first has 1500 - so one that accepts and never answers, or whose host drops packets, leaves the
+rest time to answer; the sentinel that answered is asked first next time. It asks again when a connection to the
+master is lost, or the master answers `READONLY` - it has become a replica, so a failover has happened. The
+command is retried once on the new master, within the same deadline, after `READONLY` (which refused it) or when
+no connection to the master could be opened (so nothing was sent); a new connection lost after the command was
+sent is an outage, not a retry, because the command may have run. Losing the master closes every connection to it: those idle at once, those in use when they come
+back. The URL still says `redis` or `rediss`, the password and the database; its host is not dialled. Over TLS
+the sentinels are verified against their own names, with the same CA file. The master is verified against the
+name a sentinel gave for it, or, when it gave an address - what Sentinel does unless `announce-hostnames` is on -
+against the URL's host, which every node's certificate must then carry
+([U-0190](../../docs/findings/U-0190.yaml): C-6's reference cluster settles which). The sentinels are trusted to
+say where the master is: a name one gives is checked as itself, so with the JVM's CAs any server holding a public
+certificate for that name would be sent `AUTH`. Over TLS with Sentinel, set `OIDF_REDIS_CA_FILE` to the
+deployment's own CA, and give the sentinels a password. One thread asks the sentinels while others wait for its
+answer, each for at most its own deadline.
+
+| Setting | Default | What it does | When it's wrong |
+|---|---|---|---|
+| `oidf.redis.url`, then `OIDF_REDIS_URL`, then `REDIS_URL` | unset | The Redis; unset keeps each store in one node's memory | A URL that does not parse, another scheme, or `redis://` under the production profile: every store that would use Redis refuses its requests, the message without the password |
+| `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | the JVM's CAs | A PEM file of CA certificates to trust for `rediss://` | Unreadable or holding no certificate: refused, naming the file |
+| `OIDF_REDIS_POOL_SIZE` (`oidf.redis.pool.size`) | 8 | The most connections open at once | Not a whole number from 1 to 256: refused |
+| `OIDF_REDIS_BORROW_TIMEOUT_MS` (`oidf.redis.borrow.timeout.ms`) | 1000 | How long a command waits for a free connection | Not from 1 to 60000: refused |
+| `OIDF_REDIS_COMMAND_TIMEOUT_MS` (`oidf.redis.command.timeout.ms`) | 3000, 0.4.0's socket timeout | How long a command may take once it has a connection | Not from 1 to 60000: refused |
+| `OIDF_REDIS_SENTINEL_MASTER` (`oidf.redis.sentinel.master`) | unset | The master's name in Sentinel | Set without `OIDF_REDIS_SENTINELS`, or the other way round: refused |
+| `OIDF_REDIS_SENTINELS` (`oidf.redis.sentinels`) | unset | `host[:port]` of each sentinel, port 26379 when left out, IPv6 in brackets | An entry that is not host or host:port: refused, naming it |
+| `OIDF_REDIS_SENTINEL_PASSWORD` (or `_FILE`) | unset | What the sentinels ask for in `AUTH` | Not checked until the sentinels refuse it; every command then fails as an outage |
+
+The catalogue is `src/main/resources/META-INF/oidf-settings/platform-redis.json` ([format](../../docs/development/settings-catalogue.md));
+`RedisConfig.current()` reads it from the process, and `RedisConfig.builder` makes a configuration in code.
+"Refused" means the first request that needs Redis fails, and every later one, with the message logged once.
+
+**Tests.** `RedisClientTest` and `RedisSentinelTest` run against `FakeRedis`, an in-process RESP server that can be
+a master, a replica or a sentinel and stages what real servers do badly: silence, a dropped connection, a reply
+cut off or malformed. `RedisClientTlsTest` checks the TLS rules with certificates `keytool` makes for the run.
+`RedisLiveTest` runs the commands and the scripts - which the fake only emulates - against a real Redis, with the
+variables client-attestation's live test reads (`OIDF_TEST_REDIS_URL`, `OIDF_TEST_REDIS_TLS_URL`,
+`OIDF_TEST_REDIS_CA_FILE`), so build.yml's java job runs it. Its Sentinel test needs a Sentinel, which CI does not
+start; locally, a master, a replica and one sentinel sharing one network namespace so the sentinel reports an
+address the host can reach:
+
+```sh
+docker run -d --rm --name s-master -p 127.0.0.1:56390:56390 -p 127.0.0.1:56391:56391 -p 127.0.0.1:26390:26390 \
+  redis:7-alpine redis-server --port 56390 --requirepass pw --masterauth pw
+docker run -d --rm --name s-replica --network container:s-master redis:7-alpine \
+  redis-server --port 56391 --replicaof 127.0.0.1 56390 --requirepass pw --masterauth pw
+docker run -d --rm --name s-sentinel --network container:s-master redis:7-alpine sh -c \
+  'printf "port 26390\nsentinel monitor mymaster 127.0.0.1 56390 1\nsentinel auth-pass mymaster pw\n" > /tmp/s.conf && exec redis-sentinel /tmp/s.conf'
+OIDF_TEST_REDIS_SENTINELS=127.0.0.1:26390 OIDF_TEST_REDIS_SENTINEL_MASTER=mymaster \
+OIDF_TEST_REDIS_SENTINEL_URL=redis://:pw@127.0.0.1:6379 OIDF_TEST_REDIS_SENTINEL_FAILOVER=true \
+  mvn -o -pl libs/platform verify -Dtest=RedisLiveTest
+```
+
+With `OIDF_TEST_REDIS_SENTINEL_FAILOVER=true` the test asks the sentinel for a failover and follows the master to
+its new port. On 2026-09-28 (redis:7-alpine, JDK 17.0.11) it did, in 11.5 s, most of it Sentinel's own switch.
+The in-process tests also ran on the pinned PingFederate image's JDK (OpenJDK 21.0.12.1) that day, the TLS ones
+included.
+
 <!-- http (S5a): add this package's section below this line -->
+## http
+
+Outbound HTTP that connects only to an address it checked (plan item S5a, part 1; findings
+[F-0010](../../docs/findings/F-0010.yaml) and [F-0070](../../docs/findings/F-0070.yaml), which stay open until
+S5AR moves oidf-jose onto it and S5d moves the rest). Nothing in the repository calls it yet.
+
+- `Deadline`: an absolute point on the monotonic clock; `remaining()`, `expired()`, `sooner(duration)`, `min`.
+- `Budget`: a deadline and a request count; `spend(what)` takes one request and returns the deadline to make it
+  by, and a `child` spends its parent too and ends no later than it. S5b threads one through the validator.
+- `AddressPolicy`: the URL and address rules, and the one place a host is resolved. `check(url)` returns a
+  `Target` holding every address the host resolved to, each checked.
+- `OutboundHttp`: `send(request, deadline)` or `send(request, budget)`; GET, POST, PUT, PATCH and DELETE,
+  headers on every method, HTTP/1.1, one request per connection, no redirects. A response of any status is
+  returned; only a missing response throws `OutboundHttpException`, whose `reason()` says why
+  (`REFUSED_URL`, `REFUSED_ADDRESS`, `UNRESOLVED`, `CONNECT_TIMEOUT`, `TLS`, `HEADER_TIMEOUT`, `DEADLINE`,
+  `BODY_TOO_LARGE`, `MALFORMED_RESPONSE` and the rest).
+- `TlsTrust`: the JVM's trust, a supplied `SSLContext`, a CA bundle (`caBundle(path)`), or
+  `insecureIf(setting, insecure)`, which takes `InsecureTls`'s trust-all when the setting asks.
+- `Bulkhead`: the seam S5AR's per-host bulkhead plugs into; `Bulkhead.NONE` lets everything in.
+
+### Why not java.net.http
+
+The JDK's client cannot be pinned to an address. It resolves the host itself when it builds the connection's
+address - `new InetSocketAddress(host, port)` in `jdk.internal.net.http.HttpRequestImpl.getAddress`
+(JDK 17.0.11's `src.zip` line 390, openjdk/jdk21u line 404, both read 2026-09-28) - and `HttpClient.Builder` has no
+resolver (`javap` of the pinned image's java 21.0.12.1: `cookieHandler`, `connectTimeout`, `sslContext`,
+`sslParameters`, `executor`, `followRedirects`, `version`, `priority`, `proxy`, `authenticator`, `localAddress`,
+`build`). The only resolver hook, JEP 418's `InetAddressResolverProvider` (JDK 18 on), is JVM-wide and loaded from
+the system class path: not something a webapp inside PingFederate can or should install. Pointing the client at
+the checked address instead loses the name: `AbstractAsyncSSLConnection` sets SNI only `if
+(!serverName.isLiteral())` (line 124 in both), and endpoint identification then checks the certificate against
+the address. Setting `Host` needs the JVM-wide `jdk.httpclient.allowRestrictedHeaders` (`Utils`, which lists
+`host` among the disallowed headers). And its `HttpRequest.timeout()` ends at the headers, which is F-0010.
+
+### Why HttpCore 5, and not httpclient5 or Jetty
+
+Plan decision 2, as amended on 2026-09-27, asks for a maintained client with a resolver hook before a hand-written
+one. What was weighed (read 2026-09-28):
+
+| | Pins? | Total deadline over the body | Threads | Runtime dependencies |
+|---|---|---|---|---|
+| Apache httpclient5 5.6.4 (classic) | yes: `DnsResolver` resolves once and the socket connects to what it returned, then TLS is layered with the host name (`DefaultHttpClientConnectionOperator`, lines 202, 219 and 263) | no: a per-read socket timeout (line 264), so a peer sending a byte before each timeout holds it forever | none in classic | httpcore5, httpcore5-h2, slf4j-api |
+| Jetty `HttpClient` 12 | yes: `SocketAddressResolver` | yes, `Request.timeout` | its own thread pool and scheduler, outside `platform.exec` (C-3) | jetty-http, -io, -util, slf4j-api |
+| HttpCore 5.4.4 classic I/O alone | yes, by construction: we open the socket | yes: every read is bounded (below) | none | none |
+
+httpclient5 would pin, but its deadline is per read, and it brings SLF4J, which relocated has no binding and
+unrelocated meets PingFederate's. Jetty's client brings threads C-3 would have to own and a larger footprint, and
+PingFederate runs on Jetty 12.0.36.1 itself (`/opt/server/lib`). HttpCore is the HTTP/1.1 message layer
+httpclient5 is built on - the request writer, the status-line and header parser, and the chunked,
+length-delimited and close-delimited decoders - and platform uses exactly that and nothing else: it opens the
+socket, layers TLS and hands the socket to HttpCore's `DefaultBHttpClientConnection`. HttpCore is an OSS-Fuzz
+project (`projects/httpcomponents-core`, read 2026-09-28), but its fuzzer builds requests and does not reach the
+response parser, so `OutboundHttpFuzzTest` fuzzes the response path here.
+
+HttpCore 5.4.4 (Apache License 2.0, no runtime dependencies, 955 KB) is shaded into this jar and relocated under
+`com.pingidentity.ps.oidf.platform.http.internal.hc5`, minimised to the 166 classes platform reaches: the jar
+grows from 227 KB to 448 KB, and `jdeps --missing-deps` finds nothing missing in it beyond commons-logging, which
+was already provided (2026-09-28). HttpCore's LICENSE and NOTICE travel in the jar's `META-INF`. The pinned image
+ships its own httpcore5 5.3.4, httpcore5-h2 5.3.4, httpclient5 5.5, httpclient 4.5.13 and httpcore 4.4.16 in
+`server/default/lib` (read from each jar's manifest, 2026-09-28); the relocation keeps them apart. A plugin that
+shades platform relocates `com.pingidentity.ps.oidf.platform.` and so carries HttpCore along under its own
+package. The dependency is optional in `pom.xml`, so no consumer inherits an unrelocated copy; the cost is that a
+module in the reactor that uses `platform.http` in a phase before `package` sees platform's classes without
+HttpCore, so S5AR's tests run under `verify`, as CI's do.
+
+### The transport
+
+1. `AddressPolicy.check` resolves the host once and checks every address; one non-public address refuses the
+   name, because a connection may go to any of them.
+2. A socket made with `Proxy.NO_PROXY` connects to the first checked address that accepts before the connect
+   deadline, then the next. Nothing resolves the name again: the host only travels on as text.
+3. For `https`, `SSLSocketFactory.createSocket(socket, host, port, true)` layers TLS on that socket with
+   `SSLParameters` carrying the `HTTPS` endpoint identification algorithm, the host as SNI (unless it is an IP
+   literal) and TLS 1.3 and 1.2 only, so the certificate is checked against the name the URL gave.
+   `OutboundHttpTlsTest` proves it with a CA made by `keytool` for the run: a stub resolver sends
+   `pinned.test`, which no DNS knows, to 127.0.0.1; the server sees `pinned.test` as SNI; a certificate for
+   `other.test` and one no trusted CA signed are refused. `OutboundHttpTest` proves the pinning with a resolver
+   that answers a checked address first and a refused one after: the request succeeds at the first, and the
+   resolver was asked once.
+4. The request goes out with `Host` (the URL's authority), the caller's headers, `Content-Length` for a body,
+   `Connection: close` and a `User-Agent`. The framing headers are the client's to write and are refused from
+   callers, as is any header that could split the message.
+5. The response head must arrive within the header deadline; then the body within the total deadline and the cap.
+
+Every read is bounded by what is left of the deadline for its phase (connect and TLS handshake, then headers,
+then body): `DeadlineSocket` sets `SO_TIMEOUT` to what is left before each read, so however a peer spaces its
+bytes no read, and no sum of reads, passes the deadline. That holds under TLS because JSSE's layered socket reads
+the socket it wraps through that socket's `getInputStream()`: `BaseSSLSocketImpl.getInputStream` returns
+`self.getInputStream()` when layered, and `SSLSocketImpl.doneConnect` hands `super.getInputStream()` to the
+record layer (JDK 17 and 21, openjdk/jdk17u and jdk21u, read 2026-09-28). A body sent a byte every 200 ms stops
+at a 1.2 s total, and a head sent a byte every 100 ms stops at a 700 ms header deadline (`OutboundHttpTest`). No
+watchdog thread is needed.
+
+The limits on what a peer can send: at most 100 headers, a status line or header line of at most 8192 bytes,
+HTTP/1.0 or 1.1, a status of 100 to 599, at most 8 interim (1xx) responses and never a 101, no `Content-Length`
+beside `Transfer-Encoding`, one `Content-Length` of plain digits, `Transfer-Encoding: chunked` and nothing else,
+and a body no larger than the cap (256 KiB by default, oidf-jose's; the request may set its own). A declared
+length over the cap is refused before a byte of the body is read, and a body refused part-way is not drained:
+HttpCore's length-delimited and chunked streams read the rest of the body when closed, so the stream is left and
+the socket closed. HttpCore's response parser takes its limits
+from its own factory, not the connection's configuration (`DefaultHttpResponseParserFactory.INSTANCE` parses
+with `Http1Config.DEFAULT`, 5.4.4), so platform hands the parser the same limits; `exactlyTheMostHeadersIsAccepted`
+pins it.
+
+### The address rules
+
+Carried over from oidf-jose's `OutboundUrlPolicy`: `https` only unless http is allowed; a host is required;
+credentials in the URL are refused; a port must be 1 to 65535 (the old policy had no port rule either - the port
+matters only to an exemption, which pins it); every resolved address must be public; `addressExemptHosts` names
+hosts and their subdomains that may resolve privately (still resolved once and pinned); `trusting(urls)` exempts
+operator-configured endpoints from the scheme and address rules, pinned to scheme, host, port and path prefix;
+`allowPrivateNetworks` turns the address rule off. New: a path is never inside an exemption when, decoded once, it
+has a `.` or `..` segment (percent-encoded or not, and with any `;` parameters stripped, so `..;` counts), a backslash
+or a percent sign (a second round of encoding), because a server that normalises or decodes it again could take it
+out of the prefix.
+
+Non-public, IPv4: 0.0.0.0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, the three documentation
+ranges, 192.168/16, 198.18/15, 224/4, and 240/4 with the broadcast address. IPv6: all of ::/96 (the unspecified
+address, loopback and the deprecated IPv4-compatible form, which no public host uses), 100::/64, Teredo
+2001::/32, 2001:db8::/32, fc00::/7, fe80::/10, fec0::/10 and ff00::/8. Forms that embed an IPv4 address are
+judged by it: IPv4-mapped ::ffff:0:0/96 and IPv4-translated ::ffff:0:0:0/96 (a dual-stack socket connects to the
+IPv4 address itself), NAT64 64:ff9b::/96 and 6to4 2002::/16. Two decisions:
+
+- Teredo is refused outright rather than judged by what it embeds. The client address it carries is reachable
+  only through whichever Teredo relay the network routes 2001::/32 to, so what it means depends on a relay this
+  process does not choose, and no federation peer is served from a Teredo address.
+- NAT64 local-use 64:ff9b:1::/48 lets the operator choose the prefix length (RFC 8215), so the embedded address
+  cannot be located from the address alone. It is read at every position RFC 6052 allows inside the /48 (/48,
+  /56, /64 and /96) and refused if any reading is non-public, skipping a shorter reading in 0.0.0.0/8, which is
+  what the zero padding of a longer prefix looks like. The cost, a false refusal where the operator's own prefix
+  bits read as a private address, is [U-0196](../../docs/findings/U-0196.yaml).
+
+### What the deadlines do not bound
+
+Two blocking steps have no timeout in the JDK's API and so are outside every deadline
+([U-0195](../../docs/findings/U-0195.yaml)): resolving the name (`InetAddress.getAllByName` waits as long as the
+system resolver does) and writing the request (a peer that accepts and stops reading holds a write larger than the
+socket's send buffer; a request body is at most 1 MiB, which limits how much a write can be left waiting on, not how
+long - in the review's probe on 2026-09-28 a 1 MiB write to a peer that never read returned about 4 s after a 1 s
+deadline on macOS and JDK 17, and at the deadline on the image's JDK 21 over loopback). Hostname verification has no off switch here: InsecureTls's
+JVM-wide `jdk.internal.httpclient.disableHostnameVerification` governs `java.net.http` alone, and carrying it into
+this transport would widen F-0035 rather than keep a behaviour. Under `insecureIf` the chain goes unchecked and the
+name is still checked, as InsecureTls documents for the JDK client.
+
+The package's 255 tests pass on JDK 17 and 20 in the reactor, and on the pinned image's own java 21.0.12.1
+against the shaded, minimised jar itself (`docker run --entrypoint java` with the JUnit console launcher,
+2026-09-28), so the relocated HttpCore, the layered TLS reads and SNI are checked on the runtime PingFederate uses.
+The plugins that shade platform carry HttpCore under their own package
+(`com.pingidentity.ps.oidf.cibasim.shaded.platform.http.internal.hc5`), and no built jar or war holds an
+unrelocated `org.apache.hc` class.
+
 <!-- exec (C-3): add this package's section below this line -->
 ## exec
 

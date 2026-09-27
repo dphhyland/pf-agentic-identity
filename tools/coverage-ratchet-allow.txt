@@ -13,3 +13,12 @@
 # for example `method libs/decide com.example.Gate.decide(java.lang.String)`. An allowance only takes its item
 # out of the baseline: nothing here lets a gated method fall below 100%. Once the baseline no longer has the item,
 # the line allows nothing, the ratchet says so in the step summary, and the next change can delete it.
+# C2 (C-2): MiniRedisClient and client-attestation's DeploymentProfile moved to libs/platform's redis and profile
+# packages, where the same decisions are gated (RedisTls, RedisUrl, RedisClient.transportRefusal).
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DeploymentProfile.isProduction(java.util.function.Function)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.caFileFromEnvironment(java.util.function.Function,java.util.function.Function)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.isIpLiteral(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.redact(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslContextFor(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslParametersFor(javax.net.ssl.SSLParameters,java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.transportRefusal(boolean,boolean)

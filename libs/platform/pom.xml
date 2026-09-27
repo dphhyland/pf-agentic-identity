@@ -45,12 +45,65 @@
     <dependencies>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope><optional>true</optional></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- http (S5a): Apache HttpComponents Core 5's classic HTTP/1.1 message layer, behind platform.http only. Shaded
+             into this jar and relocated under platform.http.internal (the shade block below), so nothing outside this
+             jar ever loads it and it cannot meet the httpcore5 5.3.4 PingFederate 13.1.3 ships in server/default/lib.
+             Optional, so no consumer receives it as a dependency of its own: the shaded jar carries it. Apache-2.0, no
+             runtime dependencies of its own. The README's "http" section has why this and not httpclient5 or Jetty. -->
+        <dependency><groupId>org.apache.httpcomponents.core5</groupId><artifactId>httpcore5</artifactId><version>5.4.4</version><optional>true</optional></dependency>
     </dependencies>
 
     <build>
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!-- http (S5a): httpcore5 shaded in and relocated under platform.http.internal.hc5; the jar replaces the
+                 plain one under the same name. A plugin that shades platform relocates com.pingidentity.ps.oidf.platform.
+                 and so carries this along under its own package. No dependency-reduced pom: httpcore5 is optional, so
+                 no consumer inherits it anyway, and the default would write one into this directory. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <minimizeJar>true</minimizeJar>
+                            <artifactSet>
+                                <includes>
+                                    <include>org.apache.httpcomponents.core5:httpcore5</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>org.apache.hc.core5.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.platform.http.internal.hc5.</shadedPattern>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>org.apache.httpcomponents.core5:httpcore5</artifact>
+                                    <excludes>
+                                        <exclude>module-info.class</exclude>
+                                        <exclude>META-INF/versions/**</exclude>
+                                        <exclude>META-INF/MANIFEST.MF</exclude>
+                                        <exclude>META-INF/maven/**</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ApacheNoticeResourceTransformer">
+                                    <addHeader>false</addHeader>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
 
             <!--
               Coverage gate on the decisions, 100% line + branch per METHOD as the other libraries do it. Each
@@ -268,8 +321,134 @@
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.objectName(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.copyOf(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.begin(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.parts(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.refresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.passes(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.move(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.publish(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.worst(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.reasons(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.stateFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.reasonOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.clean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.failed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.finish(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.readiness(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.serving(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.status(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.detail(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.count(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.counterFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.events.EventMetrics.useRegistry(*</include>
                                         <!-- redis (C-2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.redact(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.authenticates(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisUrl.decode(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisTls.sslParametersFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisTls.isIpLiteral(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisTls.sslContextFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.fromSettings(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.url(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.HostPort.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.Builder.sentinel(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.Builder.poolSize(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConfig.Builder.positive(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.transportRefusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.call(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.retries(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.failsOver(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.eval(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.millis(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.borrowPermit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.giveBack(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.masterLost(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.open(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.requireMaster(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.open(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.readReply(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.number(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.readLine(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisConnection.remainingMillis(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.master(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.ask(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.lost(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.MasterLocator.Sentinel.share(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.takeIdle(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisClient.forget(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisKeyspace.RedisKeyspace(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.RedisErrorReply.code(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.redis.WindowCount.of(*</include>
                                         <!-- http (S5a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.nanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.remainingNanos(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.expired(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.sooner(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.min(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Deadline.timeoutMillis(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.child(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.spend(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.Budget.take(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.isExemptEndpoint(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.addressExempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.defaultPort(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.unbracket(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.isLiteral(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.isPublic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.nonPublicReason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.ipv4Reason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.ipv6Reason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.nat64LocalUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.embedded(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.zero(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.ffff(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Endpoint.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Endpoint.matches(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Endpoint.equals(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Target.origin(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Builder.addressExemptHosts(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.AddressPolicy.Builder.trusting(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.checkHeader(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.isTokenChar(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.notNegative(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.positive(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.headers(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundRequest.Builder.body(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundResponse.successful(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundResponse.header(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundResponse.headers(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.exchange(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.connect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.handshake(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.message(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.head(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.framing(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.readCapped(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.failure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.isHttpCoreIo(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.timeout(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.causedBy(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.orDefault(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.LogText.clip(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.Builder.build(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.arm(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.getInputStream(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.DeadlineInputStream.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.DeadlineInputStream.skip(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.insecureIf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.caBundle(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.caCertificates(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.uri(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.get(*</include>
                                         <!-- exec (C-3): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.relocated(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ExecutorRegistry.checkName(*</include>

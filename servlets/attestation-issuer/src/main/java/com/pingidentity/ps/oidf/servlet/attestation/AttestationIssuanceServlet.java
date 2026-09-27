@@ -35,6 +35,7 @@ import com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
@@ -116,30 +117,38 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
-        // whichever servlet or filter initialises first.
-        PfAuditEventSink.install();
-        this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
-        this.customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
-                "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
-        String baoUrl = config.getInitParameter("openBaoUrl");
-        String baoToken = config.getInitParameter("openBaoToken");
-        if (baoUrl != null && baoToken != null) {
-            this.attesterSigningKey = new AttesterSigningKey(baoUrl, baoToken);
-        }
-        // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
-        // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
-        // against something other than what the deployment wrote, so the servlet does not start: it starts
-        // lazily, so its path fails from the first request on, and only its path. Plan item S-9 (Phase 3) gives
-        // the component a state of its own instead.
-        if (this.rarModels == null) {
-            try {
-                this.rarModels = AttestationRarModels.get();
-            } catch (RarModelException e) {
-                throw new ServletException("attestation issuance: the RAR containment models could not be loaded: "
-                        + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
+        var part = Startup.begin(Startup.ATTESTATION_ISSUER, "AttestationIssuanceServlet");
+        try {
+            super.init(config);
+            // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
+            // whichever servlet or filter initialises first.
+            PfAuditEventSink.install();
+            this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
+            this.customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
+                    "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
+            String baoUrl = config.getInitParameter("openBaoUrl");
+            String baoToken = config.getInitParameter("openBaoToken");
+            if (baoUrl != null && baoToken != null) {
+                this.attesterSigningKey = new AttesterSigningKey(baoUrl, baoToken);
             }
+            // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
+            // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
+            // against something other than what the deployment wrote, so the servlet does not start: it starts
+            // lazily, so its path fails from the first request on, and only its path. Plan item S-9 (Phase 3) gives
+            // the component a state of its own instead.
+            if (this.rarModels == null) {
+                try {
+                    this.rarModels = AttestationRarModels.get();
+                } catch (RarModelException e) {
+                    throw new ServletException("attestation issuance: the RAR containment models could not be loaded: "
+                            + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
+                }
+            }
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
     }
 

@@ -16,6 +16,7 @@ import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkRegistry;
@@ -99,31 +100,42 @@ public class FederationAdminServlet extends RequestScopedServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        PfAuditEventSink.install();
-        if (this.registry != null) {
-            return;
-        }
-        this.adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+        var part = Startup.begin(Startup.OPERATOR_API, "FederationAdminServlet");
         try {
-            HostedEntityServlet.configureAuthority(config::getInitParameter);
-        } catch (RuntimeException e) {
-            // The entity routes then answer that nothing is hosted; the rest of the API still works.
-            log("Hosting could not be configured for the admin API", e);
-        }
-        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-        this.types = runtime.trustMarkIssuing().types();
-        if (!TrustMarkSupport.isConfigured()) {
-            AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-        }
-        this.registry = TrustMarkSupport.shared();
-        this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
-        this.clock = Clock.systemUTC();
-        if (runtime.keyHistory().enabled()) {
-            if (!KeyHistorySupport.isConfigured()) {
-                AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
+            super.init(config);
+            PfAuditEventSink.install();
+            if (this.registry != null) {
+                return;
             }
-            this.keyHistory = new KeyHistory(KeyHistorySupport.shared(), this.clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
+            this.adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+            if (this.adminToken == null) {
+                part.disabled();
+            }
+            try {
+                HostedEntityServlet.configureAuthority(config::getInitParameter);
+            } catch (RuntimeException e) {
+                // The entity routes then answer that nothing is hosted; the rest of the API still works.
+                log("Hosting could not be configured for the admin API", e);
+            }
+            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+            this.types = runtime.trustMarkIssuing().types();
+            if (!TrustMarkSupport.isConfigured()) {
+                AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
+            }
+            this.registry = TrustMarkSupport.shared();
+            this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
+            this.clock = Clock.systemUTC();
+            if (runtime.keyHistory().enabled()) {
+                if (!KeyHistorySupport.isConfigured()) {
+                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
+                }
+                this.keyHistory = new KeyHistory(KeyHistorySupport.shared(), this.clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
+            }
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
     }
 
