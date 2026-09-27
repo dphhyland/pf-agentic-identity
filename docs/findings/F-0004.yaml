@@ -5,9 +5,9 @@ area: device-enrolment
 source: review-2026-09-26
 status: mitigated
 plan_items: [M-2, X-A15, X-A17, X-A18]
-prs: []
+prs: [28]
 verification: >
-  M-2 (branch prod/p1-stopgaps, PR number filled in when it is opened): POST /compliance, its handler and
+  M-2 (PR #28): POST /compliance, its handler and
   EnrolmentService.applyComplianceChange are gone, and
   EnrolmentHttpEndToEndTest#thereIsNoComplianceRouteAndASuspendedInstanceStillCannotRemintOverHttp pins the 404
   and that a suspended instance still cannot re-mint; the README states the deadlock and that the device path is

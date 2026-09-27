@@ -5,9 +5,9 @@ area: ssf
 source: review-2026-09-26
 status: mitigated
 plan_items: [S10-0, S-10, S10a, S10b, S10c, S10d]
-prs: []
+prs: [28]
 verification: >
-  S10-0 (branch prod/p1-stopgaps, PR number filled in when it is opened): dueForPush joins the stream's state
+  S10-0 (PR #28): dueForPush joins the stream's state
   in all three stores, and the two JOINs run against Postgres 16.14 in SsfStoresOnPostgresTest, which CI runs
   (U-0078); a stream whose delivery fails waits out its first SET's backoff as a whole, so a receiver that is
   down costs one attempt per backoff step and the SET that failed goes first, a burst of one second's SETs

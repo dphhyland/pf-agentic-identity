@@ -4,7 +4,7 @@ area: pf-integration
 source: design
 status: closed
 plan_items: [S9a]
-prs: []
+prs: [28]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 9
 verify_by: 'On the rig: a servlet with loadOnStartup whose init throws, and what the merged pf-runtime.war does.'
 verification: >

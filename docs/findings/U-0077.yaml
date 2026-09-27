@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: closed
 plan_items: [S10-0, S-5, S-10]
-prs: []
+prs: [28]
 recorded_in: the S10-0 pull request's Unverified list; PushDeliveryService.send's javadoc
 verify_by: >
   Against a receiver that stalls its body, count its open connections after the transmitter's deadline passes

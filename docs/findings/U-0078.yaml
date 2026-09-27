@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: closed
 plan_items: [S10-0, S10a, S10f]
-prs: []
+prs: [28]
 recorded_in: the S10-0 pull request's Unverified list; JdbcSsfStoreTest and LdmSsfStoreTest pin the SQL as text
 verify_by: >
   Run JdbcSsfStore.SELECT_DUE_FOR_PUSH against HSQLDB (PingFederate's bundled engine) and Postgres with the

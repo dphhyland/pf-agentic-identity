@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: closed
 plan_items: [S10-0, S-10]
-prs: []
+prs: [28]
 recorded_in: the S10-0 pull request's Unverified list; servlets/ssf/README.md, Boot
 verify_by: >
   Boot the rig on the 0.3.0 jars with storeDialect=tables and a jdbcUrl no database answers, and read what
