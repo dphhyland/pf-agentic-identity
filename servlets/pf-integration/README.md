@@ -92,7 +92,9 @@ configuration, from 0.4.0:
   `pushed_authorization_request_endpoint` (the issuer, then `/as/par.oauth2`), as 13.1.3's discovery handler
   builds them. RFC 9449 §4.3 compares `htu` with "the HTTP URI value for the HTTP request in which the JWT was
   received"; a servlet container rebuilds that from the `Host` header, which the client writes, so this server
-  compares with its configured URL instead, after the RFC 3986 normalisation §4.3 asks for. A mismatch is 401
+  compares with its configured URL instead, after the RFC 3986 normalisation §4.3 asks for. RFC 9110 §7.4 has the
+  server decide "whether the server has been configured to process requests for that target URI", and says a `Host`
+  that differs from the connection's "might indicate an attempt to bypass security filters". A mismatch is 401
   `invalid_client`: "DPoP 'htu' mismatch: got '...', expected '...'". A deployment behind a proxy needs PF's base
   URL to be the URL clients use - which the issuer in tokens and discovery needs anyway.
 - `extproperties.attestation_expected_htu` still pins one client's `htu` where the OGNL criterion verifies (a
