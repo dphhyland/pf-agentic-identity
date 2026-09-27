@@ -5,9 +5,12 @@ import java.util.Objects;
 
 /**
  * {@link HttpGetClient} backed by the JDK {@link HttpClient}. When constructed
- * with {@code ignoreSslErrors} it trusts all TLS certificates and disables
- * hostname verification — intended only for talking to a development trust
- * controller over self-signed TLS, never for production.
+ * with {@code ignoreSslErrors} it trusts any certificate chain through
+ * {@link JdkHttpClient} and platform's InsecureTls; the certificate must still
+ * name the host dialled, unless the JVM-wide
+ * {@code jdk.internal.httpclient.disableHostnameVerification} is set (F-0035).
+ * Intended only for talking to a development trust controller over
+ * self-signed TLS, never for production.
  *
  * <p>Trust-chain validation runs synchronously on the caller's request thread
  * (see {@code TrustChainValidator}), so every fetch here MUST fail fast rather

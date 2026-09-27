@@ -99,7 +99,9 @@ Jackson and rar-model ([plugins/rar-paz-plugin/pom.xml](../../plugins/rar-paz-pl
 `maven-shade-plugin` block and the comment above it). Relocated, the plugin's copy can never be the class
 another jar's code links to, whatever order PingFederate's loaders search in. commons-logging stays
 `provided` and is not shaded, so the relocated copy logs through PingFederate's own
-([libs/platform, Logging](../../libs/platform/README.md#logging)). No plugin uses platform yet; PR-1 applies
-the shading when the first one does.
+([libs/platform, Logging](../../libs/platform/README.md#logging)). The RAR plugin and ciba-sim shade platform
+this way (PR-1), under `com.pingidentity.ps.oidf.rar.shaded.platform` and
+`com.pingidentity.ps.oidf.cibasim.shaded.platform`; each plugin's `ShadedJarCheck` fails the build if a class
+in the jar still names platform's own package.
 
 Applies to the plugins' loaders.

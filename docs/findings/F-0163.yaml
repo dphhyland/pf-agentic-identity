@@ -1,0 +1,18 @@
+id: F-0163
+title: The gm-api Java example keeps its own trust-all behind --insecure, outside InsecureTls
+severity: low
+area: gm-api
+source: design
+status: open
+plan_items: [PR-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  services/gm-api/examples/java/GrantManagementClient.java is a single-file, JDK-only client run as `java
+  GrantManagementClient.java`: outside the reactor, not shipped, and unable to import libs/platform. Its
+  `--insecure` option builds a trust-all context (off by default since an earlier fix; the JDK client still
+  checks the host name). PR1 (2026-09-28) exempts it from tools/trust-scan.py by name, with that reason, rather
+  than rewriting a documented example. CodeQL does not see it, because the extractor sees only what the
+  reactor compiles. The better example takes a CA file (`--cacert`, as curl does) instead of `--insecure`, which
+  removes the trust-all and the exemption; people copy example code.

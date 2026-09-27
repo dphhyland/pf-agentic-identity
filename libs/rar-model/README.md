@@ -222,7 +222,7 @@ exists to catch.
 |---|---|---|---|
 | `OIDF_RAR_MODELS_FILE` | unset | The path of a models document, read once, UTF-8 | A missing or unreadable file, or a document the schema refuses: `MODEL_INVALID` at load, and the component should not start. Set together with `OIDF_RAR_MODELS`: refused, the same way |
 | `OIDF_RAR_MODELS` | unset | The models document inline. Blank counts as unset | As above |
-| `OIDF_DEPLOYMENT_PROFILE` | unset, which means production | Exactly `development` (whitespace trimmed) lets a type no model names fall back to the common-fields model: the RFC 9396 §2.2 fields, `purpose`, the two forbidden names, and nothing else, so a custom field on a custom type is refused even in development until the type has a model | Any other value is production: an unmodelled type is `UNMODELLED_TYPE`. Read directly here until plan item PR-1 centralises the profile |
+| `OIDF_DEPLOYMENT_PROFILE` | unset, which means production | Exactly `development` (whitespace trimmed) lets a type no model names fall back to the common-fields model: the RFC 9396 §2.2 fields, `purpose`, the two forbidden names, and nothing else, so a custom field on a custom type is refused even in development until the type has a model | Any other value is production: an unmodelled type is `UNMODELLED_TYPE`. Read through libs/platform's `DeploymentProfile.isExactlyDevelopment`: stricter than the profile rule everywhere else, which takes any case, so `Development` leaves the fallback off (F-0160) |
 
 Nothing else is read from the environment. `RarModels.fromEnvironment(Map)` takes the environment as a map for
 tests and for a caller that reads it elsewhere. `RarModels.load(document)` has production semantics: only the

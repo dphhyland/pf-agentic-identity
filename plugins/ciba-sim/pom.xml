@@ -45,6 +45,10 @@
         <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
+        <!-- The platform library (plan items F-1, PR-1), for the deployment profile. Shaded and relocated below,
+             as the RAR plugin does Jackson, so the copy in this jar - loose in deploy/ and merged into
+             pf-runtime.war - never meets the one staged beside the servlets. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
 
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
@@ -54,7 +58,24 @@
     <build>
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <executions>
+                    <!-- ShadedJarCheck reads the jar the shade plugin wrote, so it runs after package; its name is
+                         outside surefire's default patterns, so the test phase does not run it early. -->
+                    <execution>
+                        <id>shaded-jar</id>
+                        <phase>verify</phase>
+                        <goals><goal>test</goal></goals>
+                        <configuration>
+                            <includes><include>**/ShadedJarCheck.java</include></includes>
+                            <reportNameSuffix>shaded-jar</reportNameSuffix>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
             <!--
               Coverage gate on the decisions: whether the simulator may run here at all (the switch, the
               deployment profile, the directory's owner and mode), what a recorded decision reads back as
@@ -117,6 +138,48 @@
                          pf-runtime.war, where the annotation scan finds the decision servlet. -->
                     <finalName>pf.plugins.ciba-sim</finalName>
                 </configuration>
+            </plugin>
+            <!-- platform shaded in and relocated under this plugin's own package. platform-pf's classes live under
+                 com.pingidentity.ps.oidf.platform.pf, inside the pattern, so they are excluded by name: they stay
+                 PingFederate-side and are never bundled or renamed here. commons-logging, which platform's logger uses when it can see
+                 it, is provided and stays PingFederate's. The jar replaces the plain one under the same name. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>3.5.3</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals><goal>shade</goal></goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <shadedArtifactAttached>false</shadedArtifactAttached>
+                            <artifactSet>
+                                <includes>
+                                    <include>com.pingidentity.ps.oidf:platform</include>
+                                </includes>
+                            </artifactSet>
+                            <relocations>
+                                <relocation>
+                                    <pattern>com.pingidentity.ps.oidf.platform.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.cibasim.shaded.platform.</shadedPattern>
+                                    <excludes><exclude>com.pingidentity.ps.oidf.platform.pf.**</exclude></excludes>
+                                </relocation>
+                            </relocations>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>module-info.class</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
         </plugins>
     </build>

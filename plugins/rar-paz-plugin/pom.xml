@@ -61,6 +61,14 @@
             <groupId>com.pingidentity.ps.oidf</groupId>
             <artifactId>rar-model</artifactId>
         </dependency>
+        <!-- The platform library (plan items F-1, PR-1): the deployment profile and InsecureTls, the one
+             trust-all. rar-model depends on it too. Shaded and relocated below, so this jar's copy never meets
+             the one staged beside the servlets. commons-logging, which platform's logger uses when it can see
+             it, is provided there and stays PingFederate's. -->
+        <dependency>
+            <groupId>com.pingidentity.ps.oidf</groupId>
+            <artifactId>platform</artifactId>
+        </dependency>
 
         <!-- Test -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
@@ -292,6 +300,7 @@
                                 <includes>
                                     <include>com.fasterxml.jackson.core:*</include>
                                     <include>com.pingidentity.ps.oidf:rar-model</include>
+                                    <include>com.pingidentity.ps.oidf:platform</include>
                                 </includes>
                             </artifactSet>
                             <relocations>
@@ -305,6 +314,14 @@
                                 <relocation>
                                     <pattern>com.pingidentity.ps.oidf.rar.model.</pattern>
                                     <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.rarmodel.</shadedPattern>
+                                </relocation>
+                                <!-- platform. platform-pf's classes live under com.pingidentity.ps.oidf.platform.pf,
+                                     inside the pattern, so they are excluded by name: this plugin does not bundle
+                                     them, and a reference to one must keep PingFederate-side's name. -->
+                                <relocation>
+                                    <pattern>com.pingidentity.ps.oidf.platform.</pattern>
+                                    <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.platform.</shadedPattern>
+                                    <excludes><exclude>com.pingidentity.ps.oidf.platform.pf.**</exclude></excludes>
                                 </relocation>
                             </relocations>
                             <transformers>
