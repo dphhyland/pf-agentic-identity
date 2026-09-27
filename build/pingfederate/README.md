@@ -278,6 +278,7 @@ the work directory and the temp directories for the inline identity, and two mor
 sweep is known to fail when it should. It becomes a CI step in Phase 2 (plan item R-CI6). Every script in
 this directory is shellcheck-clean (0.11.0, 2026-09-27).
 
-Because the modules sit at the **root** context, their endpoints have no `/oidf` prefix - the challenge
-endpoint is `/federation/attestation-challenge`, and `/.well-known/ssf-configuration` is at root.
+Because the modules sit at the **root** context, their endpoints have no `/oidf` prefix - the authorization
+server's challenge endpoint is `/federation/attestation-challenge`, the attester's is
+`/federation/attestation/challenge`, and `/.well-known/ssf-configuration` is at root.
 Repoint any `/oidf/*` consumers accordingly.

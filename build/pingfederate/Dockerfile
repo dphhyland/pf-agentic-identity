@@ -20,7 +20,8 @@
 #
 # The module is MERGED INTO pf-runtime.war (not deployed as a loose oidf.war + jar). This puts its
 # @WebServlet servlets in the ROOT context — so `/.well-known/ssf-configuration`, `/ssf/*`, the challenge
-# endpoint at `/federation/attestation-challenge`, etc. serve at root (no `/oidf` prefix) — gives a single
+# endpoints at `/federation/attestation-challenge` (the AS's) and `/federation/attestation/challenge` (the
+# attester's), etc. serve at root (no `/oidf` prefix) — gives a single
 # classloader (one AttestationSupport singleton; no OGNL-hook caching split), and lets the SSF logout filter
 # run over PF's own `/idp/init_logout.openid`. Repoint any `/oidf/*` consumers (e.g. the demo UI PF_BASE) to root.
 #

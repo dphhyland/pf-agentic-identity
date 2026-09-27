@@ -60,8 +60,8 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   URL's host (the HTTPS endpoint identification algorithm), with the host sent as SNI - and the handshake
   completes before `AUTH` is encoded, so the password never travels before the peer is verified. Under
   the production profile `redis://` is refused. Keys live under a `StoreNamespace`, one per surface:
-  `oidf:as:*` (the token endpoint's challenges and proof jtis), `oidf:cas:*` (the attester's proof jtis and
-  evidence bindings), `oidf:fed:endpoint:*` (spent client assertions at the federation endpoints) and
+  `oidf:as:*` (the token endpoint's challenges and proof jtis), `oidf:cas:*` (the attester's challenges, proof
+  jtis and evidence bindings), `oidf:fed:endpoint:*` (spent client assertions at the federation endpoints) and
   `oidf:admin:dpop:*` (reserved for the operator API, S-8). The layout under each: `:challenge:<value>`,
   `:jti:<client> <jti>`, `:evidence:<digest>`, the digest being the attester's SHA-256 of the evidence's
   JWS Signing Input. No exception message quotes a URL's userinfo: `MiniRedisClient` replaces it with
@@ -69,8 +69,14 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
 - **`RarEntitlement`** — RFC 9396 containment: each requested detail must sit within an attested detail
   of the same `type`, with the set-valued fields (`actions`, `locations`, `datatypes`, `privileges`,
   `sales_regions`) compared as subsets.
-- **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — `POST /federation/attestation-challenge`
-  returns `{"attestation_challenge", "expires_in"}` (draft §6.1); advertised as `challenge_endpoint`.
+- **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — the authorization server's challenge
+  endpoint: `POST /federation/attestation-challenge` returns `{"attestation_challenge", "expires_in"}` with
+  `Cache-Control: no-store` (ABCA-10 §6.1), issuing into `oidf:as:challenge:*`; advertised as `challenge_endpoint`
+  in the Entity Configuration's OP metadata. It and the attester's endpoint (`GET /federation/attestation/challenge`,
+  in `attestation-issuer`, issuing into `oidf:cas:challenge:*`) are both `ChallengeEndpointServlet`s: one method
+  each, 405 with an `Allow` header for any other (`HEAD` and `OPTIONS` included, so nothing issues a challenge its
+  response cannot carry), and their own cap and settings. Neither store knows the other's challenges, so a
+  challenge from one surface is refused at the other (CAS §4.1).
 - **`ChallengeRateLimiter`** — per-caller fixed-window cap on the (necessarily unauthenticated) challenge
   endpoint. The endpoint itself can't be resource-exhausted (it only ever writes into a bounded cache);
   the attack this stops is a flood evicting legitimate clients' challenges before they're redeemed, which
@@ -84,7 +90,8 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
 | `oidf.redis.url` (system property), then `OIDF_REDIS_URL`, then `REDIS_URL` (env) | unset | Set: challenge, replay and evidence-binding state lives in Redis, cluster-wide, under the namespaces above. Unset: per-node in-memory, which a clustered deployment must not run | Not a `redis://` or `rediss://` URL with a host: first request, every store accessor throws, so the token endpoint answers 500 `server_error` to attested clients and the challenge endpoint and the attester answer 500 - a configuration error, not an outage, so not a 503. `redis://` under the production profile: the same, with a message naming `OIDF_DEPLOYMENT_PROFILE` - the password would cross the network in the clear |
 | `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | unset (the JVM's CAs) | A PEM file of one or more CA certificates to trust for `rediss://`, the shape managed Redis providers publish | Missing, unreadable or holding no certificate: first request, as above, naming the variable |
 | `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store; unset, `production` or anything else is production. Read directly from the environment until plan item PR-1 centralises it | Not checked beyond that: a typo is production |
-| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (servlet init-params) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies | Not an integer: at init, the value is ignored with a warning and the default used |
+| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (init-params on `ClientAttestationChallengeServlet`) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies. The attester's endpoint reads the first two for its own challenges (see [attestation-issuer](../../servlets/attestation-issuer/README.md#configuration)); neither endpoint's settings reach the other's | Not an integer: at init, the value is ignored with a warning and the default used. A TTL that is not positive, or a size that is neither positive nor -1: the endpoint fails to start and the store keeps what it had |
+| `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` (init-params on either challenge endpoint) | 60 / 60 / 16384 | The endpoint's per-caller cap: requests per window, the window, and how many callers it counts at once. Each endpoint has its own | Not an integer: ignored with a warning; zero or less: the default |
 
 Everything else is a `ClientAttestationConfig.builder()` call by the host.
 
