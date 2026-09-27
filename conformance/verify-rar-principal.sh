@@ -67,7 +67,7 @@ fi
 PW="$(sed -n 's/^PING_IDENTITY_PASSWORD=//p' "$PF_AUTHOR_ENV")"
 [[ -n "$PW" ]] || { echo "ERROR: no PING_IDENTITY_PASSWORD in $PF_AUTHOR_ENV" >&2; exit 1; }
 
-pf() {  # pf <method> <path> [json-body]  -> body; the status is in PF_STATUS
+pf() {  # pf <method> <path> [json-body]  -> body; the status is in PF_STATUS, the body also in PF_BODY
   local method="$1" path="$2" body="${3:-}" tmp; tmp="$(mktemp)"
   if [[ -n "$body" ]]; then
     PF_STATUS="$(curl -sk -o "$tmp" -w '%{http_code}' -X "$method" -u "administrator:$PW" -H 'X-XSRF-Header: PingFederate' \
@@ -75,10 +75,11 @@ pf() {  # pf <method> <path> [json-body]  -> body; the status is in PF_STATUS
   else
     PF_STATUS="$(curl -sk -o "$tmp" -w '%{http_code}' -X "$method" -u "administrator:$PW" -H 'X-XSRF-Header: PingFederate' "$ADMIN$path")"
   fi
-  cat "$tmp"; rm -f "$tmp"
+  PF_BODY="$(cat "$tmp")"; rm -f "$tmp"
+  printf '%s' "$PF_BODY"
 }
-need() {  # need <expected-status> <what>  (after a pf call)
-  [[ "$PF_STATUS" == "$1" ]] || { echo "ERROR: $2 answered HTTP $PF_STATUS (wanted $1)" >&2; exit 1; }
+need() {  # need <expected-status> <what>  (after a pf call): PingFederate's reason is worth more than the status
+  [[ "$PF_STATUS" == "$1" ]] || { echo "ERROR: $2 answered HTTP $PF_STATUS (wanted $1): $(head -c 600 <<<"$PF_BODY")" >&2; exit 1; }
 }
 
 # ── helpers ──────────────────────────────────────────────────────────────────────────────────────
