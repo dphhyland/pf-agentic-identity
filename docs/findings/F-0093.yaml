@@ -5,7 +5,7 @@ area: rar-paz-plugin
 source: pr-review
 status: closed
 plan_items: [S2a]
-prs: []
+prs: [29]
 verification: >
   2026-09-27, commit 30b4f4b on prod/p1-rar-plugin-principal: JdkHttpTransport.classify refuses when a
   java.net.ProtocolException is anywhere in the cause chain, as it does for an SSLException, and matches the

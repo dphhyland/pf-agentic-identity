@@ -5,7 +5,7 @@ area: rar-paz-plugin
 source: review-2026-09-26
 status: closed
 plan_items: [S-2, S2a, S2b]
-prs: []
+prs: [29]
 verification: >
   2026-09-27, prod/p1-rar-plugin-principal at b497275 (plugin 0.4.0-SNAPSHOT) on PingFederate 13.1.3.0:
   conformance/verify-rar-principal.sh drove client credentials, CIBA, refresh, token exchange and the code flow

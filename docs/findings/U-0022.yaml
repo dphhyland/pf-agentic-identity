@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: closed
 plan_items: [S2a]
-prs: []
+prs: [29]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 7
 verify_by: >
   On the rig: a plugin instance saved with the plaintext secret field, the jar replaced by one declaring the

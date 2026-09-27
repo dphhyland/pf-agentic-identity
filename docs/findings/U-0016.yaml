@@ -4,7 +4,7 @@ area: rar-paz-plugin
 source: design
 status: closed
 plan_items: [S2b]
-prs: []
+prs: [29]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 1
 verify_by: >
   S2b's verify-rar-principal.sh on the rig, covering code, refresh, CIBA, client credentials, token exchange
