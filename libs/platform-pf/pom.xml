@@ -100,6 +100,14 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditDescription(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.record(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthAccess.resolveToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthAccess.isAuthorized(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.version(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.answer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.write(*</include>
                                         <!-- lifecycle (F-2): add gate includes below this line -->
                                         <!-- internals (F-1, PfInternals): add gate includes below this line -->
                                     </includes>

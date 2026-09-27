@@ -17,7 +17,10 @@ package com.pingidentity.ps.oidf.clientattestation;
  * </ul>
  *
  * <p>0.3.0 wrote {@code oidf:challenge:*} and {@code oidf:jti:*}. Nothing reads those prefixes from 0.4.0
- * on; keys under them expire on their own TTL.
+ * on; keys under them expire on their own TTL. From 0.5.0 each namespace is a
+ * {@link com.pingidentity.ps.oidf.platform.redis.RedisKeyspace} over platform's Redis client, and the keys are
+ * byte for byte the ones 0.4.0 wrote, so a key written by a 0.4.0 node is found by a 0.5.0 one during a rolling
+ * upgrade ({@code RedisAttestationStoreTest}).
  */
 public enum StoreNamespace {
     /** The authorization server: the token endpoint's attestation challenges and proof {@code jti}s. */
@@ -40,15 +43,33 @@ public enum StoreNamespace {
         return this.prefix;
     }
 
+    /** A challenge's key under the namespace: {@code challenge:<value>}. */
+    static String challenge(String challenge) {
+        return "challenge:" + challenge;
+    }
+
+    /** A spent proof's key under the namespace: {@code jti:<client> <jti>}. */
+    static String jti(String clientId, String jti) {
+        return "jti:" + (clientId == null ? "" : clientId) + " " + jti;
+    }
+
+    /** An evidence binding's key under the namespace: {@code evidence:<sha256>}. */
+    static String evidence(String digest) {
+        return "evidence:" + digest;
+    }
+
+    /** The full key of a challenge, as 0.4.0 wrote it. */
     String challengeKey(String challenge) {
-        return this.prefix + ":challenge:" + challenge;
+        return this.prefix + ":" + challenge(challenge);
     }
 
+    /** The full key of a spent proof, as 0.4.0 wrote it. */
     String jtiKey(String clientId, String jti) {
-        return this.prefix + ":jti:" + (clientId == null ? "" : clientId) + " " + jti;
+        return this.prefix + ":" + jti(clientId, jti);
     }
 
+    /** The full key of an evidence binding, as 0.4.0 wrote it. */
     String evidenceKey(String digest) {
-        return this.prefix + ":evidence:" + digest;
+        return this.prefix + ":" + evidence(digest);
     }
 }

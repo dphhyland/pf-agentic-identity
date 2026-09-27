@@ -42,6 +42,7 @@ import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 
@@ -100,112 +101,120 @@ extends RequestScopedServlet {
     }
 
     public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        PfAuditEventSink.install();
-        if (this.federationService != null) {
-            return;
-        }
+        var part = Startup.begin(Startup.FEDERATION, "OpenIdFederationServlet");
         try {
-            this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
-            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-            // The war's context path (e.g. "/oidf") — the entity's identity is PF's path-less OAuth
-            // issuer, but the /federation/* endpoints it advertises live under this prefix. Without
-            // it a peer following federation_fetch_endpoint gets a 404 at the root path.
-            String contextPath = config.getServletContext() == null ? "" : config.getServletContext().getContextPath();
-            // The trust controller is operator configuration, so it is exempt from the outbound policy's
-            // address rules (it may legitimately be a private/internal host). Everything else - a
-            // subordinate's configuration, whatever a resolved subject's hints point at - is screened.
-            OutboundUrlPolicy outbound = OutboundUrlPolicy.fromEnvironment().trusting(runtime.trustControllerHost(), runtime.trustControllerBaseUrl());
-            JdkHttpGetClient http = new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), outbound);
-            FederationService.Builder service = FederationService.builder(this.federationConfiguration,
-                            new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()))
-                    .providerMetadata(this.providerMetadata)
-                    .subordinateFetcher(http)
-                    // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
-                    // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
-                    // if HostedEntityServlet is never configured, since every lookup then returns null.
-                    .hostedSubordinateLookup(AuthoritySupport::hostedSubordinateClaims)
-                    .hostedSubordinateIds(AuthoritySupport::hostedEntityIds)
-                    .hostedConfiguration(AuthoritySupport::hostedEntityConfiguration)
-                    // Asked per request: HostedEntityServlet may be initialised after this servlet.
-                    .hosting(AuthoritySupport::isHostingConfigured)
-                    .federationBasePath(contextPath);
-            TrustAnchorSet anchors = resolverAnchors(runtime);
-            if (anchors != null) {
-                String base = runtime.trustControllerBaseUrl() != null ? runtime.trustControllerBaseUrl() : anchors.entityIds().get(0);
-                service.resolver(anchors, new HttpTrustControllerGateway(http, base), Set.of(), ValidatorOptions.defaults());
-                if (runtime.trustMarkStatusCheck()) {
-                    // §8.4 is POST-only; the same outbound policy screens it.
-                    service.trustMarkStatus(new JdkHttpClient(this.federationConfiguration.ignoreSslErrors(), outbound));
-                }
-                log.info("Federation resolve endpoint enabled for trust anchors " + anchors.entityIds() + " (discovery: "
-                        + this.federationConfiguration.resolveDiscovery().name().toLowerCase(java.util.Locale.ROOT) + ")");
+            super.init(config);
+            PfAuditEventSink.install();
+            if (this.federationService != null) {
+                return;
             }
-            // Hosting is configured now, not on HostedEntityServlet's first request, when the environment names an authority:
-            // fetches about hosted entities are answered from the first request on.
             try {
-                HostedEntityServlet.configureAuthority(null);
-            } catch (RuntimeException e) {
-                log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again on its first request", e);
-            }
-            service.subordinateConstraints(runtime.subordinateConstraints());
-            FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
-            service.ownTrustMarks(marks.carried()).trustMarkIssuers(marks.issuers()).trustMarkOwners(marks.owners());
-            if (!marks.types().isEmpty()) {
-                // The grants live in the authority's store; HostedEntityServlet points the registry at it too, but starts
-                // only on its first request, so the store is resolved here as well - whichever runs first configures it.
-                if (!TrustMarkSupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-                }
-                service.trustMarkIssuing(new TrustMarkIssuer(marks.types(), TrustMarkSupport.shared(), AuthoritySupport::isActiveHostedEntity,
-                        java.time.Clock.systemUTC()));
-                log.info("Issuing Trust Marks of types " + marks.types().keySet());
-            }
-            FederationRuntimeConfig.KeyHistorySettings keyHistory = runtime.keyHistory();
-            KeyHistory history = null;
-            if (keyHistory.enabled()) {
-                if (!KeyHistorySupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
-                }
-                history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
-                service.historicalKeys(history);
-            }
-            EndpointAuthPolicy endpointAuth = runtime.endpointAuth();
-            // A spent jti is kept where attestation keeps its own - Redis when configured - so a replay is caught on any node.
-            service.endpointAuth(endpointAuth, (client, jti, ttl) ->
-                    assertionNotSpent(AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT), client, jti, ttl));
-            if (endpointAuth.anyEnabled()) {
-                java.util.Map<String, String> modes = new java.util.TreeMap<>();
-                for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
-                    if (endpointAuth.mode(endpoint) != EndpointAuthPolicy.Mode.NONE) {
-                        modes.put(endpoint, endpointAuth.mode(endpoint).name().toLowerCase(java.util.Locale.ROOT));
+                this.federationConfiguration = FederationConfiguration.fromServletConfig(config);
+                FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+                // The war's context path (e.g. "/oidf") — the entity's identity is PF's path-less OAuth
+                // issuer, but the /federation/* endpoints it advertises live under this prefix. Without
+                // it a peer following federation_fetch_endpoint gets a 404 at the root path.
+                String contextPath = config.getServletContext() == null ? "" : config.getServletContext().getContextPath();
+                // The trust controller is operator configuration, so it is exempt from the outbound policy's
+                // address rules (it may legitimately be a private/internal host). Everything else - a
+                // subordinate's configuration, whatever a resolved subject's hints point at - is screened.
+                OutboundUrlPolicy outbound = OutboundUrlPolicy.fromEnvironment().trusting(runtime.trustControllerHost(), runtime.trustControllerBaseUrl());
+                JdkHttpGetClient http = new JdkHttpGetClient(this.federationConfiguration.ignoreSslErrors(), outbound);
+                FederationService.Builder service = FederationService.builder(this.federationConfiguration,
+                                new PfJwksSigningKeyProvider(this.federationConfiguration.signingAlgorithm()))
+                        .providerMetadata(this.providerMetadata)
+                        .subordinateFetcher(http)
+                        // A subordinate hosted by this same authority (see HostedEntityServlet) resolves through
+                        // AuthoritySupport ahead of the fetch-based foreign path, unconditionally — harmless even
+                        // if HostedEntityServlet is never configured, since every lookup then returns null.
+                        .hostedSubordinateLookup(AuthoritySupport::hostedSubordinateClaims)
+                        .hostedSubordinateIds(AuthoritySupport::hostedEntityIds)
+                        .hostedConfiguration(AuthoritySupport::hostedEntityConfiguration)
+                        // Asked per request: HostedEntityServlet may be initialised after this servlet.
+                        .hosting(AuthoritySupport::isHostingConfigured)
+                        .federationBasePath(contextPath);
+                TrustAnchorSet anchors = resolverAnchors(runtime);
+                if (anchors != null) {
+                    String base = runtime.trustControllerBaseUrl() != null ? runtime.trustControllerBaseUrl() : anchors.entityIds().get(0);
+                    service.resolver(anchors, new HttpTrustControllerGateway(http, base), Set.of(), ValidatorOptions.defaults());
+                    if (runtime.trustMarkStatusCheck()) {
+                        // §8.4 is POST-only; the same outbound policy screens it.
+                        service.trustMarkStatus(new JdkHttpClient(this.federationConfiguration.ignoreSslErrors(), outbound));
                     }
+                    log.info("Federation resolve endpoint enabled for trust anchors " + anchors.entityIds() + " (discovery: "
+                            + this.federationConfiguration.resolveDiscovery().name().toLowerCase(java.util.Locale.ROOT) + ")");
                 }
-                log.info("Client authentication at the federation endpoints (OpenID Federation 1.0 §8.8): " + modes + ", signed with "
-                        + endpointAuth.signingAlgorithms());
-            }
-            this.federationService = service.build();
-            if (history != null) {
-                recordSigningKey(history, this.federationService.signingKey());
-            }
-            FederationService issuing = this.federationService;
-            if (issuing.issuesTrustMarks()) {
-                // A hosted entity's configuration carries the marks this entity issues it, signed as the authority.
-                AuthoritySupport.configureTrustMarks(subject -> {
-                    try {
-                        return issuing.issuedTrustMarks(subject, AuthoritySupport.authorityEntityId());
-                    } catch (org.jose4j.lang.JoseException e) {
-                        throw new IllegalStateException("could not sign a Trust Mark for " + subject, e);
+                // Hosting is configured now, not on HostedEntityServlet's first request, when the environment names an authority:
+                // fetches about hosted entities are answered from the first request on.
+                try {
+                    HostedEntityServlet.configureAuthority(null);
+                } catch (RuntimeException e) {
+                    log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again on its first request", e);
+                }
+                service.subordinateConstraints(runtime.subordinateConstraints());
+                FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
+                service.ownTrustMarks(marks.carried()).trustMarkIssuers(marks.issuers()).trustMarkOwners(marks.owners());
+                if (!marks.types().isEmpty()) {
+                    // The grants live in the authority's store; HostedEntityServlet points the registry at it too, but starts
+                    // only on its first request, so the store is resolved here as well - whichever runs first configures it.
+                    if (!TrustMarkSupport.isConfigured()) {
+                        AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
                     }
-                });
+                    service.trustMarkIssuing(new TrustMarkIssuer(marks.types(), TrustMarkSupport.shared(), AuthoritySupport::isActiveHostedEntity,
+                            java.time.Clock.systemUTC()));
+                    log.info("Issuing Trust Marks of types " + marks.types().keySet());
+                }
+                FederationRuntimeConfig.KeyHistorySettings keyHistory = runtime.keyHistory();
+                KeyHistory history = null;
+                if (keyHistory.enabled()) {
+                    if (!KeyHistorySupport.isConfigured()) {
+                        AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
+                    }
+                    history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
+                    service.historicalKeys(history);
+                }
+                EndpointAuthPolicy endpointAuth = runtime.endpointAuth();
+                // A spent jti is kept where attestation keeps its own - Redis when configured - so a replay is caught on any node.
+                service.endpointAuth(endpointAuth, (client, jti, ttl) ->
+                        assertionNotSpent(AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT), client, jti, ttl));
+                if (endpointAuth.anyEnabled()) {
+                    java.util.Map<String, String> modes = new java.util.TreeMap<>();
+                    for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
+                        if (endpointAuth.mode(endpoint) != EndpointAuthPolicy.Mode.NONE) {
+                            modes.put(endpoint, endpointAuth.mode(endpoint).name().toLowerCase(java.util.Locale.ROOT));
+                        }
+                    }
+                    log.info("Client authentication at the federation endpoints (OpenID Federation 1.0 §8.8): " + modes + ", signed with "
+                            + endpointAuth.signingAlgorithms());
+                }
+                this.federationService = service.build();
+                if (history != null) {
+                    recordSigningKey(history, this.federationService.signingKey());
+                }
+                FederationService issuing = this.federationService;
+                if (issuing.issuesTrustMarks()) {
+                    // A hosted entity's configuration carries the marks this entity issues it, signed as the authority.
+                    AuthoritySupport.configureTrustMarks(subject -> {
+                        try {
+                            return issuing.issuedTrustMarks(subject, AuthoritySupport.authorityEntityId());
+                        } catch (org.jose4j.lang.JoseException e) {
+                            throw new IllegalStateException("could not sign a Trust Mark for " + subject, e);
+                        }
+                    });
+                }
+                // Fetch each configured subordinate's entity configuration off the request path —
+                // a cold cache otherwise puts a live cross-network fetch inside the first token
+                // exchange after every restart (see FederationService#prewarmSubordinatesAsync).
+                this.federationService.prewarmSubordinatesAsync();
             }
-            // Fetch each configured subordinate's entity configuration off the request path —
-            // a cold cache otherwise puts a live cross-network fetch inside the first token
-            // exchange after every restart (see FederationService#prewarmSubordinatesAsync).
-            this.federationService.prewarmSubordinatesAsync();
-        }
-        catch (Exception e) {
-            throw new ServletException("Failed to initialize OpenID Federation servlet", e);
+            catch (Exception e) {
+                throw new ServletException("Failed to initialize OpenID Federation servlet", e);
+            }
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
         }
     }
 

@@ -113,7 +113,8 @@ class AttestationSupportTest {
 
     @Test
     void aPlaintextUrlInProductionIsRefusedOnEveryCallAndNeverFallsBackToMemory() {
-        assumeTrue(DeploymentProfile.isProduction(System::getenv), "the build sets no development profile");
+        assumeTrue(com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.current().isProduction(),
+                "the build sets no development profile");
         System.setProperty(PROPERTY, "redis://:pw@127.0.0.1:1");
         IllegalStateException first = assertThrows(IllegalStateException.class, () -> AttestationSupport.challengeService());
         assertTrue(first.getMessage().contains("rediss://"), first.getMessage());
@@ -121,5 +122,22 @@ class AttestationSupportTest {
         IllegalStateException again = assertThrows(IllegalStateException.class, () -> AttestationSupport.evidenceBindingStore());
         assertEquals(first.getMessage(), again.getMessage(), "the refusal is remembered, not re-derived");
         assertThrows(IllegalStateException.class, () -> AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT));
+    }
+
+    @Test
+    void aRedisSettingItsCatalogueRefusesIsRefusedOnEveryCallNamingTheSetting() {
+        System.setProperty(PROPERTY, "rediss://:pw@127.0.0.1:1");
+        System.setProperty("oidf.redis.pool.size", "0");
+        try {
+            IllegalStateException first = assertThrows(IllegalStateException.class, () -> AttestationSupport.challengeService());
+            assertTrue(first.getMessage().startsWith("a Redis setting is refused: ")
+                    && first.getMessage().contains("OIDF_REDIS_POOL_SIZE"), first.getMessage());
+            assertTrue(!first.getMessage().contains("pw@"), first.getMessage());
+            assertEquals(first.getMessage(), assertThrows(IllegalStateException.class,
+                    () -> AttestationSupport.evidenceBindingStore()).getMessage());
+        } finally {
+            System.clearProperty("oidf.redis.pool.size");
+        }
+        assertTrue(AttestationSupport.refusal(new IllegalArgumentException("x")).startsWith("the configured Redis URL is refused: "));
     }
 }

@@ -36,7 +36,8 @@ owner, so nobody edits it.
 `Lifecycle.current()` is this loader's registry of things to close: `register(name, resource)` adds an
 `AutoCloseable`, and `shutdown()` closes them the last registered first, once. A close that throws is logged
 and reported, and the rest are still closed. The wait is bounded (`DEFAULT_BUDGET`, ten seconds, or the
-budget passed): each close runs on a short-lived daemon thread and is waited for only until the budget runs
+budget passed): each close runs on a short-lived daemon thread (`oidf-platform-close-<n>`, started through
+[exec](#exec)'s `startDaemon`) and is waited for only until the budget runs
 out, so a hung close cannot hold up an undeploy; it carries on in the background and is reported as timed out.
 Reverse order holds only while every close finishes in time: after a timeout, or once the budget is spent, the
 remaining closes start at once while the hung one is still running, so a resource registered earlier - one the
@@ -505,7 +506,191 @@ An event the engine's copy emits - from an OGNL criterion - is counted in the en
 copy's MXBean stays registered.
 
 <!-- health (O-4): add this package's section below this line -->
+## health
+
+What the health endpoints decide (plan item O-4), with no servlet API; platform-pf's `HealthServlet` serves it
+([libs/platform-pf, health](../platform-pf/README.md#health)).
+
+**Components and their parts.** One S-9 component can be served by more than one class - automatic registration
+by a filter at the token endpoint and another at the authorization and PAR endpoints - and `ComponentRegistry`
+holds one state per name, retiring the earlier handle when a name registers again. So a servlet or filter
+registers a *part* from its `init`, through `Startup.begin(component, part)`, and `ComponentParts` publishes the
+component's state to the registry: the worst state among its enabled parts, `DISABLED` when none is enabled.
+Worst first: `FAILED_CONFIG`, `REFUSED`, `FAILED_DEPENDENCY`, `STARTING`, `DEGRADED`, `READY`. The reason is each
+part in that state as `part: reason`, joined with `; `. `Startup` holds S-9's nine names as constants and this
+loader's `ComponentParts`; statics are per loader, and nothing in the engine's copy runs an `init`, so the engine's
+registry stays empty ([classloaders](../../docs/development/classloaders.md), rule 1).
+
+A part starts `STARTING`. Its `init` wraps what it did before in `try`, and says what it found:
+
+```java
+var part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+try {
+    ... init as it was, with part.disabled() or part.failedConfig(reason) where it switches off or refuses ...
+} catch (ServletException | RuntimeException | Error e) {
+    part.failed(e);
+    throw e;
+} finally {
+    part.finish();
+}
+```
+
+`failed` records `FAILED_DEPENDENCY` when the exception or one of its causes (16 at most, never round a cycle) is an
+`IOException`, `UncheckedIOException`, `SQLException`, `TimeoutException` or `LinkageError` (a jar missing where it
+runs), and `FAILED_CONFIG` for anything else; the reason is the message, with the deepest cause's when it says
+something the message does not. `init` rethrows unchanged, so whether it throws is what it was: S9a (Phase 3) makes
+`init` never throw. `finish` makes a part still starting ready. A disabled part stays disabled, and registering a
+part again (a second `init`) starts it afresh and retires the earlier handle. A reason is cut to one line of 256
+characters, as the registry cuts it.
+
+There is no supervisor (S9a). The one retry is a probe: a part that failed on a dependency something else keeps
+retrying - the SSF transmitter's boot retry - passes a check with `failedDependency(reason, probe)`, and
+`ComponentParts.refresh()`, which health calls before it reads, makes the part ready once the check returns.
+
+**Which class serves which component**, and when today's configuration enables it (inferred, as S9a infers it in
+development):
+
+| Component | Part (class) | Enabled | Starts |
+|---|---|---|---|
+| `FEDERATION` | `OpenIdFederationServlet` | always | at deploy |
+| `FEDERATION` | `OpenIdRegistrationServlet` (explicit registration, a federation endpoint) | always | first request |
+| `AUTO_REGISTRATION` | `TokenEndpointAutoRegistrationFilter` | always; `FAILED_CONFIG` while the anchor's keys are not pinned | at deploy |
+| `AUTO_REGISTRATION` | `FrontChannelAutoRegistrationFilter` | unless `OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=false`; `FAILED_CONFIG` while the keys are not pinned | at deploy |
+| `ATTESTATION_AUTH` | `ClientAttestationAuthFilter` | unless no bridge signing is configured and `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`; `DEGRADED` while the keys are not pinned | at deploy |
+| `ATTESTATION_ISSUER` | `AttestationIssuanceServlet` | always | first request |
+| `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | first request |
+| `SSF` | `SsfConfigurationServlet` | when the transmitter's settings parse (an issuer is set) | at deploy |
+| `SSF_RECEIVER` | `SsfReceiverServlet` | when SSF is and a receiver issuer is set | first request |
+| `OPERATOR_API` | `FederationAdminServlet` | when `OIDF_AUTHORITY_ADMIN_TOKEN` is set | first request |
+| `FAPI` | `Fapi2ProfileFilter` | when `OIDF_FAPI2_CLIENTS` names a client | at deploy |
+
+The SSF states are read after `SsfHttp.bootstrap`, which never throws, by servlets/ssf's `SsfComponents`. A part
+that starts on its path's first request is absent until then, and readiness ignores it (finding
+[F-0193](../../docs/findings/F-0193.yaml)); a transmitter setting that does not parse reads as SSF not configured,
+as the bootstrap reads it (F-0191).
+
+**Readiness.** `Health.readiness` is `DOWN` when an enabled component is neither `READY` nor `DEGRADED` - starting,
+failed or refused - and `UP` otherwise, disabled components and no components at all included. `DEGRADED` counts
+as ready, per S-9: a dependency blip must not eject every node at once. Liveness is always `UP`. `Health.status`
+is the whole body of both, `{"status":"UP"}`; `Health.detail` is the document only an authorised caller sees:
+the status, the deployment profile, the versions and every component with its state, reason, the time it entered
+the state and its parts. A PingFederate that names a trust controller before its anchor's keys are pinned is
+therefore not ready (finding [F-0192](../../docs/findings/F-0192.yaml)).
+
+**Every event counts itself.** `Events.emit` counts each event it admits in `oidf_events_total{code,outcome}`
+(`EventMetrics`, the one class this package adds to platform.events) before any sink runs, as the metrics section
+above describes: both labels are declared sets taken from the catalogues this loader reads, so an uncatalogued code
+counts as `other` and raises the fold counter, and the counter is registered once per loader on the first event -
+in the engine's registry for an event an OGNL criterion emits. With today's two catalogues that is 41 codes and two
+outcomes, 126 series. Two gauges read the catalogues' own counts: `oidf_events_dropped_fields` and
+`oidf_events_uncatalogued`. A registration the registry refuses is logged once and the events go uncounted;
+counting never fails an event.
+
 <!-- redis (C-2): add this package's section below this line -->
+
+## redis
+
+`RedisClient` is the platform's Redis client (plan item C-2): 0.4.0's `MiniRedisClient` from client-attestation,
+moved here with S3a's rules unchanged and a bounded pool, a deadline on every command, key prefixes, the commands
+leases and rate limits need, and Sentinel added. It speaks RESP itself, so no Redis library reaches PingFederate's
+loaders. client-attestation's stores are its first user; X-D01's replay store and C-4's leases are the next. The
+plan's X-A02 ("Absorbs X-A02", under C-2) is defined nowhere else in the plan; this package takes it as absorbed.
+
+**What 0.4.0 did, and still does.** A URL is `redis://[user[:password]@]host[:port][/db]` or `rediss://`.
+`rediss://` verifies the server as a browser does - the chain, to the JVM's CAs or the PEM file
+`OIDF_REDIS_CA_FILE` names; the name, by the HTTPS endpoint identification algorithm; the host as SNI - and
+completes the handshake before `AUTH` is written. Under the production profile `redis://` is refused, the
+decision `ProfileGuard.forbidInProduction` makes and the message 0.4.0 wrote. No message quotes a URL's userinfo.
+One thing is kept that should not be: the userinfo is decoded twice, so a `+` in a password is a space
+([F-0180](../../docs/findings/F-0180.yaml)). Nothing connects until the first command.
+
+**The pool and the deadlines.** At most `OIDF_REDIS_POOL_SIZE` connections are open at once, in use or idle (0.4.0
+opened as many as the load asked for and kept four). A command waits up to `OIDF_REDIS_BORROW_TIMEOUT_MS` for one,
+and then has `OIDF_REDIS_COMMAND_TIMEOUT_MS` for everything else: connecting, the handshake, `AUTH` and `SELECT`,
+finding the master, the command and the one retry. Each read waits only what is left of that; a command's own
+bytes are written untimed, since they fit a socket's send buffer ([F-0181](../../docs/findings/F-0181.yaml)). An
+exhausted pool, a deadline passed and a
+closed client are an `IOException`, which the stores answer as `STORE_UNAVAILABLE` - the same 503 as a Redis that
+is down. An error reply is a `RedisErrorReply` (an `IllegalStateException`, as 0.4.0 threw) and is not retried. A
+command that fails on a reused connection is retried once on a fresh one, as 0.4.0 did, because the server may
+have closed an idle connection. That retry can run a command twice when the first one ran and only its reply was
+lost - a `SET NX` then answers "already set" and a `DEL` "nothing deleted", a verdict rather than an outage -
+exactly as 0.4.0's could; nothing else is retried after a command was sent. A reply past 64 KiB for a line, 64 MiB for a bulk string or a million array
+elements is a protocol failure, not an allocation.
+
+**Key prefixes.** `client.keyspace("oidf:as")` is a `RedisKeyspace`: every key it is given becomes
+`oidf:as:<key>`. client-attestation's four namespaces are keyspaces over one client, and write byte for byte the
+keys 0.4.0 wrote - `oidf:as:*`, `oidf:cas:*`, `oidf:fed:endpoint:*`, `oidf:admin:dpop:*` - so a rolling upgrade
+from 0.4.0 finds the challenges and spent proofs the old nodes recorded. `RedisClientTest` and client-attestation's
+`RedisAttestationStoreTest` write keys the 0.4.0 way and find them.
+
+**The commands.** `set` and `setIfAbsent` (`SET ... [NX] PX`), `get`, `del`, `incr`, `pexpire`, and `eval`, which
+sends a `RedisScript` by its SHA-1 (`EVALSHA`) and by its source (`EVAL`) when Redis answers `NOSCRIPT` - after a
+restart or a `SCRIPT FLUSH`. Three scripts are built in: `compareAndDelete` and `compareAndExtend`, which release
+and renew a lease only while it still holds the caller's token (C-4), and `countInWindow`, a fixed-window counter
+for rate limits (X-A11) that increments and, when the key has no TTL, sets the window's, in one atomic step, so a
+counter never lives without one. It answers the count and the time the window has left.
+
+**Sentinel.** With `OIDF_REDIS_SENTINEL_MASTER` and `OIDF_REDIS_SENTINELS` set, the client asks each sentinel in
+turn `SENTINEL get-master-addr-by-name`, connects where the first answer says, and checks with `ROLE` that the
+server is the master. Each sentinel gets an equal share of what is left of the command's deadline - of 3000 ms and
+two sentinels, the first has 1500 - so one that accepts and never answers, or whose host drops packets, leaves the
+rest time to answer; the sentinel that answered is asked first next time. It asks again when a connection to the
+master is lost, or the master answers `READONLY` - it has become a replica, so a failover has happened. The
+command is retried once on the new master, within the same deadline, after `READONLY` (which refused it) or when
+no connection to the master could be opened (so nothing was sent); a new connection lost after the command was
+sent is an outage, not a retry, because the command may have run. Losing the master closes every connection to it: those idle at once, those in use when they come
+back. The URL still says `redis` or `rediss`, the password and the database; its host is not dialled. Over TLS
+the sentinels are verified against their own names, with the same CA file. The master is verified against the
+name a sentinel gave for it, or, when it gave an address - what Sentinel does unless `announce-hostnames` is on -
+against the URL's host, which every node's certificate must then carry
+([U-0190](../../docs/findings/U-0190.yaml): C-6's reference cluster settles which). The sentinels are trusted to
+say where the master is: a name one gives is checked as itself, so with the JVM's CAs any server holding a public
+certificate for that name would be sent `AUTH`. Over TLS with Sentinel, set `OIDF_REDIS_CA_FILE` to the
+deployment's own CA, and give the sentinels a password. One thread asks the sentinels while others wait for its
+answer, each for at most its own deadline.
+
+| Setting | Default | What it does | When it's wrong |
+|---|---|---|---|
+| `oidf.redis.url`, then `OIDF_REDIS_URL`, then `REDIS_URL` | unset | The Redis; unset keeps each store in one node's memory | A URL that does not parse, another scheme, or `redis://` under the production profile: every store that would use Redis refuses its requests, the message without the password |
+| `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | the JVM's CAs | A PEM file of CA certificates to trust for `rediss://` | Unreadable or holding no certificate: refused, naming the file |
+| `OIDF_REDIS_POOL_SIZE` (`oidf.redis.pool.size`) | 8 | The most connections open at once | Not a whole number from 1 to 256: refused |
+| `OIDF_REDIS_BORROW_TIMEOUT_MS` (`oidf.redis.borrow.timeout.ms`) | 1000 | How long a command waits for a free connection | Not from 1 to 60000: refused |
+| `OIDF_REDIS_COMMAND_TIMEOUT_MS` (`oidf.redis.command.timeout.ms`) | 3000, 0.4.0's socket timeout | How long a command may take once it has a connection | Not from 1 to 60000: refused |
+| `OIDF_REDIS_SENTINEL_MASTER` (`oidf.redis.sentinel.master`) | unset | The master's name in Sentinel | Set without `OIDF_REDIS_SENTINELS`, or the other way round: refused |
+| `OIDF_REDIS_SENTINELS` (`oidf.redis.sentinels`) | unset | `host[:port]` of each sentinel, port 26379 when left out, IPv6 in brackets | An entry that is not host or host:port: refused, naming it |
+| `OIDF_REDIS_SENTINEL_PASSWORD` (or `_FILE`) | unset | What the sentinels ask for in `AUTH` | Not checked until the sentinels refuse it; every command then fails as an outage |
+
+The catalogue is `src/main/resources/META-INF/oidf-settings/platform-redis.json` ([format](../../docs/development/settings-catalogue.md));
+`RedisConfig.current()` reads it from the process, and `RedisConfig.builder` makes a configuration in code.
+"Refused" means the first request that needs Redis fails, and every later one, with the message logged once.
+
+**Tests.** `RedisClientTest` and `RedisSentinelTest` run against `FakeRedis`, an in-process RESP server that can be
+a master, a replica or a sentinel and stages what real servers do badly: silence, a dropped connection, a reply
+cut off or malformed. `RedisClientTlsTest` checks the TLS rules with certificates `keytool` makes for the run.
+`RedisLiveTest` runs the commands and the scripts - which the fake only emulates - against a real Redis, with the
+variables client-attestation's live test reads (`OIDF_TEST_REDIS_URL`, `OIDF_TEST_REDIS_TLS_URL`,
+`OIDF_TEST_REDIS_CA_FILE`), so build.yml's java job runs it. Its Sentinel test needs a Sentinel, which CI does not
+start; locally, a master, a replica and one sentinel sharing one network namespace so the sentinel reports an
+address the host can reach:
+
+```sh
+docker run -d --rm --name s-master -p 127.0.0.1:56390:56390 -p 127.0.0.1:56391:56391 -p 127.0.0.1:26390:26390 \
+  redis:7-alpine redis-server --port 56390 --requirepass pw --masterauth pw
+docker run -d --rm --name s-replica --network container:s-master redis:7-alpine \
+  redis-server --port 56391 --replicaof 127.0.0.1 56390 --requirepass pw --masterauth pw
+docker run -d --rm --name s-sentinel --network container:s-master redis:7-alpine sh -c \
+  'printf "port 26390\nsentinel monitor mymaster 127.0.0.1 56390 1\nsentinel auth-pass mymaster pw\n" > /tmp/s.conf && exec redis-sentinel /tmp/s.conf'
+OIDF_TEST_REDIS_SENTINELS=127.0.0.1:26390 OIDF_TEST_REDIS_SENTINEL_MASTER=mymaster \
+OIDF_TEST_REDIS_SENTINEL_URL=redis://:pw@127.0.0.1:6379 OIDF_TEST_REDIS_SENTINEL_FAILOVER=true \
+  mvn -o -pl libs/platform verify -Dtest=RedisLiveTest
+```
+
+With `OIDF_TEST_REDIS_SENTINEL_FAILOVER=true` the test asks the sentinel for a failover and follows the master to
+its new port. On 2026-09-28 (redis:7-alpine, JDK 17.0.11) it did, in 11.5 s, most of it Sentinel's own switch.
+The in-process tests also ran on the pinned PingFederate image's JDK (OpenJDK 21.0.12.1) that day, the TLS ones
+included.
+
 <!-- http (S5a): add this package's section below this line -->
 ## http
 
@@ -659,6 +844,108 @@ The plugins that shade platform carry HttpCore under their own package
 unrelocated `org.apache.hc` class.
 
 <!-- exec (C-3): add this package's section below this line -->
+## exec
+
+`ManagedExecutors` is where the repository's code starts a background thread (plan item C-3). Each job gets an
+executor of its own with one daemon thread named `oidf-<name>-<n>`, registered with this copy's lifecycle, listed
+in this copy's registry and counted in this copy's metrics:
+
+```java
+ManagedExecutors.every("registration-sweeper", Duration.ofSeconds(300), this::sweep);          // first run in 300 s
+ManagedExecutors.every("subordinate-refresh", Duration.ZERO, Duration.ofSeconds(240), this::refresh); // first run now
+ManagedExecutors.after("some-job", Duration.ofSeconds(30), this::once);
+ManagedExecutors.single("ssf-boot-retry").ifPresent(e -> e.after(Duration.ofSeconds(30), this::retry));
+```
+
+- `every` runs with a fixed delay: the next run starts one interval after the last one ended, so runs never
+  overlap. `after` runs once. `single` schedules nothing, for a job that schedules its own runs (one retry at a
+  time) or runs a loop until it is interrupted (`ManagedExecutor.execute`).
+- A name is a constant: 1-40 of `a-z`, `0-9` and single hyphens, starting with a letter. Anything else is an
+  `IllegalArgumentException`, as is a negative delay or an interval of zero, and both are checked before the
+  name is claimed.
+- A run that throws - an exception the task did not catch, or an `Error` - is logged at WARN with its stack,
+  counted, and the schedule carries on. A bare `ScheduledExecutorService` silently drops a periodic task's later
+  runs once one throws, and a bare thread dies. The five jobs below each catch their own exceptions with their own
+  log lines, as they always did, so only what those catches let through reaches this.
+- `close()` interrupts a run in progress, drops what is queued and waits up to five seconds (`CLOSE_WAIT`) for
+  the thread to end, then gives the name back. A run that throws because that close interrupted it is logged at
+  INFO as ended by shutdown and is not a failure. `close(Duration.ZERO)` does not wait, as `shutdownNow` did not.
+- `whenClosed(hook)` runs something once the executor is closed; the registration sweeper uses it to give back
+  its own owner property.
+
+### Which copy may start one
+
+Only the webapp's copy starts threads ([classloaders](../../docs/development/classloaders.md), rule 2). A copy
+cannot yet tell it is the webapp's - `Lifecycle.loaderRole()` is `UNKNOWN` until F-2's listener marks it - so a
+start is refused, with the reason logged and an empty `Optional` returned, in three cases:
+
+1. **A relocated copy.** A plugin that shades platform relocates this package, and a plugin's loader has nothing
+   that would stop a thread. The package name to compare against is built from parts, because a shading
+   relocation rewrites string constants that look like the package it moves.
+2. **A copy whose lifecycle has shut down.**
+3. **A job of that name already running anywhere in the JVM.** The name is claimed in the System property
+   `oidf.exec.owner.<name>` under a lock on `System.class`, holding the claiming copy's id, and given back when
+   the executor closes. This is the registration sweeper's owner property made general, and classloaders rule 4
+   records it. A servlet initialised twice, or the same servlet in `oidf.war` and `pf-runtime.war`, starts one
+   loop, not two. For the subordinate refresher that means one instance's cache is warmed and the other's is not
+   ([F-0202](../../docs/findings/F-0202.yaml)). `ExecutorCopiesTest` loads platform twice through two `URLClassLoader`s and shows the second
+   copy starts nothing while the first runs, and may once the first copy's lifecycle has shut down.
+
+The engine's copy is told apart from the webapp's only by never calling a start: every start is in a servlet's
+or filter's `init` (or a boot retry scheduled from one), and no `init` runs in the engine's loader. Once F-2 marks
+the webapp, refusing every unmarked copy is one more check here; [F-0200](../../docs/findings/F-0200.yaml)
+records it.
+
+### The jobs
+
+| Job | Where | Schedule | Thread before 0.5.0 | Thread now |
+|---|---|---|---|---|
+| Registration expiry sweep | `RegistrationExpirySweeper.startOnce`, from `TokenEndpointAutoRegistrationFilter.init` | every `OIDF_REGISTRATION_SWEEP_INTERVAL_SECONDS`, first after one interval | `oidf-registration-sweeper` | `oidf-registration-sweeper-1` |
+| Subordinate entity-configuration refresh | `FederationService.prewarmSubordinatesAsync`, from `OpenIdFederationServlet.init` | at once, then 240 s after each round | `oidf-subordinate-refresh` | `oidf-subordinate-refresh-1` |
+| SSF push delivery and SET expiry | `PushDeliveryService.start`, from `SsfSupport.start` | every `pushRetryBackoffSeconds` (at least 1), first after one tick | `ssf-push-delivery` | `oidf-ssf-push-delivery-1` |
+| SSF receiver poll | `PollReceiverClient.start`, from the SSF servlets' wiring | every `receiverPollIntervalSeconds` (at least 1), first after one tick | `ssf-poll-receiver` | `oidf-ssf-poll-receiver-1` |
+| SSF boot retry | `SsfSupport.scheduleBootRetry`, when the store cannot be opened at boot | once, 30 s later, one pending at a time | `ssf-boot-retry` | `oidf-ssf-boot-retry-1` |
+| Lifecycle closes | `Lifecycle.shutdown` and a `register` after shutdown | one short-lived thread per close | `oidf-platform-close-<resource name>` | `oidf-platform-close-<n>` |
+
+The timing, the log lines and each job's own failure handling are what they were; each job has a test that
+drives its loop on the executor (`RegistrationExpirySweeperTest`, `SubordinateRefresherTest`,
+`PushDeliveryLoopTest`, `PollReceiverLoopTest`, `SsfSupportBootTest`). Three things differ:
+
+- one of each job runs in the JVM, where the subordinate refresher had no guard and each call started a thread
+  (so a second `FederationService` whose refresher is refused keeps a cold cache: F-0202);
+- an `Error` thrown by a run is logged and counted and the job carries on, where it used to end the job;
+- the subordinate refresher, interrupted at shutdown, stops at the next subordinate rather than logging each of
+  the rest as not reachable.
+
+The lifecycle's closer is the one thread here that is not an executor. `ManagedExecutors.startDaemon(name, task)`
+starts it - a named daemon, not claimed, not registered and not refused in any copy - because the lifecycle is
+what closes executors, and a shutdown that ran its closes on an executor would depend on one being shut down.
+That closes [F-0131](../../docs/findings/F-0131.yaml).
+
+### Metrics
+
+Per executor name (a label capped at 64 values; names are constants): `oidf_executor_runs_total`,
+`oidf_executor_failures_total` (runs that threw) and `oidf_executor_run_seconds` (a timer; the 30 s and 60 s
+buckets are for these). They are registered on the first run, so loading the class registers nothing; from then
+on this copy has a metrics MXBean (see [One MXBean per loaded copy](#one-mxbean-per-loaded-copy)).
+`ManagedExecutors.snapshot()` lists each executor this copy runs with its own run and failure counts, for health
+to read.
+
+### Left for C-4
+
+A managed executor runs a job once per JVM, which on one node is once. On two nodes each runs its own, which is
+why 0.5.0 still supports one node ([deployment limits](../../docs/operator/deployment-limits.md)). C-4 (Phase 4)
+adds `leaderEvery(job, interval, lease, taskWithToken)` for a job that must run once per cluster: the
+registration sweeper, the SSF poll client (each node would poll and acknowledge on its own), and later the MDM
+watch loop. The SSF push loop is S-10's engine instead: stream leases with a fencing epoch, not one leader.
+Nothing here fixes their shape: `leaderEvery` can build on `single` and `every`, and the claim here stays the
+per-JVM rule under it.
+
+Threads the repository does not start through here: services/device-enrolment's HTTP server pool and its
+shutdown hook (`EnrolmentHttpServer`, `Main`), which X-A11 replaces; libs/testkit's shutdown hook, which stops a
+test database and is never shipped; and the Kafka producer's own I/O thread when the SSF Kafka publisher is on,
+which the Kafka client starts ([F-0201](../../docs/findings/F-0201.yaml)).
+
 
 ## Build
 

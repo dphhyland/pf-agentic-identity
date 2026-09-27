@@ -1,0 +1,26 @@
+id: F-0192
+title: A PingFederate that names a trust controller before its anchor's keys are pinned is not ready, though it must serve its own entity configuration first
+severity: medium
+area: platform-pf, pf-integration
+source: design
+status: open
+plan_items: [S9a, S9b, O-4]
+prs: [53]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package O4 (2026-09-28). With OIDF_FEDERATION_TRUST_CONTROLLER_HOST set and
+  OIDF_FEDERATION_TRUST_ANCHOR_JWKS unset, both automatic-registration filters start but refuse every registration,
+  and ClientAttestationAuthFilter refuses every attester resolved through the federation. The filters' comments say
+  why init does not fail: a PingFederate that is its own trust anchor has to serve /.well-known/openid-federation
+  before anyone can capture the keys to pin. O4 records what the filters do: AUTO_REGISTRATION is FAILED_CONFIG
+  (it serves nothing) and ATTESTATION_AUTH is DEGRADED (statically trusted attesters still work). By S-9's rule -
+  "Readiness is DOWN for enabled components that aren't READY" - /agentic-identity/health/ready answers 503, so a
+  load balancer or orchestrator that routes by readiness keeps the node out of rotation and its entity
+  configuration out of reach through it, which is the bootstrap the filters were written to allow. Until then an
+  operator capturing the keys reaches the node directly. Seen on the rig on 2026-09-28 (PingFederate 13.1.3.0,
+  conformance profile): conformance/vars.env names the rig itself as trust controller and anchor with no JWKS, to
+  keep federation inert, so ready answered 503 with AUTO_REGISTRATION FAILED_CONFIG while /pf/heartbeat.ping answered
+  200. Who and when: S9a (Phase 3) gives the component its
+  OIDF_AUTO_REGISTRATION_ENABLED switch, so a bootstrap sets it false (the plan's "name yourself as anchor to stay
+  inert workaround becomes *_ENABLED=false"); R-I3's HEALTHCHECK must not restart a container for being not ready.

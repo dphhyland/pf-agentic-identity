@@ -1,0 +1,25 @@
+id: F-0193
+title: Lazily initialised servlets register their parts only on their first request, so readiness does not see them until then
+severity: low
+area: platform, pf-integration, attestation-issuer, ssf
+source: design
+status: open
+plan_items: [S9a, O-4]
+prs: [53]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package O4 (2026-09-28). A @WebServlet without loadOnStartup is initialised by the container on the first
+  request to its path. OpenIdFederationServlet and SsfConfigurationServlet load at start-up, and the filters over
+  PingFederate's own endpoints are initialised with the webapp; OpenIdRegistrationServlet, HostedEntityServlet,
+  FederationAdminServlet, AttestationIssuanceServlet and SsfReceiverServlet are not. Their parts are therefore absent
+  from the registry, and readiness ignores them, until the first request - which anyone can send - reaches them; a
+  configuration error there then turns readiness to 503 at that moment rather than at start-up. Hosting's case is
+  handled: with no authority configured HostedEntityServlet's part is DISABLED, not failed, so a request to
+  /federation/agents/* on a PingFederate that hosts nothing cannot make it look failed (HostingComponentTest). The
+  others fail only on a configuration that is wrong for the deployment as a whole. A second effect, found in O4's
+  review (2026-09-28): a lazy part that begins while its component is already READY - OpenIdRegistrationServlet on
+  the first POST to /federation/register, with OpenIdFederationServlet READY since start-up - makes the component
+  STARTING, the worst of its parts, until that init returns, so ready answers 503 for that window and the registry
+  logs two state lines; any unauthenticated first request can cause it, once per servlet start. Who and when: S9a (Phase 3), whose
+  init never throws and whose components start at deploy, registers every part at start-up.

@@ -1,0 +1,22 @@
+id: F-0202
+title: The subordinate refresher warms one FederationService's cache, so a second instance whose refresher is refused is never refreshed
+severity: low
+area: federation
+source: pr-review
+status: open
+plan_items: [F-2]
+prs: [51]
+verification: ''
+target_release: 0.5.0
+notes: >
+  Package C3 (2026-09-28) put the subordinate refresher on a managed executor, whose name is claimed once in the
+  JVM. The refresher's only work is to keep its own FederationService's subordinateConfigCache fresh, so the
+  claim does not deduplicate work the way it does for the sweeper and the SSF loops: a second instance whose
+  refresher is refused - OpenIdFederationServlet in both oidf.war and pf-runtime.war (demo-only packaging, plan
+  decision 17), or a servlet initialised again in a new loader while the old copy's executor still runs - keeps
+  its cache cold. Its first request for a subordinate's keys fetches them live (the stall the refresher was added
+  to prevent), and it then serves that entry, stale, until PingFederate restarts. Before C3 each init started a
+  thread of its own and refreshed its own instance. Production runs one OpenIdFederationServlet in
+  pf-runtime.war, whose init runs once per boot, so no production deployment is affected today. The redeploy case
+  closes when F-2's listener runs the lifecycle's shutdown on undeploy, which gives the claim back; the two-war
+  demo case needs the refresher to key its claim per instance, or the demo to drop the servlet from one war.
