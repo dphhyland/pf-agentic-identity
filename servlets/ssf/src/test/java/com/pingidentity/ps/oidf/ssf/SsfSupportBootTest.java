@@ -5,6 +5,7 @@ package com.pingidentity.ps.oidf.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -47,14 +48,20 @@ class SsfSupportBootTest {
         };
     }
 
-    private static void awaitConfigured() throws InterruptedException {
+    /**
+     * Until the retry has started the push loop, which it does last - after configure, which assigns the
+     * configuration, and after the wiring. Waiting on the configuration alone raced the retry's thread.
+     */
+    private static void awaitPushLoop() throws InterruptedException {
         for (int i = 0; i < 200; i++) {
             try {
-                SsfSupport.configuration();
-                return;
+                if (SsfSupport.pushDeliveryService().isRunning()) {
+                    return;
+                }
             } catch (IllegalStateException notYet) {
-                Thread.sleep(50);
+                // not configured yet
             }
+            Thread.sleep(50);
         }
         throw new AssertionError("the retry did not bring the transmitter up within 10 s");
     }
@@ -99,12 +106,58 @@ class SsfSupportBootTest {
         SsfSupport.installStoreFactory(failingFirst(2));
 
         assertFalse(SsfSupport.start(JDBC, wired::incrementAndGet));
-        awaitConfigured();
+        awaitPushLoop();
 
         assertTrue(SsfSupport.pushDeliveryService().isRunning(), "the loop started on the retry that succeeded");
         assertEquals(1, wired.get(), "the wiring ran once, on that retry");
         assertFalse(SsfSupport.bootRetryPending());
         assertTrue(SsfSupport.start(JDBC, wired::incrementAndGet), "and start now answers up");
+    }
+
+    /**
+     * A JDBC URL can carry a password, and the driver's message repeats it: the ERROR names the cause chain
+     * with the URL replaced.
+     */
+    @Test
+    void theBootErrorNamesTheCauseChainWithoutTheJdbcUrl() {
+        String url = "jdbc:postgresql://db.example.com/idm?user=ssf&password=hunter2";
+        RuntimeException e = new IllegalStateException("failed to apply SSF schema",
+                new java.sql.SQLException("No suitable driver found for " + url));
+
+        assertEquals("java.lang.IllegalStateException: failed to apply SSF schema; caused by "
+                + "java.sql.SQLException: No suitable driver found for <jdbcUrl>", SsfSupport.describe(e, url));
+        assertEquals("java.lang.RuntimeException", SsfSupport.describe(new RuntimeException(), null),
+                "no message, no URL to replace");
+        assertEquals("java.lang.IllegalStateException: x", SsfSupport.describe(new IllegalStateException("x"), ""));
+    }
+
+    /** A cause chain that loops back on itself is cut at eight, not followed for ever. */
+    @Test
+    void aCauseChainThatLoopsIsCut() {
+        RuntimeException a = new RuntimeException("a");
+        RuntimeException b = new RuntimeException("b", a);
+        a.initCause(b);
+
+        String line = SsfSupport.describe(a, null);
+
+        assertEquals(7, line.split("; caused by ", -1).length - 1, line);
+    }
+
+    /**
+     * The stack trace goes with the first failure only, so a store that is down for an hour is 120 lines, not
+     * 120 stack traces; and never with a jdbcUrl store's, because a logged exception prints its messages as
+     * they are.
+     */
+    @Test
+    void theStackTraceIsLoggedOnceAndNeverForAJdbcUrlStore() {
+        RuntimeException e = new IllegalStateException("connection refused");
+        assertEquals(e, SsfSupport.logBootFailure(JDBC, e), "the first failure, with its stack");
+        assertNull(SsfSupport.logBootFailure(JDBC, e), "a retry's: one line");
+
+        SsfSupport.resetForTests();
+        SsfConfiguration byUrl = new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .jdbcUrl("jdbc:postgresql://db.example.com/idm?password=hunter2").build();
+        assertNull(SsfSupport.logBootFailure(byUrl, e), "a jdbcUrl store's first failure: one line");
     }
 
     /** The servlet layer's wiring failing (a PF accessor outside PF, say) is logged; the loop still starts. */

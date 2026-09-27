@@ -142,9 +142,12 @@
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(*</include>
 
-                                        <!-- Boot never throws: start() is up, or logged and retried; scheduleBootRetry() keeps it to one retry. -->
+                                        <!-- Boot never throws: start() is up, or logged and retried; scheduleBootRetry() keeps it to one retry;
+                                             logBootFailure() and describe() keep the jdbcUrl, which can carry a password, out of the log. -->
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.start(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.scheduleBootRetry(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.logBootFailure(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.describe(*</include>
 
                                         <!-- Inbound signals: which subject a received SET acts on. -->
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>

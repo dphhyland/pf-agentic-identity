@@ -44,6 +44,8 @@ public final class SsfSupport {
     static volatile int bootRetrySeconds = 30;
     private static ScheduledExecutorService bootRetry;
     private static boolean bootRetryPending;
+    /** Whether a failed start has been logged; the stack trace goes with the first only. */
+    private static boolean bootFailureLogged;
 
     private static volatile SsfConfiguration configuration;
     private static volatile SsfStore store;
@@ -147,9 +149,7 @@ public final class SsfSupport {
         try {
             configure(config);
         } catch (RuntimeException e) {
-            LOGGER.error((Object) ("SSF transmitter NOT started: its store could not be opened (" + e
-                    + "). The SSF endpoints fail and nothing is delivered until it opens; it is tried again "
-                    + "every " + bootRetrySeconds + "s"), e);
+            logBootFailure(config, e);
             scheduleBootRetry(config, afterConfigure);
             return false;
         }
@@ -160,6 +160,44 @@ public final class SsfSupport {
         }
         startPushDelivery();
         return true;
+    }
+
+    /**
+     * One ERROR per failed start, naming the cause chain with the {@code jdbcUrl} replaced: a JDBC URL can
+     * carry a password, and the messages repeat it ({@code DriverManager}'s "No suitable driver found for"
+     * and the store factory's missing-driver message both end with it). The exception goes with the line,
+     * for its stack trace, on the first failure only - a retry every 30 s would otherwise repeat it for as
+     * long as the store is down - and never when a {@code jdbcUrl} is set, because a logged exception prints
+     * its messages as they are. Returns the exception that was logged with the line, or null.
+     */
+    static Throwable logBootFailure(SsfConfiguration config, RuntimeException e) {
+        String line = "SSF transmitter NOT started: " + describe(e, config.jdbcUrl()) + ". The SSF endpoints "
+                + "fail and nothing is delivered until it starts; it is tried again every " + bootRetrySeconds + "s";
+        Throwable stack;
+        synchronized (LOCK) {
+            stack = bootFailureLogged || config.jdbcUrl() != null ? null : e;
+            bootFailureLogged = true;
+        }
+        if (stack == null) {
+            LOGGER.error((Object) line);
+        } else {
+            LOGGER.error((Object) line, stack);
+        }
+        return stack;
+    }
+
+    /** The cause chain on one line, at most eight deep, with {@code jdbcUrl} replaced wherever it appears. */
+    static String describe(Throwable e, String jdbcUrl) {
+        StringBuilder chain = new StringBuilder();
+        int depth = 0;
+        for (Throwable t = e; t != null && depth < 8; t = t.getCause(), depth++) {
+            chain.append(depth == 0 ? "" : "; caused by ").append(t.getClass().getName());
+            if (t.getMessage() != null) {
+                chain.append(": ").append(t.getMessage());
+            }
+        }
+        String line = chain.toString();
+        return jdbcUrl == null || jdbcUrl.isEmpty() ? line : line.replace(jdbcUrl, "<jdbcUrl>");
     }
 
     /** One retry in flight at a time: a second servlet's failed init joins the pending one. */
@@ -415,6 +453,7 @@ public final class SsfSupport {
             }
             bootRetryPending = false;
             bootRetrySeconds = 30;
+            bootFailureLogged = false;
             if (pushDeliveryService != null) {
                 pushDeliveryService.stop();
             }
