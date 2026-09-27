@@ -30,7 +30,9 @@ class AssemblerTest {
     }
 
     private Path stockLike(String fixture) throws IOException {
-        return Fixtures.war(dir, Fixtures.resource("fixtures/" + fixture));
+        Path war = Fixtures.war(dir, Fixtures.resource("fixtures/" + fixture));
+        Files.setPosixFilePermissions(war, java.nio.file.attribute.PosixFilePermissions.fromString("rw-rw----"));
+        return war;
     }
 
     /** OUT_WAR already exists with other content, so a refusal is seen to delete it, as the script's trap did. */
@@ -61,6 +63,8 @@ class AssemblerTest {
                 + " > OidfAutoRegistration > ClientAttestationAuth > responseCaching"), r.out());
         assertTrue(r.out().contains("4 order rules hold; no listener declared"), r.out());
         assertEquals("", r.err());
+        assertEquals("rw-r-----", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(out)),
+                "the stock war's rw-rw---- less group write, as cp under umask 022 left it");
         try (var files = Files.list(dir)) {
             assertTrue(files.noneMatch(p -> p.getFileName().toString().endsWith(".tmp")), "no temporary file left");
         }

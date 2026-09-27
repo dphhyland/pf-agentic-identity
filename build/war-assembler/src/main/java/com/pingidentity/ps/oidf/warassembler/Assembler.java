@@ -8,6 +8,8 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
+import java.nio.file.attribute.PosixFileAttributeView;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -104,6 +106,7 @@ final class Assembler {
         Path temp = Files.createTempFile(outWar.getParent(), "." + outWar.getFileName() + "-", ".tmp");
         try {
             writeWar(stock.bytes(), merged.bytes(), staged, temp);
+            copyMode(stockWar, temp);
             WebXml result = verifyWar(temp, staged, declaration, outWar.getFileName().toString());
             merged.notes().forEach(out::println);
             Chains.describe(result, declaration).forEach(out::println);
@@ -319,6 +322,21 @@ final class Assembler {
         } catch (AtomicMoveNotSupportedException e) {
             Files.move(temp, outWar, StandardCopyOption.REPLACE_EXISTING);
         }
+    }
+
+    /**
+     * The stock war's permissions, less group and other write - what the shell assembler's `cp` gave under
+     * the usual umask 022 (0640 from the image's 0660), rather than the temporary file's 0600, which a
+     * container run under another uid in group 0 could not read.
+     */
+    static void copyMode(Path from, Path to) throws IOException {
+        if (!Files.getFileStore(to).supportsFileAttributeView(PosixFileAttributeView.class)) {
+            return;
+        }
+        Set<PosixFilePermission> mode = new HashSet<>(Files.getPosixFilePermissions(from));
+        mode.remove(PosixFilePermission.GROUP_WRITE);
+        mode.remove(PosixFilePermission.OTHERS_WRITE);
+        Files.setPosixFilePermissions(to, mode);
     }
 
     private static void deleteQuietly(Path p) {
