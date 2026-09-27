@@ -1,0 +1,23 @@
+id: U-0185
+title: Whether the war assembler still writes the shell script's web.xml from the stock war, which CI does not yet have
+area: build
+source: design
+status: open
+plan_items: [R-I5, R-CI6]
+prs: [48]
+recorded_in: docs/releases/unreleased/RI5.md, Notes
+verify_by: >
+  In the image job plan item R-CI6 adds, extract pf-runtime.war from the pinned pingidentity/pingfederate
+  image (build/pf-version.env's PF_IMAGE at PF_IMAGE_DIGEST, /opt/server/server/default/deploy/pf-runtime.war)
+  and run `mvn -B verify -pl build/war-assembler -DwarAssembler.stockWar=<that war>`, then check the surefire
+  report shows StockWarGoldenTest run and not skipped. It holds the stock descriptor's sha256 to 13.1.3's and
+  the assembled one to the shell script's; after a PingFederate bump the first fails by design, and the golden
+  result is taken again (the test's comment says how) before the second is trusted.
+verification: ''
+notes: >
+  The golden comparison needs PingFederate's own war, which is not in the repository and which Build's java
+  job does not extract (it takes only the SDK jars from the image), so StockWarGoldenTest skips there. Run by
+  hand on 2026-09-28 against 13.1.3's war, on JDK 17 and 20: the assembler wrote the shell script's web.xml
+  byte for byte (sha256 b0674250...). Until R-CI6 runs it, the fixtures written for the tests are what CI
+  holds the assembler to, and a change that kept them passing but altered the real descriptor's merge would go
+  unnoticed until an image build printed a different chain.

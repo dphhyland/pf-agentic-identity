@@ -43,6 +43,7 @@
         <module>libs/openid-federation</module>
         <module>libs/agent-registry</module>
         <module>libs/platform-pf</module>
+        <module>build/war-assembler</module>
         <module>servlets/pf-integration</module>
         <module>servlets/attestation-issuer</module>
         <module>servlets/oidf-war</module>
