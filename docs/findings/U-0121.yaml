@@ -1,0 +1,16 @@
+id: U-0121
+title: Whether a virtual host name makes PingFederate take the issuer's port from the request
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S4a]
+prs: [34]
+recorded_in: 'docs/releases/unreleased/S4A.md, Notes, Residual risk'
+verify_by: >
+  On the rig, add a virtual host name, send token requests naming it with two different ports in Host, and read
+  the issuer PingFederate reports and the PoP aud and DPoP htu the filter expects for each.
+verification: ''
+notes: >
+  Read with javap from 13.1.3 (BaseUrlUtil.getCurrentBaseUrl, OAuthIssuer.buildUrl, 2026-09-27): for a request
+  whose host is a configured virtual host name, the issuer is that name with request.getServerPort(). If so, a
+  PoP or proof for another port of that host name is accepted. Not exercised on a booted server.

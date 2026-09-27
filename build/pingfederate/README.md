@@ -27,8 +27,8 @@ An image is built for one of two **staging profiles**, and says which in a label
 
 | Profile | Module jars | For |
 |---|---|---|
-| `production` (the default) | eight: `oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`, `openid-federation`, `agent-registry`, `device-instance` | every deployment |
-| `conformance` | those and a ninth, `pf.plugins.ciba-sim.jar`, plus `/opt/ciba-sim`, the directory the simulator keeps its decisions in (`0700`, owned by PingFederate's user) | the conformance rig, for the suite's FAPI-CIBA plan |
+| `production` (the default) | nine: `oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`, `rar-model`, `openid-federation`, `agent-registry`, `device-instance` | every deployment |
+| `conformance` | those and a tenth, `pf.plugins.ciba-sim.jar`, plus `/opt/ciba-sim`, the directory the simulator keeps its decisions in (`0700`, owned by PingFederate's user) | the conformance rig, for the suite's FAPI-CIBA plan |
 
 The CIBA simulator is an approval oracle keyed by nothing but an `auth_req_id`
 ([plugins/ciba-sim](../../plugins/ciba-sim/README.md)), so it is never staged into a production image, and
@@ -278,6 +278,6 @@ the work directory and the temp directories for the inline identity, and two mor
 sweep is known to fail when it should. It becomes a CI step in Phase 2 (plan item R-CI6). Every script in
 this directory is shellcheck-clean (0.11.0, 2026-09-27).
 
-Because the modules sit at the **root** context, their endpoints have no `/oidf` prefix - the challenge
-endpoint is `/federation/attestation-challenge`, and `/.well-known/ssf-configuration` is at root.
+Because the modules sit at the **root** context, their endpoints have no `/oidf` prefix - the challenge endpoints
+are `/federation/attestation-challenge` and `/federation/attestation/challenge`, and `/.well-known/ssf-configuration` is at root.
 Repoint any `/oidf/*` consumers accordingly.

@@ -10,8 +10,8 @@
 #                                       profile this image is built for (merged into pf-runtime.war AND
 #                                       copied to server/default/deploy; see below)
 #
-# Build arg STAGING_PROFILE selects what the image is: production (the default; eight module jars) or
-# conformance (nine: the CIBA simulator as well, an approval oracle for the suite's FAPI-CIBA plan that
+# Build arg STAGING_PROFILE selects what the image is: production (the default; nine module jars) or
+# conformance (ten: the CIBA simulator as well, an approval oracle for the suite's FAPI-CIBA plan that
 # has no business in a production image, plus the directory it keeps its decisions in). The profile is
 # recorded as a label, and the assembler refuses a modules/ that was staged for the other one.
 #   (no jose4j: the assemble call passes "-" and relies on PF's own copy in server/default/lib)
@@ -19,8 +19,8 @@
 #                                       (issuer -> public JWK), bypassing federation trust chains
 #
 # The module is MERGED INTO pf-runtime.war (not deployed as a loose oidf.war + jar). This puts its
-# @WebServlet servlets in the ROOT context — so `/.well-known/ssf-configuration`, `/ssf/*`, the challenge
-# endpoint at `/federation/attestation-challenge`, etc. serve at root (no `/oidf` prefix) — gives a single
+# @WebServlet servlets in the ROOT context — so `/.well-known/ssf-configuration`, `/ssf/*`, the challenge endpoints
+# at `/federation/attestation-challenge` and `/federation/attestation/challenge`, etc. serve at root (no `/oidf` prefix) — gives a single
 # classloader (one AttestationSupport singleton; no OGNL-hook caching split), and lets the SSF logout filter
 # run over PF's own `/idp/init_logout.openid`. Repoint any `/oidf/*` consumers (e.g. the demo UI PF_BASE) to root.
 #
@@ -90,7 +90,7 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # assemble script names (SsfLogoutSignal, Fapi2Profile, FapiResourceServer, OAuthErrorDescription,
 # OidfFrontChannelAutoRegistration, OidfAutoRegistration, ClientAttestationAuth) in its web.xml - via the
 # same assemble script a consumer's CI would use. modules/ holds the reactor's modular jars (oidf.jar +
-# attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance,
+# attestation-issuer/ssf + oidf-jose/rar-model/client-attestation/openid-federation/agent-registry/device-instance,
 # and under the conformance profile the CIBA simulator), staged by stage-modules.sh for one profile, which
 # writes the MANIFEST the assemble script checks - digests, and the profile against STAGING_PROFILE.
 # (No pf-rar-paz-plugin — that's agentic.)

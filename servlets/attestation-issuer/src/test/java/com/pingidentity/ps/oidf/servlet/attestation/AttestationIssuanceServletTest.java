@@ -36,6 +36,9 @@ import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import com.pingidentity.ps.oidf.issuer.RemoteJwksCache;
 import com.pingidentity.ps.oidf.clientattestation.StaticAttesterKeyResolver;
+import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet;
 import java.io.ByteArrayInputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
@@ -468,11 +471,85 @@ class AttestationIssuanceServletTest {
     @Test
     @Requirement("CAS §4.1")
     void presentedChallengeIsConsumedOnceThenRefused() throws Exception {
-        String challenge = AttestationSupport.challengeService().issue();
+        String challenge = AttestationSupport.challengeService(StoreNamespace.CAS).issue();
         servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())); // consumes it
         IssuanceException e = assertThrows(IssuanceException.class,
                 () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())));
         assertEquals("invalid_instance_proof", e.error());
+    }
+
+    /**
+     * CAS §4.1: "a challenge issued by one party MUST NOT be accepted by the other", and "the CAS MUST reject an
+     * Instance Key Proof presenting a challenge it did not issue". The authorization server's endpoint issues into
+     * {@code oidf:as:challenge:*}; the attester looks in {@code oidf:cas:challenge:*}, refuses, and spends nothing.
+     */
+    @Test
+    @Requirement("CAS §4.1")
+    void aChallengeFromTheAuthorizationServersEndpointIsRefusedAndLeftUnspent() throws Exception {
+        String challenge = challengeFrom(new ClientAttestationChallengeServlet(), "POST");
+
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+        assertTrue(e.getMessage().contains("challenge"), e.getMessage());
+        assertEquals(Consumption.CONSUMED, AttestationSupport.challengeService(StoreNamespace.AS).consumeChallenge(challenge),
+                "the refusal left the authorization server's challenge for the token endpoint");
+    }
+
+    /**
+     * The other direction: a challenge from the attester's endpoint, echoed in a PoP at the token endpoint, meets a
+     * verifier wired as {@code ClientAttestationAuthFilter} and {@code ClientAttestationUtils} wire it - over
+     * {@link AttestationSupport#challengeService()}, the authorization server's store - and is refused with
+     * {@code use_attestation_challenge}.
+     */
+    @Test
+    @Requirement("CAS §4.1")
+    void aChallengeFromTheAttestersEndpointIsRefusedAtTheTokenEndpoint() throws Exception {
+        String challenge = challengeFrom(new AttestationIssuanceChallengeServlet(), "GET");
+        String attestation = (String) servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())).get("attestation");
+
+        JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(publicParams(attesterKey));
+        ClientAttestationVerifier tokenEndpoint = new ClientAttestationVerifier(
+                new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub))),
+                ClientAttestationConfig.builder().expectedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                AttestationSupport.replayCache(), AttestationSupport.challengeService());
+        JwtClaims pop = new JwtClaims();
+        pop.setIssuer(CLIENT_ID);
+        pop.setAudience(OP_ISSUER);
+        pop.setJwtId("pop-" + UUID.randomUUID());
+        pop.setIssuedAtToNow();
+        pop.setClaim("challenge", challenge);
+        String popJwt = signCompact(instanceKey, "ES256", "oauth-client-attestation-pop+jwt", pop);
+
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> tokenEndpoint.verify(attestation, popJwt, null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.useChallenge("-").error(), e.error());
+        assertEquals(Consumption.CONSUMED, AttestationSupport.challengeService(StoreNamespace.CAS).consumeChallenge(challenge),
+                "the refusal left the attester's challenge for the attester");
+    }
+
+    /** CAS §4.1 end to end: the attester's own endpoint issues a challenge its issuance endpoint takes once. */
+    @Test
+    @Requirement("CAS §4.1")
+    void aChallengeFromTheAttestersEndpointIsTakenOnceByTheAttester() throws Exception {
+        String challenge = challengeFrom(new AttestationIssuanceChallengeServlet(), "GET");
+        assertNotNull(servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())).get("attestation"));
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(challenge), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+    }
+
+    /** Fetches a challenge from an endpoint as a client would, through the container's entry point. */
+    private static String challengeFrom(jakarta.servlet.http.HttpServlet endpoint, String method) throws Exception {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getMethod()).thenReturn(method);
+        when(req.getRemoteAddr()).thenReturn("10.0.4." + (1 + new java.util.Random().nextInt(250)));
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        StringWriter body = new StringWriter();
+        when(resp.getWriter()).thenReturn(new PrintWriter(body));
+        endpoint.service((jakarta.servlet.ServletRequest) req, (jakarta.servlet.ServletResponse) resp);
+        org.mockito.Mockito.verify(resp).setStatus(200);
+        return (String) JsonUtil.parseJson(body.toString()).get("attestation_challenge");
     }
 
     @Test
@@ -1018,7 +1095,7 @@ class AttestationIssuanceServletTest {
         JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(publicParams(attesterKey));
         AttesterKeyResolver resolver = new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub)));
         ClientAttestationConfig cfg = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
         ClientAttestationVerifier verifier = new ClientAttestationVerifier(
@@ -1619,5 +1696,198 @@ class AttestationIssuanceServletTest {
         req.instanceKey = new LinkedHashMap<>(Map.of("kty", "EC", "crv", "P-256", "x", "AA", "y", "AA"));
         // Through the servlet the key proof fails first: a proof signed by the real key does not verify under a garbage key.
         assertEquals("invalid_instance_proof", assertThrows(IssuanceException.class, () -> servlet.issue(req)).error());
+    }
+
+    // ---- S1b: the mint asks the containment model ---------------------------------------------------------------
+
+    /** The minted attestation's authorization_details, read by the model's reader; absent is empty. */
+    private static List<Map<String, Object>> mintedDetails(Map<String, Object> body) throws Exception {
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(((String) body.get("attestation")).split("\\.")[1]),
+                StandardCharsets.UTF_8);
+        Map<?, ?> claims = (Map<?, ?>) com.pingidentity.ps.oidf.rar.model.Json.parse(payload);
+        return claims.containsKey("authorization_details")
+                ? com.pingidentity.ps.oidf.rar.model.RarModels.details(claims.get("authorization_details")) : List.of();
+    }
+
+    /**
+     * CAS §7 rule 1: "The issued authorization_details MUST be a subset of the applicable ceiling", and absent a
+     * ceiling field is unconstrained. The binding's ceiling constrains {@code sales_regions}; a request that leaves it
+     * out is minted with the ceiling's value for it (authorize, INHERIT), never without it.
+     */
+    @Test
+    @Requirement("CAS §7(1)")
+    void aRequestThatLeavesOutAFieldTheCeilingConstrainsIsMintedWithTheCeilingsValue() throws Exception {
+        List<Map<String, Object>> requested = List.of(Map.of("type", "sales_agent", "actions", List.of("read_accounts")));
+
+        List<Map<String, Object>> minted = mintedDetails(servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), requested)));
+
+        assertEquals(1, minted.size());
+        assertEquals(List.of("read_accounts"), minted.get(0).get("actions"), "the ceiling leaves actions open");
+        assertEquals(List.of("EMEA"), minted.get(0).get("sales_regions"), "filled from the ceiling");
+    }
+
+    /**
+     * CAS §7 rule 2: "An empty or absent authorization_details request means the instance asks for its full
+     * ceiling; the CAS issues the ceiling of the matched binding."
+     */
+    @Test
+    @Requirement("CAS §7(2)")
+    void anEmptyRequestIsIssuedTheFullCeiling() throws Exception {
+        List<Map<String, Object>> minted = mintedDetails(servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+
+        assertEquals(List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"))), minted);
+    }
+
+    /**
+     * CAS §7 rule 3 with the "reject" this attester advertises: "A request exceeding the ceiling is handled per the
+     * advertised narrowing_behavior: "reject" → access_denied". Blocker B1: a limit above the ceiling's is a
+     * request exceeding it.
+     */
+    @Test
+    @Requirement("CAS §7(3)")
+    void aLimitAboveTheCeilingsIsAccessDenied() throws Exception {
+        servlet.setClientResolver(fixedResolver(configWithCeilings(
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":5000}]", null, false)));
+        List<Map<String, Object>> requested = List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"),
+                "max_txn_eur", "5000.01"));
+
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), requested)));
+
+        assertEquals("access_denied", e.error());
+        assertEquals(403, e.status());
+    }
+
+    /**
+     * What the model cannot compare is the request's fault: an undeclared field, a value of the wrong shape, and
+     * either of this repository's markers - which an issuance request has no business carrying, so the attester
+     * refuses them rather than stripping them.
+     */
+    @Test
+    void aRequestTheModelRefusesIsInvalidRequest() throws Exception {
+        for (Map<String, Object> detail : List.<Map<String, Object>>of(
+                Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"), "discount", 10),
+                Map.of("type", "sales_agent", "sales_regions", "EMEA"),
+                Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"), "_principal_sub", "alice"),
+                Map.of("type", "no-such-type"))) {
+            IssuanceException e = assertThrows(IssuanceException.class,
+                    () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of(detail))));
+            assertEquals("invalid_request", e.error(), detail.toString());
+            assertTrue(e.getMessage().startsWith("authorization_details: "), e.getMessage());
+        }
+    }
+
+    /**
+     * The asserted context narrows with the model's meet. An evidenced ceiling of EMEA and APAC under an asserted
+     * one of EMEA is EMEA; it used to be dropped whole, because the asserted ceiling did not contain the entry as it
+     * stood.
+     */
+    @Test
+    void theAssertedContextNarrowsAWiderEntryRatherThanDroppingIt() throws Exception {
+        servlet.setClientResolver(fixedResolver(configWithCeilings(
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\",\"APAC\"]}]", null, true)));
+        servlet.setAssertedContextResolvers(Map.of("fixed", fixedAssertion(
+                List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"))))));
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.assertedContext = "an asserted discriminator";
+
+        assertEquals(List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"))), mintedDetails(servlet.issue(req)));
+    }
+
+    /** Both ceilings are the attester's own configuration, so one the model refuses is a server error. */
+    @Test
+    void anAssertedCeilingTheModelRefusesIsAServerError() throws Exception {
+        servlet.setClientResolver(fixedResolver(configWithCeilings(
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]", null, true)));
+        servlet.setAssertedContextResolvers(Map.of("fixed", fixedAssertion(List.of(Map.of("type", "no-such-type")))));
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.assertedContext = "an asserted discriminator";
+
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+
+        assertEquals("server_error", e.error());
+        assertEquals(500, e.status());
+    }
+
+    private static void rarModelsFrom(Map<String, String> env) throws Exception {
+        java.lang.reflect.Method reset = com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.class
+                .getDeclaredMethod("resetForTest", Map.class);
+        reset.setAccessible(true);
+        reset.invoke(null, env);
+    }
+
+    /**
+     * A models document the attester cannot read would have it mint against something other than what the
+     * deployment wrote, so the servlet does not start (plan item S-9, Phase 3, gives it a state of its own instead).
+     */
+    @Test
+    void initRefusesToStartWithAModelsDocumentItCannotRead() throws Exception {
+        try {
+            rarModelsFrom(Map.of(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS, "{\"types\":"));
+            ServletConfig config = mock(ServletConfig.class);
+            jakarta.servlet.ServletException e = assertThrows(jakarta.servlet.ServletException.class,
+                    () -> new AttestationIssuanceServlet().init(config));
+            assertTrue(e.getMessage().contains(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS_FILE), e.getMessage());
+
+            AttestationIssuanceServlet uninitialised = new AttestationIssuanceServlet();
+            assertEquals("server_error", assertThrows(IssuanceException.class, uninitialised::rarModels).error(),
+                    "a caller that never ran init still meets the refusal rather than minting without a model");
+
+            AttestationIssuanceServlet injected = new AttestationIssuanceServlet();
+            com.pingidentity.ps.oidf.rar.model.RarModels builtIn = com.pingidentity.ps.oidf.rar.model.RarModels.builtIn();
+            injected.setRarModels(builtIn);
+            injected.init(config);
+            assertTrue(injected.rarModels() == builtIn, "models given before init are kept");
+        } finally {
+            rarModelsFrom(null);
+        }
+    }
+
+    @Test
+    void initLoadsThisClassloadersModels() throws Exception {
+        try {
+            rarModelsFrom(Map.of());
+            AttestationIssuanceServlet fresh = new AttestationIssuanceServlet();
+            fresh.init(mock(ServletConfig.class));
+            assertEquals(com.pingidentity.ps.oidf.rar.model.RarModels.builtIn().fingerprint(), fresh.rarModels().fingerprint());
+            assertEquals(com.pingidentity.ps.oidf.rar.model.RarModels.builtIn().fingerprint(),
+                    new AttestationIssuanceServlet().rarModels().fingerprint(), "and without init, the same set");
+        } finally {
+            rarModelsFrom(null);
+        }
+    }
+
+    /** A client whose instance binds {@code SPIFFE_ID}, with the ceilings given, optionally opted into "fixed". */
+    private AttestationIssuanceConfig configWithCeilings(String clientCeiling, String instanceCeiling, boolean asserted)
+            throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_BUNDLE,
+                new JsonWebKeySet(JsonWebKey.Factory.newJwk(publicParams(bundleKey))).toJson());
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK, JsonUtil.toJson(privateParams(attesterKey)));
+        if (clientCeiling != null) {
+            props.put(AttestationIssuanceConfig.P_ENTITLEMENT, clientCeiling);
+        }
+        props.put(AttestationIssuanceConfig.P_INSTANCES, "[{\"spiffe_id\":\"" + SPIFFE_ID + "\""
+                + (instanceCeiling == null ? "" : ",\"entitlement\":" + instanceCeiling) + "}]");
+        if (asserted) {
+            props.put(AttestationIssuanceConfig.P_ASSERTED_CONTEXT_RESOLVER, "fixed");
+        }
+        return AttestationIssuanceConfig.fromProperties(props);
+    }
+
+    private static com.pingidentity.ps.oidf.issuer.AssertedContextResolver fixedAssertion(List<Map<String, Object>> ceiling) {
+        return new com.pingidentity.ps.oidf.issuer.AssertedContextResolver() {
+            @Override
+            public String id() {
+                return "fixed";
+            }
+
+            @Override
+            public com.pingidentity.ps.oidf.issuer.AssertedContext resolve(InstanceIdentity verified, String asserted,
+                                                                            AttestationIssuanceConfig config) {
+                return new com.pingidentity.ps.oidf.issuer.AssertedContext(Map.of(), ceiling);
+            }
+        };
     }
 }

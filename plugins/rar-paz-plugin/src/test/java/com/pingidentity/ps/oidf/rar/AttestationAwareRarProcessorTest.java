@@ -179,21 +179,26 @@ class AttestationAwareRarProcessorTest {
 
     // ---- the decision ---------------------------------------------------------------------------------
 
+    /**
+     * RFC 9396 section 7.1: "The authorization details attached to the access token MAY differ from what the
+     * client requests. In addition to the user authorizing less than what the client requested, there are some
+     * use cases where the AS enriches the data in an authorization details object." A statement is merged into the
+     * grant - here one that lowers the amount, which the containment model finds within the request.
+     */
     @Test
     @Requirement({"RFC9396 §7.1", "PF-SDK §AuthorizationDetailProcessor.enrich"})
     void permitMergesStatementsAndStripsThePrincipalMarker() throws Exception {
         when(client.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse(
                 "PERMIT", true,
-                List.of(new DecisionResponse.Statement("access.limit", "100.00")),
+                List.of(new DecisionResponse.Statement("amount", "40.00")),
                 "{}"));
         AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor(client, config(false));
 
         AuthorizationDetail result = processor.enrich(paymentDetail(), context(), Map.of());
 
         assertFalse(result.getDetail().containsKey(PRINCIPAL_KEY));
-        Object access = result.getDetail().get("access");
-        assertInstanceOf(Map.class, access);
-        assertEquals("100.00", ((Map<?, ?>) access).get("limit"));
+        assertEquals("40.00", result.getDetail().get("amount"));
+        assertEquals("AUD", result.getDetail().get("currency"));
 
         // The marker is consumed, not forwarded to the PDP as a payload field.
         @SuppressWarnings("unchecked")
@@ -363,9 +368,17 @@ class AttestationAwareRarProcessorTest {
 
     // ---- the PAR-carried agent marker -----------------------------------------------------------------
 
+    /** The built-in models and one document type, for the tests that send a deployment's own type. */
+    private static final String OFFER_TYPE = "https://schemas.example/v1/retrieve_customer_offer";
+
+    private static ModelGate offerModels() throws Exception {
+        return ModelGate.of(com.pingidentity.ps.oidf.rar.model.RarModels.load(
+                "{\"types\":{\"" + OFFER_TYPE + "\":{\"fields\":{\"purpose\":\"string\"}}}}"));
+    }
+
     private static AuthorizationDetail markedDetail(Object marker) {
         Map<String, Object> detail = new HashMap<>();
-        detail.put("type", "https://schemas.example/v1/retrieve_customer_offer");
+        detail.put("type", OFFER_TYPE);
         detail.put("purpose", "https://w3id.org/dpv#PersonalisedBenefits");
         detail.put(AttestationAwareRarProcessor.AGENT_DETAIL_KEY, marker);
         return new AuthorizationDetail(detail);
@@ -376,7 +389,8 @@ class AttestationAwareRarProcessorTest {
     void thePARCarriedMarkerNamesTheAgentWhereTheAttestationIsNotInTheRequest() throws Exception {
         permit();
         GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").trustAgentMarker(true).build();
-        AuthorizationDetail result = new AttestationAwareRarProcessor(client, trusting).enrich(markedDetail("agent-7"), context(), Map.of());
+        AuthorizationDetail result = new AttestationAwareRarProcessor(client, trusting, offerModels())
+                .enrich(markedDetail("agent-7"), context(), Map.of());
 
         ArgumentCaptor<Map> sent = ArgumentCaptor.forClass(Map.class);
         ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
@@ -395,7 +409,7 @@ class AttestationAwareRarProcessorTest {
                 {config(false), "agent-7"}, {trusting, " "}, {trusting, 42}}) {
             PdpClient pdp = mock(PdpClient.class);
             when(pdp.decide(anyString(), any(), any(), any(), any(), any())).thenReturn(new DecisionResponse("PERMIT", true, List.of(), "{}"));
-            AuthorizationDetail result = new AttestationAwareRarProcessor(pdp, (GovernanceEngineConfig) c[0])
+            AuthorizationDetail result = new AttestationAwareRarProcessor(pdp, (GovernanceEngineConfig) c[0], offerModels())
                     .enrich(markedDetail(c[1]), context(), Map.of());
 
             ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
@@ -410,13 +424,15 @@ class AttestationAwareRarProcessorTest {
     void aVerifiedAgentIdWinsOverTheMarker() throws Exception {
         permit();
         HttpServletRequest request = mock(HttpServletRequest.class);
+        ModelGate models = offerModels();
         when(request.getAttribute(AttestationSubject.REQUEST_ATTRIBUTE)).thenReturn(Map.of(
-                "sub", "agent-client", "client_id", "agent-client", "agent_id", "agent-verified", "iss", "https://attester"));
+                "sub", "agent-client", "client_id", "agent-client", "agent_id", "agent-verified", "iss", "https://attester",
+                AttestationSubject.RAR_MODELS_FINGERPRINT_KEY, models.fingerprint()));
         AuthorizationDetailContext ctx = new AuthorizationDetailContext.Builder()
                 .withRequest(request).withClientId("agent-client").withUserKey("alice").build();
         GovernanceEngineConfig trusting = GovernanceEngineConfig.builder().pdpUrl("https://pdp").trustAgentMarker(true).build();
 
-        new AttestationAwareRarProcessor(client, trusting).enrich(markedDetail("agent-7"), ctx, Map.of());
+        new AttestationAwareRarProcessor(client, trusting, models).enrich(markedDetail("agent-7"), ctx, Map.of());
 
         ArgumentCaptor<AttestationSubject> subject = ArgumentCaptor.forClass(AttestationSubject.class);
         verify(client).decide(anyString(), any(), subject.capture(), any(), any(), any());

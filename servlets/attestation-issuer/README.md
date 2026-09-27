@@ -20,11 +20,12 @@ Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the
 
 | Path | Class | What |
 |---|---|---|
-| `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (challenge + `jti` replay), deployment-required custom proof claims, RAR ceiling (`RarEntitlement.authorize`), optional asserted-context narrowing, `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. |
+| `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (challenge + `jti` replay), deployment-required custom proof claims, the binding's ceiling narrowed by the asserted context's when there is one (the containment model's meet), the grant (`authorize(requested, ceiling, INHERIT)`, or the full ceiling for an empty request - [below](#the-ceiling-and-the-grant)), `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. |
 | `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins. Cacheable, parameterless. |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config are deliberately not exposed. |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The fixed CAS 1.0 §5 document: required request members, required proof claims (`aud`, `jti`, `challenge` when required, plus custom), claims minted. Reads the same config the issuance servlet enforces, so advertisement and enforcement cannot drift. |
-| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` (in `client-attestation`) | The challenge endpoint - it ships in the lib jar, not here. |
+| `GET /federation/attestation/challenge` | `AttestationIssuanceChallengeServlet` | The attester's challenge endpoint (CAS §4.1), for the instance-key proof: `200 {"attestation_challenge","expires_in"}`, `Cache-Control: no-store`; 429 `slow_down` over its per-caller cap (60 a minute by default); 503 `temporarily_unavailable` when the store cannot record the challenge. Issues into `oidf:cas:challenge:*`, which `/federation/attestation` consumes, once. Any other method, `POST` and `HEAD` included, is 405 with `Allow: GET`. Advertised as `challenge_endpoint` by both discovery documents above. |
+| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` (in `client-attestation`) | The **authorization server's** challenge endpoint (ABCA-10 §6.1), for the PoP at the token endpoint - not this module's. Its challenges live in `oidf:as:challenge:*`, and the attester refuses them (`invalid_instance_proof`); the token endpoint likewise refuses the attester's (`use_attestation_challenge`). |
 
 ## Evidence validators
 
@@ -104,25 +105,60 @@ with nothing to digest (a format whose evidence is not one token) is not bound.
 A challenge, replay or binding store that cannot answer is 503 `temporarily_unavailable` (CAS §4.6; the
 code is RFC 6749's, §4.1.2.1), never a refusal about the request. The caller retries with the same
 evidence and a fresh proof, because the proof's challenge or `jti` may have been spent before the store
-stopped answering. The issuer's proof jtis and bindings live under `oidf:cas:*`; its challenges are
-consumed from `oidf:as:challenge:*`, because the one challenge endpoint issues there, until plan item S4b
-gives the CAS its own.
+stopped answering. The issuer's challenges, proof jtis and bindings live under `oidf:cas:*`. Its challenges
+come from its own endpoint, `GET /federation/attestation/challenge`, since plan item S4b; before that the
+attester consumed the authorization server's, from `oidf:as:challenge:*`, which it now refuses (CAS §4.1: a
+challenge issued by one party must not be accepted by the other).
+
+## The ceiling and the grant
+
+Every ceiling here is held to the containment model in [libs/rar-model](../../libs/rar-model/README.md), and read by
+its reader so a limit is compared exactly as it was written (plan item S1b):
+
+- **At configuration.** `attestation_entitlement` (the client's ceiling, OPTIONAL) and each instance's `entitlement`
+  in `attestation_instances` must be details the model accepts. A client whose ceiling it refuses has an invalid
+  configuration (`invalid_client`): the PingFederate client store skips that client, and a CIMD or federation
+  source refuses its whole mapping list, as it already did for any invalid entry. An instance's ceiling under a client ceiling is `authorize(instance, client, INHERIT)`,
+  and the result is what the binding keeps: within the client's, with every field the client's constrains and the
+  instance's leaves out taken from the client's. This used to check the instance's and keep it as written, so an
+  instance that left out `max_txn_eur` had no limit whatever the client's said (F-0034). Without a client ceiling
+  the instance's stands alone - CAS §6.1: "MUST be a subset of the client-level `entitlement` when both are
+  present".
+- **At issuance.** CAS §7: "effective = requested ∩ ceiling(instance)". An empty or absent request is issued the
+  full ceiling (rule 2). Otherwise the grant is `authorize(requested, ceiling, INHERIT)`: each requested detail
+  fitted to the first ceiling entry of its type that contains it, every field that entry constrains and the request
+  leaves out filled from it, and the whole checked against the ceiling before it is minted (rule 1). A request
+  outside the ceiling is `access_denied` (403; rule 3 with the `"reject"` this attester advertises); one the model
+  cannot compare - malformed, too large, an undeclared field, an unmodelled type, or `_principal_sub` /
+  `_agent_id`, which have no business in an issuance request - is `invalid_request`, naming the detail and the
+  field and never the value.
+- **Asserted context.** An asserted-context resolver's ceiling narrows the binding's with the model's meet
+  (`intersect`): the largest details within both, pairwise by type. An evidenced EMEA-and-APAC entry under an
+  asserted EMEA one is EMEA; it used to be dropped whole. Two ceilings the model cannot combine are this
+  attester's own configuration, so `server_error`. Plan item X-B10 (Phase 5) rebuilds the asserted context on this.
+
+The token gate in [client-attestation](../../libs/client-attestation/README.md#the-token-gate) holds a token request
+to what is minted here, strictly: a request there must restate every field its attestation carries. The vector file
+in `libs/rar-model`'s test-jar runs through the mint, the configuration and the asserted context as
+`CasVectorRunnerTest`, and every attestation it mints is then read by the token gate.
 
 ## Configuration
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|
-| `challengeRequired`, `customClaimsRequired` (init-params; `customClaimsRequired` also `oidf.attestation.custom.claims.required` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) | `false`, none | `challengeRequired` is read by all three servlets, `customClaimsRequired` by issuance + CAS metadata - keep them consistent | Not checked: a value other than `true` is `false` |
+| `challengeRequired`, `customClaimsRequired` (init-params; `customClaimsRequired` also `oidf.attestation.custom.claims.required` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) | `false`, none | `challengeRequired` is read by the issuance servlet and the two discovery servlets, `customClaimsRequired` by issuance + CAS metadata - keep them consistent | Not checked: a value other than `true` is `false` |
 | `openBaoUrl`/`openBaoToken` (init-param, else `oidf.openbao.url`/`OIDF_OPENBAO_URL`, then `OPENBAO_ADDR`/`BAO_ADDR`/`VAULT_ADDR`, token likewise) | unset | Transit signing | Per request: a client whose `attestation_signing_key_ref` needs the vault is `server_error` |
 | `OIDF_ATTESTER_FEDERATION_ENTITY`, `OIDF_ATTESTER_SIGNING_JWK` (sysprop `oidf.attester.*` or env) | unset | Extra client-metadata sources, consulted federation first, then CIMD, then the PF store. A federation entity is trusted only through a chain to one of the pinned anchors (`OIDF_FEDERATION_TRUST_ANCHOR_JWKS`), and an entity the anchor stops vouching for loses its clients within 300 s | An entity named with no anchor pinned: first request, the attester refuses to build its resolvers |
 | `OIDF_ATTESTER_CIMD_URL` (`oidf.attester.cimd.url`) | unset | A Client ID Metadata Document as a client source - honoured only under `OIDF_DEPLOYMENT_PROFILE=development` (plan item M-1, finding F-0067): the document hands the attester every client's bindings and trust roots, so whoever answers at the URL chooses the keys the attester accepts. X-B02 replaces it | Set outside development: first request, the `cimd` plugin is left out with an ERROR naming the variable, the discovery document's `resolver_plugins_active` omits `cimd`, and so does the CAS document's `client_metadata_sources_supported` even when `OIDF_CIMD_TRUST_BUNDLES` is set; clients only that document describes are unknown here, the other sources keep serving |
-| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` honours `OIDF_ATTESTER_CIMD_URL` and lets `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` exceed a day; anything else, unset included, is production. Read directly from the environment until PR-1 centralises it | Not checked beyond that: a typo is production |
+| `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` honours `OIDF_ATTESTER_CIMD_URL`, lets an authorization_details type no model names fall back to the common fields, and lets `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` exceed a day; anything else, unset included, is production. Read directly from the environment until PR-1 centralises it | Not checked beyond that: a typo is production |
+| `OIDF_RAR_MODELS_FILE`, `OIDF_RAR_MODELS` (env only) | unset (the built-in models) | The models document every ceiling here is held to, read once per classloader ([client-attestation](../../libs/client-attestation/README.md#configuration)); the token gate reads the same variables, and so does the RAR plugin from plan item S1c | A document the library refuses, an unreadable file, or both set: the issuance servlet does not start - it starts lazily, so `/federation/attestation` fails from its first request - and the log names the variable |
 | `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` (`oidf.attester.max.evidence.lifetime.seconds`) | 86400 | The longest lifetime the attester accepts of a piece of evidence: of the whole (`exp - iat`) when it has an `iat`, and of what is left (`exp - now`, with 60 s allowed for a clock behind the issuer's) always. Longer-lived evidence is refused (`invalid_svid` / `invalid_instance_attestation`, naming the variable). A binding lives as long as its evidence, so this bounds how long a stolen token stays presentable | Not a positive number, or above 86400 under the production profile: first request, 500 `server_error` naming the variable |
 | `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE` (`oidf.attester.require.single.audience.evidence`) | `false` | `true` refuses evidence whose `aud` names more than one party: such evidence is presentable to each of them, so the attester cannot know it was the intended one | Neither `true` nor `false`: first request, 500 `server_error` naming the variable |
 | `OIDF_REDIS_URL` and its companions | unset | The shared store the challenges, proof jtis and evidence bindings live in; see [client-attestation](../../libs/client-attestation/README.md#configuration) for the URL, the CA file and the namespaces | As documented there; an unreachable store is 503 `temporarily_unavailable` here |
 | `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_TRUST_ANCHOR_JWKS` (`OIDF_TRUST_CONTROLLER_IGNORE_SSL`) or `OIDF_WALLET_PROVIDER_JWKS` (sysprop/env) | unset | Wallet-provider trust: federation-backed preferred, static map otherwise. `OIDF_TRUST_ANCHOR_JWKS` is the anchor's public JWK Set (the `jwks` claim of its entity configuration), captured once out of band; the keys are never fetched, and there is no fall-back to the static map (OpenID Federation 1.0 §4) | A host named without the anchor keys: first request, wallet trust is refused naming the variable |
 | `OIDF_ATTESTER_SPIRE_ENTRIES_URL`, `OIDF_ENTRA_AGENT_DIRECTORY` (sysprop/env) | unset | SPIRE selector introspection; the Entra Agent ID asserted-context resolver (`OIDF_CIMD_TRUST_BUNDLES` only adds `cimd` to the CAS document's `client_metadata_sources_supported`, and only under `OIDF_DEPLOYMENT_PROFILE=development`) | Not checked: an unreachable SPIRE endpoint yields no selectors; an unparseable directory registers no resolver |
 | `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `customClaimsSupported` (init-params on the CAS metadata servlet) | advertised as built | What the CAS document advertises | Not checked |
+| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` (init-params on `AttestationIssuanceChallengeServlet`) | 8192 / 300 / 60 / 60 / 16384 | The in-memory size and the lifetime of the attester's challenges (with Redis only the lifetime applies), and its per-caller cap. The authorization server's endpoint reads the same names for its own challenges; neither reaches the other's | Not an integer: ignored with a warning, the default used. A TTL that is not positive, or in memory a size that is neither positive nor -1: the endpoint fails to start and its challenges keep the settings they had. With Redis only the TTL is checked; the size is not used |
 
 ### Error codes added in 0.4.0
 

@@ -46,6 +46,7 @@ class ClientAssertedPrincipalTest {
         Map<String, Object> detail = new HashMap<>();
         detail.put("type", "payment_initiation");
         detail.put("amount", "42.00");
+        detail.put("currency", "AUD");
         if (principal != null) {
             detail.put("_principal_sub", principal);
         }

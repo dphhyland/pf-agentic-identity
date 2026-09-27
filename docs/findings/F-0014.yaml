@@ -16,8 +16,8 @@ verification: >
   without it, and a production stage for a conformance image, each with exit 1 and no war left behind. The
   Dockerfile's STAGING_PROFILE defaults to production and reaches the assembler; conformance/up.sh stages
   conformance, docker-compose.yml builds with STAGING_PROFILE=conformance and compose-context.sh refuses any other
-  MANIFEST; release.yml stages the production profile (line 281), so the release assets from 0.4.0 carry eight
-  jars. SimOobAuthenticator's initiate, check and finished and the decision servlet ask SimulatorGate first, and
+  MANIFEST; release.yml stages the production profile (line 281), so the release assets from 0.4.0 carry the
+  production profile's jars (eight at 6f71f04, nine since PR #37 staged rar-model). SimOobAuthenticator's initiate, check and finished and the decision servlet ask SimulatorGate first, and
   it refuses unless OIDF_CIBA_SIM_ENABLED=true, OIDF_DEPLOYMENT_PROFILE=development and OIDF_CIBA_SIM_DIR is an
   absolute, non-symlink directory owned by the process user with mode 0700; SimulatorGateTest (8),
   DecisionStoreTest (8), CibaSimDecisionServletTest (6) and SimOobAuthenticatorTest (5) passed. Left over, both

@@ -38,7 +38,8 @@ class ClientAttestationServiceMetadataServletTest {
         Map<String, Object> m = initialized(Map.of()).metadata(ISSUER);
         assertEquals(ISSUER, m.get("issuer"));
         assertEquals(ISSUER + "/federation/attestation", m.get("attestation_endpoint"));
-        assertEquals(ISSUER + "/federation/attestation-challenge", m.get("challenge_endpoint"));
+        assertEquals(ISSUER + "/federation/attestation/challenge", m.get("challenge_endpoint"),
+                "the attester's own challenge endpoint, not the authorization server's");
         assertEquals(false, m.get("challenge_required"));
         // The built-in registry (InstanceAttestationValidators.defaults()) covers every cloud-platform
         // evidence type PLUS the wallet placeholder; every cloud type reports format "spiffe", so the

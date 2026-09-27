@@ -28,6 +28,7 @@ public final class ClientAttestationResult {
     private final List<Map<String, Object>> grantedAuthorizationDetails;
     private final Map<String, Object> workload;
     private final String agentId;
+    private final String rarModelsFingerprint;
 
     public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti) {
         this(clientId, cnfJwk, mode, attesterIssuer, proofJti, java.util.List.of(), java.util.List.of(), java.util.Map.of());
@@ -57,6 +58,18 @@ public final class ClientAttestationResult {
                                    List<Map<String, Object>> entitledAuthorizationDetails,
                                    List<Map<String, Object>> grantedAuthorizationDetails,
                                    Map<String, Object> workload, String agentId) {
+        this(clientId, cnfJwk, mode, attesterIssuer, proofJti, entitledAuthorizationDetails,
+                grantedAuthorizationDetails, workload, agentId, null);
+    }
+
+    /**
+     * @param rarModelsFingerprint the {@code RarModels.fingerprint()} of the model set that checked the request's
+     *                             {@code authorization_details}, or {@code null} for a result no model checked
+     */
+    public ClientAttestationResult(String clientId, Map<String, Object> cnfJwk, Mode mode, String attesterIssuer, String proofJti,
+                                   List<Map<String, Object>> entitledAuthorizationDetails,
+                                   List<Map<String, Object>> grantedAuthorizationDetails,
+                                   Map<String, Object> workload, String agentId, String rarModelsFingerprint) {
         this.clientId = clientId;
         this.cnfJwk = cnfJwk;
         this.mode = mode;
@@ -66,6 +79,7 @@ public final class ClientAttestationResult {
         this.grantedAuthorizationDetails = grantedAuthorizationDetails;
         this.workload = workload == null ? java.util.Map.of() : workload;
         this.agentId = agentId;
+        this.rarModelsFingerprint = rarModelsFingerprint;
     }
 
     public String clientId() {
@@ -93,9 +107,21 @@ public final class ClientAttestationResult {
         return this.entitledAuthorizationDetails;
     }
 
-    /** The requested {@code authorization_details} that were authorized against the entitlement; empty if none requested. */
+    /**
+     * The request's {@code authorization_details} that were found within the attestation's: the request's own,
+     * without the {@code _principal_sub} and {@code _agent_id} markers; empty if none were requested.
+     */
     public List<Map<String, Object>> grantedAuthorizationDetails() {
         return this.grantedAuthorizationDetails;
+    }
+
+    /**
+     * SHA-256, lower-case hex, of the model set that checked the request's {@code authorization_details}
+     * ({@code RarModels.fingerprint()}), or {@code null} when no model checked this result. The RAR plugin compares
+     * it with its own.
+     */
+    public String rarModelsFingerprint() {
+        return this.rarModelsFingerprint;
     }
 
     /**

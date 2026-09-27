@@ -129,8 +129,7 @@ class AttestationMinterTest {
         JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(TestJwts.publicParams(attesterKey));
         AttesterKeyResolver resolver = new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub)));
         ClientAttestationConfig config = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
         ClientAttestationVerifier verifier = new ClientAttestationVerifier(
@@ -152,7 +151,7 @@ class AttestationMinterTest {
             JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(signer.publicJwk());
             AttesterKeyResolver resolver = new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub)));
             ClientAttestationConfig config = ClientAttestationConfig.builder()
-                    .addAcceptedAudience(OP_ISSUER)
+                    .expectedAudience(OP_ISSUER)
                     .expectedHtu(TOKEN_ENDPOINT)
                     .build();
             ClientAttestationVerifier verifier = new ClientAttestationVerifier(

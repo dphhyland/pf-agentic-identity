@@ -19,7 +19,6 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.issuer.AttesterSigningKey;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
-import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationWalletProviderKeyResolver;
@@ -35,7 +34,10 @@ import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
-import com.pingidentity.ps.oidf.clientattestation.RarEntitlement;
+import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
+import com.pingidentity.ps.oidf.rar.model.Omission;
+import com.pingidentity.ps.oidf.rar.model.RarModelException;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.issuer.RemoteJwksCache;
 import com.pingidentity.ps.oidf.issuer.SpiffeBinding;
 import com.pingidentity.ps.oidf.issuer.SpiffeInstanceAttestationValidator;
@@ -102,6 +104,7 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile EvidenceBindingStore evidenceBindings;
     private volatile AttestationChallengeService challengeService;
     private volatile AttestationReplayCache replayCache;
+    private volatile RarModels rarModels;
 
     /**
      * The audit event for evidence presented by a second instance key or client: the rightful holder's evidence
@@ -124,6 +127,19 @@ public class AttestationIssuanceServlet extends HttpServlet {
         String baoToken = config.getInitParameter("openBaoToken");
         if (baoUrl != null && baoToken != null) {
             this.attesterSigningKey = new AttesterSigningKey(baoUrl, baoToken);
+        }
+        // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
+        // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
+        // against something other than what the deployment wrote, so the servlet does not start: it starts
+        // lazily, so its path fails from the first request on, and only its path. Plan item S-9 (Phase 3) gives
+        // the component a state of its own instead.
+        if (this.rarModels == null) {
+            try {
+                this.rarModels = AttestationRarModels.get();
+            } catch (RarModelException e) {
+                throw new ServletException("attestation issuance: the RAR containment models could not be loaded: "
+                        + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
+            }
         }
     }
 
@@ -246,22 +262,14 @@ public class AttestationIssuanceServlet extends HttpServlet {
             assertedCeiling = asserted.ceiling();
         }
 
-        // 6. Resolve the granted entitlement against the effective ceiling, then apply any
-        //    selector-conditioned downscoping the policy requires.
+        // 6. The authority the attestation carries (CAS §7): the binding's ceiling, narrowed by the asserted
+        //    context's when there is one, and the request granted against it.
+        RarModels models = rarModels();
         List<Map<String, Object>> ceiling = config.effectiveCeiling(binding);
         if (assertedCeiling != null) {
-            ceiling = intersectCeilings(ceiling, assertedCeiling);
+            ceiling = intersectCeilings(models, ceiling, assertedCeiling);
         }
-        List<Map<String, Object>> granted;
-        if (!request.requestedDetails.isEmpty()) {
-            try {
-                granted = RarEntitlement.authorize(request.requestedDetails, ceiling);
-            } catch (ClientAttestationException e) {
-                throw mapEntitlementError(e);
-            }
-        } else {
-            granted = ceiling;
-        }
+        List<Map<String, Object>> granted = grant(models, request.requestedDetails, ceiling);
 
         // 6a. Resolve this instance's stable agent_id, if an AgentRegistry is available (Phase 2.1). Keyed
         //     on the resolved instance subject, not the raw evidence, so it stays stable across restarts
@@ -370,6 +378,26 @@ public class AttestationIssuanceServlet extends HttpServlet {
         this.replayCache = cache;
     }
 
+    void setRarModels(RarModels models) {
+        this.rarModels = models;
+    }
+
+    /**
+     * The containment models: injected, loaded at {@code init}, or - for a caller that never ran {@code init} - this
+     * classloader's, so a mint never proceeds without them.
+     */
+    RarModels rarModels() throws IssuanceException {
+        RarModels local = this.rarModels;
+        if (local != null) {
+            return local;
+        }
+        try {
+            return AttestationRarModels.get();
+        } catch (RarModelException e) {
+            throw IssuanceException.serverError("the RAR containment models could not be loaded: " + e.getMessage());
+        }
+    }
+
     /** The evidence policy: injected, else read from the environment on first use, so a bad value fails the first request and names itself. */
     synchronized EvidencePolicy evidencePolicy() throws IssuanceException {
         if (this.evidencePolicy == null) {
@@ -389,13 +417,13 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /**
-     * The challenges this endpoint consumes: injected, else the shared store's {@code oidf:as:challenge:*} - the
-     * authorization server's, because the one challenge endpoint issues into that namespace. Plan item S4b gives
-     * the CAS a challenge endpoint of its own and moves this to {@code oidf:cas:challenge:*}.
+     * The challenges this endpoint consumes: injected, else the shared store's {@code oidf:cas:challenge:*}, which
+     * {@link AttestationIssuanceChallengeServlet} issues into. The authorization server's challenges live in
+     * {@code oidf:as:challenge:*} and are unknown here, so a proof carrying one is refused (CAS §4.1).
      */
     AttestationChallengeService challengeService() {
         AttestationChallengeService local = this.challengeService;
-        return local != null ? local : AttestationSupport.challengeService(StoreNamespace.AS);
+        return local != null ? local : AttestationSupport.challengeService(StoreNamespace.CAS);
     }
 
     /** The spent proof jtis: injected, else the shared store's {@code oidf:cas:jti:*}. */
@@ -603,29 +631,56 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /**
-     * The intersection of two RFC 9396 ceilings: an entry from {@code base} survives only if it is also
-     * CONTAINED within {@code narrowing} (the same type + subset-field semantics {@link RarEntitlement#authorize}
-     * already enforces one direction). Used to fold an asserted-context ceiling in WITHOUT ever letting it
-     * grant beyond the evidenced instance's own ceiling — a union would defeat the entire point of "asserted
-     * context can only narrow, never extend."
+     * The authority the attestation carries (CAS §7): {@code effective = requested ∩ ceiling(instance)}.
+     *
+     * <ul>
+     *   <li>Rule 2: "An empty or absent {@code authorization_details} request means the instance asks for its
+     *       <b>full ceiling</b>; the CAS issues the ceiling of the matched binding."</li>
+     *   <li>Otherwise {@code authorize(requested, ceiling, INHERIT)}: each requested detail fitted to the first
+     *       ceiling entry of its type that contains it, with every field that entry constrains and the request
+     *       leaves out filled from it, so the attestation never carries a detail wider than its ceiling. The
+     *       library checks its own grant against the ceiling before returning it (rule 1: "The issued
+     *       {@code authorization_details} MUST be a subset of the applicable ceiling").</li>
+     *   <li>Rule 3, with the {@code "reject"} this attester advertises as its {@code narrowing_behavior}: "A
+     *       request exceeding the ceiling is handled per the advertised narrowing_behavior: "reject" →
+     *       access_denied".</li>
+     * </ul>
+     *
+     * @throws IssuanceException {@code access_denied} for a request outside the ceiling; {@code invalid_request}
+     *                           for one the model refuses (malformed, too large, an undeclared field, an
+     *                           unmodelled type, or one of this repository's markers, which an issuance request
+     *                           has no business carrying)
      */
-    private static List<Map<String, Object>> intersectCeilings(List<Map<String, Object>> base,
-                                                                List<Map<String, Object>> narrowing) {
-        if (base.isEmpty() || narrowing.isEmpty()) {
-            return List.of();
+    static List<Map<String, Object>> grant(RarModels models, List<Map<String, Object>> requested,
+                                           List<Map<String, Object>> ceiling) throws IssuanceException {
+        try {
+            return requested.isEmpty()
+                    ? models.fullCeiling(ceiling)
+                    : models.authorize(requested, ceiling, Omission.INHERIT);
+        } catch (RarModelException e) {
+            throw mapEntitlementError(e);
         }
-        List<Map<String, Object>> out = new ArrayList<>();
-        for (Map<String, Object> entry : base) {
-            try {
-                // The GRANTED form, not the base entry: a base entry that omits a field the asserted
-                // ceiling constrains is kept with that constraint inherited, which is what makes this
-                // an intersection rather than a filter.
-                out.addAll(RarEntitlement.authorize(List.of(entry), narrowing));
-            } catch (ClientAttestationException ignored) {
-                // Not covered by the asserted ceiling — dropped silently; this is narrowing, not an error.
-            }
+    }
+
+    /**
+     * An asserted-context ceiling folded into the evidenced one: the model's meet ({@code intersect}), the
+     * largest details within both, pairwise by type - so the asserted context narrows the evidenced ceiling and
+     * never extends it. This used to keep a base entry only when the asserted ceiling contained it whole, which
+     * dropped an entry the asserted ceiling only partly allowed (EMEA and APAC against EMEA) rather than narrowing
+     * it, and compared five array fields. Plan item X-B10 (Phase 5) rebuilds the asserted context on this meet.
+     *
+     * @throws IssuanceException {@code server_error} when the two cannot be combined - a ceiling the model
+     *                           refuses, or a meet past the size limit - since both come from this attester's own
+     *                           configuration, not from the request
+     */
+    static List<Map<String, Object>> intersectCeilings(RarModels models, List<Map<String, Object>> base,
+                                                       List<Map<String, Object>> narrowing) throws IssuanceException {
+        try {
+            return models.intersect(base, narrowing);
+        } catch (RarModelException e) {
+            throw IssuanceException.serverError(
+                    "the asserted context's ceiling cannot be combined with the binding's: " + e.getMessage());
         }
-        return out;
     }
 
     /** A system property, falling back to an environment variable; null when neither is set. */
@@ -826,11 +881,16 @@ public class AttestationIssuanceServlet extends HttpServlet {
         return local;
     }
 
-    private static IssuanceException mapEntitlementError(ClientAttestationException e) {
-        if (ClientAttestationException.ACCESS_DENIED.equals(e.error())) {
+    /**
+     * A refusal of the request's details, as the CAS §4.6 error: {@code access_denied} (403) for one outside the
+     * ceiling, {@code invalid_request} (400) for one the model cannot compare. The model's message names the
+     * detail and the field, never the value.
+     */
+    static IssuanceException mapEntitlementError(RarModelException e) {
+        if (e.reason() == RarModelException.Reason.EXCEEDS_CEILING) {
             return IssuanceException.accessDenied(e.getMessage());
         }
-        return IssuanceException.invalidRequest(e.getMessage());
+        return IssuanceException.invalidRequest("authorization_details: " + e.getMessage());
     }
 
     // ---- request parsing --------------------------------------------------------------------------

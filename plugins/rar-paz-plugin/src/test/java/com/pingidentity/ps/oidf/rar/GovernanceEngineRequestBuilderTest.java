@@ -146,8 +146,8 @@ class GovernanceEngineRequestBuilderTest {
         assertThrows(IllegalArgumentException.class,
                 () -> unprefixed.build("sales_agent", requested, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
 
-        assertEquals(2 * RarContainment.SET_FIELDS.length, GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.size());
-        for (String field : RarContainment.SET_FIELDS) {
+        assertEquals(2 * GovernanceEngineRequestBuilder.SET_FIELDS.length, GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.size());
+        for (String field : GovernanceEngineRequestBuilder.SET_FIELDS) {
             assertTrue(GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.contains("req_" + field), field);
             assertTrue(GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.contains("att_" + field), field);
         }

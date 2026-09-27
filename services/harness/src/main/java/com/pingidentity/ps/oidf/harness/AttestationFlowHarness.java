@@ -9,11 +9,13 @@
  * Two modes:
  *
  *   live <baseUrl> [tokenEndpoint] [clientId]
- *       Talks to a DEPLOYED instance. Fetches a real challenge from
- *       <baseUrl>/federation/attestation-challenge, mints a complete Client
+ *       Talks to a DEPLOYED instance. POSTs to the authorization server's challenge
+ *       endpoint, <baseUrl>/federation/attestation-challenge, mints a complete Client
  *       Attestation JWT + PoP JWT (and a DPoP combined-mode proof) that echo the
  *       challenge, and prints the OAuth-Client-Attestation / -PoP (and DPoP)
- *       headers plus a ready-to-run curl against the token endpoint.
+ *       headers plus a ready-to-run curl against the token endpoint. The attester's
+ *       endpoint (GET /federation/attestation/challenge) is for the instance-key
+ *       proof at issuance, and the token endpoint refuses its challenges.
  *
  *   selfverify
  *       Runs the module's REAL ClientAttestationVerifier in-process (no network,
@@ -50,6 +52,12 @@ import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
 
 public final class AttestationFlowHarness {
+
+    /**
+     * The authorization server's challenge endpoint (ABCA-10 §6.1, POST), whose challenges the token endpoint takes.
+     * Not the attester's {@code /federation/attestation/challenge}: a challenge from there is refused here.
+     */
+    static final String AS_CHALLENGE_PATH = "/federation/attestation-challenge";
 
     static final String ATTESTATION_TYP = "oauth-client-attestation+jwt";
     static final String POP_TYP = "oauth-client-attestation-pop+jwt";
@@ -88,7 +96,7 @@ public final class AttestationFlowHarness {
         String baseUrl = stripTrailingSlash(args[1]);
         String clientId = args.length > 3 ? args[3] : "https://rp.example.com";
         String tokenEndpoint = args.length > 2 ? args[2] : baseUrl + "/as/token.oauth2";
-        String challengeUrl = baseUrl + "/federation/attestation-challenge";
+        String challengeUrl = baseUrl + AS_CHALLENGE_PATH;
 
         // Use a fixed attester key when OIDF_ATTESTER_JWK is set (must match the server's
         // mock-attesters trust file); otherwise a random one (which a federation/mock-trusted
@@ -104,6 +112,14 @@ public final class AttestationFlowHarness {
 
         // 1) fetch a real challenge from the deployed servlet
         HttpClient http = httpClient();
+        // The PoP audience is PingFederate's issuer and nothing else (draft-ietf-oauth-attestation-based-
+        // client-auth-10 §5.1); the token endpoint URL is refused from 0.4.0. The issuer is read from PF's
+        // discovery document unless OIDF_POP_AUDIENCE names it.
+        String popAudience = envOr("OIDF_POP_AUDIENCE", null);
+        if (popAudience == null) {
+            popAudience = discoveredIssuer(http, tokenEndpoint);
+        }
+        System.out.println("PoP audience       : " + popAudience);
         HttpResponse<String> chResp = http.send(
                 HttpRequest.newBuilder(URI.create(challengeUrl)).POST(HttpRequest.BodyPublishers.noBody()).build(),
                 HttpResponse.BodyHandlers.ofString());
@@ -120,9 +136,9 @@ public final class AttestationFlowHarness {
         String popChallenge = "1".equals(System.getenv("OIDF_NO_CHALLENGE")) ? null : challenge;
         // 2) Client Attestation JWT (signed by the attester; cnf binds the instance key)
         String attestation = attestationJwt(attesterKey, instanceKey, "https://attester.example.com", clientId);
-        // 3a) PoP JWT (signed by the instance key; echoes the challenge)
-        String pop = popJwt(instanceKey, clientId, tokenEndpoint, popChallenge);
-        // 3b) DPoP combined-mode proof (alternative to the PoP; nonce = challenge)
+        // 3a) PoP JWT (signed by the instance key; echoes the challenge; aud = PF's issuer)
+        String pop = popJwt(instanceKey, clientId, popAudience, popChallenge);
+        // 3b) DPoP combined-mode proof (alternative to the PoP; nonce = challenge; htu = the token endpoint)
         String dpop = dpopJwt(instanceKey, tokenEndpoint, popChallenge);
 
         String requestedRar = toJsonArray(requestedAccess(envOr("OIDF_SALES_REGION", "EMEA"), "create_opportunity"));
@@ -148,6 +164,24 @@ public final class AttestationFlowHarness {
         System.out.println("NOTE: the token endpoint accepts these only once PingFederate is configured with an");
         System.out.println("      OAuth AS, the client registered (public client + attestation_required=true), and an");
         System.out.println("      issuance criterion calling ClientAttestationUtils.validateClientAttestation(#this).");
+    }
+
+    /**
+     * The {@code issuer} of the PingFederate that serves {@code tokenEndpoint}, from its
+     * {@code /.well-known/openid-configuration} at the endpoint's origin.
+     */
+    private static String discoveredIssuer(HttpClient http, String tokenEndpoint) throws Exception {
+        URI endpoint = URI.create(tokenEndpoint);
+        URI discovery = new URI(endpoint.getScheme(), endpoint.getRawAuthority(), "/.well-known/openid-configuration",
+                null, null);
+        HttpResponse<String> resp = http.send(HttpRequest.newBuilder(discovery).GET().build(),
+                HttpResponse.BodyHandlers.ofString());
+        require(resp.statusCode() == 200, discovery + " returned HTTP " + resp.statusCode()
+                + " - set OIDF_POP_AUDIENCE to PingFederate's issuer instead");
+        Object issuer = JsonUtil.parseJson(resp.body()).get("issuer");
+        require(issuer instanceof String && !((String) issuer).isBlank(), discovery + " names no issuer"
+                + " - set OIDF_POP_AUDIENCE to PingFederate's issuer instead");
+        return (String) issuer;
     }
 
     /** POSTs the PoP-mode token request (with authorization_details) and prints PF's response. */
@@ -196,8 +230,7 @@ public final class AttestationFlowHarness {
         Class<?> cfgBuilderHolder = Class.forName("com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig");
         Object builder = cfgBuilderHolder.getMethod("builder").invoke(null);
         Class<?> builderClass = builder.getClass();
-        builder = builderClass.getMethod("addAcceptedAudience", String.class).invoke(builder, OP_ISSUER);
-        builder = builderClass.getMethod("addAcceptedAudience", String.class).invoke(builder, TOKEN_ENDPOINT);
+        builder = builderClass.getMethod("expectedAudience", String.class).invoke(builder, OP_ISSUER);
         builder = builderClass.getMethod("expectedHtu", String.class).invoke(builder, TOKEN_ENDPOINT);
         builder = builderClass.getMethod("challengeRequired", boolean.class).invoke(builder, true);
         Object config = builderClass.getMethod("build").invoke(builder);
@@ -309,13 +342,18 @@ public final class AttestationFlowHarness {
                 "privileges", List.of("quota:standard")));
     }
 
-    /** A token request's {@code authorization_details} asking to act in one region with one action. */
+    /**
+     * A token request's {@code authorization_details} asking to act in one region with one action. It restates the
+     * entitlement's {@code privileges}: the token gate compares strictly (plan item S1b), so a field the attestation
+     * constrains and the request leaves out is refused rather than filled in.
+     */
     static List<Map<String, Object>> requestedAccess(String region, String action) {
         return List.of(Map.of(
                 "type", "sales_agent",
                 "actions", List.of(action),
                 "locations", List.of("https://crm.contoso.com/api"),
-                "sales_regions", List.of(region)));
+                "sales_regions", List.of(region),
+                "privileges", List.of("quota:standard")));
     }
 
     /** Serialize a list of objects to a compact JSON array (jose4j only serializes maps). */

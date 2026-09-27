@@ -5,7 +5,10 @@ package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.rar.model.RarModelException;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
@@ -108,15 +111,39 @@ public final class ClientAttestationUtils {
      *     {@code HttpTrustControllerGateway}'s {@code selfIssuer} javadoc).
      */
     public static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        return ClientAttestationUtils.validateClientAttestation(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl,
+                ClientAttestationUtils::pingFederateIssuer);
+    }
+
+    /**
+     * The same criterion with the OP issuer resolved by {@code issuerOf}. {@code OAuthIssuerUtils.getInstance()}
+     * reaches into PingFederate's HiveMind registry and cannot run outside a booted server, so this is the seam
+     * that lets a test drive the criterion's own containment check - as {@code ClientAttestationAuthFilter}'s
+     * package-private constructor does for the filter.
+     */
+    static boolean validateClientAttestation(Object inObj, Boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerOf) {
         try {
-            return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl);
+            return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl,
+                    issuerOf, ClientAttestationUtils::configuredTokenEndpointBaseUrl);
         } catch (Throwable t) {
             LOGGER.error((Object) "Attestation-based client authentication failed with a non-Exception throwable", t);
             return false;
         }
     }
 
-    private static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+    private static String pingFederateIssuer(HttpServletRequest request) {
+        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+    }
+
+    /**
+     * Test seam: the criterion with PingFederate's issuer and token endpoint base URL supplied, as
+     * {@code ClientAttestationAuthFilter} takes them, because {@code OAuthIssuerUtils}' static initialiser reaches
+     * into PingFederate's registry and cannot run outside a booted server.
+     */
+    static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerOf,
+            java.util.function.Supplier<String> tokenEndpointBaseUrl) {
         try {
             if (!(inObj instanceof Map)) {
                 LOGGER.error((Object) ("In parameters not instance of Map. " + (inObj == null ? "null" : inObj.getClass().getName())));
@@ -148,43 +175,11 @@ public final class ClientAttestationUtils {
                 return true;
             }
 
-            String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(request);
-
-            String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
-            String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
-            String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
-            String requestUri = request.getRequestURL() == null ? null : request.getRequestURL().toString();
-
-            AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
-                    ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
-                    ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
-            ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, requestUri);
-            ClientAttestationVerifier verifier = new ClientAttestationVerifier(resolver, config, AttestationSupport.replayCache(), AttestationSupport.challengeService());
-
-            // Prefer the standard RFC 9396 parameter, but PingFederate's AS pre-validates
-            // 'authorization_details' against the client's configured RAR types and rejects
-            // unregistered types before this issuance criterion runs. Fall back to a dedicated
-            // parameter so the attestation-bound entitlement check works without full PF RAR config.
-            String authorizationDetails = request.getParameter("authorization_details");
-            if (authorizationDetails == null || authorizationDetails.isBlank()) {
-                authorizationDetails = request.getParameter("oidf_requested_access");
+            ClientAttestationResult result = ClientAttestationUtils.verifyAtTheCriterion(inParameters, request, requestedClientId,
+                    issuerOf, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, tokenEndpointBaseUrl);
+            if (result == null) {
+                return false;
             }
-            ClientAttestationResult result = verifier.verify(attestation, pop, dpop, request.getMethod(), requestUri, requestedClientId, authorizationDetails);
-            if (!result.grantedAuthorizationDetails().isEmpty()) {
-                // Stash the GRANTED RFC 9396 authorization_details so an access-token-manager attribute
-                // mapping can surface it into the issued token (OGNL reads the HttpRequest attribute).
-                // Granted, not the raw request parameter: a request that omits a field the entitlement
-                // constrains is granted with that constraint inherited (RarEntitlement), and a token
-                // carrying the request verbatim would drop it again.
-                request.setAttribute("oidf.authorization_details",
-                        new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result.grantedAuthorizationDetails()));
-            }
-            // Publish the verified attestation context for the RAR -> PingAuthorize AuthorizationDetailProcessor
-            // (pf-rar-paz-plugin: AttestationSubject.REQUEST_ATTRIBUTE). Decoupled by a shared string key and a
-            // plain Map, so neither module depends on the other.
-            Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
-            request.setAttribute(RAR_ATTESTATION_CONTEXT_ATTRIBUTE, context);
-            request.setAttribute(VERIFIED_ATTESTATION_ATTRIBUTE, context);
             if (LOGGER.isInfoEnabled()) {
                 LOGGER.info((Object) ("Attestation-based client authentication succeeded for client_id=" + result.clientId()
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
@@ -192,7 +187,11 @@ public final class ClientAttestationUtils {
             }
             return true;
         } catch (ClientAttestationException e) {
-            LOGGER.info((Object) ("Attestation-based client authentication failed [" + e.error() + "]: " + e.getMessage()));
+            // PingFederate answers a false criterion with the Error Result configured on it (400 invalid_grant),
+            // not with this error: the criterion can refuse the token, not choose the refusal's code. The token
+            // endpoint filter, where it runs, answers first with the error itself.
+            LOGGER.info((Object) ("Attestation-based client authentication failed [" + e.error() + "]: " + e.getMessage()
+                    + ClientAttestationUtils.refusalDetail(e)));
             return false;
         } catch (Exception e) {
             LOGGER.info((Object) "Attestation-based client authentication failed", (Throwable) e);
@@ -207,9 +206,93 @@ public final class ClientAttestationUtils {
     }
 
     /**
+     * The criterion's own verification, for a request the filter did not verify: load the containment models (a
+     * document that cannot be read refuses, and the answer is {@code null}), verify the attestation and its proof,
+     * check the request's authorization_details strictly within the attestation's (CAS section 7.1, through the same
+     * {@link ClientAttestationVerifier} the filter asks), stash what was granted, and publish the context. A refusal
+     * throws {@link ClientAttestationException}; the caller logs it and answers false.
+     */
+    static ClientAttestationResult verifyAtTheCriterion(Map inParameters, HttpServletRequest request, String requestedClientId,
+            java.util.function.Function<HttpServletRequest, String> issuerOf, Boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, java.util.function.Supplier<String> tokenEndpointBaseUrl) throws Exception {
+        // The containment model the token gate asks. The engine classloader has no start-up hook, so this first
+        // call is where it loads, once per classloader; a models document it cannot read refuses every attested
+        // token here, and AttestationRarModels logs why once. Plan item S-9 (Phase 3) gives the component a
+        // state of its own instead.
+        RarModels rarModels;
+        try {
+            rarModels = AttestationRarModels.get();
+        } catch (RarModelException e) {
+            LOGGER.info((Object) ("Attestation-based client authentication refused: the RAR containment models "
+                    + "could not be loaded (" + e.getMessage() + ")"));
+            return null;
+        }
+
+        String opIssuer = issuerOf.apply(request);
+
+        String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
+        String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
+        String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
+        // The endpoint's URL as PingFederate advertises it, not the request URL: that is rebuilt from the
+        // Host header, which is the caller's to write (see endpointUrl).
+        String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer,
+                tokenEndpointBaseUrl.get(), ClientAttestationUtils.endpointPath(request));
+
+        AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
+                ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
+                ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
+        ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, endpointUrl);
+        ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(resolver, config,
+                AttestationSupport.replayCache(), AttestationSupport.challengeService(), rarModels);
+
+        // Prefer the standard RFC 9396 parameter, but PingFederate's AS pre-validates
+        // 'authorization_details' against the client's configured RAR types and rejects
+        // unregistered types before this issuance criterion runs. Fall back to a dedicated
+        // parameter so the attestation-bound entitlement check works without full PF RAR config.
+        //
+        // Either parameter repeated is refused: this checks the first value, and with no filter in front nothing here
+        // decides which value PingFederate goes on to read. RFC 6749 section 3.2: "Request and response parameters
+        // MUST NOT be included more than once." The filter path is not affected - the filter forwards only the value
+        // it checked - and Fapi2ProfileFilter refuses a repeated client_assertion for the same reason.
+        ClientAttestationUtils.requireAtMostOnce(request, "authorization_details");
+        ClientAttestationUtils.requireAtMostOnce(request, "oidf_requested_access");
+        String authorizationDetails = request.getParameter("authorization_details");
+        if (authorizationDetails == null || authorizationDetails.isBlank()) {
+            authorizationDetails = request.getParameter("oidf_requested_access");
+        }
+        ClientAttestationResult result = verifier.verify(attestation, pop, dpop, request.getMethod(), endpointUrl, requestedClientId, authorizationDetails);
+        if (!result.grantedAuthorizationDetails().isEmpty()) {
+            // Stash the granted RFC 9396 authorization_details so an access-token-manager attribute mapping
+            // can surface them into the issued token (OGNL reads the HttpRequest attribute): the request's
+            // own details, found strictly within the attestation's, without the _principal_sub and _agent_id
+            // markers, so neither marker reaches a token through this attribute.
+            request.setAttribute("oidf.authorization_details",
+                    new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result.grantedAuthorizationDetails()));
+        }
+        // Publish the verified attestation context for the RAR -> PingAuthorize AuthorizationDetailProcessor
+        // (pf-rar-paz-plugin: AttestationSubject.REQUEST_ATTRIBUTE). Decoupled by a shared string key and a
+        // plain Map, so neither module depends on the other.
+        Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
+        request.setAttribute(RAR_ATTESTATION_CONTEXT_ATTRIBUTE, context);
+        request.setAttribute(VERIFIED_ATTESTATION_ATTRIBUTE, context);
+        return result;
+    }
+
+    /**
+     * The containment model's own reason for a refusal, for a log line: it names the detail and the field, never
+     * the value, and the client's error_description carries only the token gate's fixed text. Empty when the
+     * refusal did not come from the model.
+     */
+    public static String refusalDetail(ClientAttestationException e) {
+        return e.getCause() instanceof RarModelException ? " (" + e.getCause().getMessage() + ")" : "";
+    }
+
+    /**
      * Builds the attestation context handed to the RAR {@code AuthorizationDetailProcessor}
      * (pf-rar-paz-plugin): the authenticated subject/{@code client_id}, the attested RFC 9396 entitlement
-     * ceiling, and the confirmed instance-key thumbprint. Consumed via a request attribute so the RAR
+     * ceiling, the confirmed instance-key thumbprint, and {@code rar_models_fingerprint} - the
+     * {@code RarModels.fingerprint()} of the model set that checked the request's details, lower-case hex SHA-256,
+     * which the plugin compares with its own (plan item S1c). Consumed via a request attribute so the RAR
      * decision can be bounded by what the attester actually vouched.
      */
     public static Map<String, Object> attestationContext(ClientAttestationResult result) {
@@ -230,10 +313,16 @@ public final class ClientAttestationUtils {
             ctx.put("iss", result.attesterIssuer());
         }
         ctx.put("entitlement", result.entitledAuthorizationDetails());
+        // Which model set this classloader checked the request's details with. The RAR plugin shades its own copy
+        // of the library and reads the same environment; a different fingerprint means the two would answer the
+        // same question differently, and the plugin denies. Absent only for a result no model checked.
+        if (result.rarModelsFingerprint() != null) {
+            ctx.put("rar_models_fingerprint", result.rarModelsFingerprint());
+        }
         // The workload behind the client — SPIFFE ID, attestor and any introspected selectors. Surfaced
         // flat as well so an access-token attribute mapping (OGNL) can name the workload in the token.
-        Map<String, Object> workload = result.workload();
-        if (workload != null && !workload.isEmpty()) {
+        Map<String, Object> workload = result.workload(); // never null: the result holds an empty map for none
+        if (!workload.isEmpty()) {
             ctx.put("workload", workload);
             Object spiffeId = workload.get("spiffe_id");
             if (spiffeId != null) {
@@ -293,18 +382,106 @@ public final class ClientAttestationUtils {
     }
 
     /**
-     * Default verification policy for the token-endpoint auth filter: PoP audience = OP issuer or the
-     * request URL, method POST. The filter has no issuance-criteria context, so the per-client
-     * {@code extproperties.*} tuning read by {@link #buildConfig} does not apply here — and because the
-     * OGNL issuance criterion reuses the verification this filter publishes rather than verifying again
-     * (verify-once), that tuning does not apply to a filter-authenticated request at all.
+     * Default verification policy for the token-endpoint auth filter: the PoP audience is the OP issuer and
+     * nothing else (draft-ietf-oauth-attestation-based-client-auth-10 §5.1 and §7.2, item 7), a DPoP proof's
+     * {@code htu} is {@code endpointUrl} (see {@link #endpointUrl}), method POST. The filter has no
+     * issuance-criteria context, so the per-client {@code extproperties.*} tuning read by {@link #buildConfig}
+     * does not apply here — and because the OGNL issuance criterion reuses the verification this filter
+     * publishes rather than verifying again (verify-once), that tuning does not apply to a filter-authenticated
+     * request at all.
+     *
+     * <p>Until 0.4.0 the request URL was accepted as a PoP audience as well, and was the {@code htu}. It is
+     * rebuilt from the {@code Host} header, so a PoP or DPoP proof minted for another server - one whose token
+     * endpoint shares this one's path, as every PingFederate's does - passed here with a {@code Host} header
+     * naming that server.
      */
-    public static ClientAttestationConfig defaultConfig(String opIssuer, String requestUri) {
+    public static ClientAttestationConfig defaultConfig(String opIssuer, String endpointUrl) {
         return ClientAttestationConfig.builder()
-                .addAcceptedAudience(opIssuer)
-                .addAcceptedAudience(requestUri)
+                .expectedAudience(opIssuer)
+                .expectedHtu(endpointUrl)
                 .expectedHtm("POST")
                 .build();
+    }
+
+    /**
+     * The URL of the PingFederate endpoint at {@code endpointPath}, as PingFederate advertises it for
+     * {@code issuer}: the issuer followed by the path, except the token endpoint, which PingFederate advertises
+     * under its token endpoint base URL when one is set ({@code ProviderConfigurationInfoHandler} in 13.1.3's
+     * {@code pf-protocolengine}: {@code token_endpoint} is that base URL, or the issuer when it is blank, then
+     * {@code /as/token.oauth2}; {@code pushed_authorization_request_endpoint} is the issuer then
+     * {@code /as/par.oauth2}; read with javap on 2026-09-27). {@code null} when either the issuer or the path is
+     * unknown, and then a DPoP proof is refused rather than compared with nothing.
+     *
+     * <p>This is the {@code htu} a DPoP proof must name. RFC 9449 §4.3, item 9, compares it with "the HTTP URI
+     * value for the HTTP request in which the JWT was received"; a servlet container rebuilds that from the
+     * {@code Host} header (or {@code X-Forwarded-*}), which the client writes, so a proof minted for another
+     * server would pass with a {@code Host} header naming it. The issuer comes from configuration: PingFederate's
+     * {@code OAuthIssuerUtils.getIssuerValue} returns its base URL, or a virtual host name or issuer it has
+     * configured when the request names one; a {@code Host} it does not know gets the base URL (13.1.3, javap,
+     * 2026-09-27).
+     */
+    public static String endpointUrl(String issuer, String tokenEndpointBaseUrl, String endpointPath) {
+        if (issuer == null || issuer.isBlank() || endpointPath == null || endpointPath.isEmpty()) {
+            return null;
+        }
+        boolean tokenEndpoint = TOKEN_ENDPOINT_PATH.equals(endpointPath);
+        String base = tokenEndpoint && tokenEndpointBaseUrl != null && !tokenEndpointBaseUrl.isBlank()
+                ? tokenEndpointBaseUrl : issuer;
+        return base + endpointPath;
+    }
+
+    /** Where PingFederate serves its token endpoint, under the issuer or the token endpoint base URL. */
+    static final String TOKEN_ENDPOINT_PATH = "/as/token.oauth2";
+
+    /**
+     * The path within PingFederate's runtime web application that {@code request} was routed to, as the container
+     * decoded and matched it: servlet path and path info ({@code /as/token.oauth2} under PingFederate's
+     * {@code *.oauth2} mapping, whose servlet path is the whole path). The context path is left out: PingFederate's
+     * base URL, and so the issuer, already carries it ({@code run.properties} in 13.1.3 says of
+     * {@code pf.runtime.context.path}: "If this property is changed, the path must also be added to the base URL for
+     * your PingFederate system protocol settings"), and {@code OAuthIssuer.constructCurrentRequestUrl} strips it from
+     * the request URI before adding the rest to the issuer (javap, 2026-09-27). A request that carries no servlet
+     * path - one the OGNL criterion is handed that was not dispatched through a mapping, say - gives its
+     * request-target path, less the context path, instead: the client writes that, but it only chooses a path under
+     * the configured issuer, never a host. {@code null} when the request names neither.
+     */
+    public static String endpointPath(HttpServletRequest request) {
+        String path = ClientAttestationUtils.nullToEmpty(request.getServletPath())
+                + ClientAttestationUtils.nullToEmpty(request.getPathInfo());
+        if (path.isEmpty()) {
+            path = ClientAttestationUtils.nullToEmpty(request.getRequestURI());
+            String contextPath = ClientAttestationUtils.nullToEmpty(request.getContextPath());
+            if (!contextPath.isEmpty() && path.startsWith(contextPath)) {
+                path = path.substring(contextPath.length());
+            }
+        }
+        return path.isEmpty() ? null : path;
+    }
+
+    private static String nullToEmpty(String value) {
+        return value == null ? "" : value;
+    }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean TOKEN_ENDPOINT_BASE_URL_WARNED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+
+    /**
+     * PingFederate's token endpoint base URL (Authorization Server Settings), or {@code null} when it is not set
+     * or cannot be read. An internal of PingFederate's, not SDK, read the way {@code ProviderConfigurationInfoHandler}
+     * reads it for the discovery document. Unreadable is said once and treated as unset, which leaves the token
+     * endpoint under the issuer: a proof naming the base URL is then refused, never one naming another server
+     * accepted.
+     */
+    public static String configuredTokenEndpointBaseUrl() {
+        try {
+            return org.sourceid.saml20.domain.mgmt.MgmtFactory.getAuthzServerManager().getTokenEndpointBaseUrl();
+        } catch (RuntimeException | LinkageError e) {
+            if (TOKEN_ENDPOINT_BASE_URL_WARNED.compareAndSet(false, true)) {
+                LOGGER.warn((Object) ("PingFederate's token endpoint base URL could not be read, so a DPoP proof at "
+                        + "the token endpoint must name the issuer's token endpoint: " + e));
+            }
+            return null;
+        }
     }
 
     private static volatile StaticAttesterKeyResolver mockResolver;
@@ -388,16 +565,17 @@ public final class ClientAttestationUtils {
     }
 
     /**
-     * Builds the verification policy, defaulting the PoP audience to the OP issuer and the request URL,
-     * and reading optional {@code extproperties.*} overrides: {@code attestation_pop_max_age},
-     * {@code attestation_dpop_max_age}, {@code attestation_clock_skew},
-     * {@code attestation_challenge_required}, {@code attestation_expected_htu},
-     * {@code attestation_accepted_algs}, {@code attestation_pop_algs}, {@code attestation_dpop_algs}.
+     * Builds the verification policy: the PoP audience is the OP issuer alone and a DPoP proof's {@code htu}
+     * is {@code endpointUrl}, as in {@link #defaultConfig}, with optional {@code extproperties.*} overrides:
+     * {@code attestation_pop_max_age}, {@code attestation_dpop_max_age}, {@code attestation_clock_skew},
+     * {@code attestation_challenge_required}, {@code attestation_expected_htu} (an administrator's pin of the
+     * {@code htu}, which replaces {@code endpointUrl}), {@code attestation_accepted_algs},
+     * {@code attestation_pop_algs}, {@code attestation_dpop_algs}.
      */
-    private static ClientAttestationConfig buildConfig(Map inParameters, String opIssuer, String requestUri) {
+    private static ClientAttestationConfig buildConfig(Map inParameters, String opIssuer, String endpointUrl) {
         ClientAttestationConfig.Builder b = ClientAttestationConfig.builder()
-                .addAcceptedAudience(opIssuer)
-                .addAcceptedAudience(requestUri)
+                .expectedAudience(opIssuer)
+                .expectedHtu(endpointUrl)
                 .expectedHtm("POST");
 
         Long popMaxAge = ClientAttestationUtils.longProp(inParameters, "extproperties.attestation_pop_max_age");
@@ -648,6 +826,13 @@ public final class ClientAttestationUtils {
             throw new IllegalArgumentException("Multiple '" + name + "' headers present; exactly one is required");
         }
         return first;
+    }
+
+    private static void requireAtMostOnce(HttpServletRequest request, String name) {
+        String[] values = request.getParameterValues(name);
+        if (values != null && values.length > 1) {
+            throw new IllegalArgumentException("Multiple '" + name + "' parameters present; at most one is allowed");
+        }
     }
 
     private static String attributeValue(Map inParameters, String key) {

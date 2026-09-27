@@ -21,9 +21,9 @@ before it did, `/federation/attestation` was in no built war at all (commit `1ac
 | Jar | Brings |
 |---|---|
 | `pf-integration-<version>.jar` | federation entity servlet, §12 registration, OGNL hooks, the token-endpoint filters (note: the artifact name, not `oidf.jar`) |
-| `attestation-issuer-<version>.jar` | `/federation/attestation`, attester discovery, CAS metadata |
-| `client-attestation-<version>.jar` | the verifier - and `ClientAttestationChallengeServlet` (`/federation/attestation-challenge`), which rides along from the lib |
-| `openid-federation`, `oidf-jose`, `agent-registry` | trust-chain validation, JOSE, `agent_id` minting |
+| `attestation-issuer-<version>.jar` | `/federation/attestation`, the attester's challenge endpoint (`GET /federation/attestation/challenge`), attester discovery, CAS metadata |
+| `client-attestation-<version>.jar` | the verifier - and `ClientAttestationChallengeServlet` (`POST /federation/attestation-challenge`, the authorization server's challenge endpoint), which rides along from the lib |
+| `openid-federation`, `oidf-jose`, `rar-model`, `agent-registry` | trust-chain validation, JOSE, the RAR containment model the token gate and the attester ask, `agent_id` minting |
 | `jackson-core/databind/annotations` | bundled - `jackson-databind` is a direct dependency of this pom, deliberately not excluded |
 
 **Not** in the war: `ssf` (it is not a dependency here - it ships only via the `pf-runtime.war` merge, see
@@ -51,9 +51,9 @@ Two packagings of the same jars exist; this module is one of them.
 - **`oidf.war`** (this module) - own webapp classloader, `/oidf` context. Built by `mvn package` and
   uploaded as a CI artifact (`.github/workflows/build.yml`).
 - **`pf-runtime.war` merge** - what `build/pingfederate/` actually ships. `build/pingfederate/stage-modules.sh`
-  stages the reactor jars (`oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`,
-  `openid-federation`, `agent-registry`, `device-instance` - eight, the production profile - and
-  `pf.plugins.ciba-sim.jar` as a ninth under `--profile conformance`) into
+  stages the reactor jars (`oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `rar-model`, `client-attestation`,
+  `openid-federation`, `agent-registry`, `device-instance` - nine, the production profile - and
+  `pf.plugins.ciba-sim.jar` as a tenth under `--profile conformance`) into
   `build/pingfederate/modules/`; the Dockerfile runs `build/pingfederate/assemble-pf-runtime-war.sh` to inject them
   into the stock `pf-runtime.war` (root context, no `/oidf` prefix, one classloader) and register the seven
   filters over PF's own endpoints, then also copies the jars to `server/default/deploy/` so the engine classloader

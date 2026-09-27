@@ -11,9 +11,11 @@ import org.apache.commons.logging.LogFactory;
 
 /**
  * Holds the per-process {@link AttestationChallengeService}, {@link AttestationReplayCache} and
- * {@link EvidenceBindingStore} so the challenge endpoint (which issues challenges), the issuance-criteria hook
- * and the token-endpoint filter (which consume them and detect replay) and the attester (which binds evidence)
- * share the same state. Lazily initialised; the challenge servlet may override sizing/TTL during {@code init()}.
+ * {@link EvidenceBindingStore} so each surface's challenge endpoint and the checks that consume its challenges
+ * share the same state: the authorization server's endpoint with the issuance-criteria hook and the
+ * token-endpoint filter (which consume its challenges and detect replay), the attester's endpoint with the
+ * attester (which consumes its challenges and binds evidence). Lazily initialised; each challenge servlet may
+ * override the sizing and TTL of its own namespace's challenges during {@code init()}.
  *
  * <p>Store selection: if a Redis URL is configured - system property {@code oidf.redis.url}, or env var
  * {@code OIDF_REDIS_URL}, or env var {@code REDIS_URL} (checked in that order) - one shared
@@ -34,8 +36,9 @@ public final class AttestationSupport {
     private static final Map<StoreNamespace, InMemoryAttestationChallengeService> MEMORY_CHALLENGES = new EnumMap<>(StoreNamespace.class);
     private static final Map<StoreNamespace, InMemoryAttestationReplayCache> MEMORY_REPLAYS = new EnumMap<>(StoreNamespace.class);
     private static EvidenceBindingStore memoryEvidence;
-    private static long challengeTtlSeconds = AttestationChallengeService.DEFAULT_TTL_SECONDS;
-    private static int challengeMaxEntries = AttestationChallengeService.DEFAULT_MAX_ENTRIES;
+    /** Each namespace's challenge TTL and in-memory size, as its challenge servlet configured them; absent is the default. */
+    private static final Map<StoreNamespace, Long> CHALLENGE_TTLS = new EnumMap<>(StoreNamespace.class);
+    private static final Map<StoreNamespace, Integer> CHALLENGE_MAX_ENTRIES = new EnumMap<>(StoreNamespace.class);
     private static int replayMaxEntries = AttestationReplayCache.DEFAULT_MAX_ENTRIES;
 
     private AttestationSupport() {
@@ -58,7 +61,7 @@ public final class AttestationSupport {
                 return redisStore(namespace);
             }
             return MEMORY_CHALLENGES.computeIfAbsent(namespace,
-                    ns -> new InMemoryAttestationChallengeService(challengeMaxEntries, challengeTtlSeconds));
+                    ns -> new InMemoryAttestationChallengeService(challengeMaxEntries(ns), challengeTtlSeconds(ns)));
         }
     }
 
@@ -85,23 +88,34 @@ public final class AttestationSupport {
         }
     }
 
-    /** Sizing and TTL for the authorization server's challenges, from the challenge servlet's init-params. */
+    /** Sizing and TTL for the authorization server's challenges, from its challenge servlet's init-params. */
     public static void configureChallengeService(int maxEntries, long ttlSeconds) {
+        configureChallengeService(StoreNamespace.AS, maxEntries, ttlSeconds);
+    }
+
+    /**
+     * Sizing and TTL for the challenges of {@code namespace}, from that surface's challenge servlet's init-params:
+     * the authorization server's endpoint configures {@link StoreNamespace#AS}, the attester's
+     * {@link StoreNamespace#CAS}. Each namespace keeps its own settings, so one endpoint's never reach the other's
+     * challenges. A value the store refuses (a TTL that is not positive, a size that is neither positive nor -1 in
+     * memory) throws before anything is recorded, so the namespace keeps the store it had.
+     */
+    public static void configureChallengeService(StoreNamespace namespace, int maxEntries, long ttlSeconds) {
         synchronized (LOCK) {
-            challengeMaxEntries = maxEntries;
-            challengeTtlSeconds = ttlSeconds;
             if (redisUrl() != null) {
-                REDIS_STORES.remove(StoreNamespace.AS);
-                redisStore(StoreNamespace.AS);
-                LOGGER.info((Object) ("attestation challenge/replay store: Redis, challenge TTL " + ttlSeconds
+                RedisAttestationStore store = new RedisAttestationStore(redisClient(), false, namespace, ttlSeconds, Clock.systemUTC());
+                REDIS_STORES.put(namespace, store);
+                LOGGER.info((Object) ("attestation store " + namespace.prefix() + ":* is Redis, challenge TTL " + ttlSeconds
                         + "s (maxEntries ignored; Redis expires entries natively)"));
             } else {
-                MEMORY_CHALLENGES.put(StoreNamespace.AS, new InMemoryAttestationChallengeService(maxEntries, ttlSeconds));
+                MEMORY_CHALLENGES.put(namespace, new InMemoryAttestationChallengeService(maxEntries, ttlSeconds));
             }
+            CHALLENGE_MAX_ENTRIES.put(namespace, maxEntries);
+            CHALLENGE_TTLS.put(namespace, ttlSeconds);
         }
     }
 
-    /** Sizing for the authorization server's replay cache, from the challenge servlet's init-params. */
+    /** Sizing for the authorization server's replay cache, from its challenge servlet's init-params. */
     public static void configureReplayCache(int maxEntries) {
         synchronized (LOCK) {
             replayMaxEntries = maxEntries;
@@ -118,11 +132,21 @@ public final class AttestationSupport {
     private static RedisAttestationStore redisStore(StoreNamespace namespace) {
         RedisAttestationStore store = REDIS_STORES.get(namespace);
         if (store == null) {
-            store = new RedisAttestationStore(redisClient(), false, namespace, challengeTtlSeconds, Clock.systemUTC());
+            store = new RedisAttestationStore(redisClient(), false, namespace, challengeTtlSeconds(namespace), Clock.systemUTC());
             REDIS_STORES.put(namespace, store);
             LOGGER.info((Object) ("attestation store " + namespace.prefix() + ":* is Redis (shared, cluster-safe)"));
         }
         return store;
+    }
+
+    /** Must be called under {@link #LOCK}. The challenge TTL of {@code namespace}: as configured, else the default. */
+    private static long challengeTtlSeconds(StoreNamespace namespace) {
+        return CHALLENGE_TTLS.getOrDefault(namespace, AttestationChallengeService.DEFAULT_TTL_SECONDS);
+    }
+
+    /** Must be called under {@link #LOCK}. The in-memory challenge bound of {@code namespace}: as configured, else the default. */
+    private static int challengeMaxEntries(StoreNamespace namespace) {
+        return CHALLENGE_MAX_ENTRIES.getOrDefault(namespace, AttestationChallengeService.DEFAULT_MAX_ENTRIES);
     }
 
     /** Must be called under {@link #LOCK}. The shared client, or the refusal that stopped it being made. */
@@ -155,8 +179,8 @@ public final class AttestationSupport {
             MEMORY_CHALLENGES.clear();
             MEMORY_REPLAYS.clear();
             memoryEvidence = null;
-            challengeTtlSeconds = AttestationChallengeService.DEFAULT_TTL_SECONDS;
-            challengeMaxEntries = AttestationChallengeService.DEFAULT_MAX_ENTRIES;
+            CHALLENGE_TTLS.clear();
+            CHALLENGE_MAX_ENTRIES.clear();
             replayMaxEntries = AttestationReplayCache.DEFAULT_MAX_ENTRIES;
         }
     }

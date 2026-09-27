@@ -2,6 +2,8 @@ package com.pingidentity.ps.oidf.harness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet;
+import jakarta.servlet.annotation.WebServlet;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -14,5 +16,16 @@ class AttestationFlowHarnessSmokeTest {
     @Test
     void selfVerifyPassesEveryCheck() throws Exception {
         assertEquals(0, AttestationFlowHarness.selfVerify(), "selfverify reported failures - see stdout");
+    }
+
+    /**
+     * {@code live} presents its challenge at the token endpoint, so it must come from the authorization server's
+     * endpoint - the path that servlet is mapped at - and not the attester's, whose challenges the token endpoint
+     * refuses.
+     */
+    @Test
+    void liveFetchesItsChallengeWhereTheAuthorizationServersEndpointIsMapped() {
+        assertEquals(ClientAttestationChallengeServlet.class.getAnnotation(WebServlet.class).urlPatterns()[0],
+                AttestationFlowHarness.AS_CHALLENGE_PATH);
     }
 }

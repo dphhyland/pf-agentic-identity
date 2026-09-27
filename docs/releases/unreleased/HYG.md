@@ -93,9 +93,10 @@ Verified on 2026-09-27:
   `CONFIG SET` answered `OK` and the TLS server answered on 6380. actionlint 1.7.12 and zizmor 1.30.1 (online
   audits) are clean; the one finding zizmor suppresses that main's workflows lack is `unpinned-images` on the
   Redis service, which the Postgres service shares.
-- F-0014: `stage-modules.sh` with no argument staged eight jars under `MANIFEST/2 profile=production`, none
-  holding a simulator class; `--profile conformance` added `pf.plugins.ciba-sim.jar`; the assembler refused a
-  conformance stage for a production image and the reverse, leaving no war.
+- F-0014: `stage-modules.sh` with no argument staged eight jars (nine once S1b added `rar-model`) under
+  `MANIFEST/2 profile=production`, none holding a simulator class; `--profile conformance` added
+  `pf.plugins.ciba-sim.jar`; the assembler refused a conformance stage for a production image and the reverse,
+  leaving no war.
 - `check-showcase-links.py` resolves all 1082 references; the page's script parses (`node --check`).
 
 Residual risk:

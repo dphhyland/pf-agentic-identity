@@ -46,7 +46,7 @@ import java.lang.annotation.Target;
  *
  * <p><b>External specs.</b> One prefix and one anchor style per document, chosen once:
  * {@code ABCA-10}, {@code RFC9449}, {@code RFC9396}, {@code RFC8693}, {@code RFC7638}, {@code RFC9493},
- * {@code RFC8417}, {@code RFC8935}, {@code RFC8936}, {@code RFC7515}, {@code RFC7518},
+ * {@code RFC8417}, {@code RFC8935}, {@code RFC8936}, {@code RFC7515}, {@code RFC7518}, {@code RFC7519},
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
