@@ -4,7 +4,7 @@ area: platform
 source: design
 status: open
 plan_items: [O-4, F-2]
-prs: []
+prs: [46]
 recorded_in: libs/platform/README.md, metrics
 verify_by: >
   Once O-4 or C-3 registers the first metric in the image, boot the rig and list
