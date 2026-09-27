@@ -4,15 +4,23 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
+    <!--
+      A relocation POM, and nothing else: demo-rs moved to libs/rs-validation in 0.5.0 (plan item X-D01), with its
+      package, com.pingidentity.ps.oidf.rs, unchanged. A build that still depends on
+      com.pingidentity.ps.oidf:demo-rs:0.5.0 or later resolves com.pingidentity.ps.oidf:rs-validation at the same
+      version instead, and Maven prints a warning naming the new coordinates. `mvn deploy` publishes this pom alone -
+      packaging pom, no sources, no jar.
+
+      Versions before 0.5.0 stay published as the demo-rs jar they always were; the relocation applies to 0.5.0 on.
+    -->
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>demo-rs</artifactId>
     <version>0.5.0-SNAPSHOT</version>
-    <packaging>jar</packaging>
+    <packaging>pom</packaging>
 
-    <name>demo-rs</name>
-    <description>A resource server that proves the loop closes: it validates a DPoP-bound access token,
-        checks the sender constraint against the presenting key, and reads the RFC 8693 act chain to see
-        which agent instance is acting for which human.</description>
+    <name>demo-rs (relocated to rs-validation)</name>
+    <description>Relocated: com.pingidentity.ps.oidf:demo-rs is now com.pingidentity.ps.oidf:rs-validation
+        (libs/rs-validation), with the same package.</description>
 
     <licenses>
         <license>
@@ -22,106 +30,17 @@
         </license>
     </licenses>
 
-    <properties>
-        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <maven.compiler.release>17</maven.compiler.release>
-    </properties>
-
-    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
-         otherwise: no parent, plugin config kept local. -->
-    <dependencyManagement>
-        <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
-        </dependencies>
-    </dependencyManagement>
-
-    <dependencies>
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
-        <!-- DpopProofValidator already implements RFC 9449 here, with tests. No reason to write it twice. -->
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
-        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
-        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
-        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-    </dependencies>
-
-    <build>
-        <plugins>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
-            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
-
-            <!--
-              Coverage gate on the act-chain decisions: who the token says is acting, and what a
-              caller is allowed to authorise on. 100% line + branch, enforced - a missed branch here
-              is an actor read out of the wrong position in the chain, which is a party being granted
-              authority it already handed on, not a cosmetic gap.
-
-              Gated per METHOD, not per class, so the parts that still have honest holes stay
-              honestly out of scope rather than being papered over by a class-level average. Left out
-              deliberately, each with a measured gap: DelegatedTokenValidator.verifyAccessToken /
-              confirmationThumbprint / selectKey / scopes and ActChain.flatten - their uncovered
-              branches are the malformed-token and depth-cap paths no test drives yet. Adding them
-              here is the next piece of work, not a reason to loosen the limits.
-
-              Note on the include syntax: jacoco renders a nested class with a DOT, not a '$'
-              (ActChain.Parsed, not ActChain$Parsed). A '$' pattern matches nothing and the rule then
-              passes vacuously, which is worse than no gate. If you add an include, prove it matches
-              before trusting a green build.
-            -->
-            <plugin>
-                <groupId>org.jacoco</groupId>
-                <artifactId>jacoco-maven-plugin</artifactId>
-                <version>0.8.12</version>
-                <executions>
-                    <execution>
-                        <id>prepare-agent</id>
-                        <goals><goal>prepare-agent</goal></goals>
-                    </execution>
-                    <execution>
-                        <id>report</id>
-                        <phase>verify</phase>
-                        <goals><goal>report</goal></goals>
-                    </execution>
-                    <execution>
-                        <id>coverage-gate</id>
-                        <phase>verify</phase>
-                        <goals><goal>check</goal></goals>
-                        <configuration>
-                            <rules>
-                                <rule>
-                                    <element>METHOD</element>
-                                    <includes>
-                                        <include>com.pingidentity.ps.oidf.rs.ActChain.parse(*</include>
-                                        <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.currentActor(*</include>
-                                        <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.priorActors(*</include>
-                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.isDelegated(*</include>
-                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.actingInstance(*</include>
-                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.describe(*</include>
-                                    </includes>
-                                    <limits>
-                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
-                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
-                                    </limits>
-                                </rule>
-                            </rules>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
-        </plugins>
-    </build>
-
-    <!-- Published to the monorepo's own package registry. These used to point at the abandoned
-         standalone repos (dphhyland/oidf-jose, /client-attestation, /pf-integration) that this repo
-         absorbed - so `mvn deploy` would have pushed artifacts to three repositories that are
-         backport-only, and skipped every module that had no block at all. -->
     <distributionManagement>
         <repository>
             <id>github</id>
             <name>GitHub Packages</name>
             <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
         </repository>
+        <relocation>
+            <groupId>com.pingidentity.ps.oidf</groupId>
+            <artifactId>rs-validation</artifactId>
+            <message>demo-rs moved to libs/rs-validation in 0.5.0; the package com.pingidentity.ps.oidf.rs is unchanged, and a replay store is now required.</message>
+        </relocation>
     </distributionManagement>
 
 </project>
