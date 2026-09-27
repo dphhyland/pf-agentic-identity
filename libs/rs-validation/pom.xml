@@ -68,7 +68,7 @@
               missed branch here is a token accepted that should not be, not a cosmetic gap.
 
               Gated per METHOD, not per class, so a method outside the list is visibly outside it rather
-              than averaged in. Left out: getters, the builder's plain setters, the constructors, and
+              than averaged in. Left out: getters, the builder's plain setters, the constructors (whose argument checks are gated as named methods), and
               RedisReplayStore.firstUse (one line; RedisReplayStoreLiveTest runs it against a real Redis,
               which a local build without OIDF_TEST_REDIS_URL skips).
 
@@ -118,6 +118,7 @@
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.replayKey(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.replayWindow(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.accessTokenHash(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Presentation.requireMethodAndUri(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.build(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowLegacyStringAct(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.clockSkew(*</include>
@@ -128,9 +129,11 @@
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.describe(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.AccessTokenType.accepts(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DpopNonces.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DpopNonces.checkArguments(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.InMemoryReplayStore.firstUse(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.RemoteJwks.keys(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.RemoteJwks.refreshIfAllowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.RemoteJwks.body(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.StaticJwks.index(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.challenges(*</include>

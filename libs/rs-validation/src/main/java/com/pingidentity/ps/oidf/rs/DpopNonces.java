@@ -60,6 +60,14 @@ public final class DpopNonces {
      * @param window how long a nonce is current: at least a second
      */
     public DpopNonces(byte[] secret, Duration window, Clock clock) {
+        checkArguments(secret, window);
+        this.key = new SecretKeySpec(Arrays.copyOf(secret, secret.length), "HmacSHA256");
+        this.windowMillis = window.toMillis();
+        this.clock = Objects.requireNonNull(clock, "clock");
+    }
+
+    /** Refuses a secret shorter than {@value #MIN_SECRET_BYTES} bytes and a window shorter than a second. */
+    static void checkArguments(byte[] secret, Duration window) {
         Objects.requireNonNull(secret, "secret");
         if (secret.length < MIN_SECRET_BYTES) {
             throw new IllegalArgumentException("a DPoP nonce secret must be at least " + MIN_SECRET_BYTES
@@ -68,9 +76,6 @@ public final class DpopNonces {
         if (window.compareTo(Duration.ofSeconds(1)) < 0) {
             throw new IllegalArgumentException("a DPoP nonce window must be at least a second, not " + window);
         }
-        this.key = new SecretKeySpec(Arrays.copyOf(secret, secret.length), "HmacSHA256");
-        this.windowMillis = window.toMillis();
-        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /** The nonce for the current window. */

@@ -86,6 +86,11 @@ public final class DelegatedTokenValidator {
         public Presentation {
             Objects.requireNonNull(scheme, "scheme");
             dpopProofs = dpopProofs == null ? List.of() : List.copyOf(dpopProofs);
+            requireMethodAndUri(method, uri);
+        }
+
+        /** Refuses a missing or blank method or URI: the DPoP {@code htm} and {@code htu} checks need both. */
+        static void requireMethodAndUri(String method, String uri) {
             if (method == null || method.isBlank()) {
                 throw new IllegalArgumentException("the request method is required, for the DPoP htm check");
             }
@@ -124,7 +129,7 @@ public final class DelegatedTokenValidator {
         this.nonces = b.nonces;
         this.acceptDpop = b.acceptDpop;
         this.acceptMtls = b.acceptMtls;
-        this.allowLegacyStringAct = b.allowLegacyStringAct;
+        this.allowLegacyStringAct = b.legacyStringActProfile != null;
     }
 
     /** A builder for a validator that expects tokens from {@code expectedIssuer} for {@code expectedAudience}. */
@@ -348,6 +353,39 @@ public final class DelegatedTokenValidator {
 
     // ---- the DPoP proof -----------------------------------------------------------------------------------------
 
+    /**
+     * RFC 9449 §4.3: "To validate a DPoP proof, the receiving server MUST ensure the following:", item by item, and
+     * where each is checked.
+     *
+     * <ol>
+     *   <li>"There is not more than one DPoP HTTP request header field." - here.</li>
+     *   <li>"The DPoP HTTP request header field value is a single and well-formed JWT." - {@code DpopProofValidator},
+     *       which parses it as one compact JWS.</li>
+     *   <li>"All required claims per Section 4.2 are contained in the JWT." - {@code DpopProofValidator} requires
+     *       {@code jti}, {@code htm}, {@code htu} and {@code iat}; {@code ath}, required with an access token, here.</li>
+     *   <li>"The typ JOSE Header Parameter has the value dpop+jwt." - {@code DpopProofValidator}.</li>
+     *   <li>"The alg JOSE Header Parameter indicates a registered asymmetric digital signature algorithm
+     *       [IANA.JOSE.ALGS], is not none, is supported by the application, and is acceptable per local policy." -
+     *       {@code DpopProofValidator}, against {@link Builder#proofAlgorithms}, which admits ES, RS and PS
+     *       algorithms only.</li>
+     *   <li>"The JWT signature verifies with the public key contained in the jwk JOSE Header Parameter." -
+     *       {@code DpopProofValidator}.</li>
+     *   <li>"The jwk JOSE Header Parameter does not contain a private key." - {@code DpopProofValidator}, through
+     *       {@code Jwks.assertPublicOnly}.</li>
+     *   <li>"The htm claim matches the HTTP method of the current request." - {@code DpopProofValidator}, given
+     *       {@link Presentation#method()}.</li>
+     *   <li>"The htu claim matches the HTTP URI value for the HTTP request in which the JWT was received, ignoring any
+     *       query and fragment parts." - {@code DpopProofValidator}, given {@link Presentation#uri()}.</li>
+     *   <li>"If the server provided a nonce value to the client, the nonce claim matches the server-provided nonce
+     *       value." - {@link #checkNonce}.</li>
+     *   <li>"The creation time of the JWT, as determined by either the iat claim or a server managed timestamp via the
+     *       nonce claim, is within an acceptable window (see Section 11.1)." - {@code DpopProofValidator}, with
+     *       {@link Builder#proofMaxAge} and {@link Builder#clockSkew}.</li>
+     *   <li>"If presented to a protected resource in conjunction with an access token, ensure that the value of the
+     *       ath claim equals the hash of that access token, and confirm that the public key to which the access token
+     *       is bound matches the public key from the DPoP proof." - here.</li>
+     * </ol>
+     */
     private DpopProof checkProof(Presentation p, String jkt) throws RsException {
         if (p.dpopProofs().isEmpty()) {
             // A missing proof is not "fall back to bearer": on this path there is no bearer mode.
@@ -508,7 +546,7 @@ public final class DelegatedTokenValidator {
         private DpopNonces nonces;
         private boolean acceptDpop = true;
         private boolean acceptMtls;
-        private boolean allowLegacyStringAct;
+        private DeploymentProfile legacyStringActProfile;
 
         private Builder(String expectedIssuer, String expectedAudience) {
             this.expectedIssuer = Objects.requireNonNull(expectedIssuer, "expectedIssuer");
@@ -589,23 +627,27 @@ public final class DelegatedTokenValidator {
 
         /**
          * Accepts the legacy string form of {@code act} - a JSON object serialised into a string - which RFC 8693
-         * §4.1 does not allow and this platform's PingFederate mapping once emitted. Development only: refused under
-         * the production profile, so a deployment cannot carry the deviation into production by accident.
+         * §4.1 does not allow and this platform's PingFederate mapping once emitted. Development only: the profile is
+         * this process's own ({@link DeploymentProfile#current()}, where an unset or unknown value counts as
+         * production), not one the caller names, so a deployment cannot carry the deviation into production by
+         * accident.
          *
-         * @param profile the deployment profile, normally {@link DeploymentProfile#current()}
-         * @throws IllegalStateException under the production profile
+         * <p>{@link #build()} throws {@link IllegalStateException} unless this process runs under the development
+         * profile.
          */
-        public Builder allowLegacyStringAct(DeploymentProfile profile) {
-            if (Objects.requireNonNull(profile, "profile").isProduction()) {
-                throw new IllegalStateException("the legacy string form of act is accepted only under "
-                        + DeploymentProfile.SETTING + "=development; production requires the RFC 8693 JSON object");
-            }
-            this.allowLegacyStringAct = true;
+        public Builder allowLegacyStringAct() {
+            return this.allowLegacyStringAct(DeploymentProfile.current());
+        }
+
+        /** {@link #allowLegacyStringAct()} under a given profile; for the tests. */
+        Builder allowLegacyStringAct(DeploymentProfile profile) {
+            this.legacyStringActProfile = Objects.requireNonNull(profile, "profile");
             return this;
         }
 
         /**
-         * @throws IllegalStateException without keys or a replay store, or with neither scheme accepted
+         * @throws IllegalStateException without keys or a replay store, with neither scheme accepted, or with
+         *                               {@link #allowLegacyStringAct()} outside the development profile
          */
         public DelegatedTokenValidator build() {
             if (this.keys == null) {
@@ -617,6 +659,10 @@ public final class DelegatedTokenValidator {
             }
             if (!this.acceptDpop && !this.acceptMtls) {
                 throw new IllegalStateException("accept DPoP, mTLS-bound tokens, or both");
+            }
+            if (this.legacyStringActProfile != null && !this.legacyStringActProfile.isDevelopment()) {
+                throw new IllegalStateException("the legacy string form of act is accepted only under "
+                        + DeploymentProfile.SETTING + "=development; production requires the RFC 8693 JSON object");
             }
             return new DelegatedTokenValidator(this);
         }

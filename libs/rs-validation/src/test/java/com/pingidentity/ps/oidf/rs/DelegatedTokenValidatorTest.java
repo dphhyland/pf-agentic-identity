@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.rs;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -91,11 +92,15 @@ class DelegatedTokenValidatorTest {
     // ---- sender constraining ---------------------------------------------------------------------
 
     /**
-     * The whole point of DPoP. Validating a well-formed proof without comparing its key to the token's
-     * {@code cnf.jkt} accepts a proof from anyone.
+     * The whole point of DPoP. Validating a well-formed proof without comparing its key to the token's {@code cnf.jkt}
+     * accepts a proof from anyone.
+     *
+     * <p>RFC 9449 §7.1: "For such an access token, a resource server MUST check that a DPoP proof was also received in
+     * the DPoP header field of the HTTP request, check the DPoP proof according to the rules in Section 4.3, and check
+     * that the public key of the DPoP proof matches the public key to which the access token is bound per Section 6."
      */
     @Test
-    @Requirement("RFC9449 §6.1")
+    @Requirement({"RFC9449 §6.1", "RFC9449 §7.1"})
     void aProofFromADifferentKeyIsRejected() throws Exception {
         PublicJsonWebKey attackerKey = EcJwkGenerator.generateJwk(EllipticCurves.P256);
         attackerKey.setKeyId("attacker");
@@ -109,7 +114,13 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("bound to a different key"), e.getMessage());
     }
 
-    /** RFC 9449 §4.3: without ath, a proof captured for one token replays against another. */
+    /**
+     * Without ath, a proof captured for one token replays against another.
+     *
+     * <p>RFC 9449 §4.3, item 12: "If presented to a protected resource in conjunction with an access token, ensure that
+     * the value of the ath claim equals the hash of that access token, and confirm that the public key to which the
+     * access token is bound matches the public key from the DPoP proof."
+     */
     @Test
     @Requirement("RFC9449 §4.3")
     void aProofCapturedForAnotherTokenIsRejected() throws Exception {
@@ -123,6 +134,11 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("different access token"), e.getMessage());
     }
 
+    /**
+     * RFC 9449 §4.3, item 12: "If presented to a protected resource in conjunction with an access token, ensure that
+     * the value of the ath claim equals the hash of that access token, and confirm that the public key to which the
+     * access token is bound matches the public key from the DPoP proof."
+     */
     @Test
     @Requirement("RFC9449 §4.3")
     void aProofWithoutAthIsRejected() throws Exception {
@@ -134,6 +150,10 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("no 'ath'"), e.getMessage());
     }
 
+    /**
+     * Local policy: this resource has no bearer mode, so a token without cnf is refused even when a proof comes with
+     * it.
+     */
     @Test
     void aTokenWithNoCnfIsRefusedRatherThanTreatedAsBearer() throws Exception {
         String bearerish = accessTokenWithoutCnf();
@@ -144,7 +164,13 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("not sender-constrained"), e.getMessage());
     }
 
+    /**
+     * RFC 9449 §7.1: "For such an access token, a resource server MUST check that a DPoP proof was also received in the
+     * DPoP header field of the HTTP request, check the DPoP proof according to the rules in Section 4.3, and check that
+     * the public key of the DPoP proof matches the public key to which the access token is bound per Section 6."
+     */
     @Test
+    @Requirement("RFC9449 §7.1")
     void aMissingProofIsNotAFallbackToBearer() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE));
         DelegatedTokenValidator.RsException e = assertThrows(DelegatedTokenValidator.RsException.class,
@@ -152,6 +178,11 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("only sender-constrained"), e.getMessage());
     }
 
+    /**
+     * RFC 9449 §4.3, items 8 and 9: "The htm claim matches the HTTP method of the current request." "The htu claim
+     * matches the HTTP URI value for the HTTP request in which the JWT was received, ignoring any query and fragment
+     * parts."
+     */
     @Test
     @Requirement("RFC9449 §4.3")
     void aProofForAnotherMethodOrUrlIsRejected() throws Exception {
@@ -166,6 +197,10 @@ class DelegatedTokenValidatorTest {
 
     // ---- the token itself --------------------------------------------------------------------------
 
+    /**
+     * RFC 9068 §4: "The issuer identifier for the authorization server (which is typically obtained during discovery)
+     * MUST exactly match the value of the "iss" claim."
+     */
     @Test
     @Requirement("RFC8725 §3.8")
     void aTokenFromAnotherIssuerIsRejected() throws Exception {
@@ -175,8 +210,12 @@ class DelegatedTokenValidatorTest {
                 token, dpopProof(enclaveKey, token, "GET", RESOURCE_URL), "GET", RESOURCE_URL));
     }
 
+    /**
+     * RFC 7519 §4.1.3: "If the principal processing the claim does not identify itself with a value in the "aud" claim
+     * when this claim is present, then the JWT MUST be rejected."
+     */
     @Test
-    @Requirement("RFC8725 §3.9")
+    @Requirement({"RFC8725 §3.9", "RFC7519 §4.1.3"})
     void aTokenForAnotherResourceIsRejected() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE), ISSUER,
                 "https://other-rs.example.com", 300);
@@ -184,14 +223,26 @@ class DelegatedTokenValidatorTest {
                 token, dpopProof(enclaveKey, token, "GET", RESOURCE_URL), "GET", RESOURCE_URL));
     }
 
+    /**
+     * RFC 7519 §4.1.4: "The "exp" (expiration time) claim identifies the expiration time on or after which the JWT MUST
+     * NOT be accepted for processing."
+     */
     @Test
+    @Requirement("RFC7519 §4.1.4")
     void anExpiredTokenIsRejected() throws Exception {
         String token = accessToken(enclaveKey, Map.of("sub", INSTANCE), ISSUER, AUDIENCE, -3600);
         assertThrows(DelegatedTokenValidator.RsException.class, () -> validator.validate(
                 token, dpopProof(enclaveKey, token, "GET", RESOURCE_URL), "GET", RESOURCE_URL));
     }
 
+    /**
+     * RFC 9068 §4: "The resource server MUST validate the signature of all incoming JWT access tokens according to
+     * [RFC7515] using the algorithm specified in the JWT "alg" Header Parameter."
+     *
+     * <p>RFC 7515 §5.2: "If any of the listed steps fails, then the signature or MAC cannot be validated."
+     */
     @Test
+    @Requirement("RFC7515 §5.2")
     void aTokenSignedByAnotherKeyIsRejected() throws Exception {
         PublicJsonWebKey rogue = EcJwkGenerator.generateJwk(EllipticCurves.P256);
         rogue.setKeyId("pf-1");   // same kid, different key
@@ -237,6 +288,12 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("not permitted"), e.getMessage());
     }
 
+    /**
+     * RFC 9068 §4: "The resource server MUST use the keys provided by the authorization server."
+     *
+     * <p>A kid the server does not publish names none of those keys; refusing it rather than trying every key is local
+     * policy.
+     */
     @Test
     void aTokenWithAnUnrecognisedKidIsRejected() throws Exception {
         PublicJsonWebKey unknown = EcJwkGenerator.generateJwk(EllipticCurves.P256);
@@ -250,6 +307,9 @@ class DelegatedTokenValidatorTest {
         assertTrue(e.getMessage().contains("no authorisation server key matches"), e.getMessage());
     }
 
+    /**
+     * RFC 9068 §4: "The resource server MUST reject any JWT in which the value of "alg" is "none"."
+     */
     @Test
     @Requirement("RFC8725 §3.1")
     void aTokenWithTheNoneAlgorithmIsRejected() throws Exception {
@@ -325,8 +385,24 @@ class DelegatedTokenValidatorTest {
     void theLegacyStringActCannotBeSwitchedOnInProduction() {
         IllegalStateException e = assertThrows(IllegalStateException.class,
                 () -> DelegatedTokenValidator.builder(ISSUER, AUDIENCE)
-                        .allowLegacyStringAct(DeploymentProfile.PRODUCTION));
+                        .keys(List.of(JsonWebKey.Factory.newJwk(asKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY))))
+                        .replayStore(new InMemoryReplayStore())
+                        .allowLegacyStringAct(DeploymentProfile.PRODUCTION).build());
         assertTrue(e.getMessage().contains("development"), e.getMessage());
+    }
+
+    /** The public switch reads this process's profile itself: unset, as in CI, is production, and build() throws. */
+    @Test
+    void thePublicSwitchReadsTheProcessProfile() throws Exception {
+        DelegatedTokenValidator.Builder b = DelegatedTokenValidator.builder(ISSUER, AUDIENCE)
+                .keys(List.of(JsonWebKey.Factory.newJwk(asKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY))))
+                .replayStore(new InMemoryReplayStore());
+        assertSame(b, b.allowLegacyStringAct());
+        if (DeploymentProfile.current().isDevelopment()) {
+            b.build();
+        } else {
+            assertThrows(IllegalStateException.class, b::build);
+        }
     }
 
     @Test

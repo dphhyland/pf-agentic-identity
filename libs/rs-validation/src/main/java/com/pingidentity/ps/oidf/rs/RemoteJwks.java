@@ -24,11 +24,14 @@ import org.jose4j.jwk.PublicJsonWebKey;
  *   <li><b>Unknown kid.</b> A {@code kid} the cache does not hold fetches the JWKS again, so a key the server has
  *       just rotated in is found - but at most once per {@code minRefreshInterval}, so a stream of tokens naming
  *       made-up keys costs the authorisation server one request per interval, not one per token.</li>
- *   <li><b>Age.</b> The cache is fetched again once it is {@code maxAge} old, at the same bounded rate, so a key
- *       the server has withdrawn stops verifying within {@code maxAge}.</li>
- *   <li><b>Failure.</b> A failed fetch keeps the keys already held (a key found there still verifies). A
- *       {@code kid} that is not held, when the last fetch failed or none has ever succeeded, is an
- *       {@link IOException}: the answer is not known, and the request is refused as unavailable rather than as
+ *   <li><b>Age.</b> The cache is fetched again once it is {@code maxAge} old, at the same bounded rate. A key the
+ *       server has withdrawn stops verifying at the first successful fetch after that - within {@code maxAge}
+ *       while the {@code jwks_uri} answers.</li>
+ *   <li><b>Failure.</b> A failed fetch keeps the keys already held (a key found there still verifies), but only
+ *       until they are twice {@code maxAge} old: past that, while fetches keep failing, every lookup is an
+ *       {@link IOException}, so whoever can make the fetch fail cannot keep a withdrawn key verifying for longer.
+ *       A {@code kid} that is not held, when the last fetch failed or none has ever succeeded, is an
+ *       {@link IOException} too: the answer is not known, and the request is refused as unavailable rather than as
  *       an invalid token.</li>
  * </ul>
  *
@@ -79,13 +82,15 @@ public final class RemoteJwks implements JwksSource {
 
     private static Fetch fetcher(OutboundHttp http, String jwksUri, Duration fetchTimeout) {
         Objects.requireNonNull(fetchTimeout, "fetchTimeout");
-        return () -> {
-            OutboundResponse response = http.get(jwksUri, "application/json", Deadline.after(fetchTimeout));
-            if (response.status() != 200) {
-                throw new IOException("the JWKS answered " + response.status());
-            }
-            return response.bodyText();
-        };
+        return () -> body(http.get(jwksUri, "application/json", Deadline.after(fetchTimeout)));
+    }
+
+    /** The JWKS document a response carries: only a 200 carries one. */
+    static String body(OutboundResponse response) throws IOException {
+        if (response.status() != 200) {
+            throw new IOException("the JWKS answered " + response.status());
+        }
+        return response.bodyText();
     }
 
     @Override
@@ -98,6 +103,10 @@ public final class RemoteJwks implements JwksSource {
         if (found.isEmpty()) {
             this.refreshIfAllowed(now);
             found = this.held(kid);
+        }
+        if (this.keys != null && this.lastFailed && now - this.fetchedAt >= 2 * this.maxAgeMillis) {
+            throw new IOException("the authorisation server's JWKS at " + this.uri + " has not been read for twice"
+                    + " its maximum age, so the keys held are no longer used: " + this.lastError);
         }
         if (found.isEmpty() && (this.keys == null || this.lastFailed)) {
             throw new IOException("the authorisation server's JWKS at " + this.uri

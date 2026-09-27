@@ -80,7 +80,10 @@ class AccessTokenRefusalTest {
 
     // ---- kid and keys --------------------------------------------------------------------------------------------
 
-    /** The kid is matched exactly: no kid is no key, and there is no falling back to trying every key. */
+    /**
+     * Local policy, not an RFC requirement: RFC 7515 §4.1.4 says of "kid": "Use of this Header Parameter is OPTIONAL."
+     * This validator matches it exactly - no kid names no key, and there is no falling back to trying every key.
+     */
     @Test
     void aTokenWithoutKidIsRefused() throws Exception {
         DelegatedTokenValidator.RsException e = this.refused(
@@ -89,7 +92,15 @@ class AccessTokenRefusalTest {
         assertTrue(e.getMessage().contains("carries no kid"), e.getMessage());
     }
 
+    /**
+     * An empty kid is refused as local policy, as a missing one is (RFC 7515 §4.1.4 makes "kid" optional; this
+     * validator requires it). A missing alg:
+     *
+     * <p>RFC 7515 §4.1.1, of "alg": "This Header Parameter MUST be present and MUST be understood and processed by
+     * implementations."
+     */
     @Test
+    @Requirement("RFC7515 §4.1.1")
     void anEmptyKidOrAMissingAlgIsRefused() throws Exception {
         assertTrue(this.refused(this.f.token(this.f.claims(), j -> j.setKeyIdHeaderValue(""))).getMessage()
                 .contains("carries no kid"));
@@ -99,8 +110,15 @@ class AccessTokenRefusalTest {
         assertTrue(this.refused(noAlg).getMessage().contains("algorithm null is not permitted"));
     }
 
-    /** A key of the right type on the wrong curve: jose4j refuses to verify with it, and that is a refusal too. */
+    /**
+     * A key of the right type on the wrong curve: jose4j refuses to verify with it, and that is a refusal too.
+     *
+     * <p>RFC 7515 §4.1.1: "The JWS Signature value is not valid if the "alg" value does not represent a supported
+     * algorithm or if there is not a key for use with that algorithm associated with the party that digitally signed or
+     * MACed the content."
+     */
     @Test
+    @Requirement("RFC7515 §4.1.1")
     void aKeyThatCannotVerifyTheAlgorithmIsRefused() throws Exception {
         PublicJsonWebKey p384 = EcJwkGenerator.generateJwk(EllipticCurves.P384);
         p384.setKeyId("pf-1");
@@ -109,13 +127,26 @@ class AccessTokenRefusalTest {
         assertTrue(this.refused(v, this.f.token()).getMessage().contains("could not be verified"));
     }
 
+    /**
+     * RFC 7519 §4.1.3: "Each principal intended to process the JWT MUST identify itself with a value in the audience
+     * claim."
+     *
+     * <p>RFC 9068 §4: "The resource server MUST validate that the "aud" claim contains a resource indicator value
+     * corresponding to an identifier the resource server expects for itself. The JWT access token MUST be rejected if
+     * "aud" does not contain a resource indicator of the current resource server as a valid audience."
+     */
     @Test
+    @Requirement("RFC7519 §4.1.3")
     void aTokenWithoutAudienceIsRefused() throws Exception {
         JwtClaims claims = this.f.claims();
         claims.unsetClaim("aud");
         assertTrue(this.refused(this.f.token(claims)).getMessage().contains("audience"));
     }
 
+    /**
+     * Local policy, not an RFC requirement: a kid that names two published keys names no one key, so the token is
+     * refused rather than tried against both.
+     */
     @Test
     void aKidTwoPublishedKeysShareIsRefused() throws Exception {
         PublicJsonWebKey twin = EcJwkGenerator.generateJwk(EllipticCurves.P256);
@@ -126,7 +157,13 @@ class AccessTokenRefusalTest {
         assertTrue(this.refused(v, this.f.token()).getMessage().contains("more than one"));
     }
 
+    /**
+     * RFC 7515 §4.1.1: "The JWS Signature value is not valid if the "alg" value does not represent a supported
+     * algorithm or if there is not a key for use with that algorithm associated with the party that digitally signed or
+     * MACed the content."
+     */
     @Test
+    @Requirement("RFC7515 §4.1.1")
     void aKeyThatIsNotForTheTokensAlgorithmIsRefused() throws Exception {
         PublicJsonWebKey rsa = RsaJwkGenerator.generateJwk(2048);
         rsa.setKeyId("pf-1");
@@ -156,6 +193,10 @@ class AccessTokenRefusalTest {
         assertEquals(Fixture.HUMAN, v.validate(Fixture.dpop(token, List.of(this.f.proof(token)))).subject());
     }
 
+    /**
+     * Local policy: when the keys cannot be read the answer is not known, so the refusal is a 503 without an RFC 6750
+     * error, not an invalid_token.
+     */
     @Test
     void keysThatCannotBeReadAreA503() throws Exception {
         DelegatedTokenValidator v = DelegatedTokenValidator.builder(Fixture.ISSUER, Fixture.AUDIENCE)
@@ -167,7 +208,17 @@ class AccessTokenRefusalTest {
         assertNull(e.error());
     }
 
+    /**
+     * RFC 9068 §4: "The resource server MUST validate the signature of all incoming JWT access tokens according to
+     * [RFC7515] using the algorithm specified in the JWT "alg" Header Parameter."
+     *
+     * <p>RFC 7515 §5.2: "If any of the listed steps fails, then the signature or MAC cannot be validated."
+     *
+     * <p>RFC 7519 §7.2: "If any of the listed steps fail, then the JWT MUST be rejected -- that is, treated by the
+     * application as an invalid input."
+     */
     @Test
+    @Requirement({"RFC7515 §5.2", "RFC7519 §7.2"})
     void aSignatureThatCannotBeCheckedIsRefused() throws Exception {
         String token = this.f.token();
         String broken = token.substring(0, token.lastIndexOf('.') + 1) + "AAAA";
@@ -175,7 +226,13 @@ class AccessTokenRefusalTest {
         assertEquals("invalid_token", this.refused("not.a.jws").error());
     }
 
+    /**
+     * RFC 7519 §7.2, step 10: "Verify that the resulting octet sequence is a UTF-8-encoded representation of a
+     * completely valid JSON object conforming to RFC 7159 [RFC7159]; let the JWT Claims Set be this JSON object." And:
+     * "If any of the listed steps fail, then the JWT MUST be rejected".
+     */
     @Test
+    @Requirement("RFC7519 §7.2")
     void aPayloadThatIsNotClaimsIsRefused() throws Exception {
         org.jose4j.jws.JsonWebSignature jws = new org.jose4j.jws.JsonWebSignature();
         jws.setPayload("[1,2,3]");
@@ -188,7 +245,13 @@ class AccessTokenRefusalTest {
 
     // ---- time --------------------------------------------------------------------------------------------------
 
+    /**
+     * RFC 7519 §4.1.5: "The "nbf" (not before) claim identifies the time before which the JWT MUST NOT be accepted for
+     * processing." Inside the clock skew it passes: "Implementers MAY provide for some small leeway, usually no more
+     * than a few minutes, to account for clock skew."
+     */
     @Test
+    @Requirement("RFC7519 §4.1.5")
     void aTokenNotValidYetIsRefused() throws Exception {
         JwtClaims claims = this.f.claims();
         claims.setNotBefore(NumericDate.fromSeconds(NumericDate.now().getValue() + 600));
@@ -198,7 +261,13 @@ class AccessTokenRefusalTest {
         assertEquals(Fixture.HUMAN, this.validator.validate(Fixture.dpop(token, List.of(this.f.proof(token)))).subject());
     }
 
+    /**
+     * RFC 9068 §4: "The current time MUST be before the time represented by the "exp" claim."
+     *
+     * <p>RFC 7519 §4.1.4: "Its value MUST be a number containing a NumericDate value."
+     */
     @Test
+    @Requirement("RFC7519 §4.1.4")
     void aTokenWithoutExpOrWithMalformedTimesIsRefused() throws Exception {
         JwtClaims noExp = this.f.claims();
         noExp.unsetClaim("exp");
@@ -221,6 +290,13 @@ class AccessTokenRefusalTest {
         assertTrue(this.refused(this.f.token(claims)).getMessage().contains("not an RFC 8693 actor chain"));
     }
 
+    /**
+     * RFC 8693 §4.1: "The "act" claim value is a JSON object, and members in the JSON object are claims that identify
+     * the actor."
+     *
+     * <p>The depth cap itself is local policy: RFC 8693 sets no limit, and ActChain.MAX_CHAIN_DEPTH bounds the work a
+     * hostile token can cause.
+     */
     @Test
     @Requirement("RFC8693 §4.1")
     void aChainDeeperThanTheCapIsRefused() throws Exception {
@@ -235,7 +311,16 @@ class AccessTokenRefusalTest {
 
     // ---- cnf -----------------------------------------------------------------------------------------------------
 
+    /**
+     * RFC 9449 §6.1: "The value of the jkt member MUST be the base64url encoding (as defined in [RFC7515]) of the JWK
+     * SHA-256 Thumbprint (according to [RFC7638]) of the DPoP public key (in JWK format) to which the access token is
+     * bound."
+     *
+     * <p>A cnf that is not an object, or names neither jkt nor x5t#S256, is refused as local policy: this resource has
+     * no bearer mode, so a token it cannot tie to a sender is not accepted.
+     */
     @Test
+    @Requirement("RFC9449 §6.1")
     void aCnfWithNeitherMethodOrABadMemberIsRefused() throws Exception {
         JwtClaims claims = this.f.claims();
         claims.setClaim("cnf", Map.of("jwk", Map.of()));
@@ -326,6 +411,10 @@ class AccessTokenRefusalTest {
         assertEquals(Fixture.HUMAN, result.subject());
     }
 
+    /**
+     * Local policy: this resource has no bearer mode, so under the Bearer scheme only a certificate-bound token (RFC
+     * 8705 §3) is accepted, and a cnf with no member it checks is refused.
+     */
     @Test
     void anUnboundTokenAsBearerIsRefused() throws Exception {
         DelegatedTokenValidator v = this.f.builder(new InMemoryReplayStore()).mtls(true).dpop(false).build();
@@ -341,7 +430,13 @@ class AccessTokenRefusalTest {
         assertThrows(DelegatedTokenValidator.RsException.class, () -> v.validate(bearer(this.f.token(otherMember), null)));
     }
 
+    /**
+     * RFC 6750 §3.1: "If the request lacks any authentication information (e.g., the client was unaware that
+     * authentication is necessary or attempted using an unsupported authentication method), the resource server SHOULD
+     * NOT include an error code or other error information."
+     */
     @Test
+    @Requirement("RFC6750 §3.1")
     void aSchemeTheResourceDoesNotTakeCarriesNoError() throws Exception {
         DelegatedTokenValidator.RsException bearer = assertThrows(DelegatedTokenValidator.RsException.class,
                 () -> this.validator.validate(bearer(this.f.token(), null)));
@@ -352,7 +447,16 @@ class AccessTokenRefusalTest {
         assertTrue(mtlsOnly.acceptsMtls() && !mtlsOnly.acceptsDpop());
     }
 
+    /**
+     * RFC 6750 §3.1, invalid_token: "The access token provided is expired, revoked, malformed, or invalid for other
+     * reasons. The resource SHOULD respond with the HTTP 401 (Unauthorized) status code."
+     *
+     * <p>The filter answers a request with no Authorization header before it gets here, without an error
+     * (ResourceServerFilterTest.noCredentialsIsAChallengeWithoutAnError); a blank token that reaches the validator is
+     * malformed.
+     */
     @Test
+    @Requirement("RFC6750 §3.1")
     void noTokenIsInvalidToken() throws Exception {
         assertEquals("invalid_token", assertThrows(DelegatedTokenValidator.RsException.class,
                 () -> this.validator.validate(null, "proof", "GET", Fixture.URL)).error());

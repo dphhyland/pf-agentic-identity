@@ -83,7 +83,7 @@ only establishes who is asking and who is acting.
 | `proofMaxAge(Duration)` | 300 s | how long after `iat` a proof is accepted; 1 s to 1 hour |
 | `nonces(DpopNonces)` | off | require resource-server nonces (RFC 9449 §9) |
 | `dpop(boolean)` / `mtls(boolean)` | on / off | which schemes are accepted; at least one |
-| `allowLegacyStringAct(DeploymentProfile)` | off | accept `act` as a string holding JSON; throws under the production profile |
+| `allowLegacyStringAct()` | off | accept `act` as a string holding JSON; reads this process's profile, and `build()` throws unless it is development |
 
 The library reads no environment variable or system property of its own: the embedding application builds it from
 its own configuration, and `RedisConfig.current()` (the platform's catalogued `OIDF_REDIS_*` settings) is one way to
@@ -106,8 +106,10 @@ check - until `iat` + max age + skew, plus a second for `iat`'s rounding.
 
 - `RemoteJwks` fetches the `jwks_uri` through `platform.http` - pinned to checked addresses, a 5 s deadline, a
   capped body - and caches the keys by `kid`. An unknown `kid` fetches again, at most once every 30 s; the whole
-  set is fetched again once it is 10 minutes old, so a withdrawn key stops verifying. A failed fetch keeps the keys
-  it has; a `kid` it does not have, when the last fetch failed, is a 503, not a 401.
+  set is fetched again once it is 10 minutes old, so a withdrawn key stops verifying at the next fetch that
+  succeeds. A failed fetch keeps the keys it has, but not once they are 20 minutes (twice the maximum age) old:
+  past that, while fetches keep failing, every token is a 503. A `kid` it does not have, when the last fetch
+  failed, is a 503, not a 401.
 - `StaticJwks` holds a fixed set. Both keep only public signing keys with a `kid`, and refuse a key with private
   parameters.
 
@@ -154,8 +156,10 @@ mvn -pl libs/rs-validation -am verify
 ```
 
 Versions come from the repo BOM; depends on `oidf-jose`, `client-attestation` (for `DpopProofValidator`),
-`platform` (redis, http, profile), jose4j and Jackson; `jakarta.servlet-api` is provided. Every refusal test carries
-the RFC sentence it enforces, and the jacoco gate holds the decision methods at 100% line and branch.
+`platform` (redis, http, profile), jose4j and Jackson; `jakarta.servlet-api` is provided. Every refusal test an RFC
+requires quotes the sentence it enforces, with its `@Requirement` id where the RFC has a declared prefix (RFC 8705
+and RFC 9068 have none yet, F-0227); the refusals that are this library's own policy - the exact `kid`, a shared
+`kid`, the `act` depth cap, no bearer mode, the 503s - say so in their javadoc. The jacoco gate holds the decision methods at 100% line and branch.
 `RedisReplayStoreLiveTest` runs against a real Redis when `OIDF_TEST_REDIS_URL` names one, as CI's java job does.
 
 ## Caveats

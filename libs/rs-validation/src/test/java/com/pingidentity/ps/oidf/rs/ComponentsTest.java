@@ -205,6 +205,17 @@ class ComponentsTest {
         clock.now = clock.now.plusSeconds(600);
         assertEquals(1, remote.keys("one").size(), "a failed refresh keeps the keys already held");
         assertThrows(IOException.class, () -> remote.keys("two"), "after a failed refresh an unknown kid is not known");
+
+        clock.now = clock.now.plusSeconds(599);
+        assertEquals(1, remote.keys("one").size(), "held keys are used until they are twice the maximum age old");
+        clock.now = clock.now.plusSeconds(1);
+        IOException stale = assertThrows(IOException.class, () -> remote.keys("one"),
+                "past twice the maximum age a failing fetch cannot keep a withdrawn key verifying");
+        assertTrue(stale.getMessage().contains("twice"), stale.getMessage());
+
+        document.set(jwks(one));
+        clock.now = clock.now.plusSeconds(30);
+        assertEquals(1, remote.keys("one").size(), "a successful fetch trusts the keys again");
     }
 
     /** The real transport: platform.http against a local server, the deadline and the status checked. */

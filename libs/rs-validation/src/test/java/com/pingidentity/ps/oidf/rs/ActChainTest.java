@@ -85,14 +85,24 @@ class ActChainTest {
         assertEquals(INSTANCE, parsed.currentActor().orElseThrow().subject());
     }
 
+    /**
+     * RFC 8693 §4.1: "The "act" claim value is a JSON object, and members in the JSON object are claims that identify
+     * the actor."
+     */
     @Test
+    @Requirement("RFC8693 §4.1")
     void aLegacyStringThatIsNotJsonIsMalformedRatherThanIgnored() {
         ActChain.Parsed parsed = ActChain.parse(Map.of("act", "not json at all"));
         assertTrue(parsed.malformed());
         assertTrue(parsed.isEmpty());
     }
 
+    /**
+     * RFC 8693 §4.1: "The "act" claim value is a JSON object, and members in the JSON object are claims that identify
+     * the actor."
+     */
     @Test
+    @Requirement("RFC8693 §4.1")
     void aStringHoldingAJsonScalarIsMalformed() {
         assertTrue(ActChain.parse(Map.of("act", "\"just-a-string\"")).malformed());
     }
