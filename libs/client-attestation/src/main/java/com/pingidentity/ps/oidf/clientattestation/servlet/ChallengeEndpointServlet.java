@@ -40,7 +40,8 @@ import org.jose4j.json.JsonUtil;
  * {@code temporarily_unavailable} when the store could not record the challenge. Every other method, HEAD and
  * OPTIONS included, answers 405 with an {@code Allow} header naming the one method, and issues nothing: a HEAD
  * would write a challenge its response cannot carry, and a client calling one surface's endpoint with the other's
- * method most likely has the wrong endpoint.
+ * method most likely has the wrong endpoint. (PingFederate 13.1.3 answers every OPTIONS 403 itself, so there an
+ * OPTIONS never reaches this servlet; seen on the rig, 2026-09-27.)
  *
  * <p>Init-params, each read by the endpoint for its own namespace: {@code challengeCacheMaxEntries} and
  * {@code challengeTtlSeconds} (the size and lifetime of its challenges; with Redis only the lifetime applies), and

@@ -12,8 +12,7 @@
     <name>oidf-war</name>
     <description>Assembles the deployable oidf.war = the aggregate of the OIDF servlet modules
         (pf-integration: federation entity + §12 registration + OGNL hooks; attestation-issuer: the
-        /federation/attestation issuance servlet + its challenge servlet; client-attestation: the
-        authorization server's challenge servlet), with their libraries bundled into
+        /federation/attestation issuance and challenge servlets; client-attestation: the AS's), with their libraries bundled into
         WEB-INF/lib. web.xml is metadata-complete=false so PingFederate scans the jars for @WebServlet
         endpoints. This is where the war lives so it can depend on every servlet module without a reactor
         cycle (attestation-issuer depends on pf-integration).</description>

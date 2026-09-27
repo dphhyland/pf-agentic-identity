@@ -1,0 +1,23 @@
+id: F-0115
+title: PingFederate's own discovery documents name no challenge endpoint and no attestation client authentication
+severity: low
+area: openid-federation, pf-integration
+source: pr-review
+status: open
+plan_items: [S-4]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found on 2026-09-27 in S4b. ABCA-10 section 6.1 (read at ietf.org that day; draft -11 says the same): an
+  authorization server that offers a challenge endpoint and supports RFC 8414 metadata "MUST signal support for
+  the challenge endpoint" with challenge_endpoint in that metadata. On a booted PingFederate 13.1.3 (the S4b
+  rig, 2026-09-27) /.well-known/openid-configuration and /.well-known/oauth-authorization-server carry no
+  challenge_endpoint, and their token_endpoint_auth_methods_supported lists neither attest_jwt_client_auth nor
+  attest_jwt_client_auth_dpop (section 8's SHOULD). The only document that names the endpoint and the methods is
+  the Entity Configuration's openid_provider block; its oauth_authorization_server block is PingFederate's own
+  document (FederationService.java:332) and carries neither. So a client that discovers the authorization server
+  from its RFC 8414 or OpenID Connect discovery document, rather than through the federation, does not learn that
+  attestation or the challenge exist. Low: conformance and discovery, not a control. The fix is to publish the
+  attestation members wherever this authorization server's metadata is served - both federation blocks, and PF's
+  own two documents through a filter or a documented alternative - as one set, never the challenge endpoint alone.

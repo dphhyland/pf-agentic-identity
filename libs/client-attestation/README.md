@@ -74,9 +74,10 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `Cache-Control: no-store` (ABCA-10 §6.1), issuing into `oidf:as:challenge:*`; advertised as `challenge_endpoint`
   in the Entity Configuration's OP metadata. It and the attester's endpoint (`GET /federation/attestation/challenge`,
   in `attestation-issuer`, issuing into `oidf:cas:challenge:*`) are both `ChallengeEndpointServlet`s: one method
-  each, 405 with an `Allow` header for any other (`HEAD` and `OPTIONS` included, so nothing issues a challenge its
-  response cannot carry), and their own cap and settings. Neither store knows the other's challenges, so a
-  challenge from one surface is refused at the other (CAS §4.1).
+  each, 405 with an `Allow` header for any other (`HEAD` included, so nothing issues a challenge its response
+  cannot carry; PingFederate 13.1.3 answers every `OPTIONS` 403 itself, before any servlet sees it), and their
+  own cap and settings. Neither store knows the other's challenges, so a challenge from one surface is refused at
+  the other (CAS §4.1).
 - **`ChallengeRateLimiter`** — per-caller fixed-window cap on the (necessarily unauthenticated) challenge
   endpoint. The endpoint itself can't be resource-exhausted (it only ever writes into a bounded cache);
   the attack this stops is a flood evicting legitimate clients' challenges before they're redeemed, which
