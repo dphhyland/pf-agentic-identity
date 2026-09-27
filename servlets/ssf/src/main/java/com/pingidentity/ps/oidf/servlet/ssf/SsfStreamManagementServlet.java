@@ -38,9 +38,10 @@ public class SsfStreamManagementServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        if (SsfHttp.bootstrap(config)) { // fail-soft: unconfigured SSF is disabled, not fatal
-            SsfSupport.startPushDelivery(); // background RFC 8935 delivery loop
-        }
+        // Fail-soft: unconfigured SSF is disabled, not fatal. The push loop is the bootstrap's to start (it
+        // starts at boot, from SsfConfigurationServlet), not this servlet's: until 0.4.0 it started here, so
+        // nothing was pushed until a receiver's first management request initialised this servlet (B5).
+        SsfHttp.bootstrap(config);
     }
 
     /** Route PATCH (not covered by HttpServlet) ourselves; everything else via the standard dispatch. */

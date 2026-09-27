@@ -242,9 +242,12 @@ public final class JdbcSsfStore implements SsfStore {
                 });
     }
 
+    /** SsfStore#peek's order: oldest first, and a second's SETs by {@code jti} - the same as {@link #SELECT_DUE_FOR_PUSH}. */
+    static final String SELECT_PEEK = "SELECT * FROM ssf_pending_sets WHERE stream_id=? ORDER BY issued_at, jti LIMIT ?";
+
     @Override
     public List<PendingSet> peek(String streamId, int max) {
-        return query("SELECT * FROM ssf_pending_sets WHERE stream_id=? ORDER BY issued_at LIMIT ?", ps -> {
+        return query(SELECT_PEEK, ps -> {
             ps.setString(1, streamId);
             ps.setInt(2, Math.max(0, max));
         }, this::mapPending);
@@ -265,11 +268,23 @@ public final class JdbcSsfStore implements SsfStore {
         return removed;
     }
 
+    /**
+     * The stream's state is in the query (SsfStore#dueForPush): a JOIN, so the batch is only ever deliverable
+     * SETs. Ordered as {@link #SELECT_PEEK} is, {@code jti} breaking a second's ties, so the push executor's
+     * hold and its batch agree on which SET of a stream is first.
+     */
+    static final String SELECT_DUE_FOR_PUSH =
+            "SELECT p.* FROM ssf_pending_sets p JOIN ssf_streams s ON s.stream_id = p.stream_id "
+                    + "WHERE s.delivery_method = ? AND s.status = ? AND p.next_attempt_at <= ? "
+                    + "ORDER BY p.issued_at, p.jti LIMIT ?";
+
     @Override
     public List<PendingSet> dueForPush(long now, int max) {
-        return query("SELECT * FROM ssf_pending_sets WHERE next_attempt_at <= ? ORDER BY issued_at LIMIT ?", ps -> {
-            ps.setLong(1, now);
-            ps.setInt(2, Math.max(0, max));
+        return query(SELECT_DUE_FOR_PUSH, ps -> {
+            ps.setString(1, DeliveryMethod.PUSH.name());
+            ps.setString(2, StreamStatus.ENABLED.value());
+            ps.setLong(3, now);
+            ps.setInt(4, Math.max(0, max));
         }, this::mapPending);
     }
 

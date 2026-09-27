@@ -218,4 +218,45 @@ class JdbcSsfStoreTest {
         verify(conn).prepareStatement("DELETE FROM ssf_pending_sets WHERE expires_at > 0 AND expires_at <= ?");
         verify(ps).setLong(1, 300L);
     }
+
+    /**
+     * The selection is in the SQL, so it is the SQL that is pinned: the pending SET joined to its stream, and
+     * only an enabled push stream's rows are read. Without the join a paused, disabled or poll stream's rows
+     * fill the batch (B5). The delivery method is bound as the enum name the store writes
+     * ({@code createStream}), the status as its SSF value.
+     */
+    @Test
+    void dueForPushReadsOnlyEnabledPushStreamsRows() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        assertTrue(store.dueForPush(300, 500).isEmpty());
+
+        verify(conn).prepareStatement(JdbcSsfStore.SELECT_DUE_FOR_PUSH);
+        assertTrue(JdbcSsfStore.SELECT_DUE_FOR_PUSH.contains("JOIN ssf_streams s ON s.stream_id = p.stream_id"));
+        assertTrue(JdbcSsfStore.SELECT_DUE_FOR_PUSH.contains("s.delivery_method = ? AND s.status = ?"));
+        verify(ps).setString(1, "PUSH");
+        verify(ps).setString(2, "enabled");
+        verify(ps).setLong(3, 300L);
+        verify(ps).setInt(4, 500);
+    }
+
+    /**
+     * Both reads of the queue in one order, {@code jti} breaking a second's ties: the push executor holds a
+     * stream on {@code peek}'s first SET and posts in {@code dueForPush}'s order, and with {@code issued_at}
+     * alone a burst came back in whatever order the database chose (SsfStoresOnPostgresTest runs it).
+     */
+    @Test
+    void peekAndDueForPushShareOneOrder() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        assertTrue(store.peek("s1", 1).isEmpty());
+
+        verify(conn).prepareStatement(JdbcSsfStore.SELECT_PEEK);
+        assertTrue(JdbcSsfStore.SELECT_PEEK.endsWith(" ORDER BY issued_at, jti LIMIT ?"));
+        assertTrue(JdbcSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY p.issued_at, p.jti LIMIT ?"));
+    }
 }

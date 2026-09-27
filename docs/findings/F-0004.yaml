@@ -3,14 +3,20 @@ title: B4 Device /compliance unauthenticated, and the compliance deadlock
 severity: blocker
 area: device-enrolment
 source: review-2026-09-26
-status: open
+status: mitigated
 plan_items: [M-2, X-A15, X-A17, X-A18]
-prs: []
-verification: ''
+prs: [28]
+verification: >
+  M-2 (PR #28): POST /compliance, its handler and
+  EnrolmentService.applyComplianceChange are gone, and
+  EnrolmentHttpEndToEndTest#thereIsNoComplianceRouteAndASuspendedInstanceStillCannotRemintOverHttp pins the 404
+  and that a suspended instance still cannot re-mint; the README states the deadlock and that the device path is
+  not production-usable until Phase 6. Verified 2026-09-27 with `mvn -o -B clean verify` against Postgres (the 22
+  IomInstanceRegistryTest cases ran). Mitigated, not closed: the deadlock stands until X-A17.
 target_release: 0.9.0
 notes: >
   device-enrolment's `POST /compliance` takes no authentication, and devices register UNKNOWN while re-minting
   needs COMPLIANT, so the path is both open and stuck. M-2 (Phase 1) removes the route and documents the
-  device path as not production-usable until Phase 6; the status becomes mitigated when it merges. X-A15 makes
-  PingFederate's SSF receiver the compliance sink, X-A17 correlates the MDM record at enrolment (which removes
-  the deadlock), X-A18 retires the route and CaepEventHandler.
+  device path as not production-usable until Phase 6, which mitigates it. X-A15 makes PingFederate's SSF
+  receiver the compliance sink, X-A17 correlates the MDM record at enrolment (which removes the deadlock),
+  X-A18 retires the route and CaepEventHandler.
