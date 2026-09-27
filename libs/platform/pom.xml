@@ -123,7 +123,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Label.keepable(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Label.checkName(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Label.equals(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family$Slot.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.Slot.admit(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Family.maxSeries(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Family.cell(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Family.peek(*</include>
@@ -131,9 +131,9 @@
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Family.sameShape(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Counter.add(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Timer.bucketIndex(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer$Cell.record(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer$Cell.cumulative(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.metrics.Gauge$Cell.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer.Cell.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer.Cell.cumulative(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Gauge.Cell.read(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.Gauge.read(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.register(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.checkName(*</include>
