@@ -5,7 +5,10 @@ package com.pingidentity.ps.oidf.servlet.clientregistration.utils;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.rar.model.RarModelException;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
@@ -155,11 +158,24 @@ public final class ClientAttestationUtils {
             String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
             String requestUri = request.getRequestURL() == null ? null : request.getRequestURL().toString();
 
+            // The containment model the token gate asks. The engine classloader has no start-up hook, so this first
+            // call is where it loads, once per classloader; a models document it cannot read refuses every attested
+            // token here, and AttestationRarModels logs why once. Plan item S-9 (Phase 3) gives the component a
+            // state of its own instead.
+            RarModels rarModels;
+            try {
+                rarModels = AttestationRarModels.get();
+            } catch (RarModelException e) {
+                LOGGER.info((Object) ("Attestation-based client authentication refused: the RAR containment models "
+                        + "could not be loaded (" + e.getMessage() + ")"));
+                return false;
+            }
             AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
                     ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
                     ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
             ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, requestUri);
-            ClientAttestationVerifier verifier = new ClientAttestationVerifier(resolver, config, AttestationSupport.replayCache(), AttestationSupport.challengeService());
+            ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(resolver, config,
+                    AttestationSupport.replayCache(), AttestationSupport.challengeService(), rarModels);
 
             // Prefer the standard RFC 9396 parameter, but PingFederate's AS pre-validates
             // 'authorization_details' against the client's configured RAR types and rejects
@@ -171,11 +187,10 @@ public final class ClientAttestationUtils {
             }
             ClientAttestationResult result = verifier.verify(attestation, pop, dpop, request.getMethod(), requestUri, requestedClientId, authorizationDetails);
             if (!result.grantedAuthorizationDetails().isEmpty()) {
-                // Stash the GRANTED RFC 9396 authorization_details so an access-token-manager attribute
-                // mapping can surface it into the issued token (OGNL reads the HttpRequest attribute).
-                // Granted, not the raw request parameter: a request that omits a field the entitlement
-                // constrains is granted with that constraint inherited (RarEntitlement), and a token
-                // carrying the request verbatim would drop it again.
+                // Stash the granted RFC 9396 authorization_details so an access-token-manager attribute mapping
+                // can surface them into the issued token (OGNL reads the HttpRequest attribute): the request's
+                // own details, found strictly within the attestation's, without the _principal_sub and _agent_id
+                // markers, so neither marker reaches a token through this attribute.
                 request.setAttribute("oidf.authorization_details",
                         new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(result.grantedAuthorizationDetails()));
             }
@@ -192,7 +207,11 @@ public final class ClientAttestationUtils {
             }
             return true;
         } catch (ClientAttestationException e) {
-            LOGGER.info((Object) ("Attestation-based client authentication failed [" + e.error() + "]: " + e.getMessage()));
+            // PingFederate answers a false criterion with the Error Result configured on it (400 invalid_grant),
+            // not with this error: the criterion can refuse the token, not choose the refusal's code. The token
+            // endpoint filter, where it runs, answers first with the error itself.
+            LOGGER.info((Object) ("Attestation-based client authentication failed [" + e.error() + "]: " + e.getMessage()
+                    + ClientAttestationUtils.refusalDetail(e)));
             return false;
         } catch (Exception e) {
             LOGGER.info((Object) "Attestation-based client authentication failed", (Throwable) e);
@@ -207,9 +226,20 @@ public final class ClientAttestationUtils {
     }
 
     /**
+     * The containment model's own reason for a refusal, for a log line: it names the detail and the field, never
+     * the value, and the client's error_description carries only the token gate's fixed text. Empty when the
+     * refusal did not come from the model.
+     */
+    public static String refusalDetail(ClientAttestationException e) {
+        return e.getCause() instanceof RarModelException ? " (" + e.getCause().getMessage() + ")" : "";
+    }
+
+    /**
      * Builds the attestation context handed to the RAR {@code AuthorizationDetailProcessor}
      * (pf-rar-paz-plugin): the authenticated subject/{@code client_id}, the attested RFC 9396 entitlement
-     * ceiling, and the confirmed instance-key thumbprint. Consumed via a request attribute so the RAR
+     * ceiling, the confirmed instance-key thumbprint, and {@code rar_models_fingerprint} - the
+     * {@code RarModels.fingerprint()} of the model set that checked the request's details, lower-case hex SHA-256,
+     * which the plugin compares with its own (plan item S1c). Consumed via a request attribute so the RAR
      * decision can be bounded by what the attester actually vouched.
      */
     public static Map<String, Object> attestationContext(ClientAttestationResult result) {
@@ -230,6 +260,12 @@ public final class ClientAttestationUtils {
             ctx.put("iss", result.attesterIssuer());
         }
         ctx.put("entitlement", result.entitledAuthorizationDetails());
+        // Which model set this classloader checked the request's details with. The RAR plugin shades its own copy
+        // of the library and reads the same environment; a different fingerprint means the two would answer the
+        // same question differently, and the plugin denies. Absent only for a result no model checked.
+        if (result.rarModelsFingerprint() != null) {
+            ctx.put("rar_models_fingerprint", result.rarModelsFingerprint());
+        }
         // The workload behind the client — SPIFFE ID, attestor and any introspected selectors. Surfaced
         // flat as well so an access-token attribute mapping (OGNL) can name the workload in the token.
         Map<String, Object> workload = result.workload();
