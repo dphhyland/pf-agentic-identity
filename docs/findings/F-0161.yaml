@@ -1,0 +1,20 @@
+id: F-0161
+title: The image's entrypoint does not trim OIDF_DEPLOYMENT_PROFILE and the Java rule does
+severity: low
+area: image, platform
+source: design
+status: open
+plan_items: [PR-2]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by PR1 (2026-09-28): DeploymentProfileShellTest (libs/platform) runs one table through
+  DeploymentProfile.parse and through is_development in build/pingfederate/pf-entrypoint.sh, taken from the
+  script and run by /bin/sh. They agree on unset, empty, production, staging, typos, every case of
+  development and a trailing newline (which the shell's command substitution strips). They differ on padding:
+  " development", "development " and a tab are development to Java, which trims, and production to the
+  entrypoint, which compares the lower-cased value as it is. So a padded value refuses a plaintext archive at
+  boot and then runs the Java modules as development. The entrypoint is the stricter side. The test pins the
+  difference, so a change to either side fails it; PR-2 decides which way they meet (the entrypoint's shell
+  logic was out of PR1's scope).

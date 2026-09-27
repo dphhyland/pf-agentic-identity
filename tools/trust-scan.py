@@ -38,7 +38,7 @@ EXEMPT = {
     INSECURE_TLS: "the one trust-all: every other main source asks it",
     "services/gm-api/examples/java/GrantManagementClient.java":
         "a single-file example run as `java GrantManagementClient.java`, outside the reactor and not shipped: it"
-        " cannot import platform, and its trust-all is opt-in (--insecure) for a demo PingFederate (U-0171)",
+        " cannot import platform, and its trust-all is opt-in (--insecure) for a demo PingFederate (F-0163)",
     "tools/trust-scan.py": "carries the patterns it looks for",
 }
 

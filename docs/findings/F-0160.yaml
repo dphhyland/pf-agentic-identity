@@ -1,0 +1,21 @@
+id: F-0160
+title: rar-model reads the deployment profile more strictly than every other module
+severity: low
+area: rar-model, platform
+source: design
+status: open
+plan_items: [PR-2]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by PR1 (2026-09-28) while moving every profile reader onto libs/platform's DeploymentProfile. The rule
+  everywhere else is `development` trimmed, in any case; rar-model's common-fields fallback has taken exactly
+  `development`, trimmed, lower case, since S1a (RarModelsTest asserts "Development" leaves it off, "only the
+  exact value"). PR1 kept both, as DeploymentProfile.parse and DeploymentProfile.isExactlyDevelopment, so that
+  no behaviour changed: under OIDF_DEPLOYMENT_PROFILE=Development a deployment is development - plaintext
+  redis://, the CIMD source, the RAR plugin's development switches - but an authorization_details type no model
+  names is still refused. The stricter side is the safe one, and the RAR plugin's README already says so. PR-2
+  decides whether the two meet; if rar-model takes any case, RarModels.SEMANTICS does not change (the fallback
+  flag is already in the canonical JSON), but a deployment set to `Development` gets a different fingerprint in
+  every loader at once.

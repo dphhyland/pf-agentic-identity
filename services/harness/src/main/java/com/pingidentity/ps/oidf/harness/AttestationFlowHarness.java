@@ -72,7 +72,7 @@ public final class AttestationFlowHarness {
 
     public static void main(String[] args) throws Exception {
         // PingFederate serves a self-signed cert (CN=localhost) behind the TCP proxy; this dev/test harness turns
-        // the JDK client's host name check off for the whole run, as it always has (U-0170). The chain is checked
+        // the JDK client's host name check off for the whole run, as it always has (F-0162). The chain is checked
         // unless OIDF_HARNESS_INSECURE_TLS=true. Through platform's InsecureTls, the one place allowed to.
         InsecureTls.disableJdkHostnameVerification(HOSTNAME_CHECK_OFF, true);
         String mode = args.length > 0 ? args[0] : "selfverify";

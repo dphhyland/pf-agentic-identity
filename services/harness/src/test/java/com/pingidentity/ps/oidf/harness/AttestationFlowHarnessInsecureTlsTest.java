@@ -50,7 +50,7 @@ class AttestationFlowHarnessInsecureTlsTest {
     @Test
     void theSwitchStillRefusesACertificateForAnotherName() {
         // In this JVM the JDK flag is unset; the harness's main sets it, which is what lets a run reach a PF whose
-        // certificate names another host (U-0170).
+        // certificate names another host (F-0162).
         Exception e = assertThrows(Exception.class, () -> get(AttestationFlowHarness.httpClient(true), wrongName));
         assertTrue(SelfSignedTlsServer.isWrongName(e), String.valueOf(e));
     }
