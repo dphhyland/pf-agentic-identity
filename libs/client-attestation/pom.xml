@@ -114,6 +114,16 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslParametersFor(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.isIpLiteral(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.DeploymentProfile.isProduction(*</include>
+                                        <!-- S4a: what binds a presentation to this server. The PoP's audience is the issuer
+                                             alone; a combined-mode DPoP proof's htu is the configured endpoint, compared
+                                             after RFC 3986 normalisation, and with none configured the proof is refused. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyPopMode(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.requireSoleAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyDpopMode(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(*</include>
                                         <!-- S3a: which CA a rediss:// connection trusts, the transport rule, the redaction
                                              that keeps a Redis password out of log messages, which store each surface
                                              gets and the remembered refusal of plaintext, the holder a conflict names,

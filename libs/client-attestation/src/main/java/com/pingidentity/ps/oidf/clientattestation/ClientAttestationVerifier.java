@@ -271,6 +271,9 @@ public final class ClientAttestationVerifier {
             pop = JwtCodec.verifyAttestationPop(popHeader, cnfKey, this.config.popAlgorithms(),
                     Set.of(expectedAudience), this.config.allowedClockSkewSeconds());
         } catch (JwtVerificationException e) {
+            if (e.reason() == JwtVerificationException.Reason.AUDIENCE) {
+                throw ClientAttestationException.invalidClient(WRONG_POP_AUDIENCE, e);
+            }
             throw ClientAttestationException.invalidClient("Client Attestation PoP verification failed: " + e.getMessage(), e);
         }
         // jose4j accepts an aud that CONTAINS an expected value, so ["<this issuer>", "<anyone>"] got through
@@ -319,10 +322,13 @@ public final class ClientAttestationVerifier {
     static void requireSoleAudience(JwtClaims pop, String expected) throws Exception {
         List<String> audiences = pop.getAudience();
         if (audiences.size() != 1 || !expected.equals(audiences.get(0))) {
-            throw ClientAttestationException.invalidClient(
-                    "Client Attestation PoP 'aud' must be this server's issuer identifier and nothing else");
+            throw ClientAttestationException.invalidClient(WRONG_POP_AUDIENCE);
         }
     }
+
+    /** Every refusal of a PoP's {@code aud} says the same thing, whichever check found it. */
+    static final String WRONG_POP_AUDIENCE =
+            "Client Attestation PoP 'aud' must be this server's issuer identifier and nothing else";
 
     private ClientAttestationResult verifyDpopMode(ClientAttestation attestation, String dpopHeader,
                                                    String requestMethod, String requestUri) throws Exception {
