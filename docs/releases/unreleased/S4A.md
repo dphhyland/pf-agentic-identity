@@ -49,9 +49,10 @@
    validator directly, as `services/demo-rs` does: the scheme and host are compared in lower case, a default or
    empty port is dropped, percent-encoded unreserved characters are decoded and dot-segments removed, and the
    query and fragment are ignored (RFC 9449 §4.3 and the RFC 3986 sections it names). An `htu` carrying user
-   information, or one that is not an absolute http or https URI, is now refused where it used to be matched on
-   its host and path. How to tell: "DPoP 'htu' mismatch" in the refusal. What to change: send the endpoint's URL
-   as the endpoint advertises it.
+   information is now refused, where it used to be matched on its host and path alone, and one that is not an
+   absolute http or https URI is refused outright. How to tell: "DPoP 'htu' mismatch" in the refusal, which repeats
+   at most 256 characters of the proof's `htu`. What to change: send the endpoint's URL as the endpoint advertises
+   it.
 
 ## Notes
 
