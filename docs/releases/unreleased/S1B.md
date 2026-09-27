@@ -40,7 +40,13 @@
    response carries a value. On the criterion path PingFederate answers a refusal with the Error Result configured
    on the criterion (400 `invalid_grant`). What to change: a client that read 401 `access_denied` as "outside my
    attestation" reads 400 `invalid_authorization_details`.
-4. **Give every PingFederate node the same models document, or none.** `OIDF_RAR_MODELS_FILE` (a path) or
+4. **A repeated `authorization_details` is refused where the criterion verifies.** Where no filter verified the
+   request, the issuance criterion refuses a token request carrying `authorization_details` or
+   `oidf_requested_access` more than once: it checks the first value, and nothing there decides which one
+   PingFederate goes on to read. RFC 6749 §3.2: "Request and response parameters MUST NOT be included more than
+   once." The filter path is unchanged - it forwards only the value it checked. What to change: send each parameter
+   once. How to tell: `server.log` says `Multiple 'authorization_details' parameters present`.
+5. **Give every PingFederate node the same models document, or none.** `OIDF_RAR_MODELS_FILE` (a path) or
    `OIDF_RAR_MODELS` (the document inline), environment variables only, not both. It is read once per classloader:
    when the attestation filter or the attester starts, and on the criterion's first call. Its fingerprint is logged
    (`RAR containment models loaded: fingerprint=...`) and published in the attestation context as
@@ -50,27 +56,29 @@
    a broken bridge configuration does (plan item S-9 changes that in Phase 3); the attester fails from its first
    request; the criterion refuses every attested token. How to tell: `server.log` says `RAR containment models
    could not be loaded`, naming the reason.
-5. **Stage `rar-model-<version>.jar` beside the other modules.** `build/pingfederate/stage-modules.sh` stages it:
+6. **Stage `rar-model-<version>.jar` beside the other modules.** `build/pingfederate/stage-modules.sh` stages it:
    nine jars in production, ten in conformance. A deployment that copies jars by hand puts it in both
    `pf-runtime.war`'s `WEB-INF/lib` and `server/default/deploy`: without it the attestation filter does not start,
    and the criterion and the attester fail with `NoClassDefFoundError`. `oidf.war` and
    `services/device-enrolment` take it as a dependency.
-6. **The attester holds configured ceilings to the model, and an instance ceiling keeps what its client's
+7. **The attester holds configured ceilings to the model, and an instance ceiling keeps what its client's
    constrains.** `attestation_entitlement` and each instance's `entitlement` must be details the model accepts. A
    client whose ceiling it refuses is skipped by the PingFederate client store, with a warning naming it; a CIMD or
    federation source refuses its whole mapping list, as it does for any invalid entry. An instance ceiling under a
    client ceiling is now `authorize(instance, client, INHERIT)`, kept: an instance that left out a field its client
    constrains gets the client's value (F-0034). Its attestations carry that field, so **A token request restates
    every field its attestation constrains** applies to them. How to tell: `server.log` says `Skipping attestation
-   client with invalid config`.
-7. **The attester mints the fitted grant, and narrows an asserted context to the overlap.** A requested detail is
+   client with invalid config`. Both properties, and the whole `attestation_instances` value with its metadata, are
+   now read by a strict RFC 8259 reader, not jose4j: a trailing comma or other input 0.3.0 tolerated makes the
+   client's configuration invalid, with the same warning. CIMD and federation sources are not affected.
+8. **The attester mints the fitted grant, and narrows an asserted context to the overlap.** A requested detail is
    minted with every field its ceiling entry constrains and the request leaves out, for every rule; an empty
    request still gets the full ceiling. A request outside the ceiling is 403 `access_denied`; one the model cannot
    compare is 400 `invalid_request`, naming the detail and the field; `_principal_sub` and `_agent_id` in an
    issuance request are refused. An asserted-context ceiling narrows with the model's meet: an evidenced
    EMEA-and-APAC entry under an asserted EMEA one is minted as EMEA, where 0.3.0 dropped it - more than before,
    never more than both allow.
-8. **Code that builds a `ClientAttestationVerifier` or reads its result has new members.**
+9. **Code that builds a `ClientAttestationVerifier` or reads its result has new members.**
    `ClientAttestationVerifier.withRarModels(...)` takes a model set; the public constructor takes the
    classloader's and throws `IllegalStateException` when it could not be loaded. `ClientAttestationResult` gains
    `rarModelsFingerprint()` and a ten-argument constructor, and `grantedAuthorizationDetails()` is the request's own
@@ -92,7 +100,8 @@ Verification, 2026-09-27, on branch `prod/p1-rar-wire-cas-as`:
 - `mvn -o -B clean verify` of `client-attestation`, `pf-integration` and `attestation-issuer` with their
   dependencies, on JDK 20 and on JDK 17.0.11: every test and every coverage gate passed. The gates gained
   `AuthorizationDetailsGate.check`, `withoutMarkers`, `ceilingOf` and `describe`, `AttestationRarModels.get` and
-  `require`, `ClientAttestationUtils.attestationContext` and `refusalDetail`, `AttestationIssuanceServlet.grant`,
+  `require` and `load`, `ClientAttestationUtils.attestationContext`, `refusalDetail`, `verifyAtTheCriterion` and
+  `requireAtMostOnce`, `AttestationIssuanceServlet.grant`,
   `intersectCeilings`, `rarModels` and `init`, and `AttestationIssuanceConfig.instanceCeiling` and
   `clientCeiling`, all at 100% line and branch.
 - The shared vector file ran through two more surfaces. `AsVectorRunnerTest` put 189 of its cases through
@@ -100,6 +109,13 @@ Verification, 2026-09-27, on branch `prod/p1-rar-wire-cas-as`:
   differently on purpose: the two marker cases and a malformed ceiling under an empty request. `CasVectorRunnerTest`
   put 81 case-surface pairs through the mint, the configuration parse and the asserted context, three answered
   differently on purpose (CAS §7 rule 2 and §6.1), and presented every minted attestation to the token gate.
+- The issuance criterion's own path, where no filter verified first, ran end to end in `CriterionTokenGateTest`
+  with a real attestation and proof through an OP-issuer seam: a request within the attestation passes and is
+  stashed without its markers, with `rar_models_fingerprint` in the context; one outside it is refused and the log
+  carries the model's reason; a models document that cannot be read refuses a request the built-ins would pass; the
+  `oidf_requested_access` fallback is checked; a repeated parameter is refused. Four guard reverts in that path -
+  built-ins in place of the refusal, no repeat check, no fallback, no details passed to the verifier - each failed
+  it on JDK 17 (2026-09-27).
 - `services/harness`: `AttestationFlowHarness selfverify` passed 5 of 5 after its request restated `privileges`
   (4 of 5 before), and `AttestationIssuanceHarness` passed its 3 checks.
 - The full reactor, `mvn -o -B clean verify` with Postgres 16 for device-instance's suite: 21 modules, 3,262 tests,
@@ -127,7 +143,15 @@ Residual risk:
 - A refused request is logged, not emitted as an audit event (plan item O-2), and the fingerprint is not in a
   health endpoint yet (O-4).
 - As in 0.3.0, the proof's `jti` is spent before the ceiling check, so a refused request needs a fresh proof.
-- The issuance criterion's check on PingFederate's engine classloader was run in unit tests, not on a booted server
+- The issuance criterion's containment check ran in unit tests (`CriterionTokenGateTest`) with PingFederate's
+  issuer lookup replaced by a seam, not on PingFederate's engine classloader on a booted server
   ([U-0110](../../findings/U-0110.yaml)).
 - A models document that cannot be read takes `pf-runtime.war` down when attestation authentication is configured,
   as a broken bridge configuration does, until plan item S-9 lets the component refuse only its own traffic.
+
+For whoever folds this fragment into `docs/releases/0.4.0.md`, these statements there stop being true with S1b:
+item 6's jar counts ("eight jars", "stages nine") are nine and ten; the packaging note that says production has
+eight jars and conformance nine; the S1a note "Not yet wired", since `RarEntitlement` no longer runs at the token
+gate or the attester (`RarContainment` still runs in the plugin until S1c); and item 17's "a constrained field the
+request omits is filled from the ceiling", which holds at the attester only - see **A token request restates every
+field its attestation constrains**.

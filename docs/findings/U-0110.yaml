@@ -17,7 +17,9 @@ verify_by: >
 verification: ''
 notes: >
   2026-09-27, PR #37: the filter path was run on a booted PingFederate 13.1.3 (the rig, torn down after) and the
-  rar-model jar was seen in both server/default/deploy and pf-runtime.war. The criterion path was exercised only in
-  unit tests (ClientAttestationUtilsTest#aCriterionWhoseModelsCannotBeLoadedRefuses, VerifyOnceTest): the rig has no
-  mapping that runs the criterion, and building one was out of this package's time. The engine classloader loads the
+  rar-model jar was seen in both server/default/deploy and pf-runtime.war. The criterion path ran only in unit
+  tests: CriterionTokenGateTest drives validateClientAttestation end to end with a real attestation and proof, with
+  PingFederate's OAuthIssuerUtils replaced by an issuer seam (within, outside, unreadable models, the
+  oidf_requested_access fallback, a repeated parameter). The rig has no mapping that runs the criterion, and building
+  one was out of this package's time. The engine classloader loads the
   models on the criterion's first call, not at start-up, because nothing there has a start-up hook until plan item S-9.

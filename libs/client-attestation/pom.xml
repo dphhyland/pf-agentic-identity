@@ -113,6 +113,7 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.whyNotWithin(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.get(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.require(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.load(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.issue(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter.allow(*</include>
                                         <!-- S3a/S3b: the store verdicts are tri-state, and an outage must reach the caller as

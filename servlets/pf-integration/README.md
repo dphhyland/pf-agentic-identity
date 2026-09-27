@@ -76,7 +76,7 @@ attestation's with the containment model in [libs/rar-model](../../libs/rar-mode
   line names the detail and the field; neither response carries a value.
 - The model set is loaded once per classloader from `OIDF_RAR_MODELS_FILE` or `OIDF_RAR_MODELS`, and its
   fingerprint (lower-case hex SHA-256) is logged once and published in the attestation context as
-  `rar_models_fingerprint`, which the RAR plugin compares with its own. A document that cannot be read stops the
+  `rar_models_fingerprint`, which the RAR plugin compares with its own from plan item S1c. A document that cannot be read stops the
   filter starting; the criterion then refuses every attested token.
 
 ### The PingFederate audience switch
@@ -120,7 +120,10 @@ replays fail in both. Webapp and engine talk only through string-keyed request a
 On the criterion path the request's `authorization_details` are checked as the filter checks them (above), and a
 refusal is `false`: PingFederate answers it with the Error Result configured on the criterion (400
 `invalid_grant`), not with `invalid_authorization_details` - a criterion refuses the token but cannot choose the
-refusal's code. The log line says which of the refusals it was.
+refusal's code. The log line says which of the refusals it was. The criterion also refuses a request carrying
+`authorization_details` or `oidf_requested_access` more than once (RFC 6749 §3.2: "Request and response parameters
+MUST NOT be included more than once."): it checks the first value, and with no filter in front nothing decides which
+one PingFederate reads. `CriterionTokenGateTest` drives this path end to end through an OP-issuer seam.
 
 **A criterion that throws denies.** Verified 2026-09-26 on the rig (PingFederate 13.1.3.0): an issuance
 criterion whose expression throws, or whose method call throws, is treated as `false (Exception)` -
@@ -235,7 +238,7 @@ the property winning); the federation servlet's own settings are its init-params
 | Subordinate constraints (§6.2) | `OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS` / `oidf.federation.subordinate.constraints` (`{"max_path_length": 0, "naming_constraints": {...}, "allowed_entity_types": [...]}`) | Carried by every Subordinate Statement PF issues, hosted or configured. Checked for syntax at start-up; a bad value stops PF starting |
 | Bridge signing | `OIDF_BRIDGE_SIGNER_BACKING` (`vault`\|`config`) + `OIDF_BRIDGE_SIGNING_KEYS` (path to a JSON map of client id -> `{"key_ref": …, "attesters": […]}` or `{"jwk": {…}, "attesters": […]}`); `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault` | Per client. Exactly one key form each, and the declared backing is enforced - an inline JWK under `vault` is refused, so a demo key cannot ride into production in a config file. A client with no key cannot authenticate; every other client is unaffected. Nothing configured at all is a **boot failure**, not a silent degradation, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` |
 | Attester binding | `"attesters": ["https://attester.example"]` in each client's `OIDF_BRIDGE_SIGNING_KEYS` entry; `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING` (default `true`) | Federation trust says an attester is genuine; this says it is *this client's*. An attestation from a trusted attester the client is not bound to is a 401. A client entry with no `attesters` is a 401 too, by default - any trusted attester could otherwise vouch for it. `=false` lets unbound clients accept any trusted attester; an explicit binding is still enforced |
-| RAR containment models | `OIDF_RAR_MODELS_FILE` (a path) or `OIDF_RAR_MODELS` (the document inline); environment only, one of the two, unset for the built-in models alone; `OIDF_DEPLOYMENT_PROFILE=development` lets an unmodelled type fall back to the common fields | The types and fields the token gate compares ([libs/rar-model](../../libs/rar-model/README.md#a-models-document)); the RAR plugin reads the same variables, and the two must agree. Read once per classloader, its fingerprint logged. A document that cannot be read, or both set: the attestation filter doesn't start, and the criterion refuses every attested token |
+| RAR containment models | `OIDF_RAR_MODELS_FILE` (a path) or `OIDF_RAR_MODELS` (the document inline); environment only, one of the two, unset for the built-in models alone; `OIDF_DEPLOYMENT_PROFILE=development` lets an unmodelled type fall back to the common fields | The types and fields the token gate compares ([libs/rar-model](../../libs/rar-model/README.md#a-models-document)); from plan item S1c the RAR plugin reads the same variables, and the two must agree. Read once per classloader, its fingerprint logged. A document that cannot be read, or both set: the attestation filter doesn't start, and the criterion refuses every attested token |
 | ~~`OIDF_BRIDGE_PRIVATE_JWK`~~, ~~`OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK`~~ | — | **Superseded; both refuse startup if set.** The first held one deployment-wide key; the second kept its outgoing public half in every client's JWKS during a rotation overlap. Neither has meaning once signing is per client, and a setting that looks configured while doing nothing is worse than one that is absent |
 
 ## Upgrading from 0.2.0

@@ -13,8 +13,8 @@ import org.apache.commons.logging.LogFactory;
  * The model set every containment decision in this classloader uses: the built-in types and whatever
  * {@value RarModels#ENV_MODELS_FILE} or {@value RarModels#ENV_MODELS} adds, read through
  * {@link RarModels#fromEnvironment(Map)} the first time anything asks and kept for as long as the classloader
- * lives. The environment is the only source, so the RAR plugin, which reads the same variables through its own
- * shaded copy of the library, arrives at the same set; the attestation context carries this set's
+ * lives. The environment is the only source, so the RAR plugin - which from plan item S1c reads the same variables
+ * through its own shaded copy of the library - arrives at the same set; the attestation context carries this set's
  * {@link RarModels#fingerprint()} so the plugin can tell when it has not.
  *
  * <p>PingFederate loads this module twice - in {@code pf-runtime.war}, where the token-endpoint filter and the
