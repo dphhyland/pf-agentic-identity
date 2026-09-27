@@ -71,7 +71,6 @@ what, if anything, an attestation discloses.
 | | `<type>:namespace`, `<type>:service_account` | `sub`, `system:serviceaccount:<namespace>:<service_account>` | no |
 | `gcp-id-token` | `gcp-id-token:issuer` | `iss` | `attestation_evidence_issuer`, when set |
 | | `gcp-id-token:email` | `email` | no |
-| | `gcp-id-token:project_id` | the domain of `email`, only for a user-managed account, `<name>@<project-id>.iam.gserviceaccount.com` | no |
 | `aws-sts-web-identity` | `aws-sts-web-identity:issuer` | `iss` | `attestation_evidence_issuer`, when set |
 | | `aws-sts-web-identity:account`, `aws-sts-web-identity:role` | `sub`, the IAM principal ARN; the role is the one the SPIFFE path carries, the session name dropped | no |
 | `azure-mi-token` | `azure-mi-token:issuer` | `iss` | `attestation_evidence_issuer`, when set |
@@ -86,7 +85,11 @@ The rules:
   passed, from claims of the evidence whose signature it verified. A claim that is not a JSON string gives no
   selector, and neither does an absent or empty one. What the client's configuration supplies rather than the
   evidence - the cloud types' `attestation_trust_domain`, and so the SPIFFE ID they synthesise - is not a selector;
-  it stays in `subject()` and `trustDomain()`.
+  it stays in `subject()` and `trustDomain()`. Nor is anything parsed out of a claim that does not say what it is:
+  the GCP validator reads no project claim, and the email's domain is not one - a user-managed account is
+  `<name>@<project-id>.iam.gserviceaccount.com` ([Google, service account types](https://cloud.google.com/iam/docs/service-account-types),
+  read 2026-09-28), but Google's service agents are `...@gcp-sa-<service>.iam.gserviceaccount.com` in the same
+  shape.
 - **Only listed names.** The names are constants in each validator. A token's extra claims, however named (a
   `selectors` claim, a claim called `gke-sa-token:namespace`, a `kubernetes.io` object), add nothing.
 - **Values as the evidence states them.** They are compared by exact string equality, the way

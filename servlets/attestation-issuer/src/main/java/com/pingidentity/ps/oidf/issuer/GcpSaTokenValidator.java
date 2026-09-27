@@ -6,8 +6,6 @@ package com.pingidentity.ps.oidf.issuer;
 import java.security.Key;
 import java.util.List;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jwk.JsonWebKey;
 import org.jose4j.jws.JsonWebSignature;
@@ -40,12 +38,8 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
-    /** A user-managed service account's email: {@code <name>@<project-id>.iam.gserviceaccount.com}. */
-    private static final Pattern USER_MANAGED_SA =
-            Pattern.compile("[^@]+@([a-z][a-z0-9-]{4,28}[a-z0-9])\\.iam\\.gserviceaccount\\.com");
-
     /** The selector names this validator proves; see {@link #selectors}. */
-    static final List<String> SELECTOR_NAMES = List.of("issuer", "email", "project_id");
+    static final List<String> SELECTOR_NAMES = List.of("issuer", "email");
 
     private final long allowedClockSkewSeconds;
 
@@ -208,21 +202,13 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
     }
 
     /**
-     * The token's selectors: {@code issuer} (its {@code iss}), {@code email} (the service account), and
-     * {@code project_id} when the email is a user-managed service account's,
-     * {@code <name>@<project-id>.iam.gserviceaccount.com}. No other email is parsed, Google's default service
-     * accounts ({@code ...@developer.gserviceaccount.com}, {@code ...@appspot.gserviceaccount.com}) included, so
-     * those give no {@code project_id}.
+     * The token's selectors: {@code issuer} (its {@code iss}) and {@code email} (the service account). There is no
+     * project selector: this validator reads no project claim, and the email's domain is not one either - a
+     * user-managed account is {@code <name>@<project-id>.iam.gserviceaccount.com}, but Google's service agents are
+     * {@code ...@gcp-sa-<service>.iam.gserviceaccount.com} in the same shape, naming a service, not a project.
      */
     EvidenceSelectors selectors(String issuer, String email) throws IssuanceException {
-        String projectId = null;
-        if (email != null) {
-            Matcher m = USER_MANAGED_SA.matcher(email);
-            if (m.matches()) {
-                projectId = m.group(1);
-            }
-        }
         return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidSvid,
-                "issuer", issuer, "email", email, "project_id", projectId);
+                "issuer", issuer, "email", email);
     }
 }

@@ -95,22 +95,23 @@ class EvidenceSelectorsTest {
     }
 
     @Test
-    void gcpProvesIssuerEmailAndTheProjectOfAUserManagedAccount() throws Exception {
+    void gcpProvesIssuerAndEmail() throws Exception {
         JwtClaims claims = claims(GOOGLE_ISSUER, "104857600000000000001");
         claims.setClaim("email", "payments-agent@demo-project.iam.gserviceaccount.com");
         InstanceIdentity id = new GcpSaTokenValidator().validate(token(claims), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", GOOGLE_ISSUER));
         assertEquals(map("gcp-id-token:email", "payments-agent@demo-project.iam.gserviceaccount.com",
-                "gcp-id-token:issuer", GOOGLE_ISSUER, "gcp-id-token:project_id", "demo-project"), id.selectors());
+                "gcp-id-token:issuer", GOOGLE_ISSUER), id.selectors());
     }
 
     @Test
-    void gcpDefaultServiceAccountGivesNoProject() throws Exception {
+    void gcpServiceAgentGivesNoProjectFromItsDomain() throws Exception {
+        // Agent Engine's service agent: the domain names a service, in the shape a project would take.
         JwtClaims claims = claims(GOOGLE_ISSUER, "104857600000000000002");
-        claims.setClaim("email", "123456789012-compute@developer.gserviceaccount.com");
+        claims.setClaim("email", "service-123456789012@gcp-sa-aiplatform-re.iam.gserviceaccount.com");
         InstanceIdentity id = new GcpSaTokenValidator().validate(token(claims), this.bundle,
                 config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", null));
-        assertEquals(map("gcp-id-token:email", "123456789012-compute@developer.gserviceaccount.com",
+        assertEquals(map("gcp-id-token:email", "service-123456789012@gcp-sa-aiplatform-re.iam.gserviceaccount.com",
                 "gcp-id-token:issuer", GOOGLE_ISSUER), id.selectors());
     }
 
