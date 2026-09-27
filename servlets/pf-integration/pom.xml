@@ -252,6 +252,11 @@
                                              model's reason a refusal's log line carries (never the client's description). -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.attestationContext(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.refusalDetail(*</include>
+                                        <!-- S1b: the issuance criterion's own token gate - idp-agentic-demo's only gate - where
+                                             no filter verified first: load the models or refuse, check the request strictly
+                                             within the attestation, refuse a repeated parameter, and stash what was granted. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.verifyAtTheCriterion(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.requireAtMostOnce(*</include>
                                         <!-- FAPI 2.0 enforcement over PingFederate's own endpoints. checkClientAssertion
                                              and checkDpopProof are the rules. subjectOf, clientOfAccessToken and
                                              appliesTo decide WHOSE request it is and so whether the rules apply at
