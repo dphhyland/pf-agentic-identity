@@ -1,7 +1,8 @@
 # The documentation checks, on every push to main and every pull request: the house style a machine can
-# check (tools/doc-lint.py, against its baseline), the findings register (tools/findings.py --check), and the
-# tools' own tests first, so a tool that has stopped checking cannot pass. Plain Python, no runtime setup:
-# the runner's python3 is enough, as it is for build.yml's lint job.
+# check (tools/doc-lint.py, against its baseline), the release-note fragments (tools/release-notes.py check),
+# the findings register (tools/findings.py --check), and the tools' own tests first, so a tool that has
+# stopped checking cannot pass. Plain Python, no runtime setup: the runner's python3 is enough, as it is for
+# build.yml's lint job.
 #
 # Actions are pinned by commit, with the tag as a comment, and the checkout keeps no credentials: nothing
 # here needs to write, so nothing here can.
@@ -37,6 +38,10 @@ jobs:
         # Em dashes, a short list of American spellings, scaffolding phrases and relative links that do not
         # resolve, ratcheted against docs/development/doc-lint-baseline.txt: a document may not get worse.
         run: python3 tools/doc-lint.py
+      - name: the release-note fragments are well formed
+        # docs/releases/unreleased/*.md: the four headings, a numbered "Before you deploy" whose items open with
+        # a bold title, and no item referred to by its number, so tools/release-notes.py assemble can fold them.
+        run: python3 tools/release-notes.py check
       - name: the findings register is well formed
         # One YAML file per finding under docs/findings; every value allowed, every plan item one the plan names.
         run: python3 tools/findings.py --check

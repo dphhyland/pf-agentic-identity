@@ -4,13 +4,20 @@ Every release of pf-agentic-identity, newest first, in the shape [Keep a Changel
 describes: one heading per version with its date, and a few lines on what the version was for. A version is a
 tag of this repository (`git tag -l 'v*'`); the dates are the tags' own. Where a version has release notes
 under [docs/releases](docs/releases/), the heading links to them. The convention for the version in progress:
-it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), and the heading becomes
-`[<version>] - <date>` when David tags it.
+it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`); the release's pull request gives
+it the heading `[<version>] - <date>`, the date the tag is cut, and leaves an empty `Unreleased` for the next
+`-SNAPSHOT`.
 
-## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
+## [Unreleased] - 0.5.0-SNAPSHOT
+
+Nothing yet. The poms move to 0.5.0-SNAPSHOT in the pull request that begins it.
+
+## [0.4.0] - 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+hygiene, and one PingFederate node only until 0.7.0
+([docs/operator/deployment-limits.md](docs/operator/deployment-limits.md)). Notes:
+[docs/releases/0.4.0.md](docs/releases/0.4.0.md).
 
 - **R-I1 Staging profiles** - `stage-modules.sh --profile production|conformance` (production, the default, leaves
   the CIBA simulator out), a v2 `MANIFEST` naming the profile, a section per module group and a sha256 per jar,
@@ -71,8 +78,8 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`, strict `contains`, `authorize` with inheritance, and the meet
   `intersect`, over lists held to fixed limits (numbers by the digits they would write); a SHA-256 fingerprint of
   the effective model and the library's semantics; 244 vectors in a test-jar and seeded property tests. The
-  library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
-  until then.
+  library alone: S1b and S1c, below, move the authenticator, the issuer and the plugin onto it, and with them B1
+  is closed in this release.
 
 - **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
   high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP
@@ -114,6 +121,44 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   minutes when there is no such run (Build never started on the commit), after three refused reads in a row, and
   at the limit. A `required-checks.txt` that names no job now fails it too; before 0.4.0 it passed. v0.3.0's
   release had failed on a `java` job still running and was re-run by hand.
+
+- **Phase 1 follow-ups** (package HYG, PR #33; plan items X-D02, R-I1, P0-7, M-2, R-CI4 and R-CI5; closes F-0014 and
+  F-0066, opens F-0120, F-0121 and U-0130, updates F-0006) - Build's `java` job runs `RedisLiveTest`'s plain half
+  on a `redis:7-alpine` service and its TLS half on a TLS-only Redis that `tools/ci/start-tls-redis.sh` starts
+  with a CA and a localhost certificate made for the run, and fails if the suite skipped a test; CodeQL does not
+  analyse the iOS client's Swift yet, for the reason U-0130 records; the showcase describes the image as the
+  staging profiles and the entrypoint left it and the release as its gate runs now; the device-instance,
+  device-enrolment and ssf READMEs describe the code as it is.
+
+- **The containment model wired into the token gate and the attester** (S1b, design S-1, blocker B1; PR #37) -
+  the authorization server's token gate and the attester compare every `authorization_details` field with
+  `libs/rar-model`, a refused request is 400 `invalid_authorization_details`, and an instance ceiling keeps what
+  its client's constrains. Closes [F-0034](docs/findings/F-0034.yaml) and [F-0038](docs/findings/F-0038.yaml),
+  and with S1c [F-0001](docs/findings/F-0001.yaml); adds [F-0100](docs/findings/F-0100.yaml) and
+  [U-0110](docs/findings/U-0110.yaml).
+
+- **The RAR plugin asks the containment model** (S1c; PR #36) - the plugin shades and relocates `libs/rar-model`
+  and asks it every containment question - a request before the PDP, the PDP's answer after it (narrow, never
+  widen), a refresh against its grant - and compares the attestation context's `rar_models_fingerprint` with its
+  own. `RarContainment` and its contract test
+  are gone. Closes F-0031 and, with S1b, F-0001 (blocker B1); closes F-0106. New in the register: F-0105, F-0106,
+  F-0107, F-0108, U-0115 and U-0116.
+
+- **The attestation PoP audience and the DPoP `htu`** (S4a, its audience and `htu` parts; the ceiling refusal
+  code is S1b's; PR #34) - a Client Attestation PoP must name this server's issuer and nothing else, and a
+  combined-mode DPoP proof the endpoint URL PingFederate advertises, never one rebuilt from the `Host` header.
+  Closes F-0110 and F-0111.
+
+- **Separate challenges for the authorization server and the attester** (S4b; PR #35) - the attester gets its
+  own challenge endpoint, `GET /federation/attestation/challenge`, issuing into `oidf:cas:challenge:*`; the
+  authorization server keeps `POST /federation/attestation-challenge` in `oidf:as:challenge:*`; a challenge from
+  either is refused at the other, and each surface's metadata names only its own endpoint. Closes F-0037. New in
+  the register: F-0115, F-0116, F-0117, F-0118 and U-0125.
+
+- **Release-note fragments** (D-7, brought forward in part) - a pull request describes what it changes for a
+  consumer in `docs/releases/unreleased/<ID>.md`; `tools/release-notes.py check` holds each fragment to four
+  headings and a numbered "Before you deploy" of bold-titled items in the Docs workflow, and `assemble <version>`
+  folds them into the release's notes and this file when it is cut. 0.4.0's notes were assembled with it.
 
 ## [0.3.0] - 2026-09-27
 
@@ -180,7 +225,8 @@ Tier 0/1/2 security work. Supersedes v0.1.0.
 The release workflow, so a consumer could tell when it was behind. It published its Maven artefacts and then
 failed before creating a release; nothing consumed it.
 
-[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.3.0...main
+[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.4.0...main
+[0.4.0]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.4.0
 [0.3.0]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.3.0
 [v0.1.5]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.4

@@ -7,7 +7,7 @@ status: open
 plan_items: [S-1, S1c]
 prs: [37]
 verification: ''
-target_release: 0.4.0
+target_release: 0.5.0
 notes: >
   Found while implementing S1b (PR #37), 2026-09-27. The token gate and the attester ask libs/rar-model, so nothing
   in main code calls RarEntitlement. plugins/rar-paz-plugin's RarContainmentContractTest reads
@@ -17,3 +17,9 @@ notes: >
   delete RarEntitlement, RarEntitlementTest, ClientAttestationException.accessDenied and ACCESS_DENIED (their only
   callers are RarEntitlement, its test and one assertion in ClientAttestationAuthFilterTest). Low: dead code that
   no request reaches.
+
+  Retargeted from 0.4.0 to 0.5.0 on 2026-09-27: S1c has deleted RarContainment and its contract test (PR #36), so
+  the deletion is unblocked. It was tried on the release branch and not made: it removes RarEntitlementTest and a
+  pf-integration assertion, and the session making the release was not permitted to remove tests. It removes
+  public members of libs/client-attestation too, so it goes in a code pull request of its own, with David's say-so
+  on the test removal; nothing calls the class.

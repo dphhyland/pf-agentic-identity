@@ -15,6 +15,21 @@ One `mvn package` at the root builds every PF-side artifact, including the gm-ap
 Evaluation API lives in its own repo, **grant-evaluation-api** (private, so named rather than linked;
 checked out as a sibling) - it is not tied to PingFederate, so it does not live here.
 
+## Status
+
+**Beta, at 0.4.0** ([release notes](docs/releases/0.4.0.md)). The production-readiness review of 2026-09-26 found
+seven blockers: 0.4.0 closes B1 to B3, mitigates B4 and B5, and leaves B6 (the image built and booted in CI) and
+B7 (clustering) for 0.7.0. The [findings register](docs/findings/README.md) is the record of what is still open,
+and the release notes' "Known gaps" say what a deployment should plan around.
+
+**One PingFederate node only, until 0.7.0.** Attestation challenges and replay state (without Redis), the
+challenge endpoints' caps, SSF streams (without a data store), the SSF push loop and the SSF receiver's dedupe
+are per node, and nothing leases the push loop: on two nodes a challenge from one is refused at the other, a
+spent proof or registration request object can be presented again at the other, a push receiver can get a SET
+twice, and an inbound SET can be acted on once per node. The cluster story - Redis-backed state, leases,
+JDBC client storage - is Phase 4 of the production programme. What goes wrong on two nodes, item by item:
+[docs/operator/deployment-limits.md](docs/operator/deployment-limits.md).
+
 ## Layout — organized by *how it loads into PingFederate*
 
 PF has two very different extension mechanisms, and the tree mirrors them. **Servlets** are plain
@@ -22,7 +37,7 @@ PF has two very different extension mechanisms, and the tree mirrors them. **Ser
 on the webapp classloader. **Plugins** implement a PF SDK SPI: discovered via a `PF-INF/` descriptor,
 must be named `pf.plugins.*.jar`, and load on a per-plugin *isolated* classloader (which is why the
 RAR plugin shades its jackson). Pure **libs** know nothing about PF at all; **services** are
-standalone processes PF trusts or calls. Nineteen reactor modules, `bom/` included — the one place a
+standalone processes PF trusts or calls. Twenty reactor modules, `bom/` included - the one place a
 shared dependency version is written down, imported by every module pom except the vendored
 `services/gm-api`. `libs/conformance` is the odd one out: a single annotation, test-scoped everywhere
 and deliberately absent from `stage-modules.sh`, so nothing it carries reaches the PF image. Artefact
@@ -33,7 +48,7 @@ names below carry the project version, written `<version>`.
 | Path | What it is | Artifact |
 |---|---|---|
 | `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-<version>.jar` |
-| `libs/rar-model` | The **RFC 9396 containment model**: per-type field rules (sets, limits with a unit, `instructedAmount`, instants, equality, strings, nested objects, forbidden fields), one spelling for a thing a type can say two ways, three built-in types, more from a models document, and `contains` / `authorize` / `intersect` over lists held to fixed limits, with a fingerprint of the effective model. JDK only. Closes blocker B1 once S1b/S1c wire it into the authenticator, the issuer and the plugin | `rar-model-<version>.jar` |
+| `libs/rar-model` | The **RFC 9396 containment model**: per-type field rules (sets, limits with a unit, `instructedAmount`, instants, equality, strings, nested objects, forbidden fields), one spelling for a thing a type can say two ways, three built-in types, more from a models document, and `contains` / `authorize` / `intersect` over lists held to fixed limits, with a fingerprint of the effective model. JDK only. The token gate, the attester and the RAR plugin all ask it (blocker B1, closed in 0.4.0) | `rar-model-<version>.jar` |
 | `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-<version>.jar` |
 | `libs/openid-federation` | **OpenID Federation 1.0** (Final): trust-chain validation against pinned anchors, metadata policy, constraints, Trust Marks (verify and issue), the federation endpoints' logic, hosted entities and their key history, the AuthZEN policy decision client, and the event API - no PingFederate code | `openid-federation-<version>.jar` |
 | `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-<version>.jar` |

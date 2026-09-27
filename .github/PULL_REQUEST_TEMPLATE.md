@@ -20,7 +20,7 @@
 
 ## Upgrade notes
 
-<!-- Anything a consumer must change, and the "Before you deploy" item added to docs/releases/<version>.md, or "none". -->
+<!-- Anything a consumer must change, and the fragment under docs/releases/unreleased/ that says so (its "Before you deploy" items, by their bold titles), or "none". -->
 
 ## Findings
 

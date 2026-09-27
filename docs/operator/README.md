@@ -7,6 +7,8 @@ D-7).
 
 What is here now:
 
+- [deployment-limits.md](deployment-limits.md) - what a release does not support yet, and what goes wrong if
+  you deploy it that way: from 0.4.0, one PingFederate node only until 0.7.0, and the device path until 0.9.0.
 - [upgrading/](upgrading/) - one guide per move between releases. [0.1.5-to-0.3.0.md](upgrading/0.1.5-to-0.3.0.md)
   is the move from the last PingFederate 13.0 release to the first 13.1.3 one.
 

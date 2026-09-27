@@ -5,7 +5,7 @@ area: cluster
 source: review-2026-09-26
 status: open
 plan_items: [C-1, C-2, C-3, C-4, C-6, C-7, S-10]
-prs: []
+prs: [38]
 verification: ''
 target_release: 0.7.0
 notes: >
@@ -14,3 +14,16 @@ notes: >
   the platform as single node until v0.7.0; Phase 4 delivers the topology (C-1), the platform Redis client
   (C-2), managed executors (C-3), leases (C-4), the reference stacks (C-6) and the cluster verification suite
   (C-7), whose dated results go in docs/operator/clustering.md.
+
+  Documented for 0.4.0 (PR #38, the release pull request, 2026-09-27): README.md's Status
+  section, the 0.4.0 notes' "Known gaps" and docs/operator/deployment-limits.md state that 0.4.0 supports one
+  PingFederate node only, until 0.7.0. The limits page lists, read from the code at origin/main 714e7ce and not
+  driven on a cluster, what goes wrong on two nodes today: without Redis a challenge from one node is refused at
+  the other (400 use_attestation_challenge at the token endpoint, 401 invalid_instance_proof at the attester), a
+  spent proof or client assertion can be presented once more at the other - a registration request object or
+  client assertion for up to 86400 s - and evidence binds per node; the challenge endpoints' per-caller caps and
+  the SSF receiver's jti dedupe and poll acknowledgements (F-0043) are per node whatever the store, so an inbound
+  SET can be acted on once per node; with SSF in memory a stream exists on one node only; with a shared SSF
+  data store both push loops can post the same SET, since dueForPush takes no lock and nothing leases the loop,
+  and each node's failed attempt counts towards the dead-letter; the federation authority's registries are per
+  node without a database; and client replication is U-0027.
