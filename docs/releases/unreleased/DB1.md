@@ -8,29 +8,38 @@
   The hosted-entity, Trust Mark, key-history and agent registries run their shipped migrations there instead
   of on H2, and both durable SSF stores are held to the whole `SsfStore` contract on Postgres (DB-1).
 - H2 and HSQLDB support is gone: a `jdbc:h2:` or `jdbc:hsqldb:` authority store URL (`OIDF_AUTHORITY_JDBC_URL`)
-  or SSF store URL (`OIDF_SSF_JDBC_URL`) is refused at start-up with a message naming PostgreSQL, and H2 leaves
-  every module's test classpath.
+  or SSF store URL (`OIDF_SSF_JDBC_URL`) is refused at start-up with a message naming PostgreSQL, a PingFederate
+  data store id (`OIDF_AUTHORITY_DATA_STORE_ID`, `OIDF_SSF_DATA_STORE_ID`) whose database reports itself as H2 or
+  HSQLDB is refused on its first connection, and H2 leaves every module's test classpath.
 - `IDM_TEST_JDBC_URL`, `_USER` and `_PASSWORD` are renamed `OIDF_TEST_JDBC_*`; the old names are read in 0.5.x
   with a warning. Testcontainers moves from 1.19.8 to 1.21.4, which finds Docker Desktop 29 (U-0050, closed).
 
 ## Before you deploy
 
-1. **Move an H2 or HSQLDB store URL to PostgreSQL.** A deployment whose authority store URL
+1. **Move an H2 or HSQLDB store to PostgreSQL.** A deployment whose authority store URL
    (`OIDF_AUTHORITY_JDBC_URL`, the `oidf.authority.jdbc.url` system property or the `jdbcUrl` init parameter)
    or SSF store URL (`OIDF_SSF_JDBC_URL`) begins `jdbc:h2:` or `jdbc:hsqldb:`, in any case, no longer starts
    that store. The SSF transmitter logs an ERROR and retries every 30 s, and stays down. `HostedEntityServlet`
    fails its init; `FederationAdminServlet` logs that hosting could not be configured, and fails its init too
-   when the URL comes from the environment or a system property. Where Trust Mark issuing or the key history is enabled as
-   well, `OpenIdFederationServlet`'s init fails, and because it loads at start-up that fails the whole
-   `pf-runtime.war` (seen on the rig 2026-09-27 for a throwing init, commit 053a264). Point the URL at
-   PostgreSQL, or use a PingFederate JDBC data store id (`OIDF_AUTHORITY_DATA_STORE_ID`,
-   `OIDF_SSF_DATA_STORE_ID`), which this change does not look into. No README or configuration document ever
-   offered either database: `git log -S` over the tracked Markdown, YAML, JSON, properties, env, shell,
-   Terraform and Dockerfiles finds no `jdbc:h2` or `jdbc:hsqldb` URL (2026-09-28). The code accepted
-   `jdbc:hsqldb:` for the SSF store from commit b00fe2e (2026-07-19) and both prefixes for the authority store
-   from commit 01fbc20, and the PingFederate 13.1.3 image ships both drivers in `server/default/lib` (H2
-   2.2.224 and HSQLDB 2.7.1, read from their manifests 2026-09-28), so either URL may have worked in a
-   deployment that set one.
+   when the URL comes from the environment or a system property. Where Trust Mark issuing or the key history is
+   enabled as well, `OpenIdFederationServlet`'s init fails, and because it loads at start-up that fails the whole
+   `pf-runtime.war` (seen on the rig 2026-09-27 for a throwing init, commit 053a264). A PingFederate data store
+   id (`OIDF_AUTHORITY_DATA_STORE_ID`, `OIDF_SSF_DATA_STORE_ID`) that names an H2 or HSQLDB data store - such as
+   PingFederate's own bundled HSQLDB - is refused too, on the store's first connection: every use of that store
+   fails with a message naming PostgreSQL, and the `tables` SSF store, which takes a connection at boot to create
+   its tables, does not start. The check reads the product name the driver reports (`HSQL Database Engine` and
+   `H2`, read with the image's own java 21 from the image's `hsqldb.jar` 2.7.1 and `h2.jar` 2.2.224,
+   2026-09-28). Point the URL, or the data store, at PostgreSQL.
+
+   Both databases were offered before this release. Up to 0.4.0 the showcase's settings reference said the
+   authority store URL needed "the driver class (postgresql, hsqldb or h2 by URL prefix)", listed the driver
+   setting as `org.postgresql.Driver | org.hsqldb.jdbc.JDBCDriver | org.h2.Driver`, and said the SSF store URL
+   loads `org.postgresql.Driver` or `org.hsqldb.jdbc.JDBCDriver`. The SSF README and the 0.4.0 release notes
+   record the `tables` store's push selection run on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships
+   (U-0078, 2026-09-27), and `JdbcSsfStore`'s class comment says its SQL is kept to what "HSQLDB (PF's bundled
+   DB)" accepts. The code accepted `jdbc:hsqldb:` for the SSF store from commit b00fe2e (2026-07-19) and both
+   prefixes for the authority store from commit 01fbc20, and the image ships both drivers in
+   `server/default/lib`, so a deployment may well have used either.
 2. **Name the test database with OIDF_TEST_JDBC_URL.** Developers and any CI that builds this repository set
    `OIDF_TEST_JDBC_URL`, `OIDF_TEST_JDBC_USER` and `OIDF_TEST_JDBC_PASSWORD`, or leave Docker running for
    Testcontainers. The user must be allowed `CREATE DATABASE`, because each test class creates and drops a
@@ -70,6 +79,6 @@ still name H2 as the test target (`JdbcHostedEntityRegistry`, `JdbcAgentRegistry
 `V102`, `V103`). They were left alone: the stores' main code is not this package's, and a comment edit in a
 shipped migration changes the checksum DB-3's Flyway will record. DB-2 (Phase 4) rewrites the migration layout.
 
-The bom keeps `version.h2` and its `h2` entry for now: its last user is an unused test line in
-`plugins/instance-registry-datasource/pom.xml`, which F3 deletes in this wave, and whichever of F3 and DB1 merges
-second removes the two bom lines.
+The bom keeps `version.h2` and its `h2` entry for now. Their last user is an unused, unversioned test dependency
+in `plugins/instance-registry-datasource/pom.xml`, which a change in the same release deletes; the bom lines go
+with it.

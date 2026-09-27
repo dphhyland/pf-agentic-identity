@@ -52,8 +52,8 @@
         <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
         <version.postgresql>42.7.3</version.postgresql>
         <!-- H2 is no longer a test database here (0.5.0): its last user is an unused test line in
-             plugins/instance-registry-datasource/pom.xml, which F3 deletes. This property and the entry below go
-             with it, in whichever of the two changes merges second. -->
+             plugins/instance-registry-datasource/pom.xml, which is being deleted in 0.5.0. This property and the
+             h2 entry below go with that line. -->
         <version.h2>2.2.224</version.h2>
         <version.bouncycastle>1.78.1</version.bouncycastle>
         <version.junit.jupiter>5.10.2</version.junit.jupiter>

@@ -66,7 +66,7 @@
 
               Gated per METHOD, not per class, so the paths that need infrastructure stay
               honestly out of scope: every IomInstanceRegistry member talks to a real Postgres
-              through Testcontainers and is skipped wherever Docker is absent, and the
+              through libs/testkit and is skipped wherever none is reachable, and the
               InMemory registry's duplicate/unknown-id rejections and the minter's malformed-JWK
               path have no test yet. Those are named in the coverage backlog rather than
               gated at a limit nobody meets.

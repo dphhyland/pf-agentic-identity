@@ -50,9 +50,25 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
             if (url.regionMatches(true, 0, dropped, 0, dropped.length())) {
                 throw new IllegalArgumentException("a " + dropped + " SSF store URL is not supported: H2 and HSQLDB "
                         + "support was dropped in 0.5.0; use PostgreSQL (a jdbc:postgresql: URL) or a PingFederate JDBC "
-                        + "data store id");
+                        + "data store id on PostgreSQL");
             }
         }
+    }
+
+    /**
+     * Refuses a connection whose database is H2 or HSQLDB, the engines dropped in 0.5.0, with a message naming
+     * PostgreSQL. A PingFederate data store id can name PingFederate's own bundled HSQLDB (2.7.1 in the 13.1.3 image),
+     * which no URL prefix shows; the product names are the ones those drivers report ({@code HSQL Database Engine},
+     * {@code H2}, read with the image's java 21 on 2026-09-28). The connection is closed before the refusal.
+     */
+    static Connection refuseDroppedProduct(Connection connection) throws SQLException {
+        String product = connection.getMetaData().getDatabaseProductName();
+        if ("HSQL Database Engine".equalsIgnoreCase(product) || "H2".equalsIgnoreCase(product)) {
+            connection.close();
+            throw new SQLException("the PingFederate data store is " + product + ", which is not supported: H2 and "
+                    + "HSQLDB support was dropped in 0.5.0; point the data store id at a PostgreSQL data store");
+        }
+        return connection;
     }
 
     /** Demo/dev {@link DataSource}: unpooled connections straight from {@link java.sql.DriverManager}. */
@@ -141,20 +157,28 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
     /** A {@link DataSource} whose connections are PF-pooled connections for one configured data store id. */
     private static final class PfManagedDataSource implements DataSource {
         private final String dataStoreId;
+        private volatile boolean productChecked;
 
         private PfManagedDataSource(String dataStoreId) {
             this.dataStoreId = dataStoreId;
         }
 
+        /** The first connection is checked against the dropped engines; every connection while it fails. */
         @Override
         public Connection getConnection() throws SQLException {
+            Connection connection;
             try {
-                return new DataSourceAccessor().getConnection(this.dataStoreId);
+                connection = new DataSourceAccessor().getConnection(this.dataStoreId);
             } catch (SQLException e) {
                 throw e;
             } catch (Exception e) {
                 throw new SQLException("could not obtain a connection for PF data store '" + this.dataStoreId + "'", e);
             }
+            if (!this.productChecked) {
+                refuseDroppedProduct(connection);
+                this.productChecked = true;
+            }
+            return connection;
         }
 
         @Override
