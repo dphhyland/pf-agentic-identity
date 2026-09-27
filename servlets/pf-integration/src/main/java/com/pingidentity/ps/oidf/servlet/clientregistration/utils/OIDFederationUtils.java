@@ -18,6 +18,7 @@ import com.pingidentity.ps.oidf.pf.FederationPolicySupport;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationConfiguration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -28,7 +29,6 @@ import java.util.function.Function;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;
 
 /**
@@ -46,7 +46,7 @@ public final class OIDFederationUtils {
     private static volatile String configuredTrustControllerHost;
     private static volatile String configuredTrustControllerBaseUrl;
     private static final Object LOCK = new Object();
-    private static final Function<HttpServletRequest, String> PF_ISSUER = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+    private static final Function<HttpServletRequest, String> PF_ISSUER = req -> PfInternals.issuer(req);
     /** Test seam: PF's issuer resolver needs a booted PingFederate. */
     private static volatile Function<HttpServletRequest, String> issuerResolver = PF_ISSUER;
     /** Test seam: the transport the gateway fetches through; null means a screened JDK client. */

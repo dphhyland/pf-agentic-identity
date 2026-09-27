@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
@@ -21,7 +22,6 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.jose4j.json.JsonUtil;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * Serves the {@code openid-client-attestation-service-1_0} discovery document at
@@ -88,7 +88,7 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         applyCors(resp);
-        String issuer = OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        String issuer = PfInternals.issuer(req);
         resp.setStatus(200);
         resp.setContentType("application/json");
         resp.setHeader("Cache-Control", "public, max-age=3600");
