@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Compose the PingFederate image's build context.
 #
-# The image build is ../build/pingfederate/ (Dockerfile, war assembly, entrypoint, staged module jars);
+# The image build is ../build/pingfederate/ (Dockerfile, war assembly and the filters it declares, entrypoint,
+# staged module jars and the staged war assembler);
 # this directory owns what configures it: the archive export.sh produced and the cipher-list overlay.
 # `docker build` (and a deploy tool such as `railway up`) want one directory, so this assembles
 # .context/ (git-ignored) and prints its path.
@@ -23,14 +24,17 @@ case "$manifest_header" in
   *) echo "ERROR: modules/ is not staged for the conformance profile (its MANIFEST starts '$manifest_header')." >&2
      echo "       Run $BUILD/stage-modules.sh --profile conformance - up.sh does." >&2; exit 1 ;;
 esac
+# The war assembler the Dockerfile runs, which stage-modules.sh stages beside modules/.
+[[ -f "$BUILD/assembler/war-assembler.jar" ]] || { echo "ERROR: no staged war assembler at $BUILD/assembler - run mvn package and $BUILD/stage-modules.sh --profile conformance" >&2; exit 1; }
 for f in data.zip overlay/pf.jwk overlay/pingfederate-system-keys.xml; do
   [[ -f "$HERE/$f" ]] || { echo "ERROR: missing $f - run ./export.sh" >&2; exit 1; }
 done
 
 CTX="$HERE/.context"
 rm -rf "$CTX"; mkdir -p "$CTX/overlay"
-cp "$BUILD/Dockerfile" "$BUILD/assemble-pf-runtime-war.sh" "$BUILD/pf-entrypoint.sh" "$CTX/"
+cp "$BUILD/Dockerfile" "$BUILD/assemble-pf-runtime-war.sh" "$BUILD/filters.xml" "$BUILD/pf-entrypoint.sh" "$CTX/"
 cp -R "$BUILD/modules" "$CTX/modules"
+cp -R "$BUILD/assembler" "$CTX/assembler"
 cp -R "$BUILD/overlay/config-store" "$CTX/overlay/config-store"
 # This rig's own config-store files, laid over the image as well as carried in the archive - see
 # config-store/com.pingidentity.crypto.SunJCEManager.xml for why it takes both.
