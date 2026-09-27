@@ -9,10 +9,13 @@ prs: [10, 11, 14]
 verification: >
   In progress, checked 2026-09-27: release.yml runs `mvn -B verify` and requires a green Build on the tagged
   commit (PR #10, merged as 11e9780 on 2026-09-26), and its 0.3.0 dry run was green (run 36234516459 on
-  eba9640, 2026-09-26). PR #11 (v0.3.0) and #14 (0.4.0-SNAPSHOT) are open and `git ls-remote --tags origin`
-  still ends at v0.1.5, so there is no 13.1 release yet. `gh secret list` is empty; the API answers 'Branch
-  not protected' for main and lists no rulesets; Build does not build or boot the image. Stays open until
-  every part is done.
+  eba9640, 2026-09-26). PR #11 merged as 97e5650 (2026-09-26T23:12Z) and v0.3.0 is tagged at it, but the
+  tag's Release run 36278709651 failed at "a green Build on this commit": Build run 36278704385 on the same
+  commit had been created seven seconds earlier and was still in progress (it succeeded at 23:16Z), so
+  `gh release view v0.3.0` answers "release not found" and no 13.1 release is published until the run is
+  re-run on the tag (F-0069). PR #14 (0.4.0-SNAPSHOT) is open. `gh secret list` is empty; the API answers
+  'Branch not protected' for main and lists no rulesets; private vulnerability reporting is off (F-0068);
+  Build does not build or boot the image. Stays open until every part is done.
 target_release: 0.7.0
 notes: >
   Five parts: a release on the 13.1 line (P0-8), the release built from what was verified (P0-6, done), the

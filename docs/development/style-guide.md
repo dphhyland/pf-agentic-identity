@@ -178,4 +178,6 @@ fine" is not a sentence this repository writes.
 `tools/doc-lint.py`: em dashes, en dashes used as dashes, the spelling list, the four scaffolding phrases,
 and relative links that do not resolve, in every tracked `.md` outside `.claude/` directories. Hits a document
 already carried when the check arrived are in the baseline, per file and rule, as counts: a document may not
-gain one, and fixing some lets `--update-baseline` lower its count. Everything else above is a reader's job.
+gain one, and fixing some lets `--update-baseline` lower its count. A page a generator writes
+(`docs/coverage-dashboard.md`, while it is tracked) is the generator's business: the lint skips it, and its
+wording is fixed in `tools/coverage-report.py`. Everything else above is a reader's job.

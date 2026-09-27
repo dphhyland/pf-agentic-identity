@@ -170,6 +170,13 @@ class Baseline(unittest.TestCase):
         self.assertNotIn("SKILL.md", err)
         self.assertIn("in 2 documents", err)
 
+    def test_a_generated_page_is_the_generators_business(self):
+        root = tree({"a.md": "clean\n", "docs/coverage-dashboard.md": "x — y — z\n"})
+        code, out, err = run(["--root", root, "--no-git"])
+        self.assertEqual(code, 0)
+        self.assertIn("ok: 1 documents", out)
+        self.assertEqual(run(["--root", root, "--no-git", os.path.join(root, "docs/coverage-dashboard.md")])[0], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

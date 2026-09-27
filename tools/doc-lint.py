@@ -20,7 +20,9 @@ The rules are the style guide's (docs/development/style-guide.md), the ones a ma
 
 What is left alone: fenced code blocks, inline code, HTML comments, URLs and link destinations (for the
 spelling rule), and text in double quotes - a verbatim quotation keeps whatever it was written with. Files under
-a .claude/ directory are instructions to an assistant, not documentation, and are skipped.
+a .claude/ directory are instructions to an assistant, not documentation, and are skipped. So is a page a
+generator writes (GENERATED below): its wording lives in the generator, and its hit count moves with the data
+it reports, so a baseline could not hold it still.
 
 The baseline: what the tree already had when the check arrived, per file and rule, as counts. A file may not
 gain a hit above its count; fixing one lowers the count it can carry, and --update-baseline writes the lower
@@ -40,6 +42,8 @@ import urllib.parse
 
 BASELINE = "docs/development/doc-lint-baseline.txt"
 EXCLUDED = re.compile(r"(^|/)\.claude/")
+# Pages a generator writes, while they are tracked: docs/coverage-dashboard.md is tools/coverage-report.py's.
+GENERATED = ("docs/coverage-dashboard.md",)
 RULES = ("em-dash", "en-dash", "spelling", "scaffolding", "link")
 
 # American spelling -> the form the repo writes. Explicit and small on purpose: a word goes on this list
@@ -217,9 +221,13 @@ def check_links(path, prose):
     return hits
 
 
+def skipped(rel):
+    return bool(EXCLUDED.search(rel)) or rel in GENERATED
+
+
 def tracked_documents(root):
     out = subprocess.run(["git", "-C", root, "ls-files", "-z", "*.md"], capture_output=True, text=True, check=True).stdout
-    return sorted(p for p in out.split("\0") if p and not EXCLUDED.search(p))
+    return sorted(p for p in out.split("\0") if p and not skipped(p))
 
 
 def walked_documents(root):
@@ -229,7 +237,7 @@ def walked_documents(root):
         for name in filenames:
             if name.endswith(".md"):
                 rel = os.path.relpath(os.path.join(dirpath, name), root)
-                if not EXCLUDED.search(rel):
+                if not skipped(rel):
                     found.append(rel)
     return sorted(found)
 

@@ -34,8 +34,9 @@ when you touch anything that calls the SDK or `pf-protocolengine`.
 
 Most tests need nothing. `libs/device-instance`'s registry suite (`IomInstanceRegistryTest`) needs a
 PostgreSQL it can create tables in: it takes `IDM_TEST_JDBC_URL`, `IDM_TEST_JDBC_USER` and
-`IDM_TEST_JDBC_PASSWORD`, and otherwise tries Testcontainers, which does not see Docker Desktop 29 on this
-machine, and otherwise skips - and a skipped suite under-counts the coverage dashboard. So give it a database:
+`IDM_TEST_JDBC_PASSWORD`, and otherwise tries Testcontainers (the version the reactor pins is reported not to
+see Docker Desktop 29; plan item DB-1 moves it to 1.21.4), and otherwise skips - and a skipped suite
+under-counts the coverage dashboard. So give it a database:
 
 ```sh
 docker run -d --rm --name pg-mine -e POSTGRES_USER=dashboard -e POSTGRES_PASSWORD=dashboard -e POSTGRES_DB=idm \

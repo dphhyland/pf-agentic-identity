@@ -25,7 +25,7 @@ id: F-0016
 title: The RAR plugin's fail-open catches everything
 severity: high                     # blocker | high | medium | low
 area: rar-paz-plugin               # a module or workstream, lower case; several separated by ", "
-source: review-2026-09-26          # review-2026-09-26 | design | reviewer-report | phase-0-review
+source: review-2026-09-26          # review-2026-09-26 | design | reviewer-report | phase-0-review | pr-review
 status: open                       # open | mitigated | closed | accepted
 plan_items: [S2a]                  # the plan's package or design ids that close it
 prs: []                            # pull request numbers, as they land
@@ -50,7 +50,8 @@ The fields:
 - **source**: `review-2026-09-26` is the production-readiness review of origin/main f95b522; `design` is the
   plan's "Found while designing" list and its "To verify before relying on it" list; `reviewer-report` is the
   seven per-module reviewer reports the plan's Workstream H lists; `phase-0-review` is the adversarial reviews
-  of the Phase 0 pull requests and the 0.3.0 notes' known gaps.
+  of the Phase 0 pull requests and the 0.3.0 notes' known gaps; `pr-review` is the adversarial review of a
+  later pull request, which the notes name with its date.
 - **plan_items** must be ids the plan names - packages (`S1a`, `X-A15`), designs (`S-1`), hardening items
   (`H-FED-3`), phase items (`P0-4`) or mitigations (`M-2`). The plan lives outside the repository, so
   [plan-ids.txt](plan-ids.txt) carries the ids it named when it was last read (with the date in its header);
@@ -106,5 +107,7 @@ Plain YAML, read by a small parser in `tools/findings.py` (the CI runner has no 
 this simple is better refused than guessed at): a top-level mapping of `key: value` lines, flow lists
 (`[S1a, S1b]`), block lists (`- S1a` on the lines below, indented two spaces), block scalars (`|` literal,
 `>` folded, indented two spaces), quoted strings (`'it''s'`, `"a \"b\""`) and `#` comments. Nothing nested
-beyond that. A YAML library reads the same files the same way; the parser names the file and line of anything
-it will not read.
+beyond that. A YAML library reads the same values from the same files, apart from the trailing newline it
+keeps on a block scalar and the numbers it types (a pull request number is a string here); checked against
+Ruby's psych over the whole register on 2026-09-27. The parser names the file and line of anything it will
+not read.

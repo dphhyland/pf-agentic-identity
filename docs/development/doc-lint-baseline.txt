@@ -16,7 +16,6 @@ docs/attestation-client-auth-design.md em-dash 20
 docs/claim-dictionary.md em-dash 36
 docs/client-attestation-architecture.md em-dash 141
 docs/client-attestation-architecture.md spelling 1
-docs/coverage-dashboard.md em-dash 15
 docs/openid-client-attestation-service-1_0.md em-dash 75
 docs/openid-client-attestation-service-1_0.md spelling 6
 docs/pf-13_1-jakarta-migration-plan.md spelling 11

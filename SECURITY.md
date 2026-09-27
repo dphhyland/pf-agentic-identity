@@ -21,11 +21,18 @@ assets); a copy of the jars taken from a working tree is not a version anyone ca
 ## Reporting a vulnerability
 
 Use GitHub's private vulnerability reporting for this repository: the "Report a vulnerability" button on the
-Security tab, which opens a draft advisory only the maintainer can see. As of 2026-09-27 the feature is not yet
-enabled on the repository (the API answers `enabled: false`); enabling it is on the maintainer's list. Until it
-is, do not open a public issue or pull request for a security defect - contact the maintainer privately through
-the contact details on the `dphhyland` GitHub profile, with the subject "pf-agentic-identity security", and
-you will get an acknowledgement and a way to continue in private.
+repository's Advisories page (under Security), which opens a draft advisory only the maintainer can see.
+
+As of 2026-09-27 the feature is not yet enabled (the API answers `enabled: false`), and there is no other
+private channel: the maintainer's GitHub profile carries no contact address. Only the repository's owner can
+turn it on - GitHub's docs, read 2026-09-27: "Owners and administrators of public repositories can allow
+security researchers to report vulnerabilities securely in the repository by enabling private vulnerability
+reporting" (Settings, then Advanced Security under "Security and quality", then Enable beside "Private
+vulnerability reporting") - and the gap is [F-0068](docs/findings/F-0068.yaml) in the findings register,
+targeted at 0.4.0. Until the button is there, keep the details out of public view: no issue, pull request or
+discussion that names the module, the endpoint or the trigger, and no proof of concept. If you cannot wait,
+open an issue that says only that you have a security report and need a private channel, and the maintainer
+will answer with one. This paragraph goes when the feature is on.
 
 Say what you found, where (module, class, endpoint), how to reproduce it against the rig
 (`conformance/up.sh` boots a configured PingFederate 13.1.3 from a clone), and what you think it lets an
@@ -65,11 +72,11 @@ the register, which say what is known to be missing and which release closes it.
 A PingFederate configuration archive is a plain zip that contains `pf.jwk` - the master key that decrypts
 every secret in it - beside the system keys, both keystores, the admin password hash and the master-key-
 reversible client secrets. So no archive and no key material may ever be tracked in this repository, in any
-directory, under any name: `.gitignore` ignores `data*.zip`, `*.jwk`, `*.jks`, `*.p12`, `*.pfx` and `*.lic`
-at the root, and `build.yml`'s `secrets-guard` job fails the build if one is tracked anyway, or if an age
-identity or a private key appears in any file's content. An encrypted archive (`data.zip.age`, encrypted to a
-public recipient) is the only form that may be committed or baked into an image; the identity that decrypts it
-belongs in a password manager and a sealed runtime variable.
+directory, under any name: the root `.gitignore` ignores `data*.zip`, `*.jwk`, `*.jks`, `*.p12`, `*.pfx` and
+`*.lic` anywhere in the tree, and `build.yml`'s `secrets-guard` job fails the build if one is tracked anyway,
+or if an age identity or a private key appears in any file's content. An encrypted archive (`data.zip.age`,
+encrypted to a public recipient) is the only form that may be committed or baked into an image; the identity
+that decrypts it belongs in a password manager and a sealed runtime variable.
 
 If you find an archive, a `pf.jwk`, a private key or an age identity in this repository's history, that is a
 vulnerability: report it as above, and say which commit. The fix is rotation, not deletion - a key that was

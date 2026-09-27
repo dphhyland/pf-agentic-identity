@@ -15,7 +15,8 @@ register; the index is generated here when someone wants to read it. docs/findin
 The files are read by the small parser below, not by a YAML library: the runner that checks them has none, and
 a register that needs only a dozen shapes is better refused than guessed at. What it reads is plain YAML - a
 top-level mapping of `key: value` lines, flow lists (`[a, b]`), block lists (`- a`), block scalars (`|`, `>`)
-and comments - so a YAML library reads the same files the same way. Anything else is an error that names the
+and comments - so a YAML library reads the same values from them, apart from the trailing newline it keeps on a
+block scalar and the numbers it types (everything is a string here). Anything else is an error that names the
 file and the line.
 
 Plan items are the ids the programme plan gives its packages (S1a, H-FED-3, X-A15 ...). A finding names the
@@ -36,7 +37,7 @@ REGISTER = "docs/findings"
 PLAN_IDS = "docs/findings/plan-ids.txt"
 
 SEVERITIES = ("blocker", "high", "medium", "low")
-SOURCES = ("review-2026-09-26", "design", "reviewer-report", "phase-0-review")
+SOURCES = ("review-2026-09-26", "design", "reviewer-report", "phase-0-review", "pr-review")
 F_STATUSES = ("open", "mitigated", "closed", "accepted")
 U_STATUSES = ("open", "closed", "accepted")
 
