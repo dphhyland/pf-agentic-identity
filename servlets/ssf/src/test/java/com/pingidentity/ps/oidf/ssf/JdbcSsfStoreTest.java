@@ -241,4 +241,22 @@ class JdbcSsfStoreTest {
         verify(ps).setLong(3, 300L);
         verify(ps).setInt(4, 500);
     }
+
+    /**
+     * Both reads of the queue in one order, {@code jti} breaking a second's ties: the push executor holds a
+     * stream on {@code peek}'s first SET and posts in {@code dueForPush}'s order, and with {@code issued_at}
+     * alone a burst came back in whatever order the database chose (SsfStoresOnPostgresTest runs it).
+     */
+    @Test
+    void peekAndDueForPushShareOneOrder() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        assertTrue(store.peek("s1", 1).isEmpty());
+
+        verify(conn).prepareStatement(JdbcSsfStore.SELECT_PEEK);
+        assertTrue(JdbcSsfStore.SELECT_PEEK.endsWith(" ORDER BY issued_at, jti LIMIT ?"));
+        assertTrue(JdbcSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY p.issued_at, p.jti LIMIT ?"));
+    }
 }

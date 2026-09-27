@@ -260,4 +260,18 @@ class LdmSsfStoreTest {
         verify(ps).setLong(5, 300L);
         verify(ps).setInt(6, 500);
     }
+
+    /** As for the tables store: both reads of the queue in one order, the {@code jti} breaking a second's ties. */
+    @Test
+    void peekAndDueForPushShareOneOrder() throws Exception {
+        ResultSet rs = mock(ResultSet.class);
+        when(ps.executeQuery()).thenReturn(rs);
+        when(rs.next()).thenReturn(false);
+
+        assertTrue(store.peek("00000000-0000-0000-0000-000000000001", 1).isEmpty());
+
+        verify(conn).prepareStatement(org.mockito.ArgumentMatchers.endsWith(" " + LdmSsfStore.ORDER_PEEK));
+        assertEquals("ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' LIMIT ?", LdmSsfStore.ORDER_PEEK);
+        assertTrue(LdmSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' LIMIT ?"));
+    }
 }

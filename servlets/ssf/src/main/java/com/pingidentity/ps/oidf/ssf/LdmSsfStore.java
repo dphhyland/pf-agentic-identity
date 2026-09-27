@@ -221,10 +221,12 @@ public final class LdmSsfStore implements SsfStore {
                 });
     }
 
+    /** SsfStore#peek's order: oldest first, and a second's SETs by {@code jti} - the same as {@link #SELECT_DUE_FOR_PUSH}. */
+    static final String ORDER_PEEK = "ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' LIMIT ?";
+
     @Override
     public List<PendingSet> peek(String streamId, int max) {
-        return query(pendingSelect() + " WHERE parent_id = ?::uuid AND ? = ANY (object_classes) "
-                        + "ORDER BY (attrs->>'issuedAt')::bigint LIMIT ?",
+        return query(pendingSelect() + " WHERE parent_id = ?::uuid AND ? = ANY (object_classes) " + ORDER_PEEK,
                 ps -> {
                     ps.setString(1, streamId);
                     ps.setString(2, PENDING_CLASS);
@@ -252,7 +254,8 @@ public final class LdmSsfStore implements SsfStore {
     /**
      * The stream's state is in the query (SsfStore#dueForPush): the pending entry joined to its parent
      * stream entry, so the batch is only ever deliverable SETs. The same columns {@link #pendingSelect}
-     * names, qualified, because both sides of the join are {@code idm.entry}.
+     * names, qualified, because both sides of the join are {@code idm.entry}; and the same order as
+     * {@link #ORDER_PEEK}, so the push executor's hold and its batch agree on which SET of a stream is first.
      */
     static final String SELECT_DUE_FOR_PUSH =
             "SELECT p.parent_id::text AS stream_id, p.attrs::text AS attrs, "
@@ -260,7 +263,7 @@ public final class LdmSsfStore implements SsfStore {
                     + "FROM idm.entry p JOIN idm.entry s ON s.entry_uuid = p.parent_id AND ? = ANY (s.object_classes) "
                     + "WHERE ? = ANY (p.object_classes) AND s.attrs->>'deliveryMethod' = ? AND s.attrs->>'streamStatus' = ? "
                     + "AND (p.attrs->>'nextAttemptAt')::bigint <= ? "
-                    + "ORDER BY (p.attrs->>'issuedAt')::bigint LIMIT ?";
+                    + "ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' LIMIT ?";
 
     @Override
     public List<PendingSet> dueForPush(long now, int max) {

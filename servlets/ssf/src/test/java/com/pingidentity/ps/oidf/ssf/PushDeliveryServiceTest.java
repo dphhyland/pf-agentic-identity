@@ -325,6 +325,41 @@ class PushDeliveryServiceTest {
     }
 
     /**
+     * Deliberately untagged: this asserts the divergence F-0095 records, and a divergence is never tagged with
+     * the clause it departs from. SSF 1.0 §8.1.2.1 has a transmitter that holds successive events for one
+     * Subject Principal transmit them "in the order of time that they were generated"; {@code issuedAt} is in
+     * seconds, so a burst - a logout, a deprovision - goes in {@code jti} order within its second. What the
+     * loop does keep for a burst: the SET that failed is the one retried, the stream waits behind it, and it
+     * goes first. Generated b, c, a in one second; tried a, and a again; then a, b, c.
+     */
+    @Test
+    void aBurstIssuedInOneSecondIsRetriedFromOneSetAndDeliveredInJtiOrder() {
+        pushStream("s1", StreamStatus.ENABLED);
+        for (String jti : List.of("b", "c", "a")) {
+            store.enqueue(PendingSet.fresh(jti, "s1", "k", SsfEventTypes.CAEP_SESSION_REVOKED, "jws-" + jti, 100, 0));
+        }
+        cfg = new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .pushRetryMaxAttempts(5).pushRetryBackoffSeconds(5).build();
+        List<String> posted = new ArrayList<>();
+        boolean[] receiverUp = {false};
+        PushDeliveryService service = svc((u, a, j) -> {
+            posted.add(j);
+            return receiverUp[0] ? PushDeliveryService.DeliveryResult.delivered()
+                    : PushDeliveryService.DeliveryResult.retryable(503, "down");
+        });
+
+        assertEquals(0, service.runOnce(1000));
+        assertEquals(0, service.runOnce(1005));
+        assertEquals(List.of("jws-a", "jws-a"), posted, "the SET that failed is the one retried");
+        assertEquals(List.of(2, 0, 0), store.peek("s1", 10).stream().map(PendingSet::deliveryAttempts).toList());
+
+        receiverUp[0] = true;
+        assertEquals(0, service.runOnce(1010), "b and c are due, and wait behind a");
+        assertEquals(3, service.runOnce(1015));
+        assertEquals(List.of("jws-a", "jws-a", "jws-a", "jws-b", "jws-c"), posted);
+    }
+
+    /**
      * The oldest SET is read after the batch, so it can be gone by then - delivered by another node, or
      * acknowledged by a poll. A stream with nothing older queued is not held.
      */

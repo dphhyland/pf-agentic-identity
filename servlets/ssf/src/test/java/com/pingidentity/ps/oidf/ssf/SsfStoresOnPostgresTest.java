@@ -273,4 +273,91 @@ class SsfStoresOnPostgresTest {
     void theLoopOverTheLdmStore() {
         aTickOverTheStore(new LdmSsfStore(db));
     }
+
+    // ─────────────────────────────── a burst: SETs issued in one second ───────────────────────────────
+
+    private static PushDeliveryService loop(SsfStore store, List<String> posted, boolean[] receiverUp) {
+        SsfConfiguration cfg = new SsfConfiguration.Builder().issuer("https://op.example.com")
+                .pushRetryMaxAttempts(5).pushRetryBackoffSeconds(5).build();
+        return new PushDeliveryService(store, cfg, (url, auth, jws) -> {
+            posted.add(jws);
+            return receiverUp[0] ? PushDeliveryService.DeliveryResult.delivered()
+                    : PushDeliveryService.DeliveryResult.retryable(503, "down");
+        });
+    }
+
+    /**
+     * Deliberately untagged: this asserts the divergence F-0095 records. SSF 1.0 §8.1.2.1 has a transmitter
+     * that holds successive events for one Subject Principal transmit them "in the order of time that they
+     * were generated"; {@code issuedAt} is in seconds, so a burst goes in {@code jti} order within its second.
+     * What the stores do keep is one order for both reads. Ordered by {@code issued_at} alone, Postgres
+     * returned a burst in the order the rows lay, and {@code recordAttempt}'s UPDATE moves the row it updates:
+     * the retry went to another SET of the burst and the stream was not held behind the one that failed.
+     * Generated b, c, a in one second; tried a, and a again; then a, b, c.
+     */
+    private void aBurstIssuedInOneSecond(SsfStore store) {
+        String s = stream(store, DeliveryMethod.PUSH, StreamStatus.ENABLED);
+        for (String jti : List.of("burst-b", "burst-c", "burst-a")) {
+            due(store, s, jti, 100);
+        }
+        List<String> posted = new ArrayList<>();
+        boolean[] receiverUp = {false};
+        PushDeliveryService loop = loop(store, posted, receiverUp);
+
+        assertEquals(0, loop.runOnce(1000));
+        assertEquals(0, loop.runOnce(1005));
+        assertEquals(List.of("jws-burst-a", "jws-burst-a"), posted, "the SET that failed is the one retried");
+        List<PendingSet> queued = store.peek(s, 10);
+        assertEquals(List.of("burst-a", "burst-b", "burst-c"), jtis(queued));
+        assertEquals(List.of(2, 0, 0), queued.stream().map(PendingSet::deliveryAttempts).toList());
+
+        receiverUp[0] = true;
+        assertEquals(0, loop.runOnce(1010), "burst-b and burst-c are due, and wait behind burst-a");
+        assertEquals(3, loop.runOnce(1015));
+        assertEquals(List.of("jws-burst-a", "jws-burst-a", "jws-burst-a", "jws-burst-b", "jws-burst-c"), posted);
+    }
+
+    @Test
+    void aBurstOverTheTablesStore() {
+        aBurstIssuedInOneSecond(new JdbcSsfStore(db));
+    }
+
+    @Test
+    void aBurstOverTheLdmStore() {
+        aBurstIssuedInOneSecond(new LdmSsfStore(db));
+    }
+
+    /**
+     * Deliberately untagged, as above. A burst whose receiver refuses every POST dead-letters on one SET's
+     * backoff - 5 + 10 + 20 + 40 s, the fifth attempt at 75 s - however many SETs share its second. With the
+     * retries moving from SET to SET, five of them took 130 s.
+     */
+    private void aBurstDeadLettersOnOneSetsBackoff(SsfStore store) {
+        String s = stream(store, DeliveryMethod.PUSH, StreamStatus.ENABLED);
+        for (int i = 0; i < 5; i++) {
+            due(store, s, "dl-" + i, 100);
+        }
+        PushDeliveryService loop = loop(store, new ArrayList<>(), new boolean[] {false});
+
+        long pausedAt = -1;
+        for (long now = 1000; now <= 1200 && pausedAt < 0; now += 5) {
+            loop.runOnce(now);
+            if (store.getStream(s).orElseThrow().status() == StreamStatus.PAUSED) {
+                pausedAt = now;
+            }
+        }
+
+        assertEquals(1075, pausedAt);
+        assertEquals(List.of(5, 0, 0, 0, 0), store.peek(s, 10).stream().map(PendingSet::deliveryAttempts).toList());
+    }
+
+    @Test
+    void aBurstDeadLettersOnTheTablesStore() {
+        aBurstDeadLettersOnOneSetsBackoff(new JdbcSsfStore(db));
+    }
+
+    @Test
+    void aBurstDeadLettersOnTheLdmStore() {
+        aBurstDeadLettersOnOneSetsBackoff(new LdmSsfStore(db));
+    }
 }

@@ -103,6 +103,26 @@ class InMemorySsfStoreTest {
         assertEquals(1, store.peek("poll", 10).size(), "left for the poll endpoint");
     }
 
+    /**
+     * SETs issued in the same second come back from both reads in one order, by {@code jti}: the push executor
+     * holds a stream on {@code peek}'s first SET and posts in {@code dueForPush}'s order, so the two must agree
+     * (SsfStore#peek). Ten minted jtis, so the map's own iteration order is all but certain to be another one.
+     */
+    @Test
+    void aSecondsSetsComeBackInJtiOrderFromBothReads() {
+        store.createStream(pushStream("s1", StreamStatus.ENABLED));
+        List<String> minted = new java.util.ArrayList<>();
+        for (int i = 0; i < 10; i++) {
+            String jti = SetMinter.newJti();
+            minted.add(jti);
+            store.enqueue(PendingSet.fresh(jti, "s1", "k", "e", "jws", 100, 0));
+        }
+        List<String> sorted = minted.stream().sorted().toList();
+
+        assertEquals(sorted, store.peek("s1", 10).stream().map(PendingSet::jti).toList());
+        assertEquals(sorted, store.dueForPush(100, 10).stream().map(PendingSet::jti).toList());
+    }
+
     @Test
     void dueForPushRespectsNextAttemptTime() {
         store.createStream(pushStream("s1", StreamStatus.ENABLED));

@@ -26,6 +26,10 @@ public final class InMemorySsfStore implements SsfStore {
     // streamId -> (jti -> PendingSet)
     private final Map<String, Map<String, PendingSet>> pending = new ConcurrentHashMap<>();
 
+    /** SsfStore#peek's order, which dueForPush shares: oldest first, and a second's SETs by {@code jti}. */
+    static final Comparator<PendingSet> ORDER =
+            Comparator.comparingLong(PendingSet::issuedAt).thenComparing(PendingSet::jti);
+
     @Override
     public Stream createStream(Stream stream) {
         // As the two durable stores, where the id is the primary key. A create that could overwrite would be a
@@ -102,7 +106,7 @@ public final class InMemorySsfStore implements SsfStore {
             return List.of();
         }
         return q.values().stream()
-                .sorted(Comparator.comparingLong(PendingSet::issuedAt))
+                .sorted(ORDER)
                 .limit(Math.max(0, max))
                 .toList();
     }
@@ -128,7 +132,7 @@ public final class InMemorySsfStore implements SsfStore {
                 .filter(e -> getStream(e.getKey()).map(Stream::isPushEnabled).orElse(false))
                 .flatMap(e -> e.getValue().values().stream())
                 .filter(p -> p.nextAttemptAt() <= now)
-                .sorted(Comparator.comparingLong(PendingSet::issuedAt))
+                .sorted(ORDER)
                 .limit(Math.max(0, max))
                 .toList();
     }

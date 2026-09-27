@@ -124,13 +124,14 @@ public final class PushDeliveryService {
      * delivers nothing rather than something it was configured to have discarded.
      *
      * <p>A stream that fails is held, whole. After a retryable failure nothing more of that stream is tried
-     * in the tick, and in later ticks nothing of it is tried while its oldest SET is still waiting out the
+     * in the tick, and in later ticks nothing of it is tried while its first SET is still waiting out the
      * backoff that failure set: its later SETs are due, but posting them would put them in front of the one
      * that failed. So a receiver that is down costs one attempt (at most {@link #REQUEST_TIMEOUT}) per backoff
-     * step, not one per queued SET or one per tick, and when it is back its SETs arrive oldest first - from
-     * the one that failed, which is retried before anything behind it. Attempts are counted on the SET that
-     * was tried, the oldest, so the stream dead-letters when that SET has failed {@code pushRetryMaxAttempts}
-     * times, on the same backoff as before.
+     * step, not one per queued SET or one per tick, and when it is back its SETs arrive in the store's order
+     * ({@link SsfStore#peek}: oldest first, and a second's SETs by {@code jti}) - from the one that failed,
+     * which is retried before anything behind it. Attempts are counted on the SET that was tried, the first,
+     * so the stream dead-letters when that SET has failed {@code pushRetryMaxAttempts} times, on the same
+     * backoff as before, however many SETs were issued in its second.
      *
      * <p>A tick whose thread is interrupted - {@link #stop} - posts nothing after the attempt in flight.
      */
@@ -181,11 +182,11 @@ public final class PushDeliveryService {
     }
 
     /**
-     * Whether the stream's oldest queued SET is not due yet - a failed attempt's backoff - so that the due
-     * SETs behind it wait too. Asked once per stream per tick, before its first attempt. The oldest SET
-     * that is due is the first of its stream in the batch, so a stream whose oldest SET is due is never
-     * held here; one whose oldest SET is gone (delivered or evicted since the batch was read) is not
-     * either.
+     * Whether the stream's first queued SET is not due yet - a failed attempt's backoff - so that the due
+     * SETs behind it wait too. Asked once per stream per tick, before its first attempt. {@code peek} and
+     * {@code dueForPush} share one order ({@link SsfStore#peek}), so a first SET that is due is also the
+     * stream's first in the batch, and a stream whose first SET is due is never held here; one whose first
+     * SET is gone (delivered or evicted since the batch was read) is not either.
      */
     private boolean oldestIsBackingOff(String streamId, long now) {
         List<PendingSet> oldest = this.store.peek(streamId, 1);
