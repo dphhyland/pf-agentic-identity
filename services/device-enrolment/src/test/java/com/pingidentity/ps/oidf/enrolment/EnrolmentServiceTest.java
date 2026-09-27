@@ -16,6 +16,7 @@ import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.LocalJwkSigner;
 import com.pingidentity.ps.oidf.device.AuditEntry;
+import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.pingidentity.ps.oidf.device.DeviceAttestationMinter;
 import com.pingidentity.ps.oidf.device.InMemoryInstanceRegistry;
@@ -280,13 +281,18 @@ class EnrolmentServiceTest {
         assertEquals(EnrolmentException.DEVICE_NOT_COMPLIANT, e.error());
     }
 
+    /**
+     * The service has no compliance operation of its own since 0.4.0 (M-2): the signal arrives at the
+     * registry through {@code CaepSignalApplier}, the one mapping every CAEP receiver applies, and this is
+     * what it does to the next re-mint.
+     */
     @Test
     void aComplianceFailureSuspendsEveryInstanceOnTheDevice() throws Exception {
         EnrolmentService.Enrolled enrolled = enrol();
         var instance = registry.findInstance(enrolled.instanceId()).orElseThrow();
         makeCompliant(enrolled.instanceId());
 
-        service.applyComplianceChange(instance.deviceId(), ComplianceState.NOT_COMPLIANT, Instant.now());
+        new CaepSignalApplier(registry).deviceComplianceChange(instance.deviceId(), "not-compliant");
 
         assertEquals(EnrolmentException.INSTANCE_NOT_ACTIVE,
                 assertThrows(EnrolmentException.class, () -> service.reissue(
