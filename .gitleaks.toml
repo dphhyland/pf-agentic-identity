@@ -1,6 +1,6 @@
 # gitleaks' rules for this repository: the defaults, plus what the defaults get wrong here. build.yml's
-# secrets-guard job runs gitleaks-action over the commits a push or pull request adds, and over the whole
-# history when Build is run by hand; `gitleaks git .` from a checkout reads this file too. Every entry says
+# secrets-guard job runs `gitleaks git` over every commit behind the one under test, and a run from a
+# checkout (tools/ci/install-lint-tools.sh installs the binary) reads this file too. Every entry says
 # what it allows and why that is not a secret, and each is scoped to the one rule that misreads it, so a
 # private key in the same file is still found. A real leak is never allow-listed here: .gitleaksignore
 # acknowledges one by fingerprint, with what it was.

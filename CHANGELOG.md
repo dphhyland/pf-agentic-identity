@@ -14,8 +14,8 @@ hygiene.
 
 - **CI hygiene** (R-CI1 to R-CI4) - every action pinned to a commit with least-privilege tokens; actionlint,
   zizmor, shellcheck and `terraform validate` in the lint job; the secrets guard's content scan extended to private
-  JWKs and every PEM kind, with gitleaks beside it; CodeQL for Java, Actions, Python and JavaScript; Dependabot;
-  the rig's Terraform lock file committed; CODEOWNERS.
+  JWKs and every PEM kind, with gitleaks over the whole history beside it; CodeQL for Java, Actions, Python and
+  JavaScript; Dependabot; the rig's Terraform lock file committed; CODEOWNERS.
 
 ## [0.3.0] - 2026-09-27
 

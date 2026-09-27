@@ -9,8 +9,9 @@
 # references are what validate checks, and no key takes part. The copy carries the committed .terraform.lock.hcl
 # and init is told to leave it as it is, so a provider the lock file does not record fails here instead of being
 # fetched. To move the provider: change versions.tf, then in conformance/terraform
-#   terraform init -backend=false -upgrade && terraform providers lock -platform=linux_amd64 -platform=darwin_arm64 -platform=darwin_amd64
-# and commit the lock file.
+#   terraform init -backend=false -upgrade && terraform providers lock -platform=linux_amd64 -platform=linux_arm64 -platform=darwin_amd64 -platform=darwin_arm64
+# and commit the lock file, which then records the build for Linux and macOS on either architecture, as
+# conformance/README.md says.
 set -euo pipefail
 cd "$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
 

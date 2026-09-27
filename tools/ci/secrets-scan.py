@@ -13,12 +13,15 @@ What is a hit:
   age identity     AGE-SECRET-KEY-1 followed by its bech32 payload. The bare prefix is not one: the first
                    version of this guard flagged pf-entrypoint.sh, which names the variable in a comment, and
                    failed two builds before anyone looked. A guard that cries wolf gets excluded, not fixed.
-  PEM private key  BEGIN PRIVATE KEY, and the RSA, EC, DSA, OPENSSH, ENCRYPTED and PGP forms of it.
+  PEM private key  BEGIN PRIVATE KEY, with or without a qualifier before PRIVATE: the RSA, EC, DSA, OPENSSH,
+                   ENCRYPTED, SSH2 ENCRYPTED (RFC 4716) and PGP forms, and any other made of capitals, digits,
+                   spaces, - and _.
   private JWK      a JSON object with a "kty" member and a "d" member holding a string: d is the private
                    exponent of an RSA key and the private key of an EC or OKP key (RFC 7518 sections 6.2.2 and
                    6.3.2, RFC 8037 section 2). A public JWK has kty and no d, which is what every fixture and
                    document here carries. The quotes may be backslash-escaped, so a key pasted into a Java
-                   string literal is a hit as well.
+                   string literal is a hit as well. The d of a multi-prime RSA key sits in the objects of its
+                   "oth" array (RFC 7518 section 6.3.2.7), so an object is read with the objects nested in it.
 
 The files that carry these patterns on purpose are listed in EXCLUDED, each with why; nothing else is.
 Exit status: 0 when clean, 1 with a list otherwise, 2 when a file cannot be read.
@@ -29,22 +32,31 @@ import re
 import subprocess
 import sys
 
-# Path, relative to the root -> why its hits are not a leak.
+# Path, relative to the root -> why its hits are not a leak. tools/tests/test_secrets_scan.py is not here: it
+# assembles its keys at run time so that its own text matches nothing, and the scanner reads it like any file.
 EXCLUDED = {
     "tools/ci/secrets-scan.py": "carries the patterns it looks for",
-    "tools/tests/test_secrets_scan.py": "its hits are keys it makes up, to prove they are found",
 }
 
 AGE_IDENTITY = re.compile(r"AGE-SECRET-KEY-1[A-Z0-9]{20,}")
-PEM_PRIVATE_KEY = re.compile(r"BEGIN (?:RSA |EC |DSA |OPENSSH |ENCRYPTED |PGP )?PRIVATE KEY")
-# A JWK is flat - its one nested value, x5c, is an array - so the innermost braces around "kty" are its own.
-JSON_OBJECT = re.compile(r"\{[^{}]*\}")
+PEM_PRIVATE_KEY = re.compile(r"BEGIN [A-Z0-9 _-]{0,40}PRIVATE KEY")
 KTY_MEMBER = re.compile(r'\\?"kty\\?"\s*:')
 D_MEMBER = re.compile(r'\\?"d\\?"\s*:\s*\\?"[A-Za-z0-9_\-=]{16,}')
 
 
 def line_of(text, offset):
     return text.count("\n", 0, offset) + 1
+
+
+def brace_objects(text):
+    """(offset, body) of every {...} in text, nested ones included, each as its closing brace is reached."""
+    opens = []
+    for i, ch in enumerate(text):
+        if ch == "{":
+            opens.append(i)
+        elif ch == "}" and opens:
+            start = opens.pop()
+            yield start, text[start:i + 1]
 
 
 def scan_text(text):
@@ -54,10 +66,17 @@ def scan_text(text):
         hits.append((line_of(text, m.start()), "age identity"))
     for m in PEM_PRIVATE_KEY.finditer(text):
         hits.append((line_of(text, m.start()), "PEM private key"))
-    for m in JSON_OBJECT.finditer(text):
-        kty = KTY_MEMBER.search(m.group(0))
-        if kty and D_MEMBER.search(m.group(0)):
-            hits.append((line_of(text, m.start() + kty.start()), "private JWK"))
+    # Inner objects come first, so a private key is reported at its own kty line and the JWK set around it,
+    # whose text holds the same kty and d, is not reported a second time. A multi-prime key's d is only in its
+    # oth objects, which have no kty, so the key itself is the object reported.
+    found = []
+    for start, body in brace_objects(text):
+        if any(start <= inner < start + len(body) for inner in found):
+            continue
+        kty = KTY_MEMBER.search(body)
+        if kty and D_MEMBER.search(body):
+            found.append(start)
+            hits.append((line_of(text, start + kty.start()), "private JWK"))
     return sorted(hits)
 
 

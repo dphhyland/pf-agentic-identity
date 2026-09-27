@@ -8,6 +8,7 @@ provider "registry.terraform.io/pingidentity/pingfederate" {
     "h1:0fxWRnvukVASJucbw/bU5b8v6t4PWSAzbMLcPVRuowo=",
     "h1:8IGl+dqwY00h7WKyrtPB6QxxZ39GPr27hV+WnBMPqjM=",
     "h1:vuA8ZWOgG1euHdZXj0Hr+XZql7nspX5VJkz24cvQOS4=",
+    "h1:xpBxqlbcfaJAqnivagga2cAUxUBPeyLS193N1KYZWB4=",
     "zh:036961798c4f37228186cb66d7c42d0f6d32e54814c8ad82a4ced49b37f6efee",
     "zh:07d46020e4b4a887be160e0791d50c642fd0588a88be2fe45117b5b02d2f1e4e",
     "zh:2b082262ae82062f72abab7f46702465d83149b81bbd2f1d8a7d3fbbf4b604dc",

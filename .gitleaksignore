@@ -1,6 +1,6 @@
 # Findings gitleaks acknowledges by fingerprint (commit:path:rule:line), each with what it was. This file
 # records a real finding; it does not excuse one. gitleaks reported it, the pull request that added the line
-# says so, and a Build run by hand, which scans the whole history, does not fail on it a second time. What
+# says so, and no later Build, every one of which scans the whole history, fails on it a second time. What
 # is not a secret at all goes in .gitleaks.toml instead.
 #
 # A demo App Attest trust root's private key, checked in openly by design for demo/phone-simulator (its README

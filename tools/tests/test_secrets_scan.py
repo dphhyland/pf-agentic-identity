@@ -48,6 +48,15 @@ PRIVATE_EC_COMPACT = f'{{"kty":"EC","crv":"P-256","x":"{B64}","y":"{B64}","d":"{
 PUBLIC_EC_JAVA = f'    String jwk = "{{\\"kty\\":\\"EC\\",\\"crv\\":\\"P-256\\",\\"x\\":\\"{B64}\\",\\"y\\":\\"{B64}\\"}}";\n'
 PRIVATE_EC_JAVA = f'    String jwk = "{{\\"kty\\":\\"EC\\",\\"d\\":\\"{B64}\\",\\"crv\\":\\"P-256\\"}}";\n'
 PRIVATE_OKP_YAML_ISH = f'key: {{ "crv": "Ed25519", "d": "{B64}", "kty": "OKP" }}\n'
+# RFC 7518 section 6.3.2.7: the private parts of a multi-prime RSA key are in the objects of "oth".
+PRIVATE_RSA_MULTI_PRIME = f'{{"kty":"RSA","n":"{B64}","e":"AQAB","oth":[{{"r":"{B64}","d":"{B64}","t":"{B64}"}}]}}\n'
+MIXED_JWKS = f"""{{
+  "keys": [
+    {{ "kty": "EC", "crv": "P-256", "x": "{B64}", "y": "{B64}" }},
+    {{ "kty": "EC", "crv": "P-256", "x": "{B64}", "y": "{B64}", "d": "{B64}" }}
+  ]
+}}
+"""
 
 AGE_IDENTITY = "AGE-SECRET-KEY-1" + "QPZRY9X8GF2TVDW0S3JN54KHCE6MUA7L" + "QPZRY9X8GF2TVDW0S3JN54KHCE6M\n"
 AGE_PREFIX_IN_A_COMMENT = "# PF_ARCHIVE_AGE_KEY holds the identity (AGE-SECRET-KEY-1...) that decrypts it.\n"
@@ -55,7 +64,7 @@ AGE_PREFIX_IN_A_COMMENT = "# PF_ARCHIVE_AGE_KEY holds the identity (AGE-SECRET-K
 # Assembled rather than written out, so this file holds no PEM block for gitleaks to find either.
 PEM_HEADERS = [f"-----BEGIN {kind}PRIVATE KEY{block}-----"
                for kind, block in [("", ""), ("RSA ", ""), ("EC ", ""), ("DSA ", ""), ("OPENSSH ", ""),
-                                   ("ENCRYPTED ", ""), ("PGP ", " BLOCK")]]
+                                   ("ENCRYPTED ", ""), ("SSH2 ENCRYPTED ", ""), ("PGP ", " BLOCK")]]
 
 PROSE = """A JWK's "d" member is the private exponent; a public key has "kty", "n" and "e" and no "d".
 The certificate is what -----BEGIN CERTIFICATE----- delimits; a public key is -----BEGIN PUBLIC KEY-----.
@@ -87,6 +96,12 @@ class ScanText(unittest.TestCase):
 
     def test_the_member_order_does_not_matter(self):
         self.assertEqual([(1, "private JWK")], scan.scan_text(PRIVATE_OKP_YAML_ISH))
+
+    def test_a_multi_prime_rsa_key_whose_d_is_in_its_oth_objects_is_found(self):
+        self.assertEqual([(1, "private JWK")], scan.scan_text(PRIVATE_RSA_MULTI_PRIME))
+
+    def test_a_set_of_public_keys_and_one_private_key_is_reported_once_at_the_private_key(self):
+        self.assertEqual([(4, "private JWK")], scan.scan_text(MIXED_JWKS))
 
     def test_a_d_member_outside_any_kty_object_is_clean(self):
         self.assertEqual([], scan.scan_text(f'{{"d": "{B64}"}} and {{"kty": "EC", "x": "{B64}"}}\n'))
