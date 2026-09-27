@@ -78,18 +78,19 @@ gate at 100% line and branch on every new decision method. `RefreshVectorsTest` 
 vectors through PingFederate's own parse and the refresh loop transcribed from `javap -c` of 13.1.3.0, to the
 plugin's `isEqualOrSubset`: all agree with the library, reasons included, but six listed ones (the three marker
 cases, which the plugin strips by design; the empty request, which PingFederate asks no processor about; and two
-numbers its parse turns into `"Infinity"` and `0.0` before the plugin is asked), none of which issues more than
-the grant. `tools/pf-linkcheck.py` against the 13.1.3 jars: nothing unresolved in the shaded jar. On the rig
-(`PF_RIG_NAME=pfai-s1c`, PingFederate 13.1.3.0, 09:33Z) with a stub PDP answering PERMIT with a response context:
-a narrowing context was granted (`max_txn_eur` 100; EMEA of EMEA and APAC), a widening one and one writing an
-undeclared field answered 400 `invalid_authorization_details`, a request with an undeclared field answered 400
-with no PDP call, and a CIBA grant for 42.00 AUD refused refreshes for 43.00 and for another payee and granted
-41.00. No value from the PDP's answer reached `server.log`: the plugin's refusal names the undeclared field
-(`trace`), as designed, and PingFederate's own ERROR line names only the type. The plugin README's "Verified on
-the rig" has the table. `javap` of `pf-protocolengine`, `pingfederate-sdk` and `pf-dynamodb-integrations` 13.1.3.0,
-rechecked for the review the same day (`pf-protocolengine.jar`'s SHA-256 is the one in the
-`pingidentity/pingfederate:13.1.3` image): the refresh loop, the consent check on a refresh, the callers of the
-processor's `validate` and the grant managers' `getByAccessGrantCriteria` read as the README says.
+numbers its parse turns into `"Infinity"` and `0.0` before the plugin is asked), none of which issues more than the
+grant. `tools/pf-linkcheck.py` against the 13.1.3 jars: nothing unresolved in the shaded jar. On the rig
+(`PF_RIG_NAME=pfai-s1c`, PingFederate 13.1.3.0, 09:33Z) with a stub PDP answering PERMIT with a response context: a
+narrowing context was granted (`max_txn_eur` 100; EMEA of EMEA and APAC), a widening one and one writing an
+undeclared field answered 400 `invalid_authorization_details`, a request with an undeclared field answered 400 with
+no PDP call, and a CIBA grant for 42.00 AUD refused refreshes for 43.00 and for another payee and granted 41.00. No
+value from the PDP's answer reached `server.log`: the plugin's refusal names the undeclared field (`trace`), as
+designed, and PingFederate's own ERROR line names only the type. The plugin README's "Verified on the rig" has the
+table. `javap` of `pf-protocolengine`, `pingfederate-sdk` and `pf-dynamodb-integrations` 13.1.3.0, rechecked for the
+review the same day (`pf-protocolengine.jar`'s SHA-256 is the one in the
+`pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest` image): the refresh loop, the consent check on a
+refresh, the callers of the processor's `validate` and the grant managers' `getByAccessGrantCriteria` read as the
+README says.
 
 Residual risk. A bare refresh reissues stored details without the PDP, and without the plugin unless approved
 consent is reused (F-0105, PingFederate's own behaviour, which RFC 9396 section 7 permits). The fingerprint
