@@ -42,6 +42,33 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
+- **Redis verified and tri-state** (S3a) - `rediss://` checks the server's certificate and name and
+  completes the handshake before `AUTH`, an optional `OIDF_REDIS_CA_FILE`, `redis://` refused under the
+  production profile, a URL's userinfo never quoted in a message; store verdicts are
+  `FIRST_USE | REPLAY | STORE_UNAVAILABLE` and `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`, an outage answered
+  503 `temporarily_unavailable` and never "replay"; keys under `oidf:as:*`, `oidf:cas:*`,
+  `oidf:fed:endpoint:*` and `oidf:admin:dpop:*`. The store interfaces' abstract methods are now `record` and
+  `consumeChallenge`.
+- **Evidence digested and bound** (S3b) - the attestation carries `workload.instance_attestation_sha256`,
+  `_type` and `_exp` and never the evidence (`workload.svid` and `workload.instance_attestation` are gone);
+  the digest is the SHA-256 of the evidence's JWS Signing Input, so a re-encoded token is the same evidence;
+  evidence binds to the first instance key and client that present it, a second presenter is 401
+  `instance_attestation_bound` and an `attestation.evidence.conflict` audit event naming both keys; evidence
+  lifetime, whole and remaining, capped at a day in production, the attestation's `exp` never past the
+  evidence's.
+- **CIMD refused outside development** (M-1) - `OIDF_ATTESTER_CIMD_URL` is honoured only under
+  `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it, and the CAS
+  document does not list `cimd` among its metadata sources.
+
+- **RAR containment model** (S1a) - `libs/rar-model`, JDK only: per-type field rules (`set`, `set_of_values`, `limit`
+  with a paired unit, `amount`, `instant_limit`, `equal`, `string`, `object`, `forbidden`), alternatives for a thing
+  a type can say two ways, the built-in `sales_agent`, `payment_initiation` and `account_information` models, more
+  from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`, strict `contains`, `authorize` with inheritance, and the meet
+  `intersect`, over lists held to fixed limits (numbers by the digits they would write); a SHA-256 fingerprint of
+  the effective model and the library's semantics; 244 vectors in a test-jar and seeded property tests. The
+  library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
+  until then.
+
 - **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
   high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP
   429/502/503/504, so a 401 from a wrong secret, a body that is not a JSON object, a status line or header the

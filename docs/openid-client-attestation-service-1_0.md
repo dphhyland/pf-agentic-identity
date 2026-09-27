@@ -357,7 +357,9 @@ The `workload` claim is a JSON object:
 | `attested_by` | The Instance Attestation Format that was validated (e.g. `"spiffe"`, `"wallet"`). |
 | `subject` | The proven instance subject. Formats MAY additionally emit their native member (e.g. `spiffe_id`, `wallet_instance`). |
 | `attributes` | OPTIONAL. Attributes drawn from the matched Client Binding's registered metadata — e.g. `region`, `environment`, `tier`. These are **enrichment**: asserted by the metadata source, never by the requester. |
-| `instance_attestation` | OPTIONAL. The validated Instance Attestation, embedded for audit. Deployments SHOULD weigh the privacy cost (Section 9.2). |
+| `instance_attestation_sha256` | OPTIONAL. The SHA-256, lower-case hex, of the validated Instance Attestation's JWS Signing Input [RFC7515] - its first two segments, which are what its signature covers - so an auditor holding a captured token can match it. The signature segment is left out because a verifier accepts one signature in more than one encoding. The Instance Attestation itself MUST NOT be embedded (Section 9.1). |
+| `instance_attestation_type` | OPTIONAL. The evidence type that validated the Instance Attestation (e.g. `"spiffe-jwt"`, `"wallet-instance-attestation"`). |
+| `instance_attestation_exp` | OPTIONAL. The Instance Attestation's expiry, as a NumericDate. The Client Attestation's `exp` MUST NOT be later. |
 
 A downstream authorization server or resource server can therefore make decisions on *who vouched*
 (`iss`), *which client* (`sub`), *which instance and platform* (`workload`), and *what authority was
@@ -365,7 +367,7 @@ granted* (`authorization_details`) — with the key binding (`cnf`) preventing u
 
 ### 4.6 Errors
 
-Errors use HTTP 400 (or 401/403 where noted) with:
+Errors use HTTP 400 (or the status noted: 401, 403, 500 or 503) with:
 
 ```json
 { "error": "instance_not_authorized", "error_description": "spiffe://prod.example/agent-x is not bound to client https://client.example" }
@@ -378,8 +380,10 @@ Errors use HTTP 400 (or 401/403 where noted) with:
 | `invalid_instance_attestation` | The Instance Attestation failed validation, or its bound key mismatches `instance_key`. |
 | `instance_not_authorized` | Valid attestation, but the subject is not bound to the client. (403) |
 | `invalid_instance_proof` | The Instance Key Proof failed (signature, `aud`, expiry, replay, challenge). |
+| `instance_attestation_bound` | The Instance Attestation is already bound to a different Instance Key or client (Section 9.1). (401) |
 | `access_denied` | The requested `authorization_details` exceed the permitted ceiling. (403) |
 | `server_error` | Internal failure. (500) |
+| `temporarily_unavailable` | The CAS cannot check the request now - for example, the store that tracks challenges, proof `jti`s or bindings does not answer - and the client may retry later. (503) |
 
 ---
 
@@ -665,6 +669,18 @@ source, the CAS, the AS).
 - **Replay.** The Instance Key Proof's `jti` MUST be tracked for one-time use within its validity
   window; the challenge (when required) MUST be single-use. Instance Attestation formats with audience
   restriction MUST be validated with the CAS as audience.
+- **Evidence reuse.** An Instance Attestation's audience is the CAS, so whoever holds one can present it
+  here with a key of their own. The CAS MUST NOT embed the Instance Attestation in an issued token
+  (Section 4.5 carries its digest instead). It SHOULD bind each Instance Attestation, by the digest of
+  Section 4.5, to the first Instance Key and client that present it, for as long as the Instance
+  Attestation lives, and only once steps 1 to 6 of Section 4.4 have passed, so a request those steps refuse
+  never holds a binding. The binding MUST be keyed on what the Instance Attestation's signature covers and
+  nothing else, so that the same token re-encoded - with trailing whitespace, or another encoding of the
+  same signature - meets the same binding. It SHOULD refuse a later presentation by another key or client
+  with `instance_attestation_bound` and record it, naming the key refused and the key that holds the
+  binding.
+  A presenter who comes first still wins: the binding detects theft rather than preventing it, and only
+  an Instance Attestation that is itself bound to the Instance Key prevents it.
 - **Self-asserted metadata.** The CIMD constraints of Section 6.2 rule 3 are load-bearing: an unsigned
   document must never be able to introduce a trust root.
 - **Signing-key protection.** The CAS signing key SHOULD be held in an HSM/KMS/transit signer such
@@ -678,10 +694,11 @@ source, the CAS, the AS).
 
 ### 9.2 Privacy Considerations
 
-`workload.attributes` and an embedded `instance_attestation` can expose infrastructure topology
-(cluster names, regions, provider identifiers) to every party that reads the attestation. Deployments
-SHOULD register only attributes that downstream authorization actually uses, and SHOULD omit the raw
-Instance Attestation from issued tokens unless audit requirements demand it.
+`workload.attributes` can expose infrastructure topology (cluster names, regions, provider identifiers)
+to every party that reads the attestation. Deployments SHOULD register only attributes that downstream
+authorization actually uses. The Instance Attestation itself, which carries the instance's platform
+identity, is not embedded (Section 9.1): `workload.instance_attestation_sha256` lets an auditor holding a
+captured token match it without every reader of the attestation seeing the token.
 
 ---
 
@@ -782,6 +799,12 @@ client's registered binding and policy — the request could not assert any of i
 
 ## Appendix B. Document History
 
+- **draft 00, 2026-09-27** - `workload.instance_attestation` (the embedded Instance Attestation) replaced by
+  `instance_attestation_sha256`, `instance_attestation_type` and `instance_attestation_exp`; Section 9.1
+  forbids embedding it and describes binding it to its first presenter; Section 4.6 adds
+  `instance_attestation_bound` and `temporarily_unavailable`. The digest covers the JWS Signing Input, not
+  the whole token, and the binding is keyed on it, after an adversarial review re-encoded a token past a
+  digest of the whole string.
 - **draft 00** — initial individual draft, generalised from a running implementation (SPIFFE and
   wallet instance formats; registration, OpenID Federation, and CIMD metadata sources; OpenBao-transit
   signing; entitlement-ceiling policy). Revised to make [ABCA] fully authoritative for the attestation

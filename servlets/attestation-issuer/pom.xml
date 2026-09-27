@@ -120,6 +120,30 @@
                                         <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.fromEnvironment(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.federationValidator(*</include>
+                                        <!-- S3b: the evidence binds to its first presenter and a conflict is refused and audited;
+                                             the policy on evidence lifetime and audience; the attestation never outlives the
+                                             evidence; and the raw evidence is digested, never copied. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.bindEvidence(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.evidencePolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.effectiveTtlSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.isProduction(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.ofSpiffe(*</include>
+                                        <!-- M-1: the CAS document does not advertise a CIMD source the attester refuses. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadataSources(*</include>
+                                        <!-- S3b: the digest that keys the binding, which covers only what the evidence's
+                                             signature covers; the refusal's error by format; which stores the
+                                             attester uses when none is injected; the thumbprint the binding holds; and
+                                             the WIA's iat, which the whole-lifetime cap reads. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.evidenceDigest(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.refuse(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.firstSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.issuedAt(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.challengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.replayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.evidenceBindings(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.thumbprintOf(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

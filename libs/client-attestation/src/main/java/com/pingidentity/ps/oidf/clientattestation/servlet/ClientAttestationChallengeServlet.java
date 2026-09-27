@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.clientattestation.servlet;
 import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService;
 import com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.StoreUnavailableException;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.LinkedHashMap;
@@ -92,7 +93,22 @@ public class ClientAttestationChallengeServlet extends HttpServlet {
             return;
         }
         AttestationChallengeService service = AttestationSupport.challengeService();
-        String challenge = service.issue();
+        String challenge;
+        try {
+            challenge = service.issue();
+        } catch (StoreUnavailableException e) {
+            // A challenge that was not recorded must not be handed out: it could never be consumed.
+            log.error((Object) "challenge endpoint: the challenge store is unavailable", e);
+            resp.setStatus(503);
+            resp.setContentType("application/json");
+            resp.setHeader("Cache-Control", "no-store");
+            try (PrintWriter out = resp.getWriter()) {
+                out.write(JsonUtil.toJson(Map.of(
+                        "error", "temporarily_unavailable",
+                        "error_description", "the attestation challenge store is unavailable")));
+            }
+            return;
+        }
         resp.setStatus(200);
         resp.setContentType("application/json");
         resp.setHeader("Cache-Control", "no-store");

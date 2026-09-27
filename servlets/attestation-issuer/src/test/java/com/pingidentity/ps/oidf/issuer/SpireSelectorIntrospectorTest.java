@@ -18,7 +18,7 @@ class SpireSelectorIntrospectorTest {
 
     private static SpiffeSvid rawSvid(String id) {
         return new SpiffeSvid(id, "gke.banking.demo", "/ns/demo/sa/payment-agent",
-                List.of("https://attester.example.com"), 0, 0, "raw");
+                List.of("https://attester.example.com"), 0, 0, "header.payload.signature");
     }
 
     @Test
