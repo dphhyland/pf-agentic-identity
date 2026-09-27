@@ -33,6 +33,13 @@ public final class SsfSupport {
     private static final Log LOGGER = LogFactory.getLog(SsfSupport.class);
     private static final Object LOCK = new Object();
 
+    /**
+     * What every accessor throws before {@link #configure} has succeeded: no SSF servlet has initialised, SSF
+     * has no issuer, or the store has not opened yet ({@link #start} logs which, and retries the last).
+     */
+    static final String NOT_CONFIGURED =
+            "SSF transmitter is not configured: no issuer, or its store has not opened yet (see the SSF lines in the server log)";
+
     /** How long a boot that could not open the store waits before trying again. A constant until S-5 makes it a setting. */
     static volatile int bootRetrySeconds = 30;
     private static ScheduledExecutorService bootRetry;
@@ -139,8 +146,8 @@ public final class SsfSupport {
             configure(config);
         } catch (RuntimeException e) {
             LOGGER.error((Object) ("SSF transmitter NOT started: its store could not be opened (" + e
-                    + "). The SSF endpoints stay disabled and nothing is delivered; trying again in "
-                    + bootRetrySeconds + "s"), e);
+                    + "). The SSF endpoints fail and nothing is delivered until it opens; it is tried again "
+                    + "every " + bootRetrySeconds + "s"), e);
             scheduleBootRetry(config, afterConfigure);
             return false;
         }
@@ -297,15 +304,16 @@ public final class SsfSupport {
                     + "' configured but no JDBC store factory installed; falling back to in-memory (per-node)"));
             return new InMemorySsfStore();
         }
-        LOGGER.info((Object) ("SSF store: JDBC data store '" + config.dataStoreId() + "' dialect '"
-                + config.storeDialect() + "' (cluster-safe, durable)"));
+        // The URL itself is not logged: a JDBC URL can carry a password.
+        String source = config.jdbcUrl() != null ? "the jdbcUrl setting" : "JDBC data store '" + config.dataStoreId() + "'";
+        LOGGER.info((Object) ("SSF store: " + source + ", dialect '" + config.storeDialect() + "' (cluster-safe, durable)"));
         return factory.create(config);
     }
 
     public static SsfConfiguration configuration() {
         SsfConfiguration local = configuration;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -313,7 +321,7 @@ public final class SsfSupport {
     public static SsfStore store() {
         SsfStore local = store;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -321,7 +329,7 @@ public final class SsfSupport {
     public static SetMinter minter() {
         SetMinter local = minter;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -329,7 +337,7 @@ public final class SsfSupport {
     public static StreamManagementService streamService() {
         StreamManagementService local = streamService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -337,7 +345,7 @@ public final class SsfSupport {
     public static SsfEventEmitter eventEmitter() {
         SsfEventEmitter local = eventEmitter;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -345,7 +353,7 @@ public final class SsfSupport {
     public static ScimSubjectService scimSubjectService() {
         ScimSubjectService local = scimSubjectService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -353,7 +361,7 @@ public final class SsfSupport {
     public static SsfEmitService emitService() {
         SsfEmitService local = emitService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
@@ -361,7 +369,7 @@ public final class SsfSupport {
     public static PushDeliveryService pushDeliveryService() {
         PushDeliveryService local = pushDeliveryService;
         if (local == null) {
-            throw new IllegalStateException("SSF transmitter is not configured (no servlet init ran)");
+            throw new IllegalStateException(NOT_CONFIGURED);
         }
         return local;
     }
