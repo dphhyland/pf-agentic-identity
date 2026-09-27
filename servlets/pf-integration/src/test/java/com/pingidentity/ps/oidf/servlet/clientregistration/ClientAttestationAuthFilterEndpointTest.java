@@ -305,6 +305,33 @@ class ClientAttestationAuthFilterEndpointTest {
         accepted(filter, request("as.example.com", PAR_PATH, attestation(), null, dpop(PAR_ENDPOINT)));
     }
 
+    /**
+     * PingFederate under a runtime context path: {@code pf.runtime.context.path=/sso} and a base URL ending in
+     * {@code /sso}, which 13.1.3's {@code run.properties} says the two must agree on. Discovery then advertises
+     * {@code https://as.example.com/sso/as/token.oauth2}, and that is the {@code htu}, with the context path once.
+     */
+    @Test
+    @Requirement("RFC9449 §4.3(9)")
+    void underARuntimeContextPathTheProofNamesTheAdvertisedUrl() throws Exception {
+        String issuer = ISSUER + "/sso";
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(r -> issuer);
+        filter.init(null);
+
+        accepted(filter, underSso(request("as.example.com", TOKEN_PATH, attestation(), null, dpop(issuer + TOKEN_PATH))));
+        refused(filter, underSso(request("as.example.com", TOKEN_PATH, attestation(), null,
+                dpop(issuer + "/sso" + TOKEN_PATH))), "htu");
+        accepted(filter, underSso(request("as.example.com", PAR_PATH, attestation(), null, dpop(issuer + PAR_PATH))));
+    }
+
+    /** The same request routed to the runtime web application at context path {@code /sso}. */
+    private static HttpServletRequest underSso(HttpServletRequest req) {
+        String servletPath = req.getServletPath();
+        when(req.getContextPath()).thenReturn("/sso");
+        when(req.getRequestURI()).thenReturn("/sso" + servletPath);
+        when(req.getRequestURL()).thenReturn(new StringBuffer("https://as.example.com/sso" + servletPath));
+        return req;
+    }
+
     /** No path, no endpoint URL: combined mode is refused rather than compared with nothing. */
     @Test
     void withNoEndpointPathCombinedModeIsRefused() throws Exception {

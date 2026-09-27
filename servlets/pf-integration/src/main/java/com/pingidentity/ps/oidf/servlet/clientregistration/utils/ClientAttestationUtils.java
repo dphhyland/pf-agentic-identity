@@ -348,19 +348,26 @@ public final class ClientAttestationUtils {
     static final String TOKEN_ENDPOINT_PATH = "/as/token.oauth2";
 
     /**
-     * The path within this server that {@code request} was routed to, as the container decoded and matched it:
-     * context path, servlet path and path info ({@code /as/token.oauth2} under PingFederate's {@code *.oauth2}
-     * mapping, whose servlet path is the whole path). A request that carries no servlet path - one the OGNL
-     * criterion is handed that was not dispatched through a mapping, say - gives its request-target path instead:
-     * the client writes that, but it only chooses a path under the configured issuer, never a host. {@code null}
-     * when the request names neither.
+     * The path within PingFederate's runtime web application that {@code request} was routed to, as the container
+     * decoded and matched it: servlet path and path info ({@code /as/token.oauth2} under PingFederate's
+     * {@code *.oauth2} mapping, whose servlet path is the whole path). The context path is left out: PingFederate's
+     * base URL, and so the issuer, already carries it ({@code run.properties} in 13.1.3 says of
+     * {@code pf.runtime.context.path}: "If this property is changed, the path must also be added to the base URL for
+     * your PingFederate system protocol settings"), and {@code OAuthIssuer.constructCurrentRequestUrl} strips it from
+     * the request URI before adding the rest to the issuer (javap, 2026-09-27). A request that carries no servlet
+     * path - one the OGNL criterion is handed that was not dispatched through a mapping, say - gives its
+     * request-target path, less the context path, instead: the client writes that, but it only chooses a path under
+     * the configured issuer, never a host. {@code null} when the request names neither.
      */
     public static String endpointPath(HttpServletRequest request) {
-        String path = ClientAttestationUtils.nullToEmpty(request.getContextPath())
-                + ClientAttestationUtils.nullToEmpty(request.getServletPath())
+        String path = ClientAttestationUtils.nullToEmpty(request.getServletPath())
                 + ClientAttestationUtils.nullToEmpty(request.getPathInfo());
         if (path.isEmpty()) {
             path = ClientAttestationUtils.nullToEmpty(request.getRequestURI());
+            String contextPath = ClientAttestationUtils.nullToEmpty(request.getContextPath());
+            if (!contextPath.isEmpty() && path.startsWith(contextPath)) {
+                path = path.substring(contextPath.length());
+            }
         }
         return path.isEmpty() ? null : path;
     }

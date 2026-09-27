@@ -51,7 +51,7 @@ class EndpointUrlTest {
     void theEndpointPathIsWhatTheContainerRoutedOn() {
         assertEquals("/as/token.oauth2", ClientAttestationUtils.endpointPath(request("", "/as/token.oauth2", null)));
         assertEquals("/as/token.oauth2", ClientAttestationUtils.endpointPath(request(null, "/as/token.oauth2", null)));
-        assertEquals("/ctx/as/token.oauth2", ClientAttestationUtils.endpointPath(request("/ctx", "/as", "/token.oauth2")));
+        assertEquals("/as/token.oauth2", ClientAttestationUtils.endpointPath(request("", "/as", "/token.oauth2")));
         assertNull(ClientAttestationUtils.endpointPath(request(null, null, null)));
         assertNull(ClientAttestationUtils.endpointPath(request("", "", null)));
     }
@@ -65,6 +65,37 @@ class EndpointUrlTest {
         assertEquals("/as/token.oauth2", ClientAttestationUtils.endpointPath(request));
         assertEquals("https://as.example.com/as/token.oauth2",
                 ClientAttestationUtils.endpointUrl(ISSUER, null, ClientAttestationUtils.endpointPath(request)));
+    }
+
+    /**
+     * PingFederate under a runtime context path ({@code pf.runtime.context.path=/sso}): the base URL, and so the
+     * issuer, already ends in {@code /sso} (13.1.3's {@code run.properties}), and discovery advertises
+     * {@code https://as.example.com/sso/as/token.oauth2}. The context path is counted once, in the issuer.
+     */
+    @Test
+    @Requirement("RFC9449 §4.3(9)")
+    void aRuntimeContextPathIsCountedOnceInTheIssuer() {
+        String issuer = "https://as.example.com/sso";
+
+        assertEquals("/as/token.oauth2", ClientAttestationUtils.endpointPath(request("/sso", "/as/token.oauth2", null)));
+        assertEquals(issuer + "/as/token.oauth2", ClientAttestationUtils.endpointUrl(issuer, null,
+                ClientAttestationUtils.endpointPath(request("/sso", "/as/token.oauth2", null))));
+        assertEquals("https://mtls.as.example.com/sso/as/token.oauth2", ClientAttestationUtils.endpointUrl(issuer,
+                "https://mtls.as.example.com/sso", ClientAttestationUtils.endpointPath(request("/sso", "/as/token.oauth2", null))));
+
+        HttpServletRequest unmapped = request("/sso", null, null);
+        when(unmapped.getRequestURI()).thenReturn("/sso/as/par.oauth2");
+        assertEquals("/as/par.oauth2", ClientAttestationUtils.endpointPath(unmapped));
+
+        // A request URI outside the context path is kept whole: it names no endpoint under the issuer, so no proof
+        // matches it.
+        HttpServletRequest outside = request("/sso", null, null);
+        when(outside.getRequestURI()).thenReturn("/as/token.oauth2x");
+        assertEquals("/as/token.oauth2x", ClientAttestationUtils.endpointPath(outside));
+
+        HttpServletRequest onlyTheContext = request("/sso", null, null);
+        when(onlyTheContext.getRequestURI()).thenReturn("/sso");
+        assertNull(ClientAttestationUtils.endpointPath(onlyTheContext));
     }
 
     private static HttpServletRequest request(String contextPath, String servletPath, String pathInfo) {
