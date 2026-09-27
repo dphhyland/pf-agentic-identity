@@ -72,12 +72,15 @@ calls (`lookup`/`describe`/`revoke`) — is for the same reason `GrantView` exis
 ## Build
 
 A BOM consumer like the rest of the reactor; only its groupId (`au.com.idpartners`) differs. Every
-dependency is `provided`, version-less, on its real coordinates: `com.pingidentity.pingfederate:pingfederate-sdk`,
+runtime dependency is `provided`, version-less, on its real coordinates: `com.pingidentity.pingfederate:pingfederate-sdk`,
 `jakarta.servlet:jakarta.servlet-api`, `org.bitbucket.b_c:jose4j` and `com.fasterxml.jackson.core:jackson-databind`
 and `jackson-core`. The PF SDK is Ping-licensed and not on Maven Central, so it must be installed into
 `~/.m2` first - the two `install:install-file` lines in `.github/actions/pf-provided-jars/action.yml` do it
 from the public `pingidentity/pingfederate` image (see CONTRIBUTING.md, Building). The rest come from Maven
-Central at the `version.pf.*` versions the BOM holds to the image (`tools/pf-provided-versions.py`).
+Central: jose4j and jackson at the `version.pf.*` versions the BOM holds to the image
+(`tools/pf-provided-versions.py`), and `jakarta.servlet-api` 5.0.0, the API line PingFederate 13.1's Jetty
+ships as `jetty-jakarta-servlet-api-5.0.2.jar`. No version tool holds the servlet API to the image;
+`tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib` checks every servlet member the war references.
 
 ```bash
 mvn -pl services/gm-api/servlet -am verify     # from the repo root → target/gm-api.war

@@ -34,11 +34,13 @@ what a token introspection cannot see.
 `services/gm-api/servlet` builds like every other module in the reactor: it imports the repo BOM, and
 its dependencies carry no versions of their own. Only its groupId differs - it keeps the coordinates
 `au.com.idpartners:gm-api`, on the reactor's version (`tools/set-version.py` keeps it in step). Every
-dependency is `provided` and comes from PingFederate at run time: `pingfederate-sdk` (one of the two jars
-`.github/actions/pf-provided-jars/action.yml` installs from the public `pingidentity/pingfederate`
-image), and `jakarta.servlet-api`, `jose4j`, `jackson-databind` and `jackson-core` from Maven Central at
-the versions the BOM holds to the image. Bundling any of them into the war would break linkage: PF
-isolates each deploy-dir artifact on its own classloader.
+runtime dependency is `provided` and comes from PingFederate at run time. At build time
+`pingfederate-sdk` is one of the two jars `.github/actions/pf-provided-jars/action.yml` installs from the
+public `pingidentity/pingfederate` image, and the rest come from Maven Central: `jose4j`,
+`jackson-databind` and `jackson-core` at the versions the BOM holds to the image, and `jakarta.servlet-api`
+5.0.0, the API line the image's Jetty ships as 5.0.2 (`tools/pf-linkcheck.py` checks the servlet members
+the war uses). Bundling any of them into the war would break linkage: PF isolates each deploy-dir
+artifact on its own classloader.
 
 ## Related
 

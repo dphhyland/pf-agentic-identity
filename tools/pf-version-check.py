@@ -105,7 +105,9 @@ def check_files(root, env, problems):
 
     gm = _read(root, "services/gm-api/servlet/pom.xml")
     got = _xml_text(gm, "pingfederate.version")
-    if got is not None:
+    if gm is None:
+        problems.append("services/gm-api/servlet/pom.xml: missing")
+    elif got is not None:
         problems.append(f"services/gm-api/servlet/pom.xml: carries <pingfederate.version> {got}; "
                         f"it imports the BOM, whose <version.pingfederate> is the one")
 

@@ -26,8 +26,8 @@ service account, no TLS trust, no JWKS fetch. See "In-process accessors" below.
 
 ## The build (both kinds)
 
-The SDK is Ping-licensed, not on Maven Central, so it is the one jar that must come out of
-PingFederate itself. In this repo that is two jars, `pingfederate-sdk` and `pf-protocolengine`, extracted
+The SDK is Ping-licensed, not on Maven Central, so it must come out of PingFederate itself. In this
+repo two jars do, `pingfederate-sdk` and `pf-protocolengine`, extracted
 from the public `pingidentity/pingfederate` image (running PF needs a licence, extracting its jars does
 not) and installed by `.github/actions/pf-provided-jars/action.yml` under their own coordinates and the
 SDK version `build/pf-version.env` names:
@@ -42,10 +42,12 @@ mvn install:install-file -Dfile=pf-lib/pingfederate-sdk.jar \
 **A generated POM, not the jar's own.** The real jars carry POMs that reference parents which do not
 resolve offline - installing them verbatim breaks the build.
 
-Everything else PF provides - jose4j, jackson, commons-lang3, commons-logging, the jakarta servlet API -
-comes from Maven Central on its real coordinates, at the version the image ships: the repo BOM writes
-those versions down as `version.pf.*`, and `tools/pf-provided-versions.py` fails the build when the image
-and the BOM disagree. gm-api imports the BOM like every other module. Everything is
+Everything else PF provides comes from Maven Central on its real coordinates. jose4j, jackson,
+commons-lang3 and commons-logging are at the version the image ships: the repo BOM writes those versions
+down as `version.pf.*`, and `tools/pf-provided-versions.py` fails the build when the image and the BOM
+disagree. The jakarta servlet API is `jakarta.servlet-api` 5.0.0, the API line PF 13.1's Jetty ships as
+`jetty-jakarta-servlet-api-5.0.2.jar`; no version tool covers it, and `tools/pf-linkcheck.py` checks every
+servlet member a war references against the image's Jetty jars. gm-api imports the BOM like every other module. Everything is
 `<scope>provided</scope>`. **Bundle nothing.**
 
 ### Which runtime deps the SDK drags in

@@ -82,6 +82,10 @@ class Disagree(unittest.TestCase):
         self.assert_problem({"bom/pom.xml": "<project><properties><version.pingfederate>13.0.0.3</version.pingfederate></properties></project>\n"},
                             "bom/pom.xml: <version.pingfederate> is 13.0.0.3, PF_SDK_MAVEN_VERSION is 13.1.3.0")
 
+    def test_gm_api_pom_missing(self):
+        # A moved or renamed gm-api pom is reported, not passed as "no pin of its own".
+        self.assert_problem({"services/gm-api/servlet/pom.xml": None}, "services/gm-api/servlet/pom.xml: missing")
+
     def test_gm_api_pin(self):
         # gm-api takes the SDK version from the BOM; a pin of its own, even the right one, is a second place
         for v in ("13.1.0", "13.1.3"):

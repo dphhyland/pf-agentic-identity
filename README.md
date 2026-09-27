@@ -147,9 +147,11 @@ mvn package                      # all Java modules (incl. gm-api.war), tests on
 The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.1.3.0) are extracted from the
 public `pingidentity/pingfederate` image - see `.github/actions/pf-provided-jars/action.yml` for the exact
 steps, or run its two `install:install-file` lines once locally. They are the only jars installed by hand:
-every other library a module borrows from PingFederate (jose4j, jackson, commons-lang3, commons-logging,
-the jakarta servlet API) comes from Maven Central at the version the BOM holds to the image. Nothing
-licensed or secret is committed.
+every other library a module borrows from PingFederate comes from Maven Central. jose4j, jackson,
+commons-lang3 and commons-logging are at the versions the BOM holds to the image; the jakarta servlet API
+is `jakarta.servlet-api` 5.0.0, the API line PingFederate 13.1's Jetty ships as 5.0.2, and
+`tools/pf-linkcheck.py` checks the servlet members each artefact uses. Nothing licensed or secret is
+committed.
 
 The PingFederate version is pinned in one place, `build/pf-version.env`: the image tag and its digest,
 the SDK version the reactor compiles against, and the product version the Terraform provider is told.

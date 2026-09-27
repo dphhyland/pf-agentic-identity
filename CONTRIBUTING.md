@@ -25,8 +25,11 @@ do what it does once: `docker create` the image at the digest the file names, `d
 `server/default/lib` and `lib` directories out, and run its two `mvn install:install-file` lines against them.
 The jars are then in `~/.m2` for every worktree on the machine. Nothing else is installed by hand: every
 module, gm-api and the plugins included, imports the BOM, and the other libraries PingFederate provides
-(jose4j, jackson, commons-lang3, commons-logging, the jakarta servlet API) come from Maven Central at the
-`version.pf.*` versions `tools/pf-provided-versions.py` holds to the image. An older `~/.m2` may still hold
+come from Maven Central. jose4j, jackson, commons-lang3 and commons-logging are at the `version.pf.*`
+versions `tools/pf-provided-versions.py` holds to the image. The jakarta servlet API is
+`jakarta.servlet-api` 5.0.0, the 5.0 API line PingFederate 13.1's Jetty ships as
+`jetty-jakarta-servlet-api-5.0.2.jar`; no version tool holds it to the image, and `tools/pf-linkcheck.py`
+checks every servlet member the artefacts reference against `pf-jetty-lib`. An older `~/.m2` may still hold
 `local.pingfederate` installs from before 0.5.0; nothing reads them now.
 
 `tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .` checks, against those extracted

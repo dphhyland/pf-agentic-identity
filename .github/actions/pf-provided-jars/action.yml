@@ -1,7 +1,8 @@
 # The two jars PingFederate provides and every module compiles against (pf-protocolengine, pingfederate-sdk),
 # installed into the runner's Maven repository. Nothing else is installed: every other library a module
-# borrows from PingFederate (jose4j, jackson, commons-lang3, commons-logging, the jakarta servlet API) comes
-# from Maven Central at the version the BOM holds to the image. Extracted from the public
+# borrows from PingFederate comes from Maven Central - jose4j, jackson, commons-lang3 and commons-logging at
+# the version.pf.* versions the BOM holds to the image, and jakarta.servlet-api 5.0.0, the API line the
+# image's Jetty ships as 5.0.2, which tools/pf-linkcheck.py checks member by member. Extracted from the public
 # pingidentity/pingfederate image: running PF needs a licence, extracting its jars does not, so no private
 # dependency is needed to build the reactor. PF's lib directories stay extracted in the workspace as pf-lib
 # and pf-jetty-lib, because tools/pf-linkcheck.py links the built wars against both and
