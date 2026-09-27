@@ -1,0 +1,21 @@
+id: U-0190
+title: Whether a TLS Redis behind Sentinel can serve certificates that carry the URL's host name
+area: platform, reference-stacks
+source: design
+status: open
+plan_items: [C-2, C-6]
+prs: []
+recorded_in: libs/platform/README.md, the redis section's Sentinel paragraphs
+verify_by: >
+  C-6's reference cluster (Redis with TLS and ACLs behind Sentinel): connect with OIDF_REDIS_SENTINEL_MASTER and
+  OIDF_REDIS_SENTINELS set and rediss://, fail the master over with SENTINEL FAILOVER, and record that the client
+  follows it with the certificates the stack issues - one name shared by every node, or announce-hostnames on and
+  a certificate per node.
+verification: ''
+notes: >
+  Sentinel reports a master by address unless announce-hostnames is on (Redis's sentinel.conf). An address cannot
+  be verified against a name, so when a sentinel gives one the client checks the master's certificate against the
+  URL's host, which every node's certificate must then carry; when it gives a name, that name is checked. C2
+  tested both rules in process (RedisClientTlsTest, 2026-09-28) and a real failover over plaintext
+  (redis:7-alpine, one sentinel, RedisLiveTest), but not a real TLS Sentinel deployment: its certificates are C-6's
+  to choose.
