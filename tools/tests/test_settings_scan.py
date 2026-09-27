@@ -334,6 +334,11 @@ class RepositoryTest(unittest.TestCase):
         self.assertEqual(0, status, err.getvalue())
         self.assertIn("clean", out.getvalue())
 
+    def test_the_staged_modules_are_read_from_stage_modules_sh(self):
+        staged = scan.staged_modules(REPO)
+        self.assertTrue({"libs/platform", "servlets/pf-integration", "servlets/ssf"} <= staged, staged)
+        self.assertNotIn("libs/testkit", staged)
+
     def test_the_list_names_the_federation_settings(self):
         out = io.StringIO()
         with redirect_stdout(out):
