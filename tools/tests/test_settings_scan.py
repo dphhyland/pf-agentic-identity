@@ -24,6 +24,16 @@ def reads_of(sources):
     return {(kind, name) for kind, name, _jf, _line in reads}, [text for _jf, _line, text in unresolved]
 
 
+# SsfConfiguration.param as it is: init-param, then oidf.ssf.<name>, then OIDF_SSF_<UPPER_SNAKE>.
+SSF_PARAM = (
+    'static String param(javax.servlet.ServletConfig config, String name) {\n'
+    '  String v = config != null ? config.getInitParameter(name) : null;\n'
+    '  if (v == null || v.isBlank()) { v = System.getProperty("oidf.ssf." + name); }\n'
+    '  if (v == null || v.isBlank()) { v = System.getenv("OIDF_SSF_" + camelToUpperSnake(name)); }\n'
+    '  return v;\n}\n'
+    'private static String camelToUpperSnake(String camel) { return camel.toUpperCase(); }\n')
+
+
 def java(body, cls="A", package="x"):
     return f"package {package};\nclass {cls} {{\n{body}\n}}\n"
 
@@ -115,15 +125,46 @@ class WhatIsAReadTest(unittest.TestCase):
 
     def test_a_read_the_scan_cannot_name_is_reported(self):
         _found, unresolved = reads_of({"A.java": java(
-            'void f(String suffix) { String name = "OIDF_" + suffix; System.getenv(name); System.getProperty("oidf." + suffix); }')})
+            'void f() { String suffix = pick(); String name = "OIDF_" + suffix; System.getenv(name);'
+            ' System.getProperty("oidf." + suffix); }')})
         self.assertEqual(['getenv(name)', 'getProperty("oidf." + suffix)'], unresolved)
 
     def test_a_name_built_from_a_prefix_that_names_no_settings_is_excused_and_no_other(self):
         _found, unresolved = reads_of({"A.java": java(
             'static final String OWNER_PREFIX = "oidf.exec.owner.";\n'
-            'void f(String name) {\n  System.getProperty(OWNER_PREFIX + name);\n  System.getProperty("oidf.exec.owner." + name);\n'
-            '  System.getProperty("oidf.exec.other." + name);\n  System.getenv(OWNER_PREFIX + name);\n}')})
+            'void f() {\n  String name = pick();\n  System.getProperty(OWNER_PREFIX + name);\n  System.getProperty("oidf.exec.owner." + name);\n'
+            '  System.getProperty("oidf.exec.other." + name);\n  System.getenv(OWNER_PREFIX + name);\n}\n'
+            'void claim(String executor) { System.getProperty(OWNER_PREFIX + executor); }\n'
+            'void g() { claim("sweeper"); }')})
         self.assertEqual(['getProperty("oidf.exec.other." + name)', 'getenv(OWNER_PREFIX + name)'], unresolved)
+        self.assertEqual(set(), _found)
+
+    def test_a_computed_name(self):
+        self.assertEqual(["ISSUER", "SIGNING_ALGORITHM", "RECEIVER_JWKS_URL", "SET_TTL_SECONDS"],
+                         [scan.camel_to_upper_snake(n) for n in ("issuer", "signingAlgorithm", "receiverJwksUrl", "setTtlSeconds")])
+        found, unresolved = reads_of({"A.java": java(SSF_PARAM +
+            'static final String SP = "oidf.a.";\n'
+            'void f(javax.servlet.ServletConfig config) {\n  param(config, "signingAlgorithm");\n  param(config, ISSUER);\n'
+            '  System.getenv("OIDF_A_" + camelToUpperSnake("fooBar"));\n  System.getProperty(SP + "plain");\n'
+            '  System.getenv("OIDF_A_" + Other.camelToUpperSnake("x"));\n}\n'
+            'static final String ISSUER = "issuer";')})
+        self.assertEqual({("init-param", "signingAlgorithm"), ("system-property", "oidf.ssf.signingAlgorithm"),
+                          ("env", "OIDF_SSF_SIGNING_ALGORITHM"), ("init-param", "issuer"), ("system-property", "oidf.ssf.issuer"),
+                          ("env", "OIDF_SSF_ISSUER"), ("env", "OIDF_A_FOO_BAR"), ("system-property", "oidf.a.plain")}, found)
+        self.assertEqual(['getenv("OIDF_A_" + Other.camelToUpperSnake("x"))'], unresolved)
+
+    def test_a_transform_the_class_does_not_declare_is_not_one(self):
+        _found, unresolved = reads_of({"A.java": java(
+            'static String param(String name) { return System.getenv("OIDF_A_" + camelToUpperSnake(name)); }\n'
+            'void f() { param("x"); }')})
+        self.assertEqual(['getenv("OIDF_A_" + camelToUpperSnake(name))'], unresolved)
+
+    def test_a_computed_call_is_recorded_in_the_helpers_order(self):
+        reactor = scan.Reactor("/nowhere")
+        reactor.add("m", "A.java", java(SSF_PARAM + 'void f(javax.servlet.ServletConfig c) { param(c, "dataStoreId"); }'))
+        reactor.reads()
+        self.assertEqual([[("init-param", "dataStoreId"), ("system-property", "oidf.ssf.dataStoreId"),
+                           ("env", "OIDF_SSF_DATA_STORE_ID")]], [names for _jf, _l, _t, names in reactor.computed])
 
     def test_a_settings_accessor_reads_the_entry_it_names(self):
         imports = "package x;\nimport com.pingidentity.ps.oidf.platform.settings.Settings;\nclass A {\n"
@@ -358,6 +399,42 @@ class BothWaysTest(unittest.TestCase):
         reads = {"x/A.java": java('void f() { System.getProperty("oidf.registration.sweeper.owner"); }')}
         self.assertEqual([], Tree(self).module("libs/a", reads, []).problems())
 
+    def test_a_computed_call_is_one_entrys_sources_in_its_order(self):
+        reads = {"x/A.java": java(SSF_PARAM + 'void f(javax.servlet.ServletConfig c) { param(c, "issuer"); param(c, "dataStoreId"); }')}
+        issuer = entry("OIDF_SSF_ISSUER", sources=[{"from": "init-param", "name": "issuer"},
+                                                   {"from": "system-property", "name": "oidf.ssf.issuer"},
+                                                   {"from": "env", "name": "OIDF_SSF_ISSUER"}])
+        store = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "init-param", "name": "dataStoreId"},
+                                                         {"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
+        self.assertEqual([], Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [issuer, store])]).problems())
+
+        reordered = dict(issuer, sources=[issuer["sources"][i] for i in (1, 0, 2)])
+        problems = Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [reordered, store])]).problems()
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn('param("issuer") reads init-param issuer, system-property oidf.ssf.issuer, env OIDF_SSF_ISSUER, in that'
+                      ' order, and no catalogue entry of servlets/ssf has exactly those sources in that order', problems[0])
+
+        no_property = dict(issuer, sources=[issuer["sources"][0], issuer["sources"][2]])
+        problems = Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [no_property, store])]).problems()
+        self.assertTrue(any("no catalogue entry of servlets/ssf" in p for p in problems), problems)
+        self.assertTrue(any("system-property oidf.ssf.issuer is read but no catalogue declares it" in p for p in problems), problems)
+
+    def test_a_computed_name_a_catalogue_cannot_name_is_declared_only_by_a_matching_entry(self):
+        reads = {"x/A.java": java(SSF_PARAM + 'void f(javax.servlet.ServletConfig c) { param(c, "dataStoreId"); }')}
+        wrong = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
+        problems = Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [wrong])]).problems()
+        text = "\n".join(problems)
+        self.assertIn("leaving out oidf.ssf.dataStoreId, which a catalogue cannot name", text)
+        self.assertIn("system-property oidf.ssf.dataStoreId is read but no catalogue declares it", text)
+        self.assertIn("init-param dataStoreId is read but no catalogue declares it", text)
+
+        elsewhere = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "init-param", "name": "dataStoreId"},
+                                                             {"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
+        problems = (Tree(self).module("servlets/ssf", reads, [])
+                    .module("libs/other", {"y/B.java": java('void g() { System.getenv("OIDF_SSF_DATA_STORE_ID"); }', package="y")},
+                            [catalogue("other", "libs/other", "y", [elsewhere])]).problems())
+        self.assertTrue(any("no catalogue entry of servlets/ssf" in p for p in problems), problems)
+
     def test_a_catalogue_that_is_not_one(self):
         cases = {
             "unknown member": dict(VALID, extra=1),
@@ -453,7 +530,9 @@ class RepositoryTest(unittest.TestCase):
         listed = out.getvalue()
         for line in ("env OIDF_PDP_MODE  servlets/pf-integration/", "system-property oidf.pdp.mode  servlets/pf-integration/",
                      "init-param trustAnchorIssuers  libs/openid-federation/", "extended-property status  servlets/pf-integration/",
-                     "setting OIDF_REDIS_URL  libs/platform/", "setting REDIS_URL  libs/platform/"):
+                     "setting OIDF_REDIS_URL  libs/platform/", "setting REDIS_URL  libs/platform/",
+                     "init-param signingAlgorithm  servlets/ssf/", "system-property oidf.ssf.signingAlgorithm  servlets/ssf/",
+                     "env OIDF_SSF_SIGNING_ALGORITHM  servlets/ssf/"):
             self.assertIn(line, listed)
 
 
