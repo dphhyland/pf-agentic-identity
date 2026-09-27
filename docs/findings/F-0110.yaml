@@ -19,6 +19,12 @@ verification: >
   module's 100% METHOD gate. javap on PingFederate 13.1.3's pf-protocolengine (2026-09-27):
   OAuthIssuerUtils.getIssuerValue returns the configured base URL, or a configured virtual host name or issuer
   host, never a Host header PingFederate does not know.
+  On a booted PingFederate 13.1.3 (the conformance rig image, modules from commit 10168b4 staged, 2026-09-27),
+  a probe presented attestations for conformance-ssf-receiver through a mock attester, with an ES256 bridge key
+  (F-0112 stops an RSA PS256 one): a PoP addressed to the issuer, as a string and as an array of one, was issued a token; the token
+  endpoint and [issuer, another] were 401 with the description above; over the plain listener with Host and
+  X-Forwarded-Host naming another server, a PoP for the issuer was still issued a token and one for that server's
+  token endpoint refused.
 target_release: 0.4.0
 notes: >
   Until 0.4.0 the token-endpoint filter and the OGNL criterion accepted a PoP whose aud was the issuer or the

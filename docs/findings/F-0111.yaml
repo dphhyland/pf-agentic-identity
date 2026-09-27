@@ -19,6 +19,14 @@ verification: >
   its own URL and moves only the token endpoint to a base URL; HtuComparisonTest pins each normalisation.
   verifyDpopMode, requireHtu, normalizeHtu, normalizePercentEncoding, removeDotSegments, endpointUrl and
   endpointPath are in their modules' 100% METHOD gates.
+  On a booted PingFederate 13.1.3 (the conformance rig image, modules from commit 10168b4 staged, 2026-09-27),
+  a probe presented attestations for conformance-ssf-receiver through a mock attester, with an ES256 bridge key
+  (F-0112 stops an RSA PS256 one): a combined-mode proof naming the advertised token_endpoint was issued a DPoP-bound token, and one
+  naming another server was 401 "DPoP 'htu' mismatch ... expected 'https://localhost:47031/as/token.oauth2'"; at
+  PAR the filter expected .../as/par.oauth2 and refused the token endpoint's URL; with Host and X-Forwarded-Host
+  naming another server, a proof for that server was refused and one for the advertised URL issued a token - so
+  the servlet path, the issuer and the token endpoint base URL read (no warning logged) all behave on a booted server
+  as the unit tests assume.
 target_release: 0.4.0
 notes: >
   In DPoP combined mode the filter and the OGNL criterion expected the proof's htu to be the request URL, which

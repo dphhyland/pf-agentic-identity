@@ -74,7 +74,14 @@ when the request's host is one of them, and the base URL for a host it does not 
 the servlet path is the whole path. `ReceivingServerBindingTest`, `HtuComparisonTest`,
 `ClientAttestationAuthFilterEndpointTest` and `EndpointUrlTest` pin the rules (`@Requirement` ABCA-10 §5.1 and
 §7.2(7), RFC7519 §2 and §4.1.3, RFC9449 §4.3(8) and §4.3(9)); the new decision methods are in their modules'
-100% METHOD gates; the modules pass `mvn -o -B verify` on JDK 20 and JDK 17.
+100% METHOD gates; the full reactor passes `mvn -o -B clean verify` with the Postgres suites on JDK 20, and the
+changed modules on JDK 17 as well; `tools/pf-linkcheck.py` resolves every PingFederate member the artefacts link on
+the 13.1.3 image. On a booted PingFederate 13.1.3 (the conformance rig, these modules, an ES256 bridge key for
+`conformance-ssf-receiver` and a mock attester) a PoP addressed to the issuer, as a string or an array of one, and a
+combined-mode proof naming the advertised `token_endpoint` were issued tokens; the token endpoint as audience,
+`[issuer, another]`, and a proof naming another server were refused with the descriptions above; at PAR the filter
+expected `/as/par.oauth2`; and over the plain listener, with `Host` and `X-Forwarded-Host` naming another server, the
+same answers came back. Found on the way: the bridge signer cannot sign PS256 with an RSA key (F-0112, open).
 
 Residual risk. When PingFederate matches the request's host to one of its virtual host names or issuers, it takes
 the port from the request (`BaseUrlUtil.getPort`), so a PoP or proof for another port of that same host name is
