@@ -77,6 +77,7 @@
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>testkit</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rs-validation</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>shared-signals</artifactId><version>${version.internal}</version></dependency>

@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.pf;
 
 import com.pingidentity.ps.oidf.federation.ProviderMetadata;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
@@ -25,7 +26,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
-import org.sourceid.openid.connect.handlers.ProviderConfigurationInfoHandler;
 
 /**
  * What PingFederate itself serves at {@code /.well-known/openid-configuration} and {@code /.well-known/oauth-authorization-server},
@@ -108,9 +108,7 @@ public final class PfProviderMetadata implements ProviderMetadata {
 
     /** PingFederate's handler for {@code entityType}'s document, run on {@code request}. */
     private static String render(String entityType, HttpServletRequest request) throws Exception {
-        ProviderConfigurationInfoHandler handler = "openid_provider".equals(entityType)
-                ? ProviderConfigurationInfoHandler.createOpenIDConnectProviderConfigurationInfoHandler()
-                : ProviderConfigurationInfoHandler.createOAuthProviderConfigurationInfoHandler();
+        PfInternals.DiscoveryHandler handler = PfInternals.discoveryHandler("openid_provider".equals(entityType));
         return capture(handler::process, request);
     }
 

@@ -100,6 +100,24 @@ class Disagree(unittest.TestCase):
     def test_dockerfile_without_a_digest(self):
         self.assert_problem({"build/pingfederate/Dockerfile": f"FROM {IMAGE}\n"}, "Dockerfile: FROM")
 
+    def test_dockerfile_stages_start_from_the_pinned_image(self):
+        # builder, capability and deployment: one image FROM, and FROMs that name an earlier stage
+        staged = (f"ARG STAGING_PROFILE=production\nFROM {IMAGE}@{DIGEST} AS pingfederate\nFROM pingfederate AS builder\n"
+                  "FROM pingfederate AS capability\nCOPY --from=builder /build/x /x\nFROM capability AS deployment\n")
+        with tempfile.TemporaryDirectory() as root:
+            write_repo(root, {"build/pingfederate/Dockerfile": staged})
+            code, out, err = run(root)
+            self.assertEqual(code, 0, err)
+
+    def test_dockerfile_stage_reference_before_the_stage_is_an_image(self):
+        # a name used before any FROM declares it is an image reference, and not the pinned one
+        self.assert_problem({"build/pingfederate/Dockerfile": f"FROM capability AS deployment\nFROM {IMAGE}@{DIGEST} AS capability\n"},
+                            f"build/pingfederate/Dockerfile: FROM capability is not {IMAGE}@{DIGEST}")
+
+    def test_dockerfile_every_image_from_is_the_pinned_one(self):
+        self.assert_problem({"build/pingfederate/Dockerfile": f"FROM {IMAGE}@{DIGEST} AS base\nFROM other:1 AS x\n"},
+                            "build/pingfederate/Dockerfile: FROM other:1 is not")
+
     def test_action_with_a_literal(self):
         err = self.assert_problem({".github/actions/pf-provided-jars/action.yml": 'runs:\n  steps:\n    - run: mvn install:install-file -Dversion=13.1.3.0\n'},
                                   "action.yml: does not read build/pf-version.env")

@@ -1,0 +1,186 @@
+package com.pingidentity.ps.oidf.rs;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.pingidentity.ps.oidf.conformance.Requirement;
+import java.util.List;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+/**
+ * The RFC 8693 {@code act} claim.
+ *
+ * <p>The load-bearing test here is {@link #onlyTheOutermostActorMayBeAuthorisedOn}. Authorising on a
+ * nested actor grants a party that has already handed the token on, and the API is shaped so that
+ * mistake is awkward to make.
+ */
+class ActChainTest {
+
+    private static final String HUMAN = "pingone|alice";
+    private static final String INSTANCE = "8Kx2_opaque_instance_id";
+    private static final String SERVER_AGENT = "https://agents.example.com/planner";
+
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void theObjectFormIsTheSpecShape() {
+        ActChain.Parsed parsed = ActChain.parse(Map.of(
+                "sub", HUMAN,
+                "act", Map.of("sub", INSTANCE)));
+
+        assertFalse(parsed.legacyStringForm());
+        assertFalse(parsed.malformed());
+        assertEquals(1, parsed.depth());
+        assertEquals(INSTANCE, parsed.currentActor().orElseThrow().subject());
+    }
+
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void nestingIsOrderedMostRecentFirst() {
+        // The server-side agent received the token from the on-device instance.
+        ActChain.Parsed parsed = ActChain.parse(Map.of(
+                "sub", HUMAN,
+                "act", Map.of("sub", SERVER_AGENT, "act", Map.of("sub", INSTANCE))));
+
+        assertEquals(2, parsed.depth());
+        assertEquals(SERVER_AGENT, parsed.currentActor().orElseThrow().subject());
+        assertEquals(List.of(INSTANCE),
+                parsed.priorActors().stream().map(ActChain.Actor::subject).toList());
+    }
+
+    /**
+     * RFC 8693 §4.1: the nested entries record prior delegation and are informational. Only the
+     * outermost actor is presently acting.
+     */
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void onlyTheOutermostActorMayBeAuthorisedOn() {
+        ActChain.Parsed parsed = ActChain.parse(Map.of(
+                "sub", HUMAN,
+                "act", Map.of("sub", SERVER_AGENT, "act", Map.of("sub", INSTANCE))));
+
+        // currentActor() is the single-value accessor, and it is the last hop, not the first.
+        assertEquals(SERVER_AGENT, parsed.currentActor().orElseThrow().subject());
+        // The instance that started the chain is available only as history.
+        assertTrue(parsed.priorActors().stream().anyMatch(a -> INSTANCE.equals(a.subject())));
+    }
+
+    // ---- the legacy string form ------------------------------------------------------------------
+
+    /**
+     * This platform's PingFederate mapping historically emitted {@code act} as a JSON string for
+     * consumers to decode. It is still parsed so older tokens work, but reported so the deviation is
+     * visible rather than permanent.
+     */
+    @Test
+    @Requirement("UNVERIFIED item 8")
+    void theLegacyStringFormIsParsedButFlagged() {
+        ActChain.Parsed parsed = ActChain.parse(Map.of(
+                "sub", HUMAN,
+                "act", "{\"sub\":\"" + INSTANCE + "\"}"));
+
+        assertTrue(parsed.legacyStringForm(), "a string-valued act must be reported as a deviation");
+        assertFalse(parsed.malformed());
+        assertEquals(INSTANCE, parsed.currentActor().orElseThrow().subject());
+    }
+
+    /**
+     * RFC 8693 §4.1: "The "act" claim value is a JSON object, and members in the JSON object are claims that identify
+     * the actor."
+     */
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void aLegacyStringThatIsNotJsonIsMalformedRatherThanIgnored() {
+        ActChain.Parsed parsed = ActChain.parse(Map.of("act", "not json at all"));
+        assertTrue(parsed.malformed());
+        assertTrue(parsed.isEmpty());
+    }
+
+    /**
+     * RFC 8693 §4.1: "The "act" claim value is a JSON object, and members in the JSON object are claims that identify
+     * the actor."
+     */
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void aStringHoldingAJsonScalarIsMalformed() {
+        assertTrue(ActChain.parse(Map.of("act", "\"just-a-string\"")).malformed());
+    }
+
+    // ---- absent and hostile input -----------------------------------------------------------------
+
+    @Test
+    void aTokenWithNoActIsNotDelegated() {
+        ActChain.Parsed parsed = ActChain.parse(Map.of("sub", HUMAN));
+        assertTrue(parsed.isEmpty());
+        assertTrue(parsed.currentActor().isEmpty());
+        assertEquals(0, parsed.depth());
+        // Callers must read this as "no agent is acting", never as "any agent may".
+    }
+
+    @Test
+    void nullClaimsAreHandled() {
+        assertTrue(ActChain.parse(null).isEmpty());
+    }
+
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void anActOfTheWrongTypeIsMalformed() {
+        assertTrue(ActChain.parse(Map.of("act", List.of("nope"))).malformed());
+        assertTrue(ActChain.parse(Map.of("act", 42)).malformed());
+    }
+
+    /** A hostile token must not be able to nest until the parser exhausts the stack. */
+    @Test
+    void nestingIsBounded() {
+        Map<String, Object> deepest = Map.of("sub", "leaf");
+        Map<String, Object> current = deepest;
+        for (int i = 0; i < 200; i++) {
+            current = Map.of("sub", "hop-" + i, "act", current);
+        }
+        ActChain.Parsed parsed = ActChain.parse(Map.of("act", current));
+        // Exact, not <=: an inequality passes under any cap, which is how the README came to
+        // claim 16 while the constant said 10 with every test still green.
+        assertEquals(10, parsed.depth(), "the cap is ActChain.MAX_CHAIN_DEPTH");
+        assertTrue(parsed.malformed(), "deeper than the cap is malformed, so the validator refuses it");
+    }
+
+    @Test
+    void aChainOfExactlyTheCapIsWellFormed() {
+        Map<String, Object> current = Map.of("sub", "leaf");
+        for (int i = 1; i < ActChain.MAX_CHAIN_DEPTH; i++) {
+            current = Map.of("sub", "hop-" + i, "act", current);
+        }
+        ActChain.Parsed parsed = ActChain.parse(Map.of("act", current));
+        assertEquals(ActChain.MAX_CHAIN_DEPTH, parsed.depth());
+        assertFalse(parsed.malformed());
+    }
+
+    /**
+     * RFC 8693 §4.1: "members in the JSON object are claims that identify the actor". A level that identifies nobody,
+     * an actor claim that is not a string, and a nested act that is not an object are not that shape.
+     */
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void aLevelThatIdentifiesNoActorIsMalformed() {
+        assertTrue(ActChain.parse(Map.of("act", Map.of("scope", "x"))).malformed());
+        assertTrue(ActChain.parse(Map.of("act", Map.of("sub", 42))).malformed());
+        assertTrue(ActChain.parse(Map.of("act", Map.of("sub", INSTANCE, "iss", List.of("x")))).malformed());
+        ActChain.Parsed nested = ActChain.parse(Map.of("act", Map.of("sub", SERVER_AGENT, "act", "not an object")));
+        assertTrue(nested.malformed());
+        assertEquals(SERVER_AGENT, nested.currentActor().orElseThrow().subject(), "what was read is still reported");
+        ActChain.Parsed issuerOnly = ActChain.parse(Map.of("act", Map.of("iss", "https://platform.example.com")));
+        assertFalse(issuerOnly.malformed());
+        assertEquals(null, issuerOnly.currentActor().orElseThrow().subject());
+    }
+
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void anActorMayCarryAnIssuerAsWellAsASubject() {
+        ActChain.Parsed parsed = ActChain.parse(Map.of(
+                "act", Map.of("sub", INSTANCE, "iss", "https://platform.example.com")));
+        ActChain.Actor actor = parsed.currentActor().orElseThrow();
+        assertEquals(INSTANCE, actor.subject());
+        assertEquals("https://platform.example.com", actor.issuer());
+    }
+}

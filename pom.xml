@@ -40,6 +40,7 @@
         <module>libs/testkit</module>
         <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
+        <module>libs/rs-validation</module>
         <module>libs/openid-federation</module>
         <module>libs/shared-signals</module>
         <module>libs/agent-registry</module>
