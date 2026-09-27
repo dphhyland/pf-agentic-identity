@@ -4,7 +4,7 @@ area: platform, platform-pf
 source: design
 status: open
 plan_items: [O-4, F-2]
-prs: []
+prs: [53]
 recorded_in: libs/platform/README.md, health; libs/platform-pf/README.md, health
 verify_by: >
   Boot the rig with a flow that emits a catalogued event - a federation client's token request, which runs the

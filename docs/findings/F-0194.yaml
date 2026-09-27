@@ -5,7 +5,7 @@ area: platform-pf, pf-integration
 source: design
 status: open
 plan_items: [S-8, S8a, S8b, O-4]
-prs: []
+prs: [53]
 verification: ''
 target_release: 0.6.0
 notes: >

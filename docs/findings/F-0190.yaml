@@ -5,7 +5,7 @@ area: platform-pf, build
 source: design
 status: open
 plan_items: [O-4, F-2, R-I3]
-prs: []
+prs: [53]
 verification: ''
 target_release: 0.6.0
 notes: >
