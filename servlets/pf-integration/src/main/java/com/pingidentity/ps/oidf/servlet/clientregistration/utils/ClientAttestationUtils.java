@@ -117,6 +117,19 @@ public final class ClientAttestationUtils {
     }
 
     private static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost, String trustControllerBaseUrl) {
+        return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost,
+                trustControllerBaseUrl, request -> OAuthIssuerUtils.getInstance().getIssuerValue(request),
+                ClientAttestationUtils::configuredTokenEndpointBaseUrl);
+    }
+
+    /**
+     * Test seam: the criterion with PingFederate's issuer and token endpoint base URL supplied, as
+     * {@code ClientAttestationAuthFilter} takes them, because {@code OAuthIssuerUtils}' static initialiser reaches
+     * into PingFederate's registry and cannot run outside a booted server.
+     */
+    static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerResolver,
+            java.util.function.Supplier<String> tokenEndpointBaseUrl) {
         try {
             if (!(inObj instanceof Map)) {
                 LOGGER.error((Object) ("In parameters not instance of Map. " + (inObj == null ? "null" : inObj.getClass().getName())));
@@ -148,7 +161,7 @@ public final class ClientAttestationUtils {
                 return true;
             }
 
-            String opIssuer = OAuthIssuerUtils.getInstance().getIssuerValue(request);
+            String opIssuer = issuerResolver.apply(request);
 
             String attestation = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation");
             String pop = ClientAttestationUtils.singleHeader(request, "OAuth-Client-Attestation-PoP");
@@ -156,7 +169,7 @@ public final class ClientAttestationUtils {
             // The endpoint's URL as PingFederate advertises it, not the request URL: that is rebuilt from the
             // Host header, which is the caller's to write (see endpointUrl).
             String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer,
-                    ClientAttestationUtils.configuredTokenEndpointBaseUrl(), ClientAttestationUtils.endpointPath(request));
+                    tokenEndpointBaseUrl.get(), ClientAttestationUtils.endpointPath(request));
 
             AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
                     ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
