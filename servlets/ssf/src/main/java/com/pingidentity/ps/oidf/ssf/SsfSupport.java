@@ -5,11 +5,11 @@ package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.device.CaepSignalApplier;
 import com.pingidentity.ps.oidf.device.IomInstanceRegistry;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -42,7 +42,9 @@ public final class SsfSupport {
 
     /** How long a boot that could not open the store waits before trying again. A constant until S-5 makes it a setting. */
     static volatile int bootRetrySeconds = 30;
-    private static ScheduledExecutorService bootRetry;
+    /** The boot retry's managed executor, one retry at a time; its thread is {@code oidf-ssf-boot-retry-1}. */
+    static final String BOOT_RETRY = "ssf-boot-retry";
+    private static ManagedExecutor bootRetry;
     private static boolean bootRetryPending;
     /** Whether a failed start has been logged; the stack trace goes with the first only. */
     private static boolean bootFailureLogged;
@@ -207,19 +209,17 @@ public final class SsfSupport {
                 return;
             }
             if (bootRetry == null) {
-                bootRetry = Executors.newSingleThreadScheduledExecutor(r -> {
-                    Thread t = new Thread(r, "ssf-boot-retry");
-                    t.setDaemon(true);
-                    return t;
-                });
+                bootRetry = ManagedExecutors.single(BOOT_RETRY).orElse(null);
+                if (bootRetry == null) {
+                    return; // it runs in another copy, or this one has shut down: the log says which
+                }
             }
-            bootRetryPending = true;
-            bootRetry.schedule(() -> {
+            bootRetryPending = bootRetry.after(Duration.ofSeconds(bootRetrySeconds), () -> {
                 synchronized (LOCK) {
                     bootRetryPending = false;
                 }
                 start(config, afterConfigure);
-            }, bootRetrySeconds, TimeUnit.SECONDS);
+            });
         }
     }
 
@@ -448,7 +448,7 @@ public final class SsfSupport {
     static void resetForTests() {
         synchronized (LOCK) {
             if (bootRetry != null) {
-                bootRetry.shutdownNow();
+                bootRetry.close(Duration.ZERO); // as shutdownNow did: a retry in progress is not waited for
                 bootRetry = null;
             }
             bootRetryPending = false;

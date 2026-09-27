@@ -14,9 +14,14 @@ import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.ExpiryEnforcement;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.RegistrationSettings;
+import com.pingidentity.ps.oidf.pf.ClientStore;
 import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.pf.testkit.FakeClientStore;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import java.util.Collection;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -43,6 +48,7 @@ class RegistrationExpirySweeperTest {
 
     @AfterEach
     void tearDown() {
+        this.sweeper.stop();
         this.events.close();
         System.clearProperty(RegistrationExpirySweeper.OWNER_PROPERTY);
     }
@@ -92,6 +98,85 @@ class RegistrationExpirySweeperTest {
         assertNotNull(System.getProperty(RegistrationExpirySweeper.OWNER_PROPERTY));
         assertFalse(new RegistrationExpirySweeper(this.store, new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock))
                 .startOnce(3600), "a second filter instance, or the other classloader's, finds it running");
+    }
+
+    @Test
+    void theSweepRunsOnANamedManagedExecutorFirstAfterOneInterval() throws Exception {
+        this.store.with(federationClient("https://agent.example/1", "auto_registered", this.in(-1), null));
+        long started = System.nanoTime();
+        assertTrue(this.sweeper.startOnce(1));
+        ManagedExecutor executor = ManagedExecutors.live(RegistrationExpirySweeper.EXECUTOR_NAME).orElseThrow();
+        assertEquals("oidf-registration-sweeper", executor.threadNamePrefix());
+        assertEquals(0, executor.runs(), "nothing at start: the first pass is one interval away, as the old thread slept first");
+        awaitRuns(executor, 1);
+        assertTrue(System.nanoTime() - started >= 1_000_000_000L);
+        assertFalse(this.store.getAll().iterator().next().isEnabled(), "and that pass disabled the expired client");
+    }
+
+    @Test
+    void aPassThatFailsIsLoggedAndTheNextIntervalTriesAgain() throws Exception {
+        AtomicInteger calls = new AtomicInteger();
+        ClientStore failingOnce = new ClientStore() {
+            @Override public void add(Client client) { store.add(client); }
+            @Override public void update(Client client) { store.update(client); }
+            @Override public void disable(Client client) { store.disable(client); }
+            @Override public Client get(String clientId) { return store.get(clientId); }
+            @Override public Collection<Client> getAll() {
+                if (calls.incrementAndGet() == 1) {
+                    throw new IllegalStateException("the client store is down");
+                }
+                return store.getAll();
+            }
+        };
+        RegistrationExpirySweeper flaky = new RegistrationExpirySweeper(failingOnce,
+                new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock));
+        try {
+            assertTrue(flaky.startOnce(1));
+            ManagedExecutor executor = ManagedExecutors.live(RegistrationExpirySweeper.EXECUTOR_NAME).orElseThrow();
+            awaitRuns(executor, 2);
+            assertEquals(0, executor.failures(), "the sweep's own catch logs it; nothing escapes to the executor");
+            assertTrue(calls.get() >= 2, "tried again the next interval");
+        } finally {
+            flaky.stop();
+        }
+    }
+
+    @Test
+    void stopEndsTheSweepAndGivesTheOwnerBack() {
+        assertTrue(this.sweeper.startOnce(3600));
+        ManagedExecutor executor = ManagedExecutors.live(RegistrationExpirySweeper.EXECUTOR_NAME).orElseThrow();
+        this.sweeper.stop();
+        assertTrue(executor.isClosed());
+        assertNull(System.getProperty(RegistrationExpirySweeper.OWNER_PROPERTY), "so a redeployed filter can start one");
+        assertEquals(java.util.Optional.empty(), ManagedExecutors.live(RegistrationExpirySweeper.EXECUTOR_NAME));
+        RegistrationExpirySweeper next = new RegistrationExpirySweeper(this.store,
+                new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock));
+        try {
+            assertTrue(next.startOnce(3600), "the next one starts");
+        } finally {
+            next.stop();
+        }
+        new RegistrationExpirySweeper(this.store, new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock)).stop();
+    }
+
+    @Test
+    void whenTheExecutorIsHeldElsewhereNothingStartsAndTheOwnerIsGivenBack() {
+        String claim = "oidf.exec.owner." + RegistrationExpirySweeper.EXECUTOR_NAME;
+        System.setProperty(claim, "another-copy");
+        try {
+            assertFalse(this.sweeper.startOnce(3600));
+            assertNull(System.getProperty(RegistrationExpirySweeper.OWNER_PROPERTY));
+        } finally {
+            System.clearProperty(claim);
+        }
+    }
+
+    private static void awaitRuns(ManagedExecutor executor, long runs) throws InterruptedException {
+        long deadline = System.nanoTime() + 20_000_000_000L;
+        while (executor.runs() < runs) {
+            assertTrue(System.nanoTime() < deadline, "timed out waiting for " + runs + " run(s)");
+            Thread.sleep(20);
+        }
     }
 
     @Test

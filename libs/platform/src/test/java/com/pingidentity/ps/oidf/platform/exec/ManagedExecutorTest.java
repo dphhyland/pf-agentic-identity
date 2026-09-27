@@ -193,6 +193,29 @@ class ManagedExecutorTest {
     }
 
     @Test
+    void aCloseThatDoesNotWaitDoesNotWait() throws Exception {
+        CountDownLatch running = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        this.executor.execute(() -> {
+            running.countDown();
+            while (release.getCount() > 0) {
+                try {
+                    release.await(10, TimeUnit.SECONDS);
+                } catch (InterruptedException ignored) {
+                    // carries on regardless
+                }
+            }
+        });
+        await(running);
+        try {
+            assertFalse(this.executor.close(Duration.ZERO), "still running, and not waited for");
+            assertEquals(1, this.closedCalls.get());
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
     void aClosedExecutorSchedulesNothing() {
         this.executor.close();
         assertFalse(this.executor.after(Duration.ZERO, () -> { }));

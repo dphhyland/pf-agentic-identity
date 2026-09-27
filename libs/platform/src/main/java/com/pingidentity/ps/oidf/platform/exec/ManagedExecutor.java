@@ -224,7 +224,8 @@ public final class ManagedExecutor implements AutoCloseable {
     /**
      * Stops the executor: interrupts a run in progress, drops what is queued, and waits at most {@code wait} for
      * its thread to end. Then gives the name back (another copy, or a later start, may use it) and runs the
-     * {@link #whenClosed(Runnable)} hook. Only the first call does anything.
+     * {@link #whenClosed(Runnable)} hook. Only the first call does anything. A wait of zero is a close that does
+     * not wait, as {@code shutdownNow} alone does, and says nothing of a thread still running.
      *
      * @return whether the thread ended within the wait; {@code true} on every call after the first
      */
@@ -238,7 +239,7 @@ public final class ManagedExecutor implements AutoCloseable {
         }
         this.pool.shutdownNow();
         boolean ended = awaitEnd(waitNanos);
-        if (!ended) {
+        if (!ended && waitNanos > 0) {
             LOG.warn("Managed executor " + this.name + " still running after " + wait.toMillis() + " ms; not waiting for it");
         }
         this.onClosed.run();
