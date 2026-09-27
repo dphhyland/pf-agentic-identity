@@ -13,6 +13,8 @@ import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailProcessingEx
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailProcessor;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailProcessorDescriptor;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetailValidationResult;
+import com.pingidentity.ps.oidf.rar.model.RarModelException;
+import com.pingidentity.ps.oidf.rar.model.RarModels;
 import org.sourceid.saml20.adapter.conf.Configuration;
 import org.sourceid.saml20.adapter.gui.CheckBoxFieldDescriptor;
 import org.sourceid.saml20.adapter.gui.TextFieldDescriptor;
@@ -20,7 +22,6 @@ import org.sourceid.saml20.adapter.gui.validation.impl.RequiredFieldValidator;
 
 import jakarta.servlet.http.HttpServletRequest;
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.Map;
@@ -34,12 +35,16 @@ import java.util.logging.Logger;
  * <p>Modelled on the reference {@code RARAuthDetailsProcessor}, but this is a Policy Enforcement Point that
  * <em>honours</em> the governance-engine decision rather than only enriching:
  * <ul>
- *   <li>{@link #enrich} resolves who the decision is about ({@link PrincipalResolver}), refuses the types
- *       that need a person when there is none, forwards the requested detail plus the attestation-vouched
- *       subject / entitlement / workload to the governance engine, denies unless the decision is PERMIT,
- *       and applies the returned statements (downscoping / obligations).</li>
- *   <li>{@link #isEqualOrSubset} does a real containment check (for refresh-time narrowing).</li>
+ *   <li>{@link #enrich} resolves who the decision is about ({@link PrincipalResolver}), holds the requested
+ *       detail to the RAR containment model, refuses the types that need a person when there is none, forwards
+ *       the requested detail plus the attestation-vouched subject / entitlement / workload to the governance
+ *       engine, denies unless the decision is PERMIT, applies the returned statements (downscoping /
+ *       obligations), and refuses a result the model does not find within the request: the PDP may narrow,
+ *       never widen.</li>
+ *   <li>{@link #isEqualOrSubset} is the model's strict {@code contains} (refresh-time narrowing).</li>
  * </ul>
+ *
+ * <p>Every containment question goes to {@code libs/rar-model}, shaded into this jar, through {@link ModelGate}.
  *
  * <p>The attestation context is published by the client-attestation issuance hook as a request attribute
  * (see {@link AttestationSubject#REQUEST_ATTRIBUTE}) and read here via {@code context.getJakartaRequest()}.
@@ -60,15 +65,16 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String TYPE_NAME = "Attestation-aware RAR to PingAuthorize";
 
     /** Internal authorization_details field the BFF folds the authenticated principal into (survives PAR).
-     *  Consumed here and stripped so it never reaches the governance engine, the consent page, or the token. */
-    private static final String PRINCIPAL_DETAIL_KEY = "_principal_sub";
+     *  Consumed here and stripped so it never reaches the model, the governance engine, the consent page, or the
+     *  token. */
+    private static final String PRINCIPAL_DETAIL_KEY = ModelGate.PRINCIPAL_MARKER;
     /**
      * The agent instance, carried inside each entry by the attestation filter at PAR. PingFederate calls
      * {@link #enrich} from the authorisation endpoint, a browser request the filter never sees, so the
      * attestation context is not there; {@code authorization_details} is the only channel that survives
      * from PAR, and the filter overwrites whatever a client puts under this name with the agent_id it verified.
      */
-    static final String AGENT_DETAIL_KEY = "_agent_id";
+    static final String AGENT_DETAIL_KEY = ModelGate.AGENT_MARKER;
 
     private static final String PDP_DIALECT = "PDP Dialect";
     private static final String DIALECT_GOVERNANCE = "governance-engine";
@@ -126,20 +132,30 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private final Logger log = Logger.getLogger(getClass().getName());
     private final ObjectMapper mapper = new ObjectMapper();
 
+    private final ModelGate gate;
     private GovernanceEngineConfig config;
     private PdpClient client;
     private HttpTransport transport;
 
+    /** What PingFederate calls: the process's RAR model set, read from the environment once per classloader. */
     public AttestationAwareRarProcessor() {
+        this.gate = ModelGate.process();
     }
 
     /**
      * Test seam: inject the collaborators {@link #configure} would otherwise build, so
-     * {@link #enrich} can be exercised without a live PDP or a PingFederate {@code Configuration}.
+     * {@link #enrich} can be exercised without a live PDP or a PingFederate {@code Configuration}. The model set is
+     * the built-in one with production semantics, whatever the test's environment says.
      */
     AttestationAwareRarProcessor(PdpClient client, GovernanceEngineConfig config) {
+        this(client, config, ModelGate.of(RarModels.builtIn()));
+    }
+
+    /** Test seam with a model set of the test's choosing: a models document, the development fallback, none. */
+    AttestationAwareRarProcessor(PdpClient client, GovernanceEngineConfig config, ModelGate gate) {
         this.client = client;
         this.config = config;
+        this.gate = gate;
     }
 
     @Override
@@ -165,10 +181,14 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
             log.warning("'" + INSECURE_TLS + "' is on but " + PdpUrlPolicy.PROFILE_ENV
                     + " is not development: the PDP's certificate is checked in this deployment.");
         }
+        if (!gate.loaded()) {
+            log.severe("This instance refuses every authorization_details request: " + gate.loadFailure());
+        }
         log.info("Configured AttestationAwareRarProcessor (" + (this.client instanceof AuthZenPdpClient
                 ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl() + " profile=" + config.getDeploymentProfile()
                 + " authenticatedPrincipalTypes=" + config.getAuthenticatedPrincipalTypes()
-                + " failOpenOnUnavailable=" + config.isFailOpenOnError());
+                + " failOpenOnUnavailable=" + config.isFailOpenOnError()
+                + " rarModels=" + (gate.loaded() ? gate.fingerprint() : "not loaded"));
     }
 
     /** The transport {@link #configure} built, or {@code null} before it ran: for a test of what it trusts. */
@@ -316,14 +336,21 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
             throw new AuthorizationDetailProcessingException("the processor for type '" + type
                     + "' is not configured; see its configure error in the server log");
         }
+        if (!gate.loaded()) {
+            // The models document did not load, so the model cannot answer and nothing is decided (ModelGate).
+            throw new AuthorizationDetailProcessingException("the processor for type '" + type
+                    + "' has no RAR model to hold it to; see the RAR models line in the server log");
+        }
         HttpServletRequest request = requestOf(context);
         AttestationSubject subject = readSubject(request);
-        // Detail on which the decision is made - a copy without the internal markers so they never reach the
-        // governance engine as payload fields, the consent page, or the issued token. (The SDK's
-        // AuthorizationDetail always holds a map: getType() reads it without a null check.)
-        Map<String, Object> detail = new HashMap<>(authDetail.getDetail());
-        Object principalInDetail = detail.remove(PRINCIPAL_DETAIL_KEY);
-        Object agentInDetail = detail.remove(AGENT_DETAIL_KEY);
+        // Detail on which the decision is made - a copy without the internal markers, so they never reach the
+        // model, the governance engine as payload fields, the consent page, or the issued token. Their values are
+        // read first, for the principal resolver and the agent below. (The SDK's AuthorizationDetail always
+        // holds a map: getType() reads it without a null check.)
+        Map<String, Object> raw = authDetail.getDetail();
+        Object principalInDetail = raw.get(PRINCIPAL_DETAIL_KEY);
+        Object agentInDetail = raw.get(AGENT_DETAIL_KEY);
+        Map<String, Object> detail = ModelGate.strip(raw);
         if (subject.getAgentId() == null && config.isTrustAgentMarker() && agentInDetail instanceof String marked && !marked.isBlank()) {
             subject = subject.withAgentId(marked);
         }
@@ -353,6 +380,25 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                     + " attestationClient=" + subject.getClientId() + " agentId=" + subject.getAgentId()
                     + " attester=" + subject.getAttesterIssuer() + " clientId=" + clientId);
         }
+        // The attestation filter and this plugin must hold requests to one model: a context the filter published
+        // names its model set by fingerprint. No context at all is a request the filter did not verify, decided
+        // as before the model (the PDP sees no attested ceiling).
+        String mismatch = gate.fingerprintProblem(subject);
+        if (mismatch != null) {
+            log.warning("RAR governance: refusing type '" + type + "' before any PDP call: " + mismatch);
+            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
+                    + "' refused before any PDP call: " + mismatch);
+        }
+        // A detail the model cannot compare is refused here rather than decided: an unmodelled type, an undeclared
+        // field, a value of the wrong shape (RFC 9396 section 5). Neither the PDP nor the fail-open path below is
+        // ever handed one, so whatever is granted is something the refresh check can compare later.
+        try {
+            gate.check(detail);
+        } catch (RarModelException e) {
+            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
+                    + "' is not one this processor's RAR model accepts (" + e.reason() + "): " + e.getMessage()
+                    + "; refused before any PDP call");
+        }
         if (PrincipalResolver.requiresAuthenticatedPrincipal(type, principal, config.getAuthenticatedPrincipalTypes())) {
             throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
                     + "' needs an authenticated principal and this request has " + principal.source()
@@ -366,8 +412,22 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                         "governance engine denied authorization_details of type '" + type
                                 + "' (decision=" + decision.getDecision() + ")");
             }
-            Map<String, Object> enriched = new HashMap<>(detail);
+            // The grant is built on a copy of its own: StatementApplier writes into nested maps in place, and the
+            // request the grant is compared with must stay the one the PDP was asked about.
+            Map<String, Object> enriched = ModelGate.deepCopy(detail);
             StatementApplier.apply(decision.getStatements(), enriched, mapper);
+            ModelGate.Verdict narrowed = gate.within(detail, enriched);
+            if (!narrowed.contained()) {
+                // The PDP may narrow a request, never widen it. What its statements wrote is not repeated: the
+                // model's message names a field, never a value.
+                String why = narrowed.isRefused()
+                        ? "the model cannot compare it with the request (" + narrowed.reason() + "): " + narrowed.refusal()
+                        : "it is not within the request";
+                log.warning("RAR governance: refusing the PDP's answer for type '" + type + "': " + why
+                        + " (principal=" + PrincipalResolver.hashForLog(principal.subject()) + ")");
+                throw new AuthorizationDetailProcessingException("the PDP's answer for authorization_details of type '"
+                        + type + "' is refused, because a PDP may narrow a request and never widen it: " + why);
+            }
             authDetail.setDetail(enriched);
             return authDetail;
         } catch (AuthorizationDetailProcessingException e) {
@@ -396,12 +456,46 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         }
     }
 
+    /**
+     * Whether a refresh's detail stays within the detail already granted: the RAR model's strict {@code contains},
+     * the grant as the ceiling (CAS section 7 rule 1). A field the grant constrains and the refresh leaves out is not
+     * contained, and every field of both is compared by its type's rule, amounts and accounts included.
+     *
+     * <p>What PingFederate 13.1.3 does around this call, read with {@code javap} on 2026-09-27
+     * ({@code RefreshTokenGrantProcessor.processGrant}, {@code AuthorizationDetailsServiceImpl} and
+     * {@code AuthorizationDetailsUtil}): only a refresh that carries {@code authorization_details} is compared -
+     * without one the stored details are reissued and no processor is called. The requested details are
+     * enriched first, with the grant's user key, then each must be within some stored detail of the same type
+     * ({@code allMatch} over the request, {@code anyMatch} over the grant, the type compared by PingFederate before
+     * this method is called), with a context that carries the request, the client id and the scope and no user
+     * key, and an empty parameter map. PingFederate passes copies of both details; a {@code false}, or an
+     * {@link AuthorizationDetailProcessingException}, makes it answer {@code invalid_authorization_details}.
+     */
     @Override
     public boolean isEqualOrSubset(AuthorizationDetail requested, AuthorizationDetail accepted,
                                    AuthorizationDetailContext context, Map<String, Object> parameters) {
-        Map<String, Object> req = requested == null ? null : requested.getDetail();
-        Map<String, Object> acc = accepted == null ? null : accepted.getDetail();
-        return RarContainment.isSubset(req, acc);
+        ModelGate.Verdict verdict = refreshVerdict(requested, accepted, context);
+        if (!verdict.contained()) {
+            log.info("RAR refresh: a requested authorization_details entry is not within the grant it was compared with"
+                    + (verdict.isRefused() ? "; refused: " + verdict.refusal() : ""));
+        }
+        return verdict.contained();
+    }
+
+    /**
+     * {@link #isEqualOrSubset}'s answer with its reason: the fingerprint comparison first, when the refresh request
+     * carries an attestation context, then the model's {@code contains} over the two details without their
+     * bookkeeping markers. A missing detail, like any question the model cannot answer, is a refusal.
+     */
+    ModelGate.Verdict refreshVerdict(AuthorizationDetail requested, AuthorizationDetail accepted,
+                                     AuthorizationDetailContext context) {
+        String mismatch = gate.fingerprintProblem(readSubject(requestOf(context)));
+        if (mismatch != null) {
+            return ModelGate.Verdict.refused(null, mismatch);
+        }
+        Map<String, Object> asked = requested == null ? null : ModelGate.strip(requested.getDetail());
+        Map<String, Object> granted = accepted == null ? null : ModelGate.strip(accepted.getDetail());
+        return gate.within(granted, asked);
     }
 
     @Override
