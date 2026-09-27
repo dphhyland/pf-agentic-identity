@@ -9,7 +9,7 @@ the current class signatures before porting.
 
 | Class | What it proves |
 |---|---|
-| `AttestationFlowHarness` | `selfverify`: the real `ClientAttestationVerifier` accepts a correctly-built PoP/DPoP request and an RFC 9396 request within the attested entitlement, and rejects a tampered DPoP key and an out-of-entitlement request. `live <baseUrl>`: fetches a real challenge from a **deployed** PingFederate, mints a full attestation + PoP + DPoP, and executes a live token request — prints the response and a ready-to-run `curl`. |
+| `AttestationFlowHarness` | `selfverify`: the real `ClientAttestationVerifier` accepts a correctly-built PoP/DPoP request and an RFC 9396 request within the attested entitlement, and rejects a tampered DPoP key and an out-of-entitlement request. `live <baseUrl>`: fetches a real challenge from a **deployed** PingFederate's authorization server endpoint (`POST /federation/attestation-challenge` - not the attester's `GET /federation/attestation/challenge`, whose challenges the token endpoint refuses), mints a full attestation + PoP + DPoP, and executes a live token request — prints the response and a ready-to-run `curl`. |
 | `AttestationIssuanceHarness` | The issuance servlet's flow via its public building blocks (`SpiffeSvidValidator`, `AttestationIssuanceConfig`, `InstanceKeyProofValidator`, `AttesterSigningKey`, `AttestationMinter`) — a valid SVID + instance proof mints an attestation that round-trips through the real verifier; an unbound SPIFFE ID and a wrong-key proof are both refused. |
 | `SsfSelfVerify` | Mints a CAEP session-revoked SET with the real `SetMinter` and verifies its signature, `typ` header, and claims. |
 
