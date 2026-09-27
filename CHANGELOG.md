@@ -10,7 +10,7 @@ it the heading `[<version>] - <date>`, the date the tag is cut, and leaves an em
 
 ## [Unreleased] - 0.5.0-SNAPSHOT
 
-Nothing yet. The poms move to 0.5.0-SNAPSHOT in the pull request that begins it.
+Phase 2 of the production programme, foundations: the shared platform library, settings catalogues, observability, Postgres-only tests and the outbound HTTP client. Release notes arrive as fragments under [docs/releases/unreleased](docs/releases/unreleased/) and are folded in at release.
 
 ## [0.4.0] - 2026-09-27
 
