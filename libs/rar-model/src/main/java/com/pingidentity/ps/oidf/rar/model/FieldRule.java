@@ -7,6 +7,7 @@ import java.math.BigDecimal;
 import java.time.DateTimeException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -83,12 +84,22 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
     }
 
     /**
-     * Refuses a value this rule cannot compare.
+     * Refuses a value this rule cannot compare, a limit without its unit inside an object included.
      *
      * @param value the field's value, present in the detail
      * @param where the detail and field, for the message
      */
     void check(Object value, String where) throws RarModelException {
+        check(value, where, true);
+    }
+
+    /**
+     * {@link #check}, with the unit pairing inside an object as asked: off only where
+     * {@link TypeModel#checkValues} leaves it for after inheritance.
+     *
+     * @param units whether a limit inside an object must have its unit beside it
+     */
+    void check(Object value, String where, boolean units) throws RarModelException {
         switch (rule) {
             case SET -> {
                 List<?> list = nonEmptyList(value, where);
@@ -122,7 +133,7 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
                 if (!(value instanceof Map<?, ?>)) {
                     throw RarModelException.malformed(where + " must be an object");
                 }
-                nested.check(asMap(value), where);
+                nested.check(asMap(value), where, units);
             }
             // FORBIDDEN, as the default so the switch has no branch nothing can reach.
             default -> throw RarModelException.malformed(where + " is a forbidden field");
@@ -332,10 +343,12 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
     }
 
     /**
-     * An RFC 3339 date-time with its offset, or a full date, which means the end of that day in UTC:
-     * "valid until 2026-12-31" allows the whole of the 31st, so its instant is the start of the 1st.
-     * The syntax is the pattern above; a value in it that names no instant (the 30th of February, a leap
-     * second, an offset past 18 hours) is malformed too.
+     * An RFC 3339 date-time with its offset, or a full date, which means the last instant of that day in
+     * UTC: "valid until 2026-12-31" allows the whole of the 31st and none of the 1st, so its instant is
+     * 2026-12-31T23:59:59.999999999Z, the last one nine fraction digits can name, and the next midnight is
+     * past it. A date is read in UTC whatever offset the other side uses. The syntax is the pattern above;
+     * a value in it that names no instant (the 30th of February, a leap second, an offset past 18 hours)
+     * is malformed too.
      */
     static Instant instant(Object value, String where) throws RarModelException {
         if (!(value instanceof String s) || !RFC3339.matcher(s).matches()) {
@@ -343,7 +356,7 @@ public record FieldRule(Rule rule, String unitField, TypeModel nested) {
         }
         try {
             return s.length() == 10
-                    ? LocalDate.parse(s).plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant()
+                    ? LocalDate.parse(s).atTime(LocalTime.MAX).toInstant(ZoneOffset.UTC)
                     : OffsetDateTime.parse(s).toInstant();
         } catch (DateTimeException e) {
             throw RarModelException.malformed(where + " must be an RFC 3339 date-time or date string");

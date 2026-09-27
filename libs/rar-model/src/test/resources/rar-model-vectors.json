@@ -1613,6 +1613,57 @@
       "expect": false
     },
     {
+      "name": "instant_limit: the next midnight is past a date",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2027-01-01T00:00:00Z"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "instant_limit: a date asks for the whole of its day",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31T23:59:59Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "expect": false
+    },
+    {
+      "name": "instant_limit: a date is read in UTC under a date-time ceiling",
+      "op": "contains",
+      "ceiling": [
+        {
+          "type": "account_information",
+          "validUntil": "2027-01-01T00:00:00Z"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "account_information",
+          "validUntil": "2026-12-31"
+        }
+      ],
+      "expect": true
+    },
+    {
       "name": "instant_limit: a date within a date",
       "op": "contains",
       "ceiling": [
@@ -3014,6 +3065,145 @@
             }
           }
         ]
+      }
+    },
+    {
+      "name": "object: INHERIT pairs a nested limit with the ceiling's unit",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/budgets": {
+              "fields": {
+                "o": {
+                  "rule": "object",
+                  "fields": {
+                    "budget": {
+                      "rule": "limit",
+                      "unit_field": "cur"
+                    },
+                    "cur": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 10,
+            "cur": "EUR"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 5
+          }
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "granted": [
+          {
+            "type": "https://scheme.example.org/budgets",
+            "o": {
+              "budget": 5,
+              "cur": "EUR"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "object: a nested limit with no unit anywhere is malformed under INHERIT",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/budgets": {
+              "fields": {
+                "o": {
+                  "rule": "object",
+                  "fields": {
+                    "budget": {
+                      "rule": "limit",
+                      "unit_field": "cur"
+                    },
+                    "cur": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/budgets"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 5
+          }
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "object: STRICT refuses a nested limit sent without its unit",
+      "op": "authorize",
+      "models": {
+        "document": {
+          "types": {
+            "https://scheme.example.org/budgets": {
+              "fields": {
+                "o": {
+                  "rule": "object",
+                  "fields": {
+                    "budget": {
+                      "rule": "limit",
+                      "unit_field": "cur"
+                    },
+                    "cur": "string"
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "ceiling": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 10,
+            "cur": "EUR"
+          }
+        }
+      ],
+      "candidate": [
+        {
+          "type": "https://scheme.example.org/budgets",
+          "o": {
+            "budget": 5
+          }
+        }
+      ],
+      "mode": "STRICT",
+      "expect": {
+        "refused": "MALFORMED"
       }
     },
     {

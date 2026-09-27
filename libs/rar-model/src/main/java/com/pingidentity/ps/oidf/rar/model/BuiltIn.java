@@ -1,5 +1,5 @@
 /*
- * The three types this repo's deployments use, modelled from RFC 9396 and the traffic seen here.
+ * The three types this repo's deployments use, modelled from RFC 9396 and the code and tests here.
  */
 package com.pingidentity.ps.oidf.rar.model;
 
@@ -10,24 +10,25 @@ import java.util.Map;
 /**
  * The built-in models. Every type starts from the RFC 9396 §2.2 common data fields ({@code actions},
  * {@code locations}, {@code datatypes}, {@code privileges} as sets, {@code identifier} a string) plus
- * three fields seen in this repo's traffic: {@code purpose}, a string clients send and the RAR plugin's
- * consent text drops as bookkeeping, and the two bookkeeping names this repo's own components write into
- * a detail after the authority question is settled - {@code _principal_sub} (the plugin's
- * development-only client-asserted principal) and {@code _agent_id} (the marker the token filter carries
- * from PAR). Those two are forbidden: a caller strips its own bookkeeping before it asks the model and
- * puts it back after, so a request that arrives already carrying them is refused with a message that
- * says so.
+ * three names seen in this repo. {@code purpose} is a string the RAR plugin's and pf-integration's tests
+ * send and the plugin's consent text drops. The other two are markers, and forbidden here:
+ * {@code _principal_sub} is the client-asserted principal a BFF folds into a detail, which the RAR plugin
+ * reads only when "Trust a client-asserted principal" is on (off by default; plan item S2b makes it
+ * development-only) and always strips; {@code _agent_id} is the marker the client-attestation filter
+ * writes into every detail of a request it verified, over whatever a client wrote under that name. The
+ * wiring (S1b, S1c) must strip both before it asks the model: a detail that reaches the model still
+ * carrying one is refused as malformed, with a message that says so.
  *
  * <ul>
  *   <li>{@code sales_agent}: {@code sales_regions} (set) and {@code max_txn_eur} (limit, the unit in
  *       the name), the example the CAS specification and this repo's demos use.</li>
  *   <li>{@code payment_initiation}: RFC 9396 Figure 2 - {@code instructedAmount} (amount),
- *       {@code creditorName} and {@code remittanceInformationUnstructured} (string),
- *       {@code creditorAccount} and {@code debtorAccount} (equal) - plus the flat {@code amount} (limit,
- *       paired with {@code currency}) and {@code currency} (string) that the RAR plugin's consent text
- *       reads and its tests send. The amount has two spellings, {@code instructedAmount} or the flat
- *       pair, so they are alternatives: a detail uses one, and a ceiling that uses one holds the request
- *       to it.</li>
+ *       {@code creditorName} and {@code remittanceInformationUnstructured} (string), {@code creditorAccount}
+ *       (equal) - plus {@code debtorAccount} (equal), which the RAR plugin's consent text prints and RFC
+ *       9396 Figures 20 and 21 show, and the flat {@code amount} (limit, paired with {@code currency}) and
+ *       {@code currency} (string) that the consent text reads and the plugin's tests send. The amount has
+ *       two spellings, {@code instructedAmount} or the flat pair, so they are alternatives: a detail uses
+ *       one, and a ceiling that uses one holds the request to it.</li>
  *   <li>{@code account_information}: {@code accounts} (set of values, account objects included),
  *       {@code validUntil} (instant limit) and {@code recurringIndicator} (equal). RFC 9396 §7.1's
  *       {@code access} object is not here: its example sends empty arrays, which the plan's rules refuse,

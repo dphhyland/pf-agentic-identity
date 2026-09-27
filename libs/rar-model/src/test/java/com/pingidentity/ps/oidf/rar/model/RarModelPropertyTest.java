@@ -227,7 +227,9 @@ class RarModelPropertyTest {
     private static final Object[] LIMITS = {100, "500", "1000.00", 5000};
     private static final String[] CURRENCIES = {"EUR", "USD"};
     private static final Object[] ACCOUNTS = {Map.of("iban", "DE1"), Map.of("iban", "DE2"), "acc-3"};
-    private static final String[] INSTANTS = {"2026-12-31", "2026-06-30T12:00:00Z", "2027-01-01T00:00:00+01:00"};
+    /** A date, its own last instant (a tie the meet breaks by spelling), the next midnight, and two either side. */
+    private static final String[] INSTANTS = {"2026-12-31", "2026-06-30T12:00:00Z", "2027-01-01T00:00:00+01:00",
+            "2026-12-31T23:59:59.999999999Z", "2027-01-01T00:00:00Z"};
     private static final String[] NAMES = {"Merchant A", "Merchant B"};
     private static final String[] IDS = {"id-0", "id-1"};
     private static final String[] PATHS = {"/a", "/b", "/c"};

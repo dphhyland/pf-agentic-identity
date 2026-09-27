@@ -144,8 +144,8 @@ final class ModelSchema {
                     throw RarModelException.modelInvalid(where + ": 'unit_field' belongs to the limit rule");
                 }
                 if (depth >= Limits.MAX_DEPTH - 1) {
-                    throw RarModelException.modelInvalid(where + ": objects nested deeper than " + (Limits.MAX_DEPTH - 1)
-                            + " can never hold a value within the depth limit");
+                    throw RarModelException.modelInvalid(where + ": a models document nests objects at most "
+                            + (Limits.MAX_DEPTH - 1) + " deep (the detail is depth 1), one short of the value depth limit");
                 }
                 Map<String, Object> declared = object(spec.get("fields"), where + " 'fields'");
                 if (declared.isEmpty()) {

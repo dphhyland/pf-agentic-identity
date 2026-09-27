@@ -47,7 +47,7 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   a type can say two ways, the built-in `sales_agent`, `payment_initiation` and `account_information` models, more
   from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`, strict `contains`, `authorize` with inheritance, and the meet
   `intersect`, over lists held to fixed limits (numbers by the digits they would write); a SHA-256 fingerprint of
-  the effective model and the library's semantics; 238 vectors in a test-jar and seeded property tests. The
+  the effective model and the library's semantics; 244 vectors in a test-jar and seeded property tests. The
   library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
   until then.
 

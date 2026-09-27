@@ -121,6 +121,11 @@ class JsonTest {
         assertTrue(e.getMessage().indexOf('\n') < 0);
         IllegalArgumentException c = assertThrows(IllegalArgumentException.class, () -> Json.parse("\u0007"));
         assertEquals("JSON: unexpected character '\\u0007' at offset 0", c.getMessage());
+        IllegalArgumentException nel = assertThrows(IllegalArgumentException.class, () -> Json.parse("[\u0085]"));
+        assertEquals("JSON: unexpected character '\\u0085' at offset 1", nel.getMessage());
+        String separated = "{\"a b‮\":1,\"a b‮\":2}";
+        IllegalArgumentException sep = assertThrows(IllegalArgumentException.class, () -> Json.parse(separated));
+        assertEquals("JSON: duplicate member name 'a\\u2028b\\u202e' at offset 18", sep.getMessage());
         IllegalArgumentException esc = assertThrows(IllegalArgumentException.class, () -> Json.parse("\"\\\n\""));
         assertEquals("JSON: bad escape at offset 3", esc.getMessage());
     }

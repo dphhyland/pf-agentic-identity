@@ -177,10 +177,14 @@ public final class RarModels {
     /**
      * The model for a type.
      *
-     * @throws RarModelException {@link RarModelException.Reason#UNMODELLED_TYPE} when none is defined
-     *                           and the fallback is off
+     * @throws RarModelException {@link RarModelException.Reason#MALFORMED} for a {@code null} or blank
+     *                           type, which no detail may have; {@link RarModelException.Reason#UNMODELLED_TYPE}
+     *                           when none is defined and the fallback is off
      */
     public TypeModel model(String type) throws RarModelException {
+        if (type == null || type.isBlank()) {
+            throw RarModelException.malformed("an authorization_details type must be a non-blank string");
+        }
         TypeModel model = types.get(type);
         if (model != null) {
             return model;

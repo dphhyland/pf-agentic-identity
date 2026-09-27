@@ -25,8 +25,8 @@ issuer, S1c the plugin), and until it lands nothing in a running PingFederate re
 - **`Omission`** - what a constrained field the candidate leaves out means to `authorize`: `INHERIT` or `STRICT`.
 - **`RarModelException`** - every refusal, with a `Reason` the caller maps to its own error: `MALFORMED`,
   `TOO_LARGE`, `UNDECLARED_FIELD`, `UNMODELLED_TYPE`, `EXCEEDS_CEILING`, `MODEL_INVALID`. The message names the
-  detail and the field, never the value, and any name it repeats is quoted with control characters escaped and
-  cut at 64 characters.
+  detail and the field, never the value, and any name it repeats is quoted, cut at 64 characters, and escaped
+  wherever a character could start a line or change what an operator reads (below, Security posture).
 - **`Limits`** - the size limits, applied to every list before anything reads it.
 - **`Json`** - a strict RFC 8259 reader (duplicate member names refused, ASCII hex in Unicode escapes, no half
   surrogate pairs, nesting and number literals capped) and a canonical writer (members by name, no whitespace,
@@ -46,7 +46,7 @@ not the ceiling constrains the field; a value the rule cannot compare is refused
 | `limit` | A non-negative number, or a string that is a plain decimal (`"123.50"`; no sign, no exponent, no spaces), of at most 64 digits | The candidate's is at most the ceiling's, compared as decimals | The smaller |
 | `limit` with `unit_field` | As `limit`, and whenever the field is present its unit field must be present beside it | As `limit`; the unit field has its own `equal` or `string` rule, so an unequal unit is not contained | The smaller, when the units meet |
 | `amount` | The RFC 9396 `instructedAmount` object: exactly `amount` (as `limit`) and `currency` (a non-empty string) | Equal `currency` and an `amount` at most the ceiling's | The smaller amount; none across currencies |
-| `instant_limit` | RFC 3339 §5.6: a date-time with seconds and an offset (`2026-12-31T23:59:59Z`, `+01:00`; `t` and `z` in either case; at most nine fraction digits), or a full date, which means the end of that day in UTC. Four-digit years only; a date or time that does not exist, a leap second and an offset past 18 hours are malformed | The candidate's instant is no later than the ceiling's | The earlier |
+| `instant_limit` | RFC 3339 §5.6: a date-time with seconds and an offset (`2026-12-31T23:59:59Z`, `+01:00`; `t` and `z` in either case; at most nine fraction digits), or a full date, which means the last instant of that day in UTC: `2026-12-31` is `2026-12-31T23:59:59.999999999Z`, so the next midnight is past it, and a date is read in UTC whatever offset the other side uses. Four-digit years only; a date or time that does not exist, a leap second and an offset past 18 hours are malformed | The candidate's instant is no later than the ceiling's | The earlier |
 | `equal` | Any JSON value but `null`, `[]` and `{}` (and nothing `null` inside it) | Structurally equal | The value, when equal; none otherwise |
 | `string` | A string with something in it besides whitespace | Exactly the ceiling's string | The string, when equal; none otherwise |
 | `object` | A JSON object with field rules of its own, applied recursively | Every field the ceiling's object carries, the candidate's carries too, within it | Field by field; none when any field has none |
@@ -89,12 +89,13 @@ The list-level rules, from CAS §7 rule 1 and RFC 9396 §6.1:
   ceiling's value for every constrained field the candidate omitted, nested objects included - the reading the
   token endpoint has used since `RarEntitlement` (silence is a request for the whole of what the ceiling allows
   there) extended from the five array fields to every rule. A limit sent without its unit (`"amount": "42.00"`
-  with no `currency`) takes the unit from the entry; an entry that has no unit to give is passed over, and when
-  no same-type entry has one the request is `MALFORMED`. Under `Omission.STRICT` the granted detail is the
-  candidate as sent and a constrained field it omits is a refusal. In both modes the result is checked against
-  the ceiling before it is returned; a grant outside it is a defect in this library and stops the request with
-  an `IllegalStateException` rather than serving it. The mode is required. An empty candidate grants nothing;
-  the CAS's reading of an empty request (§7 rule 2, the full ceiling) is `fullCeiling`.
+  with no `currency`), in the detail or in an object inside it, takes the unit from the entry; an entry that has
+  no unit to give is passed over, and when no same-type entry has one the request is `MALFORMED`. Under
+  `Omission.STRICT` the granted detail is the candidate as sent and a constrained field it omits is a refusal. In
+  both modes the result is checked against the ceiling before it is returned; a grant outside it is a defect in
+  this library and stops the request with an `IllegalStateException` rather than serving it. The mode is
+  required. An empty candidate grants nothing; the CAS's reading of an empty request (§7 rule 2, the full
+  ceiling) is `fullCeiling`.
 - **`fullCeiling(ceiling)`** - the ceiling itself, validated and copied.
 - **`intersect(a, b)`** - the meet: for every pair of same-type entries, one from each list, the largest detail
   within both, when one exists. Deduplicated and sorted by canonical JSON, so it is the same list whichever way
@@ -110,15 +111,15 @@ caller still holds. `validate` and `details` return the caller's own maps, check
 
 ## The built-in models
 
-Every built-in type starts from the RFC 9396 §2.2 common data fields and the bookkeeping names seen in this
-repository's traffic:
+Every built-in type starts from the RFC 9396 §2.2 common data fields and three names seen in this repository's
+code and tests:
 
 | Field | Rule | Where it comes from |
 |---|---|---|
 | `actions`, `locations`, `datatypes`, `privileges` | `set` | RFC 9396 §2.2: "An array of strings" |
 | `identifier` | `string` | RFC 9396 §2.2: "A string identifier indicating a specific resource" |
-| `purpose` | `string` | Sent by clients in this repository's demos; the RAR plugin's consent text drops it as bookkeeping |
-| `_principal_sub`, `_agent_id` | `forbidden` | Names this repository's own components write into a detail after the authority question is settled: the plugin's development-only client-asserted principal, and the marker the token filter carries from PAR. A caller strips its own bookkeeping before it asks the model and puts it back after; a request that arrives carrying them is refused with a message that says so |
+| `purpose` | `string` | Sent in the RAR plugin's and pf-integration's tests; the plugin's consent text drops it |
+| `_principal_sub`, `_agent_id` | `forbidden` | Markers, not request fields. `_principal_sub` is the client-asserted principal a BFF folds into a detail: the RAR plugin reads it only when "Trust a client-asserted principal" is on (off by default, and development-only once plan item S2b lands) and always strips it. `_agent_id` is the marker the client-attestation filter writes into every detail of a request it verified, over whatever a client wrote under that name. The wiring (S1b, S1c) must strip both before it asks the model: a detail that reaches the model carrying either is `MALFORMED`, with a message that says so |
 
 Then, per type:
 
@@ -128,7 +129,8 @@ Then, per type:
 | `sales_agent` | `max_txn_eur` | `limit` | CAS Appendix A (`"max_txn_eur": 5000`); the unit is in the name |
 | `payment_initiation` | `instructedAmount` | `amount` | RFC 9396 Figure 2 |
 | `payment_initiation` | `creditorName`, `remittanceInformationUnstructured` | `string` | RFC 9396 Figure 2 |
-| `payment_initiation` | `creditorAccount`, `debtorAccount` | `equal` | RFC 9396 Figure 2 (`debtorAccount` from the plugin's consent text); an object there, and whatever the plugin's consent text prints here |
+| `payment_initiation` | `creditorAccount` | `equal` | RFC 9396 Figure 2, an object there |
+| `payment_initiation` | `debtorAccount` | `equal` | The RAR plugin's consent text, which prints it as "From account"; RFC 9396 Figures 20 and 21 show it as an object |
 | `payment_initiation` | `amount` | `limit`, unit field `currency` | The flat shape the RAR plugin's consent text reads and its tests send (`"amount": "42.00", "currency": "AUD"`) |
 | `payment_initiation` | `currency` | `string` | As above |
 | `account_information` | `accounts` | `set_of_values` | Plan S-1; account objects (`{"iban": ...}`) or identifiers |
@@ -272,7 +274,7 @@ parses the text itself bounds that size there.
 ## The vectors
 
 `src/test/resources/rar-model-vectors.json` names a case for every rule, every malformed shape, the
-alternatives, the size limits and the models document - 238 on 2026-09-27 - each with an `op`, its lists (or,
+alternatives, the size limits and the models document - 244 on 2026-09-27 - each with an `op`, its lists (or,
 for `parse`, JSON text), an optional `models` and an `expect`. `RarModelVectorsTest` runs each as its own test
 through `Vectors.run`, the library's reading of a case; the wave-2 runners (the authenticator's token gate,
 the issuer's mint, the plugin's refresh check) read the same file through `Vectors.load()` from this module's
@@ -297,7 +299,8 @@ here now so that the upgrade note is ready when it lands
   pass; anything else needs a models document with `extends`.
 - Values are typed. `identifier`, `purpose`, `creditorName`, `remittanceInformationUnstructured` and the flat
   `currency` must be non-blank strings; `limit` and `amount` values must be non-negative, with at most 64
-  digits; `validUntil` must be RFC 3339 with seconds, or a full date.
+  digits; `validUntil` must be RFC 3339 with seconds, or a full date, which means the last instant of that day
+  in UTC.
 - A `payment_initiation` detail says its amount one way, `instructedAmount` or the flat `amount` and
   `currency`, and a request must use the spelling of the ceiling that constrains it.
 - `account_information` has no `access` object, so RFC 9396 §7.1-shaped requests are refused until a models
@@ -320,10 +323,12 @@ never in a spelling the candidate is not using; `intersect` returns only what is
 every grant is checked against the ceiling before it leaves. A value the rule cannot compare is refused rather
 than passed through, because "unexamined" is the whole of blocker B1, and a thing a type can say two ways is
 held to one spelling for the same reason. Messages name the detail, the field and what was wrong with it and
-never repeat the value - a detail can carry an account number - and the names they do repeat are quoted,
-escaped and cut, so a request cannot write a line of its own into a log. Every value's cost is bounded before a
-type is looked up (the size limits above), every refusal is a `RarModelException` with its reason, and the
-model's work is linear in the size of its input.
+never repeat the value - a detail can carry an account number - and the names they do repeat are quoted and
+cut at 64 characters, with the quote, the backslash, C0 and C1 controls (`NEL` among them), the line and
+paragraph separators, format characters (the bidirectional overrides, zero-width spaces) and each half of a
+surrogate pair written as `\uXXXX` escapes, so a request cannot start a line of its own in a log or change
+what an operator reads there. Every value's cost is bounded before a type is looked up (the size limits above),
+every refusal is a `RarModelException` with its reason, and the model's work is linear in the size of its input.
 
 ## Build
 
@@ -332,4 +337,5 @@ mvn -pl libs/rar-model -am verify     # or `mvn verify` at the repo root; tests 
 ```
 
 The jacoco gate is per METHOD at 100% line and branch on the decision methods and the reader (the pom lists
-them, 51 on 2026-09-27), and a floor of 95% of instructions and 92% of branches under the whole module.
+them: 51 patterns, matching 55 methods on 2026-09-27), and a floor of 95% of instructions and 92% of branches
+under the whole module.

@@ -70,15 +70,23 @@ public final class RarModelException extends Exception {
     }
 
     /**
-     * A name from a request as a message may carry it: quoted, control characters and the quote escaped
-     * so a name cannot forge a log line, and cut at 64 characters so a 2048-character name cannot fill one.
+     * A name from a request as a message may carry it: quoted, cut at 64 characters so a 2048-character
+     * name cannot fill a log line, and with every character written as a {@code \}{@code uXXXX} escape
+     * that could start a line of its own, change what an operator reads or hide from them: the quote and
+     * the backslash, C0 and C1 controls ({@code NEL} among them), the line and paragraph separators,
+     * format characters (the bidirectional overrides, zero-width spaces), and each half of a surrogate
+     * pair, so the cut never leaves half of one. {@code null}, which no parser produces, is shown as
+     * {@code null}, unquoted.
      */
     static String quote(String name) {
+        if (name == null) {
+            return "null";
+        }
         StringBuilder out = new StringBuilder("'");
         int shown = Math.min(name.length(), 64);
         for (int i = 0; i < shown; i++) {
             char c = name.charAt(i);
-            if (c < 0x20 || c == 0x7f || c == '\'' || c == '\\') {
+            if (c == '\'' || c == '\\' || hidden(c)) {
                 out.append(String.format("\\u%04x", (int) c));
             } else {
                 out.append(c);
@@ -88,5 +96,12 @@ public final class RarModelException extends Exception {
             out.append("...");
         }
         return out.append('\'').toString();
+    }
+
+    /** Whether a character is one a log reader would not see as itself. */
+    private static boolean hidden(char c) {
+        int type = Character.getType(c);
+        return type == Character.CONTROL || type == Character.FORMAT || type == Character.LINE_SEPARATOR
+                || type == Character.PARAGRAPH_SEPARATOR || type == Character.SURROGATE;
     }
 }

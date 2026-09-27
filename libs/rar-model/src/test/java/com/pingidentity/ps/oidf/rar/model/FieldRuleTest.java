@@ -140,11 +140,12 @@ class FieldRuleTest {
     @Test
     void instantChecks() throws Exception {
         assertEquals(Instant.parse("2026-12-31T22:30:00Z"), FieldRule.instant("2026-12-31T23:30:00+01:00", "d.f"));
-        assertEquals(Instant.parse("2027-01-01T00:00:00Z"), FieldRule.instant("2026-12-31", "d.f"));
+        assertEquals(Instant.parse("2026-12-31T23:59:59.999999999Z"), FieldRule.instant("2026-12-31", "d.f"),
+                "a date is the last instant of that day in UTC, not the first of the next");
         assertEquals(Instant.parse("2026-12-31T23:59:59.500Z"), FieldRule.instant("2026-12-31T23:59:59.5Z", "d.f"));
         assertEquals(Instant.parse("2026-06-30T00:00:00Z"), FieldRule.instant("2026-06-30t00:00:00z", "d.f"), "lower case t and z");
         assertEquals(Instant.parse("2026-06-30T00:00:00.123456789Z"), FieldRule.instant("2026-06-30T00:00:00.123456789Z", "d.f"));
-        assertEquals(Instant.parse("+10000-01-01T00:00:00Z"), FieldRule.instant("9999-12-31", "d.f"), "the last date there is");
+        assertEquals(Instant.parse("9999-12-31T23:59:59.999999999Z"), FieldRule.instant("9999-12-31", "d.f"), "the last date there is");
         malformed(INSTANT, "2026-12-31T23:59:59");
         malformed(INSTANT, "2026-12-31T23:59Z");
         malformed(INSTANT, "2026-12-31 23:59:59Z");
@@ -224,7 +225,13 @@ class FieldRuleTest {
         assertFalse(AMOUNT.contains(Map.of("amount", "100", "currency", "EUR"), Map.of("amount", 1, "currency", "USD")));
         assertFalse(AMOUNT.contains(Map.of("amount", "100", "currency", "EUR"), Map.of("amount", 101, "currency", "EUR")));
         assertTrue(INSTANT.contains("2026-12-31", "2026-12-31T23:59:59Z"));
+        assertTrue(INSTANT.contains("2026-12-31", "2026-12-31T23:59:59.999999999Z"));
+        assertFalse(INSTANT.contains("2026-12-31", "2027-01-01T00:00:00Z"), "the next midnight is past a date");
+        assertFalse(INSTANT.contains("2026-12-31", "2027-01-01T09:00:00+09:00"), "so is that midnight written with another offset");
+        assertTrue(INSTANT.contains("2026-12-31", "2027-01-01T08:59:59+09:00"), "a date is read in UTC, where this is still the 31st");
         assertFalse(INSTANT.contains("2026-12-31T00:00:00Z", "2026-12-31"));
+        assertFalse(INSTANT.contains("2026-12-31T23:59:59Z", "2026-12-31"), "a date asks for the whole day");
+        assertTrue(INSTANT.contains("2027-01-01T00:00:00Z", "2026-12-31"), "a date is read in UTC");
         assertTrue(EQUAL.contains(Map.of("a", 1), Map.of("a", 1.0)));
         assertFalse(EQUAL.contains("a", "A"));
         assertTrue(STRING.contains("Merchant A", "Merchant A"));
@@ -253,6 +260,10 @@ class FieldRuleTest {
         assertEquals(Optional.of("2026-06-30"), INSTANT.meet("2026-12-31", "2026-06-30"));
         assertEquals(Optional.of("2026-06-30T00:00:00Z"), INSTANT.meet("2026-06-30T00:00:00Z", "2026-06-30T01:00:00+01:00"),
                 "equal instants take the spelling that sorts first");
+        assertEquals(Optional.of("2026-12-31"), INSTANT.meet("2026-12-31T23:59:59.999999999Z", "2026-12-31"),
+                "a date and its last instant are equal, so the tie goes to the spelling that sorts first");
+        assertEquals(Optional.of("2026-12-31"), INSTANT.meet("2026-12-31", "2026-12-31T23:59:59.999999999Z"));
+        assertEquals(Optional.of("2026-12-31"), INSTANT.meet("2027-01-01T00:00:00Z", "2026-12-31"));
         assertEquals(Optional.of(Map.of("a", 1)), EQUAL.meet(Map.of("a", 1), Map.of("a", 1.0)));
         assertEquals(Optional.empty(), EQUAL.meet("a", "b"));
         assertEquals(Optional.of("EUR"), STRING.meet("EUR", "EUR"));

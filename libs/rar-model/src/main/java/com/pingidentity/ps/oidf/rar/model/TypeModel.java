@@ -15,9 +15,11 @@ import java.util.TreeMap;
 
 /**
  * The fields an {@code authorization_details} type (or an object inside one) may carry, each with
- * its {@link FieldRule}. RFC 9396 §2.1 makes the type the owner of its fields ("The value of the type
- * field determines the allowable contents of the object that contains it"), and §6.1 leaves comparison
- * to the type's definition; this is that definition, written down.
+ * its {@link FieldRule}. RFC 9396 §2 makes the type the owner of its fields ("The value of the type
+ * field determines the allowable contents of the object that contains it"), §2.1 has the AS control "the
+ * object fields that the type parameter allows", and §6.1 leaves comparison to the type ("The details of
+ * this comparison are dependent on the definition of the type of authorization request"); this is that
+ * definition, written down.
  *
  * <p>A field the model does not declare is refused ({@link RarModelException.Reason#UNDECLARED_FIELD}):
  * a field nobody compares is a field anybody can put anything in. {@code type} itself is implicit at
@@ -125,29 +127,30 @@ public final class TypeModel {
 
     /**
      * Refuses a detail (or nested object) that carries an undeclared field, a forbidden field, a
-     * malformed value, two spellings of one thing, or a limit without its unit.
+     * malformed value, two spellings of one thing, or a limit without its unit, at any depth.
      *
      * @param detail the object, with {@code type} allowed only at the top level
      * @param where  the detail, for the message
      */
     void check(Map<String, Object> detail, String where) throws RarModelException {
-        checkValues(detail, where);
-        for (Map.Entry<String, FieldRule> e : fields.entrySet()) {
-            String unit = e.getValue().unitField();
-            if (unit != null && detail.containsKey(e.getKey()) && !detail.containsKey(unit)) {
-                throw RarModelException.malformed(where + "." + e.getKey() + " needs " + unit + " beside it");
-            }
-        }
+        check(detail, where, true);
     }
 
     /**
-     * The part of {@link #check} that does not depend on what else the detail carries: no undeclared
-     * field, no forbidden field, every value the shape its rule compares, one spelling per group. What
-     * {@link RarModels#authorize} checks under {@link Omission#INHERIT} before inheritance, so that a
-     * malformed candidate is refused as malformed whatever the ceiling holds, and a limit sent without
-     * its unit is not refused for a unit the ceiling is about to supply.
+     * {@link #check} less the unit pairing, at every depth: no undeclared field, no forbidden field,
+     * every value the shape its rule compares, one spelling per group. What {@link RarModels#authorize}
+     * checks under {@link Omission#INHERIT} before inheritance, so that a malformed candidate is refused
+     * as malformed whatever the ceiling holds, and a limit sent without its unit - in the detail or in an
+     * object inside it - is not refused for a unit the ceiling is about to supply.
      */
     void checkValues(Map<String, Object> detail, String where) throws RarModelException {
+        check(detail, where, false);
+    }
+
+    /**
+     * @param units whether a limit must have its unit beside it, here and in every object below
+     */
+    void check(Map<String, Object> detail, String where, boolean units) throws RarModelException {
         for (Map.Entry<String, Object> e : detail.entrySet()) {
             String name = e.getKey();
             if (type != null && "type".equals(name)) {
@@ -158,7 +161,7 @@ public final class TypeModel {
                 throw RarModelException.undeclared(where + " carries " + RarModelException.quote(name) + ", which " + owner()
                         + " does not declare");
             }
-            rule.check(e.getValue(), where + "." + name);
+            rule.check(e.getValue(), where + "." + name, units);
         }
         for (int g = 0; g < alternatives.size(); g++) {
             String first = null;
@@ -173,6 +176,15 @@ public final class TypeModel {
                     throw RarModelException.malformed(where + " carries " + RarModelException.quote(first) + " and "
                             + RarModelException.quote(name) + ", two spellings of one thing; send one");
                 }
+            }
+        }
+        if (!units) {
+            return;
+        }
+        for (Map.Entry<String, FieldRule> e : fields.entrySet()) {
+            String unit = e.getValue().unitField();
+            if (unit != null && detail.containsKey(e.getKey()) && !detail.containsKey(unit)) {
+                throw RarModelException.malformed(where + "." + e.getKey() + " needs " + unit + " beside it");
             }
         }
     }

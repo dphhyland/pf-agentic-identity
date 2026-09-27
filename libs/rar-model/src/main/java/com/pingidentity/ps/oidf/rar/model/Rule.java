@@ -17,7 +17,7 @@ public enum Rule {
     LIMIT("limit"),
     /** The RFC 9396 {@code instructedAmount} object: {@code currency} equal and {@code amount} at most. */
     AMOUNT("amount"),
-    /** An RFC 3339 date-time, or a date meaning the end of that day; the candidate's is no later. */
+    /** An RFC 3339 date-time, or a date meaning the last instant of that day in UTC; the candidate's is no later. */
     INSTANT_LIMIT("instant_limit"),
     /** Any JSON value, which must be structurally equal. */
     EQUAL("equal"),

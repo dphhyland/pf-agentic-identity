@@ -151,6 +151,14 @@ class ModelSchemaTest {
         }
         parse("{\"types\":{\"x\":{\"fields\":{\"f\":" + inner + "}}}}");
         String deeper = "{\"rule\":\"object\",\"fields\":{\"n\":" + inner + "}}";
-        assertTrue(refused("{\"types\":{\"x\":{\"fields\":{\"f\":" + deeper + "}}}}").contains("nested deeper than"));
+        assertTrue(refused("{\"types\":{\"x\":{\"fields\":{\"f\":" + deeper + "}}}}")
+                .endsWith(": a models document nests objects at most 7 deep (the detail is depth 1), one short of the value depth limit"));
+        // The message says "one short" because it is: the value limit takes an object at depth 8 that holds
+        // only scalars, which the schema refuses to declare.
+        Object value = Map.of("s", 1);
+        for (int i = 0; i < Limits.MAX_DEPTH - 2; i++) {
+            value = Map.of("n", value);
+        }
+        Limits.check(List.of(Map.of("type", "x", "f", value)), "candidate");
     }
 }

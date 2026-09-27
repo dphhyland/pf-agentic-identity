@@ -378,9 +378,20 @@ class RarModelsTest {
         assertEquals("'a\\u000ab\\u0027c\\u005cd\\u007f'", RarModelException.quote("a\nb'c\\d\u007f"));
         assertEquals("'" + "x".repeat(64) + "...'", RarModelException.quote("x".repeat(65)));
         assertEquals("'" + "x".repeat(64) + "'", RarModelException.quote("x".repeat(64)));
+        assertEquals("'a\\u0085b\\u2028c\\u2029d\\u202ee\\u200bf\\ufeffg\\u009bh'",
+                RarModelException.quote("a\u0085b c d‮e​f﻿g\u009bh"),
+                "NEL and the separators end a line for some log pipelines; the bidi override and zero-width characters change what an operator reads");
+        assertEquals("'\\ud83d\\ude00'", RarModelException.quote("😀"), "each half of a surrogate pair, so a cut never splits one");
+        assertEquals("'" + "x".repeat(63) + "\\ud83d...'", RarModelException.quote("x".repeat(63) + "😀"));
+        assertEquals("'café 日本'", RarModelException.quote("café 日本"), "letters from any script are shown as they are");
+        assertEquals("null", RarModelException.quote(null));
         RarModelException e = assertThrows(RarModelException.class,
                 () -> models.contains(List.of(Map.of("type", SA)), List.of(Map.of("type", SA, "bad\nname", 1))));
         assertEquals("candidate authorization_details[0] carries 'bad\\u000aname', which type 'sales_agent' does not declare", e.getMessage());
+        RarModelException nel = assertThrows(RarModelException.class,
+                () -> models.contains(List.of(Map.of("type", SA)), List.of(Map.of("type", SA, "x\u0085y z‮", 1))));
+        assertEquals("candidate authorization_details[0] carries 'x\\u0085y\\u2028z\\u202e', which type 'sales_agent' does not declare",
+                nel.getMessage());
         RarModelException t = assertThrows(RarModelException.class, () -> models.model("x\u0000y"));
         assertEquals("no model for authorization_details type 'x\\u0000y'", t.getMessage());
         RarModelException deep = assertThrows(RarModelException.class, () -> models.validate(
@@ -405,6 +416,42 @@ class RarModelsTest {
                 () -> models.authorize(details("[{\"type\":\"payment_initiation\",\"amount\":\"42.00\"}]"),
                         details("[{\"type\":\"payment_initiation\"}]"), Omission.INHERIT));
         assertEquals(RarModelException.Reason.MALFORMED, p.reason(), "no currency to inherit: the pairing rule refuses the fitted detail");
+    }
+
+    /** The same inheritance one level down: a limit inside an object takes its unit from the entry's object. */
+    @Test
+    void inheritPairsANestedLimitWithTheCeilingsUnit() throws Exception {
+        RarModels nested = RarModels.load("{\"types\":{\"t\":{\"fields\":{\"o\":{\"rule\":\"object\",\"fields\":{"
+                + "\"budget\":{\"rule\":\"limit\",\"unit_field\":\"cur\"},\"cur\":\"string\"}}}}}}");
+        List<Map<String, Object>> ceiling = details("[{\"type\":\"t\",\"o\":{\"budget\":10,\"cur\":\"EUR\"}}]");
+        List<Map<String, Object>> candidate = details("[{\"type\":\"t\",\"o\":{\"budget\":5}}]");
+        assertEquals("[{\"o\":{\"budget\":5,\"cur\":\"EUR\"},\"type\":\"t\"}]", Json.write(nested.authorize(candidate, ceiling, Omission.INHERIT)));
+        RarModelException strict = assertThrows(RarModelException.class, () -> nested.authorize(candidate, ceiling, Omission.STRICT));
+        assertEquals(RarModelException.Reason.MALFORMED, strict.reason());
+        assertTrue(strict.getMessage().endsWith(".o.budget needs cur beside it"), strict.getMessage());
+        RarModelException none = assertThrows(RarModelException.class,
+                () -> nested.authorize(candidate, details("[{\"type\":\"t\"}]"), Omission.INHERIT));
+        assertEquals(RarModelException.Reason.MALFORMED, none.reason(), "an entry with no unit to give leaves the limit unpaired");
+        assertThrows(RarModelException.class, () -> nested.validate(candidate, "candidate"), "validate pairs units at every depth");
+        RarModelException over = assertThrows(RarModelException.class,
+                () -> nested.authorize(details("[{\"type\":\"t\",\"o\":{\"budget\":11}}]"), ceiling, Omission.INHERIT));
+        assertEquals(RarModelException.Reason.EXCEEDS_CEILING, over.reason());
+    }
+
+    /** A null or blank type is a malformed request and a null rule name an invalid model, never a NullPointerException. */
+    @Test
+    void aNullTypeOrRuleIsRefusedWithItsReason() throws Exception {
+        RarModels development = RarModels.load(null, true);
+        for (String type : new String[] {null, "", " \t"}) {
+            RarModelException e = assertThrows(RarModelException.class, () -> models.model(type));
+            assertEquals(RarModelException.Reason.MALFORMED, e.reason());
+            assertEquals("an authorization_details type must be a non-blank string", e.getMessage());
+            RarModelException d = assertThrows(RarModelException.class, () -> development.model(type));
+            assertEquals(RarModelException.Reason.MALFORMED, d.reason(), "not the common-fields fallback, even in development");
+        }
+        RarModelException r = assertThrows(RarModelException.class, () -> Rule.fromJson(null));
+        assertEquals(RarModelException.Reason.MODEL_INVALID, r.reason());
+        assertEquals("unknown rule null", r.getMessage());
     }
 
     @Test
