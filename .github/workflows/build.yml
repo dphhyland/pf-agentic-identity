@@ -132,6 +132,13 @@ jobs:
         # libs/platform's InsecureTls, which names the setting that asked and records each use; the scan names
         # its exempt files and why. tools/tests/test_trust_scan.py holds it to its fixtures.
         run: python3 tools/trust-scan.py
+      - name: every setting read is catalogued, and every catalogued setting is read
+        # Plan item ST-3: each name a module's main code reads - an OIDF_ literal, a System.getenv or getProperty,
+        # an init-param, a plugin field, a client's extended property, directly or through a helper - is declared
+        # in a META-INF/oidf-settings catalogue, and each declared name is read. Modules not catalogued yet are
+        # listed in tools/settings-scan-exemptions.txt by the package that will catalogue them.
+        # tools/tests/test_settings_scan.py holds the scan to its fixtures.
+        run: python3 tools/settings-scan.py
 
   java:
     runs-on: ubuntu-latest

@@ -1,0 +1,28 @@
+# Modules tools/settings-scan.py does not hold to "every setting read is catalogued" yet (plan item ST-3).
+#
+# One module path per line, under the `# group` line of the package that will catalogue it; that package deletes
+# its own group and nothing else. A line in the "not shipped" group gives, after a colon, why the module never
+# reaches a deployment. The scan refuses a line for a module that is not in the reactor, that has a catalogue
+# already or that reads nothing, and a "not shipped" line naming a module the image stages. A missing file means
+# no exemptions.
+#
+# While the flag below is `no`, any group may exempt a module. ST-4 sets it to `yes` once the ST3B and ST3C
+# groups are gone; from then on only the "not shipped" group may.
+refuse-shipped-exemptions: no
+
+# group ST3B: the attestation side, the RAR model and the plugins
+libs/client-attestation
+libs/rar-model
+servlets/attestation-issuer
+plugins/rar-paz-plugin
+plugins/instance-registry-datasource
+plugins/ciba-sim
+
+# group ST3C: SSF and the services
+servlets/ssf
+services/device-enrolment
+services/gm-api/servlet
+services/harness
+
+# group not shipped
+libs/testkit: DB1's Postgres test support, a test-scoped dependency of the modules whose stores it tests; it is never staged into the image or deployed, and its OIDF_TEST_JDBC_URL, OIDF_TEST_JDBC_USER and OIDF_TEST_JDBC_PASSWORD (and CI) are for the build, described in CONTRIBUTING.md
