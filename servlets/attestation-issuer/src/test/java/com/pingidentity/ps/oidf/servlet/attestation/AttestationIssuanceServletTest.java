@@ -1328,10 +1328,11 @@ class AttestationIssuanceServletTest {
     }
 
     /**
-     * CAS §9.1: the binding holds for the evidence, not for one encoding of it. A JWS verifier accepts one signed
-     * token in many strings - trailing whitespace, a stray character or padding in the signature, non-canonical
-     * trailing bits, the ECDSA {@code (r, n-s)} twin - and each re-encoding presented with a thief's key must meet
-     * the rightful key's binding, not take one of its own.
+     * CAS §9.1: "The binding MUST be keyed on what the Instance Attestation's signature covers and nothing else, so
+     * that the same token re-encoded - with trailing whitespace, or another encoding of the same signature - meets
+     * the same binding." A JWS verifier accepts one signed token in many strings - trailing whitespace, a stray
+     * character or padding in the signature, non-canonical trailing bits, the ECDSA {@code (r, n-s)} twin - and
+     * each, presented with a thief's key, must meet the rightful key's binding, not take one of its own.
      */
     @Test
     @Requirement("CAS §9.1")
@@ -1354,7 +1355,11 @@ class AttestationIssuanceServletTest {
         assertReEncodingsMeetTheBinding(first, "gke-sa-token");
     }
 
-    /** CAS §4.5: an auditor holding a captured token computes the digest the attestation carries. */
+    /**
+     * CAS §4.5, of {@code workload.instance_attestation_sha256}: "The SHA-256, lower-case hex, of the validated
+     * Instance Attestation's JWS Signing Input [RFC7515] - its first two segments, which are what its signature
+     * covers - so an auditor holding a captured token can match it."
+     */
     @Test
     @Requirement("CAS §4.5")
     void theDigestIsWhatAnAuditorComputesFromTheCapturedEvidence() throws Exception {
