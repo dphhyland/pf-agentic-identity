@@ -12,7 +12,8 @@
 #   1. the tag names the version the poms declare (tools/set-version.py --check), and it is a release,
 #      not a snapshot;
 #   2. the Build workflow is green on this exact commit (.github/required-checks.txt names the jobs) -
-#      a release is not where a test runs for the first time;
+#      a release is not where a test runs for the first time; a Build still running on the commit is
+#      waited for, up to 20 minutes, and one never started fails the release;
 #   3. the PF-provided jars come from the image build/pf-version.env pins, by digest, through the same
 #      composite action Build uses;
 #   4. `mvn -B verify` with tests and coverage gates on, then tools/pf-linkcheck.py against that PF;
@@ -97,27 +98,116 @@ jobs:
           echo "COMMIT=$(git rev-parse 'HEAD^{commit}')" >> "$GITHUB_ENV"
 
       - name: a green Build on this commit
-        # The check runs the Build workflow left on the tagged commit, by job name. The API returns the
-        # latest run of each check, so a re-run that went green counts and the failure before it does not.
+        # The check runs the Build workflow left on the tagged commit, by job name: each name
+        # .github/required-checks.txt lists must be there, and the newest run of each - the highest id - must have
+        # concluded success. A commit can carry several runs of one name: a re-run adds one to its check suite,
+        # and another Build on the same commit brings a suite of its own (5d7c30f has a pull request's and a
+        # push's). So the step reads them all (`filter=all`) and judges the newest: a re-run that went green
+        # counts, and the failure before it does not. The API's default filter, `latest`, drops an older attempt
+        # within a suite but lists each suite's run, newest first (read on 97e5650 and 5d7c30f, 2026-09-27), so
+        # the last line of a name - what this step judged before 0.4.0 - was the oldest.
+        #
+        # The step waits, because a tag is pushed on the heels of its commit, and that commit's Build is then still
+        # running: v0.3.0's Release (run 36278709651) read `java` in_progress fifteen seconds after the Build on
+        # its commit was created, failed, and was re-run by hand once the Build was green (F-0069). A required
+        # check that exists and has not concluded - queued, in_progress, waiting, requested or pending - is read
+        # again every POLL_SECONDS, for up to WAIT_LIMIT_SECONDS. The step fails:
+        #   - at once, when one concludes anything but success (failure, cancelled, skipped, timed_out ...);
+        #   - when one is still not there after ABSENT_GRACE_SECONDS. A Build that was triggered lists its jobs
+        #     within seconds (v0.3.0's three were there fifteen seconds after the run was created), and one that
+        #     was never triggered never will: build.yml runs on a push to main, a pull request or by hand, and a
+        #     tag push alone starts nothing ("If you define only tags/tags-ignore or only
+        #     branches/branches-ignore, the workflow won't run for events affecting the undefined Git ref" -
+        #     GitHub's workflow syntax reference, read 2026-09-27). Two minutes absorbs a tag pushed before its
+        #     branch or a slow start, and still fails fast on a commit Build never ran on. When the other
+        #     required jobs are there, the tagged commit's required-checks.txt and build.yml disagree, and no
+        #     re-run can pass;
+        #   - when READ_FAILURES_ALLOWED reads in a row are refused: one refusal is tried again at the next read,
+        #     and a fault that persists is not waited out for twenty minutes;
+        #   - at WAIT_LIMIT_SECONDS.
+        # The log says what it is waiting for and how long it has waited. At most 41 reads, one request each while
+        # the commit has 100 check runs or fewer (a commit on main has eight, nine once tagged: ab74038,
+        # 2026-09-27), against GITHUB_TOKEN's "1,000 requests per hour per repository" (GitHub's REST API
+        # rate-limit page, read 2026-09-27). A dry run is gated the same way.
+        timeout-minutes: 25   # a backstop for a read that never returns; the loop gives up at 20 minutes itself
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          runs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$COMMIT/check-runs?per_page=100" \
-                    --jq '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion)"')"
-          echo "check runs on $COMMIT:"; printf '%s\n' "$runs" | sed 's/^/  /'
-          missing=0
-          while IFS= read -r name; do
-            case "$name" in ''|'#'*) continue ;; esac
-            line="$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n' | tail -1)"
-            if [ -z "$line" ]; then
-              echo "::error::no check run named '$name' on $COMMIT - Build has not run on this commit"; missing=1
-            elif [ "$(printf '%s' "$line" | cut -f3)" != "success" ]; then
-              echo "::error::check '$name' on $COMMIT is $(printf '%s' "$line" | cut -f2,3 | tr '\t' '/'), not success"; missing=1
+          POLL_SECONDS=30            # between reads of the check runs
+          WAIT_LIMIT_SECONDS=1200    # 20 minutes; Build on v0.3.0's commit went from created to green in 3 m 51 s
+                                     # (run 36278704385), and the rest is for runners that are slow to start
+          ABSENT_GRACE_SECONDS=120   # for a required check that is not there yet
+          READ_FAILURES_ALLOWED=3    # refused reads in a row
+          tab="$(printf '\t')"
+          # One job id per line; comments, blank lines, and stray spaces or carriage returns are not names.
+          required="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' .github/required-checks.txt | grep -v '^$' || true)"
+          [ -n "$required" ] || { echo "::error::.github/required-checks.txt names no check, or is missing"; exit 1; }
+          names="$(printf '%s' "$required" | tr '\n' ' ')"
+          rerun="re-run this release with gh run rerun $GITHUB_RUN_ID; nothing was published"
+          echo "Build must be green on $COMMIT: $names (.github/required-checks.txt)"
+          started=$SECONDS
+          failures=0
+          shown='(nothing read yet)'
+          state='nothing read yet'
+          while :; do
+            waited=$((SECONDS - started))
+            if runs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/commits/$COMMIT/check-runs?filter=all&per_page=100" \
+                         --jq '.check_runs[] | "\(.name)\t\(.id)\t\(.status)\t\(.conclusion)"')"; then
+              failures=0
+              if [ "$runs" != "$shown" ]; then
+                echo "check runs on $COMMIT at ${waited}s (name, id, status, conclusion):"
+                if [ -n "$runs" ]; then printf '%s\n' "$runs" | sed 's/^/  /'; else echo "  none"; fi
+                shown="$runs"
+              fi
+              seen=0; absent=''; pending=''; failed=''
+              while IFS= read -r name; do
+                newest="$(printf '%s\n' "$runs" | awk -F'\t' -v n="$name" '$1 == n' | sort -t "$tab" -k2,2n | tail -n 1)"
+                if [ -z "$newest" ]; then
+                  absent="${absent:+$absent, }$name"
+                  continue
+                fi
+                seen=$((seen + 1))
+                status="$(printf '%s' "$newest" | cut -f3)"
+                conclusion="$(printf '%s' "$newest" | cut -f4)"
+                if [ "$status" != completed ]; then
+                  pending="${pending:+$pending, }$name $status"
+                elif [ "$conclusion" != success ]; then
+                  failed="${failed:+$failed, }$name $conclusion"
+                fi
+              done <<< "$required"
+              if [ -n "$failed" ]; then
+                echo "::error::Build did not pass on $COMMIT: $failed. Get it green there (re-run it, or gh workflow run build.yml --ref $GITHUB_REF_NAME), then $rerun."
+                exit 1
+              fi
+              if [ -n "$absent" ] && [ "$waited" -ge "$ABSENT_GRACE_SECONDS" ]; then
+                if [ "$seen" -eq 0 ]; then
+                  echo "::error::no Build check run on $COMMIT after ${waited}s: Build never started there, and a tag push alone does not start it. Start it with gh workflow run build.yml --ref $GITHUB_REF_NAME, then $rerun."
+                else
+                  # The tagged commit's own files disagree, so no re-run of this release can pass.
+                  echo "::error::no check run for $absent on $COMMIT after ${waited}s, though Build ran there: this commit's .github/required-checks.txt names a job its build.yml does not have. Correct the file in a new commit and release from that."
+                fi
+                exit 1
+              fi
+              if [ -z "$absent$pending" ]; then
+                echo "ok: $names - each concluded success on $COMMIT; waited ${waited}s"
+                exit 0
+              fi
+              state="${pending:+not concluded: $pending}${pending:+${absent:+; }}${absent:+no check run yet: $absent}"
             else
-              echo "ok: $name"
+              failures=$((failures + 1))
+              if [ "$failures" -ge "$READ_FAILURES_ALLOWED" ]; then
+                echo "::error::the check runs on $COMMIT could not be read $failures times in a row (gh's messages are above). Once the API answers, $rerun."
+                exit 1
+              fi
+              echo "could not read the check runs on $COMMIT at ${waited}s (refusal $failures in a row; refusal $READ_FAILURES_ALLOWED ends the step); trying again"
             fi
-          done < .github/required-checks.txt
-          exit $missing
+            if [ "$waited" -ge "$WAIT_LIMIT_SECONDS" ]; then
+              echo "::error::gave up after ${waited}s: Build on $COMMIT is not green ($state). Once it is, $rerun."
+              exit 1
+            fi
+            echo "waiting for Build on $COMMIT - $state; ${waited}s of ${WAIT_LIMIT_SECONDS}s, next read in ${POLL_SECONDS}s"
+            sleep "$POLL_SECONDS"
+          done
 
       - name: no archive or key material may be released
         # The same invariant build.yml enforces, at the one moment artifacts leave the repo.
