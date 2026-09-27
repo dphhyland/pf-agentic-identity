@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.InputStream;
 import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.charset.StandardCharsets;
@@ -48,14 +47,15 @@ class MigrationsTest {
 
     @Test
     void theOrderIsByVersionAndTwoScriptsWithOneVersionAreRefused() throws Exception {
-        URL u = new URL("file:/x");
-        List<Migrations.Script> sorted = Migrations.order(List.of(new Migrations.Script("1.10", "c", u),
-                new Migrations.Script("1", "a", u), new Migrations.Script("1.9", "b", u)));
+        List<Migrations.Script> sorted = Migrations.order(List.of(new Migrations.Script("1.10", "c", "r/c", "root"),
+                new Migrations.Script("1", "a", "r/a", "root"), new Migrations.Script("1.9", "b", "r/b", "root")));
         assertEquals(List.of("a", "b", "c"), sorted.stream().map(Migrations.Script::fileName).toList());
 
         IllegalStateException e = assertThrows(IllegalStateException.class, () -> Migrations.order(List.of(
-                new Migrations.Script("1.1", "V1.1__a.sql", u), new Migrations.Script("1.1", "V1_1__b.sql", u))));
-        assertTrue(e.getMessage().contains("two migrations have version 1.1"), e.getMessage());
+                new Migrations.Script("1.1", "V1.1__a.sql", "r/V1.1__a.sql", "jar-a"),
+                new Migrations.Script("1.1", "V1_1__b.sql", "r/V1_1__b.sql", "jar-b"))));
+        assertTrue(e.getMessage().contains("two migrations have version 1.1: V1.1__a.sql in jar-a and V1_1__b.sql in jar-b"),
+                e.getMessage());
     }
 
     @Test
@@ -92,9 +92,9 @@ class MigrationsTest {
             List<Migrations.Script> found = Migrations.find(loader, "db/migration");
 
             assertEquals(List.of("V1__first.sql", "V2__second.sql"), found.stream().map(Migrations.Script::fileName).toList());
-            try (InputStream in = found.get(0).url().openStream()) {
-                assertEquals("-- db/migration/V1__first.sql", new String(in.readAllBytes(), StandardCharsets.UTF_8));
-            }
+            assertEquals("db/migration/V1__first.sql", found.get(0).resource());
+            assertEquals("-- db/migration/V1__first.sql", Migrations.read(loader, found.get(0).resource()));
+            assertThrows(java.io.IOException.class, () -> Migrations.read(loader, "db/migration/V9__absent.sql"));
         }
     }
 

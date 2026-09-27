@@ -7,7 +7,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.math.BigInteger;
 import java.net.JarURLConnection;
-import java.net.URI;
 import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
@@ -46,8 +45,11 @@ public final class Migrations {
 
     private static final Pattern VERSIONED = Pattern.compile("V(\\d+(?:[._]\\d+)*)__[^/]+\\.sql");
 
-    /** One script: its version (dots only), its file name, and where to read it. */
-    public record Script(String version, String fileName, URL url) {
+    /**
+     * One script: its version (dots only), its file name, its classpath resource name, and the classpath root it was
+     * found under (for messages). It is read by resource name through a class loader, as the shipped jar is read.
+     */
+    public record Script(String version, String fileName, String resource, String root) {
     }
 
     private Migrations() {
@@ -59,9 +61,10 @@ public final class Migrations {
      */
     public static List<String> apply(DataSource dataSource, long first, long last) throws IOException, SQLException {
         List<String> applied = new ArrayList<>();
-        for (Script script : find(Migrations.class.getClassLoader(), LOCATION)) {
+        ClassLoader loader = Migrations.class.getClassLoader();
+        for (Script script : find(loader, LOCATION)) {
             if (inFamily(script.version(), first, last)) {
-                run(dataSource, script.fileName(), read(script.url()));
+                run(dataSource, script.fileName(), read(loader, script.resource()));
                 applied.add(script.fileName());
             }
         }
@@ -75,28 +78,30 @@ public final class Migrations {
     public static void applyResources(DataSource dataSource, Class<?> anchor, String... resources)
             throws IOException, SQLException {
         for (String resource : resources) {
-            URL url = anchor.getResource(resource);
-            if (url == null) {
-                throw new IOException("no such resource on the test classpath: " + resource);
+            try (InputStream in = anchor.getResourceAsStream(resource)) {
+                if (in == null) {
+                    throw new IOException("no such resource on the test classpath: " + resource);
+                }
+                run(dataSource, resource, new String(in.readAllBytes(), StandardCharsets.UTF_8));
             }
-            run(dataSource, resource, read(url));
         }
     }
 
     /** Every versioned migration directly under {@code location} on the loader's classpath, in version order. */
     public static List<Script> find(ClassLoader loader, String location) throws IOException {
         List<Script> found = new ArrayList<>();
+        String prefix = location.endsWith("/") ? location : location + "/";
         for (URL root : Collections.list(loader.getResources(location))) {
             if ("jar".equals(root.getProtocol())) {
-                fromJar(root, location, found);
+                fromJar(root, prefix, found);
             } else {
-                fromDirectory(root, found);
+                fromDirectory(root, prefix, found);
             }
         }
         return order(found);
     }
 
-    private static void fromDirectory(URL root, List<Script> found) throws IOException {
+    private static void fromDirectory(URL root, String prefix, List<Script> found) throws IOException {
         Path dir;
         try {
             dir = Path.of(root.toURI());
@@ -108,16 +113,15 @@ public final class Migrations {
                 String fileName = file.getFileName().toString();
                 Optional<String> version = version(fileName);
                 if (version.isPresent()) {
-                    found.add(new Script(version.get(), fileName, file.toUri().toURL()));
+                    found.add(new Script(version.get(), fileName, prefix + fileName, root.toString()));
                 }
             }
         }
     }
 
-    private static void fromJar(URL root, String location, List<Script> found) throws IOException {
+    private static void fromJar(URL root, String prefix, List<Script> found) throws IOException {
         URLConnection connection = root.openConnection();
         connection.setUseCaches(false);
-        String prefix = location.endsWith("/") ? location : location + "/";
         URL jar = ((JarURLConnection) connection).getJarFileURL();
         try (JarFile file = ((JarURLConnection) connection).getJarFile()) {
             for (Enumeration<JarEntry> entries = file.entries(); entries.hasMoreElements(); ) {
@@ -126,7 +130,7 @@ public final class Migrations {
                     String fileName = entry.substring(prefix.length());
                     Optional<String> version = version(fileName);
                     if (version.isPresent()) {
-                        found.add(new Script(version.get(), fileName, URI.create("jar:" + jar + "!/" + entry).toURL()));
+                        found.add(new Script(version.get(), fileName, entry, jar.toString()));
                     }
                 }
             }
@@ -159,7 +163,8 @@ public final class Migrations {
         for (int i = 1; i < sorted.size(); i++) {
             if (compare(sorted.get(i - 1).version(), sorted.get(i).version()) == 0) {
                 throw new IllegalStateException("two migrations have version " + sorted.get(i).version() + ": "
-                        + sorted.get(i - 1).url() + " and " + sorted.get(i).url());
+                        + sorted.get(i - 1).fileName() + " in " + sorted.get(i - 1).root() + " and " + sorted.get(i).fileName()
+                        + " in " + sorted.get(i).root());
             }
         }
         return sorted;
@@ -172,10 +177,12 @@ public final class Migrations {
         return major >= first && major <= last;
     }
 
-    private static String read(URL url) throws IOException {
-        URLConnection connection = url.openConnection();
-        connection.setUseCaches(false);
-        try (InputStream in = connection.getInputStream()) {
+    /** A script's text, by resource name through the loader that found it. */
+    static String read(ClassLoader loader, String resource) throws IOException {
+        try (InputStream in = loader.getResourceAsStream(resource)) {
+            if (in == null) {
+                throw new IOException("no such resource on the test classpath: " + resource);
+            }
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
