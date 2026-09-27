@@ -53,8 +53,15 @@ reported, not refused: the matrices do not have a row for every section the test
 --baseline refuses a build that has lost ground against an earlier one: a jacoco check the baseline
 had is gone, or includes fewer methods; a gated method is below 100% line or branch coverage; or
 fewer matrix rows are pinned. New modules, checks and methods pass, so adding a module needs no
-edit here. CI's baseline is the coverage-dashboard.json of the last successful Build on main
-(tools/ci/coverage-baseline.sh); with none, the run passes and says so.
+edit here. CI's baseline is the coverage-dashboard.json of the newest successful Build on main that
+this commit descends from (tools/ci/coverage-baseline.sh); with none, the run passes and says so, and
+a baseline in another JSON format passes the same way.
+
+A deliberate reduction - dead code deleted with its <include>, a check renamed or moved, a matrix row
+retired - is allowed by a line in tools/coverage-ratchet-allow.txt, committed with the change so the
+review sees it and so the pull request's run and the push to main that follows both read it. An
+allowance names something the baseline has; once the baseline no longer has it, it allows nothing and
+is reported as ready to delete. A missing or unreadable baseline, or a malformed allowance, exits 2.
 """
 
 import argparse
@@ -71,8 +78,11 @@ ROOT = pathlib.Path(__file__).resolve().parent.parent
 DASHBOARD = "docs/coverage-dashboard.md"
 DASHBOARD_HTML = "docs/coverage-dashboard.html"
 DASHBOARD_JSON = "docs/coverage-dashboard.json"
-# The JSON's shape. A baseline in another shape is refused rather than compared field by field.
+# The JSON's shape. A baseline in another shape is not compared field by field: the ratchet passes and
+# says so, so a change to the shape does not fail every build until a baseline in the new one exists.
 JSON_FORMAT = 1
+# The reductions a reviewed change allows the ratchet (see the docstring and the file's own header).
+RATCHET_ALLOW = "tools/coverage-ratchet-allow.txt"
 
 # servlets/oidf-war is a war assembly with no Java; services/harness is verification CLIs, not
 # production code. Neither is gated, and saying so here stops them reading as an oversight.
@@ -555,38 +565,85 @@ def gate_warnings(d):
     return lines
 
 
+def refuse(message):
+    """Exit 2 naming the problem: an input the ratchet cannot use, told apart from a ratchet failure (1)."""
+    print(message, file=sys.stderr)
+    raise SystemExit(2)
+
+
 def load_baseline(path):
-    """A coverage-dashboard.json from an earlier build; SystemExit(2) naming the problem if it is not one."""
+    """(baseline, None) for a coverage-dashboard.json this generator can compare with; (None, why) for one in
+    another format, which the ratchet passes with a notice; exits 2 when the file is missing or not JSON."""
     try:
         data = json.loads(pathlib.Path(path).read_text())
     except (OSError, ValueError) as err:
-        raise SystemExit(f"--baseline {path}: not a readable coverage-dashboard.json ({err})")
-    if not isinstance(data, dict) or data.get("format") != JSON_FORMAT:
-        raise SystemExit(f"--baseline {path}: format {data.get('format') if isinstance(data, dict) else None!r}, "
-                         f"this generator writes format {JSON_FORMAT}; compare with a baseline it wrote")
-    return data
+        refuse(f"--baseline {path}: not a readable coverage-dashboard.json ({err})")
+    if not isinstance(data, dict):
+        refuse(f"--baseline {path}: not a coverage-dashboard.json (a JSON {type(data).__name__}, not an object)")
+    if data.get("format") != JSON_FORMAT:
+        return None, (f"the baseline {path} is format {data.get('format')!r} and this generator writes format "
+                      f"{JSON_FORMAT}, so nothing was ratcheted this time")
+    return data, None
 
 
-def ratchet(d, baseline):
-    """How this build has lost ground against the baseline, one line each; empty when it has not.
+def load_allowances(path=None):
+    """The reductions allowed, from RATCHET_ALLOW: {"check": {(module, id)}, "method": {(module, method)},
+    "row": {row}}. No file allows nothing; a line that is not one of the three shapes exits 2."""
+    path = ROOT / RATCHET_ALLOW if path is None else pathlib.Path(path)
+    allowed = {"check": set(), "method": set(), "row": set()}
+    if not path.is_file():
+        return allowed
+    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        kind, _, rest = line.partition(" ")
+        rest = rest.strip()
+        if kind == "row" and rest:
+            allowed["row"].add(rest)
+            continue
+        module, _, what = rest.partition(" ")
+        what = what.strip()
+        if kind in ("check", "method") and module and what and " " not in what:
+            allowed[kind].add((module, what))
+            continue
+        refuse(f"{RATCHET_ALLOW}:{number}: {line!r} is not `check <module> <execution id>`, "
+               "`method <module> <method>` or `row <matrix row>`")
+    return allowed
+
+
+def ratchet(d, baseline, allowed=None):
+    """(failures, idle): how this build has lost ground against the baseline, one line each, and the
+    allowances that allow nothing because the baseline no longer has what they name.
 
     Refused: a jacoco check the baseline had is gone or includes fewer methods; a gated method is below
     100% line or branch; fewer matrix rows are pinned. Anything new passes - a module, a check, a method -
     so a pull request that adds a module needs no edit here. A check that includes a different set of
-    the same size passes too: a method renamed in the source is renamed in the pattern.
+    the same size passes too: a method renamed in the source is renamed in the pattern. An allowance
+    takes what it names out of the baseline before the comparison; none makes a method below 100% pass.
     """
+    allowed = allowed or {"check": set(), "method": set(), "row": set()}
     now = render_json_data(d)
     found = []
+    live = set()
     for name, before in sorted(baseline.get("modules", {}).items()):
         after = now["modules"].get(name, {"gates": {}})
         for gid, gate in sorted(before.get("gates", {}).items()):
             had = {m["method"] for methods in gate.values() for m in methods}
+            if (name, gid) in allowed["check"]:
+                live.add(("check", (name, gid)))
+                if gid not in after["gates"]:
+                    continue
+            has = {m["method"] for methods in after["gates"].get(gid, {}).values() for m in methods}
+            named = {m for m in had if (name, m) in allowed["method"]}
+            live.update(("method", (name, m)) for m in named)
+            # Only a method that has actually left is excused: one that stays cannot make room for another.
+            had -= named - has
             if gid not in after["gates"]:
                 what = "the module is gone" if name not in now["modules"] else "the module's pom no longer has it"
                 found.append(f"{name}: jacoco check {gid} is gone ({what}); the baseline included "
                              f"{len(had)} methods")
                 continue
-            has = {m["method"] for methods in after["gates"][gid].values() for m in methods}
             if len(has) < len(had):
                 lost = sorted(had - has)
                 shown = ", ".join(lost[:10]) + (f" and {len(lost) - 10} more" if len(lost) > 10 else "")
@@ -605,12 +662,18 @@ def ratchet(d, baseline):
                                      f"{sum(m['line'])} lines, {m['branch'][0]} of {sum(m['branch'])} "
                                      "branches missed)")
     before_rows = set(baseline.get("matrix", {}).get("pinned", []))
+    excused = before_rows & allowed["row"]
+    live.update(("row", r) for r in excused)
+    before_rows -= excused
     after_rows = set(now["matrix"]["pinned"])
     if len(after_rows) < len(before_rows):
         lost = sorted(before_rows - after_rows)
         found.append(f"{len(after_rows)} conformance-matrix rows are pinned, the baseline {len(before_rows)}; "
                      f"no longer pinned: {', '.join(lost)}")
-    return found
+    idle = [f"{kind} {' '.join(what) if isinstance(what, tuple) else what}"
+            for kind in ("check", "method", "row") for what in sorted(allowed[kind])
+            if (kind, what) not in live]
+    return found, idle
 
 
 def render_json_data(d):
@@ -1202,7 +1265,7 @@ def render_html(d):
     return "\n".join(out) + "\n"
 
 
-def summary(d, args, gate, warnings, ratcheted):
+def summary(d, args, gate, warnings, ratcheted, unratcheted=None, idle=()):
     """The verdict as Markdown for a CI step summary: what was checked, and every line that failed."""
     out = ["### Coverage gate and ratchet", ""]
     run, failed, skipped = d["tests"]
@@ -1212,7 +1275,7 @@ def summary(d, args, gate, warnings, ratcheted):
     sections = [("Incomplete build", d["problems"] if args.strict else [])]
     if args.gate:
         sections.append(("Gate", gate))
-    if args.baseline:
+    if args.baseline and not unratcheted:
         sections.append((f"Ratchet against `{args.baseline}`", ratcheted))
     for title, lines in sections:
         out.append(f"**{title}:** " + ("passed." if not lines else f"{len(lines)} failing."))
@@ -1222,7 +1285,15 @@ def summary(d, args, gate, warnings, ratcheted):
         out.append(f"**Warning:** {warnings[0]}.")
         out.extend(f"- {line}" for line in warnings[1:])
         out.append("")
-    if not args.baseline:
+    if idle:
+        out.append(f"**Allowances that allow nothing:** the baseline no longer has what they name, so they can "
+                   f"be deleted from `{RATCHET_ALLOW}`.")
+        out.extend(f"- `{line}`" for line in idle)
+        out.append("")
+    if unratcheted:
+        out.append(f"Not ratcheted: {unratcheted}.")
+        out.append("")
+    elif not args.baseline:
         out.append("No baseline was given, so nothing was ratcheted.")
         out.append("")
     return "\n".join(out)
@@ -1241,11 +1312,12 @@ def main(argv=None):
     ap.add_argument("--baseline", metavar="JSON",
                     help="a coverage-dashboard.json from an earlier build: exit 1 when a check it had is gone "
                          "or includes fewer methods, a gated method is below 100%%, or fewer matrix rows are "
-                         "pinned")
+                         f"pinned, less what {RATCHET_ALLOW} allows; exit 2 when it cannot be read")
     ap.add_argument("--summary", metavar="FILE",
                     help="append the verdict to FILE as Markdown (CI passes $GITHUB_STEP_SUMMARY)")
     args = ap.parse_args(argv)
-    baseline = load_baseline(args.baseline) if args.baseline else None
+    baseline, unratcheted = load_baseline(args.baseline) if args.baseline else (None, None)
+    allowed = load_allowances() if baseline is not None else None
 
     data = collect()
     # Written before the verdict either way: an incomplete build is easier to read about on the page
@@ -1272,7 +1344,12 @@ def main(argv=None):
     if gate:
         print(f"{len(gate)} gate failure(s)", file=sys.stderr)
         status = 1
-    ratcheted = ratchet(data, baseline) if baseline is not None else []
+    ratcheted, idle = ratchet(data, baseline, allowed) if baseline is not None else ([], [])
+    if unratcheted:
+        print(f"ratchet: {unratcheted}")
+    for line in idle:
+        print(f"ratchet: {RATCHET_ALLOW} allows nothing with `{line}` (the baseline no longer has it): "
+              "delete the line", file=sys.stderr)
     for line in ratcheted:
         print(f"ratchet: {line}", file=sys.stderr)
     if ratcheted:
@@ -1282,7 +1359,7 @@ def main(argv=None):
         print(f"ratchet: nothing lost against {args.baseline}")
     if args.summary:
         with open(args.summary, "a", encoding="utf-8") as fh:
-            fh.write(summary(data, args, gate, warnings, ratcheted) + "\n")
+            fh.write(summary(data, args, gate, warnings, ratcheted, unratcheted, idle) + "\n")
     return status
 
 

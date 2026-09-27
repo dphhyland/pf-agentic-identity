@@ -114,10 +114,22 @@ the job for three kinds of reason, each printed as one line on stderr and in the
   new passes: a new module, check or method needs no edit to the tool. A method renamed in the source and in
   its pattern passes too, since the count is the same.
 
-CI's baseline is fetched by `tools/ci/coverage-baseline.sh`: the dashboard JSON that the successful push Build
-on main published for the pull request's base commit (or, on a push, for the commit before it), and the newest
-successful push Build on main when that run is missing. When there is none - the first run on main, an artefact
-past its 90 days, a run from before the JSON existed - the ratchet passes, and the step summary says so.
+A reduction that is the point of the change - dead code deleted along with its `<include>`, a check's execution
+id renamed, a module moved, a matrix row retired - is allowed by a line in `tools/coverage-ratchet-allow.txt`,
+committed in the same pull request: `method <module> <method>`, `check <module> <execution id>` or `row <matrix
+row>`, with the names copied from the `ratchet:` line. The review sees it, and the push to main that follows
+reads the same file, so main does not go red after the merge. An allowance only takes its item out of the
+baseline; nothing lets a gated method fall below 100%. Once the baseline no longer has the item, the line allows
+nothing and the step summary lists it under "Allowances that allow nothing", so the next change can delete it.
+A malformed line, or a baseline that is missing or not JSON, exits 2 rather than 1.
+
+CI's baseline is fetched by `tools/ci/coverage-baseline.sh`: the dashboard JSON of the newest successful push
+Build on main that the commit under test descends from (a pull request's merge commit, a push, or a dispatched
+branch), found by asking the compare API about the 30 newest such runs. A newer main is never the baseline, so
+a branch behind main is not failed for gated methods it never had. When there is none - the first run on main,
+an artefact past its 90 days, a run from before the JSON existed - the ratchet passes, and the step summary
+says so. A baseline in another JSON format passes the same way, so a change to the format does not fail every
+build until a baseline in the new one exists.
 
 To run the same locally, build, download a main run's artefact and pass its JSON:
 
@@ -127,9 +139,9 @@ gh run download <run-id> -n coverage-dashboard -D /tmp/baseline    # a successfu
 python3 tools/coverage-report.py --gate --baseline /tmp/baseline/coverage-dashboard.json
 ```
 
-`gh run list --workflow build.yml --branch main --event push --status success --limit 1` gives the run id. A
-failure that names a check or method your branch never had means main has moved on since the base: merge main
-into the branch.
+`gh run list --workflow build.yml --branch main --event push --status success --limit 1` gives the newest run
+id; if your branch is behind main, pick the run for a commit it contains, or merge main first, since a newer
+main can have gated methods your branch never had.
 
 ## Pull requests
 

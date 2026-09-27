@@ -382,6 +382,13 @@ class JsonAndGateTest(unittest.TestCase):
                                                    "check": ["com.example.Gate.Gate(*"]})
         self.assertEqual(cr.gates("libs/helpers"), {})
 
+    def test_a_row_declares_itself_and_its_refinements(self):
+        self.assertTrue(cr.declares("RFC9999 §1", "RFC9999 §1"))
+        self.assertTrue(cr.declares("RFC9999 §1", "RFC9999 §1.2"))
+        self.assertTrue(cr.declares("RFC9999 §1", "RFC9999 §1(b)"))
+        self.assertFalse(cr.declares("RFC9999 §1", "RFC9999 §10"))
+        self.assertFalse(cr.declares("RFC9999 §1", "RFC9999 §1b"))
+
     def test_summary_is_appended(self):
         fixture(self.root)
         summary = self.root / "summary.md"
@@ -489,18 +496,106 @@ class RatchetTest(unittest.TestCase):
               gated_pom(("com.example.Gate.choose(*", "com.example.Gate.Gate(*")))
         self.assertEqual(self.ratchet()[0], 0)
 
-    def test_a_baseline_that_is_not_one_is_refused(self):
-        self.baseline.write_text("not json")
-        with self.assertRaises(SystemExit) as raised:
-            self.ratchet()
-        self.assertIn("not a readable coverage-dashboard.json", str(raised.exception.code))
-        self.baseline.write_text(json.dumps({"format": 99}))
-        with self.assertRaises(SystemExit) as raised:
-            self.ratchet()
-        self.assertIn("format 99, this generator writes format 1", str(raised.exception.code))
+    def test_a_line_miss_alone_is_below_100_percent(self):
+        write(self.root, "libs/decide/target/site/jacoco/jacoco.xml", JACOCO_XML.format(missed=1))
+        code, _, err = self.ratchet("--no-strict")
+        self.assertEqual(code, 1)
+        self.assertIn("ratchet: libs/decide: com.example.Gate.decide(java.lang.String) is below 100% "
+                      "(1 of 4 lines, 0 of 2 branches missed)", err)
+
+    def test_a_baseline_that_cannot_be_read_exits_2(self):
+        for text in ("not json", "[1]"):
+            self.baseline.write_text(text)
+            with self.assertRaises(SystemExit) as raised:
+                self.ratchet()
+            self.assertEqual(raised.exception.code, 2)
         missing = self.root / "missing.json"
-        with self.assertRaises(SystemExit):
+        err = io.StringIO()
+        with redirect_stderr(err), self.assertRaises(SystemExit) as raised:
             cr.main(["--baseline", str(missing)])
+        self.assertEqual(raised.exception.code, 2)
+        self.assertIn("not a readable coverage-dashboard.json", err.getvalue())
+
+    def test_a_baseline_in_another_format_passes_and_says_so(self):
+        # A future JSON_FORMAT bump must not fail every build until a baseline in the new format exists.
+        self.baseline.write_text(json.dumps({"format": 99, "modules": {"libs/decide": {"gates": {"gone": {}}}}}))
+        summary = self.root / "summary.md"
+        code, out, err = self.ratchet("--summary", str(summary))
+        self.assertEqual(code, 0, err)
+        self.assertIn("is format 99 and this generator writes format 1, so nothing was ratcheted", out)
+        text = summary.read_text()
+        self.assertIn("Not ratcheted: the baseline", text)
+        self.assertNotIn("**Ratchet against", text)
+
+    def allow(self, *lines):
+        write(self.root, cr.RATCHET_ALLOW, "# header\n\n" + "\n".join(lines) + "\n")
+
+    def test_an_allowed_method_may_leave_its_check(self):
+        write(self.root, "libs/decide/pom.xml", gated_pom(("com.example.Gate.decide(*",)))
+        self.allow("method libs/decide com.example.Gate.<init>()")
+        code, _, err = self.ratchet()
+        self.assertEqual(code, 0, err)
+        self.assertNotIn("allows nothing", err)
+
+    def test_an_allowance_for_another_method_does_not_excuse_this_one(self):
+        write(self.root, "libs/decide/pom.xml", gated_pom(("com.example.Gate.decide(*",)))
+        self.allow("method libs/decide com.example.Gate.decide(java.lang.String)")
+        code, _, err = self.ratchet()
+        self.assertEqual(code, 1)
+        # decide is still included, so its allowance excuses nothing: the loss of <init> is counted.
+        self.assertIn("includes 1 methods, the baseline 2", err)
+        self.assertIn("no longer included: com.example.Gate.<init>()", err)
+
+    def test_an_allowed_check_may_go(self):
+        write(self.root, "libs/decide/pom.xml", gated_pom(("com.example.Gate.decide(*",))
+              .replace("<id>coverage-gate</id>", "<id>renamed</id>"))
+        self.allow("check libs/decide coverage-gate")
+        code, _, err = self.ratchet()
+        self.assertEqual(code, 0, err)
+
+    def test_an_allowed_check_that_stays_is_still_ratcheted(self):
+        write(self.root, "libs/decide/pom.xml", gated_pom(("com.example.Gate.decide(*",)))
+        self.allow("check libs/decide coverage-gate")
+        self.assertEqual(self.ratchet()[0], 1)
+
+    def test_an_allowed_row_may_be_unpinned(self):
+        (self.root / "libs/decide/src/test/java/com/example/GateTest.java").write_text(
+            GATE_TEST.replace("RFC9999 §1.2", "RFC9999 §9"))
+        self.allow("row RFC9999 §1")
+        code, _, err = self.ratchet()
+        self.assertEqual(code, 0, err)
+
+    def test_an_allowance_never_excuses_a_method_below_100_percent(self):
+        write(self.root, "libs/decide/target/site/jacoco/jacoco.xml", JACOCO_XML.format(missed=1))
+        self.allow("method libs/decide com.example.Gate.decide(java.lang.String)",
+                   "check libs/decide coverage-gate")
+        self.assertEqual(self.ratchet("--no-strict")[0], 1)
+
+    def test_an_allowance_the_baseline_does_not_need_is_reported_idle(self):
+        self.allow("method libs/decide com.example.Gate.gone()", "row RFC9999 §7", "check libs/other coverage-gate")
+        summary = self.root / "summary.md"
+        code, _, err = self.ratchet("--summary", str(summary))
+        self.assertEqual(code, 0, err)
+        self.assertIn(f"ratchet: {cr.RATCHET_ALLOW} allows nothing with `method libs/decide "
+                      "com.example.Gate.gone()`", err)
+        text = summary.read_text()
+        self.assertIn("**Allowances that allow nothing:**", text)
+        self.assertIn("- `check libs/other coverage-gate`", text)
+        self.assertIn("- `row RFC9999 §7`", text)
+
+    def test_a_malformed_allowance_exits_2(self):
+        for line in ("method libs/decide", "check libs/decide a b", "forget libs/decide x", "row"):
+            self.allow(line)
+            err = io.StringIO()
+            with redirect_stderr(err), redirect_stdout(io.StringIO()), self.assertRaises(SystemExit) as raised:
+                cr.main(["--baseline", str(self.baseline)])
+            self.assertEqual(raised.exception.code, 2, line)
+            self.assertIn(f"{cr.RATCHET_ALLOW}:3:", err.getvalue())
+
+    def test_the_repository_allowance_file_parses(self):
+        real = pathlib.Path(__file__).resolve().parents[2] / cr.RATCHET_ALLOW
+        self.assertTrue(real.is_file())
+        cr.load_allowances(real)
 
     def test_the_summary_names_the_ratchet(self):
         write(self.root, "libs/decide/pom.xml", gated_pom(("com.example.Gate.decide(*",)))

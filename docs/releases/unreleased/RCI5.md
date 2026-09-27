@@ -8,7 +8,8 @@
 - `--gate` fails on a jacoco check or `<include>` pattern that selects no method and on an undeclared
   `@Requirement` prefix, and counts the ids no conformance-matrix row declares.
 - `--baseline <json>` ratchets against an earlier build: a check gone or shrunk, a gated method below 100%, or
-  fewer pinned matrix rows fails. Build's java job runs both, against the last successful Build on main
+  fewer pinned matrix rows fails, less the deliberate reductions `tools/coverage-ratchet-allow.txt` names.
+  Build's java job runs both, against the newest successful Build on main that the commit descends from
   (`tools/ci/coverage-baseline.sh`, with `actions: read` on that job only).
 
 ## Before you deploy
@@ -41,21 +42,31 @@ earlier build:
 - a gated method below 100% line or branch coverage;
 - fewer pinned matrix rows - the line names the rows.
 
-A new module, check or method passes, so Phase 2's new modules need no edit to the tool. CI's baseline is the
-JSON that the successful push Build on main published for the pull request's base commit, or for the commit
-before a push, and the newest successful push Build on main when that run is missing (failed, or cancelled by a
-newer push). Runs from pull requests never supply it, even from a fork's branch called `main`. No baseline -
-the first run after this merges, which finds artefacts without the JSON, or an artefact past its 90 days -
-passes with a notice in the step summary; a failed fetch fails the step. A ratchet failure naming a check or
-method the branch never had means main moved on since the base: merge main into the branch.
+A new module, check or method passes, so Phase 2's new modules need no edit to the tool. A reduction that is the
+point of a change - dead code deleted with its `<include>`, a check renamed, a module moved, a matrix row
+retired - needs a line in `tools/coverage-ratchet-allow.txt` in the same pull request (`method <module>
+<method>`, `check <module> <execution id>` or `row <matrix row>`, copied from the `ratchet:` line). The pull
+request's run and the push to main after it both read the file, so a reviewed reduction does not leave main
+red, and a red merge is cleared by adding the line rather than by editing the tool. Nothing in the file excuses
+a gated method below 100%. A line whose item the baseline no longer has allows nothing and is listed in the step
+summary, ready to delete.
+
+CI's baseline is the JSON of the newest successful push Build on main that the commit under test descends from:
+a pull request's merge commit, a push, or a dispatched branch, which may be behind main (so a release dry run
+on an older branch is not compared with a newer main). Runs from pull requests never supply it, even from a
+fork's branch called `main`. No baseline - the first run after this merges, which finds artefacts without the
+JSON, or an artefact past its 90 days - passes with a notice in the step summary, and so does a baseline in
+another JSON format; a failed fetch fails the step, and a baseline that is missing or not JSON, or a malformed
+allowance, exits 2.
 
 Read a failure from the java job's step summary, or run the same locally with a main run's artefact
-(CONTRIBUTING.md, "Generated files"). Verified on 2026-09-28: the generator's 29 unit tests, one per rule with
-fixture reports; `--gate` on a full JDK 17 build of 982e4cd (718 gate patterns, all resolving, no undeclared
+(CONTRIBUTING.md, "Generated files"). Verified on 2026-09-28: the generator's 41 unit tests, one or more per rule
+with fixture reports, each rule's guard mutated and caught; `--gate` on a full JDK 17 build of 982e4cd (718 gate patterns, all resolving, no undeclared
 prefix); the ratchet against that build's own JSON (passes) and against an edited copy with a module gone, a
 method removed and a pinned row removed (three failures); `coverage-baseline.sh` against this repository (it
-found the right runs and their artefacts without JSON) and against a stubbed `gh` for a found baseline, a run
-from another repository and a corrupt download; actionlint, zizmor and shellcheck from
+found the run PR #40's merge commit descends from, and its artefact without JSON) and against a stubbed `gh`
+for a found baseline, a newest run that is not an ancestor, a compare that 404s (skipped) or 500s (fails), a
+run from another repository and a corrupt download; actionlint, zizmor and shellcheck from
 `tools/ci/install-lint-tools.sh`, clean.
 
 The plan's JDK 21 test run on pushes to main (PingFederate 13.1.3's image runs OpenJDK 21.0.12.1, CI tests on

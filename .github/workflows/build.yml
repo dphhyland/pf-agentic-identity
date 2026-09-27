@@ -230,16 +230,16 @@ jobs:
           if ran == 0 or skipped:
               sys.exit("RedisLiveTest skipped tests or ran none: check the OIDF_TEST_REDIS_* variables")
           PY
-      - name: the coverage baseline, from the last successful Build on main
+      - name: the coverage baseline, from a successful Build on main that this commit descends from
         # The ratchet below compares this build with the coverage-dashboard.json that a successful push Build on
-        # main published: the one for this pull request's base commit, or for the commit before this push, and
-        # the newest successful one when that run is missing. No baseline - the first run on main, an artefact
-        # past its 90 days, one from before the JSON existed - passes, with a notice in the step summary. A
-        # failed fetch fails the step instead of passing as no baseline.
+        # main published: the newest one this commit descends from (a pull request's merge commit, a push, or a
+        # dispatched branch that may be behind main). No baseline - the first run on main, an artefact past its
+        # 90 days, one from before the JSON existed - passes, with a notice in the step summary. A failed fetch
+        # fails the step instead of passing as no baseline.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: tools/ci/coverage-baseline.sh "$RUNNER_TEMP/coverage-baseline.json" "$BASE_SHA"
+          HEAD_SHA: ${{ github.sha }}
+        run: tools/ci/coverage-baseline.sh "$RUNNER_TEMP/coverage-baseline.json" "$HEAD_SHA"
       - name: coverage dashboard, generated from this build, gated and ratcheted
         # Generated from the jacoco and surefire reports the reactor build just produced, and published rather
         # than committed: a reactor-wide file that every test change regenerated conflicted in Phase 0's
@@ -249,8 +249,9 @@ jobs:
         # --gate adds what jacoco passes: an <include> pattern that names no method in the report, and an
         # @Requirement prefix Requirement.java does not declare; it counts, without failing, the ids no matrix
         # row declares. --baseline fails a jacoco check the baseline had that is gone or includes fewer methods,
-        # a gated method below 100% line or branch, and fewer pinned matrix rows. The verdict goes to the step
-        # summary; CONTRIBUTING.md "Generated files" says how to read a failure and run the same locally.
+        # a gated method below 100% line or branch, and fewer pinned matrix rows, less the deliberate reductions
+        # tools/coverage-ratchet-allow.txt names. The verdict goes to the step summary; CONTRIBUTING.md
+        # "Generated files" says how to read a failure, allow a reduction and run the same locally.
         run: |
           baseline=()
           if [ -s "$RUNNER_TEMP/coverage-baseline.json" ]; then
