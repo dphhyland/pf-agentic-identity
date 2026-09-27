@@ -12,6 +12,9 @@ How the repository is worked on:
   the five rules that follow: statics are per loader, only the webapp's copy starts threads, code an OGNL
   criterion reaches never throws, loaders talk only through string-keyed request attributes and the System
   properties already in use, and plugins shade and relocate platform.
+- [settings-catalogue.md](settings-catalogue.md) - the settings catalogue's format: one JSON document per
+  component, in the module that reads the settings. `tools/settings-scan.py` checks that every setting the code
+  reads is in one and that every catalogued setting is read; its docstring says what it counts as a read.
 
 Phase 7's developer guide (plan item D-8) - builds, PingFederate jars, Postgres tests, worktrees, mutation
 testing, the generators, rigs and classloaders - lands here too.
