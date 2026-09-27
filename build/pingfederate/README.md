@@ -67,7 +67,7 @@ Tracked:
 
 | Path | Purpose |
 |---|---|
-| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `filters.xml`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`) |
+| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `filters.xml`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`); targets `builder`, `capability` and `deployment` (the default) - see [Building](#building) |
 | `stage-modules.sh` | copies the reactor's module jars into `modules/` - the production profile's by default, and the CIBA simulator as well for `--profile conformance` - and writes the v2 `MANIFEST`, which names each one; and copies the war assembler into `assembler/` |
 | `filters.xml` | the filters registered in `pf-runtime.war`'s `web.xml`: each one's class and paths, the order pairs that must hold between them, and why |
 | `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war and registers what `filters.xml` declares, after checking `modules/` against `MANIFEST` and the profile; also used inside the image build. A wrapper round the [war assembler](../war-assembler/README.md), which does the checking - see [The war assembler](#the-war-assembler) |
@@ -112,12 +112,31 @@ single `pf-oidf-modules.jar`, you are on the pre-unwind artifact shape that this
 
 ## Building
 
+The Dockerfile has three targets. `deployment` is the last, so a `docker build` with no `--target` builds it, as
+it did before the targets existed (plan item R-CI6, taking R-I3's targets ahead of Phase 3).
+
+| Target | What it is | Needs in the context |
+|---|---|---|
+| `builder` | assembles `pf-runtime.war` from the stock war, `modules/` and `filters.xml`; nothing ships from it but the war | `modules/`, `assembler/`, `filters.xml`, `assemble-pf-runtime-war.sh` |
+| `capability` | the image with no configuration archive: the assembled war and the module jars in `server/default/deploy`, the entrypoint, age. What Build's image job builds, tests and scans | the same, and `pf-entrypoint.sh` |
+| `deployment` (the default) | `capability` plus the configuration archive and `overlay/config-store/`: what a deployment runs | the same, and `data.zip.age` or `data.zip`, and `overlay/` |
+
 ```sh
 mvn -q -DskipTests package                              # from the repo root
 build/pingfederate/stage-modules.sh                     # -> modules/ + MANIFEST, assembler/; --profile conformance for a rig
+docker build --target capability -t pf-oidf:capability build/pingfederate    # no archive needed
 # stage your data.zip.age, overlay/ and oidf-mock-attesters.json into build/pingfederate/, then:
 docker build -t pf-oidf build/pingfederate              # --build-arg STAGING_PROFILE=conformance for a rig
 ```
+
+The `deployment` image is the one the single-stage Dockerfile built. Checked 2026-09-28 on 13.1.3, for both
+profiles, from one context with a placeholder archive: every file in the two images has the same path, type,
+mode, owner, size and sha256 - the assembled war included - and the labels, environment, user and entrypoint
+are the same, except for what the build itself stamps: `/etc/shadow`'s last-changed day for `klogd`, three
+fontconfig caches and `/var/log/apk.log`, which apk writes on each run (see F-0220 for why it rewrites so much),
+and `/tmp/hsperfdata_root`, which the JVM left in the image when the assembler ran there and now leaves in
+`builder`. The `deployment` target still refuses a context with neither archive in it, and `capability` builds
+from one with no archive and no `overlay/`.
 
 From another repo, point the script at a sibling checkout:
 
@@ -128,6 +147,52 @@ PF_AGENTIC_IDENTITY_HOME=../pf-agentic-identity ../pf-agentic-identity/build/pin
 `STAGE_DEST` redirects where the jars land, if you are composing a context elsewhere; the assembler goes to
 `assembler/` beside it. A context composed elsewhere needs `Dockerfile`, `assemble-pf-runtime-war.sh`,
 `filters.xml`, `pf-entrypoint.sh`, `modules/`, `assembler/` and `overlay/config-store/` from here.
+
+## Scanning the image
+
+Build's `image` job (`.github/workflows/build.yml`) builds `capability` for both profiles on every pull request
+and push to main, and a release needs it green (`.github/required-checks.txt`). It:
+
+- runs the war assembler against PingFederate's own `pf-runtime.war`, from the image `build/pf-version.env` pins,
+  so `StockWarGoldenTest` holds the assembled `web.xml` to the shell assembler's byte for byte (U-0185);
+- builds each profile's `capability` image, checks its profile label and runs `test-entrypoint.sh --image` in it;
+- builds the default target from a placeholder archive, and checks that it refuses a context with none;
+- writes a syft SBOM of each image (SPDX JSON, the `image-sbom` artefact) and scans it with grype, and scans the
+  base image the same way (the reports are the `image-scan` artefact, the verdicts are in the job summary).
+
+**What fails and what does not.** `tools/ci/image-scan-gate.py` sorts each finding by where it comes from. It is
+PingFederate's when the base image's scan has the same vulnerability in the same package at the same version:
+PingFederate's jars (which the assembled war carries too), its Java runtime, the tools Ping installs. Those are
+reported and never fail the build, because they are not ours to fix: a PingFederate version bump is what fixes
+them, and the job's summary lists them for the day the bump is chosen. Everything else is ours - the jars
+`stage-modules.sh` stages, anything the assembler adds to the war, the Alpine packages the Dockerfile's `apk add`
+installs - and a HIGH or CRITICAL finding there fails the job.
+
+A finding of ours that cannot be fixed yet is accepted in `.github/grype.yaml`, one entry per vulnerability,
+package and version, each with its reason; the summary lists every accepted finding and names an entry that no
+longer matches. On 2026-09-28 two things are accepted: the SSH code in the `golang.org/x/crypto` that Alpine's
+`age` is built with (F-0221), and zlib's CVE-2026-85091, a base package that is ours only because the base image
+has no apk database and the Dockerfile's `apk add` reinstalls every package (F-0220), which also means no scan
+sees the base image's own Alpine packages.
+
+The scanner and the SBOM generator come from `tools/ci/install-lint-tools.sh` at pinned versions and checksums
+(grype 0.119.0, syft 1.52.0). grype fetches its vulnerability database when it runs, so the job can fail on a day
+nothing here changed: a new advisory against something of ours. Read the summary, then fix it or accept it with a
+reason. The same scan by hand, after building `capability` as above:
+
+```sh
+tools/ci/install-lint-tools.sh /tmp/scan grype syft
+. build/pf-version.env
+/tmp/scan/syft scan "docker:$PF_IMAGE@$PF_IMAGE_DIGEST" -o syft-json=base.syft.json
+/tmp/scan/syft scan docker:pf-oidf:capability -o syft-json=image.syft.json
+/tmp/scan/grype sbom:base.syft.json -c .github/grype.yaml -o json --file base.grype.json
+/tmp/scan/grype sbom:image.syft.json -c .github/grype.yaml -o json --file image.grype.json
+python3 tools/ci/image-scan-gate.py --image image.grype.json --base base.grype.json
+```
+
+The service images plan item R-CI6 also names - device-enrolment, the adapter and the SPIRE reader - do not
+exist yet: plan item R-I8 makes them in Phases 5 and 6, and they join the job then. Booting the image needs a
+licence, and waits for R-CI7 (Phase 4).
 
 ## The war assembler
 
@@ -309,8 +374,8 @@ Each case boots the entrypoint from a fresh data directory under `env -i`, with 
 `bootstrap.sh` replaced by a stub that records its environment, umask, working directory and arguments,
 and asserts on what was written, what was refused and what PingFederate would have seen. One check sweeps
 the work directory and the temp directories for the inline identity, and two more plant it there so the
-sweep is known to fail when it should. It becomes a CI step in Phase 2 (plan item R-CI6). Every script in
-this directory is shellcheck-clean (0.11.0, 2026-09-27).
+sweep is known to fail when it should. Build's image job runs it inside both profiles' `capability` images on
+every pull request (plan item R-CI6). Every script in this directory is shellcheck-clean (0.11.0, 2026-09-27).
 
 Because the modules sit at the **root** context, their endpoints have no `/oidf` prefix - the challenge endpoints
 are `/federation/attestation-challenge` and `/federation/attestation/challenge`, and `/.well-known/ssf-configuration` is at root.
