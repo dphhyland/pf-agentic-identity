@@ -30,5 +30,6 @@ cp "$HERE/data.zip" "$CTX/"
 cp "$HERE/overlay/pf.jwk" "$HERE/overlay/pingfederate-system-keys.xml" "$CTX/overlay/"
 # No oidf-mock-attesters.json: this PF trusts no attester, and the Dockerfile treats the file as optional.
 
-echo "composed $CTX from $CAP ($(ls "$CTX/modules"/*.jar | wc -l | tr -d ' ') module jars, $(cat "$CTX/modules/MANIFEST" | wc -l | tr -d ' ') manifest lines)" >&2
+jars=("$CTX/modules"/*.jar)
+echo "composed $CTX from $CAP (${#jars[@]} module jars, $(wc -l < "$CTX/modules/MANIFEST" | tr -d ' ') manifest lines)" >&2
 echo "$CTX"

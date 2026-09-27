@@ -12,6 +12,11 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
 hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
 
+- **CI hygiene** (R-CI1 to R-CI4) - every action pinned to a commit with least-privilege tokens; actionlint,
+  zizmor, shellcheck and `terraform validate` in the lint job; the secrets guard's content scan extended to private
+  JWKs and every PEM kind, with gitleaks over the whole history beside it; CodeQL for Java, Actions, Python and
+  JavaScript; Dependabot; the rig's Terraform lock file committed; CODEOWNERS.
+
 - **Generated files leave git** (plan decision 18; R-CI5's publish step, brought forward from Phase 2):
   `docs/coverage-dashboard.md` and `.html` and the showcase's rendered documents (now `showcase/docs.js`) are
   generated and git-ignored; a CI Build whose reactor build completes publishes them as its `coverage-dashboard`
