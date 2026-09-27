@@ -5,7 +5,7 @@ area: client-attestation, attestation-issuer
 source: design
 status: closed
 plan_items: [S4b]
-prs: []
+prs: [35]
 verification: >
   2026-09-27, commits 1c49ea1 and 843ec36 on prod/p1-challenge-split. The authorization server keeps POST
   /federation/attestation-challenge (ClientAttestationChallengeServlet), issuing into oidf:as:challenge:*; the
