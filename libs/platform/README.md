@@ -556,8 +556,11 @@ back. The URL still says `redis` or `rediss`, the password and the database; its
 the sentinels are verified against their own names, with the same CA file. The master is verified against the
 name a sentinel gave for it, or, when it gave an address - what Sentinel does unless `announce-hostnames` is on -
 against the URL's host, which every node's certificate must then carry
-([U-0190](../../docs/findings/U-0190.yaml): C-6's reference cluster settles which). One thread asks the sentinels
-while others wait for its answer, for at most its own deadline.
+([U-0190](../../docs/findings/U-0190.yaml): C-6's reference cluster settles which). The sentinels are trusted to
+say where the master is: a name one gives is checked as itself, so with the JVM's CAs any server holding a public
+certificate for that name would be sent `AUTH`. Over TLS with Sentinel, set `OIDF_REDIS_CA_FILE` to the
+deployment's own CA, and give the sentinels a password. One thread asks the sentinels while others wait for its
+answer, for at most its own deadline.
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|
