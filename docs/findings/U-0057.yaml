@@ -4,7 +4,7 @@ area: rar-model, rar-paz-plugin
 source: design
 status: open
 plan_items: [S1b, S1c]
-prs: []
+prs: [26]
 recorded_in: libs/rar-model/README.md, The built-in models; docs/releases/0.4.0.md, Before you deploy item 9
 verify_by: >
   Read idp-agentic-demo's request builders (its client, its rar-paz fragment) for every field its

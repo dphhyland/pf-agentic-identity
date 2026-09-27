@@ -5,7 +5,7 @@ area: client-attestation, rar-paz-plugin
 source: review-2026-09-26
 status: open
 plan_items: [S-1, S1a, S1b, S1c]
-prs: []
+prs: [26]
 verification: ''
 target_release: 0.4.0
 notes: >
