@@ -33,7 +33,9 @@
 #   ONLY_CONFIGURE=1 configure the rig and stop there, leaving the stub and the configuration in place for
 #                    driving a flow by hand (SKIP_UP=1 KEEP_RIG=1 ./verify-rar-principal.sh afterwards cleans up)
 #   OUT_DIR          where the stub's request log, the summary and PingFederate's server.log land
-#                    (default conformance/.rar-principal, git-ignored)
+#                    (default conformance/.rar-principal, git-ignored). On the way down the rehearsal's
+#                    exported archive (it holds the rig's pf.jwk and the plaintext secret) is deleted, and
+#                    the shared secret in the stub's request log is masked; the evidence is the printed lines.
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"; REPO="$(cd "$HERE/.." && pwd)"
 export PF_RIG_NAME="${PF_RIG_NAME:-pfai-rar}"
@@ -244,6 +246,13 @@ cleanup() {
   [[ -n "${ADAPTER_ORIGINAL:-}" ]] && restore_adapter
   unconfigure
   kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null
+  rm -f "$OUT/archive-old.zip"
+  if [[ -n "${SECRET:-}" && -f "$OUT/pdp-requests.jsonl" ]]; then
+    RIG_SECRET="$SECRET" python3 -c 'import os, sys
+p = sys.argv[1]; s = os.environ["RIG_SECRET"]
+t = open(p, encoding="utf-8").read()
+open(p, "w", encoding="utf-8").write(t.replace(s, "<the rig secret>"))' "$OUT/pdp-requests.jsonl"
+  fi
   docker exec "$PF_RIG_NAME" cat /opt/out/instance/log/server.log > "$OUT/server.log" 2>/dev/null
   if [[ "${KEEP_RIG:-0}" != 1 ]]; then
     # --rmi all: the rig's image is tagged <PF_RIG_NAME>/pingfederate:local, which --rmi local leaves behind.
