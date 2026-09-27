@@ -507,6 +507,151 @@ copy's MXBean stays registered.
 <!-- health (O-4): add this package's section below this line -->
 <!-- redis (C-2): add this package's section below this line -->
 <!-- http (S5a): add this package's section below this line -->
+## http
+
+Outbound HTTP that connects only to an address it checked (plan item S5a, part 1; findings
+[F-0010](../../docs/findings/F-0010.yaml) and [F-0070](../../docs/findings/F-0070.yaml), which stay open until
+S5AR moves oidf-jose onto it and S5d moves the rest). Nothing in the repository calls it yet.
+
+- `Deadline`: an absolute point on the monotonic clock; `remaining()`, `expired()`, `sooner(duration)`, `min`.
+- `Budget`: a deadline and a request count; `spend(what)` takes one request and returns the deadline to make it
+  by, and a `child` spends its parent too and ends no later than it. S5b threads one through the validator.
+- `AddressPolicy`: the URL and address rules, and the one place a host is resolved. `check(url)` returns a
+  `Target` holding every address the host resolved to, each checked.
+- `OutboundHttp`: `send(request, deadline)` or `send(request, budget)`; GET, POST, PUT, PATCH and DELETE,
+  headers on every method, HTTP/1.1, one request per connection, no redirects. A response of any status is
+  returned; only a missing response throws `OutboundHttpException`, whose `reason()` says why
+  (`REFUSED_URL`, `REFUSED_ADDRESS`, `UNRESOLVED`, `CONNECT_TIMEOUT`, `TLS`, `HEADER_TIMEOUT`, `DEADLINE`,
+  `BODY_TOO_LARGE`, `MALFORMED_RESPONSE` and the rest).
+- `TlsTrust`: the JVM's trust, a supplied `SSLContext`, a CA bundle (`caBundle(path)`), or
+  `insecureIf(setting, insecure)`, which takes `InsecureTls`'s trust-all when the setting asks.
+- `Bulkhead`: the seam S5AR's per-host bulkhead plugs into; `Bulkhead.NONE` lets everything in.
+
+### Why not java.net.http
+
+The JDK's client cannot be pinned to an address. It resolves the host itself when it builds the connection's
+address - `new InetSocketAddress(host, port)` in `jdk.internal.net.http.HttpRequestImpl.getAddress`
+(JDK 17.0.11's `src.zip` line 390, openjdk/jdk21u line 404, both read 2026-09-28) - and `HttpClient.Builder` has no
+resolver (`javap` of the pinned image's java 21.0.12.1: `cookieHandler`, `connectTimeout`, `sslContext`,
+`sslParameters`, `executor`, `followRedirects`, `version`, `priority`, `proxy`, `authenticator`, `localAddress`,
+`build`). The only resolver hook, JEP 418's `InetAddressResolverProvider` (JDK 18 on), is JVM-wide and loaded from
+the system class path: not something a webapp inside PingFederate can or should install. Pointing the client at
+the checked address instead loses the name: `AbstractAsyncSSLConnection` sets SNI only `if
+(!serverName.isLiteral())` (line 124 in both), and endpoint identification then checks the certificate against
+the address. Setting `Host` needs the JVM-wide `jdk.httpclient.allowRestrictedHeaders` (`Utils`, which lists
+`host` among the disallowed headers). And its `HttpRequest.timeout()` ends at the headers, which is F-0010.
+
+### Why HttpCore 5, and not httpclient5 or Jetty
+
+Plan decision 2, as amended on 2026-09-27, asks for a maintained client with a resolver hook before a hand-written
+one. What was weighed (read 2026-09-28):
+
+| | Pins? | Total deadline over the body | Threads | Runtime dependencies |
+|---|---|---|---|---|
+| Apache httpclient5 5.6.4 (classic) | yes: `DnsResolver` resolves once and the socket connects to what it returned, then TLS is layered with the host name (`DefaultHttpClientConnectionOperator`, lines 202, 219 and 263) | no: a per-read socket timeout (line 264), so a peer sending a byte before each timeout holds it forever | none in classic | httpcore5, httpcore5-h2, slf4j-api |
+| Jetty `HttpClient` 12 | yes: `SocketAddressResolver` | yes, `Request.timeout` | its own thread pool and scheduler, outside `platform.exec` (C-3) | jetty-http, -io, -util, slf4j-api |
+| HttpCore 5.4.4 classic I/O alone | yes, by construction: we open the socket | yes: every read is bounded (below) | none | none |
+
+httpclient5 would pin, but its deadline is per read, and it brings SLF4J, which relocated has no binding and
+unrelocated meets PingFederate's. Jetty's client brings threads C-3 would have to own and a larger footprint, and
+PingFederate runs on Jetty 12.0.36.1 itself (`/opt/server/lib`). HttpCore is the HTTP/1.1 message layer
+httpclient5 is built on - the request writer, the status-line and header parser, and the chunked,
+length-delimited and close-delimited decoders - and platform uses exactly that and nothing else: it opens the
+socket, layers TLS and hands the socket to HttpCore's `DefaultBHttpClientConnection`. HttpCore is an OSS-Fuzz
+project (`projects/httpcomponents-core`, read 2026-09-28), but its fuzzer builds requests and does not reach the
+response parser, so `OutboundHttpFuzzTest` fuzzes the response path here.
+
+HttpCore 5.4.4 (Apache License 2.0, no runtime dependencies, 955 KB) is shaded into this jar and relocated under
+`com.pingidentity.ps.oidf.platform.http.internal.hc5`, minimised to the 166 classes platform reaches: the jar
+grows from 227 KB to 448 KB, and `jdeps --missing-deps` finds nothing missing in it beyond commons-logging, which
+was already provided (2026-09-28). HttpCore's LICENSE and NOTICE travel in the jar's `META-INF`. The pinned image
+ships its own httpcore5 5.3.4, httpcore5-h2 5.3.4, httpclient5 5.5, httpclient 4.5.13 and httpcore 4.4.16 in
+`server/default/lib` (read from each jar's manifest, 2026-09-28); the relocation keeps them apart. A plugin that
+shades platform relocates `com.pingidentity.ps.oidf.platform.` and so carries HttpCore along under its own
+package. The dependency is optional in `pom.xml`, so no consumer inherits an unrelocated copy; the cost is that a
+module in the reactor that uses `platform.http` in a phase before `package` sees platform's classes without
+HttpCore, so S5AR's tests run under `verify`, as CI's do.
+
+### The transport
+
+1. `AddressPolicy.check` resolves the host once and checks every address; one non-public address refuses the
+   name, because a connection may go to any of them.
+2. A socket made with `Proxy.NO_PROXY` connects to the first checked address that accepts before the connect
+   deadline, then the next. Nothing resolves the name again: the host only travels on as text.
+3. For `https`, `SSLSocketFactory.createSocket(socket, host, port, true)` layers TLS on that socket with
+   `SSLParameters` carrying the `HTTPS` endpoint identification algorithm, the host as SNI (unless it is an IP
+   literal) and TLS 1.3 and 1.2 only, so the certificate is checked against the name the URL gave.
+   `OutboundHttpTlsTest` proves it with a CA made by `keytool` for the run: a stub resolver sends
+   `pinned.test`, which no DNS knows, to 127.0.0.1; the server sees `pinned.test` as SNI; a certificate for
+   `other.test` and one no trusted CA signed are refused. `OutboundHttpTest` proves the pinning with a resolver
+   that answers a checked address first and a refused one after: the request succeeds at the first, and the
+   resolver was asked once.
+4. The request goes out with `Host` (the URL's authority), the caller's headers, `Content-Length` for a body,
+   `Connection: close` and a `User-Agent`. The framing headers are the client's to write and are refused from
+   callers, as is any header that could split the message.
+5. The response head must arrive within the header deadline; then the body within the total deadline and the cap.
+
+Every read is bounded by what is left of the deadline for its phase (connect and TLS handshake, then headers,
+then body): `DeadlineSocket` sets `SO_TIMEOUT` to what is left before each read, so however a peer spaces its
+bytes no read, and no sum of reads, passes the deadline. That holds under TLS because JSSE's layered socket reads
+the socket it wraps through that socket's `getInputStream()`: `BaseSSLSocketImpl.getInputStream` returns
+`self.getInputStream()` when layered, and `SSLSocketImpl.doneConnect` hands `super.getInputStream()` to the
+record layer (JDK 17 and 21, openjdk/jdk17u and jdk21u, read 2026-09-28). A body sent a byte every 200 ms stops
+at a 1.2 s total, and a head sent a byte every 100 ms stops at a 700 ms header deadline (`OutboundHttpTest`). No
+watchdog thread is needed.
+
+The limits on what a peer can send: at most 100 headers, a status line or header line of at most 8192 bytes,
+HTTP/1.0 or 1.1, a status of 100 to 599, at most 8 interim (1xx) responses and never a 101, no `Content-Length`
+beside `Transfer-Encoding`, one `Content-Length` of plain digits, `Transfer-Encoding: chunked` and nothing else,
+and a body no larger than the cap (256 KiB by default, oidf-jose's; the request may set its own). A declared
+length over the cap is refused before a byte of the body is read. HttpCore's response parser takes its limits
+from its own factory, not the connection's configuration (`DefaultHttpResponseParserFactory.INSTANCE` parses
+with `Http1Config.DEFAULT`, 5.4.4), so platform hands the parser the same limits; `exactlyTheMostHeadersIsAccepted`
+pins it.
+
+### The address rules
+
+Carried over from oidf-jose's `OutboundUrlPolicy`: `https` only unless http is allowed; a host is required;
+credentials in the URL are refused; a port must be 1 to 65535 (the old policy had no port rule either - the port
+matters only to an exemption, which pins it); every resolved address must be public; `addressExemptHosts` names
+hosts and their subdomains that may resolve privately (still resolved once and pinned); `trusting(urls)` exempts
+operator-configured endpoints from the scheme and address rules, pinned to scheme, host, port and path prefix;
+`allowPrivateNetworks` turns the address rule off. New: a path with a `.` or `..` segment, percent-encoded or not,
+is never inside an exemption, because the server would normalise it out of the prefix.
+
+Non-public, IPv4: 0.0.0.0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, the three documentation
+ranges, 192.168/16, 198.18/15, 224/4, and 240/4 with the broadcast address. IPv6: all of ::/96 (the unspecified
+address, loopback and the deprecated IPv4-compatible form, which no public host uses), 100::/64, Teredo
+2001::/32, 2001:db8::/32, fc00::/7, fe80::/10, fec0::/10 and ff00::/8. Forms that embed an IPv4 address are
+judged by it: IPv4-mapped ::ffff:0:0/96 and IPv4-translated ::ffff:0:0:0/96 (a dual-stack socket connects to the
+IPv4 address itself), NAT64 64:ff9b::/96 and 6to4 2002::/16. Two decisions:
+
+- Teredo is refused outright rather than judged by what it embeds. The client address it carries is reachable
+  only through whichever Teredo relay the network routes 2001::/32 to, so what it means depends on a relay this
+  process does not choose, and no federation peer is served from a Teredo address.
+- NAT64 local-use 64:ff9b:1::/48 lets the operator choose the prefix length (RFC 8215), so the embedded address
+  cannot be located from the address alone. It is read at every position RFC 6052 allows inside the /48 (/48,
+  /56, /64 and /96) and refused if any reading is non-public, skipping a shorter reading in 0.0.0.0/8, which is
+  what the zero padding of a longer prefix looks like. The cost, a false refusal where the operator's own prefix
+  bits read as a private address, is [U-0196](../../docs/findings/U-0196.yaml).
+
+### What the deadlines do not bound
+
+Two blocking steps have no timeout in the JDK's API and so are outside every deadline
+([U-0195](../../docs/findings/U-0195.yaml)): resolving the name (`InetAddress.getAllByName` waits as long as the
+system resolver does) and writing the request (a peer that accepts and stops reading holds a write larger than the
+socket's send buffer; a request body is at most 1 MiB). Hostname verification has no off switch here: InsecureTls's
+JVM-wide `jdk.internal.httpclient.disableHostnameVerification` governs `java.net.http` alone, and carrying it into
+this transport would widen F-0035 rather than keep a behaviour. Under `insecureIf` the chain goes unchecked and the
+name is still checked, as InsecureTls documents for the JDK client.
+
+The package's 251 tests pass on JDK 17 and 20 in the reactor, and on the pinned image's own java 21.0.12.1
+against the shaded, minimised jar itself (`docker run --entrypoint java` with the JUnit console launcher,
+2026-09-28), so the relocated HttpCore, the layered TLS reads and SNI are checked on the runtime PingFederate uses.
+The plugins that shade platform carry HttpCore under their own package
+(`com.pingidentity.ps.oidf.cibasim.shaded.platform.http.internal.hc5`), and no built jar or war holds an
+unrelocated `org.apache.hc` class.
+
 <!-- exec (C-3): add this package's section below this line -->
 
 ## Build

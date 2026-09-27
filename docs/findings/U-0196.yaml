@@ -1,0 +1,19 @@
+id: U-0196
+title: That no deployment uses a NAT64 local-use prefix whose own bits read as a non-public IPv4 address
+area: platform
+source: design
+status: open
+plan_items: [S5a]
+prs: []
+recorded_in: libs/platform/README.md, the http section, the address rules
+verify_by: >
+  Ask each consumer (pf-oidf-modules, idp-agentic-demo, domain-authority) whether its PingFederate runs on an
+  IPv6-only network with a DNS64 prefix inside 64:ff9b:1::/48, and if so which. A prefix of /96 padded with
+  zeros, the usual one, is unaffected.
+verification: ''
+notes: >
+  RFC 8215 lets an operator place a local-use NAT64 prefix of any RFC 6052 length inside 64:ff9b:1::/48, so the
+  embedded IPv4 address cannot be located from the address alone. AddressPolicy.nat64LocalUse reads it at the
+  /48, /56, /64 and /96 positions and refuses the address if any reading is non-public, skipping a shorter
+  reading that falls in 0.0.0.0/8 (zero padding). An operator whose prefix bits happen to read as, say,
+  10.x.x.x at /48 has every fetch through the translator refused, visibly, with the reason in the message.

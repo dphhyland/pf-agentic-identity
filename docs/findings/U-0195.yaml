@@ -1,0 +1,20 @@
+id: U-0195
+title: Whether name resolution and request writes, which no OutboundHttp deadline bounds, stay short in practice
+area: platform
+source: design
+status: open
+plan_items: [S5a]
+prs: []
+recorded_in: libs/platform/README.md, the http section, What the deadlines do not bound
+verify_by: >
+  On the pinned PingFederate image, time InetAddress.getAllByName against a resolver that never answers (the
+  image's resolv.conf timeout and attempts decide it), and read the default SO_SNDBUF of a connected socket to
+  compare with OutboundRequest.MAX_REQUEST_BODY_BYTES (1 MiB). If either is long enough to matter, S5AR resolves
+  on a thread of a managed executor (C-3) bounded by the deadline, or lowers the body cap.
+verification: ''
+notes: >
+  Every read OutboundHttp makes is bounded by what is left of its deadline (DeadlineSocket), and the connect is
+  bounded by Socket.connect's timeout. Two blocking steps are not: InetAddress.getAllByName takes no timeout, so
+  a slow DNS server costs the system resolver's own timeout; and a socket write has no timeout in Java, so a
+  peer that accepts and then stops reading holds a write of a body larger than the send buffer. Bounding either
+  without a thread is not possible with the JDK's blocking API.
