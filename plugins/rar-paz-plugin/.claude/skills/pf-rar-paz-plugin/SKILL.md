@@ -65,9 +65,12 @@ SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig)` con
    default type list is `payment_initiation,account_information`; a single `-` empties it. Token
    exchange is `none` until the token-endpoint filter publishes `verified_subject_token_sub`.
 3. **Fail-open means unreachable, nothing else.** Connection refused/reset, unresolved name, a
-   deadline, HTTP 429/502/503/504. A 401 from a wrong secret, a non-JSON body, a 500 and a TLS
-   failure all deny, whatever the switch says. There is no "Deny unless PERMIT" switch any more; a
-   stored value under that name is carried by PingFederate and ignored.
+   deadline, HTTP 429/502/503/504. A 401 from a wrong secret, a non-JSON body, a 500, a status line
+   or header the client cannot parse (`ProtocolException`) and a TLS failure all deny, whatever the
+   switch says. A reset is read from the exception's class or the JDK's own message prefix, never by
+   searching a message: the client copies wire text into its protocol errors (F-0093). There is no
+   "Deny unless PERMIT" switch any more; a stored value under that name is carried by PingFederate
+   and ignored.
 4. **The PDP URL must be https unless `OIDF_DEPLOYMENT_PROFILE=development`** (unset is production):
    refused by the field's validator in the console/API, and again at configure for an archive import.
    "Skip TLS verification (dev only)" is inert outside development too (a WARNING at configure), so a
@@ -99,7 +102,9 @@ SDK; its tests use the package-private `(PdpClient, GovernanceEngineConfig)` con
     `JSON_API_HEADER_NAME`). Mixing the two defaults gives auth failures that look like policy
     failures - and from 0.4.0 they deny rather than fail open.
 12. **`isPermit()` trusts `authorised` over `decision`.** `{"authorised":true,"decision":"DENY"}`
-    is a PERMIT (governance engine). AuthZEN needs a boolean `decision`.
+    is a PERMIT (governance engine). `authorised` must be a JSON boolean and `decision` a string,
+    or the answer is refused. AuthZEN needs a boolean `decision`. Either dialect refuses content
+    after the object and a member named twice.
 
 ## How to build
 ```bash

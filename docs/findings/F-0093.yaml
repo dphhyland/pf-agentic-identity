@@ -1,0 +1,28 @@
+id: F-0093
+title: A PDP whose malformed answer named "connection reset" was classed as unreachable, so fail-open granted it
+severity: medium
+area: rar-paz-plugin
+source: pr-review
+status: closed
+plan_items: [S2a]
+prs: []
+verification: >
+  2026-09-27, commit 30b4f4b on prod/p1-rar-plugin-principal: JdkHttpTransport.classify refuses when a
+  java.net.ProtocolException is anywhere in the cause chain, as it does for an SSLException, and matches the
+  reset text only when a message starts with "connection reset". JdkHttpTransportTest
+  aMalformedAnswerNamingAResetIsARefusal covers the JDK 17 and JDK 20 shapes (a ProtocolException, and an
+  IOException carrying its message over it); aStatusLineTheClientCannotParseIsARefusal and
+  aHeaderNameTheClientCannotParseIsNotUnreachable drive a loopback server through the real client; and
+  ProcessorConfigurationTest failOpenDoesNotGrantAMalformedAnswerThatNamesAReset runs configure and enrich with
+  fail-open on against a DENY carrying the header (AuthZEN) and a status line naming it (governance engine),
+  and both are refused. With the old classify restored, all four tests fail (JDK 20.0.2). classify is in the
+  plugin's 100% METHOD gate.
+target_release: 0.4.0
+notes: >
+  Found on 2026-09-27 in the review of S2a before its pull request. classify marked a failure unreachable when
+  any IOException in the chain had a message containing "connection reset". The JDK HttpClient copies wire
+  text into its ProtocolException messages (Invalid status line: "...", Invalid header name "..."), and JDK 17
+  rethrows them as an IOException with the same message. An HTTP 200 {"decision": false} carrying a header
+  named "connection reset" was therefore granted for a 1,000,000.00 payment_initiation with fail-open on
+  (reproduced on JDK 20 and 17). Medium: fail-open is off by default, and the responder must control the
+  response bytes after TLS, but the S2a rule that an answering PDP never fails open did not hold.

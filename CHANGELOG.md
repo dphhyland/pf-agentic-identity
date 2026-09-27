@@ -44,7 +44,8 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   device-instance's Postgres suite against a service container.
 - **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
   high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP
-  429/502/503/504, so a 401 from a wrong secret, a body that is not a JSON object and a TLS failure deny;
+  429/502/503/504, so a 401 from a wrong secret, a body that is not a JSON object, a status line or header the
+  client cannot parse (F-0093) and a TLS failure deny; a governance answer's `authorised` must be a boolean;
   "Deny unless PERMIT" is gone and the decision is always deny-unless-PERMIT; the shared secret is an encrypted
   field under the same name (the upgrade from v0.3.0 rehearsed on the rig); the PDP URL must be https and "Skip
   TLS verification" is inert unless `OIDF_DEPLOYMENT_PROFILE=development`; the governance-engine request writes

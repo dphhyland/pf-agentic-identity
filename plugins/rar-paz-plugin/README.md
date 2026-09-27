@@ -83,7 +83,7 @@ PingFederate 13.1.3 passes, read with `javap` from `pf-protocolengine` (the call
 | client credentials | the client id (`ClientCredentialsGrantProcessor`) | `client` | user key = the client id; `sales_agent` reaches the PDP as `subject {type: client}`; `payment_initiation` refused before the PDP, 400 `invalid_authorization_details` |
 | refresh, with `authorization_details` in the request | the grant's unique user identifier (`RefreshTokenGrantProcessor`) | `authenticated` | user key = `suite-user`; the grant's attributes arrive under the SDK's `IN_PARAMETER_AUTH_DETAILS_USER_INFO` parameter |
 | refresh, without | - (the stored details are reissued; plan "Found" item 2) | - | the plugin is not called |
-| CIBA, at `/as/bc-auth.ciba` | the request policy's `IDENTITY_HINT_SUBJECT` (`CibaAuthenticationRequestHandler`) | `identity_hint` | user key = `suite-user` from `login_hint`; then the ciba-sim approves, the poll issues a token and a refresh token |
+| CIBA, at `/as/bc-auth.ciba` (the request URI read as the container maps it: path parameters, escapes and dot segments resolved; U-0094) | the request policy's `IDENTITY_HINT_SUBJECT` (`CibaAuthenticationRequestHandler`) | `identity_hint` | user key = `suite-user` from `login_hint`; then the ciba-sim approves, the poll issues a token and a refresh token |
 | token exchange | `null` (`TokenExchangeRequest`; and enrich is skipped when the requested token type is `id-jag`) | `subject_token` only when the token-endpoint filter published `verified_subject_token_sub` in the attestation context, else `none` | user key none; `principal_source: none`; `payment_initiation` refused before the PDP. The filter publishes no verified subject yet (`delegationActChain` decodes the subject token without verifying it), so this is always `none` today |
 | authorization code | the authentication result's `subject` attribute, once, at the resume after login (`OAuthResumableRequestHandlerBase`, path `/as/<id>/resume/as/authorization.ping`); PAR does not enrich, and there is no second pass at consent | `authenticated`, or `none` when the contract has no `subject` | as the rig ships (an HTML-form adapter with `username` and no `subject`): user key none, the payment refused after the user signed in; with `subject` mapped on the adapter by expression from `username`: user key = `suite-user`, decided about `suite-user`, token issued for `suite-user` |
 | device flow | the approving user, as far as `javap` shows: `UserAuthorizationRequestHandler` enriches at the user's approval with the mapped attributes | `authenticated` (assumed; U-0066) | not driven |
@@ -126,8 +126,15 @@ request deadline, or HTTP 429, 502, 503 or 504. Everything else refuses whatever
 | 2xx, `application/json` (or `+json`), a decision | the decision - PERMIT or not |
 | 429, 502, 503, 504 | unavailable: fails open when configured, else denied |
 | any other status - 401/403 from a wrong secret, 400, 404, 500, a redirect | denied |
-| 2xx with another content type, an empty or malformed body, no boolean `decision` (AuthZEN) | denied |
+| 2xx with another content type, an empty or malformed body, no boolean `decision` (AuthZEN), a `decision` that is not a string or an `authorised` that is not a boolean (governance engine) | denied |
+| a body with content after the JSON object, or a member named twice | denied |
+| a status line or header the client cannot parse (`ProtocolException` anywhere in the cause chain), whatever text it carries | denied |
 | TLS failure (`SSLException` anywhere in the cause chain), even before a byte is sent | denied |
+
+The JDK client copies wire text it cannot parse into its protocol error's message, so the plugin reads a
+reset from the exception's class, or from a message that starts with the JDK's own "Connection reset", and
+never searches a message for it. Before this, a DENY carrying a header named `connection reset` was granted
+with fail-open on (F-0093, found in review on 2026-09-27 and closed in the same change).
 
 The switch that turned deny-unless-PERMIT off ("Deny unless PERMIT") is gone; the decision is always
 deny-unless-PERMIT. A value stored under the old name is carried by PingFederate and never read: 13.1.3
@@ -180,7 +187,7 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Wire | `{domain: <prefix>.<type>, service, action, attributes}` — values JSON-stringified for the Trust Framework, plus flat `req_<field>` / `att_<field>` mirrors (attribute names cannot contain `.`) | AuthZEN 1.0 `{subject, action, resource, context}`; point **PDP URL** at `/access/v1/evaluation` |
 | Principal / agent | `UserID` = the resolved principal, else client id; `principal_source`; `actor` = `agent_id` when minted and distinct, with `actor_iss` | `subject = {type: user\|client, id}` (`client` when the principal source is `client`, or the client was the fallback); `context.principal_source`; `context.actor = {type: agent, id: agent_id, iss}` (RFC 8693 delegation) |
 | Attested ceiling | `attestation.entitlement / workload / cnf_thumbprint / iss` | `context.attestation.{entitlement, workload, cnf_thumbprint, iss}` |
-| Decision | `decision: PERMIT\|DENY\|…` + `authorised` | boolean `decision`, required |
+| Decision | `decision: PERMIT\|DENY\|…` (a string) + `authorised` (a boolean, which wins when present) | boolean `decision`, required |
 | Obligations | `statements: [{name, payload}]` | response `context` mapped into the same statement pipeline: `context.statements` verbatim, every other member one statement; `id` / `reason_*` never merged |
 
 ## Configuration (PF admin fields — same names the config-as-code sets)

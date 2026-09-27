@@ -16,7 +16,11 @@ verification: >
   descriptor; a stored true value in a 0.3.0 archive imported on the rig the same day and was never read. The
   server's attributes are written last and a colliding field is refused (F-0073 for the mirrors). The PDP URL
   is https outside development, and the shared secret is an encrypted field (the upgrade rehearsed on the rig,
-  U-0022).
+  U-0022). 2026-09-27, commit 30b4f4b: a ProtocolException anywhere in the chain refuses too, and a reset is
+  matched only from the start of a message, because the JDK copies wire text into protocol errors (F-0093,
+  found in the pre-PR review, with a loopback test through configure and enrich); a body with content after
+  the object or a duplicate member, and a governance answer whose decision is not a string or authorised not
+  a boolean, refuse (PdpResponsesTest, DecisionResponseTest).
 target_release: 0.4.0
 notes: >
   'Fail open on engine error' treats any failure - a wrong secret, a malformed body, a TLS failure - as a
