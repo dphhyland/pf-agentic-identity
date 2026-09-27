@@ -49,6 +49,9 @@
         <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>
@@ -110,6 +113,13 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.write(*</include>
                                         <!-- lifecycle (F-2): add gate includes below this line -->
                                         <!-- internals (F-1, PfInternals): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.tokenEndpointBaseUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.addClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.updateClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.getClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.getClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.isBackendDatabase(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.discoveryHandler(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
