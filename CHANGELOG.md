@@ -60,6 +60,15 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it, and the CAS
   document does not list `cimd` among its metadata sources.
 
+- **RAR containment model** (S1a) - `libs/rar-model`, JDK only: per-type field rules (`set`, `set_of_values`, `limit`
+  with a paired unit, `amount`, `instant_limit`, `equal`, `string`, `object`, `forbidden`), alternatives for a thing
+  a type can say two ways, the built-in `sales_agent`, `payment_initiation` and `account_information` models, more
+  from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`, strict `contains`, `authorize` with inheritance, and the meet
+  `intersect`, over lists held to fixed limits (numbers by the digits they would write); a SHA-256 fingerprint of
+  the effective model and the library's semantics; 244 vectors in a test-jar and seeded property tests. The
+  library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
+  until then.
+
 ## [0.3.0] - 2026-09-27
 
 The first release for PingFederate 13.1.3, and the release that completes OpenID Federation. Notes:
