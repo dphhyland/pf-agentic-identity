@@ -41,12 +41,15 @@ basicConstraints = critical, CA:FALSE
 keyUsage = critical, digitalSignature, keyEncipherment
 extendedKeyUsage = serverAuth
 CNF
-openssl req -x509 -new -config "$dir/req.cnf" -extensions ca -newkey rsa:2048 -nodes -days 1 \
-  -keyout "$dir/ca.key" -out "$dir/ca.pem" 2>/dev/null
-openssl req -new -config "$dir/req.cnf" -newkey rsa:2048 -nodes -subj /CN=localhost \
-  -keyout "$dir/server.key" -out "$dir/server.csr" 2>/dev/null
-openssl x509 -req -in "$dir/server.csr" -CA "$dir/ca.pem" -CAkey "$dir/ca.key" -set_serial "0x$(openssl rand -hex 8)" \
-  -days 1 -extfile "$dir/req.cnf" -extensions server -out "$dir/server.pem" 2>/dev/null
+# openssl's progress output goes to a log, which is printed if a step fails.
+ssl() { openssl "$@" 2>>"$dir/openssl.log" || { echo "openssl $1 failed:" >&2; cat "$dir/openssl.log" >&2; exit 1; }; }
+: > "$dir/openssl.log"
+ssl req -x509 -new -config "$dir/req.cnf" -extensions ca -newkey rsa:2048 -nodes -days 1 \
+  -keyout "$dir/ca.key" -out "$dir/ca.pem"
+ssl req -new -config "$dir/req.cnf" -newkey rsa:2048 -nodes -subj /CN=localhost \
+  -keyout "$dir/server.key" -out "$dir/server.csr"
+ssl x509 -req -in "$dir/server.csr" -CA "$dir/ca.pem" -CAkey "$dir/ca.key" -set_serial "0x$(openssl rand -hex 8)" \
+  -days 1 -extfile "$dir/req.cnf" -extensions server -out "$dir/server.pem"
 rm -f "$dir/ca.key" "$dir/server.csr"
 openssl verify -CAfile "$dir/ca.pem" "$dir/server.pem" >&2
 
