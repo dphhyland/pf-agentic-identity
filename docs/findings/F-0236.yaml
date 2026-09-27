@@ -5,7 +5,7 @@ area: ssf
 source: pr-review
 status: closed
 plan_items: [DB-1, S-10]
-prs: []
+prs: [63]
 verification: >
   2026-09-28, branch prod/p2-settings-ssf-services: SsfStoreContract.aSecondsSetsComeBackInJtiOrderFromBothReads
   failed for JdbcSsfStoreOnPostgresTest and LdmSsfStoreOnPostgresTest on postgres:16 (Debian, datcollate

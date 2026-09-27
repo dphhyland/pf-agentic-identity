@@ -5,7 +5,7 @@ area: ssf
 source: design
 status: open
 plan_items: [ST-5]
-prs: []
+prs: [63]
 verification: ''
 target_release: 0.6.0
 notes: >
