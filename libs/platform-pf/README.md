@@ -140,7 +140,9 @@ direct call did.
 
 **No production class outside platform-pf names `org.sourceid.oauth20.issuer`, `org.sourceid.saml20.domain.mgmt`,
 `org.sourceid.openid.connect.handlers`, `ClientManager` or `AuthzServerManager`.** `InternalsBoundaryTest` holds
-it over every `src/main` Java source under libs, servlets, services and plugins, with one recorded exception:
+it over every `src/main` Java source under libs, servlets, services and plugins (a wildcard import of
+`org.sourceid.oauth20.domain` counts, since it would let a source name either manager by its simple name), with one
+recorded exception:
 servlets/ssf's `PfIdTokenVerifier` still calls `OAuthIssuerUtils` itself, because package PFI's scope stopped at
 pf-integration, attestation-issuer and platform-pf ([F-0215](../../docs/findings/F-0215.yaml)). The test fails
 when that file stops naming it, so the exception goes with the fix.

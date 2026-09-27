@@ -23,9 +23,13 @@ import org.junit.jupiter.api.Test;
  * services and stay where they are used (platform-pf's README, "internals").
  */
 class InternalsBoundaryTest {
-    /** A package, or a service type, from PingFederate's internals; matched anywhere in a source file. */
+    /**
+     * A package, or a service type, from PingFederate's internals; matched anywhere in a source file. A wildcard
+     * import of the domain package counts too, since it would let a source name either manager by its simple name.
+     */
     static final Pattern INTERNAL = Pattern.compile("org\\.sourceid\\.(?:oauth20\\.issuer|saml20\\.domain\\.mgmt"
-            + "|openid\\.connect\\.handlers)\\b|org\\.sourceid\\.oauth20\\.domain\\.(?:ClientManager|AuthzServerManager)\\b");
+            + "|openid\\.connect\\.handlers)\\b|org\\.sourceid\\.oauth20\\.domain\\.(?:ClientManager|AuthzServerManager)\\b"
+            + "|import\\s+org\\.sourceid\\.oauth20\\.domain\\.\\*");
 
     /**
      * Files that still name an internal, each with the finding that records why. Package PFI could not edit
@@ -100,7 +104,8 @@ class InternalsBoundaryTest {
                 "return org.sourceid.saml20.domain.mgmt.MgmtFactory.getAuthzServerManager().getTokenEndpointBaseUrl();",
                 "import org.sourceid.openid.connect.handlers.ProviderConfigurationInfoHandler;",
                 "org.sourceid.oauth20.domain.ClientManager manager = null;",
-                "import org.sourceid.oauth20.domain.AuthzServerManager;")) {
+                "import org.sourceid.oauth20.domain.AuthzServerManager;",
+                "import org.sourceid.oauth20.domain.*;")) {
             assertTrue(INTERNAL.matcher(line).find(), line);
         }
         for (String line : List.of(
