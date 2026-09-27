@@ -27,6 +27,12 @@ verification: >
   started. actionlint 1.7.12, with shellcheck 0.11.0 over the run blocks, and zizmor 1.30.1 are clean. Not
   dispatched: the next tag is the change's first live run. v0.3.0 itself was published by the re-run of run
   36278709651 (2026-09-27T00:14Z), which is what P0-8 needed.
+  A second, independent review of the redesign (2026-09-27, 71 cases under bash 3.2 and 5.2, 14 mutants, live
+  read-only runs) found no blocker or major; its minors are fixed in the same pull request: the commit id is
+  checked before the runs query (an empty one widened it to every Build run), head_sha is checked in the
+  response as well as asked of the API, every page of runs is read, job names match as strings, every record
+  at a job's latest attempt must pass, and a run that reads completed while a required job is re-running is
+  waited for.
 target_release: 0.4.0
 notes: >
   The v0.3.0 tag landed seven seconds after PR #11's merge commit 97e5650 (2026-09-26T23:12Z): Build run

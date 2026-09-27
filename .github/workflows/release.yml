@@ -130,9 +130,10 @@ jobs:
         #   - when READ_FAILURES_ALLOWED reads in a row are refused: one refusal is tried again at the next read,
         #     and a fault that persists is not waited out for twenty minutes;
         #   - at WAIT_LIMIT_SECONDS.
-        # The log says what it is waiting for and how long it has waited. At most 41 reads of two requests each
-        # (the runs, then the newest run's jobs, one page each), against GITHUB_TOKEN's "1,000 requests per hour
-        # per repository" (GitHub's REST API rate-limit page, read 2026-09-27). A dry run is gated the same way.
+        # The log says what it is waiting for and how long it has waited. At most 41 reads, each of every page of
+        # the commit's Build runs and every page of the chosen run's jobs - one page of each in practice - against
+        # GITHUB_TOKEN's "1,000 requests per hour per repository" (GitHub's REST API rate-limit page, read
+        # 2026-09-27). A dry run is gated the same way.
         timeout-minutes: 25   # a backstop for a read that never returns; the loop gives up at 20 minutes itself
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -144,6 +145,12 @@ jobs:
           ABSENT_GRACE_SECONDS=120   # for a Build run that is not there yet
           READ_FAILURES_ALLOWED=3    # refused reads in a row
           tab="$(printf '\t')"
+          # The commit the version step recorded. The runs query below filters on it, and an empty or malformed
+          # value would widen that filter to every Build run on the repository, so it must be a commit id first.
+          case "$COMMIT" in
+            ''|*[!0-9a-f]*) echo "::error::COMMIT ('$COMMIT') is not a commit id: the version step did not record the tagged commit"; exit 1 ;;
+          esac
+          [ "${#COMMIT}" -eq 40 ] || { echo "::error::COMMIT ('$COMMIT') is not a 40-character commit id"; exit 1; }
           # One job id per line; comments, blank lines, and stray spaces or carriage returns are not names.
           required="$(sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e 's/^[[:space:]]*//' .github/required-checks.txt | grep -v '^$' || true)"
           [ -n "$required" ] || { echo "::error::.github/required-checks.txt names no job, or is missing"; exit 1; }
@@ -153,12 +160,14 @@ jobs:
           echo "Build must be green on $COMMIT: $names (.github/required-checks.txt)"
           # The newest Build run on the commit that a push or a dispatch started (id, number, attempt, event,
           # status, conclusion), then every attempt of its jobs (name, attempt, status, conclusion). @tsv escapes
-          # a tab or a newline inside a value, so each line is one record.
+          # a tab or a newline inside a value, so each line is one record. Every page of runs is read: pull
+          # requests' runs on the same commit come first in the list and could otherwise push the one that counts
+          # off the first page. The head_sha is checked here as well as asked of the API.
           read_build() {
-            run="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?head_sha=$COMMIT&per_page=100" \
-                     --jq '[.workflow_runs[] | select(.event == "push" or .event == "workflow_dispatch")]
-                           | max_by(.run_number) // empty
+            run="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/workflows/build.yml/runs?head_sha=$COMMIT&per_page=100" \
+                     --jq '.workflow_runs[] | select(.head_sha == "'"$COMMIT"'" and (.event == "push" or .event == "workflow_dispatch"))
                            | [.id, .run_number, .run_attempt, .event, .status, (.conclusion // "none")] | @tsv')" || return 1
+            run="$(printf '%s\n' "$run" | awk 'NF' | sort -t "$tab" -k2,2n | tail -n 1)"
             jobs=''
             [ -n "$run" ] || return 0
             jobs="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/${run%%"$tab"*}/jobs?filter=all&per_page=100" \
@@ -189,24 +198,34 @@ jobs:
                 state='no Build run yet'
               else
                 IFS="$tab" read -r run_id _ attempt event status conclusion <<< "$run"
-                absent=''; failed=''; progress=''
+                absent=''; failed=''; progress=''; unfinished=''
                 while IFS= read -r name; do
-                  # The job's latest attempt: GitHub's run_attempt "increments with each re-run".
-                  latest="$(printf '%s\n' "$jobs" | awk -F'\t' -v n="$name" '$1 == n' | sort -t "$tab" -k2,2n | tail -n 1)"
-                  if [ -z "$latest" ]; then
+                  # The job's records, matched as strings: awk's -v would expand a backslash in the name, and ==
+                  # compares as numbers when both sides look numeric. Then its latest attempt - GitHub's
+                  # run_attempt "increments with each re-run" - where every record must have passed, so two jobs
+                  # that share a name cannot hide a failure behind a success.
+                  recs="$(printf '%s\n' "$jobs" | NAME="$name" awk -F'\t' 'NF && ($1 "") == (ENVIRON["NAME"] "")')"
+                  if [ -z "$recs" ]; then
                     absent="${absent:+$absent, }$name"
                     progress="${progress:+$progress, }$name not started"
                     continue
                   fi
-                  IFS="$tab" read -r _ _ job_status job_conclusion <<< "$latest"
-                  if [ "$job_status" != completed ]; then
-                    progress="${progress:+$progress, }$name $job_status"
-                  else
-                    progress="${progress:+$progress, }$name $job_conclusion"
-                    [ "$job_conclusion" = success ] || failed="${failed:+$failed, }$name $job_conclusion"
-                  fi
+                  top="$(printf '%s\n' "$recs" | awk -F'\t' '{ if ($2 + 0 > m) m = $2 + 0 } END { print m + 0 }')"
+                  verdict="$(printf '%s\n' "$recs" | awk -F'\t' -v a="$top" '
+                    ($2 + 0) != (a + 0) { next }
+                    $3 != "completed"   { pending = pending (pending ? "/" : "") $3; next }
+                    $4 != "success"     { bad = bad (bad ? "/" : "") $4 }
+                    END { if (pending) print "unfinished\t" pending; else if (bad) print "failed\t" bad; else print "success\tsuccess" }')"
+                  IFS="$tab" read -r kind detail <<< "$verdict"
+                  progress="${progress:+$progress, }$name $detail"
+                  case "$kind" in
+                    unfinished) unfinished="${unfinished:+$unfinished, }$name $detail" ;;
+                    failed)     failed="${failed:+$failed, }$name $detail" ;;
+                  esac
                 done <<< "$required"
-                if [ "$status" = completed ]; then
+                # A run that reads completed while a required job's latest attempt does not is being re-run
+                # between the two reads: wait for the re-run rather than judge the attempt before it.
+                if [ "$status" = completed ] && [ -z "$unfinished" ]; then
                   if [ "$conclusion" = success ] && [ -z "$failed$absent" ]; then
                     echo "ok: Build run $run_id ($event, attempt $attempt) on $COMMIT concluded success, and so did each of $names; waited ${waited}s"
                     exit 0
