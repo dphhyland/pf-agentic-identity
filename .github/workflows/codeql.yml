@@ -1,13 +1,30 @@
 # CodeQL over what this repository is written in: the Java reactor, built as CodeQL watches; the workflows
-# themselves; the Python tools; the Node tools and the showcase page. Every pull request, every push to main and
-# weekly, so a query GitHub adds later runs over unchanged code too. This is advanced setup: the repository's
-# default setup is "not-configured" (gh api repos/dphhyland/pf-agentic-identity/code-scanning/default-setup,
-# 2026-09-27) and stays off - the two would analyse the same code twice and disagree about the build.
+# themselves; the Python tools; the Node tools and the showcase page; and the iOS client's Swift package. Every
+# pull request, every push to main and weekly, so a query GitHub adds later runs over unchanged code too. This
+# is advanced setup: the repository's default setup is "not-configured" (gh api
+# repos/dphhyland/pf-agentic-identity/code-scanning/default-setup, 2026-09-27) and stays off - the two would
+# analyse the same code twice and disagree about the build.
 #
 # Java is built by hand rather than by autobuild: the PF-provided jars come from the image through the same
 # composite action Build uses, and `package` with tests skipped is enough for the extractor to see every
 # compilation. The jacoco gates are bound to verify, so a package build with tests skipped trips nothing
 # (checked 2026-09-27: `mvn -B -DskipTests package` builds the 0.4.0-SNAPSHOT reactor green).
+#
+# Swift is built by hand too, on macOS: GitHub's CodeQL build notes say "CodeQL supports build modes autobuild
+# or manual for Swift code", that code scanning of Swift "uses macOS runners by default", that "xcodebuild and
+# swift build are both supported", and they recommend "only targeting one architecture during the build. For
+# example, ARCH=arm64 for xcodebuild, or --arch arm64 for swift build" (read 2026-09-27). The build is the
+# package clients/ios/AgentIdentityKit, the library an app links; the sample app beside it is built by the iOS
+# workflow and not analysed here. CodeQL reads "Swift 5.4-6.3" (its supported-languages page, read 2026-09-27),
+# and macos-latest gave Swift 6.3.3 on 2026-09-27 (iOS run 36307528301).
+#
+# Swift runs on every event, like the others, and not only when clients/ios changes. A pull request whose
+# analyses lack a category that main's have is told "Code scanning cannot determine the alerts introduced by
+# this pull request, because 1 configuration present on refs/heads/main was not found" - the title of
+# github/codeql discussion 18506, which reports it for /language:swift; GitHub's own documents do not describe
+# the case (read 2026-09-27; U-0130). A path filter would put that on every pull request that leaves the client
+# alone. The job costs nothing here: macos-latest is a standard GitHub-hosted runner and this repository is
+# public (ios.yml quotes the billing page).
 name: CodeQL
 
 on:
@@ -27,7 +44,7 @@ concurrency:
 jobs:
   analyze:
     name: CodeQL (${{ matrix.language }})
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
       security-events: write   # upload the results to code scanning; nothing else is written
@@ -38,12 +55,19 @@ jobs:
         include:
           - language: actions
             build-mode: none
+            runner: ubuntu-latest
           - language: java-kotlin
             build-mode: manual
+            runner: ubuntu-latest
           - language: javascript-typescript
             build-mode: none
+            runner: ubuntu-latest
           - language: python
             build-mode: none
+            runner: ubuntu-latest
+          - language: swift
+            build-mode: manual
+            runner: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -65,6 +89,9 @@ jobs:
       - name: build the reactor for the extractor (tests skipped; the gates are bound to verify, and Build runs them)
         if: matrix.language == 'java-kotlin'
         run: mvn -B -DskipTests package
+      - name: build the Swift package for the extractor (one architecture; the iOS workflow runs its tests)
+        if: matrix.language == 'swift'
+        run: swift build --package-path clients/ios/AgentIdentityKit --arch arm64
       - uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
         with:
           category: "/language:${{ matrix.language }}"
