@@ -156,6 +156,7 @@
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.versionOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.enrich(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.flowOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.describe(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.resolve(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.fromPingFederate(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.requiresAuthenticatedPrincipal(*</include>

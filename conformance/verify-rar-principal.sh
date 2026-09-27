@@ -149,8 +149,14 @@ stored_fields() {
   docker exec "$PF_RIG_NAME" cat "$file" | python3 -c 'import re, sys
 xml = sys.stdin.read(); secret = sys.argv[1]
 names = re.findall(r"<urn:Field name=\"([^\"]+)\"", xml)
-value = (re.findall(r"<urn:Field name=\"Shared Secret\">([^<]*)<", xml) or [None])[0]
-form = "absent" if value is None else "the plaintext secret" if value == secret else "obfuscated (" + value[:8] + "...)" if value.startswith("OBF:") else "something else"
+field = re.search(r"<urn:Field name=\"Shared Secret\"([^>]*)>([^<]*)<", xml)
+if field is None:
+    form = "absent"
+else:
+    attrs, value = field.group(1).strip(), field.group(2)
+    form = ("the plaintext secret" if value == secret else "empty" if not value
+            else "%d characters starting %s" % (len(value), value[:8]))
+    form += " (attributes: %s)" % attrs if attrs else ""
 print("%d fields%s, Shared Secret %s" % (len(names), " including Deny unless PERMIT" if "Deny unless PERMIT" in names else "", form))' "$SECRET"
 }
 deobfuscation_errors() { docker exec "$PF_RIG_NAME" grep -c 'problem deobfuscating the value for the field: Shared Secret' /opt/out/instance/log/server.log 2>/dev/null || true; }
@@ -263,7 +269,7 @@ if [[ -n "${OLD_PLUGIN_JAR:-}" ]]; then
   configure
   before="$(pdp_lines)"
   token -d grant_type=client_credentials --data-urlencode "authorization_details=$DETAIL_SALES" >/dev/null
-  echo "   before: the old plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"]') (HTTP $TOKEN_STATUS at the token endpoint)"
+  echo "   before: the old plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"]' | sed "s/$SECRET/<the plaintext secret>/") (HTTP $TOKEN_STATUS at the token endpoint)"
   curl -sk -o "$OUT/archive-old.zip" -u "administrator:$PW" -H 'X-XSRF-Header: PingFederate' "$ADMIN/configArchive/export"
   echo "   exported the archive; the field is stored as: $(unzip -p "$OUT/archive-old.zip" 'authorization-detail-processors/*' | grep -o '<urn:Field name="Shared Secret">[^<]*' | sed 's/.*>//' | sed "s/$SECRET/<the plaintext secret>/")"
   ( cd "$HERE" && docker compose up -d ) > "$OUT/compose-restart.log" 2>&1   # RAR_PLUGIN_JAR now names the jar under test
@@ -273,9 +279,10 @@ if [[ -n "${OLD_PLUGIN_JAR:-}" ]]; then
   sleep 5
   echo "   the instance reads back with: $(pf GET "/oauth/authorizationDetailProcessors/$INSTANCE_ID" | jq -c '[.configuration.fields[] | select(.name | test("Secret|Deny"))]' | sed "s/$SECRET/<the plaintext secret>/")"
   echo "   on disk after the import: $(stored_fields)"
+  echo "   PingFederate's log since the restart: $(deobfuscation_errors) \"problem deobfuscating the value for the field: Shared Secret\" line(s)"
   before="$(pdp_lines)"; errors="$(deobfuscation_errors)"
   token -d grant_type=client_credentials --data-urlencode "authorization_details=$DETAIL_SALES" >/dev/null
-  echo "   after: the new plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"] // "nothing (no PDP call)"' | sed "s/$SECRET/<the plaintext secret>/") (HTTP $TOKEN_STATUS at the token endpoint); PingFederate's log gained $(( $(deobfuscation_errors) - errors )) \"problem deobfuscating the value for the field: Shared Secret\" line(s) since the import, $(deobfuscation_errors) in all"
+  echo "   after: the new plugin sent secret header $(pdp_since "$before" | jq -c '.headers["X-Probe-Secret"] // "nothing (no PDP call)"' | sed "s/$SECRET/<the plaintext secret>/") (HTTP $TOKEN_STATUS at the token endpoint); new deobfuscation lines: $(( $(deobfuscation_errors) - errors ))"
   # The upgrade note's remedy: save the instance again, here through the admin API with what it read back.
   pf PUT "/oauth/authorizationDetailProcessors/$INSTANCE_ID" "$(pf GET "/oauth/authorizationDetailProcessors/$INSTANCE_ID")" >/dev/null
   need 200 "saving the imported instance again"

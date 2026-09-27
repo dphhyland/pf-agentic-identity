@@ -126,7 +126,8 @@ class AttestationAwareRarProcessorTest {
 
             AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
                     () -> processor.enrich(paymentDetail(), context(), Map.of()), refused.toString());
-            assertSame(refused, e.getCause(), refused.toString());
+            assertTrue(e.getMessage().contains(refused.getMessage()), e.getMessage());
+            assertNull(e.getCause(), "carried as text, so PingFederate's log of it holds nothing unredacted");
         }
     }
 
@@ -137,8 +138,9 @@ class AttestationAwareRarProcessorTest {
      */
     @Test
     void theRefusalLineCarriesThePrincipalHashed() throws Exception {
+        IOException cause = new IOException("{\"error\":\"no such subject alice\"}");
         when(client.decide(anyString(), any(), any(), any(), any(), any()))
-                .thenThrow(new IOException("AuthZEN PDP returned HTTP 400: {\"error\":\"no such subject alice\"}"));
+                .thenThrow(new IOException("AuthZEN PDP returned HTTP 400", cause));
         List<LogRecord> records = new ArrayList<>();
         Handler capture = new Handler() {
             @Override public void publish(LogRecord record) { records.add(record); }
@@ -146,20 +148,33 @@ class AttestationAwareRarProcessorTest {
             @Override public void close() { }
         };
         LOG.addHandler(capture);
+        AuthorizationDetailProcessingException thrown;
         try {
-            assertThrows(AuthorizationDetailProcessingException.class,
+            thrown = assertThrows(AuthorizationDetailProcessingException.class,
                     () -> new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), context(), Map.of()));
         } finally {
             LOG.removeHandler(capture);
         }
+        String hashed = "no such subject " + PrincipalResolver.hashForLog("alice");
         LogRecord warning = records.stream().filter(r -> r.getLevel() == Level.WARNING).findFirst().orElseThrow();
-        assertTrue(warning.getMessage().contains("no such subject " + PrincipalResolver.hashForLog("alice")), warning.getMessage());
+        assertTrue(warning.getMessage().contains("HTTP 400 <- java.io.IOException: {\"error\":\"" + hashed), warning.getMessage());
         assertNull(warning.getThrown());
+        assertTrue(thrown.getMessage().contains(hashed), thrown.getMessage());
+        assertFalse(thrown.getMessage().contains("alice"), thrown.getMessage());
+        assertNull(thrown.getCause());
         for (LogRecord record : records) {
-            if (record.getLevel().intValue() >= Level.INFO.intValue()) {
-                assertFalse(record.getMessage().contains("alice"), record.getMessage());
-            }
+            assertFalse(record.getMessage().contains("alice"), record.getMessage());
         }
+    }
+
+
+    /** Causes are followed three deep, which also ends a cycle of causes. */
+    @Test
+    void aFailureIsDescribedWithItsFirstCauses() {
+        Exception deep = new Exception("a", new Exception("b", new Exception("c", new Exception("d", new Exception("e")))));
+        assertEquals("java.lang.Exception: a <- java.lang.Exception: b <- java.lang.Exception: c <- java.lang.Exception: d",
+                AttestationAwareRarProcessor.describe(deep));
+        assertEquals("java.io.IOException: alone", AttestationAwareRarProcessor.describe(new IOException("alone")));
     }
 
     // ---- the decision ---------------------------------------------------------------------------------

@@ -372,14 +372,14 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         } catch (Exception e) {
             // A PDP that answered and could not be believed, a body that did not parse, a TLS failure, a detail
             // field that collided with a server attribute: none of these is "unreachable", and none is a permit.
-            // The WARNING line quotes the failure with the principal hashed, because a PDP's error body can name
-            // whom it was asked about; the exception with its stack goes to FINE.
+            // A PDP's error body can name whom it was asked about, and PingFederate 13.1.3 logs a processor's
+            // exception with every cause at ERROR (seen on the rig, 2026-09-27). So the failure travels as text
+            // with the principal hashed, in this line and in the exception, and the original is not chained.
+            String failure = PrincipalResolver.redact(describe(e), principal.subject(), userKey);
             log.warning("PDP call failed for type '" + type + "'; refusing (principal="
-                    + PrincipalResolver.hashForLog(principal.subject()) + "): "
-                    + PrincipalResolver.redact(String.valueOf(e), principal.subject(), userKey));
-            log.log(Level.FINE, "PDP call failure for type '" + type + "'", e);
+                    + PrincipalResolver.hashForLog(principal.subject()) + "): " + failure);
             throw new AuthorizationDetailProcessingException(
-                    "governance engine call failed for type '" + type + "'", e);
+                    "governance engine call failed for type '" + type + "': " + failure);
         }
     }
 
@@ -440,6 +440,19 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
             return PrincipalResolver.Flow.UNKNOWN;
         }
         return new PrincipalResolver.Flow(grantType == null || grantType.isBlank() ? null : grantType.trim(), path);
+    }
+
+    /**
+     * A failure and up to three of its causes, as {@code toString()}s: what a stack trace would have said first.
+     * Bounded, because a cycle of causes longer than one is constructible.
+     */
+    static String describe(Throwable failure) {
+        StringBuilder text = new StringBuilder(String.valueOf(failure));
+        Throwable cause = failure.getCause();
+        for (int depth = 0; cause != null && depth < 3; cause = cause.getCause(), depth++) {
+            text.append(" <- ").append(cause);
+        }
+        return text.toString();
     }
 
     private static String describe(PrincipalResolver.Flow flow) {
