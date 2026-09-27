@@ -3,9 +3,9 @@
 > **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Absorbed with history from [`dphhyland/oidf-jose`](https://github.com/dphhyland/oidf-jose) on 2026-07-21; that repo is backports-only and its copy still uses the pre-split `.common` package. See [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
 The shared **JOSE/JWT + SD-JWT foundation** the rest of the reactor signs and verifies through.
-Package `com.pingidentity.ps.oidf.jose`. Depends on `jose4j`, `jackson-databind` and `commons-logging`
-only — no PingFederate, servlet, federation or attestation types — which is what lets it sit at the
-bottom of the dependency graph and on every classpath (PF's shared classpath, `oidf.war`, the
+Package `com.pingidentity.ps.oidf.jose`. Depends on `platform` (JDK only), `jose4j`, `jackson-databind` and
+`commons-logging` only — no PingFederate, servlet, federation or attestation types — which is what lets it sit
+near the bottom of the dependency graph and on every classpath (PF's shared classpath, `oidf.war`, the
 standalone services).
 
 ## What's here

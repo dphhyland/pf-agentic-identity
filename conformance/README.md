@@ -35,7 +35,7 @@ listener on 9080 and the admin console on 9999 (`administrator`, password in `.a
 | 2 | `author.sh` | a **stock** PF 13.1.3 container with its admin API on `localhost:29999`, the cipher-list overlay and the CIBA plugin staged |
 | 3 | `apply.sh apply` | `terraform/` applied to it: OAuth server settings, a JWT access token manager and mappings, an OIDC policy, a login form and test user, the clients (below) |
 | 4 | `export.sh` | `data.zip` - PF's config archive, its whole saved state; refused if it would fail the suite |
-| 5 | `mvn package` + `stage-modules.sh --profile conformance` | the ten module jars from this repo - the conformance profile, the CIBA simulator among them - and their v2 `MANIFEST` |
+| 5 | `mvn package` + `stage-modules.sh --profile conformance` | the conformance profile's module jars from this repo, the CIBA simulator among them, and their v2 `MANIFEST`, which names each one |
 | 6 | `compose-context.sh` | `.context/` - `build/pingfederate/`'s image build plus that archive |
 | 7 | `docker compose up --build` | the image, built with `STAGING_PROFILE=conformance`, running with `vars.env` and your licence details |
 
