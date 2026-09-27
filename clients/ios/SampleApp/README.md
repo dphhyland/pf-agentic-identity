@@ -31,7 +31,8 @@ is false, and enrolment stops there with "App Attest is not supported on this de
      device starts `UNKNOWN`, and nothing sends a compliance signal until X-A15 and X-A17 (F-0004);
    - `REGISTRY=memory`, or `IDM_DATABASE_URL`, and `ENROLMENT_SIGNING_JWK`.
 4. **A PingOne application**: a public native client with PKCE `S256`, the form's redirect URI registered on it
-   (a custom scheme; `ASWebAuthenticationSession` takes the callback itself, so the app declares nothing), and a
+   (a custom scheme: `ASWebAuthenticationSession`'s browser hands the redirect to the session, and Apple's page on
+   it names no scheme for the app to declare, so the sample declares none; not yet tried on a phone), and a
    sign-on policy that ends in a passkey. The user signing in must already have a passkey: the environment the
    service README names blocks a user with none.
 5. **Later, an Entra app registration.** Nothing sends the Entra device token yet: the kit's

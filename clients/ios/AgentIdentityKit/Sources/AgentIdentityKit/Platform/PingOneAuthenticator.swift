@@ -18,8 +18,10 @@ public final class PingOneAuthenticator: NSObject, Authenticator, ASWebAuthentic
         public var issuer: URL
         /// The application's id: the service's `PINGONE_CLIENT_ID`. A public native app with PKCE.
         public var clientID: String
-        /// A custom-scheme URI the application registers at PingOne. `ASWebAuthenticationSession` takes the
-        /// callback for that scheme itself, so the app does not have to declare it.
+        /// A custom-scheme URI registered on the application at PingOne. "The browser detects the redirect,
+        /// dismisses itself, and passes the complete URL to your app by calling the closure you specified during
+        /// initialization" (Apple, "Authenticating a user through a web service", read 2026-09-27); that page names
+        /// no scheme for the app to declare, and the sample app declares none.
         public var redirectURI: URL
         /// The sign-on policy the service's `PINGONE_ACR_AAL2` lists, or nil for PingOne's default policy.
         public var acrValues: String?
