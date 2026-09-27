@@ -11,8 +11,8 @@
 
     <name>client-attestation</name>
     <description>AS-side OAuth Attestation-Based Client Authentication (draft-ietf-oauth-attestation-based-client-auth):
-        verifier, models, DPoP proof validation, challenge/replay, RAR containment, SD-JWT attestation. Depends only on
-        the oidf-jose SDK + the servlet API — no PingFederate.</description>
+        verifier, models, DPoP proof validation, challenge/replay, and the token endpoint's RAR ceiling check over
+        libs/rar-model. Depends only on the oidf-jose SDK, rar-model and the servlet API - no PingFederate.</description>
     <url>https://github.com/dphhyland/client-attestation</url>
 
     <licenses>
@@ -38,6 +38,12 @@
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <!-- The containment model the token gate asks (plan item S1b). JDK only, so it adds no library to
+             PingFederate's classpath; build/pingfederate/stage-modules.sh stages its jar beside this one,
+             in pf-runtime.war and in server/default/deploy, the two classloaders that load this module. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
+        <!-- The shared vector file and its reader: the authorization server's runner (AsVectorRunnerTest). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
@@ -95,7 +101,19 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceLifetimeCeiling(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceNoReplay(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestation.workload(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.RarEntitlement.within(*</include>
+                                        <!-- S1b: the token gate - the request's authorization_details against the
+                                             attestation's, strictly (CAS §7.1); the two markers taken off before the
+                                             model is asked; the ceiling read from the verified payload by the model's
+                                             own reader; the error each refusal answers; and the model set this
+                                             classloader loads once. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.withoutMarkers(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.ceilingOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.whyNotWithin(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.require(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.load(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.issue(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter.allow(*</include>
                                         <!-- S3a/S3b: the store verdicts are tri-state, and an outage must reach the caller as
@@ -114,6 +132,17 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslParametersFor(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.isIpLiteral(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.DeploymentProfile.isProduction(*</include>
+                                        <!-- S4a: what binds a presentation to this server. The PoP's audience is the issuer
+                                             alone; a combined-mode DPoP proof's htu is the configured endpoint, compared
+                                             after RFC 3986 normalisation, and with none configured the proof is refused. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyPopMode(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.requireSoleAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyDpopMode(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(*</include>
                                         <!-- S3a: which CA a rediss:// connection trusts, the transport rule, the redaction
                                              that keeps a Redis password out of log messages, which store each surface
                                              gets and the remembered refusal of plaintext, the holder a conflict names,

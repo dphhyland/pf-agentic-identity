@@ -1,0 +1,44 @@
+id: F-0111
+title: A DPoP proof's htu was compared with a URL rebuilt from the Host header
+severity: medium
+area: client-attestation, pf-integration
+source: design
+status: closed
+plan_items: [S4a]
+prs: [34]
+verification: >
+  2026-09-27, commits c200e13 and 7cb2330 on prod/p1-pop-aud-htu. The filter and the OGNL criterion no longer
+  read getRequestURL(): the htu is ClientAttestationUtils.endpointUrl - the issuer, or at the token endpoint
+  PingFederate's token endpoint base URL when one is set, followed by the path the container routed on - which is
+  what 13.1.3's ProviderConfigurationInfoHandler advertises as token_endpoint and
+  pushed_authorization_request_endpoint (javap, 2026-09-27). ClientAttestationVerifier refuses combined mode when
+  no htu is configured. DpopProofValidator compares after RFC 3986 syntax- and scheme-based normalisation (RFC
+  9449 section 4.3), refuses an htu that is not an absolute http or https URI, and counts the user information.
+  ClientAttestationAuthFilterEndpointTest refuses a proof for another server sent with a Host header and
+  X-Forwarded-Host naming it, accepts one for the configured URL behind a proxy that rewrote Host, holds PAR to
+  its own URL and moves only the token endpoint to a base URL; HtuComparisonTest pins each normalisation.
+  verifyDpopMode, requireHtu, normalizeHtu, normalizePercentEncoding, removeDotSegments, endpointUrl and
+  endpointPath are in their modules' 100% METHOD gates.
+  On a booted PingFederate 13.1.3 (the conformance rig image, modules from commit 10168b4 staged, 2026-09-27),
+  a probe presented attestations for conformance-ssf-receiver through a mock attester, with an ES256 bridge key
+  (F-0112 stops an RSA PS256 one): a combined-mode proof naming the advertised token_endpoint was issued a DPoP-bound token, and one
+  naming another server was 401 "DPoP 'htu' mismatch ... expected 'https://localhost:47031/as/token.oauth2'"; at
+  PAR the filter expected .../as/par.oauth2 and refused the token endpoint's URL; with Host and X-Forwarded-Host
+  naming another server, a proof for that server was refused and one for the advertised URL issued a token - so
+  the servlet path, the issuer and the token endpoint base URL read (no warning logged) all behave on a booted server
+  as the unit tests assume.
+  2026-09-27, after the review: commit 980df9c counts PingFederate's runtime context path once, in the issuer (the
+  first cut added it again; EndpointUrlTest and ClientAttestationAuthFilterEndpointTest now drive a /sso context),
+  and commit bcd5363 gives the OGNL criterion the filter's seams, so CriterionEndpointTest drives it alone with a
+  Host header naming another server; reverting its htu to getRequestURL() fails three of its five tests. What the
+  rig did not exercise is registered as U-0120 to U-0124.
+target_release: 0.4.0
+notes: >
+  In DPoP combined mode the filter and the OGNL criterion expected the proof's htu to be the request URL, which
+  the container rebuilds from the Host header (and X-Forwarded-* where a proxy customiser honours them). A server
+  a client presented a combined-mode proof to could replay it here with a Host header naming itself, and every
+  PingFederate's token endpoint shares the path. Medium rather than high: in combined mode the proof key is the
+  attestation's cnf key, so a replayed request is issued a token bound to the client's key, which the replaying
+  server cannot use, and a replay at PAR yields a request_uri whose code goes to the client's own redirect URI.
+  Two weaker defects went with it: the library skipped the htu check altogether when handed no URL, and the old
+  normalisation dropped the user information and compared the decoded path.

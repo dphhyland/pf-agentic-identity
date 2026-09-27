@@ -69,8 +69,7 @@ class ProfileConformanceTest {
                 .dpopAlgorithms(PROFILE_ALGORITHMS)
                 .maxAttestationLifetimeSeconds(EIGHTEEN_HOURS)
                 .requiredDisclosedClaims(Set.of("agent_id"))
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
     }
@@ -169,7 +168,7 @@ class ProfileConformanceTest {
                 .popAlgorithms(PROFILE_ALGORITHMS)
                 .maxAttestationLifetimeSeconds(EIGHTEEN_HOURS)
                 .requiredDisclosedClaims(Set.of("agent_id"))
-                .addAcceptedAudience(OP_ISSUER)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
         ClientAttestationVerifier permissiveVerifier = new ClientAttestationVerifier(resolver, permissive,
@@ -227,7 +226,7 @@ class ProfileConformanceTest {
     @Test
     void theCeilingIsOffUnlessTheDeploymentSetsIt() throws Exception {
         ClientAttestationConfig defaults = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
         assertEquals(ClientAttestationConfig.NO_MAX_ATTESTATION_LIFETIME, defaults.maxAttestationLifetimeSeconds());

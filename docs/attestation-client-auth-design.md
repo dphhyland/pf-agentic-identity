@@ -173,7 +173,8 @@ applies, because the minted assertion carries `iss = sub = client_id` and PF aut
   Client Attestation JWT's claims as `sub`, `exp`, `cnf` and optionally `iat` — no `aud` — and says "The
   JWT MAY contain other claims. All claims that are not understood by implementations MUST be ignored."
   The audience lives on the PoP (§5.1: `aud` REQUIRED, the AS's issuer identifier), which the verifier
-  enforces against its accepted audiences; in DPoP mode `htu` binds the proof to this token endpoint.
+  holds to the issuer alone since 0.4.0; in DPoP mode `htu` binds the proof to the endpoint URL
+  PingFederate advertises, from configuration rather than the `Host` header.
   An attestation is meant to be presentable to any AS; what binds a presentation to *this* AS is the
   proof. `ClientAttestationVerifierTest` pins both halves so the absence is not "fixed" into a check
   the draft does not define.

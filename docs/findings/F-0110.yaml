@@ -1,0 +1,39 @@
+id: F-0110
+title: A client attestation PoP addressed to the token endpoint, or to this server and another, was accepted
+severity: high
+area: client-attestation, pf-integration
+source: design
+status: closed
+plan_items: [S4a]
+prs: [34]
+verification: >
+  2026-09-27, commits c200e13 and 7cb2330 on prod/p1-pop-aud-htu. ClientAttestationConfig holds one expected
+  audience; ClientAttestationUtils.defaultConfig (the filter) and buildConfig (the OGNL criterion) set it to the
+  issuer OAuthIssuerUtils.getIssuerValue returns, and nothing else. ClientAttestationVerifier.verifyPopMode
+  refuses any aud but that issuer, as a string or as the one member of an array, with one error_description
+  ("Client Attestation PoP 'aud' must be this server's issuer identifier and nothing else").
+  ReceivingServerBindingTest refuses the token endpoint, another server's issuer or token endpoint, an array with
+  a second member in either order, the issuer twice, no aud, an empty array, a trailing slash and a change of
+  case; ClientAttestationAuthFilterEndpointTest refuses a PoP for another server with a Host header naming it,
+  and accepts one for the issuer whatever the Host header says. verifyPopMode and requireSoleAudience are in the
+  module's 100% METHOD gate. javap on PingFederate 13.1.3's pf-protocolengine (2026-09-27):
+  OAuthIssuerUtils.getIssuerValue returns the configured base URL, or a configured virtual host name or issuer
+  host, never a Host header PingFederate does not know.
+  On a booted PingFederate 13.1.3 (the conformance rig image, modules from commit 10168b4 staged, 2026-09-27),
+  a probe presented attestations for conformance-ssf-receiver through a mock attester, with an ES256 bridge key
+  (F-0112 stops an RSA PS256 one): a PoP addressed to the issuer, as a string and as an array of one, was issued a token; the token
+  endpoint and [issuer, another] were 401 with the description above; over the plain listener with Host and
+  X-Forwarded-Host naming another server, a PoP for the issuer was still issued a token and one for that server's
+  token endpoint refused.
+target_release: 0.4.0
+notes: >
+  Until 0.4.0 the token-endpoint filter and the OGNL criterion accepted a PoP whose aud was the issuer or the
+  request URL, and jose4j's audience check passes an array that merely contains an accepted value. The request
+  URL is what the container rebuilds from the Host header, so it is the caller's to choose. A client that
+  addressed its PoP to a token endpoint - the fallback the attester configuration document's comment describes
+  when it names no pop_audience - handed every server it authenticated at a PoP that authenticated it here too:
+  that server replays the attestation and the PoP within the PoP's 300 s window with a Host header naming
+  itself (every PingFederate's token endpoint is /as/token.oauth2), adds a DPoP proof of its own if it wants a
+  token bound to its own key, and is issued tokens as the client. The attestation carries no audience by design
+  (ABCA-10 section 4), so the PoP is the only thing binding a presentation to one server. ABCA-10 section 5.1
+  requires the issuer identifier, and a single audience; section 7.2 item 7 says the AS MUST check it.

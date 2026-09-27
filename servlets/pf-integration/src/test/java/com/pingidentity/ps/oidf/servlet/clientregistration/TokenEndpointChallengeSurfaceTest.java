@@ -173,21 +173,24 @@ class TokenEndpointChallengeSurfaceTest {
         AttributeValue clientValue = mock(AttributeValue.class);
         when(clientValue.getValue()).thenReturn(CLIENT_ID);
         in.put("context.ClientId", clientValue);
-        try {
-            setIssuerLookup(r -> OP_ISSUER);
-            return ClientAttestationUtils.validateClientAttestation(in);
-        } finally {
-            setIssuerLookup(null);
-        }
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        java.util.function.Function<HttpServletRequest, String> issuerOf = r -> OP_ISSUER;
+        return criterionWithIssuer(in, runtime.ignoreSslErrors(), runtime.trustControllerHost(),
+                runtime.trustControllerBaseUrl(), issuerOf);
     }
 
-    /** {@code ClientAttestationUtils}' issuer seam; PingFederate's {@code OAuthIssuerUtils} cannot initialise outside a booted server. */
-    private static void setIssuerLookup(java.util.function.Function<HttpServletRequest, String> lookup) {
+    /**
+     * {@code ClientAttestationUtils}' issuer seam, the package-private overload the public criterion delegates to;
+     * PingFederate's {@code OAuthIssuerUtils} cannot initialise outside a booted server. By reflection, as this
+     * test sits in the filter's package.
+     */
+    private static boolean criterionWithIssuer(Map<String, Object> in, Boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerOf) {
         try {
-            java.lang.reflect.Method set = ClientAttestationUtils.class.getDeclaredMethod("setIssuerLookupForTest",
-                    java.util.function.Function.class);
-            set.setAccessible(true);
-            set.invoke(null, lookup);
+            java.lang.reflect.Method criterion = ClientAttestationUtils.class.getDeclaredMethod("validateClientAttestation",
+                    Object.class, Boolean.class, String.class, String.class, java.util.function.Function.class);
+            criterion.setAccessible(true);
+            return (Boolean) criterion.invoke(null, in, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, issuerOf);
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }

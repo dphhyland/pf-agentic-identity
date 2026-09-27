@@ -61,10 +61,16 @@ class PrincipalPerFlowTest {
         return new AuthorizationDetailContext.Builder().withRequest(request).withClientId(CLIENT).withUserKey(userKey).build();
     }
 
+    /** A detail of the type that the built-in RAR model accepts: an amount with its currency, or a region. */
     private static AuthorizationDetail detail(String type) {
         Map<String, Object> detail = new HashMap<>();
         detail.put("type", type);
-        detail.put("amount", "42.00");
+        if ("sales_agent".equals(type)) {
+            detail.put("sales_regions", List.of("EMEA"));
+        } else {
+            detail.put("amount", "42.00");
+            detail.put("currency", "AUD");
+        }
         return new AuthorizationDetail(detail);
     }
 
@@ -128,7 +134,8 @@ class PrincipalPerFlowTest {
     void tokenExchangeIsTheSubjectTheFilterVerifiedAndNothingTheCallerSent() throws Exception {
         HttpServletRequest exchange = request(TOKEN_PATH, PrincipalResolver.GRANT_TOKEN_EXCHANGE);
         when(exchange.getAttribute(AttestationSubject.REQUEST_ATTRIBUTE)).thenReturn(
-                Map.of("client_id", CLIENT, AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY, "bob"));
+                Map.of("client_id", CLIENT, AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY, "bob",
+                        AttestationSubject.RAR_MODELS_FINGERPRINT_KEY, com.pingidentity.ps.oidf.rar.model.RarModels.builtIn().fingerprint()));
         when(exchange.getParameter("login_hint")).thenReturn("mallory");
         processor().enrich(detail("payment_initiation"), context(exchange, null), Map.of());
         assertEquals(List.of("bob", "subject_token"), List.of(asked()));
