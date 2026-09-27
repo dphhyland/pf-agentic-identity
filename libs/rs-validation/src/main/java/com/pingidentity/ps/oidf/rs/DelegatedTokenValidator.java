@@ -191,12 +191,9 @@ public final class DelegatedTokenValidator {
             nextNonce = this.checkNonce(proof);
         } else if (cnf.jkt() != null) {
             // RFC 9449 §7.2: "such a protected resource MUST reject a DPoP-bound access token received as a bearer
-            // token per [RFC6750]."
+            // token per [RFC6750]." Otherwise the token is certificate-bound: confirmation() refuses a cnf with
+            // neither member, so a Bearer token without jkt has x5t#S256, checked next.
             throw new RsException(INVALID_TOKEN, 401, "a DPoP-bound access token was sent as a bearer token");
-        } else if (cnf.x5tS256() == null) {
-            throw new RsException(INVALID_TOKEN, 401,
-                    "the access token is not certificate-bound (its cnf carries no x5t#S256), so it cannot be sent"
-                            + " as a bearer token");
         }
         if (cnf.x5tS256() != null) {
             checkCertificate(cnf.x5tS256(), p.clientCertificate());
@@ -286,8 +283,8 @@ public final class DelegatedTokenValidator {
             if (!this.expectedIssuer.equals(claims.getIssuer())) {
                 throw new RsException(INVALID_TOKEN, 401, "access token issuer is not the expected AS");
             }
-            List<String> audiences = claims.getAudience();
-            if (audiences == null || !audiences.contains(this.expectedAudience)) {
+            // jose4j reads an absent aud as an empty list; were it ever null, the catch below refuses the token.
+            if (!claims.getAudience().contains(this.expectedAudience)) {
                 throw new RsException(INVALID_TOKEN, 401, "access token audience is not this resource");
             }
             long now = NumericDate.now().getValue();
@@ -367,13 +364,7 @@ public final class DelegatedTokenValidator {
             throw new RsException(INVALID_DPOP_PROOF, 401, "DPoP proof rejected: " + e.getMessage());
         }
         // The check that makes sender-constraining mean anything.
-        String presented;
-        try {
-            presented = Jwks.thumbprint(proof.jwk());
-        } catch (Exception e) {
-            throw new RsException(INVALID_DPOP_PROOF, 401, "DPoP proof key is not a well-formed JWK");
-        }
-        if (!jkt.equals(presented)) {
+        if (!jkt.equals(thumbprint(proof))) {
             throw new RsException(INVALID_TOKEN, 401,
                     "the access token is bound to a different key than the DPoP proof presents");
         }
@@ -386,6 +377,15 @@ public final class DelegatedTokenValidator {
             throw new RsException(INVALID_DPOP_PROOF, 401, "DPoP proof 'ath' is for a different access token");
         }
         return proof;
+    }
+
+    /** The RFC 7638 thumbprint of the proof's key, which DpopProofValidator has already parsed as a public JWK. */
+    private static String thumbprint(DpopProof proof) throws RsException {
+        try {
+            return Jwks.thumbprint(proof.jwk());
+        } catch (Exception e) {
+            throw new RsException(INVALID_DPOP_PROOF, 401, "DPoP proof key is not a well-formed JWK");
+        }
     }
 
     /** The nonce the response should carry for the client's next proof, or null. */

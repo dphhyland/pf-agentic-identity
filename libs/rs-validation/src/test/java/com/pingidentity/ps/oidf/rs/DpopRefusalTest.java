@@ -204,6 +204,8 @@ class DpopRefusalTest {
         String other = this.f.proof(this.f.token(), "GET", Fixture.URL, c -> { });
         assertEquals("invalid_dpop_proof", this.refused(this.validator, Fixture.dpop(token, List.of(none))).error());
         assertEquals("invalid_dpop_proof", this.refused(this.validator, Fixture.dpop(token, List.of(other))).error());
+        String blank = this.f.proof(token, "GET", Fixture.URL, c -> c.setClaim("ath", " "));
+        assertTrue(this.refused(this.validator, Fixture.dpop(token, List.of(blank))).getMessage().contains("no 'ath'"));
     }
 
     /**

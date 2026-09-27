@@ -62,22 +62,20 @@
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
 
             <!--
-              Coverage gate on the act-chain decisions: who the token says is acting, and what a
-              caller is allowed to authorise on. 100% line + branch, enforced - a missed branch here
-              is an actor read out of the wrong position in the chain, which is a party being granted
-              authority it already handed on, not a cosmetic gap.
+              Coverage gate on the decisions a resource server makes: whether the token is the
+              authorisation server's, whether the sender proved the binding, whether the proof is fresh
+              and unused, who is acting, and what the challenge says. 100% line + branch, enforced - a
+              missed branch here is a token accepted that should not be, not a cosmetic gap.
 
-              Gated per METHOD, not per class, so the parts that still have honest holes stay
-              honestly out of scope rather than being papered over by a class-level average. Left out
-              deliberately, each with a measured gap: DelegatedTokenValidator.verifyAccessToken /
-              confirmationThumbprint / selectKey / scopes and ActChain.flatten - their uncovered
-              branches are the malformed-token and depth-cap paths no test drives yet. Adding them
-              here is the next piece of work, not a reason to loosen the limits.
+              Gated per METHOD, not per class, so a method outside the list is visibly outside it rather
+              than averaged in. Left out: getters, the builder's plain setters, the constructors, and
+              RedisReplayStore.firstUse (one line; RedisReplayStoreLiveTest runs it against a real Redis,
+              which a local build without OIDF_TEST_REDIS_URL skips).
 
               Note on the include syntax: jacoco renders a nested class with a DOT, not a '$'
               (ActChain.Parsed, not ActChain$Parsed). A '$' pattern matches nothing and the rule then
-              passes vacuously, which is worse than no gate. If you add an include, prove it matches
-              before trusting a green build.
+              passes vacuously, which is worse than no gate. tools/coverage-report.py - -gate refuses an
+              include that names no method.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -103,11 +101,42 @@
                                     <element>METHOD</element>
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.rs.ActChain.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.flatten(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.currentActor(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.priorActors(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.verifyAccessToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.selectKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkAct(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.confirmation(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.member(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkProof(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkNonce(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkCertificate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkReplay(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.replayKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.replayWindow(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.accessTokenHash(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.build(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowLegacyStringAct(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.clockSkew(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.proofMaxAge(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.asymmetric(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.isDelegated(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.actingInstance(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.AccessTokenType.accepts(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DpopNonces.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.InMemoryReplayStore.firstUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.RemoteJwks.keys(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.RemoteJwks.refreshIfAllowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.StaticJwks.index(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.challenges(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.description(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.checkedBaseUrl(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

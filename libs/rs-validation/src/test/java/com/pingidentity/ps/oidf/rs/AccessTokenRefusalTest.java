@@ -90,6 +90,33 @@ class AccessTokenRefusalTest {
     }
 
     @Test
+    void anEmptyKidOrAMissingAlgIsRefused() throws Exception {
+        assertTrue(this.refused(this.f.token(this.f.claims(), j -> j.setKeyIdHeaderValue(""))).getMessage()
+                .contains("carries no kid"));
+        java.util.Base64.Encoder b64 = java.util.Base64.getUrlEncoder().withoutPadding();
+        String noAlg = b64.encodeToString("{\"typ\":\"at+jwt\",\"kid\":\"pf-1\"}".getBytes(java.nio.charset.StandardCharsets.UTF_8))
+                + "." + b64.encodeToString(this.f.claims().toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8)) + ".AAAA";
+        assertTrue(this.refused(noAlg).getMessage().contains("algorithm null is not permitted"));
+    }
+
+    /** A key of the right type on the wrong curve: jose4j refuses to verify with it, and that is a refusal too. */
+    @Test
+    void aKeyThatCannotVerifyTheAlgorithmIsRefused() throws Exception {
+        PublicJsonWebKey p384 = EcJwkGenerator.generateJwk(EllipticCurves.P384);
+        p384.setKeyId("pf-1");
+        DelegatedTokenValidator v = DelegatedTokenValidator.builder(Fixture.ISSUER, Fixture.AUDIENCE)
+                .keys(List.of(Fixture.publicOnly(p384))).replayStore(new InMemoryReplayStore()).build();
+        assertTrue(this.refused(v, this.f.token()).getMessage().contains("could not be verified"));
+    }
+
+    @Test
+    void aTokenWithoutAudienceIsRefused() throws Exception {
+        JwtClaims claims = this.f.claims();
+        claims.unsetClaim("aud");
+        assertTrue(this.refused(this.f.token(claims)).getMessage().contains("audience"));
+    }
+
+    @Test
     void aKidTwoPublishedKeysShareIsRefused() throws Exception {
         PublicJsonWebKey twin = EcJwkGenerator.generateJwk(EllipticCurves.P256);
         twin.setKeyId("pf-1");

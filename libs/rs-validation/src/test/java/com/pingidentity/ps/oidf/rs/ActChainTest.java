@@ -132,6 +132,36 @@ class ActChainTest {
         // Exact, not <=: an inequality passes under any cap, which is how the README came to
         // claim 16 while the constant said 10 with every test still green.
         assertEquals(10, parsed.depth(), "the cap is ActChain.MAX_CHAIN_DEPTH");
+        assertTrue(parsed.malformed(), "deeper than the cap is malformed, so the validator refuses it");
+    }
+
+    @Test
+    void aChainOfExactlyTheCapIsWellFormed() {
+        Map<String, Object> current = Map.of("sub", "leaf");
+        for (int i = 1; i < ActChain.MAX_CHAIN_DEPTH; i++) {
+            current = Map.of("sub", "hop-" + i, "act", current);
+        }
+        ActChain.Parsed parsed = ActChain.parse(Map.of("act", current));
+        assertEquals(ActChain.MAX_CHAIN_DEPTH, parsed.depth());
+        assertFalse(parsed.malformed());
+    }
+
+    /**
+     * RFC 8693 §4.1: "members in the JSON object are claims that identify the actor". A level that identifies nobody,
+     * an actor claim that is not a string, and a nested act that is not an object are not that shape.
+     */
+    @Test
+    @Requirement("RFC8693 §4.1")
+    void aLevelThatIdentifiesNoActorIsMalformed() {
+        assertTrue(ActChain.parse(Map.of("act", Map.of("scope", "x"))).malformed());
+        assertTrue(ActChain.parse(Map.of("act", Map.of("sub", 42))).malformed());
+        assertTrue(ActChain.parse(Map.of("act", Map.of("sub", INSTANCE, "iss", List.of("x")))).malformed());
+        ActChain.Parsed nested = ActChain.parse(Map.of("act", Map.of("sub", SERVER_AGENT, "act", "not an object")));
+        assertTrue(nested.malformed());
+        assertEquals(SERVER_AGENT, nested.currentActor().orElseThrow().subject(), "what was read is still reported");
+        ActChain.Parsed issuerOnly = ActChain.parse(Map.of("act", Map.of("iss", "https://platform.example.com")));
+        assertFalse(issuerOnly.malformed());
+        assertEquals(null, issuerOnly.currentActor().orElseThrow().subject());
     }
 
     @Test
