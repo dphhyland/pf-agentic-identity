@@ -27,6 +27,17 @@
 
   <display-name>Grant Management API</display-name>
 
+  <!--
+    The lifecycle listener (plan item F-2), from platform-pf in this war's WEB-INF/lib. This war is its own
+    classloader with its own copy of platform: the listener marks that copy, logs its start-up audit once
+    (with the GM_API component the two load-on-startup servlets below register), and closes what the copy
+    opened at undeploy. Registered by name, never by annotation. platform-pf's health servlet maps itself
+    here too, at /gm-api/agentic-identity/health/live and /ready, answering for this war alone.
+  -->
+  <listener>
+    <listener-class>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener</listener-class>
+  </listener>
+
   <servlet>
     <servlet-name>grants</servlet-name>
     <servlet-class>au.com.idpartners.gm.servlet.GrantsServlet</servlet-class>

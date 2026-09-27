@@ -112,6 +112,22 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.answer(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.write(*</include>
                                         <!-- lifecycle (F-2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.contextInitialized(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.contextDestroyed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.deferAudit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.ownsCopy(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.warOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener.where(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.collect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.banner(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.accepted(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.insecure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.components(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.executors(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAudit.oneLine(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAuditServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.lifecycle.StartupAuditServlet.service(*</include>
                                         <!-- internals (F-1, PfInternals): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.tokenEndpointBaseUrl(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.addClient(*</include>

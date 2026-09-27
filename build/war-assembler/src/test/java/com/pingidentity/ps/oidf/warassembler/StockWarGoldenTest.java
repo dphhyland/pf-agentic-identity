@@ -1,9 +1,11 @@
 package com.pingidentity.ps.oidf.warassembler;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeFalse;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
@@ -24,7 +26,9 @@ import org.junit.jupiter.api.io.TempDir;
  * <p>The golden result was taken on 2026-09-28: the shell assembler (as of 276bcd6) run against 13.1.3's
  * stock war (the image build/pf-version.env pins by digest), for the production and the conformance stage -
  * the same descriptor for both. Only its digest and our additions to it
- * (golden/shell-assembler-additions.txt) are recorded here.
+ * (golden/shell-assembler-additions.txt) are recorded here. The shipped filters.xml has since declared F-2's
+ * lifecycle listener, which the shell assembler never registered: the test checks the listener's block is there once,
+ * after the filters, and compares what is left.
  */
 class StockWarGoldenTest {
     /** sha256 of WEB-INF/web.xml in 13.1.3's stock pf-runtime.war (2026-09-28). */
@@ -49,8 +53,12 @@ class StockWarGoldenTest {
         Fixtures.Run r = Fixtures.run("--filters", Fixtures.shippedFilters().toString(), stock, Fixtures.stage(dir).toString(),
                 "-", out.toString());
         assertEquals(0, r.exit(), r.err());
+        String withListener = new String(Fixtures.entry(out, "WEB-INF/web.xml"), StandardCharsets.UTF_8);
+        int at = withListener.indexOf(Fixtures.LIFECYCLE_LISTENER_BLOCK);
+        assertTrue(at > withListener.lastIndexOf("</filter-mapping>") && at == withListener.lastIndexOf(Fixtures.LIFECYCLE_LISTENER_BLOCK),
+                "the listener registered once, after the filters");
         Path merged = dir.resolve("merged-web.xml");
-        Files.write(merged, Fixtures.entry(out, "WEB-INF/web.xml"));
+        Files.writeString(merged, withListener.replace(Fixtures.LIFECYCLE_LISTENER_BLOCK, ""), StandardCharsets.UTF_8);
         assertEquals(SHELL_ASSEMBLED_WEB_XML, StagedManifest.sha256(merged));
 
         String golden = System.getProperty("warAssembler.goldenWebXml", "");
