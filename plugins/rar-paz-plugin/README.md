@@ -252,13 +252,13 @@ OpenJDK 21.0.12.1: `AbstractAsyncSSLConnection` takes the flag from a static fie
 
 ## Verified on the rig
 
-`conformance/verify-rar-principal.sh` boots the rig on its own slot (`PF_RIG_NAME=pfai-rar`, ports
+`conformance/verify-rar-principal.sh` boots the rig on its own slot (by default `PF_RIG_NAME=pfai-rar`, ports
 45031/45080/45999) with this jar lent to it by `conformance/docker-compose.rar-plugin.yml` (a bind mount under
 `/opt/in`, which the base image copies over `/opt/out` at start; `OIDF_DEPLOYMENT_PROFILE=development` so the
 plugin may dial the stub over plain http), starts `conformance/rar-principal/stub-pdp.py` on the host (an
 AuthZEN PDP that answers PERMIT and appends every request to a JSONL file), configures a processor instance,
 the three built-in types, a bearer-token exchange policy and a secret-authenticated client through the
-admin API, drives the flows in the table above, prints per flow the user key PingFederate passed (matched by
+admin API, drives client credentials, CIBA, refresh, token exchange and the code flow, prints per flow the user key PingFederate passed (matched by
 SHA-256 against the plugin's log line) and the `principal_source` the PDP received, removes what it
 configured and takes the rig down, image included. `SKIP_UP=1 KEEP_RIG=1` reuses a running rig;
 `ONLY_CONFIGURE=1` leaves the configuration in place for driving a flow by hand. The evidence in the table and
@@ -268,8 +268,9 @@ That `server.log` carries neither the test user's name nor the shared secret: th
 principal, and the refusals PingFederate logs with their causes carry only the plugin's own text.
 
 Not verified there: the device flow's user key (U-0066), the JWT-bearer grant (U-0017; `javap` finds no call
-to enrich in `JwtGrantProcessor`), and the `subject` recipe on an authentication *policy* contract rather than
-an adapter mapping (U-0067).
+to enrich in `JwtGrantProcessor`), the `subject` recipe on an authentication *policy* contract rather than an
+adapter mapping (U-0067), and what PingFederate makes of an instance whose `configure` threw (U-0068; the rig
+runs as `development`, where a plaintext URL is allowed).
 
 ## Build, test, deploy
 
