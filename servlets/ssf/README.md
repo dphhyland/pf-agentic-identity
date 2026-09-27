@@ -122,9 +122,9 @@ DDL), runs the servlet layer's wiring (the receiver's PingFederate actions and p
 and starts the push loop. A store that cannot be opened - the data store down at boot, the DDL refused - is
 one ERROR line naming the cause, the SSF endpoints staying off, and another try every 30 s
 (`SsfSupport.bootRetrySeconds`, a constant until S-5) until the store opens; the loops start on the try that
-succeeds. The stock behaviour until 0.4.0 was the exception escaping `SsfConfigurationServlet.init`, which
-loads at start-up - for a load-on-startup servlet that is the whole runtime web application failing to
-start ("Found while designing" 11) - and a `configure` that had already assigned its configuration before
+succeeds. The behaviour until 0.4.0 was the exception escaping `SsfConfigurationServlet.init`, which loads at
+start-up ("Found while designing" 11; what PingFederate's container made of a load-on-startup servlet failing
+that way was not reproduced - U-0057), and a `configure` that had already assigned its configuration before
 the store failed, so every later servlet found it "configured" and no store behind it.
 
 While the store is down the SSF endpoints throw `IllegalStateException` on use (the container's 500), the

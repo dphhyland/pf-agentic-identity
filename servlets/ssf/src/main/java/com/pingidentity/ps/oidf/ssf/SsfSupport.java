@@ -129,10 +129,10 @@ public final class SsfSupport {
      * on start-up, so the loop runs before any request arrives. Returns whether the transmitter is up.
      *
      * <p>Never throws. Before 0.4.0 a store that could not be opened threw out of the servlet's
-     * {@code init}: for the load-on-startup servlet that is the whole runtime web application failing to
-     * start ("Found while designing" 11). Now it is an ERROR in the log, endpoints that stay disabled, and a
-     * retry every {@link #bootRetrySeconds} until the store can be opened; the loops start on the retry that
-     * succeeds. The wiring is guarded the same way: a failure there is logged and the loop still starts.
+     * {@code init} - for the load-on-startup servlet, at boot ("Found while designing" 11; what the container
+     * made of that is U-0057, not reproduced). Now it is an ERROR in the log, endpoints that stay disabled,
+     * and a retry every {@link #bootRetrySeconds} until the store can be opened; the loops start on the retry
+     * that succeeds. The wiring is guarded the same way: a failure there is logged and the loop still starts.
      */
     public static boolean start(SsfConfiguration config, Runnable afterConfigure) {
         try {

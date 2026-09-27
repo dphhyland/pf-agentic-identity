@@ -1,0 +1,19 @@
+id: U-0057
+title: What the container does when the load-on-startup SSF servlet's init throws
+area: ssf
+source: design
+status: open
+plan_items: [S10-0, S-10]
+prs: []
+recorded_in: the S10-0 pull request's Unverified list; servlets/ssf/README.md, Boot
+verify_by: >
+  Boot the rig on the 0.3.0 jars with storeDialect=tables and a jdbcUrl no database answers, and read what
+  PingFederate serves: every runtime endpoint 503 (the merged pf-runtime.war failed to start) or only the SSF
+  ones. Then the same on 0.4.0 to see the retry line instead.
+verification: ''
+notes: >
+  "Found while designing" 11 says a boot-time DB error escaped SsfConfigurationServlet.init. S10-0 assumed,
+  from Jetty ee9's ServletHandler.initialize collecting a load-on-startup servlet's init exception and failing
+  the context, that this took the whole runtime web application down. Not reproduced on the rig: the retry path
+  was tested in SsfSupportBootTest with a throwing store factory, never with PingFederate's container. Recorded
+  2026-09-27.

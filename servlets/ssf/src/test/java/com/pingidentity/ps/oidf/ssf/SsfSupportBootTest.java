@@ -15,8 +15,8 @@ import org.junit.jupiter.api.Test;
 
 /**
  * "Found while designing" 11: {@code SsfConfigurationServlet} loads at start-up and let a boot-time DB error
- * escape its {@code init}, which for a load-on-startup servlet is the runtime web application failing to
- * start. {@link SsfSupport#start} is the path every servlet's init takes now, and these are its promises.
+ * escape its {@code init} (what the container made of that is U-0057). {@link SsfSupport#start} is the path
+ * every servlet's init takes now, and these are its promises.
  */
 class SsfSupportBootTest {
 

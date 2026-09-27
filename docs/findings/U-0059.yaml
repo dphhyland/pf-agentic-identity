@@ -1,0 +1,18 @@
+id: U-0059
+title: The two JOIN selects behind dueForPush have not run against a database
+area: ssf
+source: design
+status: open
+plan_items: [S10-0, S10a, S10f]
+prs: []
+recorded_in: the S10-0 pull request's Unverified list; JdbcSsfStoreTest and LdmSsfStoreTest pin the SQL as text
+verify_by: >
+  Run JdbcSsfStore.SELECT_DUE_FOR_PUSH against HSQLDB (PingFederate's bundled engine) and Postgres with the
+  store's own DDL, and LdmSsfStore.SELECT_DUE_FOR_PUSH against a Postgres carrying the model repo's
+  0001-add-shared-signals-ssf migration, with a paused, a disabled, a poll and an enabled push stream each
+  holding a due SET; only the last's must come back. A Postgres-backed store test in servlets/ssf would keep it.
+verification: ''
+notes: >
+  The three stores' dueForPush select by the stream's state since 0.4.0. The in-memory store is tested for
+  the selection; the tables and ldm stores are Mockito-tested, as every store test in the module is, and
+  0001-add-shared-signals-ssf is not vendored here, so neither statement has been executed. Recorded 2026-09-27.

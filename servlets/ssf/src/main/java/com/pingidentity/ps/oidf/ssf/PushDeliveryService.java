@@ -309,8 +309,9 @@ public final class PushDeliveryService {
      * One exchange, bounded as a whole. {@code HttpRequest.timeout} is the wait for the response headers
      * and nothing after them: a receiver that sends its status line and then holds the body open would hold
      * the delivery thread past any deadline set on the request. So the future is waited on for the whole
-     * exchange and cancelled when the deadline passes - which the JDK client honours from 16 on, closing the
-     * connection - and the body is read up to {@code bodyCap} bytes and not one more.
+     * exchange and cancelled when the deadline passes - the JDK client cancels the request on
+     * {@code cancel(true)} from 16 on; that the socket is closed with it is U-0058, not verified here - and
+     * the body is read up to {@code bodyCap} bytes and not one more.
      */
     static HttpResponse<String> send(HttpClient http, HttpRequest request, Duration deadline, int bodyCap)
             throws Exception {

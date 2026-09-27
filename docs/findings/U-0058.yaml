@@ -1,0 +1,18 @@
+id: U-0058
+title: The JDK HttpClient closes a push connection when its exchange future is cancelled
+area: ssf
+source: design
+status: open
+plan_items: [S10-0, S-5, S-10]
+prs: []
+recorded_in: the S10-0 pull request's Unverified list; PushDeliveryService.send's javadoc
+verify_by: >
+  Against a receiver that stalls its body, count its open connections after the transmitter's deadline passes
+  (netstat in the receiver, or a server that logs the close); or read JDK-8245462 and the JDK 16 release note
+  and confirm the behaviour on the JDK PingFederate 13.1.3 runs.
+verification: ''
+notes: >
+  PushDeliveryService.send waits on sendAsync's future for the whole exchange and calls cancel(true) at the
+  deadline. PushDeliveryHttpTest proves the delivery thread is back within the deadline, not that the socket
+  is closed: a receiver that never finishes its body could hold a connection per tick until the client's own
+  idle handling gives up. Recorded 2026-09-27.
