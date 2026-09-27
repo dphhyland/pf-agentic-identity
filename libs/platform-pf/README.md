@@ -119,6 +119,68 @@ to start reads DOWN. The detail and info take the same bearer: the token is JVM-
 
 <!-- lifecycle (F-2): add this package's section below this line -->
 <!-- internals (F-1, PfInternals): add this package's section below this line -->
+## internals
+
+`PfInternals` is the one class that calls PingFederate's internal services (plan item F-1, decision 10): classes in
+`pf-protocolengine.jar` that are not part of the SDK and, the plan's risks say, "can change in a patch release".
+Each member is one call, made when it is called; nothing runs when the class loads, so loading it touches no
+PingFederate class, and outside a booted PingFederate each member throws where the caller reaches it, as the
+direct call did.
+
+| Member | Calls | Callers |
+|---|---|---|
+| `issuer(request)` | `OAuthIssuerUtils.getInstance().getIssuerValue(request)` | the issuer resolvers of eight classes in pf-integration and two in attestation-issuer |
+| `tokenEndpointBaseUrl()` | `MgmtFactory.getAuthzServerManager().getTokenEndpointBaseUrl()` | `ClientAttestationUtils.configuredTokenEndpointBaseUrl` |
+| `addClient`, `updateClient`, `getClient`, `getClients` | the same methods of `MgmtFactory.getClientManager()` | `PfMgmtClientStore` |
+| `isBackendDatabase()` | `MgmtFactory.getClientManager().isBackendDatabase()` | nothing yet: C-1 (Phase 4) |
+| `discoveryHandler(openIdConnect)` | `ProviderConfigurationInfoHandler.createOpenIDConnectProviderConfigurationInfoHandler()` or `createOAuthProviderConfigurationInfoHandler()`, then `process` | `PfProviderMetadata` |
+
+`ClientManager.isBackendDatabase()` exists in 13.1.3 as `public abstract boolean isBackendDatabase()` on
+`org.sourceid.oauth20.domain.ClientManager` (javap on the pinned image's `pf-protocolengine.jar`, 2026-09-28).
+
+**No production class outside platform-pf names `org.sourceid.oauth20.issuer`, `org.sourceid.saml20.domain.mgmt`,
+`org.sourceid.openid.connect.handlers`, `ClientManager` or `AuthzServerManager`.** `InternalsBoundaryTest` holds
+it over every `src/main` Java source under libs, servlets, services and plugins, with one recorded exception:
+servlets/ssf's `PfIdTokenVerifier` still calls `OAuthIssuerUtils` itself, because package PFI's scope stopped at
+pf-integration, attestation-issuer and platform-pf ([F-0215](../../docs/findings/F-0215.yaml)). The test fails
+when that file stops naming it, so the exception goes with the fix.
+
+**The data types stay where they are.** `Client` is what the client manager takes and returns, and `ParamValues`
+and `ClientAuthenticationType` are what a `Client` holds. Wrapping them would copy some thirty `Client` accessors
+into a type of our own that still links every one of them, and add a translation to keep in step; the facade
+would hide nothing. What checks them is `tools/pf-linkcheck.py`, which resolves every member the built jars link
+against the pinned PingFederate, in CI's java job.
+
+**Tests.** `PfInternalsTest` replaces PingFederate's statics and checks that each member makes its one call with
+its caller's arguments and answers what PingFederate answers, and that the class initialises in a loader with no
+PingFederate class on it. `issuer` is not in the coverage gate: `OAuthIssuerUtils` is final and Mockito cannot
+redefine it on the test class path ("class redefinition failed: invalid class", 2026-09-28), so its test shows
+only that outside PingFederate the lookup throws a `LinkageError`, which is why every caller has an issuer seam.
+The callers' own tests keep those seams; none mocked PingFederate's statics, so none needed the facade replaced.
+
+### What the reactor links from PingFederate
+
+Every `org.sourceid.*` and `com.pingidentity.*` class the shipped jars and `gm-api.war` link, read from their
+constant pools by `tools/pf-linkcheck.py`'s scanner against 13.1.3.0's `server/default/lib` on 2026-09-28, after
+this package. Where a class ships decides its kind: `pingfederate-sdk.jar` is the SDK plugins compile against,
+whatever the package; `pf-protocolengine.jar` is PingFederate's own engine.
+
+| Kind | Classes (members linked) | Jar | Linked from |
+|---|---|---|---|
+| Internal service | `OAuthIssuerUtils` (2) | pf-protocolengine | platform-pf; ssf's `PfIdTokenVerifier` ([F-0215](../../docs/findings/F-0215.yaml)) |
+| Internal service | `MgmtFactory` (2), `ClientManager` (5), `AuthzServerManager` (1), `ProviderConfigurationInfoHandler` (3) | pf-protocolengine | platform-pf only |
+| Internal data type | `org.sourceid.oauth20.domain.Client` (32: the constructor, getters and setters) | pf-protocolengine | pf-integration, attestation-issuer |
+| SDK data type | `org.sourceid.oauth20.domain.ParamValues` (3), `ClientAuthenticationType` (1) | pingfederate-sdk | pf-integration, attestation-issuer |
+| SDK | `org.sourceid.saml20.adapter.*` - `AttributeValue`, `conf.Configuration`, `conf.Field`, `conf.SimpleFieldList`, the `gui` descriptors and validators | pingfederate-sdk | pf-integration, gm-api, the RAR plugin, the instance-registry data store |
+| SDK | `org.sourceid.util.log.AttributeMap` | pingfederate-sdk | gm-api |
+| SDK | `com.pingidentity.access.*` - `AccessGrantManagerAccessor`, `DataSourceAccessor`, `JwksEndpointKeyAccessor` | pingfederate-sdk | pf-integration, ssf, gm-api |
+| SDK | `com.pingidentity.sdk.*` - `accessgrant`, `authorizationdetails`, `logging.LoggingUtil`, `oauth20.Scope`, `oobauth`, `GuiConfigDescriptor`, `PluginDescriptor` | pingfederate-sdk | platform-pf (`LoggingUtil`), ssf, gm-api, the RAR plugin, ciba-sim |
+| SDK | `com.pingidentity.sources.*` - the custom data source driver and its descriptors | pingfederate-sdk | the instance-registry data store |
+
+The scanner does not see names in strings: servlets/ssf's `SsfAuditLogSource` names five of PingFederate's audit
+logger classes (`org.sourceid.websso.profiles.idp.IdpAuditLogger` and four more) as log4j logger names, which
+change with nothing linking them.
+
 
 ## Build
 
