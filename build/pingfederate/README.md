@@ -67,9 +67,10 @@ Tracked:
 
 | Path | Purpose |
 |---|---|
-| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `assemble-pf-runtime-war.sh`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`) |
-| `stage-modules.sh` | copies the reactor's module jars into `modules/` - the production profile's by default, and the CIBA simulator as well for `--profile conformance` - and writes the v2 `MANIFEST`, which names each one |
-| `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war after checking it against `MANIFEST` and the profile; also used inside the image build |
+| `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `filters.xml`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`) |
+| `stage-modules.sh` | copies the reactor's module jars into `modules/` - the production profile's by default, and the CIBA simulator as well for `--profile conformance` - and writes the v2 `MANIFEST`, which names each one; and copies the war assembler into `assembler/` |
+| `filters.xml` | the filters registered in `pf-runtime.war`'s `web.xml`: each one's class and paths, the order pairs that must hold between them, and why |
+| `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war and registers what `filters.xml` declares, after checking `modules/` against `MANIFEST` and the profile; also used inside the image build. A wrapper round the [war assembler](../war-assembler/README.md), which does the checking - see [The war assembler](#the-war-assembler) |
 | `pf-entrypoint.sh` | the boot shim: checks, decrypts and places the archive, drops the identity from the environment, hands over to the base image |
 | `test-entrypoint.sh` | exercises the entrypoint's decisions with PingFederate stubbed out; `--image <image>` runs it inside a built image |
 | `overlay/config-store/` | plain ForceImport config - not secret |
@@ -79,6 +80,7 @@ You supply, per deployment (all git-ignored - see `.gitignore`):
 | Path | What it is |
 |---|---|
 | `modules/` | output of `stage-modules.sh`; do not hand-populate it |
+| `assembler/` | output of `stage-modules.sh` too: `war-assembler.jar`, from `build/war-assembler` |
 | `data.zip.age` | the PF configArchive for **your** environment, **age-encrypted**. A configArchive is a plain zip that *contains* `pf.jwk` - the master key that decrypts every secret in it, next to the system keys, both keystores and the admin password hash. Encrypted, it is safe in git and safe in an image layer. |
 | `data.zip` | the same thing **unencrypted**. Transitional, and refused at boot unless `OIDF_DEPLOYMENT_PROFILE=development` - see below. |
 | `overlay/pf.jwk`, `overlay/pingfederate-system-keys.xml` | staged **only** on the plaintext path, and redundant since the entrypoint takes both keys from inside the archive on either path. Phase 3 (plan item R-I3) removes the plaintext path and them with it. |
@@ -112,7 +114,7 @@ single `pf-oidf-modules.jar`, you are on the pre-unwind artifact shape that this
 
 ```sh
 mvn -q -DskipTests package                              # from the repo root
-build/pingfederate/stage-modules.sh                     # -> modules/ + MANIFEST; --profile conformance for a rig
+build/pingfederate/stage-modules.sh                     # -> modules/ + MANIFEST, assembler/; --profile conformance for a rig
 # stage your data.zip.age, overlay/ and oidf-mock-attesters.json into build/pingfederate/, then:
 docker build -t pf-oidf build/pingfederate              # --build-arg STAGING_PROFILE=conformance for a rig
 ```
@@ -123,7 +125,29 @@ From another repo, point the script at a sibling checkout:
 PF_AGENTIC_IDENTITY_HOME=../pf-agentic-identity ../pf-agentic-identity/build/pingfederate/stage-modules.sh
 ```
 
-`STAGE_DEST` redirects where the jars land, if you are composing a context elsewhere.
+`STAGE_DEST` redirects where the jars land, if you are composing a context elsewhere; the assembler goes to
+`assembler/` beside it. A context composed elsewhere needs `Dockerfile`, `assemble-pf-runtime-war.sh`,
+`filters.xml`, `pf-entrypoint.sh`, `modules/`, `assembler/` and `overlay/config-store/` from here.
+
+## The war assembler
+
+`assemble-pf-runtime-war.sh` is a wrapper: [`build/war-assembler`](../war-assembler/README.md), a JDK-only jar
+the reactor builds and `stage-modules.sh` stages into `assembler/`, reads the stock `web.xml` with the JDK's DOM
+and applies `filters.xml` (plan item R-I5). Besides the `MANIFEST` guard and the namespace guard, it refuses a war
+in which a declared filter does not have exactly one `<filter>` and one `<filter-mapping>` over exactly its
+declared paths, an order pair does not hold, a declared path is one the stock `web.xml` does not serve, the root
+is `metadata-complete="true"`, or a declared filter's or listener's class is in no jar - and it prints each
+path's filter chain, PingFederate's own filters included:
+
+```
+chain /as/token.oauth2 (controller): RuntimeServiceSetFilter > proxyFilter > ... > servletRequestCleanupFilter > Fapi2Profile > OAuthErrorDescription > OidfAutoRegistration > ClientAttestationAuth > noCacheFilter
+```
+
+In the image build it runs on the base image's own Java 21; outside Docker the script needs Java 17 or later.
+Verified 2026-09-28 on 13.1.3: it wrote the same `web.xml` as the shell script it replaced, byte for byte, for
+both profiles, and the same war again from its own output; the production and conformance images built with it
+carry the same seven filters in the same order as before. The evidence, and why it is a jar rather than a
+source-launched file, are in its README.
 
 ## The MANIFEST guard
 
@@ -148,7 +172,7 @@ files had uncommitted changes; `unknown` outside a git checkout); a `[section]` 
 grep -E '^[0-9a-f]{64}  ' modules/MANIFEST | ( cd modules && sha256sum -c )
 ```
 
-`assemble-pf-runtime-war.sh` refuses to build unless the header is a v2 header whose profile is the one it
+`assemble-pf-runtime-war.sh` (the war assembler, since R-I5) refuses to build unless the header is a v2 header whose profile is the one it
 was told (its fifth argument, `production` when omitted), every named jar is present with the digest it was
 staged with, and no other jar is in the directory. A v1 `MANIFEST` - bare filenames, no header - is refused
 too: it came from an older `stage-modules.sh`, and the jars beside it from some other tree. Hand-copying
