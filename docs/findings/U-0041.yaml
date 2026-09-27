@@ -1,0 +1,11 @@
+id: U-0041
+title: Apple App Attest assertion steps 1 to 7, the receipt root and fields
+area: app-attest
+source: design
+status: open
+plan_items: [X-A07]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Apple
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: ''

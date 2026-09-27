@@ -1,0 +1,19 @@
+id: F-0002
+title: B2 Raw platform evidence embedded in attestations
+severity: blocker
+area: attestation-issuer
+source: review-2026-09-26
+status: open
+plan_items: [S-3, S3a, S3b]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  The minted attestation carries the raw platform token (`workload.svid`, and the six cloud validators'
+  tokens; not the wallet WIA) whose audience is the attester, and the issuer checks the key proof only against
+  the caller's key: anyone who sees an attestation can re-mint for their own key until the evidence expires.
+  S3b replaces the token with a digest (`workload.instance_attestation_sha256`, `_type`, `_exp`) and binds
+  evidence to the first instance key that presents it (EvidenceBindingStore, Redis SET NX PX, 401 plus a theft
+  event on conflict); S3a makes the store verdicts tri-state and refuses `redis://` in production. Residual
+  once fixed: a thief who uses the evidence first wins - detectable, not preventable, without key-bound
+  evidence.

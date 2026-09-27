@@ -1,0 +1,15 @@
+id: F-0018
+title: No migration runner
+severity: high
+area: platform, db
+source: review-2026-09-26
+status: open
+plan_items: [DB-2, DB-3, DB-4]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  V101 to V103 are applied by hand and `owner_client_id` at boot; nothing records which migrations an
+  environment has. DB-2 lays the migrations out per family, DB-3 is the operator-run `db-migrate` (Flyway
+  Community, with `adopt` for state applied by hand under 0.3.0), DB-4 the read-only schema check at start-up.
+  The 0.3.0 upgrade guide's item 2 tells operators to apply them by hand and record it meanwhile.

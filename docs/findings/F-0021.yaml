@@ -1,0 +1,14 @@
+id: F-0021
+title: Registration expiry is not enforced when an attestation request names no client_id
+severity: medium
+area: pf-integration
+source: review-2026-09-26
+status: open
+plan_items: [H-FED-2]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  TokenEndpointAutoRegistrationFilter.java:152-156 (f95b522) looks the client up by `client_id`, which an
+  attested request need not send, so its registration's expiry is not checked. H-FED-2 names the client from
+  the attestation's `sub`.

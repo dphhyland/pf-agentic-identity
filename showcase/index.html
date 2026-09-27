@@ -1003,9 +1003,21 @@ function route() {
     on ? a.setAttribute('aria-current', 'page') : a.removeAttribute('aria-current');
   });
   const name = m ? m.title : (id === 'doc' ? docTitle(docPath) : PAGE_NAME[id]);
-  $('#crumb').innerHTML = (m || id === 'doc')
-    ? `<a href="#${section}">${esc(PAGE_NAME[section])}</a><span>/</span><strong>${esc(name)}</strong>`
-    : `<strong>${esc(name)}</strong>`;
+  // Built with DOM calls, not innerHTML: the section and the name derive from the URL fragment, and a
+  // text node cannot be markup whatever the fragment says (CodeQL js/xss, 2026-09-27).
+  const crumb = $('#crumb');
+  crumb.replaceChildren();
+  if (m || id === 'doc') {
+    const up = document.createElement('a');
+    up.href = `#${section}`;
+    up.textContent = PAGE_NAME[section];
+    const sep = document.createElement('span');
+    sep.textContent = '/';
+    crumb.append(up, sep);
+  }
+  const here = document.createElement('strong');
+  here.textContent = name;
+  crumb.append(here);
   document.title = `${name} · Agentic Identity for PingFederate`;
   // The browser's own anchor scroll to the <section id> lands under the sticky bar; reset after it.
   if (anchor) { const el = document.getElementById(anchor); if (el) setTimeout(() => { const top = el.getBoundingClientRect().top + window.scrollY - 84; window.scrollTo({ top, behavior: 'instant' }); }, 60); }

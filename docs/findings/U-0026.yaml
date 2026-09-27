@@ -1,0 +1,13 @@
+id: U-0026
+title: ClusterAccessor and pf.operational.mode visibility
+area: platform
+source: design
+status: open
+plan_items: [C-1]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 12
+verify_by: >
+  On the cluster stack: what ClusterAccessor reports on a console and an engine node, and whether
+  pf.operational.mode is readable from a webapp.
+verification: ''
+notes: ''

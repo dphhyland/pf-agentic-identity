@@ -1,0 +1,12 @@
+id: U-0033
+title: SSF complex subjects
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-1]
+prs: []
+recorded_in: >
+  the plan, To verify before relying on it, verbatim from the primary source, SSF, CAEP and SET transport
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: ''

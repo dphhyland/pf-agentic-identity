@@ -1,0 +1,15 @@
+# Operator documentation
+
+What someone who runs a PingFederate built from this repository needs: how to move between releases, and,
+from Phase 7 of the production programme, installation, the reference stacks, the deployment profile,
+clustering, the database and Redis, observability, a hardening checklist and the runbooks (plan items D-5 and
+D-7).
+
+What is here now:
+
+- [upgrading/](upgrading/) - one guide per move between releases. [0.1.5-to-0.3.0.md](upgrading/0.1.5-to-0.3.0.md)
+  is the move from the last PingFederate 13.0 release to the first 13.1.3 one.
+
+The release notes themselves live in [docs/releases](../releases/README.md); each release's "Before you deploy"
+list is the short form of its upgrade guide. Until the operator set exists, the module READMEs and
+[docs/federation/operations.md](../federation/operations.md) are where the operational detail is.

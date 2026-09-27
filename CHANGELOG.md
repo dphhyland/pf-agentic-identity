@@ -23,6 +23,14 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
 - **X-D02 ciba-sim conformance-only** - the decision endpoint (404) and the authenticator (`OOBAuthGeneralException`)
   refuse every request unless `OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and
   `OIDF_CIBA_SIM_DIR` is an existing private directory the plugin owns; the rig sets all three.
+- **Information architecture and style** (D-1) - `docs/{operator,configuration,reference,security,development,findings,releases}`
+  each with a README saying what belongs there; `SECURITY.md`, `CONTRIBUTING.md` and a pull request template;
+  the house style in `docs/development/style-guide.md`, with `tools/doc-lint.py` checking what a machine can
+  against a dated baseline, in a new `docs.yml` workflow.
+- **Findings register** (D-2) - one YAML file per finding under `docs/findings` (`F-` defects, `U-` unverified
+  assumptions), seeded from the 2026-09-26 review, the reviewer reports, the plan's "Found while designing"
+  list and `docs/unverified.md`; `tools/findings.py --check` in CI, `--gate` for a release, `list` and `index`
+  on demand.
 - **CI hygiene** (R-CI1 to R-CI4) - every action pinned to a commit with least-privilege tokens; actionlint,
   zizmor, shellcheck and `terraform validate` in the lint job; the secrets guard's content scan extended to private
   JWKs and every PEM kind, with gitleaks over the whole history beside it; CodeQL for Java, Actions, Python and

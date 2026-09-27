@@ -1,0 +1,11 @@
+id: U-0024
+title: '@WebListener scanning in merged jars'
+area: pf-integration
+source: design
+status: open
+plan_items: [F-2]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 10
+verify_by: 'On the rig: a @WebListener in a staged jar, and whether it runs without a web.xml entry.'
+verification: ''
+notes: ''

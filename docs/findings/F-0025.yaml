@@ -1,0 +1,17 @@
+id: F-0025
+title: 'Configurability: undocumented keys, lenient parsing, unreachable init-params, restart-only settings'
+severity: medium
+area: platform
+source: review-2026-09-26
+status: open
+plan_items: [ST-1, ST-2, ST-3, ST-4, ST-5, ST-6, ST-7, PR-1, PR-2, PR-3, PR-5]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  The review's configurability class, as one finding: settings read by name in ~114 places and ~70 system
+  properties with no single catalogue; booleans read leniently outside the federation code; init-params
+  nothing can set; settings that need a restart. ST-1 to ST-4 give every module a strict, catalogued,
+  generated reference (Phase 2); ST-5 to ST-7 convert every reader, ratchet direct reads out and add
+  `oidf-preflight.jar` (Phase 3); PR-1 to PR-5 add the deployment profile that refuses insecure switches
+  (Phases 2 and 3).

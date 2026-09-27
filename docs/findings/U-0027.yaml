@@ -1,0 +1,13 @@
+id: U-0027
+title: 'The JDBC client-storage cache window, and where PingFederate''s client-storage SQL lives'
+area: cluster
+source: design
+status: open
+plan_items: [C-1, C-6]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 13
+verify_by: >
+  On the cluster stack with JDBC client storage: register on one engine, authenticate on another, and measure
+  the window; find the SQL the reference stack's client-storage job must run.
+verification: ''
+notes: 'B7 rests on this: replication of client writes made through MgmtFactory is unverified.'

@@ -1,0 +1,14 @@
+id: F-0023
+title: 'Redis over rediss:// without endpoint identification; redis:// allowed in production'
+severity: medium
+area: client-attestation
+source: review-2026-09-26
+status: open
+plan_items: [S3a]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  The review rated MiniRedisClient's TLS handling medium; S3a lists what it lacks: endpoint identification
+  (the HTTPS algorithm), SNI, the handshake completed before AUTH, an optional CA file, and `redis://` refused
+  in production. Closed with S3a.

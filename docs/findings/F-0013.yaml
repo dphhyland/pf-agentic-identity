@@ -1,0 +1,15 @@
+id: F-0013
+title: A federation misconfiguration takes PingFederate down
+severity: high
+area: pf-integration
+source: review-2026-09-26
+status: open
+plan_items: [S-9, S9a, S9b]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  A component that fails to initialise fails the merged pf-runtime.war, and PingFederate's own SSO and OAuth
+  go with it. S-9 gives every component a state, a supervisor with backoff, explicit `*_ENABLED` switches and
+  a defined behaviour per surface when it is disabled or failed; readiness reports it. U-0023 (a failing
+  load-on-startup init versus fail-soft) is the booted-PF check behind the design.
