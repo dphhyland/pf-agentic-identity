@@ -102,6 +102,18 @@ Verification, 2026-09-27, on branch `prod/p1-rar-wire-cas-as`:
   differently on purpose (CAS §7 rule 2 and §6.1), and presented every minted attestation to the token gate.
 - `services/harness`: `AttestationFlowHarness selfverify` passed 5 of 5 after its request restated `privileges`
   (4 of 5 before), and `AttestationIssuanceHarness` passed its 3 checks.
+- The full reactor, `mvn -o -B clean verify` with Postgres 16 for device-instance's suite: 21 modules, 3,262 tests,
+  no failures; the skips are the Redis live test and two federation-package tests.
+- A booted PingFederate 13.1.3 (`conformance/up.sh` under its own name and ports, torn down after). The conformance
+  stage has ten jars, `rar-model` among them, in both `server/default/deploy` and `pf-runtime.war`. With a
+  throwaway attester trusted through `oidf.mock.attesters` and a bridge key for one client, the filter loaded the
+  models at start-up and logged the fingerprint once. A request within the attestation's details, one carrying
+  `_principal_sub` and `_agent_id`, and one with none went on to PingFederate (which refused the unregistered test
+  client itself); a `max_txn_eur` above the attestation's and a request that left out `sales_regions` were 400
+  `invalid_authorization_details` "exceeds", an undeclared field 400 with its own description, and an attestation
+  whose details carry an undeclared field 401 `invalid_client`. With `OIDF_RAR_MODELS` set to a truncated document,
+  the filter refused to start: `pf-runtime.war` came up unavailable, the heartbeat and the token endpoint answered
+  503, and the log named the reason and both variables.
 
 Residual risk:
 
@@ -115,3 +127,5 @@ Residual risk:
 - A refused request is logged, not emitted as an audit event (plan item O-2), and the fingerprint is not in a
   health endpoint yet (O-4).
 - As in 0.3.0, the proof's `jti` is spent before the ceiling check, so a refused request needs a fresh proof.
+- A models document that cannot be read takes `pf-runtime.war` down when attestation authentication is configured,
+  as a broken bridge configuration does, until plan item S-9 lets the component refuse only its own traffic.
