@@ -17,12 +17,16 @@ import java.net.URISyntaxException;
  * message reaches the person typing, and {@link #check} runs at configure time, which is the only check an
  * archive import gets.
  *
- * <p>The profile is read straight from the environment for now, and unset means production; PR-1 (the
- * platform library) centralises the profile, and this class will take it from there.
+ * <p>The profile is platform's {@code DeploymentProfile} (plan item PR-1), shaded into this jar: unset means
+ * production.
  */
 final class PdpUrlPolicy {
 
-    static final String PROFILE_ENV = "OIDF_DEPLOYMENT_PROFILE";
+    // Through GovernanceEngineConfig, which calls DeploymentProfile. Naming DeploymentProfile.SETTING here left an
+    // unrelocated class entry for it in the shaded jar: javac 20 records the class whose constant it inlines, and
+    // nothing in this class used the entry, so the shade plugin did not rewrite it (javap, 2026-09-28;
+    // ShadedJarCheck).
+    static final String PROFILE_ENV = GovernanceEngineConfig.PROFILE_ENV;
 
     private PdpUrlPolicy() { }
 

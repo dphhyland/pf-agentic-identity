@@ -126,6 +126,12 @@ jobs:
         run: python3 tools/set-version.py --check
       - name: one PingFederate version across the repo
         run: python3 tools/pf-version-check.py
+      - name: no trust-all TLS outside platform's InsecureTls
+        # Plan item PR-1 (F-0042): a trust manager that trusts anything, an always-true hostname verifier, an
+        # endpoint identification algorithm set to null and the JVM-wide hostname flag are built only in
+        # libs/platform's InsecureTls, which names the setting that asked and records each use; the scan names
+        # its exempt files and why. tools/tests/test_trust_scan.py holds it to its fixtures.
+        run: python3 tools/trust-scan.py
 
   java:
     runs-on: ubuntu-latest

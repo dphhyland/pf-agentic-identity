@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.rar;
 
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -22,6 +23,8 @@ public final class GovernanceEngineConfig {
     /** The deployment profile that relaxes the development-only rules. Anything else is production. */
     public static final String PROFILE_DEVELOPMENT = "development";
     public static final String PROFILE_PRODUCTION = "production";
+    /** The environment variable the profile is read from, as platform names it. */
+    static final String PROFILE_ENV = DeploymentProfile.SETTING;
 
     /**
      * The detail types that need an authenticated principal before the PDP is asked: a payment or an
@@ -115,13 +118,12 @@ public final class GovernanceEngineConfig {
     public static Builder builder() { return new Builder(); }
 
     /**
-     * The profile a value of {@code OIDF_DEPLOYMENT_PROFILE} names: {@code development} for exactly that
-     * (trimmed, any case), production for anything else including unset. There is no third profile here;
-     * PR-1 (the platform library) centralises the profile and its parsing, and this plugin will read it from
-     * there.
+     * The profile a value of {@code OIDF_DEPLOYMENT_PROFILE} names, as platform's {@link DeploymentProfile} reads
+     * it (plan item PR-1): {@code development} for exactly that (trimmed, any case), production for anything else
+     * including unset. There is no third profile.
      */
     public static String profileOf(String value) {
-        return value != null && value.trim().equalsIgnoreCase(PROFILE_DEVELOPMENT) ? PROFILE_DEVELOPMENT : PROFILE_PRODUCTION;
+        return DeploymentProfile.parse(value).value();
     }
 
     /**

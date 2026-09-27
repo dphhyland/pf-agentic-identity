@@ -5,6 +5,7 @@
 package com.pingidentity.ps.oidf.rar;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.sdk.GuiConfigDescriptor;
 import com.pingidentity.sdk.PluginDescriptor;
 import com.pingidentity.sdk.authorizationdetails.AuthorizationDetail;
@@ -106,7 +107,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String FAIL_OPEN = "Fail open on engine error";
     private static final String ALLOW_CLIENT_ASSERTED_PRINCIPAL = "Trust a client-asserted principal";
     private static final String TRUST_AGENT_MARKER = "Trust the PAR-carried agent marker";
-    private static final String INSECURE_TLS = "Skip TLS verification (dev only)";
+    private static final String INSECURE_TLS = JdkHttpTransport.INSECURE_TLS_SETTING;
     private static final String TIMEOUT_MS = "Request timeout (ms)";
     static final String AUTHENTICATED_PRINCIPAL_TYPES = "Types requiring an authenticated principal";
 
@@ -197,11 +198,11 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     }
 
     /**
-     * {@code OIDF_DEPLOYMENT_PROFILE}, read straight from the environment: unset is production. PR-1 (the
-     * platform library) centralises the profile and its parsing; until then this is the one read here.
+     * This process's profile, as platform's {@link DeploymentProfile} reads {@code OIDF_DEPLOYMENT_PROFILE}
+     * (plan item PR-1): unset is production. The one read here.
      */
     static String deploymentProfile() {
-        return GovernanceEngineConfig.profileOf(System.getenv(PdpUrlPolicy.PROFILE_ENV));
+        return DeploymentProfile.current().value();
     }
 
     /**

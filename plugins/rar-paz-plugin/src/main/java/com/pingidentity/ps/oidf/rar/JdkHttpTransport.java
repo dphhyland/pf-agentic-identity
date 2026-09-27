@@ -3,10 +3,8 @@
  */
 package com.pingidentity.ps.oidf.rar;
 
-import javax.net.ssl.SSLContext;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import javax.net.ssl.SSLException;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.ConnectException;
@@ -21,7 +19,6 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Locale;
 import java.util.Map;
@@ -29,10 +26,11 @@ import java.util.Map;
 /**
  * Posts to the governance engine using the JDK HTTP client. When {@code insecureTls} is set it trusts any
  * server certificate — a scoped dev flag for self-signed test instances, replacing the reference plugin's
- * always-on trust-all manager.
+ * always-on trust-all manager. The trust-all is platform's {@link InsecureTls} (plan item PR-1), which warns
+ * once naming the field and records the use for the start-up audit.
  *
  * <p>The JDK {@code HttpClient} performs TLS hostname verification (endpoint identification) during the
- * handshake even with a trust-all {@link SSLContext}, and it cannot be disabled per client. Give the PDP a
+ * handshake even with a trust-all context, and it cannot be disabled per client. Give the PDP a
  * certificate whose subject alternative name is the host PingFederate dials; the README says why the
  * JVM-wide property that turns the check off must not be set.
  *
@@ -45,14 +43,14 @@ public final class JdkHttpTransport implements HttpTransport {
     private final Duration timeout;
     private final boolean trustsAnyCertificate;
 
+    /** The processor's field that turns the trust-all on, as the admin console labels it: the setting InsecureTls names. */
+    static final String INSECURE_TLS_SETTING = "Skip TLS verification (dev only)";
+
     public JdkHttpTransport(boolean insecureTls, int timeoutMillis) {
         this.timeout = Duration.ofMillis(timeoutMillis > 0 ? timeoutMillis : 10_000);
-        HttpClient.Builder builder = HttpClient.newBuilder().connectTimeout(timeout);
-        if (insecureTls) {
-            builder.sslContext(trustAllContext());
-        }
         this.trustsAnyCertificate = insecureTls;
-        this.client = builder.build();
+        this.client = InsecureTls.trustAnyCertificate(HttpClient.newBuilder().connectTimeout(timeout), INSECURE_TLS_SETTING,
+                insecureTls).build();
     }
 
     /** Whether this transport was built with the trust-all context: what a test of configure asserts on. */
@@ -118,20 +116,5 @@ public final class JdkHttpTransport implements HttpTransport {
             }
         }
         return unreachable ? new PdpUnavailableException("PDP unreachable: " + e, e) : e;
-    }
-
-    private static SSLContext trustAllContext() {
-        try {
-            TrustManager[] trustAll = { new X509TrustManager() {
-                @Override public void checkClientTrusted(X509Certificate[] chain, String authType) { }
-                @Override public void checkServerTrusted(X509Certificate[] chain, String authType) { }
-                @Override public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-            } };
-            SSLContext ctx = SSLContext.getInstance("TLS");
-            ctx.init(null, trustAll, new java.security.SecureRandom());
-            return ctx;
-        } catch (Exception e) {
-            throw new IllegalStateException("failed to build insecure TLS context", e);
-        }
     }
 }

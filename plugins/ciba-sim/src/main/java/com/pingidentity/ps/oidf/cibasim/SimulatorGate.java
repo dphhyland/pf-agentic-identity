@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.cibasim;
 
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -14,7 +15,6 @@ import java.nio.file.attribute.PosixFilePermission;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
 import java.util.EnumSet;
-import java.util.Locale;
 import java.util.Set;
 import java.util.function.Function;
 
@@ -34,13 +34,13 @@ import java.util.function.Function;
  *       write to it can approve a request.</li>
  * </ol>
  *
- * <p>The profile is read from the environment directly, here and in the image's entrypoint. Plan item PR-1
- * (Phase 2) centralises it; until then this is the whole definition.
+ * <p>The profile is platform's {@link DeploymentProfile} (plan item PR-1), shaded into this jar under its own
+ * package; the image's entrypoint applies the same rule in shell.
  */
 final class SimulatorGate {
 
     static final String ENABLED_ENV = "OIDF_CIBA_SIM_ENABLED";
-    static final String PROFILE_ENV = "OIDF_DEPLOYMENT_PROFILE";
+    static final String PROFILE_ENV = DeploymentProfile.SETTING;
     static final String DIR_ENV = "OIDF_CIBA_SIM_DIR";
 
     private static final Set<PosixFilePermission> OWNER_BITS = EnumSet.of(
@@ -61,9 +61,7 @@ final class SimulatorGate {
             return ENABLED_ENV + " is not true";
         }
         if (isProduction(env)) {
-            String profile = env.apply(PROFILE_ENV);
-            return PROFILE_ENV + " is " + (profile == null ? "unset, which is production" : "'" + profile + "', which counts as production")
-                    + "; the simulator never runs there";
+            return DeploymentProfile.describe(env) + "; the simulator never runs there";
         }
         String configured = env.apply(DIR_ENV);
         if (configured == null || configured.isBlank()) {
@@ -89,8 +87,7 @@ final class SimulatorGate {
 
     /** Everything but {@code OIDF_DEPLOYMENT_PROFILE=development} is production, an unset variable included. */
     static boolean isProduction(Function<String, String> env) {
-        String value = env.apply(PROFILE_ENV);
-        return value == null || !"development".equals(value.trim().toLowerCase(Locale.ROOT));
+        return DeploymentProfile.of(env).isProduction();
     }
 
     /** Why {@code dir} may not hold decisions, or null when it may. Every failure to look counts as a refusal. */

@@ -1,0 +1,18 @@
+id: F-0164
+title: A plugin's insecure-TLS use is recorded in its own relocated copy, where the start-up audit cannot see it
+severity: low
+area: platform, rar-paz-plugin
+source: design
+status: open
+plan_items: [F-2]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  InsecureTls records each use in a static of the copy that was loaded (PR1, 2026-09-28), and statics are per
+  loader (docs/development/classloaders.md). The RAR plugin shades and relocates platform, so when its "Skip
+  TLS verification (dev only)" field is honoured the use lands in
+  com.pingidentity.ps.oidf.rar.shaded.platform.tls.InsecureTls, which the webapp's lifecycle listener (F-2)
+  does not load. The WARN still reaches server.log; the audit's list of uses would not include it. F2 decides
+  how the audit learns of a plugin's use - for example through the per-loader MXBean O3 registers, or by
+  reading the plugin's configuration - or says in the banner that plugins report only in the log.

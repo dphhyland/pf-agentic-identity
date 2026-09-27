@@ -7,16 +7,11 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
 import java.util.Map;
 import java.util.Objects;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 /**
  * GET and POST over the JDK {@link HttpClient}, every request screened by an {@link OutboundUrlPolicy}
@@ -28,13 +23,17 @@ import javax.net.ssl.X509TrustManager;
  * per request is sufficient), and a capped body read rather than {@code BodyHandlers.ofString}. POST
  * reports the status to the caller instead of throwing on it (see {@link HttpPostClient}).
  *
- * <p>When constructed with {@code ignoreSslErrors} it trusts all TLS certificates and disables hostname
- * verification - for a development peer over self-signed TLS, never for production.
+ * <p>When constructed with {@code ignoreSslErrors} it trusts any certificate chain - for a development peer over
+ * self-signed TLS, never for production. The trust-all is platform's {@link InsecureTls} (plan item PR-1), which
+ * warns once and records the use; the JDK client still checks that the certificate names the host dialled,
+ * unless the JVM-wide {@code jdk.internal.httpclient.disableHostnameVerification} is set (finding F-0035).
  */
 public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
 
     public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(8);
     public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(15);
+    /** The setting every {@code ignoreSslErrors} here comes from, and the name InsecureTls records the use under. */
+    static final String IGNORE_SSL_SETTING = "OIDF_FEDERATION_IGNORE_SSL_ERRORS";
 
     private final HttpClient httpClient;
     private final OutboundUrlPolicy policy;
@@ -46,7 +45,7 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
 
     public JdkHttpClient(boolean ignoreSslErrors, OutboundUrlPolicy policy, Duration connectTimeout, Duration requestTimeout) {
         Objects.requireNonNull(connectTimeout, "connectTimeout");
-        this.httpClient = ignoreSslErrors ? buildTrustAllClient(connectTimeout) : baseBuilder(connectTimeout).build();
+        this.httpClient = InsecureTls.trustAnyCertificate(baseBuilder(connectTimeout), IGNORE_SSL_SETTING, ignoreSslErrors).build();
         this.policy = Objects.requireNonNull(policy, "policy");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
     }
@@ -135,31 +134,5 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
         return HttpClient.newBuilder()
                 .connectTimeout(connectTimeout)
                 .version(HttpClient.Version.HTTP_1_1);
-    }
-
-    private static HttpClient buildTrustAllClient(Duration connectTimeout) {
-        try {
-            TrustManager[] trustAll = {new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            }};
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustAll, new SecureRandom());
-            SSLParameters sslParameters = new SSLParameters();
-            sslParameters.setEndpointIdentificationAlgorithm(null);
-            return baseBuilder(connectTimeout).sslContext(sslContext).sslParameters(sslParameters).build();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to build trust-all HttpClient", e);
-        }
     }
 }

@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -97,9 +98,13 @@ public final class ReceiverStreamClient {
         this.http.call("DELETE", this.transmitterBase + "/ssf/streams?stream_id=" + streamId, null);
     }
 
-    /** Runtime transport: JSON calls with a management bearer token. */
+    /**
+     * Runtime transport: JSON calls with a management bearer token. {@code insecureTls} is the receiver's switch
+     * and trusts any certificate chain through platform's {@link InsecureTls}; the host name is still checked.
+     */
     public static HttpJson httpTransport(String bearerToken, boolean insecureTls) {
-        HttpClient http = insecureTls ? PollReceiverClient.TrustAll.client() : HttpClient.newHttpClient();
+        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), PollReceiverClient.RECEIVER_INSECURE_TLS,
+                insecureTls).build();
         return (method, url, bodyJson) -> {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
                     .header("Accept", "application/json")
