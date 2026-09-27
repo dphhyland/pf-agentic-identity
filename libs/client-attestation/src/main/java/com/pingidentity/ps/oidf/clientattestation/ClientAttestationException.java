@@ -21,9 +21,11 @@ public final class ClientAttestationException extends Exception {
     /** The presentation omits a claim this AS requires to be disclosed (federation-gated disclosure). */
     public static final String INSUFFICIENT_DISCLOSURE = "insufficient_disclosure";
     /**
-     * RFC 6749 §5.2: "The authorization server is currently unable to handle the request due to a temporary
-     * overloading or maintenance of the server." Raised when the challenge or replay store cannot answer, so
-     * the client retries later rather than reading a refusal about its own credential.
+     * Raised when the challenge or replay store cannot answer, so the client retries later rather than reading
+     * a refusal about its own credential; the token endpoint answers it with 503. The code is RFC 6749's, defined
+     * in §4.1.2.1 for the authorization endpoint's redirect: "The authorization server is currently unable to
+     * handle the request due to a temporary overloading or maintenance of the server." §5.2, the token endpoint's
+     * list, does not include it; using it there is this project's decision (plan item S3a).
      */
     public static final String TEMPORARILY_UNAVAILABLE = "temporarily_unavailable";
 

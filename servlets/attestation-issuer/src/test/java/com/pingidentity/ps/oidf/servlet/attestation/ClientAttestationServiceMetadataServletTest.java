@@ -102,10 +102,28 @@ class ClientAttestationServiceMetadataServletTest {
     }
 
     @Test
-    void cimdSourceAdvertisedWhenBundlesConfigured() throws Exception {
+    void cimdSourceAdvertisedWhenBundlesConfiguredInDevelopment() throws Exception {
+        String bundles = "{\"banking.demo\":{\"keys\":[]}}";
+        assertEquals(List.of("cimd", "registration"), ClientAttestationServiceMetadataServlet.metadataSources(
+                k -> "oidf.cimd.trust.bundles".equals(k) ? bundles : null,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "development" : null));
+        assertEquals(List.of("cimd", "registration"), ClientAttestationServiceMetadataServlet.metadataSources(
+                k -> " ", Map.of("OIDF_CIMD_TRUST_BUNDLES", bundles, "OIDF_DEPLOYMENT_PROFILE", "development")::get),
+                "the variable when the property is blank");
+    }
+
+    /** M-1: outside development the attester refuses the CIMD source, so the document does not advertise it. */
+    @Test
+    void cimdSourceIsNotAdvertisedOutsideDevelopment() throws Exception {
         System.setProperty("oidf.cimd.trust.bundles", "{\"banking.demo\":{\"keys\":[]}}");
-        Map<String, Object> m = initialized(Map.of()).metadata(ISSUER);
-        assertEquals(List.of("cimd", "registration"), m.get("client_metadata_sources_supported"));
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(System::getProperty, k -> null),
+                "an unset profile is production");
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(System::getProperty,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "production" : null));
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(k -> null, k -> null),
+                "no bundles, no cimd, in any profile");
+        assertEquals(List.of("registration"), ClientAttestationServiceMetadataServlet.metadataSources(k -> null,
+                k -> "OIDF_DEPLOYMENT_PROFILE".equals(k) ? "development" : " "), "a blank variable is no bundles");
     }
 
     @Test

@@ -112,7 +112,7 @@ public final class EvidencePolicy {
     public void check(InstanceIdentity instance, long nowEpochSeconds) throws IssuanceException {
         long remaining = instance.expEpochSeconds() - nowEpochSeconds;
         if (remaining > this.maxEvidenceLifetimeSeconds) {
-            throw refuse(instance, "evidence lives " + remaining + " s longer, which is more than the " + this.maxEvidenceLifetimeSeconds
+            throw refuse(instance, "the evidence has " + remaining + " s of life left, more than the " + this.maxEvidenceLifetimeSeconds
                     + " s this attester accepts (" + MAX_LIFETIME_ENV + "); present shorter-lived evidence");
         }
         if (this.requireSingleAudience && instance.audiences().size() > 1) {

@@ -216,10 +216,10 @@ class RedisAttestationStoreTest {
     }
 
     @Test
-    void aKeyThatCanNeitherBeTakenNorReadIsRefusedNotBound() {
+    void aKeyThatCanNeitherBeTakenNorReadIsUnavailableNotAConflict() {
         redis.phantomKeys();
-        assertEquals(Binding.CONFLICT, store.bind("sha-1", "jkt-1", "c", now() + 600L),
-                "no binding could be made or read: fail closed");
+        assertEquals(Binding.STORE_UNAVAILABLE, store.bind("sha-1", "jkt-1", "c", now() + 600L),
+                "no binding could be made or read: refused as an outage, and not audited as a theft nobody attempted");
     }
 
     @Test

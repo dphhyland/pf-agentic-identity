@@ -21,7 +21,7 @@ import org.apache.commons.logging.LogFactory;
  *   <li>challenge issue → {@code SET <ns>:challenge:<value> 1 EX <ttl>} (Redis expires it natively);</li>
  *   <li>challenge consume → {@code DEL} (returns 1 only if present and unexpired - strict single-use);</li>
  *   <li>replay record → {@code SET <ns>:jti:<client> <jti> 1 NX EX <ttl>} ({@code OK} only for the first writer);</li>
- *   <li>evidence bind → {@code SET <ns>:evidence:<sha256> "<jkt> <client>" NX EX <until the evidence expires>},
+ *   <li>evidence bind → {@code SET <ns>:evidence:<sha256> "<jkt> <client>" NX PX <ms until the evidence expires>},
  *       and when that finds the key taken, {@code GET} and compare. {@code NX} makes the winner of a race stable:
  *       two nodes presenting the same evidence at once get one {@code OK} between them.</li>
  * </ul>
@@ -132,12 +132,13 @@ public final class RedisAttestationStore implements AttestationChallengeService,
         }
         String key = this.namespace.evidenceKey(evidenceDigest);
         String value = jkt + " " + (clientId == null ? "" : clientId);
-        long ttl = Math.max(1L, evidenceExpEpochSeconds - this.clock.instant().getEpochSecond());
+        // Until the evidence expires, to the millisecond; evidence already expired is held for a second, not forever.
+        long ttlMillis = Math.max(1000L, evidenceExpEpochSeconds * 1000L - this.clock.millis());
         try {
             // Two attempts: the first SET NX can lose to a key that expires between it and the GET, in which
-            // case the second SET NX takes it. A key that is neither settable nor readable is refused.
+            // case the second SET NX takes it.
             for (int attempt = 0; attempt < 2; attempt++) {
-                Object reply = this.client.call("SET", key, value, "NX", "EX", Long.toString(ttl));
+                Object reply = this.client.call("SET", key, value, "NX", "PX", Long.toString(ttlMillis));
                 if ("OK".equals(reply)) {
                     return Binding.BOUND;
                 }
@@ -146,7 +147,10 @@ public final class RedisAttestationStore implements AttestationChallengeService,
                     return value.equals(bound) ? Binding.BOUND : Binding.CONFLICT;
                 }
             }
-            return Binding.CONFLICT;
+            // A key that twice could be neither taken nor read: nothing was bound and nothing was learned about
+            // who holds it, so this is the store failing to answer - not a conflict, which would audit a theft.
+            LOGGER.error((Object) ("Redis evidence binding for " + key + " could be neither set nor read; the request is refused as unavailable"));
+            return Binding.STORE_UNAVAILABLE;
         } catch (IOException | RuntimeException e) {
             LOGGER.error((Object) "Redis evidence binding failed; the request is refused as unavailable", e);
             return Binding.STORE_UNAVAILABLE;

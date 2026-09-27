@@ -43,13 +43,15 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   and the attester share state even when loaded by different classloaders. Every verdict is three-valued:
   `FIRST_USE | REPLAY | STORE_UNAVAILABLE`, `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`,
   `BOUND | CONFLICT | STORE_UNAVAILABLE`. A store that cannot answer is `STORE_UNAVAILABLE`, which every
-  caller turns into 503 `temporarily_unavailable` (RFC 6749 §5.2), and never into a replay, an unknown
-  challenge or a conflict - those are findings about the client. The boolean views `firstSeen` and
+  caller turns into 503 `temporarily_unavailable` (RFC 6749 defines the code in §4.1.2.1, for the
+  authorization endpoint; answering it with a 503 at the token, challenge and attester endpoints is plan
+  item S3a's decision), and never into a replay, an unknown challenge or a conflict - those are findings
+  about the client. The boolean views `firstSeen` and
   `consume` remain for callers written against them and throw `StoreUnavailableException` (an
   `IllegalStateException`) for an outage rather than answering `false`.
 - **`RedisAttestationStore` / `MiniRedisClient`** — the shared store over a dependency-free RESP client
   (`redis://` and `rediss://`, small bounded pool). Issue is `SET … EX`, consume is `DEL`, first-seen is
-  `SET … NX EX`, bind is `SET … NX EX` then `GET` and compare. `rediss://` verifies the server the way a
+  `SET … NX EX`, bind is `SET … NX PX` then `GET` and compare. `rediss://` verifies the server the way a
   browser does - its certificate chains to a trusted CA (the JVM's, or `OIDF_REDIS_CA_FILE`) and names the
   URL's host (the HTTPS endpoint identification algorithm), with the host sent as SNI - and the handshake
   completes before `AUTH` is encoded, so the password never travels before the peer is verified. Under

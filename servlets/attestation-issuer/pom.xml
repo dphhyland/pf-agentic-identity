@@ -130,6 +130,8 @@
                                         <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.effectiveTtlSeconds(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.isProduction(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.ofSpiffe(*</include>
+                                        <!-- M-1: the CAS document does not advertise a CIMD source the attester refuses. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.ClientAttestationServiceMetadataServlet.metadataSources(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

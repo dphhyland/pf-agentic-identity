@@ -879,12 +879,17 @@ class ClientAttestationAuthFilterTest {
     // ---- S3a: the status a verification failure answers with -----------------------------------------
 
     /**
-     * RFC 6749 §5.2, {@code temporarily_unavailable}: "The authorization server is currently unable to handle the
-     * request due to a temporary overloading or maintenance of the server." That is the 503, and the only one;
-     * a challenge to fetch is 400 and everything the client got wrong is 401.
+     * A store that cannot answer is the 503, and the only one; a challenge to fetch is 400 and everything the
+     * client got wrong is 401.
+     *
+     * RFC 6749 defines the code in §4.1.2.1 for the authorization endpoint's redirect: "The authorization server
+     * is currently unable to handle the request due to a temporary overloading or maintenance of the server. (This
+     * error code is needed because a 503 Service Unavailable HTTP status code cannot be returned to the client via
+     * an HTTP redirect.)" §5.2, the token endpoint's list, does not include it. Using it here, with the 503 as well,
+     * is this project's decision (plan item S3a), not a requirement of either section, so the test carries no
+     * {@code @Requirement}.
      */
     @Test
-    @Requirement("RFC6749 §5.2")
     void anUnavailableStoreIs503AChallengeToFetchIs400AndTheRestIs401() {
         assertEquals(503, ClientAttestationAuthFilter.statusFor(ClientAttestationException.temporarilyUnavailable("store down")));
         assertEquals(400, ClientAttestationAuthFilter.statusFor(ClientAttestationException.useChallenge("fetch one")));

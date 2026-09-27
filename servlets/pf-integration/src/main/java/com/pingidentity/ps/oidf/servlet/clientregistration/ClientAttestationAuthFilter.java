@@ -439,8 +439,9 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     /**
      * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch, 503 when the
-     * challenge or replay store could not answer (RFC 6749 §5.2 {@code temporarily_unavailable}: an outage of ours,
-     * never reported as a replay), 401 for everything the client got wrong.
+     * challenge or replay store could not answer ({@code temporarily_unavailable}, RFC 6749 §4.1.2.1's code for the
+     * condition, used at this endpoint by plan item S3a: an outage of ours, never reported as a replay), 401 for
+     * everything the client got wrong.
      */
     static int statusFor(ClientAttestationException e) {
         if (ClientAttestationException.USE_ATTESTATION_CHALLENGE.equals(e.error())) {

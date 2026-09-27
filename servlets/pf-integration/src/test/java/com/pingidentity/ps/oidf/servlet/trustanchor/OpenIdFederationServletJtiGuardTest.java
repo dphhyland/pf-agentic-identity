@@ -26,8 +26,14 @@ class OpenIdFederationServletJtiGuardTest {
         assertFalse(OpenIdFederationServlet.assertionNotSpent(spent, "https://rp.example", "j1", 60L));
     }
 
+    /**
+     * OpenID Federation 1.0 §8.9: "temporarily_unavailable - The server hosting the federation endpoint is currently
+     * unable to handle the request due to temporary overloading or maintenance. The HTTP response status code SHOULD
+     * be 503 (Service Unavailable)." A store that cannot say whether the assertion's {@code jti} was spent is that
+     * condition, and never a spent {@code jti}.
+     */
     @Test
-    @Requirement("RFC6749 §5.2")
+    @Requirement("OIDFED §8.9")
     void aStoreThatCannotAnswerIsTemporarilyUnavailableNotASpentJti() {
         AttestationReplayCache down = (client, jti, ttl) -> Verdict.STORE_UNAVAILABLE;
         FederationException e = assertThrows(FederationException.class,

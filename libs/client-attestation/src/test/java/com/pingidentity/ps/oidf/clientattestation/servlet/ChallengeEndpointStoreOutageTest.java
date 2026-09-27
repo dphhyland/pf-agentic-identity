@@ -5,7 +5,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.pingidentity.ps.oidf.conformance.Requirement;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +19,10 @@ import org.mockito.ArgumentCaptor;
  * would fetch another to meet the same store. The endpoint answers 503 {@code temporarily_unavailable} instead.
  * The store is a TLS Redis on a port nothing listens on, which the production profile accepts as a URL and
  * which fails at the first command.
+ *
+ * <p>No {@code @Requirement}: RFC 6749 defines {@code temporarily_unavailable} in §4.1.2.1, for the authorization
+ * endpoint's redirect, and this endpoint is ABCA's challenge endpoint. The 503 and the code are this project's
+ * decision (plan item S3a).
  */
 class ChallengeEndpointStoreOutageTest {
     private static final String REDIS_URL_PROPERTY = "oidf.redis.url";
@@ -35,7 +38,6 @@ class ChallengeEndpointStoreOutageTest {
     }
 
     @Test
-    @Requirement("RFC6749 §5.2")
     void anUnavailableStoreAnswers503WithTemporarilyUnavailableAndNoChallenge() throws Exception {
         ClientAttestationChallengeServlet servlet = new ClientAttestationChallengeServlet();
         HttpServletRequest req = mock(HttpServletRequest.class);

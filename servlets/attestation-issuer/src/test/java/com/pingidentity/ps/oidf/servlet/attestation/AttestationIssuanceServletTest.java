@@ -1194,6 +1194,10 @@ class AttestationIssuanceServletTest {
         void run() throws Exception;
     }
 
+    /**
+     * CAS §4.5, of {@code workload.instance_attestation_sha256}: "The Instance Attestation itself MUST NOT be embedded
+     * (Section 9.1)." Decoded from the minted JWT, so nothing the plugin or a token mapping forwards can carry it.
+     */
     @Test
     @Requirement("CAS §4.5")
     void theMintedAttestationCarriesTheEvidenceDigestAndNotTheEvidence() throws Exception {
@@ -1244,8 +1248,12 @@ class AttestationIssuanceServletTest {
         assertFalse(workload.containsKey("svid"));
     }
 
+    /**
+     * CAS §9.1: "It SHOULD refuse a later presentation by another key or client with {@code instance_attestation_bound}
+     * and record it." The record is the audit event, with both thumbprints' worth of detail.
+     */
     @Test
-    @Requirement("CAS §4.4")
+    @Requirement("CAS §9.1")
     void evidencePresentedWithASecondInstanceKeyIsRefusedAndAudited() throws Exception {
         AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
         servlet.issue(first);
@@ -1279,8 +1287,12 @@ class AttestationIssuanceServletTest {
         assertNotNull(servlet.issue(again).get("attestation"), "the same evidence with the same key re-attests");
     }
 
+    /**
+     * CAS §9.1: the CAS binds each Instance Attestation "only once every step of Section 4.4 has passed, so a refused
+     * request never holds a binding."
+     */
     @Test
-    @Requirement("CAS §4.4")
+    @Requirement("CAS §9.1")
     void aRefusedPresenterDoesNotHoldTheBindingAgainstTheRightfulKey() throws Exception {
         // A WIA names the rightful instance key. Someone holding the WIA but not that key presents it with a key
         // of their own: the key proof verifies (it is their key), the cnf check refuses them - and the binding
@@ -1318,8 +1330,12 @@ class AttestationIssuanceServletTest {
         assertEquals("instance_attestation_bound", assertThrows(IssuanceException.class, () -> servlet.issue(again)).error());
     }
 
+    /**
+     * CAS §4.6: "{@code temporarily_unavailable} - The CAS cannot check the request now - for example, the store
+     * that tracks challenges, proof {@code jti}s or bindings does not answer - and the client may retry later. (503)"
+     */
     @Test
-    @Requirement("RFC6749 §5.2")
+    @Requirement("CAS §4.6")
     void aStoreThatCannotAnswerIsTemporarilyUnavailableNotARefusal() throws Exception {
         servlet.setEvidenceBindingStore((digest, jkt, client, exp) -> EvidenceBindingStore.Binding.STORE_UNAVAILABLE);
         IssuanceException binding = assertThrows(IssuanceException.class,
@@ -1382,6 +1398,7 @@ class AttestationIssuanceServletTest {
         assertNotNull(servlet.issue(req).get("attestation"), "the same evidence is accepted when the policy does not require one");
     }
 
+    /** CAS §4.5, of {@code workload.instance_attestation_exp}: "The Client Attestation's {@code exp} MUST NOT be later." */
     @Test
     @Requirement("CAS §4.5")
     void theAttestationExpiresNoLaterThanItsEvidence() throws Exception {

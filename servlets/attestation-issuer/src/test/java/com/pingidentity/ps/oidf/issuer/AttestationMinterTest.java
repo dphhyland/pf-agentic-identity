@@ -174,6 +174,7 @@ class AttestationMinterTest {
 
     // ---- S3b: the attestation never outlives its evidence, and says what the evidence was without carrying it ----
 
+    /** CAS §4.5, of {@code workload.instance_attestation_exp}: "The Client Attestation's {@code exp} MUST NOT be later." */
     @Test
     @Requirement("CAS §4.5")
     void theAttestationExpiresNoLaterThanItsEvidence() throws Exception {

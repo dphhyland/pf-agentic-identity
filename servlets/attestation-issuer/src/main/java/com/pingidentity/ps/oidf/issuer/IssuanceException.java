@@ -79,10 +79,11 @@ public final class IssuanceException extends Exception {
     }
 
     /**
-     * The challenge, replay or evidence-binding store could not answer. RFC 6749 §5.2 names the code: "The
-     * authorization server is currently unable to handle the request due to a temporary overloading or
-     * maintenance of the server." The caller retries later with the same evidence and proof; nothing about
-     * its request was found wanting.
+     * The challenge, replay or evidence-binding store could not answer (CAS §4.6). Nothing about the request was
+     * found wanting, so the caller retries later with the same evidence and a fresh proof: the proof's challenge
+     * or {@code jti} may have been spent before the store stopped answering. The code is RFC 6749's, defined in
+     * §4.1.2.1: "The authorization server is currently unable to handle the request due to a temporary overloading
+     * or maintenance of the server."
      */
     public static IssuanceException temporarilyUnavailable(String message) {
         return new IssuanceException("temporarily_unavailable", 503, message);
