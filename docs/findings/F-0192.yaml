@@ -18,6 +18,9 @@ notes: >
   "Readiness is DOWN for enabled components that aren't READY" - /agentic-identity/health/ready answers 503, so a
   load balancer or orchestrator that routes by readiness keeps the node out of rotation and its entity
   configuration out of reach through it, which is the bootstrap the filters were written to allow. Until then an
-  operator capturing the keys reaches the node directly. Who and when: S9a (Phase 3) gives the component its
+  operator capturing the keys reaches the node directly. Seen on the rig on 2026-09-28 (PingFederate 13.1.3.0,
+  conformance profile): conformance/vars.env names the rig itself as trust controller and anchor with no JWKS, to
+  keep federation inert, so ready answered 503 with AUTO_REGISTRATION FAILED_CONFIG while /pf/heartbeat.ping answered
+  200. Who and when: S9a (Phase 3) gives the component its
   OIDF_AUTO_REGISTRATION_ENABLED switch, so a bootstrap sets it false (the plan's "name yourself as anchor to stay
   inert workaround becomes *_ENABLED=false"); R-I3's HEALTHCHECK must not restart a container for being not ready.
