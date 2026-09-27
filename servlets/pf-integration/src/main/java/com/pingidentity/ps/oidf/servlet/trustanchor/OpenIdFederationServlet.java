@@ -66,8 +66,6 @@ extends RequestScopedServlet {
     private final PfProviderMetadata providerMetadata;
     private static final Log log = LogFactory.getLog(OpenIdFederationServlet.class);
     private static final String TRUST_MARK_STATUS = "/federation/trust_mark_status";
-    /** Where a client's spent endpoint-assertion {@code jti} values are kept, apart from every other replay cache user. */
-
     /** Each federation endpoint this servlet serves, by the §5.1.1 metadata name §8.8.1 builds its {@code _auth_methods} from. */
     static final Map<String, String> ENDPOINTS = Map.of(
             "/federation/fetch", "federation_fetch_endpoint",

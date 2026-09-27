@@ -804,9 +804,10 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /**
-     * The runtime default resolver. If the system property {@code oidf.attester.cimd.url} is set, the
-     * attester's SPIFFE-ID → client mapping is read from that Client ID Metadata Document; otherwise it
-     * reads clients from PingFederate's management store. Overridable so tests bypass both.
+     * The runtime default resolver, {@link AttesterResolvers#fromEnvironment()}: an OpenID Federation entity
+     * when one is named, a Client ID Metadata Document from {@code oidf.attester.cimd.url} only under
+     * {@code OIDF_DEPLOYMENT_PROFILE=development} (plan item M-1), and PingFederate's management store.
+     * Overridable so tests bypass them.
      */
     protected IssuanceClientResolver defaultClientResolver() {
         return AttesterResolvers.fromEnvironment();

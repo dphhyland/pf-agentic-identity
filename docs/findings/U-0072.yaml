@@ -1,4 +1,4 @@
-id: U-0058
+id: U-0072
 title: 'Not exercised on a booted 13.1.3: the evidence-conflict audit event, and a store outage at the token and federation endpoints'
 area: attestation-issuer, pf-integration
 source: pr-review

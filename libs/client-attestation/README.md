@@ -42,13 +42,17 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `AttestationSupport` holds the process-wide singletons so the challenge endpoint, the token-endpoint hook
   and the attester share state even when loaded by different classloaders. Every verdict is three-valued:
   `FIRST_USE | REPLAY | STORE_UNAVAILABLE`, `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`,
-  `BOUND | CONFLICT | STORE_UNAVAILABLE`. A store that cannot answer is `STORE_UNAVAILABLE`, which every
-  caller turns into 503 `temporarily_unavailable` (RFC 6749 defines the code in §4.1.2.1, for the
-  authorization endpoint; answering it with a 503 at the token, challenge and attester endpoints is plan
-  item S3a's decision), and never into a replay, an unknown challenge or a conflict - those are findings
-  about the client. The boolean views `firstSeen` and
-  `consume` remain for callers written against them and throw `StoreUnavailableException` (an
-  `IllegalStateException`) for an outage rather than answering `false`.
+  `BOUND | CONFLICT | STORE_UNAVAILABLE`, where `bind` returns a `Result` that also names, on a conflict,
+  the key and client that hold the binding. A store that cannot answer is `STORE_UNAVAILABLE`, never a
+  replay, an unknown challenge or a conflict - those are findings about the client. The token-endpoint
+  filter, the challenge endpoint, the attester and the federation endpoints answer it with 503
+  `temporarily_unavailable` (RFC 6749 defines the code in §4.1.2.1, for the authorization endpoint; the
+  503 at the token, challenge and attester endpoints is plan item S3a's decision, and OpenID Federation 1.0
+  §8.9 defines it for the federation endpoints). Two callers do not: an OGNL issuance criterion built on
+  `ClientAttestationUtils` fails, as it does for any refusal, and the automatic-registration filter answers
+  500 `server_error`. The boolean views `firstSeen` and `consume` remain for callers written against them
+  and throw `StoreUnavailableException` (an `IllegalStateException`) for an outage rather than answering
+  `false`.
 - **`RedisAttestationStore` / `MiniRedisClient`** — the shared store over a dependency-free RESP client
   (`redis://` and `rediss://`, small bounded pool). Issue is `SET … EX`, consume is `DEL`, first-seen is
   `SET … NX EX`, bind is `SET … NX PX` then `GET` and compare. `rediss://` verifies the server the way a
@@ -59,7 +63,9 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   `oidf:as:*` (the token endpoint's challenges and proof jtis), `oidf:cas:*` (the attester's proof jtis and
   evidence bindings), `oidf:fed:endpoint:*` (spent client assertions at the federation endpoints) and
   `oidf:admin:dpop:*` (reserved for the operator API, S-8). The layout under each: `:challenge:<value>`,
-  `:jti:<client> <jti>`, `:evidence:<sha256>`.
+  `:jti:<client> <jti>`, `:evidence:<digest>`, the digest being the attester's SHA-256 of the evidence's
+  JWS Signing Input. No exception message quotes a URL's userinfo: `MiniRedisClient` replaces it with
+  `***`.
 - **`RarEntitlement`** — RFC 9396 containment: each requested detail must sit within an attested detail
   of the same `type`, with the set-valued fields (`actions`, `locations`, `datatypes`, `privileges`,
   `sales_regions`) compared as subsets.
@@ -78,7 +84,7 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
 | `oidf.redis.url` (system property), then `OIDF_REDIS_URL`, then `REDIS_URL` (env) | unset | Set: challenge, replay and evidence-binding state lives in Redis, cluster-wide, under the namespaces above. Unset: per-node in-memory, which a clustered deployment must not run | Not a `redis://` or `rediss://` URL with a host: first request, every store accessor throws, so the token endpoint answers 500 `server_error` to attested clients and the challenge endpoint and the attester answer 500 - a configuration error, not an outage, so not a 503. `redis://` under the production profile: the same, with a message naming `OIDF_DEPLOYMENT_PROFILE` - the password would cross the network in the clear |
 | `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | unset (the JVM's CAs) | A PEM file of one or more CA certificates to trust for `rediss://`, the shape managed Redis providers publish | Missing, unreadable or holding no certificate: first request, as above, naming the variable |
 | `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store; unset, `production` or anything else is production. Read directly from the environment until plan item PR-1 centralises it | Not checked beyond that: a typo is production |
-| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (servlet init-params) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies | Not an integer: per request, the value is ignored with a warning and the default used |
+| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (servlet init-params) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies | Not an integer: at init, the value is ignored with a warning and the default used |
 
 Everything else is a `ClientAttestationConfig.builder()` call by the host.
 
@@ -87,7 +93,9 @@ Everything else is a `ClientAttestationConfig.builder()` call by the host.
 `jti` (max-age plus skew), up to 660 s for a federation endpoint's client assertion, and as long as its own
 `exp` allows, at most 86400 s, for an automatic registration's request object or client assertion. Until
 then a credential spent against 0.3.0 is not known to 0.4.0 and could be presented to it once more - after
-a stop-the-world upgrade as well as during a rolling one, since 0.4.0 never reads the old keys. Proofs that
+a stop-the-world upgrade as well as during a rolling one, since 0.4.0 never reads the old keys. During a
+rolling upgrade the reverse holds too: a credential spent at a 0.4.0 node is unknown to the 0.3.0 nodes,
+which read only the old prefixes, until the last of them stops. Proofs that
 carry a required challenge cannot cross: a challenge issued by one version is unknown to the other. To close
 the rest, stop every 0.3.0 node and wait out the longest window before starting 0.4.0, or accept it (a
 replay needs an intercepted, spent credential). Nothing needs flushing - the old keys expire on their own -
@@ -111,7 +119,10 @@ mvn -o -pl libs/client-attestation -am verify
 
 The TLS URL must name the host the certificate names (`localhost`), because one test connects by address
 instead and expects the handshake to fail before `AUTH`. In CI the Redis service is plan item R-CI5; until
-it lands these tests skip there, and the fake in-process server covers everything but the handshake.
+it lands these tests skip there. The handshake is covered without them: `MiniRedisClientTlsTest` runs an
+in-JVM TLS server whose certificate `keytool` makes for the run, names `localhost` and not `127.0.0.1`, and
+checks that the client verifies the name, sends it as SNI and sends nothing to an address the certificate
+does not carry. R-CI5 needs a TLS Redis and a CA file, not only a plain one, for `RedisLiveTest`'s TLS half.
 
 ## Security posture
 
@@ -123,10 +134,11 @@ it lands these tests skip there, and the fake in-process server covers everythin
   that encoding was retired; only plain attestation JWTs are accepted.
 - Replay is keyed on `(client_id, jti)` with TTL = max-age + skew. A required-but-missing or unknown
   challenge is `use_attestation_challenge`; an expired attestation is `use_fresh_attestation`.
-- Store failures fail closed — availability is never traded for a replayable credential - and are reported
-  as what they are: 503 `temporarily_unavailable` at the token endpoint, the challenge endpoint and the
-  attester, never as a replay. The automatic-registration filter still takes the boolean view and answers
-  500 `server_error` for an outage; the federation endpoints read the verdict and answer 503.
+- Store failures fail closed - availability is never traded for a replayable credential - and are reported
+  as what they are: 503 `temporarily_unavailable` at the token endpoint, the challenge endpoint, the
+  attester and the federation endpoints, never as a replay. The automatic-registration filter still takes
+  the boolean view and answers 500 `server_error` for an outage, and an OGNL criterion built on
+  `ClientAttestationUtils` fails.
 
 ## Build
 

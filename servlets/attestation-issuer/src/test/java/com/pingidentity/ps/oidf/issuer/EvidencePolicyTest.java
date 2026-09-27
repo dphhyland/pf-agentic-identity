@@ -106,7 +106,7 @@ class EvidencePolicyTest {
                 () -> p.check(issued(NOW - 365L * 86400L + 3600L, NOW + 3600L), NOW));
         assertEquals("invalid_svid", e.error());
         assertTrue(e.getMessage().contains("issued to live"), e.getMessage());
-        // EKS's default projected token lives exactly a day, and is accepted even from an issuer a few seconds ahead.
+        // A token issued for exactly a day is accepted, even from an issuer whose clock is a few seconds ahead.
         org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> p.check(issued(NOW + 5L, NOW + 5L + 86400L), NOW));
         assertThrows(IssuanceException.class, () -> p.check(issued(NOW, NOW + 86401L), NOW));
         assertEquals(NOW, issued(NOW, NOW + 60L).iatEpochSeconds());
