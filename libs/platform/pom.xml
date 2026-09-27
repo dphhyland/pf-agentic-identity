@@ -445,6 +445,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.leave(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.drop(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.HostBulkhead.Place.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.deadlinePassed(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.LogText.clip(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.Builder.build(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.arm(*</include>

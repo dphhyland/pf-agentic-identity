@@ -694,9 +694,10 @@ included.
 <!-- http (S5a): add this package's section below this line -->
 ## http
 
-Outbound HTTP that connects only to an address it checked (plan item S5a, part 1; findings
-[F-0010](../../docs/findings/F-0010.yaml) and [F-0070](../../docs/findings/F-0070.yaml), which stay open until
-S5AR moves oidf-jose onto it and S5d moves the rest). Nothing in the repository calls it yet.
+Outbound HTTP that connects only to an address it checked (plan item S5a; findings
+[F-0010](../../docs/findings/F-0010.yaml), open until S5d moves the call sites that bypass it, and
+[F-0070](../../docs/findings/F-0070.yaml), closed when S5AR moved oidf-jose onto it). oidf-jose's `JdkHttpClient`, and
+so every federation fetch, entity statement, JWKS, trust mark status and AuthZEN PDP call made through it, sends here.
 
 - `Deadline`: an absolute point on the monotonic clock; `remaining()`, `expired()`, `sooner(duration)`, `min`.
 - `Budget`: a deadline and a request count; `spend(what)` takes one request and returns the deadline to make it
@@ -710,7 +711,8 @@ S5AR moves oidf-jose onto it and S5d moves the rest). Nothing in the repository 
   `BODY_TOO_LARGE`, `MALFORMED_RESPONSE` and the rest).
 - `TlsTrust`: the JVM's trust, a supplied `SSLContext`, a CA bundle (`caBundle(path)`), or
   `insecureIf(setting, insecure)`, which takes `InsecureTls`'s trust-all when the setting asks.
-- `Bulkhead`: the seam S5AR's per-host bulkhead plugs into; `Bulkhead.NONE` lets everything in.
+- `Bulkhead`: limits how many requests to one origin run at once; `Bulkhead.NONE` lets everything in, and
+  `HostBulkhead` (below) gives each origin so many places.
 
 ### Why not java.net.http
 
@@ -823,6 +825,26 @@ IPv4 address itself), NAT64 64:ff9b::/96 and 6to4 2002::/16. Two decisions:
   /56, /64 and /96) and refused if any reading is non-public, skipping a shorter reading in 0.0.0.0/8, which is
   what the zero padding of a longer prefix looks like. The cost, a false refusal where the operator's own prefix
   bits read as a private address, is [U-0196](../../docs/findings/U-0196.yaml).
+
+### The bulkhead
+
+`HostBulkhead(max)` lets at most `max` requests to one origin (`scheme://host:port`, `AddressPolicy.Target.origin()`)
+run at once. `OutboundHttp` asks for a place after the address policy passes and before it connects, and gives it
+back when the exchange ends, however it ends (`HostBulkheadTest` covers a refused connect, a malformed response, a
+timeout and an interrupted wait). A request that finds every place taken waits for one until its own deadline and is
+then refused with `BULKHEAD_FULL`, without connecting; so a request never waits longer for a place than it would
+have waited for the peer. An origin is in the table only while a request holds or waits for a place, so
+caller-supplied origins cannot grow it past the requests in flight.
+
+What it does and does not buy: a peer that stops answering holds at most `max` sockets from this process, and the
+load on a struggling peer stays at `max`. A request waiting for a place still holds its caller's thread until its
+deadline, so it does not free threads, and each origin counts alone, so it does nothing against many origins at once
+(S5b's budget bounds those). The default, `HostBulkhead.DEFAULT_MAX_PER_ORIGIN`, is 32: a federation fetch from a
+healthy peer takes milliseconds, so 32 at once serve hundreds a second to one peer, and the limit bites only when the
+peer is slow. oidf-jose's `JdkHttpClient` shares one `HostBulkhead` of 32 across every client in its loaded copy,
+because several of its callers make a client per request. There is no setting: a deployment that needs more than 32
+concurrent requests to one peer from one node is not one this repository has seen, and a caller that does can build
+its own `HostBulkhead`.
 
 ### What the deadlines do not bound
 
