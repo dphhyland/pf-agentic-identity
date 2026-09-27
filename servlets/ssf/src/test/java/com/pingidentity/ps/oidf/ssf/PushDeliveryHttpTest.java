@@ -9,15 +9,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.sun.net.httpserver.HttpServer;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.Flow;
 import java.util.concurrent.TimeUnit;
@@ -101,6 +107,73 @@ class PushDeliveryHttpTest {
         } finally {
             released.countDown();
             server.stop(0);
+        }
+    }
+
+    /** Reads one request - its head, then as many body bytes as it declares - so what follows is the next read. */
+    private static void readRequest(InputStream in) throws Exception {
+        ByteArrayOutputStream head = new ByteArrayOutputStream();
+        int matched = 0; // how much of CRLF CRLF has just been read
+        while (matched < 4) {
+            int b = in.read();
+            if (b < 0) {
+                throw new IllegalStateException("the connection closed inside the request head");
+            }
+            head.write(b);
+            boolean expected = b == (matched % 2 == 0 ? '\r' : '\n');
+            matched = expected ? matched + 1 : (b == '\r' ? 1 : 0);
+        }
+        int length = 0;
+        for (String line : head.toString(StandardCharsets.ISO_8859_1).split("\r\n")) {
+            if (line.toLowerCase(Locale.ROOT).startsWith("content-length:")) {
+                length = Integer.parseInt(line.substring("content-length:".length()).trim());
+            }
+        }
+        in.readNBytes(length);
+    }
+
+    /**
+     * The deadline gives the thread back and the connection goes with it: the receiver sends its status line
+     * and part of a body, then waits, and sees the transmitter close the socket at the deadline. Without the
+     * cancel in {@code PushDeliveryService.send} the socket stays open after the thread has moved on (tried by
+     * hand on JDK 17, 20 and 21.0.12.1, 2026-09-27), and a receiver that stalls every body would hold one of
+     * our connections per attempt (U-0058).
+     */
+    @Test
+    void aStalledExchangeIsClosedAtTheDeadline() throws Exception {
+        try (ServerSocket receiver = new ServerSocket(0, 1, InetAddress.getLoopbackAddress())) {
+            CompletableFuture<String> seen = new CompletableFuture<>();
+            Thread accept = new Thread(() -> {
+                try (Socket s = receiver.accept()) {
+                    readRequest(s.getInputStream());
+                    OutputStream out = s.getOutputStream();
+                    out.write("HTTP/1.1 503 Service Unavailable\r\nContent-Length: 100\r\n\r\npartial..."
+                            .getBytes(StandardCharsets.ISO_8859_1));
+                    out.flush();
+                    s.setSoTimeout(5_000);
+                    try {
+                        seen.complete(s.getInputStream().read() == -1 ? "closed" : "a byte after the request");
+                    } catch (SocketTimeoutException stillOpen) {
+                        seen.complete("still open 5 s after the headers");
+                    } catch (SocketException reset) {
+                        seen.complete("closed");
+                    }
+                } catch (Exception e) {
+                    seen.completeExceptionally(e);
+                }
+            });
+            accept.setDaemon(true);
+            accept.start();
+
+            long started = System.nanoTime();
+            PushDeliveryService.DeliveryResult r = client().deliver(
+                    "http://127.0.0.1:" + receiver.getLocalPort() + "/set", "Bearer t", "eyJ.set.jws");
+            String verdict = seen.get(10, TimeUnit.SECONDS);
+            long elapsedMs = (System.nanoTime() - started) / 1_000_000;
+
+            assertEquals(PushDeliveryService.Outcome.RETRYABLE, r.outcome(), r.message());
+            assertEquals("closed", verdict, "the connection outlived the attempt");
+            assertTrue(elapsedMs < 3_000, "closed " + elapsedMs + " ms after the attempt began");
         }
     }
 
