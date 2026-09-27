@@ -89,46 +89,72 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   it would have transmitted while paused"; disabled, "The Transmitter MUST NOT transmit events over the
   stream". The loop reads the stream again before it posts, so a stream paused between selection and
   delivery is still held.
-- **A stream gets one failed attempt per tick.** After a retryable failure its remaining SETs in the batch
-  are left as they are - still due, still in order, read again next tick. A receiver that is down costs one
-  attempt per tick, not one per queued SET. The attempt is counted on the SET that was tried, so a stream
-  still dead-letters (`paused`, with the reason recorded) after `pushRetryMaxAttempts` failed ticks.
+- **A stream that fails waits, whole.** After a retryable failure nothing more of that stream is tried in
+  the tick, and in later ticks nothing of it is tried while its oldest SET is waiting out the backoff that
+  failure set: its later SETs are due, but posting them would put them in front of the one that failed. So a
+  receiver that is down costs one attempt per backoff step (5, 10, 20, 40 s at the defaults), not one per
+  queued SET or one per tick, and when it is back the SET that failed goes first and the rest follow in the
+  order they were issued. The attempts are counted on that oldest SET, and the stream dead-letters (`paused`,
+  with the reason recorded) when it has failed `pushRetryMaxAttempts` times: about 75 s after the first
+  failure at the defaults when the receiver refuses at once, as before, and about 100 s when every attempt
+  runs to the 10 s deadline.
 - **A POST ends at its deadline.** Connect 2 s; 10 s for the whole exchange, body included; at most 4 KiB
   of a response body read (only a 400's body is used, for the log line). `HttpRequest.timeout` alone bounds
   the wait for the headers and nothing after them, so the exchange is waited on as a whole and cancelled
   when the deadline passes. These are constants (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`,
   `RESPONSE_BODY_CAP`) until S-5 makes them settings. Before this, `HttpClient.newHttpClient()` had no
   timeout at all: a receiver that accepted the connection and never answered held the thread, and every
-  stream's delivery, for as long as it kept the socket open.
+  stream's delivery, for as long as it kept the socket open. The cancel closes the connection too, so a
+  receiver that stalls every body keeps none of ours: `PushDeliveryHttpTest` has one send its status line
+  and part of a body and see the socket close at the deadline, and by hand on JDK 17, 20 and 21.0.12.1 (the
+  runtime of the PingFederate 13.1.3 image) the socket stayed open without the cancel and closed with it
+  (2026-09-27).
 - **The loop starts at boot.** `SsfSupport.start` - what every servlet's `bootstrap` runs - starts it once
   the store is open, and the first servlet to run it is `SsfConfigurationServlet`, `loadOnStartup=1`.
   Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
   until a receiver's first management request, and nothing at all on a node no receiver managed streams on.
-  Verified 2026-09-27 on the rig (13.1.3.0, this branch's jars): `SSF push delivery executor started` is
-  logged at 02:29:11,125, the runtime listener on 9031 starts at 02:29:13,764 and `PingFederate started` is
-  at 02:29:14,728 - the loop ran before any request could arrive, and the annotation's `loadOnStartup` is
-  honoured in the merged `pf-runtime.war`.
+  Verified 2026-09-27 on the rig (PingFederate 13.1.3, this branch's jars at `e858f9e`): `SSF push delivery
+  executor started` is logged at 03:41:43,415 UTC, the runtime listener on 9031 starts at 03:41:45,160 and
+  `PingFederate started` at 03:41:45,742, with nothing in `audit.log` - the loop ran before any request could
+  arrive, and the annotation's `loadOnStartup` is honoured in the merged `pf-runtime.war`.
+
+The selection and the loop are tested against the stores as they run. `SsfStoresOnPostgresTest` runs the
+`tables` and `ldm` stores' `dueForPush`, and three ticks of the loop over each, against Postgres - the `ldm`
+store on the model repo's `0000` and `0001` migrations, vendored under `src/test/resources/idm` - and CI's
+`java` job runs it against its Postgres service. The `tables` store's selection and the same three ticks were
+also run once on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships (2026-09-27).
 
 **What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
-older than another's still fills the batch, though now for one bounded attempt per tick; one thread; no
-leases, so every node in a cluster runs the loop against the shared store (F-0007, single node until
-v0.7.0); dead-letter drops nothing but pauses the stream. Push delivery has still not been run against the
-conformance suite: it needs a suite PingFederate can call back ([conformance/README.md](../../conformance/README.md)).
+older than another's still fills the batch, and a receiver that answers slowly but successfully holds the
+loop for as long as its SETs take, up to 10 s each; one thread; no leases, so every node in a cluster runs
+the loop against the shared store (F-0007, single node until v0.7.0); dead-letter drops nothing but pauses
+the stream. Push delivery has still not been run against the conformance suite: it needs a suite PingFederate
+can call back ([conformance/README.md](../../conformance/README.md)).
 
 ## Boot
 
 `SsfSupport.start` never throws. It configures the transmitter (which, for the `tables` store, applies the
 DDL), runs the servlet layer's wiring (the receiver's PingFederate actions and polling, the audit source),
 and starts the push loop. A store that cannot be opened - the data store down at boot, the DDL refused - is
-one ERROR line naming the cause, the SSF endpoints staying off, and another try every 30 s
+one ERROR line naming the cause, SSF endpoints that fail, and another try every 30 s
 (`SsfSupport.bootRetrySeconds`, a constant until S-5) until the store opens; the loops start on the try that
-succeeds. The behaviour until 0.4.0 was the exception escaping `SsfConfigurationServlet.init`, which loads at
-start-up ("Found while designing" 11; what PingFederate's container made of a load-on-startup servlet failing
-that way was not reproduced - U-0057), and a `configure` that had already assigned its configuration before
-the store failed, so every later servlet found it "configured" and no store behind it.
+succeeds. While it is down the SSF endpoints throw `IllegalStateException` on use (the container's 500, with
+`SsfSupport.NOT_CONFIGURED` in the log), the same as a transmitter with no issuer, and PingFederate's own
+endpoints are untouched. Each failed try is logged.
 
-While the store is down the SSF endpoints throw `IllegalStateException` on use (the container's 500), the
-same as a transmitter with no issuer. The retry is logged each time it fails.
+Seen on the rig on 2026-09-27 (PingFederate 13.1.3, the branch's jars at `e858f9e`), with a `tables` store on a
+`jdbcUrl` whose database was started about two seconds after PingFederate: the ERROR at 03:42:28,675 UTC,
+`PingFederate started` at 03:42:31,105, the SSF endpoints answering 500 while discovery, the heartbeat and the
+federation endpoints answered 200, and at 03:42:58,677 - the try 30 s after the ERROR - the store opened, the
+audit source attached and the push loop started; `/.well-known/ssf-configuration` answered 200 from then on.
+
+Until 0.4.0 the exception escaped `SsfConfigurationServlet.init`, which loads at start-up ("Found while
+designing" 11), and Jetty fails the whole merged `pf-runtime.war` on a load-on-startup servlet whose init
+throws. On the same rig, with `OpenIdFederationServlet`'s init made to throw (no trust anchor named), Jetty
+logged `Failed startup of context` for `pf-runtime.war` and every runtime endpoint on 9031 answered 503 -
+discovery, the token endpoint, the heartbeat, SSF - while the admin console answered (U-0057). And a
+`configure` that failed had already assigned its configuration, so every later servlet found it "configured"
+with no store behind it.
 
 ## SET expiry
 
@@ -258,10 +284,13 @@ Nothing to configure. What changes on the first boot after the upgrade:
 - Held SETs on a paused or disabled stream are no longer read for push. They were never delivered before
   either; they still expire after `setTtlSeconds`, and deliver when the stream is enabled.
 - A receiver that takes longer than 10 s to answer a POST, or 2 s to accept the connection, is a retryable
-  failure now, and its stream dead-letters after `pushRetryMaxAttempts` such ticks (about 2.5 minutes at
-  the defaults). Before, the loop waited for it, and for nothing else.
-- A data store that is down when PingFederate boots no longer stops `pf-runtime.war` starting. Watch for
-  `SSF transmitter NOT started` in the server log: the SSF endpoints answer 500 until the retry succeeds.
+  failure now, and its stream dead-letters when its oldest SET has failed `pushRetryMaxAttempts` times
+  (about 100 s at the defaults). Before, the loop waited for it, and for nothing else.
+- A stream whose delivery fails sends nothing more until the SET that failed is due again, and then sends
+  that SET first. Until 0.4.0 the SETs behind it were tried in the meantime, and could arrive first.
+- A data store that is down when PingFederate boots no longer stops `pf-runtime.war` starting - until 0.4.0
+  every runtime endpoint answered 503 ([Boot](#boot)). Watch for `SSF transmitter NOT started` in the server
+  log: the SSF endpoints answer 500 until a retry opens the store.
 
 ### Upgrading
 

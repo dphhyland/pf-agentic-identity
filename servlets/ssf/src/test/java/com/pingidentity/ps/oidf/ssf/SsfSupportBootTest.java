@@ -15,8 +15,9 @@ import org.junit.jupiter.api.Test;
 
 /**
  * "Found while designing" 11: {@code SsfConfigurationServlet} loads at start-up and let a boot-time DB error
- * escape its {@code init} (what the container made of that is U-0057). {@link SsfSupport#start} is the path
- * every servlet's init takes now, and these are its promises.
+ * escape its {@code init}, which fails the whole {@code pf-runtime.war} (U-0057). {@link SsfSupport#start} is
+ * the path every servlet's init takes now, and these are its promises; the same path was run in PingFederate
+ * 13.1.3 with a store whose database came up after boot (the README's Boot section).
  */
 class SsfSupportBootTest {
 

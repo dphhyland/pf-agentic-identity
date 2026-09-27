@@ -136,10 +136,12 @@ public final class SsfSupport {
      * on start-up, so the loop runs before any request arrives. Returns whether the transmitter is up.
      *
      * <p>Never throws. Before 0.4.0 a store that could not be opened threw out of the servlet's
-     * {@code init} - for the load-on-startup servlet, at boot ("Found while designing" 11; what the container
-     * made of that is U-0057, not reproduced). Now it is an ERROR in the log, endpoints that stay disabled,
-     * and a retry every {@link #bootRetrySeconds} until the store can be opened; the loops start on the retry
-     * that succeeds. The wiring is guarded the same way: a failure there is logged and the loop still starts.
+     * {@code init} - for the load-on-startup servlet, at boot ("Found while designing" 11) - and Jetty fails
+     * the whole {@code pf-runtime.war} on a load-on-startup servlet that throws: every runtime endpoint
+     * answers 503 (seen on 13.1.3 with another such servlet's init throwing, U-0057). Now it is an ERROR in
+     * the log, SSF endpoints that fail while PingFederate's own serve, and a retry every
+     * {@link #bootRetrySeconds} until the store can be opened; the loops start on the retry that succeeds.
+     * The wiring is guarded the same way: a failure there is logged and the loop still starts.
      */
     public static boolean start(SsfConfiguration config, Runnable afterConfigure) {
         try {

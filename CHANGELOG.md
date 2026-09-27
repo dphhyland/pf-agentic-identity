@@ -43,9 +43,11 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
 - **SSF push cannot be starved or held** (S10-0, the B5 stopgap) - the stores select only enabled push
-  streams' SETs, a stream gets one failed attempt per tick, the POST has deadlines (connect 2 s, exchange
-  10 s, body read to 4 KiB), the loop starts from the load-on-startup servlet, and a store that is down at
-  boot is logged and retried instead of failing `pf-runtime.war`.
+  streams' SETs; a stream whose delivery fails waits out its oldest SET's backoff as a whole, so its SETs keep
+  their order; the POST has deadlines (connect 2 s, exchange 10 s, body read to 4 KiB) and its connection is
+  closed at the deadline; the loop starts from the load-on-startup servlet; a store that is down at boot is
+  logged and retried every 30 s instead of failing `pf-runtime.war`; and the stores' push selection runs
+  against Postgres in CI (`SsfStoresOnPostgresTest`).
 - **device-enrolment's unauthenticated `POST /compliance` is gone** (M-2, the B4 mitigation) - compliance
   reaches the registry through a verified SET at PingFederate's SSF receiver and nowhere else; the README
   says why the device path is not production-usable until Phase 6.

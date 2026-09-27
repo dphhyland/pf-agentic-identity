@@ -2,10 +2,17 @@ id: U-0023
 title: A failing load-on-startup init versus fail-soft
 area: pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S9a]
 prs: []
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 9
 verify_by: 'On the rig: a servlet with loadOnStartup whose init throws, and what the merged pf-runtime.war does.'
-verification: ''
+verification: >
+  The merged war fails whole. Seen on the rig 2026-09-27 (PingFederate 13.1.3, pf-runtime.war merged with the
+  prod/p1-stopgaps jars at e858f9e): with OIDF_FEDERATION_TRUST_ANCHORS unset, OpenIdFederationServlet's init
+  (loadOnStartup=1) threw "Configuration must contain at least one trust anchor issuer"; Jetty ee9 logged
+  "Failed startup of context" for pf-runtime.war, and every runtime endpoint on 9031 answered 503 -
+  discovery, /as/token.oauth2, /pf/heartbeat.ping, SSF, federation - while the admin console on 9999 answered
+  200 and the log still said "PingFederate started". Recorded by the S10-0 package, which needed the same
+  answer for SSF (U-0057).
 notes: ''

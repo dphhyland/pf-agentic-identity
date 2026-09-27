@@ -2,7 +2,7 @@ id: U-0059
 title: The two JOIN selects behind dueForPush have not run against a database
 area: ssf
 source: design
-status: open
+status: closed
 plan_items: [S10-0, S10a, S10f]
 prs: []
 recorded_in: the S10-0 pull request's Unverified list; JdbcSsfStoreTest and LdmSsfStoreTest pin the SQL as text
@@ -11,8 +11,17 @@ verify_by: >
   store's own DDL, and LdmSsfStore.SELECT_DUE_FOR_PUSH against a Postgres carrying the model repo's
   0001-add-shared-signals-ssf migration, with a paused, a disabled, a poll and an enabled push stream each
   holding a due SET; only the last's must come back. A Postgres-backed store test in servlets/ssf would keep it.
-verification: ''
+verification: >
+  Both run. SsfStoresOnPostgresTest (servlets/ssf) puts a paused, a disabled, a poll and two enabled push
+  streams in each store, every one holding a due SET, and gets back only the two enabled push streams' SETs,
+  oldest first, with LIMIT applied after the join; it then runs three ticks of the push loop over each store
+  (recordAttempt, peek, ack). Passed 2026-09-27 against PostgreSQL 16.14, the ldm store on the model repo's
+  0000 and 0001 migrations, vendored under servlets/ssf/src/test/resources/idm with checksums matching
+  idp-scim-service at cb90151; CI's java job runs it against its Postgres service. Making either join's stream
+  predicates always true fails it. The tables select and the same three ticks were also run once, by hand, on
+  the HSQLDB 2.7.1 jar from the PingFederate 13.1.3 image: only the enabled push streams' SETs came back.
 notes: >
-  The three stores' dueForPush select by the stream's state since 0.4.0. The in-memory store is tested for
-  the selection; the tables and ldm stores are Mockito-tested, as every store test in the module is, and
-  0001-add-shared-signals-ssf is not vendored here, so neither statement has been executed. Recorded 2026-09-27.
+  The three stores' dueForPush select by the stream's state since 0.4.0. Until the test above the in-memory
+  store was the only one tested for the selection; the tables and ldm stores were Mockito-tested, as every
+  other store test in the module is, and neither statement had executed. Recorded 2026-09-27; verified the same
+  day.
