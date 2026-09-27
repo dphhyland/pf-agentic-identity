@@ -27,8 +27,12 @@ An image is built for one of two **staging profiles**, and says which in a label
 
 | Profile | Module jars | For |
 |---|---|---|
-| `production` (the default) | nine: `oidf.jar`, `attestation-issuer`, `ssf`, `oidf-jose`, `client-attestation`, `rar-model`, `openid-federation`, `agent-registry`, `device-instance` | every deployment |
-| `conformance` | those and a tenth, `pf.plugins.ciba-sim.jar`, plus `/opt/ciba-sim`, the directory the simulator keeps its decisions in (`0700`, owned by PingFederate's user) | the conformance rig, for the suite's FAPI-CIBA plan |
+| `production` (the default) | the jars `stage-modules.sh` lists in `ENTRIES` and names in `modules/MANIFEST`: `oidf.jar`, `attestation-issuer`, `ssf`, and the libraries they need, `platform` and `platform-pf` among them | every deployment |
+| `conformance` | those and `pf.plugins.ciba-sim.jar`, plus `/opt/ciba-sim`, the directory the simulator keeps its decisions in (`0700`, owned by PingFederate's user) | the conformance rig, for the suite's FAPI-CIBA plan |
+
+The `MANIFEST` is the list: this page, the Dockerfile and the showcase point at it rather than count the jars,
+so a package that stages another jar edits `ENTRIES` and nothing else. To see what an image carries, read the
+`MANIFEST` in the build context, or list `server/default/deploy/*.jar` in the image.
 
 The CIBA simulator is an approval oracle keyed by nothing but an `auth_req_id`
 ([plugins/ciba-sim](../../plugins/ciba-sim/README.md)), so it is never staged into a production image, and
@@ -52,7 +56,10 @@ at the first `RUN`. The conformance image booted
 through `conformance/up.sh`: the token endpoint answered, a bare `POST /ciba-sim/decision` was a 400 and
 not a 404 (every check in the simulator's gate passed on the running PF), a recorded decision appeared in
 `/opt/ciba-sim` as a `0600` file, and the PingFederate JVM had `Umask: 0077` and the profile in its
-environment.
+environment. With `platform` and `platform-pf` (plan item F-1), verified 2026-09-28 on 13.1.3: the production
+stage was 11 jars and the conformance stage 12, the assembler accepted both `MANIFEST`s against the stock war,
+and the conformance image booted through `conformance/up.sh` with both jars in `server/default/deploy` and the
+war's `WEB-INF/lib`, and its discovery, SSF and federation endpoints answering 200.
 
 ## What is here, and what you must supply
 
@@ -61,7 +68,7 @@ Tracked:
 | Path | Purpose |
 |---|---|
 | `Dockerfile` | stock `pingidentity/pingfederate:13.1.3` + the staged modules, merged into `pf-runtime.war` at the **root** context (single classloader), with seven filters registered over PF's own endpoints in its `web.xml` - the list, and the order they must run in, is in `assemble-pf-runtime-war.sh`. `--build-arg STAGING_PROFILE=production\|conformance` (default `production`) |
-| `stage-modules.sh` | copies the reactor's module jars into `modules/` - eight for `--profile production` (the default), nine for `--profile conformance` - and writes the v2 `MANIFEST` |
+| `stage-modules.sh` | copies the reactor's module jars into `modules/` - the production profile's by default, and the CIBA simulator as well for `--profile conformance` - and writes the v2 `MANIFEST`, which names each one |
 | `assemble-pf-runtime-war.sh` | merges `modules/` into the stock war after checking it against `MANIFEST` and the profile; also used inside the image build |
 | `pf-entrypoint.sh` | the boot shim: checks, decrypts and places the archive, drops the identity from the environment, hands over to the base image |
 | `test-entrypoint.sh` | exercises the entrypoint's decisions with PingFederate stubbed out; `--image <image>` runs it inside a built image |

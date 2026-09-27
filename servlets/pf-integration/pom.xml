@@ -38,6 +38,9 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- platform-pf (plan item F-1): platform's PingFederate side, and platform through it. Staged beside this
+             module's jar by build/pingfederate/stage-modules.sh, as platform is. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
         <!-- The containment model: the filter loads it at init and the criterion on first use. Staged beside
              this module's jar by build/pingfederate/stage-modules.sh. -->

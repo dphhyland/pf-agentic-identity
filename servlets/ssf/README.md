@@ -386,6 +386,6 @@ mvn -pl servlets/ssf -am package     # → target/ssf-<version>.jar (tests on)
 
 Versions from `bom/pom.xml`. **Not part of `oidf.war`** - `oidf-war` does not depend on this module.
 It reaches production only through the `pf-runtime.war` merge: `build/pingfederate/stage-modules.sh`
-stages `ssf-<version>.jar` with the other staged jars (eight more in the production profile, nine in conformance), the Dockerfile injects them into the stock war (root
+stages `ssf-<version>.jar` with the other jars of its profile (its `MANIFEST` names them all), the Dockerfile injects them into the stock war (root
 context, single classloader - the only place a filter can sit over PF's own `/idp/init_logout.openid`) and
 copies them to the engine deploy dir. `OIDF_SSF_ISSUER` is set in the environment the PF runs with - locally, [conformance/vars.env](../../conformance/vars.env).

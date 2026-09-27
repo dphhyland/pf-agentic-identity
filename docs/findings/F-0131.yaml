@@ -1,0 +1,18 @@
+id: F-0131
+title: Lifecycle starts its own short-lived closer threads outside platform.exec
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [C-3]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  Package F1 (2026-09-28) bounds the wait in Lifecycle.shutdown by closing each registered resource on a daemon
+  thread of its own ("oidf-platform-close-<name>") and waiting for it only until the budget runs out. That is a
+  `new Thread(` in platform.lifecycle, and the Phase 2 exit check expects `new Thread(` only in platform.exec. The
+  threads run during shutdown, which only the webapp's lifecycle listener is meant to call, and when a resource is
+  registered after shutdown (closed at once, in whichever copy and from whichever caller registers it); each ends
+  with its close, but after a timeout the remaining closes start while the hung one still runs. C-3's
+  ManagedExecutors is where they move, or where the exit check names this one exception with its reason.

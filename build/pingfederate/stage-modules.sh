@@ -5,11 +5,16 @@
 #   stage-modules.sh [--profile production|conformance]
 #
 # Run after `mvn -q -DskipTests package` at the repo root. The production profile (the default) stages
-# nine jars: the modular equivalent of the old monolith pf-oidf-modules.jar (same packages, superset of
-# its classes). The conformance profile stages a tenth, the CIBA simulator, which exists for the OpenID
-# conformance suite's FAPI-CIBA plan and must never reach a production image - the assembler refuses a
-# stage whose profile is not the one the image is built for. Their external deps (jose4j, jackson,
-# commons-logging) are already on PF's server classpath.
+# the jars ENTRIES lists below - the modular equivalent of the old monolith pf-oidf-modules.jar (same
+# packages, superset of its classes) - and the MANIFEST it writes names each one; prose elsewhere points at
+# the MANIFEST rather than counting them. The conformance profile stages one more, the CIBA simulator,
+# which exists for the OpenID conformance suite's FAPI-CIBA plan and must never reach a production image -
+# the assembler refuses a stage whose profile is not the one the image is built for. Their external deps
+# (jose4j, jackson, commons-logging) are already on PF's server classpath.
+# platform and platform-pf ride along because oidf-jose depends on platform and pf-integration on
+# platform-pf (plan item F-1), so every staged module can reach them. platform is JDK-only and platform-pf
+# needs nothing PF does not ship; a plugin that uses platform shades and relocates its own copy, as the RAR
+# plugin does rar-model, so the copies never meet (docs/development/classloaders.md).
 # rar-model rides along because client-attestation's token gate and attestation-issuer's mint ask it
 # (plan item S1b) - without it the attestation filter refuses to start and the issuance criterion and
 # servlet fail at first use with NoClassDefFoundError. It is JDK-only, so it adds no library to PF's
@@ -51,6 +56,8 @@ ENTRIES=(
   "servlets servlets/pf-integration/target/oidf.jar"
   "servlets servlets/attestation-issuer/target/attestation-issuer-$VERSION.jar"
   "servlets servlets/ssf/target/ssf-$VERSION.jar"
+  "libs libs/platform/target/platform-$VERSION.jar"
+  "libs libs/platform-pf/target/platform-pf-$VERSION.jar"
   "libs libs/oidf-jose/target/oidf-jose-$VERSION.jar"
   "libs libs/rar-model/target/rar-model-$VERSION.jar"
   "libs libs/client-attestation/target/client-attestation-$VERSION.jar"
