@@ -1,42 +1,37 @@
 package com.pingidentity.ps.oidf.trustmark;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
-import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
- * The JDBC registry against H2 in PostgreSQL mode, running the shipped {@code V102__trust_mark.sql} - so the DDL
- * that deploys is the DDL tested.
+ * The JDBC registry on PostgreSQL - a database of this class's own (libs/testkit) - running the federation family's
+ * shipped migrations, {@code V102__trust_mark.sql} among them, so the DDL that deploys is the DDL tested. Each test
+ * starts from an empty schema with the family applied.
  */
 class JdbcTrustMarkRegistryTest extends TrustMarkRegistryContract {
-    private static final AtomicInteger DB_COUNTER = new AtomicInteger();
+
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
     private DataSource dataSource;
 
     @Override
     protected TrustMarkRegistry newRegistry() throws Exception {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setURL("jdbc:h2:mem:trustmark" + DB_COUNTER.incrementAndGet() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        h2.setUser("sa");
-        this.dataSource = h2;
-        String ddl;
-        try (InputStream in = JdbcTrustMarkRegistryTest.class.getResourceAsStream("/db/migration/V102__trust_mark.sql")) {
-            assertNotNull(in, "the migration must ship on the classpath");
-            ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-        }
-        this.execute(ddl);
-        return new JdbcTrustMarkRegistry(h2, this.clock);
+        this.dataSource = POSTGRES.dataSource();
+        POSTGRES.resetPublicSchema();
+        Migrations.apply(this.dataSource, 100, 199);
+        return new JdbcTrustMarkRegistry(this.dataSource, this.clock);
     }
 
     private void execute(String sql) throws SQLException {

@@ -43,11 +43,11 @@
     <dependencies>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
         <!-- JdbcAgentRegistry is written against java.sql; the driver is provided by the deployment.
-             Tests run the shipped migration against H2 in PostgreSQL mode. -->
+             Tests run the shipped migration on PostgreSQL, a database per test class (libs/testkit). -->
         <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>testkit</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>

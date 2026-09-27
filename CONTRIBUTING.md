@@ -38,23 +38,50 @@ when you touch anything that calls the SDK or `pf-protocolengine`.
 
 ## Tests that need Postgres
 
-Most tests need nothing. `libs/device-instance`'s registry suite (`IomInstanceRegistryTest`) needs a
-PostgreSQL it can create tables in: it takes `IDM_TEST_JDBC_URL`, `IDM_TEST_JDBC_USER` and
-`IDM_TEST_JDBC_PASSWORD`, and otherwise tries Testcontainers (the version the reactor pins is reported not to
-see Docker Desktop 29; plan item DB-1 moves it to 1.21.4), and otherwise skips - and a skipped suite
-under-counts the coverage dashboard. So give it a database:
+The store suites run on PostgreSQL, and only on it: H2 and HSQLDB were dropped in 0.5.0. They are the JDBC
+stores' tests in `libs/openid-federation` (hosted entities, Trust Marks, key history), `libs/agent-registry`,
+`libs/device-instance` (`IomInstanceRegistryTest`) and `servlets/ssf` (both durable SSF stores), and
+`libs/testkit`'s own. Each class gets a database of its own from `libs/testkit`'s `PostgresDatabase`
+extension, named `oidf_test_<class>_<random>`, created before the class and dropped after it, so classes,
+modules and worktrees can share one server. Where the server comes from, in order:
+
+1. `OIDF_TEST_JDBC_URL` (with `OIDF_TEST_JDBC_USER` and `OIDF_TEST_JDBC_PASSWORD`): a `jdbc:postgresql:` URL
+   whose user may `CREATE DATABASE`. The extension connects to the database the URL names only to create and
+   drop the others. `IDM_TEST_JDBC_URL`, `_USER` and `_PASSWORD` are read in 0.5.x as aliases, with a warning.
+2. Otherwise Testcontainers (1.21.4), when Docker answers: one `postgres:16-alpine` container for the test JVM.
+   Verified on this repository's development Mac with Docker Desktop 29.4.1 on 2026-09-28 (U-0050); 1.19.8,
+   which the reactor pinned before, did not find Docker Desktop 29 there.
+3. Otherwise the class is skipped, and says why. With `CI=true` it fails instead: a CI job that lost its
+   database must not go green by skipping the store suites. A skipped suite also under-counts the coverage
+   dashboard.
+
+So either leave Docker running, or name a server:
 
 ```sh
 docker run -d --rm --name pg-mine -e POSTGRES_USER=dashboard -e POSTGRES_PASSWORD=dashboard -e POSTGRES_DB=idm \
   -p 127.0.0.1:55432:5432 postgres:16-alpine
-IDM_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55432/idm IDM_TEST_JDBC_USER=dashboard IDM_TEST_JDBC_PASSWORD=dashboard \
+OIDF_TEST_JDBC_URL=jdbc:postgresql://127.0.0.1:55432/idm OIDF_TEST_JDBC_USER=dashboard OIDF_TEST_JDBC_PASSWORD=dashboard \
   mvn -o -B clean verify
 docker stop pg-mine
 ```
 
-Pick a port nobody else on the machine is using; several worktrees build at once here. From Phase 2 (plan item
-DB-1) every store has a real-Postgres test and a unique database per test class, and CI runs a Postgres service
-container (R-CI5).
+`POSTGRES_USER` is the image's superuser, so it may create databases. Pick a port nobody else on the machine is
+using; several worktrees build at once here. A build that is killed leaves its `oidf_test_*` databases behind:
+drop them by hand, or stop the container. CI's `java` job runs a Postgres service and passes it to `mvn verify`
+as `OIDF_TEST_JDBC_URL`.
+
+A new store test registers the extension and applies its module's shipped migrations, which `Migrations` runs in
+version order within a family (plan decision 11: federation V100-V199, agent V200-V299, and so on):
+
+```java
+@RegisterExtension
+static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
+@BeforeAll
+static void schema() throws Exception {
+    Migrations.apply(POSTGRES.dataSource(), 100, 199);
+}
+```
 
 ## Worktrees
 

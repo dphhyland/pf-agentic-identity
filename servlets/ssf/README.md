@@ -126,9 +126,15 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
 The selection and the loop are tested against the stores as they run. `SsfStoresOnPostgresTest` runs the
 `tables` and `ldm` stores' `dueForPush`, three ticks of the loop over each, and a burst of one second's SETs,
 against Postgres - the `ldm` store on the model repo's `0000` and `0001` migrations, vendored under
-`src/test/resources/idm` - and CI's `java` job runs it against its Postgres service. The `tables` store's
+`src/test/resources/idm` - and CI's `java` job runs it against its Postgres service. Since 0.5.0 the rest of
+the `SsfStore` contract runs there too: `SsfStoreContract` holds the in-memory store and, in
+`JdbcSsfStoreOnPostgresTest` and `LdmSsfStoreOnPostgresTest`, both durable stores to the same streams,
+owners, subjects and queue tests, each class in a database of its own (`libs/testkit`). The `ldm` store
+reads a stream's `updatedAt` back as the database's time of its last write (F-0150). The `tables` store's
 selection and the same three ticks were also run once on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships
-(2026-09-27).
+(2026-09-27); from 0.5.0 a `jdbc:hsqldb:` or `jdbc:h2:` `OIDF_SSF_JDBC_URL` is refused at start-up, an
+`OIDF_SSF_DATA_STORE_ID` naming an HSQLDB or H2 data store (PingFederate's bundled one included) is refused on
+its first connection, and PostgreSQL is the one database the stores are tested on.
 
 **What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
 older than another's still fills the batch, and a receiver that answers slowly but successfully holds the

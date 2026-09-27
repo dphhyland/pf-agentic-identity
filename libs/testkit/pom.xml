@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>testkit</artifactId>
+    <version>0.5.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>testkit</name>
+    <description>Test support for the reactor, never shipped: a JUnit 5 extension that gives each test class its
+        own PostgreSQL database (on the server OIDF_TEST_JDBC_URL names, else in one Testcontainers container per
+        JVM), and a helper that applies a module's db/migration scripts in version order with plain JDBC.
+        Modules take it at test scope.</description>
+    <url>https://github.com/dphhyland/pf-agentic-identity</url>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <!-- Test support, not a component anyone deploys: never staged into the image, never published. -->
+        <maven.deploy.skip>true</maven.deploy.skip>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- Compile scope here, because this jar is test code: a module that takes testkit at test scope gets these
+         at test scope too, and nothing of this reaches a shipped artifact. -->
+    <dependencies>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId></dependency>
+        <dependency><groupId>org.postgresql</groupId><artifactId>postgresql</artifactId></dependency>
+        <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId></dependency>
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on what decides where the tests' Postgres comes from and what they run against it:
+              which server the environment names (and which deprecated alias it came from), whether a class
+              without one is skipped or failed, the database name each class gets, and the order a module's
+              migrations run in. 100% line + branch, enforced - a missed branch here is a CI build that skips a
+              store suite and stays green, or a migration applied out of order, which is the test proving
+              something about a schema no deployment has.
+
+              Gated per METHOD. The members that talk to a live server (creating and dropping databases,
+              starting the container, running a script) are exercised by PostgresDatabaseTest wherever a
+              Postgres is reachable, and CI always has one; they are not gated because on a laptop without
+              Docker the class is skipped and the gate would fail for want of a database, not for want of a test.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <!-- Where the Postgres comes from, and skip versus fail when there is none. -->
+                                        <include>com.pingidentity.ps.oidf.testkit.PostgresServer.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.testkit.PostgresServer.setting(*</include>
+                                        <!-- The database a class gets: unique, and a legal Postgres identifier. -->
+                                        <include>com.pingidentity.ps.oidf.testkit.PostgresDatabase.databaseNameFor(*</include>
+                                        <!-- Which scripts are migrations, and the order they run in. -->
+                                        <include>com.pingidentity.ps.oidf.testkit.Migrations.version(*</include>
+                                        <include>com.pingidentity.ps.oidf.testkit.Migrations.compare(*</include>
+                                        <include>com.pingidentity.ps.oidf.testkit.Migrations.order(*</include>
+                                        <include>com.pingidentity.ps.oidf.testkit.Migrations.inFamily(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

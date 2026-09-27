@@ -134,13 +134,13 @@ jobs:
     permissions:
       contents: read
       actions: read
-    # device-instance's IOM registry suite runs against a real Postgres: its invariants are JSONB operators,
-    # partial unique indexes and plpgsql triggers, which no in-memory database has. Before this it found one
-    # through Testcontainers when the runner's Docker allowed it, and would be skipped, not failed, when it
-    # did not - so whether the suite ran was the runner's decision. A service container makes it run every
-    # time. The job runs on the runner itself, so the service is reached at localhost on the mapped port, and
-    # the health check holds the job until Postgres answers. The credentials are throwaway: the suite drops
-    # and rebuilds the schema, and nothing outlives the job.
+    # Every store suite runs on PostgreSQL (H2 and HSQLDB were dropped in 0.5.0), through libs/testkit's
+    # extension: OIDF_TEST_JDBC_URL names this service, and each test class creates a database of its own on it
+    # and drops it afterwards, so the service's user must be allowed CREATE DATABASE - POSTGRES_USER is the
+    # image's superuser. CI=true, which the runner sets, turns a class that finds no Postgres into a failure
+    # rather than a skip, so a renamed variable cannot quietly skip the store suites. The job runs on the runner
+    # itself, so the service is reached at localhost on the mapped port, and the health check holds the job
+    # until Postgres answers. The credentials are throwaway, and nothing outlives the job.
     #
     # client-attestation's RedisLiveTest runs the attestation stores against a real Redis, which its fake
     # server cannot stand in for, and skips each half whose server the environment does not name. The plain
@@ -201,14 +201,14 @@ jobs:
         # BOM's version.pf.* properties. A module compiled against a different jackson or commons-logging
         # than the one on PF's classpath links at build and may not at run time.
         run: python3 tools/pf-provided-versions.py --lib pf-lib --bom bom/pom.xml
-      - name: reactor build (tests on, coverage gates enforced, the IOM registry suite on Postgres, RedisLiveTest on both Redis servers)
+      - name: reactor build (tests on, coverage gates enforced, the store suites on Postgres, RedisLiveTest on both Redis servers)
         # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
         # stopping at package builds the artifacts and silently skips every gate. The TLS Redis's two
         # variables come from $GITHUB_ENV, written by that Redis's step.
         env:
-          IDM_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
-          IDM_TEST_JDBC_USER: dashboard
-          IDM_TEST_JDBC_PASSWORD: dashboard
+          OIDF_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
+          OIDF_TEST_JDBC_USER: dashboard
+          OIDF_TEST_JDBC_PASSWORD: dashboard
           OIDF_TEST_REDIS_URL: redis://:redis-live-test@localhost:6379
         run: mvn verify
       - name: RedisLiveTest ran, and skipped nothing

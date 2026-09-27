@@ -37,6 +37,7 @@
         <module>libs/rar-model</module>
         <module>libs/oidf-jose</module>
         <module>libs/app-attest</module>
+        <module>libs/testkit</module>
         <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
         <module>libs/openid-federation</module>

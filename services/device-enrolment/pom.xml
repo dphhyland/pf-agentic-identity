@@ -49,7 +49,6 @@
 
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
         <!-- The synthetic Apple-shaped chain builder, reused rather than reimplemented. It mints
              certificates, so BouncyCastle comes with it — test scope, never at runtime. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><type>test-jar</type><scope>test</scope></dependency>

@@ -1,37 +1,38 @@
 package com.pingidentity.ps.oidf.keyhistory;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
-import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
-/** The JDBC history against H2 in PostgreSQL mode, running the shipped {@code V103__federation_key_history.sql}. */
+/**
+ * The JDBC history on PostgreSQL - a database of this class's own (libs/testkit) - running the federation family's
+ * shipped migrations, {@code V103__federation_key_history.sql} among them. Each test starts from an empty schema
+ * with the family applied.
+ */
 class JdbcKeyHistoryStoreTest extends KeyHistoryStoreContract {
-    private static final AtomicInteger DB_COUNTER = new AtomicInteger();
+
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
+
     private DataSource dataSource;
 
     @Override
     protected KeyHistoryStore newStore() throws Exception {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setURL("jdbc:h2:mem:keyhistory" + DB_COUNTER.incrementAndGet() + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        h2.setUser("sa");
-        this.dataSource = h2;
-        try (InputStream in = JdbcKeyHistoryStoreTest.class.getResourceAsStream("/db/migration/V103__federation_key_history.sql")) {
-            assertNotNull(in, "the migration must ship on the classpath");
-            this.execute(new String(in.readAllBytes(), StandardCharsets.UTF_8));
-        }
-        return new JdbcKeyHistoryStore(h2);
+        this.dataSource = POSTGRES.dataSource();
+        POSTGRES.resetPublicSchema();
+        Migrations.apply(this.dataSource, 100, 199);
+        return new JdbcKeyHistoryStore(this.dataSource);
     }
 
     private void execute(String sql) throws SQLException {
@@ -72,5 +73,25 @@ class JdbcKeyHistoryStoreTest extends KeyHistoryStoreContract {
         assertThrows(SQLException.class, () -> this.execute("INSERT INTO federation_key_history (kid, jwk, expires_at, reason) VALUES ('k', '{}',"
                 + " CURRENT_TIMESTAMP, 'compromised')"));
         assertEquals(List.of(), new JdbcKeyHistoryStore(this.dataSource).retired());
+    }
+
+    /** Moved here from KeyHistoryTest, which needs no database: the shared view reaches the JDBC store once it is configured. */
+    @Test
+    void theSharedViewUsesWhicheverStoreIsConfigured() throws Exception {
+        this.newStore();
+        KeyHistorySupport.resetForTests();
+        try {
+            KeyHistoryStore shared = KeyHistorySupport.shared();
+            KeyHistorySupport.configureJdbcStore(this.dataSource);
+
+            shared.rotateTo(K1, T0, T0);
+            shared.rotateTo(K2, T0, T0);
+
+            assertInstanceOf(JdbcKeyHistoryStore.class, KeyHistorySupport.store());
+            assertEquals("k1", shared.retired().get(0).kid());
+            assertEquals("superseded", shared.revoke("k1", T0, "superseded").reason());
+        } finally {
+            KeyHistorySupport.resetForTests();
+        }
     }
 }
