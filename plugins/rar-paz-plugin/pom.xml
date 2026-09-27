@@ -315,10 +315,13 @@
                                     <pattern>com.pingidentity.ps.oidf.rar.model.</pattern>
                                     <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.rarmodel.</shadedPattern>
                                 </relocation>
-                                <!-- The same trailing dot: platform-pf is a sibling this plugin does not bundle. -->
+                                <!-- platform. platform-pf's classes live under com.pingidentity.ps.oidf.platform.pf,
+                                     inside the pattern, so they are excluded by name: this plugin does not bundle
+                                     them, and a reference to one must keep PingFederate-side's name. -->
                                 <relocation>
                                     <pattern>com.pingidentity.ps.oidf.platform.</pattern>
                                     <shadedPattern>com.pingidentity.ps.oidf.rar.shaded.platform.</shadedPattern>
+                                    <excludes><exclude>com.pingidentity.ps.oidf.platform.pf.**</exclude></excludes>
                                 </relocation>
                             </relocations>
                             <transformers>

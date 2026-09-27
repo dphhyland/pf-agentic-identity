@@ -139,8 +139,9 @@
                     <finalName>pf.plugins.ciba-sim</finalName>
                 </configuration>
             </plugin>
-            <!-- platform shaded in and relocated under this plugin's own package (the pattern's trailing dot keeps
-                 it to platform, not platform-pf). commons-logging, which platform's logger uses when it can see
+            <!-- platform shaded in and relocated under this plugin's own package. platform-pf's classes live under
+                 com.pingidentity.ps.oidf.platform.pf, inside the pattern, so they are excluded by name: they stay
+                 PingFederate-side and are never bundled or renamed here. commons-logging, which platform's logger uses when it can see
                  it, is provided and stays PingFederate's. The jar replaces the plain one under the same name. -->
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
@@ -162,6 +163,7 @@
                                 <relocation>
                                     <pattern>com.pingidentity.ps.oidf.platform.</pattern>
                                     <shadedPattern>com.pingidentity.ps.oidf.cibasim.shaded.platform.</shadedPattern>
+                                    <excludes><exclude>com.pingidentity.ps.oidf.platform.pf.**</exclude></excludes>
                                 </relocation>
                             </relocations>
                             <filters>
