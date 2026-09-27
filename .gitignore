@@ -47,9 +47,10 @@ dependency-reduced-pom.xml
 # that every test or documentation change regenerated conflicted in Phase 0's parallel merges. The coverage dashboard
 # is written by tools/coverage-report.py after `mvn verify`, the showcase's documents by
 # tools/build-showcase-docs.mjs; a CI Build run whose reactor build completes publishes them as its
-# coverage-dashboard and showcase artefacts.
+# coverage-dashboard and showcase artefacts. The dashboard's JSON is what the next Build ratchets against.
 docs/coverage-dashboard.md
 docs/coverage-dashboard.html
+docs/coverage-dashboard.json
 showcase/docs.js
 
 # The hosted microsite is assembled from showcase/ by tools/build-microsite.py; the pages are the source.

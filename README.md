@@ -47,6 +47,8 @@ names below carry the project version, written `<version>`.
 
 | Path | What it is | Artifact |
 |---|---|---|
+| `libs/platform` | What every module shares: the resources a loaded copy closes at shutdown, the state of each component (S-9's seven states), a JDK-only JSON reader and writer, and - as Phase 2 lands them - settings, the deployment profile, events, metrics, health, Redis, outbound HTTP and executors. JDK only; `oidf-jose` depends on it, and a plugin shades and relocates it ([README](libs/platform/README.md), [classloader rules](docs/development/classloaders.md)) | `platform-<version>.jar` |
+| `libs/platform-pf` | platform's PingFederate side, and the one library here that needs PingFederate (its jars provided): the guard an OGNL criterion runs behind, and later the audit sink, health servlets, lifecycle listener and internals facade. `pf-integration` depends on it ([README](libs/platform-pf/README.md)) | `platform-pf-<version>.jar` |
 | `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-<version>.jar` |
 | `libs/rar-model` | The **RFC 9396 containment model**: per-type field rules (sets, limits with a unit, `instructedAmount`, instants, equality, strings, nested objects, forbidden fields), one spelling for a thing a type can say two ways, three built-in types, more from a models document, and `contains` / `authorize` / `intersect` over lists held to fixed limits, with a fingerprint of the effective model. JDK only. The token gate, the attester and the RAR plugin all ask it (blocker B1, closed in 0.4.0) | `rar-model-<version>.jar` |
 | `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-<version>.jar` |
@@ -146,9 +148,13 @@ mvn package                      # all Java modules (incl. gm-api.war), tests on
 ```
 
 The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.1.3.0) are extracted from the
-public `pingidentity/pingfederate` image, and so are the jars gm-api and the plugin poms name under
-`local.pingfederate` - see `.github/actions/pf-provided-jars/action.yml` for the exact steps, or run its
-`install:install-file` lines once locally. Nothing licensed or secret is committed.
+public `pingidentity/pingfederate` image - see `.github/actions/pf-provided-jars/action.yml` for the exact
+steps, or run its two `install:install-file` lines once locally. They are the only jars installed by hand:
+every other library a module borrows from PingFederate comes from Maven Central. jose4j, jackson,
+commons-lang3 and commons-logging are at the versions the BOM holds to the image; the jakarta servlet API
+is `jakarta.servlet-api` 5.0.0, the API line PingFederate 13.1's Jetty ships as 5.0.2, and
+`tools/pf-linkcheck.py` checks the servlet members each artefact uses. Nothing licensed or secret is
+committed.
 
 The PingFederate version is pinned in one place, `build/pf-version.env`: the image tag and its digest,
 the SDK version the reactor compiles against, and the product version the Terraform provider is told.

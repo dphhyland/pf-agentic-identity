@@ -8,18 +8,21 @@
 
 Twenty poms carry the version, and until this existed a bump was twenty hand edits: the aggregator
 and each module's own <version>, the BOM's <version.internal> (what the internal dependencies resolve
-to), the BOM import each module makes (an import's version is written where it is imported, not where
-it is defined), and gm-api, which keeps its own coordinates (au.com.idpartners:gm-api) and imports no
-BOM, so its <version> and its literal dependency on the conformance module are written here too. One
-missed edit is a reactor that builds a module against a stale copy of its neighbour from ~/.m2, which
-is exactly the kind of failure no test notices.
+to), and the BOM import each module makes (an import's version is written where it is imported, not
+where it is defined). gm-api is a module like the others here - its <version> and its BOM import -
+though its groupId is au.com.idpartners, not the reactor's. One missed edit is a reactor that builds
+a module against a stale copy of its neighbour from ~/.m2, which is exactly the kind of failure no
+test notices.
 
 What counts as a version element, decided from the XML and not from a regex over the file:
   - project/version                                                   every pom
   - project/properties/version.internal                               the BOM
   - a dependencyManagement import of pf-agentic-identity-bom          the module poms
   - a dependency on a com.pingidentity.ps.oidf artifact whose version is a literal (not ${...})
-                                                                      gm-api's conformance test dependency
+                                                                      none today (gm-api's conformance
+                                                                      test dependency was one until it
+                                                                      imported the BOM); kept so a literal
+                                                                      one moves with the rest
 The poms are the aggregator's <modules> plus the aggregator itself, so a module the reactor does not
 build is not touched, and a new module joins the moment it is listed.
 

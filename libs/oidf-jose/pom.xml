@@ -36,6 +36,9 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- platform (plan item F-1): what every module shares. oidf-jose is the root the other libraries build on,
+             so they reach it through here. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>

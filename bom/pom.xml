@@ -14,9 +14,8 @@
         The one place a shared dependency version is written down. Every module pom imports this BOM
         (scope=import) and declares its dependencies version-less; the poms stay standalone otherwise —
         no parent inheritance, keeping the absorbed modules' provenance property intact. Bump a version
-        here and the whole reactor moves together. services/gm-api is deliberately not a consumer: it is
-        a vendored tree with its own coordinate convention (au.com.idpartners + local.pingfederate:*),
-        though its version moves with the reactor's (tools/set-version.py).
+        here and the whole reactor moves together. services/gm-api is a consumer like the others; it
+        keeps only its own groupId (au.com.idpartners).
     </description>
 
     <licenses>
@@ -68,6 +67,8 @@
         <dependencies>
             <!-- internal modules that other modules depend on -->
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>${version.internal}</version></dependency>
@@ -91,6 +92,8 @@
             <!-- third-party -->
             <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.pf.jose4j}</version></dependency>
             <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.pf.jackson}</version></dependency>
+            <!-- gm-api imports jackson-core's TypeReference directly, from PingFederate's copy. -->
+            <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${version.pf.jackson}</version></dependency>
             <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId><version>${version.jackson}</version></dependency>
             <!-- PingFederate 13.1 is jakarta.servlet (Jetty ee9). Every servlet, filter and war here compiles
                  against it, and so does the RAR plugin, which reads the request through the SDK's

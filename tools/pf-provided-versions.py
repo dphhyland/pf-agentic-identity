@@ -26,14 +26,16 @@ import re
 import sys
 import zipfile
 
-# BOM property -> the jar (by base name) whose version it must equal
-LIBRARIES = {
-    "version.pf.jackson": "jackson-databind",
-    "version.pf.jose4j": "jose4j",
-    "version.pf.commons-lang3": "commons-lang3",
-    "version.pf.commons-logging": "commons-logging",
-    "version.pf.log4j": "log4j-api",
-}
+# (BOM property, the jar by base name whose version it must equal). A property may govern more than one
+# jar: the BOM manages jackson-core at version.pf.jackson as well, because gm-api compiles against it.
+LIBRARIES = [
+    ("version.pf.jackson", "jackson-databind"),
+    ("version.pf.jackson", "jackson-core"),
+    ("version.pf.jose4j", "jose4j"),
+    ("version.pf.commons-lang3", "commons-lang3"),
+    ("version.pf.commons-logging", "commons-logging"),
+    ("version.pf.log4j", "log4j-api"),
+]
 
 
 def find_jar(lib_dirs, name):
@@ -89,34 +91,34 @@ def main(argv=None):
 
     shipped = {}
     missing = []
-    for prop, name in LIBRARIES.items():
+    for prop, name in LIBRARIES:
         jar = find_jar(args.lib, name)
         if jar is None:
             missing.append(name)
             continue
-        shipped[prop] = (name, jar_version(jar), jar)
+        shipped[name] = (jar_version(jar), jar)
 
     if not args.bom:
-        for prop, (name, version, jar) in shipped.items():
+        for name, (version, jar) in shipped.items():
             print(f"{name}\t{version}\t{jar}")
         for name in missing:
             print(f"{name}\t(not found)")
         return 1 if missing else 0
 
     props = bom_properties(args.bom)
-    absent = [p for p in LIBRARIES if p not in props]
+    absent = list(dict.fromkeys(p for p, _ in LIBRARIES if p not in props))
     if absent:
         print(f"error: {args.bom} lacks {', '.join(absent)}", file=sys.stderr)
         return 2
 
     mismatches = []
-    for prop, name in LIBRARIES.items():
+    for prop, name in LIBRARIES:
         want = props[prop]
-        if prop not in shipped:
+        if name not in shipped:
             print(f"{name:18} BOM {want:10} image (not found)")
             mismatches.append(name)
             continue
-        _, got, jar = shipped[prop]
+        got, jar = shipped[name]
         mark = "ok" if got == want else "MISMATCH"
         print(f"{name:18} BOM {want:10} image {str(got):10} {mark}   {os.path.basename(jar)}")
         if got != want:

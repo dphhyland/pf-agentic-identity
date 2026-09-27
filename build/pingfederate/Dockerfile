@@ -10,8 +10,8 @@
 #                                       profile this image is built for (merged into pf-runtime.war AND
 #                                       copied to server/default/deploy; see below)
 #
-# Build arg STAGING_PROFILE selects what the image is: production (the default; nine module jars) or
-# conformance (ten: the CIBA simulator as well, an approval oracle for the suite's FAPI-CIBA plan that
+# Build arg STAGING_PROFILE selects what the image is: production (the default; the jars modules/MANIFEST names) or
+# conformance (those and the CIBA simulator, an approval oracle for the suite's FAPI-CIBA plan that
 # has no business in a production image, plus the directory it keeps its decisions in). The profile is
 # recorded as a label, and the assembler refuses a modules/ that was staged for the other one.
 #   (no jose4j: the assemble call passes "-" and relies on PF's own copy in server/default/lib)
@@ -90,7 +90,7 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # assemble script names (SsfLogoutSignal, Fapi2Profile, FapiResourceServer, OAuthErrorDescription,
 # OidfFrontChannelAutoRegistration, OidfAutoRegistration, ClientAttestationAuth) in its web.xml - via the
 # same assemble script a consumer's CI would use. modules/ holds the reactor's modular jars (oidf.jar +
-# attestation-issuer/ssf + oidf-jose/rar-model/client-attestation/openid-federation/agent-registry/device-instance,
+# attestation-issuer/ssf and the libraries they need - modules/MANIFEST names every one -
 # and under the conformance profile the CIBA simulator), staged by stage-modules.sh for one profile, which
 # writes the MANIFEST the assemble script checks - digests, and the profile against STAGING_PROFILE.
 # (No pf-rar-paz-plugin — that's agentic.)
