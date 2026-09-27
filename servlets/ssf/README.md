@@ -104,6 +104,10 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   the store is open, and the first servlet to run it is `SsfConfigurationServlet`, `loadOnStartup=1`.
   Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
   until a receiver's first management request, and nothing at all on a node no receiver managed streams on.
+  Verified 2026-09-27 on the rig (13.1.3.0, this branch's jars): `SSF push delivery executor started` is
+  logged at 02:29:11,125, the runtime listener on 9031 starts at 02:29:13,764 and `PingFederate started` is
+  at 02:29:14,728 - the loop ran before any request could arrive, and the annotation's `loadOnStartup` is
+  honoured in the merged `pf-runtime.war`.
 
 **What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
 older than another's still fills the batch, though now for one bounded attempt per tick; one thread; no
