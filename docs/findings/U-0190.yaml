@@ -4,7 +4,7 @@ area: platform, reference-stacks
 source: design
 status: open
 plan_items: [C-2, C-6]
-prs: []
+prs: [54]
 recorded_in: libs/platform/README.md, the redis section's Sentinel paragraphs
 verify_by: >
   C-6's reference cluster (Redis with TLS and ACLs behind Sentinel): connect with OIDF_REDIS_SENTINEL_MASTER and
