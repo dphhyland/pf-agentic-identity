@@ -10,12 +10,19 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 ## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene.
+hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
 
 - **CI hygiene** (R-CI1 to R-CI4) - every action pinned to a commit with least-privilege tokens; actionlint,
   zizmor, shellcheck and `terraform validate` in the lint job; the secrets guard's content scan extended to private
   JWKs and every PEM kind, with gitleaks over the whole history beside it; CodeQL for Java, Actions, Python and
   JavaScript; Dependabot; the rig's Terraform lock file committed; CODEOWNERS.
+
+- **Generated files leave git** (plan decision 18; R-CI5's publish step, brought forward from Phase 2):
+  `docs/coverage-dashboard.md` and `.html` and the showcase's rendered documents (now `showcase/docs.js`) are
+  generated and git-ignored; a CI Build whose reactor build completes publishes them as its `coverage-dashboard`
+  and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
+  strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
+  device-instance's Postgres suite against a service container.
 
 ## [0.3.0] - 2026-09-27
 
@@ -82,7 +89,8 @@ Tier 0/1/2 security work. Supersedes v0.1.0.
 The release workflow, so a consumer could tell when it was behind. It published its Maven artefacts and then
 failed before creating a release; nothing consumed it.
 
-[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.1.5...main
+[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.3.0...main
+[0.3.0]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.3.0
 [v0.1.5]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.4
 [v0.1.3]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.3
