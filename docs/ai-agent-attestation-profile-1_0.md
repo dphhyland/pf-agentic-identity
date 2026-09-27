@@ -326,8 +326,10 @@ This table allocates each requirement to the roles that bear it. It states what 
 Section 11.1.
 
 The first column is the join key. A test pins a row by carrying that id in a `@Requirement`
-annotation, and [coverage-dashboard.md](coverage-dashboard.md) reports which rows nothing pins. Note
-the notation: sections 3 to 10 have no subsections, so `§6(2)` is list item 2 of section 6.
+annotation, and the coverage dashboard reports which rows nothing pins (`docs/coverage-dashboard.md` - not
+tracked: `python3 tools/coverage-report.py` writes it after `mvn verify`, and CI publishes it as the
+`coverage-dashboard` artefact of every Build run whose reactor build completes). Note the notation:
+sections 3 to 10 have no subsections, so `§6(2)` is list item 2 of section 6.
 
 Sections 9 and 10 have no rows. They are Security and Privacy Considerations: they explain what this
 profile chose not to require, so there is nothing there to allocate to a role.
