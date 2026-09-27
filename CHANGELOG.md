@@ -10,7 +10,20 @@ it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), an
 ## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Nothing has landed yet.
+hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+
+- **Redis verified and tri-state** (S3a) - `rediss://` checks the server's certificate and name and
+  completes the handshake before `AUTH`, an optional `OIDF_REDIS_CA_FILE`, `redis://` refused under the
+  production profile; store verdicts are `FIRST_USE | REPLAY | STORE_UNAVAILABLE` and
+  `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`, an outage answered 503 `temporarily_unavailable` and never
+  "replay"; keys under `oidf:as:*`, `oidf:cas:*`, `oidf:fed:endpoint:*` and `oidf:admin:dpop:*`.
+- **Evidence digested and bound** (S3b) - the attestation carries `workload.instance_attestation_sha256`,
+  `_type` and `_exp` and never the evidence (`workload.svid` and `workload.instance_attestation` are gone);
+  evidence binds to the first instance key and client that present it, a second presenter is 401
+  `instance_attestation_bound` and an `attestation.evidence.conflict` audit event; evidence lifetime capped
+  at a day in production, the attestation's `exp` never past the evidence's.
+- **CIMD refused outside development** (M-1) - `OIDF_ATTESTER_CIMD_URL` is honoured only under
+  `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it.
 
 ## [0.3.0] - 2026-09-27
 

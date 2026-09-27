@@ -357,7 +357,9 @@ The `workload` claim is a JSON object:
 | `attested_by` | The Instance Attestation Format that was validated (e.g. `"spiffe"`, `"wallet"`). |
 | `subject` | The proven instance subject. Formats MAY additionally emit their native member (e.g. `spiffe_id`, `wallet_instance`). |
 | `attributes` | OPTIONAL. Attributes drawn from the matched Client Binding's registered metadata — e.g. `region`, `environment`, `tier`. These are **enrichment**: asserted by the metadata source, never by the requester. |
-| `instance_attestation` | OPTIONAL. The validated Instance Attestation, embedded for audit. Deployments SHOULD weigh the privacy cost (Section 9.2). |
+| `instance_attestation_sha256` | OPTIONAL. The SHA-256 of the validated Instance Attestation as presented, lower-case hex, so an auditor holding a captured token can match it. The Instance Attestation itself MUST NOT be embedded (Section 9.2). |
+| `instance_attestation_type` | OPTIONAL. The evidence type that validated the Instance Attestation (e.g. `"spiffe-jwt"`, `"wallet-instance-attestation"`). |
+| `instance_attestation_exp` | OPTIONAL. The Instance Attestation's expiry, as a NumericDate. The Client Attestation's `exp` MUST NOT be later. |
 
 A downstream authorization server or resource server can therefore make decisions on *who vouched*
 (`iss`), *which client* (`sub`), *which instance and platform* (`workload`), and *what authority was
@@ -678,10 +680,15 @@ source, the CAS, the AS).
 
 ### 9.2 Privacy Considerations
 
-`workload.attributes` and an embedded `instance_attestation` can expose infrastructure topology
-(cluster names, regions, provider identifiers) to every party that reads the attestation. Deployments
-SHOULD register only attributes that downstream authorization actually uses, and SHOULD omit the raw
-Instance Attestation from issued tokens unless audit requirements demand it.
+`workload.attributes` can expose infrastructure topology (cluster names, regions, provider identifiers)
+to every party that reads the attestation. Deployments SHOULD register only attributes that downstream
+authorization actually uses. The raw Instance Attestation MUST NOT be embedded in an issued token: its
+audience is the CAS, so anyone who reads the token could present it to the CAS and be issued a Client
+Attestation for a key of their own until it expires. `workload.instance_attestation_sha256` serves the
+audit need instead. A CAS SHOULD bind each Instance Attestation, by that digest, to the first instance
+key and client that present it, for as long as it lives, and SHOULD refuse and record a later
+presentation by another key or client; a presenter who comes first still wins, so this detects theft
+rather than preventing it.
 
 ---
 
@@ -782,6 +789,9 @@ client's registered binding and policy — the request could not assert any of i
 
 ## Appendix B. Document History
 
+- **draft 00, 2026-09-27** - `workload.instance_attestation` (the embedded Instance Attestation) replaced by
+  `instance_attestation_sha256`, `instance_attestation_type` and `instance_attestation_exp`; Section 9.2
+  forbids embedding it and describes binding it to its first presenter.
 - **draft 00** — initial individual draft, generalised from a running implementation (SPIFFE and
   wallet instance formats; registration, OpenID Federation, and CIMD metadata sources; OpenBao-transit
   signing; entitlement-ceiling policy). Revised to make [ABCA] fully authoritative for the attestation

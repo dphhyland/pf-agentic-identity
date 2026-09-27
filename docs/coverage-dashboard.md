@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2360 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2436 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -21,11 +21,11 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/oidf-jose` | 11 | green | 88% | 135 |
 | `libs/app-attest` | 11 | green | 91% | 68 |
 | `libs/device-instance` | 15 | green | 83% | 67 |
-| `libs/client-attestation` | 8 | green | 77% | 106 |
+| `libs/client-attestation` | 19 | green | 83% | 152 |
 | `libs/openid-federation` | 217 | green | 96% | 577 |
 | `libs/agent-registry` | 7 | green | 92% | 25 |
-| `servlets/pf-integration` | 179 | green | 88% | 591 |
-| `servlets/attestation-issuer` | 17 | green | 87% | 208 |
+| `servlets/pf-integration` | 179 | green | 88% | 594 |
+| `servlets/attestation-issuer` | 24 | green | 88% | 235 |
 | `servlets/ssf` | 38 | green | 76% | 262 |
 | `plugins/rar-paz-plugin` | 4 | green | 88% | 63 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
@@ -34,7 +34,7 @@ which says nothing about whether the security paths are the covered ones.
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 38% | 88 |
 
-**535 methods gated across the reactor, all green.**
+**553 methods gated across the reactor, all green.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -65,7 +65,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | AUTHZEN-1.0 | 19 | 68 |
 | CAEP | 5 | 14 |
 | CAEPIOP | 8 | 19 |
-| CAS | 10 | 35 |
+| CAS | 10 | 39 |
 | CIBA | 3 | 3 |
 | CLAIM-DICT | 4 | 5 |
 | FAPI1-BASE | 2 | 3 |
@@ -76,7 +76,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | OIDFED | 350 | 656 |
 | PF-SDK *(vendor interface, see below)* | 3 | 6 |
 | PROFILE | 12 | 35 |
-| RFC6749 | 1 | 3 |
+| RFC6749 | 1 | 9 |
 | RFC6750 | 3 | 7 |
 | RFC7515 | 1 | 2 |
 | RFC7518 | 1 | 4 |
@@ -92,7 +92,7 @@ the three ways to get an id wrong, are documented on the annotation itself
 | SSF | 16 | 55 |
 | UNVERIFIED | 1 | 5 |
 
-**482 distinct requirements pinned by 1031 tests.**
+**482 distinct requirements pinned by 1041 tests.**
 
 **210 of 217 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,
