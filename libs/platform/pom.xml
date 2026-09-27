@@ -114,7 +114,23 @@
                                         <include>com.pingidentity.ps.oidf.platform.log.PlatformLog.of(*</include>
                                         <!-- settings (ST-1, ST-2): add gate includes below this line -->
                                         <!-- profile (PR-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.isExactlyDevelopment(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.AcceptedRisk.byId(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.AcceptedRisks.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.AcceptedRisks.date(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.AcceptedRisks.accepts(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileGuard.forbidInProduction(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileGuard.requireInProduction(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileGuard.requireRisk(*</include>
                                         <!-- tls (PR-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.trustAnyCertificate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.disableJdkHostnameVerification(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.disabledByValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.requireSetting(*</include>
                                         <!-- events (O-1): add gate includes below this line -->
                                         <!-- metrics (O-3): add gate includes below this line -->
                                         <!-- health (O-4): add gate includes below this line -->
