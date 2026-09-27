@@ -21,6 +21,9 @@ import java.util.function.BooleanSupplier;
  * sure of: a linkage error surfaces where a class is first resolved, and inside the body it is caught here.
  */
 public final class CriterionGuard {
+    /** The longest criterion name or exception message the log line keeps, in characters. */
+    static final int MAX_TEXT = 256;
+
     private static final PlatformLog LOG = PlatformLog.get(CriterionGuard.class);
 
     private CriterionGuard() {
@@ -33,7 +36,7 @@ public final class CriterionGuard {
      * @param body      the criterion's own decision
      */
     public static boolean evaluate(String criterion, BooleanSupplier body) {
-        String name = criterion == null ? "an unnamed criterion" : criterion;
+        String name = criterion == null ? "an unnamed criterion" : oneLine(criterion);
         if (body == null) {
             LOG.error("OGNL criterion " + name + " has no body; it denies", null);
             return false;
@@ -41,8 +44,38 @@ public final class CriterionGuard {
         try {
             return body.getAsBoolean();
         } catch (Throwable t) {
-            LOG.error("OGNL criterion " + name + " failed and denies: " + t, t);
+            LOG.error("OGNL criterion " + name + " failed and denies: " + describe(t), t);
             return false;
         }
+    }
+
+    /**
+     * A throwable as one short line: its class and its message, which can carry request-derived text (a client_id,
+     * a header, a JWT member), cleaned by {@link #oneLine(String)}. The throwable itself still goes to the log call,
+     * so the stack trace is kept.
+     */
+    static String describe(Throwable t) {
+        String message = t.getMessage();
+        return t.getClass().getName() + (message == null ? "" : ": " + oneLine(message));
+    }
+
+    /**
+     * Text as one log line: control, format and separator characters (CR, LF, the bidi overrides) become {@code ?},
+     * and it is cut at {@value #MAX_TEXT} characters, never through a surrogate pair.
+     */
+    static String oneLine(String text) {
+        int end = Math.min(text.length(), MAX_TEXT);
+        if (end < text.length() && Character.isHighSurrogate(text.charAt(end - 1))) {
+            end--;
+        }
+        StringBuilder out = new StringBuilder(end);
+        for (int i = 0; i < end; i++) {
+            char c = text.charAt(i);
+            int type = Character.getType(c);
+            boolean hidden = type == Character.CONTROL || type == Character.FORMAT || type == Character.LINE_SEPARATOR
+                    || type == Character.PARAGRAPH_SEPARATOR;
+            out.append(hidden ? '?' : c);
+        }
+        return out.toString();
     }
 }

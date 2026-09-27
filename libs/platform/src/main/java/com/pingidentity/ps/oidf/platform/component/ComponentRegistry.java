@@ -33,7 +33,7 @@ public final class ComponentRegistry {
     public static final int MAX_REASON = 256;
 
     private static final PlatformLog LOG = PlatformLog.get(ComponentRegistry.class);
-    private static final Pattern NAME = Pattern.compile("[a-z0-9][a-z0-9.-]{0,63}");
+    private static final Pattern NAME = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
 
     private final Clock clock;
     private final Map<String, Entry> entries = new LinkedHashMap<>();
@@ -63,8 +63,9 @@ public final class ComponentRegistry {
      * Registers a component, {@link ComponentState#STARTING} when enabled and {@link ComponentState#DISABLED}
      * when not.
      *
-     * @param name lower case letters, digits, {@code .} and {@code -}, at most 64 characters, as S-9's switches
-     *             name components ({@code federation}, {@code ssf-receiver})
+     * @param name S-9's spelling, the part of its {@code OIDF_<NAME>_ENABLED} switch between the prefix and the
+     *             suffix ({@code FEDERATION}, {@code SSF_RECEIVER}): an upper case letter, then upper case letters,
+     *             digits and {@code _}, at most 64 characters
      * @throws IllegalArgumentException for any other name - a constant in the caller's code, so a bad one is a
      *                                  bug to find in its tests, not at run time
      */
@@ -127,7 +128,7 @@ public final class ComponentRegistry {
 
     static void checkName(String name) {
         if (name == null || !NAME.matcher(name).matches()) {
-            throw new IllegalArgumentException("a component name is 1-64 of a-z, 0-9, '.' and '-', starting with a letter or digit");
+            throw new IllegalArgumentException("a component name is 1-64 of A-Z, 0-9 and '_', starting with a letter, as S-9 spells it (SSF_RECEIVER)");
         }
     }
 

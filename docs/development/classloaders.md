@@ -52,7 +52,9 @@ A copy cannot tell by itself which loader it is in. `Lifecycle.loaderRole()` say
 lifecycle listener (F-2) has called `markWebapp()`, and `UNKNOWN` everywhere else, so code that starts a thread
 can refuse to in any copy not marked. Managed executors (C-3) will start threads only there. The one thread
 platform starts itself is `Lifecycle`'s short-lived closer, one per resource during shutdown, which only the
-webapp's listener calls; C-3 is where it moves onto the managed executors.
+webapp's listener is meant to call - but a `register()` after shutdown also closes its resource on a closer
+thread, in whichever copy and from whichever caller registers it. C-3 is where it moves onto the managed
+executors.
 
 Applies to the engine's copy and the plugins' copies, which must start none.
 

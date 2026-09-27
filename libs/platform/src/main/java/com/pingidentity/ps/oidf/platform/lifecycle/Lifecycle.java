@@ -22,8 +22,12 @@ import java.util.concurrent.atomic.AtomicReference;
  * the ones it uses is closed before them. It runs once: later calls do nothing. A resource whose close throws
  * is logged and the rest are still closed. The wait is bounded: each close runs on a short-lived daemon thread
  * of its own and is waited for only until the budget runs out, so one close that hangs cannot hold up a
- * container's undeploy. A close still running at the end is left to finish in the background and reported. A
- * resource registered after shutdown is closed at once, the same way, and not kept.
+ * container's undeploy. A close still running at the end is left to finish in the background and reported.
+ * Reverse order holds only while every close finishes in time: once one times out, or the budget is spent,
+ * each later close starts at once while the hung one is still running, so a resource registered earlier - one
+ * the hung resource may still be using - can close under it. A resource registered after shutdown is closed at
+ * once, the same way (on a closer thread of its own, started by whichever copy and caller registered it), and
+ * not kept.
  *
  * <p>Whether this loader is the webapp's - the one copy allowed to start background threads - is not something
  * a copy can see for itself. It is {@link LoaderRole#UNKNOWN} until the webapp's lifecycle listener (plan item

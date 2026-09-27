@@ -86,6 +86,8 @@
                                     <includes>
                                         <!-- ognl (F-1, then S-9): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.evaluate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.oneLine(*</include>
                                         <!-- settings (ST-1, ST-2): add gate includes below this line -->
                                         <!-- audit (O-1): add gate includes below this line -->
                                         <!-- health (O-4): add gate includes below this line -->

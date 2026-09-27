@@ -38,7 +38,10 @@ owner, so nobody edits it.
 and reported, and the rest are still closed. The wait is bounded (`DEFAULT_BUDGET`, ten seconds, or the
 budget passed): each close runs on a short-lived daemon thread and is waited for only until the budget runs
 out, so a hung close cannot hold up an undeploy; it carries on in the background and is reported as timed out.
-A resource registered after shutdown is closed at once and not kept. `shutdown` returns one `Closed` per
+Reverse order holds only while every close finishes in time: after a timeout, or once the budget is spent, the
+remaining closes start at once while the hung one is still running, so a resource registered earlier - one the
+hung resource may still be using - can close under it. A resource registered after shutdown is closed at once,
+on a closer thread started by whichever copy and caller registered it, and not kept. `shutdown` returns one `Closed` per
 resource, in the order it closed them.
 
 Whether a copy is the webapp's - the one allowed to start background threads - cannot be seen from inside it.
@@ -57,8 +60,10 @@ health (O4) to read.
 - A disabled component stays disabled: its handle does nothing and answers `false`.
 - Registering a name again (a servlet initialised a second time) starts it afresh and retires the earlier
   handle, so a destroyed instance's late report cannot overwrite the new one's.
-- A name is 1-64 of `a-z`, `0-9`, `.` and `-`; anything else is refused with `IllegalArgumentException`,
-  because names are constants and a bad one is a bug for the caller's tests to find.
+- A name is S-9's spelling, the part of its `OIDF_<NAME>_ENABLED` switch between prefix and suffix (`FEDERATION`,
+  `AUTO_REGISTRATION`, `SSF_RECEIVER`): 1-64 of `A-Z`, `0-9` and `_`, starting with a letter. Anything else is
+  refused with `IllegalArgumentException`, because names are constants and a bad one is a bug for the caller's
+  tests to find.
 - A reason is operator text kept to one line: control, format and separator characters become `?`, and it is
   cut at 256 characters without splitting a surrogate pair. A state that needs a reason and gets none says
   "no reason given".
@@ -83,7 +88,7 @@ Why commons-logging, and why the fallback - what each place platform runs in see
 
 | Where platform runs | commons-logging | Where a line goes |
 |---|---|---|
-| PingFederate 13.1.3, the webapp's copy (`pf-runtime.war` `WEB-INF/lib`) | yes: `server/default/lib/commons-logging.jar`, with `log4j-jcl.jar` beside it, in the pinned image | log4j, so server.log at the line's level |
+| PingFederate 13.1.3, the webapp's copy (`pf-runtime.war` `WEB-INF/lib`) | yes: `server/default/lib` in the pinned image has two jars that define `LogFactory`, `commons-logging.jar` (with `log4j-jcl.jar` beside it, whose service entry names log4j's `LogFactoryImpl`) and `spring-jcl.jar` 6.2.19 (whose `LogAdapter` picks the Log4j API unless log4j's `SLF4JProvider` is present, and no jar there has it) | log4j either way - which `LogFactory` a loader resolves depends on classpath order - so server.log at the line's level |
 | PingFederate 13.1.3, the engine's copy (`server/default/deploy`) | yes, the same jar | the same |
 | A plugin that shades and relocates platform | yes: commons-logging is `provided` here, so shading leaves it out and the relocated copy calls PingFederate's | the same |
 | `services/device-enrolment`, `demo-rs`, `harness` | yes: each declares commons-logging at compile scope | commons-logging's own discovery |
@@ -93,7 +98,9 @@ Why commons-logging, and why the fallback - what each place platform runs in see
 sets no `java.util.logging.manager` (read 2026-09-28 in the pinned image), so a `java.util.logging` line goes
 to standard error, and PingFederate logs standard error at `ERROR [SystemErr]` whatever the line's level
 (finding [F-0075](../../docs/findings/F-0075.yaml), seen on the rig 2026-09-27). So `System.Logger` is only the
-fallback that keeps the jar JDK-only. `CommonsLoggingSink` is the only class that names commons-logging, and
+fallback that keeps the jar JDK-only. Not yet seen: a platform line in server.log, because nothing logs through
+`PlatformLog` on the rig yet, so the route rests on the jars above until the first caller (F-2's banner, or
+O-1's events) is seen on the rig. `CommonsLoggingSink` is the only class that names commons-logging, and
 the JVM loads it only when it is chosen: `PlatformLogTest` loads platform in a loader without commons-logging
 and shows it logs and never loads that class.
 

@@ -47,28 +47,28 @@ class ComponentRegistryTest {
 
     @Test
     void anEnabledComponentStartsAndADisabledOneStaysDisabled() {
-        Component federation = this.registry.register("federation", true);
-        Component ssf = this.registry.register("ssf", false);
-        assertEquals(new ComponentStatus("federation", true, ComponentState.STARTING, "", this.clock.now), federation.status());
+        Component federation = this.registry.register("FEDERATION", true);
+        Component ssf = this.registry.register("SSF", false);
+        assertEquals(new ComponentStatus("FEDERATION", true, ComponentState.STARTING, "", this.clock.now), federation.status());
         assertEquals(ComponentState.DISABLED, ssf.status().state());
         assertFalse(ssf.ready(), "a disabled component's handle does nothing");
         assertFalse(ssf.failedConfig("x"));
         assertFalse(ssf.starting());
         assertEquals(ComponentState.DISABLED, ssf.status().state());
-        assertEquals("ssf", ssf.name());
+        assertEquals("SSF", ssf.name());
     }
 
     @Test
     void theHandleMovesAnEnabledComponentThroughEveryState() {
-        Component c = this.registry.register("ssf-receiver", true);
+        Component c = this.registry.register("SSF_RECEIVER", true);
         assertTrue(c.ready());
-        assertEquals(new ComponentStatus("ssf-receiver", true, ComponentState.READY, "", this.clock.now), c.status());
+        assertEquals(new ComponentStatus("SSF_RECEIVER", true, ComponentState.READY, "", this.clock.now), c.status());
         assertTrue(c.degraded("Redis slow"));
         assertEquals("Redis slow", c.status().reason());
         assertTrue(c.failedDependency("database unreachable"));
         assertEquals(ComponentState.FAILED_DEPENDENCY, c.status().state());
         assertTrue(c.starting());
-        assertEquals(new ComponentStatus("ssf-receiver", true, ComponentState.STARTING, "", this.clock.now), c.status());
+        assertEquals(new ComponentStatus("SSF_RECEIVER", true, ComponentState.STARTING, "", this.clock.now), c.status());
         assertTrue(c.failedConfig("OIDF_SSF_ISSUER is not an https URL"));
         assertEquals(ComponentState.FAILED_CONFIG, c.status().state());
         assertTrue(c.refused("insecure TLS is forbidden in production"));
@@ -80,7 +80,7 @@ class ComponentRegistryTest {
     /** Reporting the same state and reason again keeps the time it was entered; a new reason is a new entry. */
     @Test
     void theSameStateKeepsItsTime() {
-        Component c = this.registry.register("hosting", true);
+        Component c = this.registry.register("HOSTING", true);
         Instant first = this.clock.now;
         c.degraded("slow");
         this.clock.now = first.plus(Duration.ofMinutes(5));
@@ -93,13 +93,13 @@ class ComponentRegistryTest {
     /** A servlet initialised again registers again; the earlier instance's handle can no longer move it. */
     @Test
     void registeringAgainStartsAfreshAndRetiresTheOldHandle() {
-        Component old = this.registry.register("federation", true);
+        Component old = this.registry.register("FEDERATION", true);
         old.ready();
-        Component fresh = this.registry.register("federation", false);
+        Component fresh = this.registry.register("FEDERATION", false);
         assertEquals(ComponentState.DISABLED, fresh.status().state());
         assertFalse(old.failedConfig("late report from a destroyed instance"));
-        assertEquals(ComponentState.DISABLED, this.registry.status("federation").orElseThrow().state());
-        Component again = this.registry.register("federation", true);
+        assertEquals(ComponentState.DISABLED, this.registry.status("FEDERATION").orElseThrow().state());
+        Component again = this.registry.register("FEDERATION", true);
         assertFalse(old.ready());
         assertTrue(again.ready());
         assertEquals(1, this.registry.snapshot().size());
@@ -107,21 +107,23 @@ class ComponentRegistryTest {
 
     @Test
     void theSnapshotIsOrderedByNameAndCannotBeChanged() {
-        this.registry.register("ssf", true);
-        this.registry.register("fapi", false);
-        this.registry.register("attestation-auth", true);
+        this.registry.register("SSF", true);
+        this.registry.register("FAPI", false);
+        this.registry.register("ATTESTATION_AUTH", true);
         List<ComponentStatus> snapshot = this.registry.snapshot();
-        assertEquals(List.of("attestation-auth", "fapi", "ssf"), snapshot.stream().map(ComponentStatus::name).toList());
+        assertEquals(List.of("ATTESTATION_AUTH", "FAPI", "SSF"), snapshot.stream().map(ComponentStatus::name).toList());
         assertThrows(UnsupportedOperationException.class, () -> snapshot.remove(0));
-        assertEquals(Optional.empty(), this.registry.status("operator-api"));
+        assertEquals(Optional.empty(), this.registry.status("OPERATOR_API"));
     }
 
     @Test
-    void namesAreShortLowerCaseAndLogSafe() {
-        for (String ok : List.of("a", "federation", "ssf-receiver", "attestation.issuer", "x".repeat(64), "9lives")) {
+    void namesAreSNinesSpellingShortAndLogSafe() {
+        for (String ok : List.of("FEDERATION", "AUTO_REGISTRATION", "ATTESTATION_AUTH", "ATTESTATION_ISSUER", "HOSTING", "SSF",
+                "SSF_RECEIVER", "OPERATOR_API", "FAPI", "A", "X".repeat(64), "V2_API")) {
             ComponentRegistry.checkName(ok);
         }
-        for (String bad : Arrays.asList(null, "", "Federation", "-lead", ".lead", "x".repeat(65), "a b", "a\nb", "\u00e9")) {
+        for (String bad : Arrays.asList(null, "", "federation", "Federation", "ssf-receiver", "ATTESTATION.ISSUER", "_LEAD",
+                "9LIVES", "X".repeat(65), "A B", "A\nB", "\u00c9")) {
             assertThrows(IllegalArgumentException.class, () -> this.registry.register(bad, true), String.valueOf(bad));
         }
     }
@@ -149,7 +151,7 @@ class ComponentRegistryTest {
         assertEquals("x".repeat(ComponentRegistry.MAX_REASON - 1), ComponentRegistry.clean(pairAtTheCut), "never half a pair");
         String pairInside = "x".repeat(ComponentRegistry.MAX_REASON - 2) + "\ud83d\ude00";
         assertEquals(pairInside, ComponentRegistry.clean(pairInside));
-        Component c = this.registry.register("fapi", true);
+        Component c = this.registry.register("FAPI", true);
         c.failedDependency(null);
         assertEquals("no reason given", c.status().reason());
     }
@@ -157,10 +159,10 @@ class ComponentRegistryTest {
     /** The static entry point is this loader's one registry. */
     @Test
     void componentsIsTheLoadersRegistry() {
-        Component c = Components.register("platform-test-component", true);
+        Component c = Components.register("PLATFORM_TEST_COMPONENT", true);
         c.ready();
-        assertEquals(ComponentState.READY, Components.status("platform-test-component").orElseThrow().state());
-        assertTrue(Components.snapshot().stream().anyMatch(s -> s.name().equals("platform-test-component")));
+        assertEquals(ComponentState.READY, Components.status("PLATFORM_TEST_COMPONENT").orElseThrow().state());
+        assertTrue(Components.snapshot().stream().anyMatch(s -> s.name().equals("PLATFORM_TEST_COMPONENT")));
         assertSame(Components.registry(), Components.registry());
         assertTrue(new ComponentRegistry().snapshot().isEmpty());
     }

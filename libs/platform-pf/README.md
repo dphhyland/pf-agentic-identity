@@ -28,7 +28,9 @@ once, with every owner, so nobody edits it.
 
 `CriterionGuard.evaluate(name, body)` runs an issuance criterion's body and answers what it answers, or
 `false` when it throws - an `Error` included, because a `NoClassDefFoundError` is what a missing staged jar
-looks like - or has no body, and logs why with the criterion's name. PingFederate would deny either way: a
+looks like - or has no body, and logs why with the criterion's name. The logged line carries the exception's
+class and message as one line of at most 256 characters, control, format and separator characters replaced
+with `?`, because a message can carry request-derived text; the stack trace still goes to the log. PingFederate would deny either way: a
 throwing criterion denies with the criterion's Error Result (`invalid_grant` on the client-credentials grant,
 verified on the rig with 13.1.3.0 on 2026-09-26, finding [U-0015](../../docs/findings/U-0015.yaml)), but the
 log would not say why. `ClientAttestationUtils.validateClientAttestation` in `servlets/pf-integration` is the
