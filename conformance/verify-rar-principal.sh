@@ -2,10 +2,12 @@
 # What PingFederate 13.1.3 hands the RAR plugin as the user key in each OAuth flow, and what the plugin makes
 # of it - on this rig, with a PDP that says yes and writes down what it was asked.
 #
-# Closes the plan's to-verify items 1 (getUserKey() per flow) and 2 (JWT-bearer never enriches is not driven
-# here; the refresh re-ask is) with dated evidence, recorded in plugins/rar-paz-plugin/README.md. For each
-# flow it prints the user key PingFederate passed (matched by SHA-256 against the plugin's PII-safe log line,
-# which never carries the key itself) and the principal_source the plugin chose, as the stub PDP received it.
+# The evidence for the plan's to-verify item 1 (getUserKey() per flow; U-0016) and, with OLD_PLUGIN_JAR, item 7
+# (a stored plaintext secret under the encrypted field; U-0022), recorded in plugins/rar-paz-plugin/README.md.
+# Item 2 (JWT-bearer never enriches; U-0017) is not driven here; the refresh that reissues stored details
+# without asking the plugin ("Found while designing" item 2) is. For each flow it prints the user key
+# PingFederate passed (matched by SHA-256 against the plugin's PII-safe log line, which never carries the key
+# itself) and the principal_source the plugin chose, as the stub PDP received it.
 #
 # What it does:
 #   1. boots the rig (up.sh) with the plugin jar lent to it by docker-compose.rar-plugin.yml, on its own
