@@ -5,7 +5,7 @@ area: platform
 source: design
 status: closed
 plan_items: [C-3]
-prs: [PRNUM]
+prs: [51]
 verification: >
   Closed by C3 on 2026-09-28. Lifecycle.close starts each closer through ManagedExecutors.startDaemon
   ("oidf-platform-close-<n>", a daemon, uncaught throws logged), so platform.exec is the one place platform

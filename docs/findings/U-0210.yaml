@@ -4,7 +4,7 @@ area: platform
 source: design
 status: open
 plan_items: [F-2]
-prs: [PRNUM]
+prs: [51]
 recorded_in: libs/platform/README.md, exec
 verify_by: >
   Build the image with this change, boot the rig with SSF (a data store or in memory), federation subordinates
