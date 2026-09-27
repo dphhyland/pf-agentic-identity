@@ -1,0 +1,22 @@
+id: F-0199
+title: The configuration reference and docs/extended-properties.json disagree with the code
+severity: medium
+area: docs, pf-integration
+source: design
+status: open
+plan_items: [ST-4]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  Found by ST3A (2026-09-28) transcribing docs/federation/configuration.md into the catalogues, the code winning
+  where the two differ. ST-4 generates both documents from the catalogues and closes this; until then they say:
+  (1) "each can also be a Java system property: the same name in lower case with . for _", but
+  OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT's is oidf.attestation.require_hosted_agent (ClientAttestationAuthFilter),
+  and the page lists only the hosted-entity names as exceptions; (2) OIDF_FAPI2_CLIENTS is read first from the
+  FAPI 2.0 filter's init-param clients, which the row does not name; (3) the per-client extended properties
+  trust_chain_leaf_max_time, trust_chain_trustanchor_max_time and trust_chain_request_max_age, read by the OGNL
+  chain criterion and the attestation path, are in neither document - and PingFederate drops an extended property
+  it has not been told about, so an operator's per-client chain limits are lost as F-0041 describes for the
+  attestation_* names. The catalogues (servlets/pf-integration's client-properties) declare all three, so the
+  generated extended-properties.json will list them.

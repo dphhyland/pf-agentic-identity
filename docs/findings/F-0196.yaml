@@ -1,0 +1,18 @@
+id: F-0196
+title: The registration sweeper's one-per-JVM latch is a system property anyone can set
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [C-3]
+prs: []
+verification: ''
+target_release: 0.5.0
+notes: >
+  Found by ST3A (2026-09-28): the settings scan saw System.getProperty("oidf.registration.sweeper.owner") in
+  RegistrationExpirySweeper.startOnce. The sweeper sets that property so that one sweeper runs per JVM and returns
+  false when it is already set; TokenEndpointAutoRegistrationFilter ignores the return value and logs nothing. A
+  deployment started with -Doidf.registration.sweeper.owner=anything therefore never disables an expired client,
+  without a word, and the name looks like a setting. It is not one, so the scan excuses it by name
+  (NOT_SETTINGS) rather than catalogue it. C-3, which moves the sweeper onto platform.exec, can hold the latch in
+  a static of its own and log when it declines to start.
