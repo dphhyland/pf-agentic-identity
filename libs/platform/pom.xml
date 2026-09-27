@@ -196,6 +196,37 @@
                                         <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.requireSetting(*</include>
                                         <!-- events (O-1): add gate includes below this line -->
                                         <!-- metrics (O-3): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Label.oneOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Label.capped(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Label.maxValues(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Label.keepable(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Label.checkName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Label.equals(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.Slot.admit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.maxSeries(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.cell(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.peek(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.key(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Family.sameShape(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Counter.add(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer.bucketIndex(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer.Cell.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Timer.Cell.cumulative(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Gauge.Cell.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Gauge.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.checkName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.checkHelp(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.checkLabels(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MetricRegistry.snapshot(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Samples.flatten(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Samples.labels(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.Samples.escape(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.ensure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.unregister(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.register(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.objectName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.metrics.MXBeanRegistration.copyOf(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
                                         <!-- redis (C-2): add gate includes below this line -->
                                         <!-- http (S5a): add gate includes below this line -->
