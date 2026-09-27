@@ -7,7 +7,7 @@ AS-side **OAuth Attestation-Based Client Authentication**
 the verifier and supporting machinery an Authorization Server uses to authenticate a client that
 presents a Client Attestation plus a proof of possession. Package
 `com.pingidentity.ps.oidf.clientattestation` (the challenge servlet in its `.servlet` subpackage).
-Depends on `oidf-jose`, [`rar-model`](../rar-model/README.md) and the servlet API (provided) — no PingFederate. The issuing side lives in
+Depends on `oidf-jose`, [`rar-model`](../rar-model/README.md) and the servlet API (provided) - no PingFederate. The issuing side lives in
 `servlets/attestation-issuer` and `libs/device-instance`; PingFederate's token-endpoint hook and the
 federation-backed key resolver live in `servlets/pf-integration`.
 The whole pipeline end to end — plus standards alignment, test coverage and the open gaps — is

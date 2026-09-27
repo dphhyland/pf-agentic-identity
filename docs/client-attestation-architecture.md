@@ -76,7 +76,7 @@ sequenceDiagram
     A->>A: validate instance-key proof: sig under presented JWK, typ, aud,<br/>challenge consume, jti replay
     A->>A: custom proof claims; WIA cnf must equal instance_key
     A->>A: workload introspection; asserted-context narrowing (the model's meet)
-    A->>A: RAR ceiling — rar-model authorize(requested, ceiling, INHERIT); empty = the full ceiling
+    A->>A: RAR ceiling - rar-model authorize(requested, ceiling, INHERIT); empty = the full ceiling
     A->>R: resolveOrMint(iss, client_id, format, subject)
     R-->>A: agent_id
     A->>V: sign (or inline JWK, dev)

@@ -11,7 +11,7 @@
 # stage whose profile is not the one the image is built for. Their external deps (jose4j, jackson,
 # commons-logging) are already on PF's server classpath.
 # rar-model rides along because client-attestation's token gate and attestation-issuer's mint ask it
-# (plan item S1b) — without it the attestation filter refuses to start and the issuance criterion and
+# (plan item S1b) - without it the attestation filter refuses to start and the issuance criterion and
 # servlet fail at first use with NoClassDefFoundError. It is JDK-only, so it adds no library to PF's
 # classpath; the RAR plugin shades and relocates its own copy, so the two never meet.
 # agent-registry rides along because attestation-issuer's servlets import it (agent_id minting) —

@@ -12,7 +12,7 @@
     <name>client-attestation</name>
     <description>AS-side OAuth Attestation-Based Client Authentication (draft-ietf-oauth-attestation-based-client-auth):
         verifier, models, DPoP proof validation, challenge/replay, and the token endpoint's RAR ceiling check over
-        libs/rar-model. Depends only on the oidf-jose SDK, rar-model and the servlet API — no PingFederate.</description>
+        libs/rar-model. Depends only on the oidf-jose SDK, rar-model and the servlet API - no PingFederate.</description>
     <url>https://github.com/dphhyland/client-attestation</url>
 
     <licenses>
