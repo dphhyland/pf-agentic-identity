@@ -52,7 +52,7 @@
         <module>plugins/instance-registry-datasource</module>
         <module>plugins/ciba-sim</module>
         <module>services/device-enrolment</module>
-        <module>services/demo-rs</module>
+        <module>libs/rs-validation</module>
         <module>services/gm-api/servlet</module>
         <module>services/harness</module>
     </modules>
