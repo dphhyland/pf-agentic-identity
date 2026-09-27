@@ -75,22 +75,73 @@ Each has unit tests under `tools/tests/`, run by CI before the tool itself is tr
 
 ## Generated files
 
-Some files are derived from the code and checked rather than written:
+Reactor-wide files derived from the code are built by CI and published, not committed (plan decision 18): a
+file that every test or documentation change regenerated conflicted whenever two pull requests met. PR #15
+(merged 2026-09-27) took the dashboard and the showcase render out of git. Each Build run whose reactor build
+completes publishes them as artefacts, and locally they land at the same paths, git-ignored:
 
-- **`docs/coverage-dashboard.md` and `.html`** - `python3 tools/coverage-report.py` writes them from the jacoco
-  and surefire reports of a full build and the `@Requirement` annotations; `--check` compares.
-- **The showcase's documents** - `node tools/build-showcase-docs.mjs` renders every tracked Markdown file into
-  `showcase/index.html`'s `DOCS_HTML` line (`npm ci --prefix tools` once first, the renderer is pinned);
-  `--check` compares. `python3 tools/check-showcase-links.py` checks the page's file:line citations exist.
-- **`docs/development/doc-lint-baseline.txt`** - `python3 tools/doc-lint.py --update-baseline` lowers it after
-  hits are fixed; never run it to admit new ones.
+- **The coverage dashboard, `docs/coverage-dashboard.md`, `.html` and `.json`** - `python3
+  tools/coverage-report.py` writes all three from the jacoco and surefire reports of a full build (`mvn -o
+  verify` first, with Postgres, see above) and the `@Requirement` annotations. The JSON is the machine-readable
+  copy: per module, each jacoco check's methods with their line and branch counters, the test counts, and the
+  requirement ids and matrix rows its tests pin. CI publishes the three as the `coverage-dashboard` artefact.
+- **The showcase's documents, `showcase/docs.js`** - `node tools/build-showcase-docs.mjs` renders every tracked
+  Markdown file, and the dashboard when the last build left one (`npm ci --prefix tools` once first, the
+  renderer is pinned). `python3 tools/check-showcase-links.py` then checks the pages' file:line citations. CI
+  publishes `showcase/` as the `showcase` artefact.
 
-The dashboard and the showcase render are being moved out of git by a concurrent pull request
-(`prod/p1-generated-files`, plan item R-CI5 brought forward): until it merges, both are tracked and CI fails
-on a stale copy, so regenerate the dashboard after any change to a Java test (with Postgres, see above) and
-the showcase after any change to a tracked `.md`, and commit the result. After it merges, CI generates and
-publishes both and there is nothing to regenerate; this section is rewritten then. Per-component generated
-pages, such as `docs/configuration/` once ST-4 lands, stay committed and byte-checked either way.
+Per-component generated pages, such as `docs/configuration/` once ST-4 lands, stay committed and byte-checked.
+So does `docs/development/doc-lint-baseline.txt`: `python3 tools/doc-lint.py --update-baseline` lowers it after
+hits are fixed; never run it to admit new ones.
+
+### The coverage gate and the ratchet
+
+CI's java job runs `tools/coverage-report.py --strict --gate --baseline <json>` after `mvn verify`. It fails
+the job for three kinds of reason, each printed as one line on stderr and in the job's step summary:
+
+- `incomplete build:` (`--strict`, the default) - a module with tests left no surefire report, a module that
+  configures jacoco left no `jacoco.xml`, or a jacoco check includes no method. Something skipped the tests.
+- `gate:` (`--gate`) - a jacoco check includes no method; an `<include>` pattern names no method in the jacoco
+  report, which jacoco itself passes (a renamed method or a typo leaves the method ungated and the build green),
+  so fix the pattern; or an `@Requirement` id's prefix is not declared in
+  `libs/conformance/.../Requirement.java`, so declare it there, once the document behind it has been read, or
+  fix the id. An id naming a section that no conformance-matrix row declares is printed as a `gate warning:`
+  and counted, not refused: on 2026-09-28, 65 of 500 ids were, under 21 prefixes, 7 of which no matrix has a
+  row for. The dashboard lists them, with the matrix each belongs in.
+- `ratchet:` (`--baseline`) - against the `coverage-dashboard.json` of an earlier build: a jacoco check the
+  baseline had is gone or includes fewer methods (the line names the methods it no longer includes), a gated
+  method is below 100% line or branch coverage, or fewer matrix rows are pinned (the line names them). Anything
+  new passes: a new module, check or method needs no edit to the tool. A method renamed in the source and in
+  its pattern passes too, since the count is the same.
+
+A reduction that is the point of the change - dead code deleted along with its `<include>`, a check's execution
+id renamed, a module moved, a matrix row retired - is allowed by a line in `tools/coverage-ratchet-allow.txt`,
+committed in the same pull request: `method <module> <method>`, `check <module> <execution id>` or `row <matrix
+row>`, with the names copied from the `ratchet:` line. The review sees it, and the push to main that follows
+reads the same file, so main does not go red after the merge. An allowance only takes its item out of the
+baseline; nothing lets a gated method fall below 100%. Once the baseline no longer has the item, the line allows
+nothing and the step summary lists it under "Allowances that allow nothing", so the next change can delete it.
+A malformed line, or a baseline that is missing or not JSON, exits 2 rather than 1.
+
+CI's baseline is fetched by `tools/ci/coverage-baseline.sh`: the dashboard JSON of the newest successful push
+Build on main that the commit under test descends from (a pull request's merge commit, a push, or a dispatched
+branch), found by asking the compare API about the 30 newest such runs. A newer main is never the baseline, so
+a branch behind main is not failed for gated methods it never had. When there is none - the first run on main,
+an artefact past its 90 days, a run from before the JSON existed - the ratchet passes, and the step summary
+says so. A baseline in another JSON format passes the same way, so a change to the format does not fail every
+build until a baseline in the new one exists.
+
+To run the same locally, build, download a main run's artefact and pass its JSON:
+
+```sh
+mvn -o -B clean verify
+gh run download <run-id> -n coverage-dashboard -D /tmp/baseline    # a successful Build run on main
+python3 tools/coverage-report.py --gate --baseline /tmp/baseline/coverage-dashboard.json
+```
+
+`gh run list --workflow build.yml --branch main --event push --status success --limit 1` gives the newest run
+id; if your branch is behind main, pick the run for a commit it contains, or merge main first, since a newer
+main can have gated methods your branch never had.
 
 ## Pull requests
 

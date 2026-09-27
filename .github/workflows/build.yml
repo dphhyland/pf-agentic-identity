@@ -129,6 +129,11 @@ jobs:
 
   java:
     runs-on: ubuntu-latest
+    # actions: read is for the coverage ratchet, which reads the dashboard the last successful Build on main
+    # published; nothing in the job writes to the repository.
+    permissions:
+      contents: read
+      actions: read
     # device-instance's IOM registry suite runs against a real Postgres: its invariants are JSONB operators,
     # partial unique indexes and plpgsql triggers, which no in-memory database has. Before this it found one
     # through Testcontainers when the runner's Docker allowed it, and would be skipped, not failed, when it
@@ -225,21 +230,44 @@ jobs:
           if ran == 0 or skipped:
               sys.exit("RedisLiveTest skipped tests or ran none: check the OIDF_TEST_REDIS_* variables")
           PY
-      - name: coverage dashboard, generated from this build
+      - name: the coverage baseline, from a successful Build on main that this commit descends from
+        # The ratchet below compares this build with the coverage-dashboard.json that a successful push Build on
+        # main published: the newest one this commit descends from (a pull request's merge commit, a push, or a
+        # dispatched branch that may be behind main). No baseline - the first run on main, an artefact past its
+        # 90 days, one from before the JSON existed - passes, with a notice in the step summary. A failed fetch
+        # fails the step instead of passing as no baseline.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.sha }}
+        run: tools/ci/coverage-baseline.sh "$RUNNER_TEMP/coverage-baseline.json" "$HEAD_SHA"
+      - name: coverage dashboard, generated from this build, gated and ratcheted
         # Generated from the jacoco and surefire reports the reactor build just produced, and published rather
         # than committed: a reactor-wide file that every test change regenerated conflicted in Phase 0's
-        # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module that has
-        # tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate
+        # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module
+        # that has tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate
         # includes no method - so a build that quietly skipped tests cannot produce a clean-looking page.
-        run: python3 tools/coverage-report.py --strict
+        # --gate adds what jacoco passes: an <include> pattern that names no method in the report, and an
+        # @Requirement prefix Requirement.java does not declare; it counts, without failing, the ids no matrix
+        # row declares. --baseline fails a jacoco check the baseline had that is gone or includes fewer methods,
+        # a gated method below 100% line or branch, and fewer pinned matrix rows, less the deliberate reductions
+        # tools/coverage-ratchet-allow.txt names. The verdict goes to the step summary; CONTRIBUTING.md
+        # "Generated files" says how to read a failure, allow a reduction and run the same locally.
+        run: |
+          baseline=()
+          if [ -s "$RUNNER_TEMP/coverage-baseline.json" ]; then
+            baseline=(--baseline "$RUNNER_TEMP/coverage-baseline.json")
+          fi
+          python3 tools/coverage-report.py --strict --gate "${baseline[@]}" --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        # Uploaded even when --strict fails, so the page that names the gap can be read.
+        # Uploaded even when the step above fails, so the page that names the gap can be read. The JSON is the
+        # next run's baseline.
         if: ${{ !cancelled() }}
         with:
           name: coverage-dashboard
           path: |
             docs/coverage-dashboard.md
             docs/coverage-dashboard.html
+            docs/coverage-dashboard.json
       - name: the showcase's documents are built, and its source links resolve
         # The showcase renders every tracked document, and the dashboard the step above wrote, into
         # showcase/docs.js (generated, not tracked - the same decision as the dashboard), and cites a file and
