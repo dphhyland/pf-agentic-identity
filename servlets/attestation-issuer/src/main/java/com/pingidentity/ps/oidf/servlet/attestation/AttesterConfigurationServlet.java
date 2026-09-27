@@ -148,8 +148,8 @@ public class AttesterConfigurationServlet extends HttpServlet {
         // other (CAS §4.1), so this document names only the attester's.
         m.put("challenge_endpoint", baseUrl + AttestationIssuanceChallengeServlet.PATH);
         // The PF token endpoint that accepts the minted attestation as client authentication
-        // (attest_jwt_client_auth, via ClientAttestationAuthFilter). Advertised so a client SDK can run
-        // the whole flow from the PF host alone.
+        // (attest_jwt_client_auth, via ClientAttestationAuthFilter): a client SDK finds it from the PF host alone.
+        // No challenge for its PoP: challenge_endpoint is the attester's, which the token endpoint refuses (F-0118).
         m.put("token_endpoint", baseUrl + "/as/token.oauth2");
         m.put("token_endpoint_auth_methods_supported", TOKEN_ENDPOINT_AUTH_METHODS);
         // The per-client issuance view (issuer, evidence_audience, RAR types) — a separate endpoint that

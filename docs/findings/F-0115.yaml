@@ -16,8 +16,14 @@ notes: >
   challenge_endpoint, and their token_endpoint_auth_methods_supported lists neither attest_jwt_client_auth nor
   attest_jwt_client_auth_dpop (section 8's SHOULD). The only document that names the endpoint and the methods is
   the Entity Configuration's openid_provider block; its oauth_authorization_server block is PingFederate's own
-  document (FederationService.java:332) and carries neither. So a client that discovers the authorization server
-  from its RFC 8414 or OpenID Connect discovery document, rather than through the federation, does not learn that
-  attestation or the challenge exist. Low: conformance and discovery, not a control. The fix is to publish the
-  attestation members wherever this authorization server's metadata is served - both federation blocks, and PF's
-  own two documents through a filter or a documented alternative - as one set, never the challenge endpoint alone.
+  document (FederationService.java:332) and carries neither. That block is RFC 8414 metadata this repository
+  publishes, so it misses the section 6.1 MUST just as PingFederate's two documents do. So a client that discovers
+  the authorization server from its RFC 8414 or OpenID Connect discovery document, or from that federation block,
+  rather than from openid_provider, does not learn that attestation or the challenge exist; since S4b the
+  attester's /.well-known/client-attester does not lead it there either (F-0118). Low all the same: conformance and
+  discovery, not a control. A missing challenge_endpoint never loosens a check - the token endpoint enforces its
+  challenge policy whatever the metadata says, and a client that cannot find the endpoint fails closed where a
+  challenge is required. S4b left the federation block as it was because the members belong in every RFC 8414
+  surface as one set, with one upgrade note, and PingFederate's own two documents need a filter or a documented
+  alternative first. The fix is to publish the attestation members wherever this authorization server's metadata
+  is served - both federation blocks, and PF's own two documents - as one set, never the challenge endpoint alone.
