@@ -56,7 +56,10 @@ at the first `RUN`. The conformance image booted
 through `conformance/up.sh`: the token endpoint answered, a bare `POST /ciba-sim/decision` was a 400 and
 not a 404 (every check in the simulator's gate passed on the running PF), a recorded decision appeared in
 `/opt/ciba-sim` as a `0600` file, and the PingFederate JVM had `Umask: 0077` and the profile in its
-environment.
+environment. With `platform` and `platform-pf` (plan item F-1), verified 2026-09-28 on 13.1.3: the production
+stage was 11 jars and the conformance stage 12, the assembler accepted both `MANIFEST`s against the stock war,
+and the conformance image booted through `conformance/up.sh` with both jars in `server/default/deploy` and the
+war's `WEB-INF/lib`, and its discovery, SSF and federation endpoints answering 200.
 
 ## What is here, and what you must supply
 
