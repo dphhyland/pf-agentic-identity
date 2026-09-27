@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.fapi2;
 
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.Violation;
 import java.io.IOException;
 import java.util.Collections;
@@ -23,7 +24,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * A FAPI 2.0 authorization server does two things PingFederate cannot be configured to do for its FAPI
@@ -86,7 +86,7 @@ public final class Fapi2ProfileFilter implements Filter {
     }
 
     private static String defaultIssuer(HttpServletRequest request) {
-        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        return PfInternals.issuer(request);
     }
 
     @Override

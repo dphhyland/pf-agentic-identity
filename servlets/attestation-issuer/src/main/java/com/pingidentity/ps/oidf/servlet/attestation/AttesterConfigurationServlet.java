@@ -14,6 +14,7 @@ import com.pingidentity.ps.oidf.issuer.IssuanceClientResolver;
 import com.pingidentity.ps.oidf.issuer.IssuanceException;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.issuer.SpiffeBinding;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -216,7 +217,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
      */
     private static String opIssuer(HttpServletRequest req) {
         try {
-            String issuer = org.sourceid.oauth20.issuer.OAuthIssuerUtils.getInstance().getIssuerValue(req);
+            String issuer = PfInternals.issuer(req);
             return issuer == null || issuer.isBlank() ? null : issuer;
         } catch (Throwable t) {
             return null;

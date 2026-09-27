@@ -1,0 +1,22 @@
+id: F-0215
+title: servlets/ssf's PfIdTokenVerifier still calls OAuthIssuerUtils itself, the one production call into PingFederate's internals outside PfInternals
+severity: low
+area: ssf, platform-pf
+source: design
+status: open
+plan_items: [F-1]
+prs: [56]
+verification: ''
+target_release: 0.5.0
+notes: >
+  Found by package PFI (2026-09-28). F-1 puts every call into PingFederate's internal services behind platform-pf's
+  PfInternals, so a PingFederate release that changes one changes one class. PFI moved the ten issuer lookups in
+  pf-integration and attestation-issuer, the client manager, the token endpoint base URL and the discovery
+  handlers onto it. PfIdTokenVerifier.forThisDeployment in servlets/ssf (the SSF receiver's check of an ID token
+  hint) also resolves the issuer with org.sourceid.oauth20.issuer.OAuthIssuerUtils.getInstance().getIssuerValue,
+  and PFI's scope stopped at pf-integration, attestation-issuer and platform-pf, so it was left. Nothing behaves
+  differently: the call is the one PfInternals.issuer makes, and ssf already depends on platform-pf through
+  pf-integration. The cost is that tools/pf-linkcheck.py reports OAuthIssuerUtils from two artifacts rather than
+  one, and InternalsBoundaryTest (libs/platform-pf) carries the file as its one recorded exception. The fix is one
+  line - PfInternals.issuer(request) - and removing the test's entry, which the test then demands; it closes this
+  finding.
