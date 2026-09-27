@@ -1,6 +1,6 @@
 """tools/set-version.py on fixture poms shaped like the reactor's: an aggregator, a BOM with
-version.internal, a module that imports the BOM, and gm-api with its own coordinates and a literal
-dependency on the conformance module."""
+version.internal, a module that imports the BOM, and gm-api, which imports the BOM like any other
+module and differs only in its groupId (au.com.idpartners)."""
 import io
 import os
 import tempfile
@@ -72,43 +72,25 @@ MODULE_POM = """<?xml version="1.0" encoding="UTF-8"?>
 
 GM_API_POM = """<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0">
-  <modelVersion>4.0.0</modelVersion>
-
-  <groupId>au.com.idpartners</groupId>
-  <artifactId>gm-api</artifactId>
-  <version>{v}</version>
-  <packaging>war</packaging>
-
-  <properties>
-    <pingfederate.version>13.1.3</pingfederate.version>
-  </properties>
-
-  <dependencies>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>pingfederate-sdk</artifactId>
-      <version>${{pingfederate.version}}</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>local.pingfederate</groupId>
-      <artifactId>jose4j</artifactId>
-      <version>1.x</version>
-      <scope>provided</scope>
-    </dependency>
-    <dependency>
-      <groupId>com.pingidentity.ps.oidf</groupId>
-      <artifactId>conformance</artifactId>
-      <version>{v}</version>
-      <scope>test</scope>
-    </dependency>
-    <dependency>
-      <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter</artifactId>
-      <version>5.10.2</version>
-      <scope>test</scope>
-    </dependency>
-  </dependencies>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>au.com.idpartners</groupId>
+    <artifactId>gm-api</artifactId>
+    <version>{v}</version>
+    <packaging>war</packaging>
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>{v}</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+    <dependencies>
+        <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
+    </dependencies>
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-war-plugin</artifactId><version>3.4.0</version></plugin>
+        </plugins>
+    </build>
 </project>
 """
 
@@ -158,11 +140,31 @@ class FindSites(unittest.TestCase):
                 ("libs/a/pom.xml", "BOM import"),
                 ("libs/a/pom.xml", "project version"),
                 ("pom.xml", "project version"),
-                ("services/gm-api/servlet/pom.xml", "dependency conformance"),
+                ("services/gm-api/servlet/pom.xml", "BOM import"),
                 ("services/gm-api/servlet/pom.xml", "project version"),
             ])
             # the ${version.internal} references, the PF pins, plugin versions and the comment are not sites
             self.assertTrue(all(s.value == "0.2.0" for s in sites))
+
+    def test_gm_api_is_read_like_any_other_module(self):
+        with tempfile.TemporaryDirectory() as root:
+            write_reactor(root, "0.2.0")
+            files, sites = sv.collect(root)
+            kinds = lambda rel: sorted(s.kind for s in sites if os.path.relpath(s.path, root) == rel)
+            self.assertEqual(kinds("services/gm-api/servlet/pom.xml"), kinds("libs/a/pom.xml"))
+
+    def test_a_literal_internal_dependency_is_still_a_site(self):
+        with tempfile.TemporaryDirectory() as root:
+            write_reactor(root, "0.2.0")
+            rel = "libs/a/pom.xml"
+            text = read(root, rel).replace(
+                "<artifactId>conformance</artifactId><scope>test</scope>",
+                "<artifactId>conformance</artifactId><version>0.2.0</version><scope>test</scope>")
+            with open(os.path.join(root, rel), "w", encoding="utf-8") as f:
+                f.write(text)
+            files, sites = sv.collect(root)
+            self.assertIn((rel, "dependency conformance"),
+                          [(os.path.relpath(s.path, root), s.kind) for s in sites])
 
     def test_the_offsets_point_at_the_value(self):
         with tempfile.TemporaryDirectory() as root:
@@ -205,7 +207,7 @@ class Check(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("do not agree", err)
             self.assertIn("services/gm-api/servlet/pom.xml: project version = 1.0.0", err)
-            self.assertIn("services/gm-api/servlet/pom.xml: dependency conformance = 1.0.0", err)
+            self.assertIn("services/gm-api/servlet/pom.xml: BOM import = 1.0.0", err)
 
     def test_a_listed_module_that_is_missing_is_an_error(self):
         with tempfile.TemporaryDirectory() as root:

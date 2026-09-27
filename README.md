@@ -145,9 +145,11 @@ mvn package                      # all Java modules (incl. gm-api.war), tests on
 ```
 
 The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.1.3.0) are extracted from the
-public `pingidentity/pingfederate` image, and so are the jars gm-api and the plugin poms name under
-`local.pingfederate` - see `.github/actions/pf-provided-jars/action.yml` for the exact steps, or run its
-`install:install-file` lines once locally. Nothing licensed or secret is committed.
+public `pingidentity/pingfederate` image - see `.github/actions/pf-provided-jars/action.yml` for the exact
+steps, or run its two `install:install-file` lines once locally. They are the only jars installed by hand:
+every other library a module borrows from PingFederate (jose4j, jackson, commons-lang3, commons-logging,
+the jakarta servlet API) comes from Maven Central at the version the BOM holds to the image. Nothing
+licensed or secret is committed.
 
 The PingFederate version is pinned in one place, `build/pf-version.env`: the image tag and its digest,
 the SDK version the reactor compiles against, and the product version the Terraform provider is told.

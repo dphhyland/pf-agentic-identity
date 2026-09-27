@@ -11,7 +11,7 @@ from _tools import load
 
 pv = load("pf-provided-versions.py")
 
-SHIPPED = {"jackson-databind": "2.21.1", "jose4j": "0.9.6", "commons-lang3": "3.18.0",
+SHIPPED = {"jackson-databind": "2.21.1", "jackson-core": "2.21.1", "jose4j": "0.9.6", "commons-lang3": "3.18.0",
            "commons-logging": "1.1.1", "log4j-api": "2.25.4"}
 
 
@@ -59,7 +59,8 @@ class Compare(unittest.TestCase):
             b = os.path.join(root, "bom.xml"); open(b, "w").write(BOM_IN_STEP)
             code, out, err = run(["--lib", lib, "--bom", b])
             self.assertEqual(code, 0, err)
-            self.assertIn("ok: the 5 PF-provided libraries", out)
+            self.assertIn("ok: the 6 PF-provided libraries", out)
+            self.assertIn("jackson-core       BOM 2.21.1     image 2.21.1     ok", out)
             self.assertIn("jackson-databind   BOM 2.21.1     image 2.21.1     ok", out)
 
     def test_disagree(self):
@@ -69,7 +70,7 @@ class Compare(unittest.TestCase):
             code, out, err = run(["--lib", lib, "--bom", b])
             self.assertEqual(code, 1)
             self.assertIn("jackson-databind   BOM 2.17.1     image 2.21.1     MISMATCH", out)
-            self.assertIn("2 PF-provided libraries differ from the BOM: jackson-databind, commons-logging", err)
+            self.assertIn("3 PF-provided libraries differ from the BOM: jackson-databind, jackson-core, commons-logging", err)
 
     def test_report_only_never_fails(self):
         with tempfile.TemporaryDirectory() as root:
@@ -87,6 +88,16 @@ class Compare(unittest.TestCase):
             self.assertEqual(code, 1)
             self.assertIn("jose4j             BOM 0.9.6      image (not found)", out)
 
+    def test_one_property_governs_databind_and_core(self):
+        with tempfile.TemporaryDirectory() as root:
+            lib = os.path.join(root, "pf-lib"); write_lib(lib, dict(SHIPPED, **{"jackson-core": "2.20.0"}))
+            b = os.path.join(root, "bom.xml"); open(b, "w").write(BOM_IN_STEP)
+            code, out, err = run(["--lib", lib, "--bom", b])
+            self.assertEqual(code, 1)
+            self.assertIn("jackson-databind   BOM 2.21.1     image 2.21.1     ok", out)
+            self.assertIn("jackson-core       BOM 2.21.1     image 2.20.0     MISMATCH", out)
+            self.assertIn("1 PF-provided library differ from the BOM: jackson-core", err)
+
     def test_a_bom_missing_a_property(self):
         with tempfile.TemporaryDirectory() as root:
             lib = os.path.join(root, "pf-lib"); write_lib(lib)
@@ -97,7 +108,7 @@ class Compare(unittest.TestCase):
 
     def test_jars_spread_over_two_lib_directories(self):
         with tempfile.TemporaryDirectory() as root:
-            a = os.path.join(root, "a"); write_lib(a, {"jackson-databind": "2.21.1", "jose4j": "0.9.6"})
+            a = os.path.join(root, "a"); write_lib(a, {"jackson-databind": "2.21.1", "jackson-core": "2.21.1", "jose4j": "0.9.6"})
             c = os.path.join(root, "c"); write_lib(c, {"commons-lang3": "3.18.0", "commons-logging": "1.1.1", "log4j-api": "2.25.4"})
             b = os.path.join(root, "bom.xml"); open(b, "w").write(BOM_IN_STEP)
             self.assertEqual(run(["--lib", a, "--lib", c, "--bom", b])[0], 0)

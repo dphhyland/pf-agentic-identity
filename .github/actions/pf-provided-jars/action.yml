@@ -1,10 +1,14 @@
 # The two jars PingFederate provides and every module compiles against (pf-protocolengine, pingfederate-sdk),
-# plus the jars gm-api and the RAR plugin name under local.pingfederate, installed into the runner's Maven
-# repository. Extracted from the public pingidentity/pingfederate image: running PF needs a licence,
-# extracting its jars does not, so no private dependency is needed to build the reactor.
+# installed into the runner's Maven repository. Nothing else is installed: every other library a module
+# borrows from PingFederate (jose4j, jackson, commons-lang3, commons-logging, the jakarta servlet API) comes
+# from Maven Central at the version the BOM holds to the image. Extracted from the public
+# pingidentity/pingfederate image: running PF needs a licence, extracting its jars does not, so no private
+# dependency is needed to build the reactor. PF's lib directories stay extracted in the workspace as pf-lib
+# and pf-jetty-lib, because tools/pf-linkcheck.py links the built wars against both and
+# tools/pf-provided-versions.py reads pf-lib.
 #
 # Which PingFederate comes from build/pf-version.env, the one place the version is written down: the image
-# is pulled by digest, and the jars are installed under the SDK version the BOM and gm-api name. A workflow
+# is pulled by digest, and the jars are installed under the SDK version the BOM names. A workflow
 # that needs the same values in its own steps appends that file to $GITHUB_ENV; this action reads it itself
 # so it cannot be handed a different image.
 name: PingFederate provided jars
@@ -27,7 +31,7 @@ runs:
         docker create --name pf "$IMAGE"
         docker cp pf:/opt/out/instance/server/default/lib/. pf-lib/ 2>/dev/null || \
           docker cp pf:/opt/server/server/default/lib/. pf-lib/
-        # The jakarta servlet API lives with Jetty, one directory up from the PF libs.
+        # Jetty's jars, the jakarta servlet API among them, live one directory up from the PF libs.
         docker cp pf:/opt/server/lib/. pf-jetty-lib/
         docker rm pf
         mvn -q install:install-file -Dfile="$(first pf-lib/pf-protocolengine*.jar)" \
@@ -37,14 +41,3 @@ runs:
         echo "SDK jar picked by content: $SDK_JAR"; test -n "$SDK_JAR"
         mvn -q install:install-file -Dfile="$SDK_JAR" \
           -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion="$PF_SDK_MAVEN_VERSION" -Dpackaging=jar -DgeneratePom=true
-        # gm-api's provided deps use the local.pingfederate convention — same jars, from the image lib
-        mvn -q install:install-file -Dfile="$SDK_JAR" -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion="$PF_VERSION" -Dpackaging=jar -DgeneratePom=true
-        # PF 13.1 is jakarta.servlet: gm-api compiles against the jetty jakarta servlet jar the image ships.
-        SAPI=$(first pf-jetty-lib/jetty-jakarta-servlet-api-*.jar); test -n "$SAPI"
-        mvn -q install:install-file -Dfile="$SAPI" -DgroupId=local.pingfederate -DartifactId=jakarta-servlet-api -Dversion=5.0.2 -Dpackaging=jar -DgeneratePom=true
-        for spec in jose4j:1.x jackson-databind:2.x jackson-core:2.x jackson-annotations:2.x commons-lang3:3.x commons-logging:1.x; do
-          a="${spec%%:*}"; v="${spec##*:}"
-          J=$(first pf-lib/${a}-[0-9]*.jar); [ -n "$J" ] || J=$(first pf-lib/*${a}*.jar)
-          echo "local.pingfederate:$a:$v <- $J"; test -n "$J"
-          mvn -q install:install-file -Dfile="$J" -DgroupId=local.pingfederate -DartifactId="$a" -Dversion="$v" -Dpackaging=jar -DgeneratePom=true
-        done

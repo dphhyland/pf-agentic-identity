@@ -42,7 +42,7 @@
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <!-- PluginDescriptor uses commons-lang3 at construction; provided-scope transitives are not
              inherited, so it is declared here as instance-registry-datasource does. -->
-        <dependency><groupId>local.pingfederate</groupId><artifactId>commons-lang3</artifactId><version>3.x</version><scope>provided</scope></dependency>
+        <dependency><groupId>org.apache.commons</groupId><artifactId>commons-lang3</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
 

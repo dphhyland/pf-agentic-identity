@@ -26,31 +26,27 @@ service account, no TLS trust, no JWKS fetch. See "In-process accessors" below.
 
 ## The build (both kinds)
 
-The SDK is Ping-licensed, not on Maven Central. Copy jars **out of the running container**;
-gitignore `lib/*.jar`.
+The SDK is Ping-licensed, not on Maven Central, so it is the one jar that must come out of
+PingFederate itself. In this repo that is two jars, `pingfederate-sdk` and `pf-protocolengine`, extracted
+from the public `pingidentity/pingfederate` image (running PF needs a licence, extracting its jars does
+not) and installed by `.github/actions/pf-provided-jars/action.yml` under their own coordinates and the
+SDK version `build/pf-version.env` names:
 
 ```bash
-PF=<container>
-for j in pingfederate-sdk jose4j commons-logging commons-lang3 \
-         jackson-core jackson-databind jackson-annotations; do
-  src=$(docker exec $PF sh -c "find /opt/out/instance/server/default/lib /opt/out/instance/lib -iname '${j}*.jar' | head -1")
-  docker cp "$PF:$src" lib/
-done
-docker cp $PF:/opt/out/instance/lib/jetty-jakarta-servlet-api-5.0.2.jar lib/   # servlets only (PF 13.1)
-chmod u+w lib/*.jar
-```
-
-**Install under LOCAL coordinates with a generated POM.** The real jars carry POMs that
-reference parents which do not resolve offline — installing them verbatim breaks the build:
-
-```bash
-mvn install:install-file -Dfile=lib/pingfederate-sdk.jar \
-  -DgroupId=local.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3 \
+mvn install:install-file -Dfile=pf-lib/pingfederate-sdk.jar \
+  -DgroupId=com.pingidentity.pingfederate -DartifactId=pingfederate-sdk -Dversion=13.1.3.0 \
   -Dpackaging=jar -DgeneratePom=true
-# repeat per jar (jakarta-servlet-api, jose4j, commons-*, jackson-*)
+# and pf-protocolengine as pingfederate:pf-protocolengine:13.1.3.0
 ```
 
-Everything is `<scope>provided</scope>`. **Bundle nothing.**
+**A generated POM, not the jar's own.** The real jars carry POMs that reference parents which do not
+resolve offline - installing them verbatim breaks the build.
+
+Everything else PF provides - jose4j, jackson, commons-lang3, commons-logging, the jakarta servlet API -
+comes from Maven Central on its real coordinates, at the version the image ships: the repo BOM writes
+those versions down as `version.pf.*`, and `tools/pf-provided-versions.py` fails the build when the image
+and the BOM disagree. gm-api imports the BOM like every other module. Everything is
+`<scope>provided</scope>`. **Bundle nothing.**
 
 ### Which runtime deps the SDK drags in
 

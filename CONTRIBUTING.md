@@ -17,14 +17,17 @@ mvn -o -B clean verify        # every module, tests on, coverage gates enforced
 and after that the reactor resolves everything from `~/.m2`. Never `mvn install`: parallel worktrees share
 `~/.m2`, and an installed module from one branch is what another branch then builds against.
 
-The two `provided` PingFederate jars (`pf-protocolengine`, `pingfederate-sdk`) and the jars gm-api and the
-plugins name under `local.pingfederate` come from the public `pingidentity/pingfederate` image, pinned by tag
-and digest in `build/pf-version.env`. Running PingFederate needs a licence; extracting its jars does not, so
-the reactor builds with no private dependency. CI installs them with
-[.github/actions/pf-provided-jars/action.yml](.github/actions/pf-provided-jars/action.yml). Locally, do what it
-does once: `docker create` the image at the digest the file names, `docker cp` its `server/default/lib` and
-`lib` directories out, and run its `mvn install:install-file` lines against them. The jars are then in `~/.m2`
-for every worktree on the machine.
+The two `provided` PingFederate jars (`pf-protocolengine`, `pingfederate-sdk`) come from the public
+`pingidentity/pingfederate` image, pinned by tag and digest in `build/pf-version.env`. Running PingFederate
+needs a licence; extracting its jars does not, so the reactor builds with no private dependency. CI installs
+them with [.github/actions/pf-provided-jars/action.yml](.github/actions/pf-provided-jars/action.yml). Locally,
+do what it does once: `docker create` the image at the digest the file names, `docker cp` its
+`server/default/lib` and `lib` directories out, and run its two `mvn install:install-file` lines against them.
+The jars are then in `~/.m2` for every worktree on the machine. Nothing else is installed by hand: every
+module, gm-api and the plugins included, imports the BOM, and the other libraries PingFederate provides
+(jose4j, jackson, commons-lang3, commons-logging, the jakarta servlet API) come from Maven Central at the
+`version.pf.*` versions `tools/pf-provided-versions.py` holds to the image. An older `~/.m2` may still hold
+`local.pingfederate` installs from before 0.5.0; nothing reads them now.
 
 `tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .` checks, against those extracted
 directories, that every PingFederate and servlet member the artefacts link resolves on the pinned image. Run it
