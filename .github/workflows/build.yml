@@ -313,7 +313,7 @@ jobs:
             services/gm-api/servlet/target/gm-api.war
 
   # The PingFederate image (plan item R-CI6, part of F-0006): the Dockerfile's capability target - the image with no
-  # configuration archive, which is what this repository ships - built for both staging profiles, its entrypoint
+  # configuration archive, which R-I3 (Phase 3) makes the image this repository ships - built for both staging profiles, its entrypoint
   # tested inside it, scanned, and described by an SBOM. The deployment target needs an archive, so it is built
   # here from a placeholder only to show it is still the default and still refuses a context with none. Booting
   # PingFederate needs a licence and waits for R-CI7 (Phase 4). The service images R-CI6 also names - device-
@@ -376,6 +376,7 @@ jobs:
         run: |
           for profile in production conformance; do
             build/pingfederate/stage-modules.sh --profile "$profile"
+            cp build/pingfederate/modules/MANIFEST "$RUNNER_TEMP/MANIFEST-$profile"
             docker build --target capability --build-arg STAGING_PROFILE="$profile" \
               -t "pf-agentic-identity:capability-$profile" build/pingfederate
             label="$(docker inspect --format '{{index .Config.Labels "io.github.dphhyland.pf-agentic-identity.staging-profile"}}' \
@@ -408,10 +409,14 @@ jobs:
           echo "$RUNNER_TEMP/scan-tools" >> "$GITHUB_PATH"
       - name: an SBOM of each image, and each scanned beside the base image
         # syft's own JSON is what grype scans; the SPDX document is the one published. The base image is scanned
-        # the same way, so the gate can tell PingFederate's findings from ours. The gate runs for both profiles
-        # before the step fails, so both reports reach the summary.
+        # the same way, so the gate can tell PingFederate's findings from ours; a finding in a jar the profile's
+        # MANIFEST names is ours whatever the base has. The database is fetched once and not updated between the
+        # scans, so a database published mid-step cannot class a PingFederate finding as ours. The gate runs for
+        # both profiles before the step fails, so both reports reach the summary.
         run: |
           out="$RUNNER_TEMP/image-scan"; mkdir -p "$out"
+          grype db update
+          export GRYPE_DB_AUTO_UPDATE=false
           syft scan "docker:$PF_IMAGE@$PF_IMAGE_DIGEST" -q -o syft-json="$out/base.syft.json"
           grype "sbom:$out/base.syft.json" -q -c .github/grype.yaml -o json --file "$out/base.grype.json"
           failed=0
@@ -420,7 +425,7 @@ jobs:
               -o syft-json="$out/capability-$profile.syft.json" -o spdx-json="$out/capability-$profile.spdx.json"
             grype "sbom:$out/capability-$profile.syft.json" -q -c .github/grype.yaml -o json --file "$out/capability-$profile.grype.json"
             python3 tools/ci/image-scan-gate.py --image "$out/capability-$profile.grype.json" --base "$out/base.grype.json" \
-              --label "capability ($profile)" --summary "$GITHUB_STEP_SUMMARY" || failed=1
+              --ours-manifest "$RUNNER_TEMP/MANIFEST-$profile" --label "capability ($profile)" --summary "$GITHUB_STEP_SUMMARY" || failed=1
           done
           exit "$failed"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

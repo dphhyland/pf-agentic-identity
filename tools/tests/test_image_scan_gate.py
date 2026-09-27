@@ -40,8 +40,14 @@ def report(matches, ignored_matches=(), rules=()):
 
 class Gate(unittest.TestCase):
 
-    def run_gate(self, image, base, extra=()):
+    def run_gate(self, image, base, extra=(), manifest=None):
         with tempfile.TemporaryDirectory() as d:
+            extra = list(extra)
+            if manifest is not None:
+                mp = os.path.join(d, "MANIFEST")
+                with open(mp, "w", encoding="utf-8") as f:
+                    f.write(manifest)
+                extra += ["--ours-manifest", mp]
             paths = []
             for name, doc in (("image.json", image), ("base.json", base)):
                 p = os.path.join(d, name)
@@ -63,7 +69,7 @@ class Gate(unittest.TestCase):
         code, out, _, summary = self.run_gate(report([PF_NETTY, PF_NETTY_IN_WAR, OUR_MEDIUM]), report([PF_NETTY]))
         self.assertEqual(code, 0, out)
         self.assertIn("**Passed**", out)
-        self.assertIn("PingFederate's (the same finding in the pinned base image; reported, not failed", out)
+        self.assertIn("PingFederate's (the same finding in the pinned base image, outside our jars; reported, not failed", out)
         self.assertIn("1 critical", out)          # the war's copy and the base's are one finding
         self.assertIn("pf-runtime.war:WEB-INF/lib/netty-handler.jar", out)
         self.assertIn("| Medium | CVE-2026-2 | busybox | 1.37.0-r31 | not fixed |", out)
@@ -81,6 +87,39 @@ class Gate(unittest.TestCase):
         code, out, _, _ = self.run_gate(report([PF_NETTY, shaded]), report([PF_NETTY]))
         self.assertEqual(code, 1)
         self.assertIn("4.1.0.Final", out)
+
+    def test_the_same_package_of_another_type_is_ours(self):
+        # an Alpine package that happens to share a Java library's name, id and version is not PingFederate's finding
+        apk = match("GHSA-c4c3", "netty-handler", "4.2.5.Final", "Critical", "/lib/apk/db/installed", typ="apk")
+        code, out, _, _ = self.run_gate(report([PF_NETTY, apk]), report([PF_NETTY]))
+        self.assertEqual(code, 1)
+        self.assertIn("**Failed**: 1 HIGH or CRITICAL", out)
+
+    def test_pingfederates_finding_inside_one_of_our_jars_is_ours(self):
+        # a jar of ours carrying PingFederate's own netty, loose in deploy/ and again inside the war: a PingFederate
+        # bump would fix PingFederate's copy and leave these
+        loose = match("GHSA-c4c3", "netty-handler", "4.2.5.Final", "Critical",
+                      "/opt/in/instance/server/default/deploy/ssf-0.5.0-SNAPSHOT.jar")
+        in_war = match("GHSA-c4c3", "netty-handler", "4.2.5.Final", "Critical",
+                       "/opt/in/instance/server/default/deploy/pf-runtime.war:WEB-INF/lib/ssf-0.5.0-SNAPSHOT.jar")
+        manifest = ("MANIFEST/2 profile=production built=2026-09-28T00:00:00Z commit=abc\n[servlets]\n"
+                    + "0" * 64 + "  oidf.jar\n" + "1" * 64 + "  ssf-0.5.0-SNAPSHOT.jar\n")
+        image = report([PF_NETTY_IN_WAR, loose, in_war])
+        code, out, _, _ = self.run_gate(image, report([PF_NETTY]))
+        self.assertEqual(code, 0, out)       # without the MANIFEST the gate cannot tell
+        code, out, _, _ = self.run_gate(image, report([PF_NETTY]), manifest=manifest)
+        self.assertEqual(code, 1, out)
+        self.assertIn("**Failed**: 1 HIGH or CRITICAL", out)
+        ours = out.split("### Ours")[1].split("<details>")[0]
+        self.assertIn("deploy/ssf-0.5.0-SNAPSHOT.jar`", ours)
+        self.assertIn("WEB-INF/lib/ssf-0.5.0-SNAPSHOT.jar`", ours)
+        self.assertNotIn("WEB-INF/lib/netty-handler.jar", ours)   # PingFederate's own copy stays PingFederate's
+        self.assertIn("WEB-INF/lib/netty-handler.jar", out.split("<details>")[1])
+
+    def test_a_manifest_that_is_not_one(self):
+        code, _, err, _ = self.run_gate(report([]), report([]), manifest="[libs]\nplatform.jar\n")
+        self.assertEqual(code, 2)
+        self.assertIn("not a stage-modules.sh MANIFEST", err)
 
     def test_an_accepted_finding_passes_and_stays_in_view(self):
         rule = {"vulnerability": "GHSA-age", "reason": "ssh only; F-0221",

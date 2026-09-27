@@ -1,17 +1,20 @@
 #!/usr/bin/env python3
 """Fail on a HIGH or CRITICAL vulnerability that this repository's layers bring into the image; report the rest.
 
-  tools/ci/image-scan-gate.py --image IMAGE.json --base BASE.json [--label NAME] [--summary FILE]
+  tools/ci/image-scan-gate.py --image IMAGE.json --base BASE.json [--ours-manifest MANIFEST ...] [--label NAME]
+                              [--summary FILE]
 
 Both files are grype's JSON output (`grype sbom:<syft json> -o json`): IMAGE for the image the Dockerfile's
 capability target built, BASE for the pingidentity/pingfederate image build/pf-version.env pins, scanned the
 same way with the same configuration (.github/grype.yaml). A finding is PingFederate's when the base image's scan
 has the same vulnerability in the same package at the same version - its jars, which the assembled war carries
-as well, and its Go and Java runtimes. Everything else is ours: the jars stage-modules.sh stages, anything the
-assembler adds to the war, and the Alpine packages the Dockerfile's `apk add` installs. A library one of our jars
-carries at the version PingFederate ships, with the same finding, counts as PingFederate's: moving ours alone would
-leave the finding in the image. Ours at HIGH or CRITICAL fails; PingFederate's are counted and listed without failing, because a PingFederate version bump is what fixes
-them (build/pingfederate/README.md, "Scanning the image").
+as well, and its Go and Java runtimes - and none of the places the image has it is one of our jars. Everything else
+is ours: the jars stage-modules.sh stages (named by each --ours-manifest, stage-modules.sh's MANIFEST), anything
+the assembler adds to the war, and the Alpine packages the Dockerfile's `apk add` installs. A library one of our
+jars carries is ours even at the version PingFederate ships with the same finding: a PingFederate bump would fix
+PingFederate's copy and leave ours. Ours at HIGH or CRITICAL fails; PingFederate's are counted and listed without
+failing, because a PingFederate version bump is what fixes them (build/pingfederate/README.md, "Scanning the
+image").
 
 The base image ships without apk's installed database (/lib/apk/db/installed), so a scan of it sees no Alpine
 package at all, and the Dockerfile's `apk add` reinstalls every package the base's world file names at the
@@ -23,10 +26,12 @@ A finding .github/grype.yaml accepts is not a match in grype's output: it is lis
 the rule and its reason, and this reports each one so an accepted finding stays in view. A rule that matched
 nothing in this image is reported as well, so one that has outlived its reason is noticed; it does not fail.
 
-Exit status: 0 when nothing of ours is HIGH or CRITICAL, 1 when something is, 2 when a report cannot be read.
+Exit status: 0 when nothing of ours is HIGH or CRITICAL, 1 when something is, 2 when a report or a MANIFEST cannot
+be read.
 """
 import argparse
 import json
+import re
 import sys
 from collections import Counter
 
@@ -70,12 +75,30 @@ def group(matches):
     return sorted(rows.values(), key=lambda r: (rank.get(r["severity"], len(ORDER)), r["id"], r["package"], r["version"]))
 
 
-def classify(image, base):
-    """(ours, pingfederate's) rows of image's matches, by whether base has the same finding."""
+def our_jars(path):
+    """The jar names a stage-modules.sh MANIFEST lists ("<sha256>  <file>" lines), or a ValueError saying why not."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            names = {m.group(1) for m in (re.match(r"^[0-9a-f]{64}  (\S+\.jar)$", line.rstrip("\n")) for line in f) if m}
+    except OSError as e:
+        raise ValueError(f"{path}: {e}") from e
+    if not names:
+        raise ValueError(f"{path}: not a stage-modules.sh MANIFEST (no jar lines)")
+    return names
+
+
+def in_our_jar(match, jars):
+    """Whether any place the finding is found is one of our jars, loose in deploy/ or inside the war (a:b nests b in a)."""
+    return any(part in jars for p in locations(match) for part in re.split(r"[/:]", p))
+
+
+def classify(image, base, jars=frozenset()):
+    """(ours, pingfederate's) rows of image's matches: PingFederate's when base has the same finding and it is not in
+    one of our jars."""
     theirs = {key(m) for m in base["matches"]} | {key(m) for m in base.get("ignoredMatches", [])}
-    ours = [m for m in image["matches"] if key(m) not in theirs]
-    pf = [m for m in image["matches"] if key(m) in theirs]
-    return group(ours), group(pf)
+    pf_matches = [m for m in image["matches"] if key(m) in theirs and not in_our_jar(m, jars)]
+    ours = [m for m in image["matches"] if not any(m is p for p in pf_matches)]
+    return group(ours), group(pf_matches)
 
 
 def ignored(image):
@@ -133,16 +156,19 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--image", required=True, help="grype JSON report of the image built from the Dockerfile")
     ap.add_argument("--base", required=True, help="grype JSON report of the pinned base image")
+    ap.add_argument("--ours-manifest", action="append", default=[],
+                    help="stage-modules.sh's MANIFEST for the image: a finding in a jar it names is ours (repeatable)")
     ap.add_argument("--label", default="image", help="what to call the image in the report")
     ap.add_argument("--summary", help="append the report, as Markdown, to this file (the job's step summary)")
     args = ap.parse_args(argv)
     try:
         image, base = load(args.image), load(args.base)
+        jars = set().union(*(our_jars(p) for p in args.ours_manifest))
     except ValueError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
 
-    ours, pf = classify(image, base)
+    ours, pf = classify(image, base, jars)
     accepted, unused = ignored(image)
     failing = [r for r in ours if r["severity"] in FAILING]
 
@@ -153,7 +179,7 @@ def main(argv=None):
     else:
         out.append("**Passed**: nothing HIGH or CRITICAL in the layers this repository adds.")
     out += ["", f"- ours (this repository's jars, the assembled war, the Alpine packages the Dockerfile installs): {counts(ours)}",
-            f"- PingFederate's (the same finding in the pinned base image; reported, not failed - a PingFederate bump fixes them): {counts(pf)}",
+            f"- PingFederate's (the same finding in the pinned base image, outside our jars; reported, not failed - a PingFederate bump fixes them): {counts(pf)}",
             f"- accepted in .github/grype.yaml: {len(accepted)}", ""]
     if ours:
         out += ["### Ours", "", table(ours), ""]

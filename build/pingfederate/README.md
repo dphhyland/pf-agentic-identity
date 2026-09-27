@@ -118,7 +118,7 @@ it did before the targets existed (plan item R-CI6, taking R-I3's targets ahead 
 | Target | What it is | Needs in the context |
 |---|---|---|
 | `builder` | assembles `pf-runtime.war` from the stock war, `modules/` and `filters.xml`; nothing ships from it but the war | `modules/`, `assembler/`, `filters.xml`, `assemble-pf-runtime-war.sh` |
-| `capability` | the image with no configuration archive: the assembled war and the module jars in `server/default/deploy`, the entrypoint, age. What Build's image job builds, tests and scans | the same, and `pf-entrypoint.sh` |
+| `capability` | the image with no configuration archive: the assembled war and the module jars in `server/default/deploy`, the entrypoint, age. What Build's image job builds, tests and scans. Run without `PF_ARCHIVE_FILE` naming a mounted archive it boots an empty PingFederate (the entrypoint logs `no config archive present` and carries on), so do not deploy it as it is | the same, and `pf-entrypoint.sh` |
 | `deployment` (the default) | `capability` plus the configuration archive and `overlay/config-store/`: what a deployment runs | the same, and `data.zip.age` or `data.zip`, and `overlay/` |
 
 ```sh
@@ -166,9 +166,10 @@ PingFederate's jars (which the assembled war carries too), its Java runtime, the
 reported and never fail the build, because they are not ours to fix: a PingFederate version bump is what fixes
 them, and the job's summary lists them for the day the bump is chosen. Everything else is ours - the jars
 `stage-modules.sh` stages, anything the assembler adds to the war, the Alpine packages the Dockerfile's `apk add`
-installs - and a HIGH or CRITICAL finding there fails the job. A library one of our jars carries at the version
-PingFederate ships, with the same finding, counts as PingFederate's, since moving ours alone would leave the finding
-in the image.
+installs - and a HIGH or CRITICAL finding there fails the job. A finding in one of our jars is ours even when
+PingFederate ships the same library at the same version with the same finding: the gate reads each profile's
+`modules/MANIFEST` (`--ours-manifest`) and a finding found inside a jar it names, loose in `server/default/deploy`
+or inside the war, is ours, since a PingFederate bump would fix PingFederate's copy and leave ours.
 
 A finding of ours that cannot be fixed yet is accepted in `.github/grype.yaml`, one entry per vulnerability,
 package and version, each with its reason; the summary lists every accepted finding and names an entry that no
@@ -178,7 +179,8 @@ has no apk database and the Dockerfile's `apk add` reinstalls every package (F-0
 sees the base image's own Alpine packages.
 
 The scanner and the SBOM generator come from `tools/ci/install-lint-tools.sh` at pinned versions and checksums
-(grype 0.119.0, syft 1.52.0). grype fetches its vulnerability database when it runs, so the job can fail on a day
+(grype 0.119.0, syft 1.52.0). The job fetches grype's vulnerability database once and scans the base and both
+images against that one copy (`GRYPE_DB_AUTO_UPDATE=false`). The database is the day's, so the job can fail on a day
 nothing here changed: a new advisory against something of ours. Read the summary, then fix it or accept it with a
 reason. The same scan by hand, after building `capability` as above:
 
@@ -189,7 +191,8 @@ tools/ci/install-lint-tools.sh /tmp/scan grype syft
 /tmp/scan/syft scan docker:pf-oidf:capability -o syft-json=image.syft.json
 /tmp/scan/grype sbom:base.syft.json -c .github/grype.yaml -o json --file base.grype.json
 /tmp/scan/grype sbom:image.syft.json -c .github/grype.yaml -o json --file image.grype.json
-python3 tools/ci/image-scan-gate.py --image image.grype.json --base base.grype.json
+python3 tools/ci/image-scan-gate.py --image image.grype.json --base base.grype.json \
+  --ours-manifest build/pingfederate/modules/MANIFEST
 ```
 
 The service images plan item R-CI6 also names - device-enrolment, the adapter and the SPIRE reader - do not
