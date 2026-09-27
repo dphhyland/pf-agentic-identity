@@ -118,6 +118,41 @@ class WhatIsAReadTest(unittest.TestCase):
             'void f(String suffix) { String name = "OIDF_" + suffix; System.getenv(name); System.getProperty("oidf." + suffix); }')})
         self.assertEqual(['getenv(name)', 'getProperty("oidf." + suffix)'], unresolved)
 
+    def test_an_apply_or_a_helper_whose_argument_the_scan_cannot_name_is_reported(self):
+        _found, unresolved = reads_of({"A.java": java(
+            'private static String setting(java.util.function.Function<String, String> env, String var) {\n'
+            '  return env.apply(var);\n}\n'
+            'void f(java.util.function.Function<String, String> env, java.util.List<String> names) {\n'
+            '  String local = pick();\n  env.apply(local);\n  setting(env, local);\n'
+            '  for (String each : names) { setting(env, each); }\n}')})
+        self.assertEqual(['apply(local)', 'setting(local)', 'setting(each)'], unresolved)
+
+    def test_a_loop_over_an_inline_list_reads_each_name(self):
+        found, unresolved = reads_of({"A.java": java(
+            'static final String URL = "OIDF_PDP_URL";\n'
+            'private static String setting(java.util.function.Function<String, String> env, String var) {\n'
+            '  return env.apply(var);\n}\n'
+            'void f(java.util.function.Function<String, String> env) {\n'
+            '  for (String v : List.of(URL, "NEW_UNCATALOGUED_VAR")) { setting(env, v); }\n'
+            '  for (final String p : java.util.Set.of("oidf.a", "oidf.b")) { System.getProperty(p); }\n}')})
+        self.assertEqual({("env", "OIDF_PDP_URL"), ("env", "NEW_UNCATALOGUED_VAR"), ("system-property", "oidf.a"),
+                          ("system-property", "oidf.b")}, found)
+        self.assertEqual([], unresolved)
+        _found, unresolved = reads_of({"A.java": java(
+            'void f(String other) {\n  for (String v : List.of("OIDF_X", other)) { System.getenv(v); }\n}')})
+        self.assertEqual(['getenv(v)'], unresolved)
+
+    def test_a_statically_imported_read_call_counts_and_a_literal_on_another_receiver_does_not(self):
+        found, unresolved = reads_of({"A.java": "package x;\nimport static java.lang.System.getenv;\nclass A {\n"
+                                                'void f(java.util.Properties p) { getenv("PLAIN_ENV"); p.getProperty("not.a.read"); }\n}\n'})
+        self.assertEqual({("env", "PLAIN_ENV")}, found)
+        self.assertEqual([], unresolved)
+
+    def test_a_derived_system_property_read_directly(self):
+        found, unresolved = reads_of({"A.java": java('void f() { System.getProperty(Parsers.systemPropertyName("OIDF_X_Y")); }')})
+        self.assertEqual({("system-property", "oidf.x.y"), ("env", "OIDF_X_Y")}, found)
+        self.assertEqual([], unresolved)
+
     def test_a_helper_is_found_and_its_arguments_are_reads(self):
         found, unresolved = reads_of({"A.java": java(
             'private static String setting(java.util.function.Function<String, String> initParams, String initParam,'
@@ -249,6 +284,37 @@ class BothWaysTest(unittest.TestCase):
         self.assertEqual([], Tree(self).module("libs/a", {"x/sub/A.java": java('static final String X = "OIDF_THING";', package="x.sub")},
                                                [VALID]).problems())
 
+    def test_a_read_the_scan_cannot_name_is_a_problem(self):
+        problems = Tree(self).module("libs/a", {"x/A.java": java(
+            'static final String X = "OIDF_THING";\nvoid f(java.util.function.Function<String, String> env) {\n'
+            '  String n = name();\n  env.apply(n);\n}')}, [VALID]).problems()
+        self.assertEqual(["libs/a/src/main/java/x/A.java:6: apply(n) is a read the scan cannot name: read it by a constant,"
+                          " or through a helper whose parameter carries it"], problems)
+
+    def test_a_component_is_catalogued_by_one_file(self):
+        problems = (Tree(self).module("libs/a", READS_THING, [VALID])
+                    .module("libs/b", {"x/B.java": java('static final String B = "OIDF_B";', cls="B")},
+                            [catalogue("thing", "libs/b", "x", [entry("OIDF_B")])]).problems())
+        self.assertEqual(1, len(problems), problems)
+        self.assertIn("component thing is catalogued by", problems[0])
+
+    def test_a_secrets_file_variant_needs_no_read(self):
+        doc = catalogue("thing", "libs/a", "x", [entry("OIDF_THING", type="secret", security=True, file=True)])
+        self.assertEqual([], Tree(self).module("libs/a", READS_THING, [doc]).problems())
+
+    def test_an_accepted_risk_is_one_the_registry_holds(self):
+        registry = java('NO_METADATA_POLICY("no-metadata-policy", false, "why"),\nPKCE_OFF("pkce-off", false, "why");',
+                        cls="AcceptedRisk")
+        for profile, expected in (("accepted-risk:pkce-off", 0), ("accepted-risk:not-registered", 1)):
+            with self.subTest(profile):
+                tree = Tree(self).module("libs/a", READS_THING, [
+                    catalogue("thing", "libs/a", "x", [entry("OIDF_THING", profile=profile)])])
+                tree.write(scan.ACCEPTED_RISKS, registry)
+                problems = tree.problems()
+                self.assertEqual(expected, len(problems), problems)
+                if expected:
+                    self.assertIn("names accepted risk not-registered", problems[0])
+
     def test_not_settings_are_excused(self):
         reads = {"x/A.java": java('void f() { System.getProperty("oidf.registration.sweeper.owner"); }')}
         self.assertEqual([], Tree(self).module("libs/a", reads, []).problems())
@@ -272,6 +338,8 @@ class BothWaysTest(unittest.TestCase):
                 tree = Tree(self).module("libs/a", READS_THING, [])
                 tree.write(os.path.join("libs/a", scan.CATALOGUE_DIR, "thing.json"), json.dumps(doc))
                 self.assertTrue(tree.problems(), name)
+        self.assertEqual(["x: settings[0] (OIDF_THING): an env entry is read from env under its own name"],
+                         scan.check_catalogue(cases["env entry not read under its own name"], "x"))
         tree = Tree(self).module("libs/a", READS_THING, [])
         tree.write(os.path.join("libs/a", scan.CATALOGUE_DIR, "thing.json"), '{"format": 1, "format": 1}')
         self.assertIn("written twice", tree.problems()[0])

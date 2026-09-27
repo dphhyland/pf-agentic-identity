@@ -19,4 +19,7 @@ notes: >
   chain criterion and the attestation path, are in neither document - and PingFederate drops an extended property
   it has not been told about, so an operator's per-client chain limits are lost as F-0041 describes for the
   attestation_* names. The catalogues (servlets/pf-integration's client-properties) declare all three, so the
-  generated extended-properties.json will list them.
+  generated extended-properties.json will list them; (4) the OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL row says
+  only where the controller's Entity Configuration is fetched, but RegistrationService and OpenIdFederationServlet
+  pass the value to OutboundUrlPolicy.trusting(), which exempts its origin and path prefix from the https and
+  private-address rules, as the controller host is; the catalogue marks it as bearing on security and says so.

@@ -24,8 +24,9 @@ src/main/resources/META-INF/oidf-settings/<component>.json in the module that re
                        of its module), whichever modules read it: the component that owns it catalogues it, and
                        the others read it under the same name
   well formed          each catalogue parses, names its own module and component, and has the members and shapes
-                       the loader in platform.settings requires (the loader is the full check, run by ST-4's
-                       generator and at run time; this is the part the scan needs to trust the names)
+                       the loader in platform.settings requires, and an accepted-risk profile names an id that
+                       platform's AcceptedRisk registers (the loader is the full check, run by ST-4's generator and
+                       at run time; this is the part the scan needs to trust the names)
 
 What counts as a read, in main Java code with comments removed:
 
@@ -38,10 +39,12 @@ What counts as a read, in main Java code with comments removed:
                         and Long.getLong(x) (system-property); getInitParameter(x) on anything (init-param); the
                         PingFederate plugin configuration's getFieldValue family and a FieldDescriptor's
                         constructor (plugin-field); and `env.apply(x)`, `props.apply(x)` and `initParams.apply(x)`
-                        on a function whose name says which source it is (see APPLY_RECEIVERS). x is a literal, a
-                        String constant (static final, in the same class, a named class or a static import, alias
-                        chains followed), or a name derived by Parsers.systemPropertyName(x) - directly or through
-                        a method that returns it.
+                        on a function whose name says which source it is (see APPLY_RECEIVERS). A statically
+                        imported getenv or getProperty from System counts as System's. x is a literal, a String
+                        constant (static final, in the same class, a named class or a static import, alias chains
+                        followed), the variable of a for-each over an inline List.of(...) or Set.of(...) whose
+                        elements are all literals or constants (a read of each), or a name derived by
+                        Parsers.systemPropertyName(x) - directly or through a method that returns it.
   a helper's argument   a method whose parameter reaches a read call, or another helper, unchanged (or through a
                         for-each over a varargs parameter) is a helper, found by the scan to a fixpoint; a literal
                         or constant passed in that position is a read of that kind. So HostedEntityServlet's
@@ -52,9 +55,10 @@ What counts as a read, in main Java code with comments removed:
                         extended property) and each element of the lists in EXTENDED_PROPERTY_LISTS (the names a
                         module writes onto a client) - read as extended-property <name>.
 
-A read call whose argument is none of those (a local variable, an expression) is itself a problem - "a read the
-scan cannot name" - so a new way of reading a setting cannot slip past; give the name a constant, or read it
-through a helper whose parameter carries it.
+An argument in a read position - of a read call, an apply on one of APPLY_RECEIVERS, or a helper - that is none of
+those (a local variable, a loop over anything but an inline list of names, an expression) and is not a parameter of
+the enclosing method is itself a problem - "a read the scan cannot name" - so a new way of reading a setting through
+these calls cannot slip past; give the name a constant, or read it through a helper whose parameter carries it.
 
 Catalogue to code uses the same reads, with one widening: a plugin-field or extended-property entry also counts as
 read when its name is the whole of a string literal in some module's main code, because a plugin's field and a
@@ -72,7 +76,10 @@ shipped" group.
 What it does not see. It reads Java only, and only the shapes above: a name built by concatenation or formatting
 (servlets/ssf's param() builds its system property and environment names from the init-param's - ST3C adds that
 rule), a Spring or MicroProfile binding, a read in a shell script or a Dockerfile, and a name passed through a
-field or a collection other than the lists named here are not reads to it. Method matching is by name and arity,
+field or a collection other than the lists named here are not reads to it. Nor is a lookup in the whole environment
+or the whole set of system properties as a map - System.getenv() or System.getProperties() passed on, or followed by
+.get("X") or .getProperty("X") (rar-model's RarModels.fromEnvironment(System.getenv()) is one): a name under OIDF_ read
+that way is still caught by the literal rule, any other name is not. Method matching is by name and arity,
 so an overload of a helper with the same arity is taken for the helper. Checked with fixtures in
 tools/tests/test_settings_scan.py.
 
@@ -86,6 +93,7 @@ import re
 import sys
 
 EXEMPTIONS = "tools/settings-scan-exemptions.txt"
+ACCEPTED_RISKS = "libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/profile/AcceptedRisk.java"
 STAGE_MODULES = "build/pingfederate/stage-modules.sh"
 CATALOGUE_DIR = "src/main/resources/META-INF/oidf-settings"
 NOT_SHIPPED = "not shipped"
@@ -284,7 +292,7 @@ class JavaFile:
 
     def _methods(self):
         """[(name, params, varargs, body_start, body_end)]: params as names in order."""
-        methods = []
+        methods, self.declarations = [], set()
         for m in METHOD_RE.finditer(self.bare):
             name = m.group(1)
             if name in KEYWORDS:
@@ -310,6 +318,7 @@ class JavaFile:
                 params.append(names[-1])
                 varargs = "..." in piece
             methods.append((name, params, varargs, body_start, body_end))
+            self.declarations.add(m.start())
         return methods
 
     def enclosing(self, offset):
@@ -325,7 +334,7 @@ class JavaFile:
         calls = []
         for m in CALL_RE.finditer(self.bare):
             name = m.group(1)
-            if name in KEYWORDS:
+            if name in KEYWORDS or m.start() in self.declarations:
                 continue
             before = self.bare[max(0, m.start() - 200):m.start()]
             receiver = None
@@ -401,6 +410,9 @@ class Reactor:
                                  jf.bare[method[3]:method[4]])
                 if loop and loop.group(1) in method[1] and method[2] and method[1].index(loop.group(1)) == len(method[1]) - 1:
                     return ("param", method[1].index(loop.group(1)))
+                names = self.loop_names(jf, text, method, seen)
+                if names is not None:
+                    return ("literals", names)
             value = self.constant(jf, text, seen)
             return ("literal", value) if value is not None else None
         m = QUALIFIED_CONSTANT.fullmatch(text)
@@ -421,6 +433,22 @@ class Reactor:
             inner = self.expression(jf, m.group(3), method, seen)
             return ("derived", inner) if inner is not None else None
         return None
+
+    def loop_names(self, jf, var, method, seen):
+        """The names a for-each variable takes over an inline List.of(...) or Set.of(...) whose every element is a
+        literal or a constant, as a tuple; None for any other loop."""
+        loop = re.search(r"\bfor\s*\(\s*(?:final\s+)?[\w.<>]+\s+" + re.escape(var)
+                         + r"\s*:\s*(?:java\.util\.)?(?:List|Set)\.of\s*\(", jf.bare[method[3]:method[4]])
+        if not loop:
+            return None
+        opening = method[3] + loop.end() - 1
+        names = []
+        for s, e in split_top(jf.bare, opening + 1, match_close(jf.bare, opening)):
+            value = literal_of(self.expression(jf, jf.code[s:e], None, set(seen or ())))
+            if value is None:
+                return None
+            names.append(value)
+        return tuple(names) or None
 
     def derives(self, jf, receiver, name):
         """Whether calling `name` turns an environment name into its system property (Parsers.systemPropertyName)."""
@@ -471,7 +499,8 @@ class Reactor:
                 out.append((0, {"plugin-field"}))
             return out
         spec = READ_CALLS.get(name)
-        if spec and args and (spec[1] is None or receiver == spec[1]):
+        if spec and args and (spec[1] is None or receiver == spec[1]
+                              or (receiver is None and jf.static_imports.get(name) == spec[1])):
             out.append((0, {spec[0]}))
             return out
         if name == "apply" and receiver in APPLY_RECEIVERS and len(args) == 1:
@@ -519,26 +548,26 @@ class Reactor:
         for jf in self.files:
             for call in jf.calls:
                 method = jf.enclosing(call[4])
-                direct = call[2] or call[0] in READ_CALLS
                 for index, kinds in self.call_kinds(jf, call, helpers):
                     text, start = call[3][index]
                     what = self.expression(jf, text, method)
                     line = jf.line(start)
                     if what is None:
-                        if direct and not (call[0] in READ_CALLS and READ_CALLS[call[0]][1] and call[1] != READ_CALLS[call[0]][1]):
-                            unresolved.append((jf, line, f"{call[0]}({text})"))
+                        unresolved.append((jf, line, f"{call[0]}({text})"))
                         continue
                     if what[0] == "param":
                         continue
                     if what[0] == "derived":
-                        if what[1] and what[1][0] == "literal" and ("system-property" in kinds or DERIVED in kinds):
-                            reads.append(("system-property", derive(what[1][1]), jf, line))
+                        if "system-property" in kinds or DERIVED in kinds:
+                            for name in names_of(what[1]):
+                                reads.append(("system-property", derive(name), jf, line))
                         continue
-                    for kind in sorted(kinds):
-                        if kind == DERIVED:
-                            reads.append(("system-property", derive(what[1]), jf, line))
-                        else:
-                            reads.append((kind, what[1], jf, line))
+                    for name in names_of(what):
+                        for kind in sorted(kinds):
+                            if kind == DERIVED:
+                                reads.append(("system-property", derive(name), jf, line))
+                            else:
+                                reads.append((kind, name, jf, line))
             for start, _end, value in jf.literals:
                 if OIDF_ENV_LITERAL.fullmatch(value):
                     reads.append(("env", value, jf, jf.line(start)))
@@ -583,6 +612,15 @@ def scope(kind, module):
 
 def literal_of(what):
     return what[1] if what and what[0] == "literal" else None
+
+
+def names_of(what):
+    """The names an expression's value holds: one for a literal, each for a loop over literals, none otherwise."""
+    if what and what[0] == "literal":
+        return (what[1],)
+    if what and what[0] == "literals":
+        return what[1]
+    return ()
 
 
 def derive(env_name):
@@ -749,6 +787,28 @@ def load_catalogues(root, modules):
     return catalogues, problems
 
 
+def accepted_risk_ids(root):
+    """The ids of platform's AcceptedRisk registry, or None when the file is not there."""
+    path = os.path.join(root, ACCEPTED_RISKS)
+    if not os.path.isfile(path):
+        return None
+    with open(path, encoding="utf-8") as f:
+        _code, bare, literals = lex(f.read())
+    return {value for start, _end, value in literals if re.search(r"\b[A-Z][A-Z0-9_]*\s*\(\s*$", bare[:start])}
+
+
+def unregistered_risks(catalogues, ids):
+    """An `accepted-risk:<id>` profile whose id the registry does not hold: the loader in platform.settings refuses it."""
+    problems = []
+    for catalogue in catalogues:
+        for entry in catalogue.entries:
+            risk = entry["profile"].partition("accepted-risk:")[2]
+            if risk and risk not in ids:
+                problems.append(f"{catalogue.path}: {entry['name']} names accepted risk {risk}, which {ACCEPTED_RISKS}"
+                                " does not register")
+    return problems
+
+
 # --- exemptions ------------------------------------------------------------------------------------------------
 
 def read_exemptions(path):
@@ -806,6 +866,9 @@ def scan(root):
     reactor.load(modules)
     reads, unresolved = reactor.reads()
     catalogues, problems = load_catalogues(root, modules)
+    ids = accepted_risk_ids(root)
+    if ids is not None:
+        problems.extend(unregistered_risks(catalogues, ids))
     exemptions, refuse_shipped, exemption_problems = read_exemptions(os.path.join(root, EXEMPTIONS))
     problems.extend(exemption_problems)
     notes = []

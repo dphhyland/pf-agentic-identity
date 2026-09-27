@@ -62,10 +62,10 @@
       "kind": "env",
       "type": "string",
       "default": null,
-      "description": "Where the trust controller's own Entity Configuration is fetched, when it is served under a context path; unset, the controller host",
-      "when_wrong": {"effect": "not-checked", "detail": "A wrong value shows as failed fetches"},
+      "description": "Where the trust controller's own Entity Configuration is fetched, when it is served under a context path; unset, the controller host. Its origin and path prefix are exempt from the fetch rules (https only, no private addresses), as the controller host is",
+      "when_wrong": {"effect": "not-checked", "detail": "A wrong value shows as failed fetches; an http or private-network value is fetched all the same, because it is exempt"},
       "profile": "any",
-      "security": false,
+      "security": true,
       "sources": [
         {"from": "system-property", "name": "oidf.federation.trust.controller.base.url"},
         {"from": "env", "name": "OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL"}
@@ -252,7 +252,7 @@
       "description": "Automatic registration of relying parties at the authorization and PAR endpoints (12.1.1); false passes those requests straight through",
       "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
       "profile": "any",
-      "security": false,
+      "security": true,
       "sources": [
         {"from": "system-property", "name": "oidf.auto.registration.front.channel"},
         {"from": "env", "name": "OIDF_AUTO_REGISTRATION_FRONT_CHANNEL"}
@@ -334,7 +334,7 @@
       "description": "Whether every front-channel relying party is registered as PAR-only",
       "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
       "profile": "any",
-      "security": false,
+      "security": true,
       "sources": [
         {"from": "system-property", "name": "oidf.auto.registration.require.par"},
         {"from": "env", "name": "OIDF_AUTO_REGISTRATION_REQUIRE_PAR"}

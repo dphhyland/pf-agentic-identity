@@ -6,8 +6,10 @@
   setting the reactor's main code reads is declared in a settings catalogue and that every catalogued setting is
   read. A read is an `OIDF_` name that is the whole of a string literal, a `System.getenv`, `System.getProperty`
   or `getInitParameter` call (or a PingFederate plugin field or a client's `extproperties.` name) whose argument
-  is a literal or a constant, and the same through any helper method that passes its parameter on; a read whose
-  name it cannot work out is refused rather than ignored. Modules not catalogued yet are listed, by the package
+  is a literal, a constant or a loop over an inline list of them, and the same through any helper method that
+  passes its parameter on. A read through one of those calls, or through a helper, whose name it cannot work out
+  is refused rather than ignored; a lookup in the whole environment as a map (`System.getenv()` passed on) is not
+  seen, beyond the `OIDF_` literal rule. Modules not catalogued yet are listed, by the package
   that will catalogue them, in `tools/settings-scan-exemptions.txt`.
 - Eleven catalogues, one per component, under `src/main/resources/META-INF/oidf-settings/`: `deployment-profile`
   (platform), `pf-audit` (platform-pf), `outbound-fetch` (oidf-jose), `federation-entity` and
@@ -40,4 +42,6 @@ scan passes on this branch; `tools/tests/test_settings_scan.py` holds its rules 
 comment rules, constants across classes and static imports, helpers to a fixpoint with varargs and derived
 system property names, both directions, the per-module scope of init-params, and the exemption file). What the
 scan does not see is in its docstring: names built by concatenation (servlets/ssf's computed names, which ST3C
-adds), and reads outside Java.
+adds), lookups in the environment or the system properties as a map, and reads outside Java. The scan also
+refuses an `accepted-risk:` profile whose id `AcceptedRisk` does not register, which the loader would refuse at
+run time.
