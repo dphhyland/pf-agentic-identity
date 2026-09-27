@@ -56,6 +56,17 @@ class EndpointUrlTest {
         assertNull(ClientAttestationUtils.endpointPath(request("", "", null)));
     }
 
+    /** No servlet path at all: the request-target path, which picks a path under the issuer and never a host. */
+    @Test
+    void withNoServletPathTheRequestTargetPathIsTheEndpointPath() {
+        HttpServletRequest request = request(null, null, null);
+        when(request.getRequestURI()).thenReturn("/as/token.oauth2");
+
+        assertEquals("/as/token.oauth2", ClientAttestationUtils.endpointPath(request));
+        assertEquals("https://as.example.com/as/token.oauth2",
+                ClientAttestationUtils.endpointUrl(ISSUER, null, ClientAttestationUtils.endpointPath(request)));
+    }
+
     private static HttpServletRequest request(String contextPath, String servletPath, String pathInfo) {
         HttpServletRequest request = mock(HttpServletRequest.class);
         when(request.getContextPath()).thenReturn(contextPath);

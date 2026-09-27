@@ -350,12 +350,18 @@ public final class ClientAttestationUtils {
     /**
      * The path within this server that {@code request} was routed to, as the container decoded and matched it:
      * context path, servlet path and path info ({@code /as/token.oauth2} under PingFederate's {@code *.oauth2}
-     * mapping, whose servlet path is the whole path). {@code null} when the request names none.
+     * mapping, whose servlet path is the whole path). A request that carries no servlet path - one the OGNL
+     * criterion is handed that was not dispatched through a mapping, say - gives its request-target path instead:
+     * the client writes that, but it only chooses a path under the configured issuer, never a host. {@code null}
+     * when the request names neither.
      */
     public static String endpointPath(HttpServletRequest request) {
         String path = ClientAttestationUtils.nullToEmpty(request.getContextPath())
                 + ClientAttestationUtils.nullToEmpty(request.getServletPath())
                 + ClientAttestationUtils.nullToEmpty(request.getPathInfo());
+        if (path.isEmpty()) {
+            path = ClientAttestationUtils.nullToEmpty(request.getRequestURI());
+        }
         return path.isEmpty() ? null : path;
     }
 

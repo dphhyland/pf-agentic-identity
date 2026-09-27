@@ -198,30 +198,43 @@ public final class DpopProofValidator {
         return out.toString();
     }
 
-    /** RFC 3986 §5.2.4 remove_dot_segments, step for step (the letters are the RFC's). */
+    /**
+     * RFC 3986 §5.2.4 remove_dot_segments, step for step (the letters are the RFC's). The input buffer is
+     * {@code path} from {@code i} to {@code end} rather than a string cut down at each step, so a long path costs
+     * linear time: the {@code htu} is read before the proof's key is compared with the attestation's, so anyone
+     * holding an attestation can send one. "Replace that prefix with "/"" is a move of {@code i} to the prefix's last
+     * "/", or, when the prefix is the whole buffer, a move of {@code end} to just after its first.
+     */
     static String removeDotSegments(String path) {
-        String in = path;
-        StringBuilder out = new StringBuilder();
-        while (!in.isEmpty()) {
-            if (in.startsWith("../")) {                                   // A
-                in = in.substring(3);
-            } else if (in.startsWith("./")) {                             // A
-                in = in.substring(2);
-            } else if (in.startsWith("/./")) {                            // B
-                in = in.substring(2);
-            } else if (in.equals("/.")) {                                 // B
-                in = "/";
-            } else if (in.startsWith("/../") || in.equals("/..")) {       // C
-                in = "/" + in.substring(in.equals("/..") ? 3 : 4);
-                int last = out.lastIndexOf("/");
-                out.setLength(Math.max(last, 0));
-            } else if (in.equals(".") || in.equals("..")) {               // D
-                in = "";
-            } else {                                                      // E
-                int next = in.indexOf('/', 1);
-                int end = next < 0 ? in.length() : next;
-                out.append(in, 0, end);
-                in = in.substring(end);
+        StringBuilder out = new StringBuilder(path.length());
+        int i = 0;
+        int end = path.length();
+        while (i < end) {
+            int left = end - i;
+            if (path.startsWith("../", i)) {                                          // A
+                i += 3;
+            } else if (path.startsWith("./", i)) {                                    // A
+                i += 2;
+            } else if (path.startsWith("/./", i)) {                                   // B
+                i += 2;
+            } else if (left == 2 && path.startsWith("/.", i)) {                       // B
+                end = i + 1;
+            } else if (path.startsWith("/../", i) || left == 3 && path.startsWith("/..", i)) { // C
+                if (left == 3) {
+                    end = i + 1;
+                } else {
+                    i += 3;
+                }
+                out.setLength(Math.max(out.lastIndexOf("/"), 0));
+            } else if (left == 1 && path.charAt(i) == '.' || left == 2 && path.startsWith("..", i)) { // D
+                i = end;
+            } else {                                                                  // E
+                // end moves only for a buffer of "/." or "/..", and what lies past it then is dots, so a "/"
+                // found here is never beyond it.
+                int next = path.indexOf('/', i + 1);
+                int stop = next < 0 ? end : next;
+                out.append(path, i, stop);
+                i = stop;
             }
         }
         return out.toString();

@@ -169,7 +169,25 @@ class HtuComparisonTest {
         assertEquals("", DpopProofValidator.removeDotSegments("."));            // D
         assertEquals("", DpopProofValidator.removeDotSegments(".."));           // D
         assertEquals("//a/.b/..c", DpopProofValidator.removeDotSegments("//a/.b/..c")); // E, empty segments kept
+        assertEquals("/ab", DpopProofValidator.removeDotSegments("/ab"));       // E, not C
+        assertEquals("ab", DpopProofValidator.removeDotSegments("ab"));         // E, not D
         assertEquals("", DpopProofValidator.removeDotSegments(""));
+    }
+
+    /**
+     * The buffer is walked, not cut down at each step, so a long run of dot-segments costs linear time: anyone holding
+     * an attestation reaches this with a proof of their own, before its key is compared with the attestation's.
+     */
+    @Test
+    void aLongRunOfDotSegmentsIsRemovedInOnePass() {
+        StringBuilder path = new StringBuilder();
+        for (int k = 0; k < 200_000; k++) {
+            path.append("/.");
+        }
+        path.append("/as/token.oauth2");
+        long started = System.nanoTime();
+        assertEquals("/as/token.oauth2", DpopProofValidator.removeDotSegments(path.toString()));
+        assertTrue(System.nanoTime() - started < 2_000_000_000L, "400,000 characters took more than 2 s");
     }
 
     /** Through the validator: the comparison is the one {@link DpopProofValidator#validate} applies. */
