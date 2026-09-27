@@ -128,6 +128,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
 
     private GovernanceEngineConfig config;
     private PdpClient client;
+    private HttpTransport transport;
 
     public AttestationAwareRarProcessor() {
     }
@@ -149,7 +150,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     /** {@link #configure(Configuration)} under a named profile, so a test can be production or development at will. */
     void configure(Configuration configuration, String profile) {
         this.config = settings(configuration, profile);
-        HttpTransport transport = new JdkHttpTransport(config.isInsecureTlsHonoured(), config.getTimeoutMillis());
+        this.transport = new JdkHttpTransport(config.isInsecureTlsHonoured(), config.getTimeoutMillis());
         String dialect = configuration.getFieldValue(PDP_DIALECT);
         if (DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim())) {
             this.client = new AuthZenPdpClient(config, transport, new AuthZenRequestBuilder(config), mapper);
@@ -168,6 +169,11 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl() + " profile=" + config.getDeploymentProfile()
                 + " authenticatedPrincipalTypes=" + config.getAuthenticatedPrincipalTypes()
                 + " failOpenOnUnavailable=" + config.isFailOpenOnError());
+    }
+
+    /** The transport {@link #configure} built, or {@code null} before it ran: for a test of what it trusts. */
+    HttpTransport transport() {
+        return transport;
     }
 
     /**

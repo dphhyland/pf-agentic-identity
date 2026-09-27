@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.rar;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertSame;
@@ -9,6 +10,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.ConnectException;
+import java.net.ProtocolException;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
@@ -39,6 +41,7 @@ class JdkHttpTransportTest {
                 new EOFException("EOF reached while reading"),
                 new ClosedChannelException(),
                 new IOException("connection reset by peer"),
+                new IOException("Connection reset by peer", new IOException("Connection reset by peer")),
                 new IOException("wrapped", new ConnectException("Connection refused")))) {
             IOException classified = JdkHttpTransport.classify(e);
             assertInstanceOf(PdpUnavailableException.class, classified, e.toString());
@@ -76,6 +79,61 @@ class JdkHttpTransportTest {
         assertInstanceOf(PdpUnavailableException.class, JdkHttpTransport.classify(resetDeep));
     }
 
+    /**
+     * The JDK client copies the wire text it could not parse into a {@link ProtocolException}'s message, and
+     * JDK 17 rethrows that as a plain {@link IOException} with the same message and the protocol error as its
+     * cause. A PDP that answered with a malformed status line or header naming "connection reset" answered:
+     * each shape here is a refusal (F-0093).
+     */
+    @Test
+    void aMalformedAnswerNamingAResetIsARefusal() {
+        String status = "Invalid status line: \"HTTP/1.1 2x0 connection reset\"";
+        String header = "Invalid header name \"connection reset\"";
+        ProtocolException protocolOverReset = new ProtocolException(header);
+        protocolOverReset.initCause(new SocketException("Connection reset"));
+        for (IOException e : List.of(
+                new ProtocolException(status),
+                new IOException(status, new ProtocolException(status)),
+                new IOException(header, new ProtocolException(header)),
+                new IOException(header),
+                new IOException("the PDP said: connection reset"),
+                new IOException("wrapped", protocolOverReset))) {
+            IOException classified = JdkHttpTransport.classify(e);
+            assertSame(e, classified, e.toString());
+            assertFalse(classified instanceof PdpUnavailableException, e.toString());
+        }
+    }
+
+    /** On the wire, through the real client: a status line it cannot parse is a refusal, not "unreachable". */
+    @Test
+    void aStatusLineTheClientCannotParseIsARefusal() throws Exception {
+        try (RawHttpServer pdp = new RawHttpServer("HTTP/1.1 2x0 connection reset\r\n"
+                + "Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")) {
+            IOException refused = assertThrows(IOException.class,
+                    () -> new JdkHttpTransport(false, 2_000).post(pdp.url("/decide"), "{}", Map.of("Content-Type", "application/json")));
+            assertFalse(refused instanceof PdpUnavailableException, refused.toString());
+        }
+    }
+
+    /**
+     * On the wire: a header named "connection reset" over a DENY. JDK 17 and 20 refuse the header name, and the
+     * refusal must stay a refusal; a JDK that accepted it would hand the DENY on. Either way it is not "unreachable".
+     */
+    @Test
+    void aHeaderNameTheClientCannotParseIsNotUnreachable() throws Exception {
+        String deny = "{\"decision\": false}";
+        try (RawHttpServer pdp = new RawHttpServer("HTTP/1.1 200 OK\r\nconnection reset: x\r\n"
+                + "Content-Type: application/json\r\nContent-Length: " + deny.length() + "\r\n\r\n" + deny)) {
+            try {
+                HttpTransport.Response answered = new JdkHttpTransport(false, 2_000)
+                        .post(pdp.url("/decide"), "{}", Map.of("Content-Type", "application/json"));
+                assertEquals(deny, answered.body());
+            } catch (IOException refused) {
+                assertFalse(refused instanceof PdpUnavailableException, refused.toString());
+            }
+        }
+    }
+
     @Test
     void anAlreadyClassifiedFailurePassesThrough() {
         PdpUnavailableException down = new PdpUnavailableException("down");
@@ -92,6 +150,7 @@ class JdkHttpTransportTest {
         JdkHttpTransport transport = new JdkHttpTransport(false, 2_000);
         assertThrows(PdpUnavailableException.class,
                 () -> transport.post("http://127.0.0.1:" + closedPort + "/decide", "{}", Map.of("Content-Type", "application/json")));
-        assertTrue(new JdkHttpTransport(true, 0) != null, "the insecure context builds");
+        assertTrue(new JdkHttpTransport(true, 0).trustsAnyCertificate(), "the insecure context builds");
+        assertFalse(new JdkHttpTransport(false, 0).trustsAnyCertificate());
     }
 }

@@ -61,11 +61,14 @@ public final class DecisionResponse {
         return "PERMIT".equalsIgnoreCase(decision);
     }
 
-    /** A body that is not a JSON object is refused ({@link PdpResponses#jsonObjectOf}): a malformed answer is not a permit. */
+    /**
+     * A body that is not a JSON object is refused ({@link PdpResponses#jsonObjectOf}): a malformed answer is not a
+     * permit. So is a {@code decision} that is not a string and an {@code authorised} that is not a boolean.
+     */
     public static DecisionResponse fromJson(String body, ObjectMapper mapper) throws IOException {
         JsonNode root = PdpResponses.jsonObjectOf(body, mapper, "governance engine");
-        String decision = root.hasNonNull("decision") ? root.get("decision").asText() : null;
-        Boolean authorised = root.hasNonNull("authorised") ? root.get("authorised").asBoolean() : null;
+        String decision = decisionOf(root, body);
+        Boolean authorised = authorisedOf(root, body);
 
         List<Statement> statements = new ArrayList<>();
         JsonNode arr = root.path("statements");
@@ -80,5 +83,32 @@ public final class DecisionResponse {
             }
         }
         return new DecisionResponse(decision, authorised, statements, body);
+    }
+
+    /** {@code decision}, a JSON string, or {@code null} when absent or null. A number or an array is refused, not read as text. */
+    static String decisionOf(JsonNode root, String body) throws IOException {
+        JsonNode decision = root.path("decision");
+        if (decision.isMissingNode() || decision.isNull()) {
+            return null;
+        }
+        if (!decision.isTextual()) {
+            throw new IOException("governance engine 'decision' is not a string: " + PdpResponses.excerpt(body));
+        }
+        return decision.textValue();
+    }
+
+    /**
+     * {@code authorised}, a JSON boolean, or {@code null} when absent or null. A string {@code "true"} or a number
+     * is refused: Jackson's {@code asBoolean} would read both as a permit.
+     */
+    static Boolean authorisedOf(JsonNode root, String body) throws IOException {
+        JsonNode authorised = root.path("authorised");
+        if (authorised.isMissingNode() || authorised.isNull()) {
+            return null;
+        }
+        if (!authorised.isBoolean()) {
+            throw new IOException("governance engine 'authorised' is not a boolean: " + PdpResponses.excerpt(body));
+        }
+        return authorised.booleanValue();
     }
 }

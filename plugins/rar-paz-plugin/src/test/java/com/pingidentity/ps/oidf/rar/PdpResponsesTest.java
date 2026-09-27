@@ -63,6 +63,29 @@ class PdpResponsesTest {
         }
     }
 
+    /**
+     * Content after the object, and a member named twice, are refused: a default reader ignores the first and keeps
+     * the last value of the second, so {@code {"decision":false,"decision":true}} would have been a permit.
+     */
+    @Test
+    void trailingContentAndADuplicateMemberAreRefused() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        for (String body : new String[] {
+                "{\"decision\":true} trailing junk",
+                "{\"decision\":true}{\"decision\":false}",
+                "{\"decision\":true} 42",
+                "{\"decision\":false,\"decision\":true}",
+                "{\"context\":{\"a\":1,\"a\":2},\"decision\":true}"}) {
+            IOException e = assertThrows(IOException.class, () -> PdpResponses.jsonObjectOf(body, mapper, "pdp"), body);
+            assertTrue(e.getMessage().startsWith("pdp response is not JSON"), e.getMessage());
+            assertFalse(e instanceof PdpUnavailableException, body);
+        }
+        assertTrue(PdpResponses.jsonObjectOf("{\"decision\":true}\r\n  ", mapper, "pdp").get("decision").booleanValue(),
+                "whitespace after the object is not content");
+        assertFalse(mapper.isEnabled(com.fasterxml.jackson.databind.DeserializationFeature.FAIL_ON_TRAILING_TOKENS),
+                "the shared mapper is not changed");
+    }
+
     @Test
     void anExcerptIsOneLineAndShort() {
         assertEquals("", PdpResponses.excerpt(null));

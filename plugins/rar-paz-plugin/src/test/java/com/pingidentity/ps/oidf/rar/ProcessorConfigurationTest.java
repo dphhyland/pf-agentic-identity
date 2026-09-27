@@ -292,6 +292,45 @@ class ProcessorConfigurationTest {
                 "the stored value is still read; it is what it may do that the profile decides");
     }
 
+    /** What configure builds, not only what the settings say: the trust-all context exists only in development. */
+    @Test
+    void configureTrustsAnyCertificateOnlyInDevelopment() {
+        AttestationAwareRarProcessor production = new AttestationAwareRarProcessor();
+        production.configure(stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "production");
+        assertFalse(((JdkHttpTransport) production.transport()).trustsAnyCertificate(), "production checks the certificate");
+
+        AttestationAwareRarProcessor development = new AttestationAwareRarProcessor();
+        development.configure(stored("PDP URL", PDP_URL, "Skip TLS verification (dev only)", "true"), "development");
+        assertTrue(((JdkHttpTransport) development.transport()).trustsAnyCertificate(), "development may skip it");
+
+        AttestationAwareRarProcessor off = new AttestationAwareRarProcessor();
+        off.configure(stored("PDP URL", PDP_URL), "development");
+        assertFalse(((JdkHttpTransport) off.transport()).trustsAnyCertificate(), "the switch is off unless set");
+        assertNull(new AttestationAwareRarProcessor().transport(), "nothing is built before configure");
+    }
+
+    /**
+     * Through configure, enrich and the real transport, with fail-open on: a PDP whose DENY carries a header named
+     * "connection reset", and one whose status line names it, answered - neither is granted (F-0093).
+     */
+    @Test
+    void failOpenDoesNotGrantAMalformedAnswerThatNamesAReset() throws Exception {
+        String deny = "{\"decision\": false}";
+        try (RawHttpServer pdp = new RawHttpServer("HTTP/1.1 200 OK\r\nconnection reset: x\r\n"
+                + "Content-Type: application/json\r\nContent-Length: " + deny.length() + "\r\n\r\n" + deny)) {
+            AttestationAwareRarProcessor authzen = new AttestationAwareRarProcessor();
+            authzen.configure(stored("PDP URL", pdp.url("/access/v1/evaluation"), "PDP Dialect", "AuthZEN",
+                    "Fail open on engine error", "true"), "development");
+            assertThrows(AuthorizationDetailProcessingException.class, () -> authzen.enrich(payment(), context(), Map.of()));
+        }
+        try (RawHttpServer pdp = new RawHttpServer("HTTP/1.1 2x0 connection reset\r\n"
+                + "Content-Type: application/json\r\nContent-Length: 2\r\n\r\n{}")) {
+            AttestationAwareRarProcessor governance = new AttestationAwareRarProcessor();
+            governance.configure(stored("PDP URL", pdp.url("/decide"), "Fail open on engine error", "true"), "development");
+            assertThrows(AuthorizationDetailProcessingException.class, () -> governance.enrich(payment(), context(), Map.of()));
+        }
+    }
+
     /** Each development-only switch left on in production is named at configure, once, at WARNING. */
     @Test
     void configureSaysWhichSwitchesItIgnores() {

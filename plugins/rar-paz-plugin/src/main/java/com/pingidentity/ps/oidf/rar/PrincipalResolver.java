@@ -3,9 +3,12 @@
  */
 package com.pingidentity.ps.oidf.rar;
 
+import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.ArrayDeque;
+import java.util.Deque;
 
 /**
  * Resolves the decision's principal and labels how it was established, the {@code principal_source} the PDP
@@ -63,7 +66,9 @@ final class PrincipalResolver {
     /**
      * What the request tells us about the flow: the {@code grant_type} parameter at the token endpoint, and
      * whether this is the CIBA backchannel endpoint. Both are read off the servlet request by the processor;
-     * kept as plain strings here so the resolution is testable without one.
+     * kept as plain strings here so the resolution is testable without one. {@code requestPath} is
+     * {@code getRequestURI()} as sent; {@link #isCiba} reads it the way the container maps it
+     * ({@link #canonicalPath}).
      */
     record Flow(String grantType, String requestPath) {
 
@@ -72,7 +77,41 @@ final class PrincipalResolver {
         boolean isClientCredentials() { return GRANT_CLIENT_CREDENTIALS.equals(grantType); }
         boolean isRefresh() { return GRANT_REFRESH_TOKEN.equals(grantType); }
         boolean isTokenExchange() { return GRANT_TOKEN_EXCHANGE.equals(grantType); }
-        boolean isCiba() { return requestPath != null && requestPath.endsWith(CIBA_PATH_SUFFIX); }
+        boolean isCiba() { return requestPath != null && canonicalPath(requestPath).endsWith(CIBA_PATH_SUFFIX); }
+    }
+
+    /**
+     * A request URI as a Servlet 6 container maps it, in outline (Servlet 6.0 section 3.5.2): each segment's path
+     * parameters removed ({@code ;} to the next {@code /}), percent-escapes decoded, empty and {@code .} segments
+     * dropped and {@code ..} applied. {@code getRequestURI()} is none of these, so {@code /as/bc-auth.ciba;x},
+     * which a container maps where {@code /as/bc-auth.ciba} goes, would otherwise read as the authorization
+     * endpoint and label the CIBA hint {@link #AUTHENTICATED}. Reading more paths as CIBA can only lower the
+     * label to {@link #IDENTITY_HINT}, never raise it. A malformed escape is left as it is.
+     */
+    static String canonicalPath(String requestUri) {
+        Deque<String> segments = new ArrayDeque<>();
+        for (String segment : requestUri.split("/")) {
+            int parameters = segment.indexOf(';');
+            String name = decode(parameters < 0 ? segment : segment.substring(0, parameters));
+            if (name.equals("..")) {
+                segments.pollLast();
+            } else if (!name.isEmpty() && !name.equals(".")) {
+                segments.addLast(name);
+            }
+        }
+        return "/" + String.join("/", segments);
+    }
+
+    private static String decode(String segment) {
+        if (segment.indexOf('%') < 0) {
+            return segment;
+        }
+        try {
+            // URLDecoder is a form decoder; a path's '+' is a plus, so it is escaped first.
+            return URLDecoder.decode(segment.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException malformed) {
+            return segment;
+        }
     }
 
     /**

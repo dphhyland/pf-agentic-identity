@@ -117,6 +117,30 @@ class PrincipalResolverTest {
         assertFalse(Flow.UNKNOWN.isTokenExchange());
     }
 
+    /**
+     * The CIBA endpoint however the URI spells it: a container maps a path with path parameters, escapes, a
+     * trailing slash or dot segments where the bare path goes, so each reads as CIBA and the hint stays a hint
+     * rather than passing as an authenticated user.
+     */
+    @Test
+    void theCibaEndpointIsRecognisedHoweverTheUriSpellsIt() {
+        for (String path : new String[] {
+                "/as/bc-auth.ciba;x", "/as;jsessionid=1/bc-auth.ciba;a=b;c", "/as/bc-auth%2Eciba", "/as/bc%2dauth.ciba",
+                "/as/bc-auth.ciba/", "/as//bc-auth.ciba", "/as/./bc-auth.ciba", "/as/x/../bc-auth.ciba", "/as/bc-auth.ciba/."}) {
+            assertTrue(new Flow(null, path).isCiba(), path);
+            assertEquals(new Principal("alice", "identity_hint"), resolve(new Flow(null, path), "alice"), path);
+        }
+        for (String path : new String[] {"/as/authorization.oauth2", "/as/bc-auth.ciba/x", "/as/bc-auth.cib", "/as/bc-auth.ciba%zz",
+                "/as/xbc-auth.ciba", "/as/bc-auth.ciba/..", "/as/bc-auth+ciba", ""}) {
+            assertFalse(new Flow(null, path).isCiba(), path);
+        }
+        assertEquals("/as/bc-auth.ciba", PrincipalResolver.canonicalPath("/as;p/bc-auth%2Eciba;q/"));
+        assertEquals("/a+b/c", PrincipalResolver.canonicalPath("/a+b/c"), "a path's plus is a plus");
+        assertEquals("/a+b", PrincipalResolver.canonicalPath("/a%2Bb"));
+        assertEquals("/%zz", PrincipalResolver.canonicalPath("/%zz"), "a malformed escape is left as it is");
+        assertEquals("/", PrincipalResolver.canonicalPath("/../.."), "above the root is the root");
+    }
+
     @Test
     void thePrincipalIsLoggedAsAHash() {
         String alice = PrincipalResolver.hashForLog("alice");

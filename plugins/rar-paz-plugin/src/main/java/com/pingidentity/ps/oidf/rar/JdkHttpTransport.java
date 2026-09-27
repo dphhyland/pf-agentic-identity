@@ -10,6 +10,7 @@ import javax.net.ssl.X509TrustManager;
 import java.io.EOFException;
 import java.io.IOException;
 import java.net.ConnectException;
+import java.net.ProtocolException;
 import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.URI;
@@ -22,6 +23,7 @@ import java.nio.channels.ClosedChannelException;
 import java.nio.charset.StandardCharsets;
 import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -41,6 +43,7 @@ public final class JdkHttpTransport implements HttpTransport {
 
     private final HttpClient client;
     private final Duration timeout;
+    private final boolean trustsAnyCertificate;
 
     public JdkHttpTransport(boolean insecureTls, int timeoutMillis) {
         this.timeout = Duration.ofMillis(timeoutMillis > 0 ? timeoutMillis : 10_000);
@@ -48,7 +51,13 @@ public final class JdkHttpTransport implements HttpTransport {
         if (insecureTls) {
             builder.sslContext(trustAllContext());
         }
+        this.trustsAnyCertificate = insecureTls;
         this.client = builder.build();
+    }
+
+    /** Whether this transport was built with the trust-all context: what a test of configure asserts on. */
+    boolean trustsAnyCertificate() {
+        return trustsAnyCertificate;
     }
 
     @Override
@@ -76,11 +85,18 @@ public final class JdkHttpTransport implements HttpTransport {
      * connection was refused or timed out ({@link ConnectException}, {@link HttpTimeoutException} and its
      * connect-timeout subclass, {@link SocketTimeoutException}), the name did not resolve
      * ({@link UnknownHostException}), or the connection was reset or closed under the request
-     * ({@link SocketException}, {@link EOFException}, {@link ClosedChannelException}, or the client's own
-     * "connection reset" {@link IOException}). A TLS failure is not one of them: an {@link SSLException}
-     * anywhere in the cause chain means something answered on that port and could not prove it was the PDP,
-     * which is a reason to refuse, not to grant. Anything else the client throws stays what it was, so it
-     * fails closed. The chain is walked because the JDK client wraps what its exchange threw.
+     * ({@link SocketException}, {@link EOFException}, {@link ClosedChannelException}, or an {@link IOException}
+     * whose message starts with the JDK's own "Connection reset" text, which older JDKs throw from the socket
+     * layer).
+     *
+     * <p>Two failures refuse whatever else the chain holds, because each means something answered: an
+     * {@link SSLException} (it could not prove it was the PDP) and a {@link ProtocolException} (it sent a status
+     * line or header the client could not parse). The client copies the offending wire text into a protocol
+     * error's message - {@code Invalid status line: "..."}, {@code Invalid header name "..."} - and JDK 17
+     * rethrows it as a plain {@link IOException} with the same message, so a message is only matched from its
+     * start and never searched: a PDP whose malformed answer names "connection reset" is still an answer.
+     * Anything else the client throws stays what it was, so it fails closed. The chain is walked because the
+     * JDK client wraps what its exchange threw.
      */
     static IOException classify(IOException e) {
         if (e instanceof PdpUnavailableException) {
@@ -90,14 +106,14 @@ public final class JdkHttpTransport implements HttpTransport {
         // Bounded: initCause forbids a direct self-cause and nothing else, so a longer cycle is constructible.
         Throwable t = e;
         for (int depth = 0; t != null && depth < 16; t = t.getCause(), depth++) {
-            if (t instanceof SSLException) {
+            if (t instanceof SSLException || t instanceof ProtocolException) {
                 return e;
             }
             if (t instanceof ConnectException || t instanceof HttpTimeoutException || t instanceof SocketTimeoutException
                     || t instanceof UnknownHostException || t instanceof SocketException || t instanceof EOFException
                     || t instanceof ClosedChannelException
                     || (t instanceof IOException && t.getMessage() != null
-                        && t.getMessage().toLowerCase(java.util.Locale.ROOT).contains("connection reset"))) {
+                        && t.getMessage().toLowerCase(Locale.ROOT).startsWith("connection reset"))) {
                 unreachable = true;
             }
         }
