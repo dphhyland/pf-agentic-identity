@@ -10,8 +10,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  # By hand on any branch: release.yml requires a green Build on the commit it releases, and a release
-  # dry run on a branch with no pull request has no other way to get one.
+  # By hand on any branch: release.yml requires a green Build from a push or a dispatch on the commit it
+  # releases, and a pull request's Build does not count, so a release dry run on a branch has no other way to
+  # get one.
   workflow_dispatch:
 
 permissions:

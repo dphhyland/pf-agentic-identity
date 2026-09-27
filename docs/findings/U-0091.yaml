@@ -1,0 +1,23 @@
+id: U-0091
+title: 'After a re-run of only some of a Build''s jobs, each job it did not repeat still reads success at its latest attempt'
+area: release, ci
+source: pr-review
+status: open
+plan_items: [P0-6]
+prs: []
+recorded_in: 'release.yml, the step "a green Build on this commit" (the latest attempt of each required job), and the prod/p1-release-gate-waits pull request''s Unverified list'
+verify_by: >
+  Re-run one failed job of a Build on a scratch branch (`gh run rerun <run-id> --failed`), then read
+  `gh api 'repos/dphhyland/pf-agentic-identity/actions/runs/<run-id>/jobs?filter=all'` and see how the jobs it
+  did not repeat are listed: at the earlier attempt only, or at the new attempt with conclusion success. Either
+  passes the gate; the new attempt with any other conclusion fails it.
+verification: ''
+notes: >
+  The gate judges each required job by its record with the highest `run_attempt` in the Build run it reads,
+  over every attempt (`filter=all`). GitHub documents that the run attempt "increments with each re-run"
+  (contexts reference, read 2026-09-27), and a whole re-run lists every job again at the new attempt: Release
+  run 36278709651 lists `release` at attempt 1 (failure) and attempt 2 (success). What a re-run of only the
+  failed jobs does to the jobs it leaves alone is not documented, and no Build on this repository has had one.
+  If GitHub listed such a job at the new attempt as skipped, the gate would fail a release whose Build is
+  green, naming the job as skipped; the way out is a fresh Build on the tag (`gh workflow run build.yml --ref
+  <tag>`) and a re-run of the release. It fails closed: a job that failed at its latest attempt never passes.
