@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.Consumption;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -496,5 +498,86 @@ class ClientAttestationVerifierTest {
                 () -> verifier.verify(att, pop("https://another-as.example.com", "p-aud-2", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID),
                 "the PoP audience, not the attestation's, is what must name this AS");
+    }
+
+    // ---- S3a: a store that cannot answer is an outage of ours, never a finding about the client ----------
+
+    /** A challenge store whose every answer is the outage. */
+    private static AttestationChallengeService unavailableChallenges() {
+        return new AttestationChallengeService() {
+            @Override
+            public String issue() {
+                throw new StoreUnavailableException("down");
+            }
+
+            @Override
+            public Consumption consumeChallenge(String challenge) {
+                return Consumption.STORE_UNAVAILABLE;
+            }
+
+            @Override
+            public long ttlSeconds() {
+                return 300L;
+            }
+        };
+    }
+
+    private ClientAttestationVerifier verifierWith(AttestationReplayCache replay, AttestationChallengeService challenges,
+                                                   boolean challengeRequired) {
+        ClientAttestationConfig config = ClientAttestationConfig.builder()
+                .addAcceptedAudience(OP_ISSUER)
+                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedHtu(TOKEN_ENDPOINT)
+                .challengeRequired(challengeRequired)
+                .build();
+        return new ClientAttestationVerifier(resolver, config, replay, challenges);
+    }
+
+    /**
+     * A replay store that cannot answer is an outage of ours, so the verifier says {@code temporarily_unavailable}
+     * - and does not say "replay", which is a finding about the client.
+     *
+     * RFC 6749 defines the code in §4.1.2.1 for the authorization endpoint's redirect: "The authorization server
+     * is currently unable to handle the request due to a temporary overloading or maintenance of the server. (This
+     * error code is needed because a 503 Service Unavailable HTTP status code cannot be returned to the client via
+     * an HTTP redirect.)" §5.2, the token endpoint's list, does not include it. Using it here, with the 503 as well,
+     * is this project's decision (plan item S3a), not a requirement of either section, so the test carries no
+     * {@code @Requirement}.
+     */
+    @Test
+    void aReplayStoreThatCannotAnswerIsTemporarilyUnavailableNotAReplay() throws Exception {
+        ClientAttestationVerifier v = verifierWith((c, j, t) -> AttestationReplayCache.Verdict.STORE_UNAVAILABLE, challengeService, false);
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.TEMPORARILY_UNAVAILABLE, e.error());
+        ClientAttestationException combined = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), null, dpop(instanceKey, "d1", null), "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.TEMPORARILY_UNAVAILABLE, combined.error(), "the combined DPoP mode too");
+    }
+
+    /** The same for the challenge store: an outage, not an unknown challenge; untagged for the reason above. */
+    @Test
+    void aChallengeStoreThatCannotAnswerIsTemporarilyUnavailableNotAnUnknownChallenge() throws Exception {
+        ClientAttestationVerifier v = verifierWith(new InMemoryAttestationReplayCache(), unavailableChallenges(), true);
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), pop(OP_ISSUER, "p1", "some-challenge"), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.TEMPORARILY_UNAVAILABLE, e.error());
+    }
+
+    @Test
+    void aPresentedChallengeWithNoChallengeStoreAtAllIsRefusedAsUnknown() throws Exception {
+        ClientAttestationVerifier v = verifierWith(new InMemoryAttestationReplayCache(), null, false);
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), pop(OP_ISSUER, "p1", "some-challenge"), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.USE_ATTESTATION_CHALLENGE, e.error());
+    }
+
+    @Test
+    void aBlankChallengeClaimIsAnAbsentChallenge() throws Exception {
+        assertEquals(CLIENT_ID, verifier.verify(validAttestation(), pop(OP_ISSUER, "p-blank", ""), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID).clientId());
+        ClientAttestationVerifier required = newVerifier(true);
+        assertEquals(ClientAttestationException.USE_ATTESTATION_CHALLENGE, assertThrows(ClientAttestationException.class,
+                () -> required.verify(validAttestation(), pop(OP_ISSUER, "p-blank-2", ""), null, "POST", TOKEN_ENDPOINT, CLIENT_ID)).error());
     }
 }

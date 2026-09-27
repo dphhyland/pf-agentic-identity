@@ -42,6 +42,24 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
+- **Redis verified and tri-state** (S3a) - `rediss://` checks the server's certificate and name and
+  completes the handshake before `AUTH`, an optional `OIDF_REDIS_CA_FILE`, `redis://` refused under the
+  production profile, a URL's userinfo never quoted in a message; store verdicts are
+  `FIRST_USE | REPLAY | STORE_UNAVAILABLE` and `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`, an outage answered
+  503 `temporarily_unavailable` and never "replay"; keys under `oidf:as:*`, `oidf:cas:*`,
+  `oidf:fed:endpoint:*` and `oidf:admin:dpop:*`. The store interfaces' abstract methods are now `record` and
+  `consumeChallenge`.
+- **Evidence digested and bound** (S3b) - the attestation carries `workload.instance_attestation_sha256`,
+  `_type` and `_exp` and never the evidence (`workload.svid` and `workload.instance_attestation` are gone);
+  the digest is the SHA-256 of the evidence's JWS Signing Input, so a re-encoded token is the same evidence;
+  evidence binds to the first instance key and client that present it, a second presenter is 401
+  `instance_attestation_bound` and an `attestation.evidence.conflict` audit event naming both keys; evidence
+  lifetime, whole and remaining, capped at a day in production, the attestation's `exp` never past the
+  evidence's.
+- **CIMD refused outside development** (M-1) - `OIDF_ATTESTER_CIMD_URL` is honoured only under
+  `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it, and the CAS
+  document does not list `cimd` among its metadata sources.
+
 - **RAR containment model** (S1a) - `libs/rar-model`, JDK only: per-type field rules (`set`, `set_of_values`, `limit`
   with a paired unit, `amount`, `instant_limit`, `equal`, `string`, `object`, `forbidden`), alternatives for a thing
   a type can say two ways, the built-in `sales_agent`, `payment_initiation` and `account_information` models, more

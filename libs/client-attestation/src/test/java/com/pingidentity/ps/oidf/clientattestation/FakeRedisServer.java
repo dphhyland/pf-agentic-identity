@@ -17,8 +17,9 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * In-process RESP server implementing just the commands {@link RedisAttestationStore} uses
- * (AUTH, SELECT, PING, SET [NX] [EX], DEL) with real key expiry, so the store can be tested
- * without a Redis installation.
+ * (AUTH, SELECT, PING, SET [NX] [EX|PX], GET, DEL) with real key expiry, so the store can be tested
+ * without a Redis installation. Two hooks stage the races {@code bind} must survive: a key that expires
+ * between a {@code SET NX} miss and the {@code GET} after it, and a key that is neither settable nor readable.
  */
 final class FakeRedisServer implements Closeable {
 
@@ -39,6 +40,8 @@ final class FakeRedisServer implements Closeable {
     private final List<Thread> handlers = new ArrayList<>();
     private final String requiredPassword;
     private volatile boolean closed;
+    private volatile boolean vanishAfterNextNxMiss;
+    private volatile boolean phantomKeys;
 
     FakeRedisServer(String requiredPassword) throws IOException {
         this.requiredPassword = requiredPassword;
@@ -50,6 +53,27 @@ final class FakeRedisServer implements Closeable {
 
     int port() {
         return this.server.getLocalPort();
+    }
+
+    /** The unexpired keys, for asserting where a store writes. */
+    java.util.Set<String> keys() {
+        java.util.Set<String> out = new java.util.TreeSet<>();
+        for (String key : this.store.keySet()) {
+            if (this.get(key) != null) {
+                out.add(key);
+            }
+        }
+        return out;
+    }
+
+    /** The next {@code SET ... NX} that finds its key taken also removes it: a key expiring under the caller. */
+    void vanishAfterNextNxMiss() {
+        this.vanishAfterNextNxMiss = true;
+    }
+
+    /** Every {@code SET ... NX} answers nil and every {@code GET} answers nil: a key that cannot be taken or read. */
+    void phantomKeys() {
+        this.phantomKeys = true;
     }
 
     String url() {
@@ -153,6 +177,18 @@ final class FakeRedisServer implements Closeable {
                     case "SET":
                         this.handleSet(cmd, out);
                         break;
+                    case "GET": {
+                        Entry e = this.phantomKeys ? null : this.get(cmd.get(1));
+                        if (e == null) {
+                            write(out, "$-1\r\n");
+                        } else {
+                            byte[] bytes = e.value.getBytes(StandardCharsets.UTF_8);
+                            write(out, "$" + bytes.length + "\r\n");
+                            out.write(bytes);
+                            write(out, "\r\n");
+                        }
+                        break;
+                    }
                     case "DEL": {
                         int removed = 0;
                         for (int i = 1; i < cmd.size(); i++) {
@@ -177,20 +213,30 @@ final class FakeRedisServer implements Closeable {
         String key = cmd.get(1);
         String value = cmd.get(2);
         boolean nx = false;
-        long exSeconds = 0L;
+        long ttlMillis = 0L;
         for (int i = 3; i < cmd.size(); i++) {
             String opt = cmd.get(i).toUpperCase(Locale.ROOT);
             if (opt.equals("NX")) {
                 nx = true;
             } else if (opt.equals("EX")) {
-                exSeconds = Long.parseLong(cmd.get(++i));
+                ttlMillis = Long.parseLong(cmd.get(++i)) * 1000L;
+            } else if (opt.equals("PX")) {
+                ttlMillis = Long.parseLong(cmd.get(++i));
             }
         }
+        if (nx && this.phantomKeys) {
+            write(out, "$-1\r\n");
+            return;
+        }
         if (nx && this.get(key) != null) {
+            if (this.vanishAfterNextNxMiss) {
+                this.vanishAfterNextNxMiss = false;
+                this.store.remove(key);
+            }
             write(out, "$-1\r\n"); // nil: not set
             return;
         }
-        long expiresAt = exSeconds > 0L ? System.currentTimeMillis() + exSeconds * 1000L : 0L;
+        long expiresAt = ttlMillis > 0L ? System.currentTimeMillis() + ttlMillis : 0L;
         this.store.put(key, new Entry(value, expiresAt));
         write(out, "+OK\r\n");
     }
