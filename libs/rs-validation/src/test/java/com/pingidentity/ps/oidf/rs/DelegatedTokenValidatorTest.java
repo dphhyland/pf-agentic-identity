@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.jose.Jwks;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -52,7 +53,10 @@ class DelegatedTokenValidatorTest {
 
         JsonWebKey asPublic = JsonWebKey.Factory.newJwk(
                 asKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY));
-        validator = new DelegatedTokenValidator(List.of(asPublic), ISSUER, AUDIENCE);
+        validator = DelegatedTokenValidator.builder(ISSUER, AUDIENCE)
+                .keys(List.of(asPublic))
+                .replayStore(new InMemoryReplayStore())
+                .build();
     }
 
     // ---- the happy path -----------------------------------------------------------------------
@@ -222,6 +226,7 @@ class DelegatedTokenValidatorTest {
         forged.setPayload(claims.toJson());
         forged.setAlgorithmHeaderValue(AlgorithmIdentifiers.HMAC_SHA256);
         forged.setKeyIdHeaderValue(asKey.getKeyId());
+        forged.setHeader("typ", "at+jwt");
         forged.setKey(new HmacKey(asKey.getPublicKey().getEncoded()));
         String forgedToken = forged.getCompactSerialization();
 
@@ -260,7 +265,7 @@ class DelegatedTokenValidatorTest {
         cnf.put("jkt", Jwks.thumbprint(enclaveKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY)));
         claims.setClaim("cnf", cnf);
 
-        String header = "{\"alg\":\"none\"}";
+        String header = "{\"alg\":\"none\",\"typ\":\"at+jwt\"}";
         java.util.Base64.Encoder b64 = java.util.Base64.getUrlEncoder().withoutPadding();
         String noneToken = b64.encodeToString(header.getBytes(java.nio.charset.StandardCharsets.UTF_8))
                 + "." + b64.encodeToString(claims.toJson().getBytes(java.nio.charset.StandardCharsets.UTF_8))
@@ -286,16 +291,42 @@ class DelegatedTokenValidatorTest {
         assertTrue(result.actingInstance().isEmpty());
     }
 
+    /** RFC 8693 §4.1: "The "act" claim value is a JSON object". The string form is refused by default. */
     @Test
-    @Requirement("UNVERIFIED item 8")
-    void theLegacyStringActIsSurfacedSoTheDeviationIsVisible() throws Exception {
+    @Requirement("RFC8693 §4.1")
+    void theLegacyStringActIsRefusedByDefault() throws Exception {
         String token = accessToken(enclaveKey, null, ISSUER, AUDIENCE, 300,
                 Map.of("act", "{\"sub\":\"" + INSTANCE + "\"}"));
-        DelegatedTokenValidator.Result result = validator.validate(
+        DelegatedTokenValidator.RsException e = assertThrows(DelegatedTokenValidator.RsException.class,
+                () -> validator.validate(token, dpopProof(enclaveKey, token, "GET", RESOURCE_URL), "GET",
+                        RESOURCE_URL));
+        assertEquals("invalid_token", e.error());
+        assertTrue(e.getMessage().contains("act claim is a string"), e.getMessage());
+    }
+
+    @Test
+    @Requirement("UNVERIFIED item 8")
+    void theLegacyStringActIsSurfacedWhereDevelopmentAllowsIt() throws Exception {
+        DelegatedTokenValidator lenient = DelegatedTokenValidator.builder(ISSUER, AUDIENCE)
+                .keys(List.of(JsonWebKey.Factory.newJwk(asKey.toParams(JsonWebKey.OutputControlLevel.PUBLIC_ONLY))))
+                .replayStore(new InMemoryReplayStore())
+                .allowLegacyStringAct(DeploymentProfile.DEVELOPMENT)
+                .build();
+        String token = accessToken(enclaveKey, null, ISSUER, AUDIENCE, 300,
+                Map.of("act", "{\"sub\":\"" + INSTANCE + "\"}"));
+        DelegatedTokenValidator.Result result = lenient.validate(
                 token, dpopProof(enclaveKey, token, "GET", RESOURCE_URL), "GET", RESOURCE_URL);
 
         assertEquals(INSTANCE, result.actingInstance().orElseThrow());
         assertEquals(Boolean.TRUE, result.describe().get("act_legacy_string_form"));
+    }
+
+    @Test
+    void theLegacyStringActCannotBeSwitchedOnInProduction() {
+        IllegalStateException e = assertThrows(IllegalStateException.class,
+                () -> DelegatedTokenValidator.builder(ISSUER, AUDIENCE)
+                        .allowLegacyStringAct(DeploymentProfile.PRODUCTION));
+        assertTrue(e.getMessage().contains("development"), e.getMessage());
     }
 
     @Test
@@ -368,6 +399,7 @@ class DelegatedTokenValidatorTest {
         jws.setKey(key.getPrivateKey());
         jws.setAlgorithmHeaderValue("ES256");
         jws.setKeyIdHeaderValue(key.getKeyId());
+        jws.setHeader("typ", "at+jwt");
         return jws.getCompactSerialization();
     }
 

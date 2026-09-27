@@ -5,14 +5,15 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>com.pingidentity.ps.oidf</groupId>
-    <artifactId>demo-rs</artifactId>
+    <artifactId>rs-validation</artifactId>
     <version>0.5.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
-    <name>demo-rs</name>
-    <description>A resource server that proves the loop closes: it validates a DPoP-bound access token,
-        checks the sender constraint against the presenting key, and reads the RFC 8693 act chain to see
-        which agent instance is acting for which human.</description>
+    <name>rs-validation</name>
+    <description>Resource-server validation of sender-constrained, delegated access tokens: the JWT access token, a
+        DPoP proof (RFC 9449) or an mTLS certificate binding (RFC 8705), the RFC 8693 act chain, a required replay
+        store, DPoP nonces, cached JWKS, and a servlet filter that answers with the RFC 6750 and RFC 9449 challenges.
+        Formerly demo-rs.</description>
 
     <licenses>
         <license>
@@ -37,13 +38,22 @@
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
-        <!-- DpopProofValidator already implements RFC 9449 here, with tests. No reason to write it twice. -->
+        <!-- DpopProofValidator already implements RFC 9449's proof checks here, with tests. No reason to write it
+             twice. It stays in client-attestation for now; F-0225 records moving it, so that platform-pf's operator
+             authenticator (S8a) can share it without depending on client-attestation. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
+        <!-- platform.redis for RedisReplayStore, platform.http for RemoteJwks, platform.profile for the legacy act
+             switch. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
+        <!-- ResourceServerFilter; the container that runs it provides the API. -->
+        <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- The filter's tests stand in for the container's request and response. -->
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
     </dependencies>
 
     <build>

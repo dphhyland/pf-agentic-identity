@@ -40,6 +40,7 @@
         <module>libs/testkit</module>
         <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
+        <module>libs/rs-validation</module>
         <module>libs/openid-federation</module>
         <module>libs/agent-registry</module>
         <module>libs/platform-pf</module>
@@ -52,7 +53,7 @@
         <module>plugins/instance-registry-datasource</module>
         <module>plugins/ciba-sim</module>
         <module>services/device-enrolment</module>
-        <module>libs/rs-validation</module>
+        <module>services/demo-rs</module>
         <module>services/gm-api/servlet</module>
         <module>services/harness</module>
     </modules>

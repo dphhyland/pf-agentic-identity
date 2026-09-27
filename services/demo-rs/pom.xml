@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!--
+      A relocation POM, and nothing else: demo-rs moved to libs/rs-validation in 0.5.0 (plan item X-D01), with its
+      package, com.pingidentity.ps.oidf.rs, unchanged. A build that still depends on
+      com.pingidentity.ps.oidf:demo-rs:0.5.0 or later resolves com.pingidentity.ps.oidf:rs-validation at the same
+      version instead, and Maven prints a warning naming the new coordinates. `mvn deploy` publishes this pom alone -
+      packaging pom, no sources, no jar.
+
+      Versions before 0.5.0 stay published as the demo-rs jar they always were; the relocation applies to 0.5.0 on.
+    -->
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>demo-rs</artifactId>
+    <version>0.5.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <name>demo-rs (relocated to rs-validation)</name>
+    <description>Relocated: com.pingidentity.ps.oidf:demo-rs is now com.pingidentity.ps.oidf:rs-validation
+        (libs/rs-validation), with the same package.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+        <relocation>
+            <groupId>com.pingidentity.ps.oidf</groupId>
+            <artifactId>rs-validation</artifactId>
+            <message>demo-rs moved to libs/rs-validation in 0.5.0; the package com.pingidentity.ps.oidf.rs is unchanged, and a replay store is now required.</message>
+        </relocation>
+    </distributionManagement>
+
+</project>

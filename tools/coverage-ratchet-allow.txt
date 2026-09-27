@@ -22,3 +22,6 @@ method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRe
 method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslContextFor(java.lang.String)
 method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslParametersFor(javax.net.ssl.SSLParameters,java.lang.String)
 method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.transportRefusal(boolean,boolean)
+# XD01 (X-D01): demo-rs moved to libs/rs-validation, where the same decisions are gated with more beside them;
+# services/demo-rs is a relocation POM with no sources.
+check services/demo-rs coverage-gate
