@@ -9,11 +9,13 @@
  * Two modes:
  *
  *   live <baseUrl> [tokenEndpoint] [clientId]
- *       Talks to a DEPLOYED instance. Fetches a real challenge from
- *       <baseUrl>/federation/attestation-challenge, mints a complete Client
+ *       Talks to a DEPLOYED instance. POSTs to the authorization server's challenge
+ *       endpoint, <baseUrl>/federation/attestation-challenge, mints a complete Client
  *       Attestation JWT + PoP JWT (and a DPoP combined-mode proof) that echo the
  *       challenge, and prints the OAuth-Client-Attestation / -PoP (and DPoP)
- *       headers plus a ready-to-run curl against the token endpoint.
+ *       headers plus a ready-to-run curl against the token endpoint. The attester's
+ *       endpoint (GET /federation/attestation/challenge) is for the instance-key
+ *       proof at issuance, and the token endpoint refuses its challenges.
  *
  *   selfverify
  *       Runs the module's REAL ClientAttestationVerifier in-process (no network,
@@ -50,6 +52,12 @@ import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
 
 public final class AttestationFlowHarness {
+
+    /**
+     * The authorization server's challenge endpoint (ABCA-10 §6.1, POST), whose challenges the token endpoint takes.
+     * Not the attester's {@code /federation/attestation/challenge}: a challenge from there is refused here.
+     */
+    static final String AS_CHALLENGE_PATH = "/federation/attestation-challenge";
 
     static final String ATTESTATION_TYP = "oauth-client-attestation+jwt";
     static final String POP_TYP = "oauth-client-attestation-pop+jwt";
@@ -88,7 +96,7 @@ public final class AttestationFlowHarness {
         String baseUrl = stripTrailingSlash(args[1]);
         String clientId = args.length > 3 ? args[3] : "https://rp.example.com";
         String tokenEndpoint = args.length > 2 ? args[2] : baseUrl + "/as/token.oauth2";
-        String challengeUrl = baseUrl + "/federation/attestation-challenge";
+        String challengeUrl = baseUrl + AS_CHALLENGE_PATH;
 
         // Use a fixed attester key when OIDF_ATTESTER_JWK is set (must match the server's
         // mock-attesters trust file); otherwise a random one (which a federation/mock-trusted

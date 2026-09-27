@@ -21,8 +21,8 @@ before it did, `/federation/attestation` was in no built war at all (commit `1ac
 | Jar | Brings |
 |---|---|
 | `pf-integration-<version>.jar` | federation entity servlet, §12 registration, OGNL hooks, the token-endpoint filters (note: the artifact name, not `oidf.jar`) |
-| `attestation-issuer-<version>.jar` | `/federation/attestation`, attester discovery, CAS metadata |
-| `client-attestation-<version>.jar` | the verifier - and `ClientAttestationChallengeServlet` (`/federation/attestation-challenge`), which rides along from the lib |
+| `attestation-issuer-<version>.jar` | `/federation/attestation`, the attester's challenge endpoint (`GET /federation/attestation/challenge`), attester discovery, CAS metadata |
+| `client-attestation-<version>.jar` | the verifier - and `ClientAttestationChallengeServlet` (`POST /federation/attestation-challenge`, the authorization server's challenge endpoint), which rides along from the lib |
 | `openid-federation`, `oidf-jose`, `rar-model`, `agent-registry` | trust-chain validation, JOSE, the RAR containment model the token gate and the attester ask, `agent_id` minting |
 | `jackson-core/databind/annotations` | bundled - `jackson-databind` is a direct dependency of this pom, deliberately not excluded |
 

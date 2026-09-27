@@ -72,8 +72,8 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   URL's host (the HTTPS endpoint identification algorithm), with the host sent as SNI - and the handshake
   completes before `AUTH` is encoded, so the password never travels before the peer is verified. Under
   the production profile `redis://` is refused. Keys live under a `StoreNamespace`, one per surface:
-  `oidf:as:*` (the token endpoint's challenges and proof jtis), `oidf:cas:*` (the attester's proof jtis and
-  evidence bindings), `oidf:fed:endpoint:*` (spent client assertions at the federation endpoints) and
+  `oidf:as:*` (the token endpoint's challenges and proof jtis), `oidf:cas:*` (the attester's challenges, proof
+  jtis and evidence bindings), `oidf:fed:endpoint:*` (spent client assertions at the federation endpoints) and
   `oidf:admin:dpop:*` (reserved for the operator API, S-8). The layout under each: `:challenge:<value>`,
   `:jti:<client> <jti>`, `:evidence:<digest>`, the digest being the attester's SHA-256 of the evidence's
   JWS Signing Input. No exception message quotes a URL's userinfo: `MiniRedisClient` replaces it with
@@ -86,8 +86,15 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
 - **`RarEntitlement`** - the old containment check (five array fields). Unused since 0.4.0 and deprecated for
   removal; it stays only because `plugins/rar-paz-plugin`'s `RarContainmentContractTest` reads this file until
   plan item S1c deletes that test ([F-0100](../../docs/findings/F-0100.yaml)).
-- **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — `POST /federation/attestation-challenge`
-  returns `{"attestation_challenge", "expires_in"}` (draft §6.1); advertised as `challenge_endpoint`.
+- **`ClientAttestationChallengeServlet`** (`…clientattestation.servlet`) — the authorization server's challenge
+  endpoint: `POST /federation/attestation-challenge` returns `{"attestation_challenge", "expires_in"}` with
+  `Cache-Control: no-store` (ABCA-10 §6.1), issuing into `oidf:as:challenge:*`; advertised as `challenge_endpoint`
+  in the Entity Configuration's OP metadata. It and the attester's endpoint (`GET /federation/attestation/challenge`,
+  in `attestation-issuer`, issuing into `oidf:cas:challenge:*`) are both `ChallengeEndpointServlet`s: one method
+  each, 405 with an `Allow` header for any other (`HEAD` included, so nothing issues a challenge its response
+  cannot carry; PingFederate 13.1.3 answers every `OPTIONS` 403 itself, before any servlet sees it), and their
+  own cap and settings. Neither store knows the other's challenges, so a challenge from one surface is refused at
+  the other (CAS §4.1).
 - **`ChallengeRateLimiter`** — per-caller fixed-window cap on the (necessarily unauthenticated) challenge
   endpoint. The endpoint itself can't be resource-exhausted (it only ever writes into a bounded cache);
   the attack this stops is a flood evicting legitimate clients' challenges before they're redeemed, which
@@ -140,7 +147,8 @@ details 401 `access_denied`. The vector file in `libs/rar-model`'s test-jar runs
 | `OIDF_REDIS_CA_FILE` (`oidf.redis.ca.file`) | unset (the JVM's CAs) | A PEM file of one or more CA certificates to trust for `rediss://`, the shape managed Redis providers publish | Missing, unreadable or holding no certificate: first request, as above, naming the variable |
 | `OIDF_DEPLOYMENT_PROFILE` | unset (production) | `development` allows a plaintext `redis://` store, and lets an authorization_details type no model names fall back to the common fields; unset, `production` or anything else is production. Read directly from the environment until plan item PR-1 centralises it | Not checked beyond that: a typo is production |
 | `OIDF_RAR_MODELS_FILE`, `OIDF_RAR_MODELS` (env only) | unset (the built-in models) | A models document - a file path, or the document inline; one or the other - adding types, or fields to the built-in ones ([libs/rar-model](../rar-model/README.md#a-models-document)). Read once per classloader by `AttestationRarModels`, which logs the fingerprint. From plan item S1c, the RAR plugin reads the same variables and denies when its fingerprint differs | A document the library refuses, an unreadable file, or both set: every call refuses (`MODEL_INVALID`). The token-endpoint filter doesn't start, the attester's issuance servlet fails from its first request, and the issuance criterion refuses every attested token |
-| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (servlet init-params) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies | Not an integer: at init, the value is ignored with a warning and the default used |
+| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries` (init-params on `ClientAttestationChallengeServlet`) | 8192 / 300 / 8192 | Sizing and TTL of the authorization server's stores. With Redis, only the TTL applies. The attester's endpoint reads the first two for its own challenges (see [attestation-issuer](../../servlets/attestation-issuer/README.md#configuration)); neither endpoint's settings reach the other's | Not an integer: at init, the value is ignored with a warning and the default used. A TTL that is not positive, or in memory a size that is neither positive nor -1: the endpoint fails to start and the store keeps what it had. With Redis only the TTL is checked; the size is not used |
+| `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` (init-params on either challenge endpoint) | 60 / 60 / 16384 | The endpoint's per-caller cap: requests per window, the window, and how many callers it counts at once. Each endpoint has its own | Not an integer: ignored with a warning; zero or less: the default |
 
 Everything else is a `ClientAttestationConfig.builder()` call by the host.
 

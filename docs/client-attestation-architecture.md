@@ -68,7 +68,7 @@ sequenceDiagram
     participant R as AgentRegistry
     participant V as OpenBao transit
 
-    W->>A: POST /federation/attestation-challenge (optional)
+    W->>A: GET /federation/attestation/challenge (optional)
     A-->>W: {attestation_challenge, expires_in}
     W->>W: generate instance key; sign instance-key proof
     W->>A: POST /federation/attestation<br/>{instance_key, instance_attestation, proof, [authorization_details], [asserted_context]}
@@ -212,7 +212,8 @@ Three things to know about the chain, all of which shape §6:
 | Method + path | Class | Notes |
 |---|---|---|
 | `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. `200 {"attestation","expires_in"}`, `Cache-Control: no-store` |
-| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` | Ships in the `client-attestation` jar, not the issuer. `{"attestation_challenge","expires_in"}` |
+| `GET /federation/attestation/challenge` | `AttestationIssuanceChallengeServlet` | The attester's challenge endpoint (CAS §4.1), for the instance-key proof. `{"attestation_challenge","expires_in"}`, issued into `oidf:cas:challenge:*` |
+| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` | The authorization server's (ABCA-10 §6.1), for the PoP at the token endpoint. Ships in the `client-attestation` jar, not the issuer. `{"attestation_challenge","expires_in"}`, issued into `oidf:as:challenge:*`. Neither surface accepts the other's challenges, and each endpoint answers any method but its own with 405 |
 | `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | Deployment discovery: endpoints, evidence types read off the validator registry, `evidence_audience`, `pop_audience`, active resolver plugins |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config deliberately withheld |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The CAS 1.0 §5 document. Reads the same config the issuance servlet enforces, so advertisement cannot drift from enforcement |
@@ -361,12 +362,15 @@ internal error is 500 `server_error`.
 
 **Servlet init-params**: `challengeRequired`, `customClaimsRequired` / `customClaimsSupported`,
 `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `openBaoUrl` / `openBaoToken`,
-`challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries`.
+`replayCacheMaxEntries`; and on each challenge endpoint, for its own challenges only, `challengeCacheMaxEntries`,
+`challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds` and
+`challengeRateLimitMaxCallers`.
 
 ### 3.7 Storage
 
-`AttestationSupport` holds process-wide singletons so the challenge endpoint, the token-endpoint hook
-and the attester share state across classloaders. With no Redis URL it is per-node LRU+TTL
+`AttestationSupport` holds process-wide singletons so each challenge endpoint shares state with what
+consumes its challenges - the authorization server's with the token-endpoint hook, the attester's with the
+attester - across classloaders. With no Redis URL it is per-node LRU+TTL
 (`InMemoryAttestationChallengeService` / `InMemoryAttestationReplayCache` /
 `InMemoryEvidenceBindingStore`, defaults 8192 entries / 300 s). With one, `RedisAttestationStore`
 implements the three interfaces over `MiniRedisClient`, a dependency-free RESP client: issue is
@@ -408,7 +412,7 @@ it is left visible rather than filled with a plausible guess.
 | — | `attest_jwt_client_auth` at the token endpoint | `ClientAttestationAuthFilter` | Implemented |
 | `ABCA-10 §7.3` | `attest_jwt_client_auth_dpop` / `dpop_combined`, DPoP key = `cnf` key | `verifyDpopMode`, `Jwks.assertSameKey` | Implemented |
 | — | Both proof headers, or neither, is an error | `verify:91-98` | Implemented |
-| — | Challenge endpoint (§6.1) and `use_attestation_challenge` | `ClientAttestationChallengeServlet`, `enforceChallenge` | Implemented, off by default |
+| `ABCA-10 §6.1` | Challenge endpoint: a `POST`, answered with `attestation_challenge` and `Cache-Control: no-store`; `use_attestation_challenge` | `ClientAttestationChallengeServlet`, `enforceChallenge` | Implemented, off by default. Its challenges are the authorization server's alone (`oidf:as:challenge:*`); the attester has its own endpoint (CAS §4.1). The endpoint is named in the Entity Configuration's `openid_provider` metadata, not in PingFederate's own discovery documents (F-0115) |
 | — | Error codes `invalid_client` / `use_attestation_challenge` / `use_fresh_attestation` | `ClientAttestationException` | Implemented |
 | — | SD-JWT presentation encoding (retired) | Actively refused | Implemented |
 | — | Attester trust establishment (§9.8, out of scope in the draft) | `FederationAttesterKeyResolver` | Extension |

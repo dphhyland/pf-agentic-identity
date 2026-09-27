@@ -24,7 +24,8 @@ Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the
 | `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins. Cacheable, parameterless. |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config are deliberately not exposed. |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The fixed CAS 1.0 §5 document: required request members, required proof claims (`aud`, `jti`, `challenge` when required, plus custom), claims minted. Reads the same config the issuance servlet enforces, so advertisement and enforcement cannot drift. |
-| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` (in `client-attestation`) | The challenge endpoint - it ships in the lib jar, not here. |
+| `GET /federation/attestation/challenge` | `AttestationIssuanceChallengeServlet` | The attester's challenge endpoint (CAS §4.1), for the instance-key proof: `200 {"attestation_challenge","expires_in"}`, `Cache-Control: no-store`; 429 `slow_down` over its per-caller cap (60 a minute by default); 503 `temporarily_unavailable` when the store cannot record the challenge. Issues into `oidf:cas:challenge:*`, which `/federation/attestation` consumes, once. Any other method, `POST` and `HEAD` included, is 405 with `Allow: GET`. Advertised as `challenge_endpoint` by both discovery documents above. |
+| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` (in `client-attestation`) | The **authorization server's** challenge endpoint (ABCA-10 §6.1), for the PoP at the token endpoint - not this module's. Its challenges live in `oidf:as:challenge:*`, and the attester refuses them (`invalid_instance_proof`); the token endpoint likewise refuses the attester's (`use_attestation_challenge`). |
 
 ## Evidence validators
 
@@ -104,9 +105,10 @@ with nothing to digest (a format whose evidence is not one token) is not bound.
 A challenge, replay or binding store that cannot answer is 503 `temporarily_unavailable` (CAS §4.6; the
 code is RFC 6749's, §4.1.2.1), never a refusal about the request. The caller retries with the same
 evidence and a fresh proof, because the proof's challenge or `jti` may have been spent before the store
-stopped answering. The issuer's proof jtis and bindings live under `oidf:cas:*`; its challenges are
-consumed from `oidf:as:challenge:*`, because the one challenge endpoint issues there, until plan item S4b
-gives the CAS its own.
+stopped answering. The issuer's challenges, proof jtis and bindings live under `oidf:cas:*`. Its challenges
+come from its own endpoint, `GET /federation/attestation/challenge`, since plan item S4b; before that the
+attester consumed the authorization server's, from `oidf:as:challenge:*`, which it now refuses (CAS §4.1: a
+challenge issued by one party must not be accepted by the other).
 
 ## The ceiling and the grant
 
@@ -144,7 +146,7 @@ in `libs/rar-model`'s test-jar runs through the mint, the configuration and the 
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|
-| `challengeRequired`, `customClaimsRequired` (init-params; `customClaimsRequired` also `oidf.attestation.custom.claims.required` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) | `false`, none | `challengeRequired` is read by all three servlets, `customClaimsRequired` by issuance + CAS metadata - keep them consistent | Not checked: a value other than `true` is `false` |
+| `challengeRequired`, `customClaimsRequired` (init-params; `customClaimsRequired` also `oidf.attestation.custom.claims.required` / `OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED`) | `false`, none | `challengeRequired` is read by the issuance servlet and the two discovery servlets, `customClaimsRequired` by issuance + CAS metadata - keep them consistent | Not checked: a value other than `true` is `false` |
 | `openBaoUrl`/`openBaoToken` (init-param, else `oidf.openbao.url`/`OIDF_OPENBAO_URL`, then `OPENBAO_ADDR`/`BAO_ADDR`/`VAULT_ADDR`, token likewise) | unset | Transit signing | Per request: a client whose `attestation_signing_key_ref` needs the vault is `server_error` |
 | `OIDF_ATTESTER_FEDERATION_ENTITY`, `OIDF_ATTESTER_SIGNING_JWK` (sysprop `oidf.attester.*` or env) | unset | Extra client-metadata sources, consulted federation first, then CIMD, then the PF store. A federation entity is trusted only through a chain to one of the pinned anchors (`OIDF_FEDERATION_TRUST_ANCHOR_JWKS`), and an entity the anchor stops vouching for loses its clients within 300 s | An entity named with no anchor pinned: first request, the attester refuses to build its resolvers |
 | `OIDF_ATTESTER_CIMD_URL` (`oidf.attester.cimd.url`) | unset | A Client ID Metadata Document as a client source - honoured only under `OIDF_DEPLOYMENT_PROFILE=development` (plan item M-1, finding F-0067): the document hands the attester every client's bindings and trust roots, so whoever answers at the URL chooses the keys the attester accepts. X-B02 replaces it | Set outside development: first request, the `cimd` plugin is left out with an ERROR naming the variable, the discovery document's `resolver_plugins_active` omits `cimd`, and so does the CAS document's `client_metadata_sources_supported` even when `OIDF_CIMD_TRUST_BUNDLES` is set; clients only that document describes are unknown here, the other sources keep serving |
@@ -156,6 +158,7 @@ in `libs/rar-model`'s test-jar runs through the mint, the configuration and the 
 | `OIDF_TRUST_CONTROLLER_HOST` + `OIDF_ATTESTER_OP_ISSUER` + `OIDF_TRUST_ANCHOR_JWKS` (`OIDF_TRUST_CONTROLLER_IGNORE_SSL`) or `OIDF_WALLET_PROVIDER_JWKS` (sysprop/env) | unset | Wallet-provider trust: federation-backed preferred, static map otherwise. `OIDF_TRUST_ANCHOR_JWKS` is the anchor's public JWK Set (the `jwks` claim of its entity configuration), captured once out of band; the keys are never fetched, and there is no fall-back to the static map (OpenID Federation 1.0 §4) | A host named without the anchor keys: first request, wallet trust is refused naming the variable |
 | `OIDF_ATTESTER_SPIRE_ENTRIES_URL`, `OIDF_ENTRA_AGENT_DIRECTORY` (sysprop/env) | unset | SPIRE selector introspection; the Entra Agent ID asserted-context resolver (`OIDF_CIMD_TRUST_BUNDLES` only adds `cimd` to the CAS document's `client_metadata_sources_supported`, and only under `OIDF_DEPLOYMENT_PROFILE=development`) | Not checked: an unreachable SPIRE endpoint yields no selectors; an unparseable directory registers no resolver |
 | `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `customClaimsSupported` (init-params on the CAS metadata servlet) | advertised as built | What the CAS document advertises | Not checked |
+| `challengeCacheMaxEntries`, `challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds`, `challengeRateLimitMaxCallers` (init-params on `AttestationIssuanceChallengeServlet`) | 8192 / 300 / 60 / 60 / 16384 | The in-memory size and the lifetime of the attester's challenges (with Redis only the lifetime applies), and its per-caller cap. The authorization server's endpoint reads the same names for its own challenges; neither reaches the other's | Not an integer: ignored with a warning, the default used. A TTL that is not positive, or in memory a size that is neither positive nor -1: the endpoint fails to start and its challenges keep the settings they had. With Redis only the TTL is checked; the size is not used |
 
 ### Error codes added in 0.4.0
 

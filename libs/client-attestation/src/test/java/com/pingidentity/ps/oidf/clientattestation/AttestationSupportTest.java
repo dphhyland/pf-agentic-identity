@@ -72,6 +72,46 @@ class AttestationSupportTest {
     }
 
     @Test
+    void withoutRedisEachNamespaceKeepsItsOwnChallengeSettings() {
+        AttestationSupport.configureChallengeService(StoreNamespace.CAS, 16, 60L);
+        assertEquals(60L, AttestationSupport.challengeService(StoreNamespace.CAS).ttlSeconds());
+        assertEquals(AttestationChallengeService.DEFAULT_TTL_SECONDS, AttestationSupport.challengeService().ttlSeconds(),
+                "the attester's TTL is not the authorization server's");
+        AttestationSupport.configureChallengeService(90, 90L);
+        assertEquals(90L, AttestationSupport.challengeService(StoreNamespace.AS).ttlSeconds());
+        assertEquals(60L, AttestationSupport.challengeService(StoreNamespace.CAS).ttlSeconds(),
+                "and the authorization server's is not the attester's");
+        assertEquals(AttestationChallengeService.DEFAULT_TTL_SECONDS, AttestationSupport.challengeService(StoreNamespace.FED_ENDPOINT).ttlSeconds(),
+                "a namespace nobody configured is made with the defaults, not with the last settings given");
+    }
+
+    @Test
+    void withRedisEachNamespaceKeepsItsOwnChallengeTtl() {
+        System.setProperty(PROPERTY, "rediss://127.0.0.1:1");
+        AttestationChallengeService cas = AttestationSupport.challengeService(StoreNamespace.CAS);
+        AttestationSupport.configureChallengeService(StoreNamespace.CAS, 16, 60L);
+        assertEquals(60L, AttestationSupport.challengeService(StoreNamespace.CAS).ttlSeconds());
+        assertNotSame(cas, AttestationSupport.challengeService(StoreNamespace.CAS), "a new view with the new TTL");
+        assertSame(AttestationSupport.challengeService(StoreNamespace.CAS), AttestationSupport.evidenceBindingStore(),
+                "still one view per namespace, serving its challenges, jtis and bindings");
+        assertEquals(AttestationChallengeService.DEFAULT_TTL_SECONDS, AttestationSupport.challengeService().ttlSeconds());
+    }
+
+    @Test
+    void aSettingTheStoreRefusesLeavesTheNamespaceWithTheStoreItHad() {
+        AttestationChallengeService memory = AttestationSupport.challengeService(StoreNamespace.CAS);
+        assertThrows(IllegalArgumentException.class, () -> AttestationSupport.configureChallengeService(StoreNamespace.CAS, 16, 0L));
+        assertThrows(IllegalArgumentException.class, () -> AttestationSupport.configureChallengeService(StoreNamespace.CAS, 0, 60L));
+        assertSame(memory, AttestationSupport.challengeService(StoreNamespace.CAS));
+
+        System.setProperty(PROPERTY, "rediss://127.0.0.1:1");
+        AttestationChallengeService redis = AttestationSupport.challengeService(StoreNamespace.CAS);
+        assertThrows(IllegalArgumentException.class, () -> AttestationSupport.configureChallengeService(StoreNamespace.CAS, 16, -5L));
+        assertSame(redis, AttestationSupport.challengeService(StoreNamespace.CAS));
+        assertEquals(AttestationChallengeService.DEFAULT_TTL_SECONDS, redis.ttlSeconds());
+    }
+
+    @Test
     void aPlaintextUrlInProductionIsRefusedOnEveryCallAndNeverFallsBackToMemory() {
         assumeTrue(DeploymentProfile.isProduction(System::getenv), "the build sets no development profile");
         System.setProperty(PROPERTY, "redis://:pw@127.0.0.1:1");

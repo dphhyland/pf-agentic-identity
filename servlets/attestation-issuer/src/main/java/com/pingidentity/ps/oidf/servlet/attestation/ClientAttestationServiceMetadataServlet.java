@@ -47,7 +47,8 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
     static final String ATTESTATION_PATH = "/federation/attestation";
-    static final String CHALLENGE_PATH = "/federation/attestation-challenge";
+    /** The client attestation service's own challenge endpoint - never the authorization server's (CAS §4.1). */
+    static final String CHALLENGE_PATH = AttestationIssuanceChallengeServlet.PATH;
 
     /** Request members every issuance request must carry ({@code svid} is the SPIFFE-era alias). */
     static final List<String> REQUEST_PARAMETERS_REQUIRED =

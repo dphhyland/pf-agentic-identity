@@ -417,13 +417,13 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /**
-     * The challenges this endpoint consumes: injected, else the shared store's {@code oidf:as:challenge:*} - the
-     * authorization server's, because the one challenge endpoint issues into that namespace. Plan item S4b gives
-     * the CAS a challenge endpoint of its own and moves this to {@code oidf:cas:challenge:*}.
+     * The challenges this endpoint consumes: injected, else the shared store's {@code oidf:cas:challenge:*}, which
+     * {@link AttestationIssuanceChallengeServlet} issues into. The authorization server's challenges live in
+     * {@code oidf:as:challenge:*} and are unknown here, so a proof carrying one is refused (CAS §4.1).
      */
     AttestationChallengeService challengeService() {
         AttestationChallengeService local = this.challengeService;
-        return local != null ? local : AttestationSupport.challengeService(StoreNamespace.AS);
+        return local != null ? local : AttestationSupport.challengeService(StoreNamespace.CAS);
     }
 
     /** The spent proof jtis: injected, else the shared store's {@code oidf:cas:jti:*}. */

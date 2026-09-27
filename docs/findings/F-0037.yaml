@@ -3,10 +3,33 @@ title: One servlet serves both AS and CAS challenges
 severity: medium
 area: client-attestation, attestation-issuer
 source: design
-status: open
+status: closed
 plan_items: [S4b]
-prs: []
-verification: ''
+prs: [35]
+verification: >
+  2026-09-27, commits 1c49ea1 and 843ec36 on prod/p1-challenge-split. The authorization server keeps POST
+  /federation/attestation-challenge (ClientAttestationChallengeServlet), issuing into oidf:as:challenge:*; the
+  attester has GET /federation/attestation/challenge (AttestationIssuanceChallengeServlet), issuing into
+  oidf:cas:challenge:*, and AttestationIssuanceServlet.challengeService consumes only from there. Both are
+  ChallengeEndpointServlets: one method each, 405 with Allow for any other, their own cap and their own challenge
+  TTL and size. AttestationIssuanceServletTest refuses a challenge in both directions and leaves the refused
+  challenge unspent (aChallengeFromTheAuthorizationServersEndpointIsRefusedAndLeftUnspent,
+  aChallengeFromTheAttestersEndpointIsRefusedAtTheTokenEndpoint, the latter through a verifier wired as the filter
+  wires it); TokenEndpointChallengeSurfaceTest (commit 79af85d) drives the real ClientAttestationAuthFilter and the
+  real issuance criterion, each refusing a challenge from oidf:cas:challenge:* with it left unspent and taking one
+  from oidf:as:challenge:* once - with either pointed at oidf:cas:challenge:*, two of its four tests fail (JDK
+  20.0.2, 2026-09-27); RedisAttestationStoreTest keysLiveUnderTheStoresNamespace does the same on the RESP fake;
+  ChallengeEndpointAdvertisementTest reads each advertised challenge_endpoint against the servlet mapping it names.
+  With challengeService pointed back at oidf:as:challenge:*, three AttestationIssuanceServletTest tests fail (JDK
+  20.0.2). On a booted PingFederate 13.1.3 (conformance/up.sh as PF_RIG_NAME=pfai-s4b, the deployed
+  client-attestation and attestation-issuer jars byte-identical to the branch's build): POST on the authorization
+  server's path answered 200 with Cache-Control no-store and a GET there 405 Allow POST; a GET on the attester's
+  path answered 200, and a POST or HEAD there 405 Allow GET; /.well-known/client-attestation-service and
+  /.well-known/client-attester named /federation/attestation/challenge, the Entity Configuration's openid_provider
+  named /federation/attestation-challenge, and nothing named the attester's. With OIDF_REDIS_URL set, a challenge
+  from each endpoint landed as oidf:as:challenge:<value> and oidf:cas:challenge:<value>, each with a TTL of 300 s
+  and absent from the other namespace. A cross-surface refusal on a booted PingFederate needs attestation live on
+  the rig (U-0125).
 target_release: 0.4.0
 notes: >
   Found while designing, item 8. ABCA-10 section 6.1 says POST; CAS section 4.1 says GET, and that a challenge

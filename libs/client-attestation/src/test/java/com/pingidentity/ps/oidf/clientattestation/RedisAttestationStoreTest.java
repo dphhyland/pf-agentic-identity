@@ -161,6 +161,11 @@ class RedisAttestationStoreTest {
             assertEquals(Consumption.UNKNOWN, cas.consumeChallenge(challenge),
                     "a challenge issued in one namespace is unknown in another");
             assertTrue(redis.keys().contains("oidf:cas:jti:https://client.example jti-1"));
+            String casChallenge = cas.issue();
+            assertTrue(redis.keys().contains("oidf:cas:challenge:" + casChallenge));
+            assertEquals(Consumption.UNKNOWN, store.consumeChallenge(casChallenge), "and the other way round");
+            assertEquals(Consumption.CONSUMED, cas.consumeChallenge(casChallenge), "the miss spent nothing");
+            assertEquals(Consumption.CONSUMED, store.consumeChallenge(challenge), "nor did the one before it");
         }
     }
 

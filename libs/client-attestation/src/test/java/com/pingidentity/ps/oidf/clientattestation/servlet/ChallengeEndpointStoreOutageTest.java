@@ -41,12 +41,13 @@ class ChallengeEndpointStoreOutageTest {
     void anUnavailableStoreAnswers503WithTemporarilyUnavailableAndNoChallenge() throws Exception {
         ClientAttestationChallengeServlet servlet = new ClientAttestationChallengeServlet();
         HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getMethod()).thenReturn("POST");
         when(req.getRemoteAddr()).thenReturn("10.0.0.9");
         HttpServletResponse resp = mock(HttpServletResponse.class);
         StringWriter body = new StringWriter();
         when(resp.getWriter()).thenReturn(new PrintWriter(body));
 
-        servlet.doPost(req, resp);
+        servlet.service(req, resp);
 
         ArgumentCaptor<Integer> status = ArgumentCaptor.forClass(Integer.class);
         org.mockito.Mockito.verify(resp).setStatus(status.capture());
@@ -57,9 +58,11 @@ class ChallengeEndpointStoreOutageTest {
 
     @Test
     void aRequestWithNoCallerAddressMeetsTheSameOutage() throws Exception {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getMethod()).thenReturn("POST");
         HttpServletResponse resp = mock(HttpServletResponse.class);
         when(resp.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
-        new ClientAttestationChallengeServlet().doPost(null, resp);
+        new ClientAttestationChallengeServlet().service(req, resp);
         org.mockito.Mockito.verify(resp).setStatus(503);
     }
 }
