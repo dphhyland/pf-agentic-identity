@@ -1,0 +1,24 @@
+id: F-0140
+title: SPIRE selectors from an unauthenticated HTTP read ride into signed attestations
+severity: medium
+area: attestation-issuer
+source: pr-review
+status: open
+plan_items: [X-B07, X-B08]
+prs: [42]
+verification: ''
+target_release: 0.8.0
+notes: >
+  Found while building X-B01 (branch prod/p2-evidence-selectors), 2026-09-28, reading main at 982e4cd. With
+  OIDF_ATTESTER_SPIRE_ENTRIES_URL set, AttestationIssuanceServlet (step 5) merges what SpireSelectorIntrospector
+  reads into workload.attributes (selectors and spire) of every attestation it signs. The read is one GET that
+  carries no client credential; with an https URL the server's certificate is all that vouches for the answer, and
+  the URL is exempt from OutboundUrlPolicy's scheme rule through trusting(), so an http:// URL is accepted too. A
+  failed read is silently no selectors. Whoever answers at that URL, or sits on the path of an http:// one, chooses
+  attributes the
+  attester then signs, and the class's javadoc told readers they were a stronger basis for policy than anything
+  the workload asserts (corrected on the branch). X-B01 keeps them out of InstanceIdentity.selectors(), so nothing
+  that reads the verified selectors can be misled, but a relying party or token mapping that reads
+  workload.attributes still can. Medium: the endpoint is operator-configured and the feature is off by default.
+  X-B07 and X-B08 replace the read with an mTLS SPIRE reader; until then, do not condition policy on
+  workload.attributes.selectors, and name an https URL.

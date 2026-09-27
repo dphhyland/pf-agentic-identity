@@ -38,6 +38,9 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
+    /** The selector names this validator proves; see {@link #selectors}. */
+    static final List<String> SELECTOR_NAMES = List.of("issuer", "email");
+
     private final long allowedClockSkewSeconds;
 
     public GcpSaTokenValidator() {
@@ -76,9 +79,15 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
     }
 
     @Override
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
+    }
+
+    @Override
     public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config), this.id());
+        VerifiedSvid verified = verify(evidence, bundleKeys, config);
+        return InstanceIdentity.ofSpiffe(verified.svid(), this.id(), verified.selectors());
     }
 
     /**
@@ -86,6 +95,12 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
      * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
      */
     public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return verify(evidence, bundleKeys, config).svid();
+    }
+
+    /** Every check on the token, then the identity it maps onto and the selectors it proves. */
+    private VerifiedSvid verify(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no ID token presented");
@@ -181,6 +196,19 @@ public final class GcpSaTokenValidator implements InstanceAttestationValidator {
 
         String path = "/sa/" + email;
         String spiffeId = "spiffe://" + trustDomain + path;
-        return new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence);
+        return new VerifiedSvid(new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence),
+                selectors(EvidenceSelectors.stringClaim(claims, "iss"),
+                        EvidenceSelectors.stringClaim(claims, "email")));
+    }
+
+    /**
+     * The token's selectors: {@code issuer} (its {@code iss}) and {@code email} (the service account). There is no
+     * project selector: this validator reads no project claim, and the email's domain is not one either - a
+     * user-managed account is {@code <name>@<project-id>.iam.gserviceaccount.com}, but Google's service agents are
+     * {@code ...@gcp-sa-<service>.iam.gserviceaccount.com} in the same shape, naming a service, not a project.
+     */
+    EvidenceSelectors selectors(String issuer, String email) throws IssuanceException {
+        return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidSvid,
+                "issuer", issuer, "email", email);
     }
 }

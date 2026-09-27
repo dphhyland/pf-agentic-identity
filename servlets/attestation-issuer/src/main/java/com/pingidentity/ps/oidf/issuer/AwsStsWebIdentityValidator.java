@@ -50,6 +50,9 @@ public final class AwsStsWebIdentityValidator implements InstanceAttestationVali
 
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
+    /** The selector names this validator proves; see {@link #selectors}. */
+    static final List<String> SELECTOR_NAMES = List.of("issuer", "account", "role");
+
     private final long allowedClockSkewSeconds;
 
     public AwsStsWebIdentityValidator() {
@@ -88,9 +91,15 @@ public final class AwsStsWebIdentityValidator implements InstanceAttestationVali
     }
 
     @Override
+    public List<String> selectorNames() {
+        return SELECTOR_NAMES;
+    }
+
+    @Override
     public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config), this.id());
+        VerifiedSvid verified = verify(evidence, bundleKeys, config);
+        return InstanceIdentity.ofSpiffe(verified.svid(), this.id(), verified.selectors());
     }
 
     /**
@@ -98,6 +107,12 @@ public final class AwsStsWebIdentityValidator implements InstanceAttestationVali
      * independently assertable; {@link #validate} adapts the result to an {@link InstanceIdentity}.
      */
     public SpiffeSvid validateSvid(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
+            throws IssuanceException {
+        return verify(evidence, bundleKeys, config).svid();
+    }
+
+    /** Every check on the token, then the identity it maps onto and the selectors it proves. */
+    private VerifiedSvid verify(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
         if (evidence == null || evidence.isBlank()) {
             throw IssuanceException.invalidSvid("no web-identity token presented");
@@ -206,6 +221,16 @@ public final class AwsStsWebIdentityValidator implements InstanceAttestationVali
 
         String path = "/aws/" + account + "/role/" + role;
         String spiffeId = "spiffe://" + trustDomain + path;
-        return new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence);
+        return new VerifiedSvid(new SpiffeSvid(spiffeId, trustDomain, path, audiences, exp, iat, evidence),
+                selectors(EvidenceSelectors.stringClaim(claims, "iss"), account, role));
+    }
+
+    /**
+     * The token's selectors: {@code issuer} (its {@code iss}, the account's STS issuer), and the {@code account} and
+     * {@code role} of its IAM principal ARN - the same two values the SPIFFE path carries, the session name dropped.
+     */
+    EvidenceSelectors selectors(String issuer, String account, String role) throws IssuanceException {
+        return EvidenceSelectors.of(this.id(), SELECTOR_NAMES, IssuanceException::invalidSvid,
+                "issuer", issuer, "account", account, "role", role);
     }
 }
