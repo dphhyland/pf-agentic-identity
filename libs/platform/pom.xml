@@ -113,6 +113,69 @@
                                         <include>com.pingidentity.ps.oidf.platform.log.PlatformLog.commonsLoggingVisible(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.log.PlatformLog.of(*</include>
                                         <!-- settings (ST-1, ST-2): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.blankToNull(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.systemPropertyName(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.strictBoolean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.bool(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.wholeNumber(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.inRange(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.choice(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.words(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.jsonObject(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.strictly(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.httpsUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.httpOrHttpsUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.url(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.path(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.aliased(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.fileVariants(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.firstSet(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.readSecretFile(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.number(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.setting(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.declaredEnvironmentNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.load(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.text(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.matching(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.number(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.bool(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.name(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.sources(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.setting(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.only(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.whole(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.defaultOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.removed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.resolve(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.typed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.warnOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.loaderOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Sources.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.UnknownKeys.find(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.UnknownKeys.underAFamily(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileClass.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileClass.toString(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Source.fileVariant(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Source.byId(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.EntryKind.resolved(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.EntryKind.namingSource(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.EntryKind.byId(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.SettingType.ranged(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.SettingType.byId(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.WhenWrong.Effect.byId(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Removed.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Provenance.toString(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.refuseRemoved(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.pathOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Secret.toString(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.of(*</include>
                                         <!-- profile (PR-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.of(*</include>

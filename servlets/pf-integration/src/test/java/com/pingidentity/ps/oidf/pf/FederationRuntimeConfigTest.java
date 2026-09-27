@@ -301,7 +301,8 @@ class FederationRuntimeConfigTest {
                 Map.of("oidf.federation.subordinate.constraints", "{\"max_path_length\": 0}"));
 
         assertEquals(java.util.List.of("oauth_client"), java.util.List.copyOf(config.authorityMetadataPolicy().keySet()));
-        assertEquals(Map.of("max_path_length", 0), config.subordinateConstraints());
+        assertEquals(Map.of("max_path_length", java.math.BigDecimal.ZERO), config.subordinateConstraints(),
+                "a number is the BigDecimal platform.json reads; it was the Integer Jackson read until ST-1");
         assertEquals(Map.of(), of(Map.of(), Map.of()).authorityMetadataPolicy());
         assertEquals(Map.of(), of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, " "), Map.of()).authorityMetadataPolicy());
         assertEquals(null, of(Map.of(), Map.of()).subordinateConstraints());
@@ -312,5 +313,129 @@ class FederationRuntimeConfigTest {
                 FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV);
         assertRefused(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, "{\"max_path_length\": -1}"),
                 FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV);
+    }
+
+    // ---- the JSON settings: platform.json in place of Jackson (plan item ST-1) ------------------------------
+
+    /** The read FederationRuntimeConfig made until ST-1, kept here to compare against. */
+    private static Object jacksonRead(String json) {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return new com.fasterxml.jackson.databind.ObjectMapper().readValue(json,
+                    new com.fasterxml.jackson.core.type.TypeReference<java.util.LinkedHashMap<String, Object>>() {});
+        } catch (Exception e) {
+            return REFUSED;
+        }
+    }
+
+    private static final Object REFUSED = new Object();
+
+    private static Object platformRead(String json) {
+        try {
+            return com.pingidentity.ps.oidf.platform.settings.Parsers.jsonObject(json);
+        } catch (IllegalArgumentException e) {
+            assertEquals("not a JSON object", e.getMessage());
+            return REFUSED;
+        }
+    }
+
+    /** Both reads, compared by value: the same members in the same order, and numbers equal as decimals, as MetadataPolicy compares them. */
+    private static void assertSameValue(String json) {
+        Object before = jacksonRead(json);
+        Object after = platformRead(json);
+        org.junit.jupiter.api.Assertions.assertNotSame(REFUSED, before, json);
+        org.junit.jupiter.api.Assertions.assertNotSame(REFUSED, after, json);
+        assertTrue(sameValue(before, after), json + ": " + before + " against " + after);
+    }
+
+    private static boolean sameValue(Object a, Object b) {
+        if (a instanceof Map<?, ?> x && b instanceof Map<?, ?> y) {
+            if (!java.util.List.copyOf(x.keySet()).equals(java.util.List.copyOf(y.keySet()))) {
+                return false;
+            }
+            return x.keySet().stream().allMatch(k -> sameValue(x.get(k), y.get(k)));
+        }
+        if (a instanceof java.util.List<?> x && b instanceof java.util.List<?> y) {
+            return x.size() == y.size() && java.util.stream.IntStream.range(0, x.size()).allMatch(i -> sameValue(x.get(i), y.get(i)));
+        }
+        if (a instanceof Number x && b instanceof Number y) {
+            return new java.math.BigDecimal(x.toString()).compareTo(new java.math.BigDecimal(y.toString())) == 0;
+        }
+        return java.util.Objects.equals(a, b);
+    }
+
+    private static String nested(int depth) {
+        return "{\"a\":" + "[".repeat(depth - 1) + "]".repeat(depth - 1) + "}";
+    }
+
+    @Test
+    void theJsonSettingsReadTheValuesJacksonRead() {
+        for (String json : java.util.List.of(
+                "{}",
+                "{\"oauth_client\": {\"scope\": {\"subset_of\": [\"read\"]}}}",
+                "{\"max_path_length\": 0}",
+                "{\"max_path_length\": -1}",
+                "{\"oauth_client\": {\"scope\": {\"value\": \"a\", \"one_of\": [\"b\"]}}}",
+                "{\"n\": 12345678901234567890, \"m\": 2147483648, \"z\": -0}",
+                "{\"n\": " + "9".repeat(123) + "}",
+                "{\"n\": 1E3, \"m\": 1.5e1, \"f\": 1.0, \"e\": 2.5e-3}",
+                "{\"s\": \"caf\\u00e9 \\ud83d\\ude00\", \"t\": true, \"u\": null}",
+                nested(32))) {
+            assertSameValue(json);
+        }
+    }
+
+    @Test
+    void theJsonSettingsRefuseWhatJacksonRefused() {
+        for (String json : java.util.List.of("[]", "\"text\"", "5", "true", "{'a': 1}", "{\"a\": NaN}", "{\"a\": 01}", "{\"a\": 1,}",
+                "// comment\n{}", "{\"a\": \"x\u0001\"}", "{\"n\": " + "9".repeat(1001) + "}", "{")) {
+            org.junit.jupiter.api.Assertions.assertSame(REFUSED, jacksonRead(json), json);
+            org.junit.jupiter.api.Assertions.assertSame(REFUSED, platformRead(json), json);
+        }
+        for (String unset : new String[] {null, "", " ", "null", " null "}) {
+            assertEquals(null, jacksonRead(unset));
+            assertEquals(null, platformRead(unset), "unset, blank and the literal null all read as unset, as they did");
+        }
+        assertEquals(Map.of(), of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, "null"), Map.of()).authorityMetadataPolicy());
+        assertEquals(null, of(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, "null"), Map.of()).subordinateConstraints());
+    }
+
+    /**
+     * What Jackson let through and platform.json refuses. Each stops PingFederate starting, naming the setting, where
+     * Jackson read something: the last of two members of one name, the first of two documents, a nesting or a number
+     * past platform.json's limits, a string holding half a surrogate pair. The release note lists them.
+     */
+    @Test
+    void theJsonSettingsRefuseWhatJacksonLetThrough() {
+        for (String json : java.util.List.of(
+                "{\"max_path_length\": 5, \"max_path_length\": 0}",
+                "{\"max_path_length\": 0} {\"max_path_length\": 5}",
+                "{\"max_path_length\": 0} trailing",
+                nested(33),
+                nested(600),
+                "{\"n\": " + "9".repeat(129) + "}",
+                "{\"s\": \"\\ud800\"}")) {
+            org.junit.jupiter.api.Assertions.assertNotSame(REFUSED, jacksonRead(json), json);
+            org.junit.jupiter.api.Assertions.assertSame(REFUSED, platformRead(json), json);
+            IllegalStateException e = org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                    () -> of(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, json), Map.of()));
+            assertEquals(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV + ": not a JSON object", e.getMessage());
+        }
+        assertEquals(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV + ": not a JSON object", org.junit.jupiter.api.Assertions.assertThrows(
+                IllegalStateException.class, () -> of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV,
+                        "{\"oauth_client\": {}, \"oauth_client\": {\"scope\": {\"value\": \"x\"}}}"), Map.of())).getMessage());
+    }
+
+    /** An exponent past a double's range: Jackson read Infinity, platform.json the exact number; the constraint checks the same. */
+    @Test
+    void anExponentPastADoubleIsKeptExactly() {
+        String json = "{\"max_path_length\": 1e400}";
+        assertEquals(Double.POSITIVE_INFINITY, ((Map<?, ?>) jacksonRead(json)).get("max_path_length"));
+        assertEquals(new java.math.BigDecimal("1E+400"), ((Map<?, ?>) platformRead(json)).get("max_path_length"));
+        com.pingidentity.ps.oidf.federation.Constraints.requireValid(jacksonRead(json));
+        assertEquals(new java.math.BigDecimal("1E+400"), of(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, json), Map.of())
+                .subordinateConstraints().get("max_path_length"), "accepted by the same check as before");
     }
 }
