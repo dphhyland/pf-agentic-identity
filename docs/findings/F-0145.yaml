@@ -1,0 +1,21 @@
+id: F-0145
+title: The conformance matrices declare no row for 65 of the 500 @Requirement ids, so the gate cannot refuse an undeclared section
+severity: low
+area: ci, conformance
+source: design
+status: open
+plan_items: [R-CI5]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found while building R-CI5's gate, 2026-09-28, on origin/main 982e4cd after `mvn -B clean verify` on JDK 17:
+  `tools/coverage-report.py --gate` finds 65 of the 500 distinct @Requirement ids naming a section that no row
+  of the three matrices it reads (docs/client-attestation-architecture.md, docs/ai-agent-attestation-profile-1_0.md,
+  docs/federation/conformance-matrix.md) declares, under 21 prefixes. Seven prefixes have no matrix row at all
+  (CAEPIOP, CIBA, FAPI1-BASE, FAPI2-SP, OIDC-CORE, RFC6749, RFC7519); SSF (13 ids), AUTHZEN-1.0 (7) and
+  APPLE-APPATTEST (6) are the largest of the rest. The repo has no spec index to declare them instead. So the
+  plan's "every @Requirement resolves" is enforced only for the prefix: --gate prints these as a counted
+  warning and the dashboard lists each id with the matrix its row belongs in, and a test can still cite a
+  section nobody's matrix claims. The fix is rows (or a spec index) for those sections, then turning the
+  warning into a refusal in tools/coverage-report.py's gate_failures - one list moved from gate_warnings.
