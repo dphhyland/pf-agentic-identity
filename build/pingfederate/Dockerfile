@@ -2,13 +2,20 @@
 # merged into pf-runtime.war, and nothing else. No RAR->PingAuthorize plugin, no consent page, no agentic
 # clients: those belong to a consumer's own image, built FROM the same base with its own archive.
 #
+# Three targets (plan item R-CI6, taking R-I3's build targets ahead of Phase 3):
+#   builder      assembles pf-runtime.war from the stock war, modules/ and filters.xml; nothing else
+#   capability   the image with no configuration archive: what Build's image job builds, tests and scans
+#   deployment   capability plus the configuration archive and overlay/ - the last stage, so a
+#                `docker build` with no --target builds it, as it did before the targets existed
+#
 # Build-context artifacts required here (see README.md in this directory):
-#   data.zip.age (preferred) or data.zip  <- the config archive (produced by terraform/ export)
-#   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
+#   data.zip.age (preferred) or data.zip  <- the config archive (produced by terraform/ export); deployment only
+#   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml   deployment only
 #   overlay/pf.jwk, overlay/pingfederate-system-keys.xml   only under the plaintext scheme (SECRET, git-ignored)
 #   modules/                         <- stage-modules.sh output of this repo's reactor, staged for the
 #                                       profile this image is built for (merged into pf-runtime.war AND
 #                                       copied to server/default/deploy; see below)
+#   assembler/war-assembler.jar      <- stage-modules.sh output too; with assemble-pf-runtime-war.sh and filters.xml
 #
 # Build arg STAGING_PROFILE selects what the image is: production (the default; the jars modules/MANIFEST names) or
 # conformance (those and the CIBA simulator, an approval oracle for the suite's FAPI-CIBA plan that
@@ -32,57 +39,19 @@
 #   PING_IDENTITY_DEVOPS_KEY=<devops key>    (SECRET — never in git)
 # Trade-off: DevOps eval licenses are short-lived (~7 days) and re-fetched only at container start.
 
+ARG STAGING_PROFILE=production
+
 # The tag and digest are the ones build/pf-version.env records (PF_IMAGE, PF_IMAGE_DIGEST), written out as a
 # literal so Dependabot can bump them here; tools/pf-version-check.py fails when the two disagree, and
-# tools/pf-version-sync.py rewrites the env file from this line after a bump.
-FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest@sha256:0d559261d658222179b07de8b2c84a8aea3cb30c7be107970686f58ea9dd3a4a
-USER root
-
-ARG STAGING_PROFILE=production
-LABEL io.github.dphhyland.pf-agentic-identity.staging-profile=$STAGING_PROFILE
+# tools/pf-version-sync.py rewrites the env file from this line after a bump. It is the one FROM that names an
+# image: every later stage starts from this one or from another stage.
+FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest@sha256:0d559261d658222179b07de8b2c84a8aea3cb30c7be107970686f58ea9dd3a4a AS pingfederate
+ARG STAGING_PROFILE
 # Refuse a third value here, at the top, rather than let a typo build a production image by default.
 RUN case "$STAGING_PROFILE" in production|conformance) ;; *) \
       echo "ERROR: STAGING_PROFILE must be production or conformance, not '$STAGING_PROFILE'" >&2; exit 1 ;; esac
 
-# Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that
-# actually authenticate the fetch are supplied as runtime secrets, never baked).
-ENV PING_IDENTITY_ACCEPT_EULA=YES
-
-# age, for the encrypted config archive (see pf-entrypoint.sh). Available from the community repo this
-# base image already enables: alpine 3.24.1, age 1.3.1 (verified 2026-09-26 on the 13.1.3 image). No
-# static-binary fallback needed.
-RUN apk add --no-cache age
-
-# Config restore via PF's native drop-in-deployer: the DataDeployer timer imports data.zip on boot
-# (no admin API, no license-acceptance gate). ForceImport is set in the overlay below; the master-key
-# overlay lets the archive's encrypted secrets decrypt natively (running master key == archive key).
-# data.zip.age (encrypted, preferred) or data.zip (plaintext, transitional); the glob takes whichever
-# is staged. It does NOT enforce that one is: a COPY glob matching nothing succeeds silently under
-# BuildKit, which would produce an image that boots with no configuration and looks like it worked.
-# Hence the assertion below - verified to fail when neither file is present.
-COPY --chown=9031:0 data.zip* /opt/in/instance/server/default/data/drop-in-deployer/
-RUN D=/opt/in/instance/server/default/data/drop-in-deployer; \
-    if [ ! -f "$D/data.zip" ] && [ ! -f "$D/data.zip.age" ]; then \
-      echo "ERROR: no config archive staged. Put data.zip.age (preferred) or data.zip in the build" >&2; \
-      echo "       context. An image with neither imports nothing and starts an empty PF." >&2; \
-      exit 1; \
-    fi
-
-# overlay/ as a directory, because under the encrypted scheme pf.jwk and the system keys are NOT staged
-# at all - pf-entrypoint.sh extracts them from inside the archive at boot, so the running key is by
-# construction the one the archive was encrypted under. config-store/ is plain config and always present.
-COPY --chown=9031:0 overlay/ /opt/in/overlay-staged/
-RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
-    cp /opt/in/overlay-staged/config-store/*.xml "$D/config-store/"; \
-    for f in pf.jwk pingfederate-system-keys.xml; do \
-      if [ -f "/opt/in/overlay-staged/$f" ]; then \
-        echo "WARNING: staging plaintext $f into an image layer - ship data.zip.age instead"; \
-        cp "/opt/in/overlay-staged/$f" "$D/$f"; \
-      fi; \
-    done; \
-    rm -rf /opt/in/overlay-staged; chown -R 9031:0 "$D"
-# NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
-
+# --- builder: pf-runtime.war, assembled ---
 # Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, the webapp
 # classloader — the same jars are ALSO copied to server/default/deploy below, so the engine classloader
 # gets its own copy: two classloaders, deliberately, and without Redis the filter and the OGNL criterion
@@ -94,16 +63,41 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # (modules/MANIFEST names every one; under the conformance profile the CIBA simulator too), staged for one
 # profile, and the assembler checks them against the MANIFEST - digests, and the profile against
 # STAGING_PROFILE. bash is for the wrapper; the base image has unzip itself. (No pf-rar-paz-plugin - agentic.)
+FROM pingfederate AS builder
+USER root
+ARG STAGING_PROFILE
 COPY assemble-pf-runtime-war.sh filters.xml assembler/war-assembler.jar /tmp/assembler/
 COPY modules/ /tmp/modules/
-RUN mkdir -p /opt/in/instance/server/default/deploy \
- && apk add --no-cache bash \
+RUN apk add --no-cache bash \
+ && mkdir -p /build \
  && STOCK="$(find /opt -name pf-runtime.war 2>/dev/null | grep -v '/opt/in/' | head -1)" \
  && { [ -n "$STOCK" ] || { echo 'stock pf-runtime.war not found in base image'; exit 1; }; } \
  && WAR_ASSEMBLER_JAR=/tmp/assembler/war-assembler.jar bash /tmp/assembler/assemble-pf-runtime-war.sh "$STOCK" \
-      /tmp/modules - /opt/in/instance/server/default/deploy/pf-runtime.war "$STAGING_PROFILE" \
- && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
- && rm -rf /tmp/assembler
+      /tmp/modules - /build/pf-runtime.war "$STAGING_PROFILE"
+
+# --- capability: the image with no configuration archive ---
+FROM pingfederate AS capability
+USER root
+ARG STAGING_PROFILE
+LABEL io.github.dphhyland.pf-agentic-identity.staging-profile=$STAGING_PROFILE
+
+# Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that
+# actually authenticate the fetch are supplied as runtime secrets, never baked).
+ENV PING_IDENTITY_ACCEPT_EULA=YES
+
+# age, for the encrypted config archive (see pf-entrypoint.sh). Available from the community repo this
+# base image already enables: alpine 3.24.1, age 1.3.1 (verified 2026-09-26 on the 13.1.3 image). No
+# static-binary fallback needed.
+RUN apk add --no-cache age
+
+# The assembled war from the builder, and bash, which the image has carried since the assembler first ran in
+# it: test-entrypoint.sh --image runs under it. The directories above deploy/ are PingFederate's user's, as
+# the archive's COPY used to leave them when it came first.
+COPY modules/ /tmp/modules/
+RUN mkdir -p /opt/in/instance/server/default/deploy \
+ && chown 9031:0 /opt/in/instance /opt/in/instance/server /opt/in/instance/server/default \
+ && apk add --no-cache bash
+COPY --from=builder --chown=9031:0 /build/pf-runtime.war /opt/in/instance/server/default/deploy/pf-runtime.war
 # DEV attester trust, OPTIONAL — supplied by the consumer, never baked here. This file is a static
 # issuer -> public JWK map that BYPASSES OpenID Federation trust-chain resolution, so whoever ships it
 # decides which attesters this AS believes. That is a demo's decision about its own trust, not a
@@ -167,4 +161,40 @@ RUN chmod 755 /opt/pf-entrypoint.sh
 
 USER 9031:0
 ENTRYPOINT ["/opt/pf-entrypoint.sh"]
+
+# --- deployment: capability plus the configuration (the default target) ---
+FROM capability AS deployment
+USER root
+
+# Config restore via PF's native drop-in-deployer: the DataDeployer timer imports data.zip on boot
+# (no admin API, no license-acceptance gate). ForceImport is set in the overlay below; the master-key
+# overlay lets the archive's encrypted secrets decrypt natively (running master key == archive key).
+# data.zip.age (encrypted, preferred) or data.zip (plaintext, transitional); the glob takes whichever
+# is staged. It does NOT enforce that one is: a COPY glob matching nothing succeeds silently under
+# BuildKit, which would produce an image that boots with no configuration and looks like it worked.
+# Hence the assertion below - verified to fail when neither file is present.
+COPY --chown=9031:0 data.zip* /opt/in/instance/server/default/data/drop-in-deployer/
+RUN D=/opt/in/instance/server/default/data/drop-in-deployer; \
+    if [ ! -f "$D/data.zip" ] && [ ! -f "$D/data.zip.age" ]; then \
+      echo "ERROR: no config archive staged. Put data.zip.age (preferred) or data.zip in the build" >&2; \
+      echo "       context. An image with neither imports nothing and starts an empty PF." >&2; \
+      exit 1; \
+    fi
+
+# overlay/ as a directory, because under the encrypted scheme pf.jwk and the system keys are NOT staged
+# at all - pf-entrypoint.sh extracts them from inside the archive at boot, so the running key is by
+# construction the one the archive was encrypted under. config-store/ is plain config and always present.
+COPY --chown=9031:0 overlay/ /opt/in/overlay-staged/
+RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
+    cp /opt/in/overlay-staged/config-store/*.xml "$D/config-store/"; \
+    for f in pf.jwk pingfederate-system-keys.xml; do \
+      if [ -f "/opt/in/overlay-staged/$f" ]; then \
+        echo "WARNING: staging plaintext $f into an image layer - ship data.zip.age instead"; \
+        cp "/opt/in/overlay-staged/$f" "$D/$f"; \
+      fi; \
+    done; \
+    rm -rf /opt/in/overlay-staged; chown -R 9031:0 "$D"
+# NB: no pingfederate.lic COPY — the boot hook fetches the license from the DevOps env vars above.
+
+USER 9031:0
 # Stock entrypoint: the drop-in-deployer imports data.zip during boot.

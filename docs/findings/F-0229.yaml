@@ -1,0 +1,18 @@
+id: F-0229
+title: Documents outside XD01's files still describe services/demo-rs as the resource-server library
+severity: low
+area: docs, rs-validation
+source: pr-review
+status: open
+plan_items: [X-D01]
+prs: [59]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while building XD01 (2026-09-28). XD01 moved demo-rs to libs/rs-validation and made services/demo-rs a
+  relocation POM, but documents it did not own still describe the old module: docs/unverified.md item 10 ("demo-rs
+  has no HTTP surface or replay cache yet", which U-0011's closing makes untrue), docs/client-attestation-architecture.md
+  (the consume row, the RFC 9449 and RFC 8693 matrix rows, and the "no replay cache wired" paragraph),
+  docs/PROVENANCE.md's module table, docs/ai-agent-attestation-profile-1_0.md, the module lists in the READMEs of
+  libs/platform, libs/oidf-jose and libs/client-attestation, and the javadoc of services/gm-api's TokenClaims. The fix
+  is to re-point each to libs/rs-validation and to mark docs/unverified.md item 10 resolved, naming U-0011.

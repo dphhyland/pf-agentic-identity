@@ -9,7 +9,8 @@
 #                                                          directory's Dockerfile, which installs age),
 #                                                          with this directory's scripts mounted read-only
 #
-# Becomes a CI step in Phase 2 (plan item R-CI6). Exit status: 0 when every case passes.
+# Build's image job runs it with --image in both profiles' capability images (plan item R-CI6).
+# Exit status: 0 when every case passes.
 #
 # Each check is a bash condition in single quotes that `check` evals after the case has run, so it reads
 # the case's results and not the values at the time the line was written - hence the directive:

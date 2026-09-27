@@ -24,7 +24,7 @@ A `static` field holds one value per loaded copy, not one per JVM. The webapp's 
 `AttestationSupport` each have their own `LOCK`, Redis client and in-memory challenge and replay stores
 ([AttestationSupport.java](../../libs/client-attestation/src/main/java/com/pingidentity/ps/oidf/clientattestation/AttestationSupport.java),
 lines 30-37); without Redis the filter and the OGNL criterion therefore keep separate stores, which the
-Dockerfile records as deliberate ([Dockerfile](../../build/pingfederate/Dockerfile), lines 86-89). The same holds
+Dockerfile records as deliberate ([Dockerfile](../../build/pingfederate/Dockerfile), lines 55-58). The same holds
 for platform: `Lifecycle.current()` and `Components` are one per loaded copy, so the webapp's copy registers
 and closes only what the webapp opened, and health reads the webapp's components, not the engine's.
 
