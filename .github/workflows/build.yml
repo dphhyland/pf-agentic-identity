@@ -199,15 +199,34 @@ jobs:
       - name: reactor build (tests on, coverage gates enforced, the IOM registry suite on Postgres, RedisLiveTest on both Redis servers)
         # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
         # stopping at package builds the artifacts and silently skips every gate. The TLS Redis's two
-        # variables come from $GITHUB_ENV, written by the step above.
+        # variables come from $GITHUB_ENV, written by that Redis's step.
         env:
           IDM_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
           IDM_TEST_JDBC_USER: dashboard
           IDM_TEST_JDBC_PASSWORD: dashboard
           OIDF_TEST_REDIS_URL: redis://:redis-live-test@localhost:6379
         run: mvn verify
+      - name: RedisLiveTest ran, and skipped nothing
+        # Each half of RedisLiveTest skips itself when its variables are unset, so a variable renamed here, in
+        # start-tls-redis.sh or in the test would turn the suite back into skips and leave the job green. This
+        # reads the surefire report the build wrote and fails the job instead, and fails it when the report is
+        # missing, so a pull request that renames or moves the test updates the path here.
+        env:
+          REPORT: libs/client-attestation/target/surefire-reports/TEST-com.pingidentity.ps.oidf.clientattestation.RedisLiveTest.xml
+        run: |
+          python3 - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          report = os.environ["REPORT"]
+          if not os.path.isfile(report):
+              sys.exit(f"no surefire report at {report}")
+          suite = ET.parse(report).getroot()
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"RedisLiveTest: {ran} run, {skipped} skipped")
+          if ran == 0 or skipped:
+              sys.exit("RedisLiveTest skipped tests or ran none: check the OIDF_TEST_REDIS_* variables")
+          PY
       - name: coverage dashboard, generated from this build
-        # Generated from the jacoco and surefire reports the step above just produced, and published rather
+        # Generated from the jacoco and surefire reports the reactor build just produced, and published rather
         # than committed: a reactor-wide file that every test change regenerated conflicted in Phase 0's
         # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module that has
         # tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate

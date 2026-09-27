@@ -5,10 +5,10 @@
 - **Phase 1 follow-ups** (package HYG; plan items X-D02, R-I1, P0-7, M-2, R-CI4 and R-CI5; closes F-0014 and
   F-0066, opens F-0120, F-0121 and U-0130, updates F-0006): Build's `java` job runs `RedisLiveTest`'s plain half
   on a `redis:7-alpine` service and its TLS half on a TLS-only Redis that `tools/ci/start-tls-redis.sh` starts
-  with a CA and a localhost certificate made for the run; CodeQL does not analyse the iOS client's Swift yet, for
-  the reason U-0130 records; the showcase describes the image as the staging profiles and the entrypoint left it
-  and the release as its gate runs now; the device-instance, device-enrolment and ssf READMEs describe the code
-  as it is.
+  with a CA and a localhost certificate made for the run, and fails if the suite skipped a test; CodeQL does not
+  analyse the iOS client's Swift yet, for the reason U-0130 records; the showcase describes the image as the
+  staging profiles and the entrypoint left it and the release as its gate runs now; the device-instance,
+  device-enrolment and ssf READMEs describe the code as it is.
 
 ## Before you deploy
 
@@ -27,7 +27,7 @@
 
 What changed:
 
-- **CI.** build.yml's `java` job gains a `redis:7-alpine` service and two steps.
+- **CI.** build.yml's `java` job gains a `redis:7-alpine` service and three steps.
   - The first gives the service its password over `docker exec ... CONFIG SET requirepass`. GitHub documents
     `command` and `entrypoint` for a service container (the workflow syntax reference, and the changelog of
     2026-04-02, both read 2026-09-27), but actionlint 1.7.12, which the lint job pins, rejects both keys with
@@ -38,6 +38,10 @@ What changed:
     serving TLS only on `127.0.0.1:6380` as the runner's user, waits for a `PONG` over TLS and prints the two
     TLS variables into `$GITHUB_ENV`. The TLS server is a step and not a service because its certificate is
     made in the job, and services start before the first step.
+  - The third runs after the build. It reads `RedisLiveTest`'s surefire report and fails the job unless the
+    suite ran and skipped nothing, and fails it when the report is missing. Each half skips itself when its
+    variables are unset, so without this step a renamed or dropped variable would turn the suite back into
+    skips with the job still green.
   - The job sets only `OIDF_TEST_REDIS_*`: `OIDF_REDIS_URL` or `REDIS_URL` would configure the stores
     themselves, and `AttestationSupportTest` skips itself when it sees either. The script works the same on a
     Mac, and the client-attestation README and `RedisLiveTest`'s javadoc point at it.
@@ -75,9 +79,12 @@ Verified on 2026-09-27:
 
 - `mvn -o -B clean verify` on JDK 20, with Postgres 16, a plain Redis given its password as CI does and the
   script's TLS Redis: BUILD SUCCESS, 2937 tests, 0 failures, 4 skipped (the federation live-chain tests);
-  `RedisLiveTest` 5 of 5, `AttestationSupportTest` 3 of 3, `IomInstanceRegistryTest` 22 of 22; every coverage
-  check met. On JDK 17, the modules this branch touches and their dependencies (conformance, oidf-jose,
-  device-instance, client-attestation, ciba-sim): 391 tests, 0 failures, `RedisLiveTest` 5 of 5.
+  `RedisLiveTest` 5 of 5, `AttestationSupportTest` 3 of 3, `IomInstanceRegistryTest` 22 of 22; all 20 coverage
+  checks met. On JDK 17, client-attestation and device-instance with their dependencies: 364 tests, 0 failures,
+  0 skipped, `RedisLiveTest` 5 of 5.
+- The skip check: with the TLS variables unset, `mvn verify` on client-attestation still passed, with 3 of
+  `RedisLiveTest`'s 5 tests skipped, and the step's script exited 1 on that report; it also exited 1 on a report
+  with no tests and on a missing one, and 0 on the full run's report.
 - CI on this pull request: the `java` job (run 36309012552) ran `RedisLiveTest` with none skipped, after
   `CONFIG SET` answered `OK` and the TLS server answered on 6380. actionlint 1.7.12 and zizmor 1.30.1 (online
   audits) are clean; the one finding zizmor suppresses that main's workflows lack is `unpinned-images` on the
@@ -91,5 +98,7 @@ Residual risk:
 
 - The TLS step depends on the runner's Docker and on `redis:7-alpine` by tag, as the Postgres service depends on
   its image; a change to either fails the `java` job, loudly.
+- The skip check names `RedisLiveTest`'s report by its path, so a pull request that renames or moves the test
+  fails the `java` job until it changes the step too.
 - The iOS client has no static analysis in CI until U-0130 is settled.
 - Showcase statements that cite files other than the image build and the workflows were not re-read here.
