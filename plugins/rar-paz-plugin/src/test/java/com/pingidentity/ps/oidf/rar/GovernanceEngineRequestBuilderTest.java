@@ -122,6 +122,37 @@ class GovernanceEngineRequestBuilderTest {
                 () -> unprefixed.build("sales_agent", mirror, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
     }
 
+    /**
+     * The attested-ceiling mirror is the builder's alone even when it writes none. An attestation that
+     * constrains no actions produces no {@code att_actions}; before 2026-09-27 a detail carrying its own
+     * {@code att_actions} then reached the PDP as the ceiling a {@code req_actions ⊆ att_actions} rule reads.
+     */
+    @Test
+    void aMirrorNameIsReservedEvenWhenThisRequestWritesNoMirror() {
+        GovernanceEngineConfig bare = GovernanceEngineConfig.builder().pdpUrl("https://pdp")
+                .attributePrefix("").prefixAttributesWithType(false).build();
+        GovernanceEngineRequestBuilder unprefixed = new GovernanceEngineRequestBuilder(bare, mapper);
+        Map<String, Object> forged = new LinkedHashMap<>();
+        forged.put("type", "sales_agent");
+        forged.put("actions", List.of("transfer"));
+        forged.put("att_actions", "transfer");
+        IllegalArgumentException e = assertThrows(IllegalArgumentException.class,
+                () -> unprefixed.build("sales_agent", forged, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
+        assertTrue(e.getMessage().contains("att_actions"), e.getMessage());
+
+        Map<String, Object> requested = new LinkedHashMap<>();
+        requested.put("type", "sales_agent");
+        requested.put("req_locations", "https://anywhere.example");
+        assertThrows(IllegalArgumentException.class,
+                () -> unprefixed.build("sales_agent", requested, AttestationSubject.empty(), "alice", "client-1", "authenticated"));
+
+        assertEquals(2 * RarContainment.SET_FIELDS.length, GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.size());
+        for (String field : RarContainment.SET_FIELDS) {
+            assertTrue(GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.contains("req_" + field), field);
+            assertTrue(GovernanceEngineRequestBuilder.MIRROR_ATTRIBUTES.contains("att_" + field), field);
+        }
+    }
+
     @Test
     void withAPrefixTheSameFieldNamesAreOrdinaryAndTheServerWritesLast() {
         Map<String, Object> detail = new LinkedHashMap<>();

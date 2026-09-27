@@ -10,11 +10,14 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.logging.Handler;
 import java.util.logging.Level;
+import java.util.logging.LogRecord;
 import java.util.logging.Logger;
 
 import javax.net.ssl.SSLHandshakeException;
@@ -124,6 +127,38 @@ class AttestationAwareRarProcessorTest {
             AuthorizationDetailProcessingException e = assertThrows(AuthorizationDetailProcessingException.class,
                     () -> processor.enrich(paymentDetail(), context(), Map.of()), refused.toString());
             assertSame(refused, e.getCause(), refused.toString());
+        }
+    }
+
+    /**
+     * A PDP's error body can name the principal it was asked about. The refusal's WARNING line quotes the
+     * failure with the principal hashed and carries no exception (the stack goes to FINE), and no line at INFO
+     * or above names the user key.
+     */
+    @Test
+    void theRefusalLineCarriesThePrincipalHashed() throws Exception {
+        when(client.decide(anyString(), any(), any(), any(), any(), any()))
+                .thenThrow(new IOException("AuthZEN PDP returned HTTP 400: {\"error\":\"no such subject alice\"}"));
+        List<LogRecord> records = new ArrayList<>();
+        Handler capture = new Handler() {
+            @Override public void publish(LogRecord record) { records.add(record); }
+            @Override public void flush() { }
+            @Override public void close() { }
+        };
+        LOG.addHandler(capture);
+        try {
+            assertThrows(AuthorizationDetailProcessingException.class,
+                    () -> new AttestationAwareRarProcessor(client, config(false)).enrich(paymentDetail(), context(), Map.of()));
+        } finally {
+            LOG.removeHandler(capture);
+        }
+        LogRecord warning = records.stream().filter(r -> r.getLevel() == Level.WARNING).findFirst().orElseThrow();
+        assertTrue(warning.getMessage().contains("no such subject " + PrincipalResolver.hashForLog("alice")), warning.getMessage());
+        assertNull(warning.getThrown());
+        for (LogRecord record : records) {
+            if (record.getLevel().intValue() >= Level.INFO.intValue()) {
+                assertFalse(record.getMessage().contains("alice"), record.getMessage());
+            }
         }
     }
 

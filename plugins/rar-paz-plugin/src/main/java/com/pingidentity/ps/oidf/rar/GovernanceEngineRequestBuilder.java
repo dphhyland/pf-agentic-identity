@@ -40,11 +40,13 @@ import java.util.Set;
  * policy can enforce {@code requested ⊆ attested}.
  *
  * <p>The requested fields go in first and the server's attributes last, and a requested field whose
- * attribute name is one the server writes is refused ({@link #RESERVED_ATTRIBUTES}, plus the {@code req_}
- * and {@code att_} mirrors of this request). With an empty attribute prefix and the type prefix off, a
- * caller could otherwise send {@code "UserID": "alice"} inside the detail and have it land on the PDP as
- * the principal. Written last, the server's value would win anyway; refusing as well means the request
- * that tried is denied rather than quietly corrected.
+ * attribute name is one the server writes is refused ({@link #RESERVED_ATTRIBUTES}, and the {@code req_}
+ * and {@code att_} mirror of every set-valued field, {@link #MIRROR_ATTRIBUTES}). With an empty attribute
+ * prefix and the type prefix off, a caller could otherwise send {@code "UserID": "alice"} inside the detail
+ * and have it land on the PDP as the principal. Written last, the server's value would win anyway; refusing
+ * as well means the request that tried is denied rather than quietly corrected. The mirrors are reserved
+ * whether or not this request produces them: an {@code att_actions} the builder does not write, because the
+ * attestation constrains no actions, would otherwise reach the PDP as the caller's own attested ceiling.
  */
 public final class GovernanceEngineRequestBuilder implements DecisionRequestBuilder {
 
@@ -52,6 +54,13 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
     static final Set<String> RESERVED_ATTRIBUTES = Collections.unmodifiableSet(new LinkedHashSet<>(Arrays.asList(
             "UserID", "principal_source", "actor", "actor_iss", "client_id",
             "attestation.entitlement", "attestation.workload", "attestation.cnf_thumbprint", "attestation.iss")));
+
+    /**
+     * The flat mirrors this builder can write, {@code req_<field>} and {@code att_<field>} for every set-valued
+     * field: reserved in every request, including one that leaves a mirror unwritten, because a policy that
+     * compares {@code req_actions} with {@code att_actions} cannot tell the builder's value from a caller's.
+     */
+    static final Set<String> MIRROR_ATTRIBUTES = mirrorNames(RarContainment.SET_FIELDS);
 
     private final GovernanceEngineConfig config;
     private final ObjectMapper mapper;
@@ -104,7 +113,7 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
                 mirrors.put("att_" + f, attested);
             }
         }
-        refuseCollisions(attributes.keySet(), mirrors.keySet());
+        refuseCollisions(attributes.keySet());
         attributes.putAll(mirrors);
 
         // The server's attributes last, so nothing requested can have written them first. UserID is the
@@ -148,20 +157,29 @@ public final class GovernanceEngineRequestBuilder implements DecisionRequestBuil
     }
 
     /**
-     * A requested field whose attribute name is one the server writes - a reserved name, or a mirror this
-     * request produces - is refused with the names, and the processor turns that into a denial.
+     * A requested field whose attribute name is one the server writes - a reserved name, or a mirror of a
+     * set-valued field - is refused with the names, and the processor turns that into a denial.
      */
-    static void refuseCollisions(Set<String> requested, Set<String> mirrors) {
+    static void refuseCollisions(Set<String> requested) {
         List<String> collisions = new ArrayList<>();
         for (String name : requested) {
-            if (RESERVED_ATTRIBUTES.contains(name) || mirrors.contains(name)) {
+            if (RESERVED_ATTRIBUTES.contains(name) || MIRROR_ATTRIBUTES.contains(name)) {
                 collisions.add(name);
             }
         }
         if (!collisions.isEmpty()) {
             throw new IllegalArgumentException("authorization_details field(s) collide with attributes the server sets: "
-                    + collisions + " (reserved: " + RESERVED_ATTRIBUTES + ", plus req_*/att_* mirrors)");
+                    + collisions + " (reserved: " + RESERVED_ATTRIBUTES + " and " + MIRROR_ATTRIBUTES + ")");
         }
+    }
+
+    private static Set<String> mirrorNames(String[] setFields) {
+        Set<String> names = new LinkedHashSet<>();
+        for (String field : setFields) {
+            names.add("req_" + field);
+            names.add("att_" + field);
+        }
+        return Collections.unmodifiableSet(names);
     }
 
     private String serialize(Object value) {

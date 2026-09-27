@@ -146,6 +146,26 @@ final class PrincipalResolver {
         return "sha256:" + hex;
     }
 
+    /**
+     * {@code text} with every occurrence of each non-blank value replaced by its {@link #hashForLog} form: for
+     * a log line that quotes someone else's words - a PDP's error body can name the principal it was asked
+     * about - and must still carry the principal hashed. {@code null} text is {@code "-"}.
+     */
+    static String redact(String text, String... values) {
+        if (text == null) {
+            return "-";
+        }
+        String out = text;
+        if (values != null) {
+            for (String value : values) {
+                if (notBlank(value)) {
+                    out = out.replace(value, hashForLog(value));
+                }
+            }
+        }
+        return out;
+    }
+
     /** SHA-256 is an algorithm every Java platform must provide; the checked exception has no reachable path. */
     private static MessageDigest sha256() {
         try {

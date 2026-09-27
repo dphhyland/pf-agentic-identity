@@ -47,6 +47,22 @@ class PdpResponsesTest {
         assertFalse(PdpResponses.isJson(null));
     }
 
+    /** A malformed answer is not a permit: only a JSON object is read; a blank body is an object with no decision. */
+    @Test
+    void onlyAJsonObjectIsReadAsAnAnswer() throws Exception {
+        com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        assertTrue(PdpResponses.jsonObjectOf("{\"decision\":true}", mapper, "pdp").get("decision").booleanValue());
+        assertEquals(0, PdpResponses.jsonObjectOf(null, mapper, "pdp").size());
+        assertEquals(0, PdpResponses.jsonObjectOf("  ", mapper, "pdp").size());
+        IOException notJson = assertThrows(IOException.class, () -> PdpResponses.jsonObjectOf("{\"decision\": tru", mapper, "pdp"));
+        assertTrue(notJson.getMessage().startsWith("pdp response is not JSON"), notJson.getMessage());
+        for (String notAnObject : new String[] {"null", "[{\"decision\":true}]", "true", "42", "\"PERMIT\""}) {
+            IOException e = assertThrows(IOException.class, () -> PdpResponses.jsonObjectOf(notAnObject, mapper, "pdp"), notAnObject);
+            assertTrue(e.getMessage().startsWith("pdp response is not a JSON object"), e.getMessage());
+            assertFalse(e instanceof PdpUnavailableException);
+        }
+    }
+
     @Test
     void anExcerptIsOneLineAndShort() {
         assertEquals("", PdpResponses.excerpt(null));

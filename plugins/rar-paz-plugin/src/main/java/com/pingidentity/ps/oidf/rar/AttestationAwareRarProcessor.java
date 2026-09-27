@@ -149,7 +149,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     /** {@link #configure(Configuration)} under a named profile, so a test can be production or development at will. */
     void configure(Configuration configuration, String profile) {
         this.config = settings(configuration, profile);
-        HttpTransport transport = new JdkHttpTransport(config.isInsecureTls(), config.getTimeoutMillis());
+        HttpTransport transport = new JdkHttpTransport(config.isInsecureTlsHonoured(), config.getTimeoutMillis());
         String dialect = configuration.getFieldValue(PDP_DIALECT);
         if (DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim())) {
             this.client = new AuthZenPdpClient(config, transport, new AuthZenRequestBuilder(config), mapper);
@@ -159,6 +159,10 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         if (config.isAllowClientAssertedPrincipal() && !config.isDevelopment()) {
             log.warning("'" + ALLOW_CLIENT_ASSERTED_PRINCIPAL + "' is on but " + PdpUrlPolicy.PROFILE_ENV
                     + " is not development: login_hint and " + PRINCIPAL_DETAIL_KEY + " are ignored in this deployment.");
+        }
+        if (config.isInsecureTls() && !config.isDevelopment()) {
+            log.warning("'" + INSECURE_TLS + "' is on but " + PdpUrlPolicy.PROFILE_ENV
+                    + " is not development: the PDP's certificate is checked in this deployment.");
         }
         log.info("Configured AttestationAwareRarProcessor (" + (this.client instanceof AuthZenPdpClient
                 ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl() + " profile=" + config.getDeploymentProfile()
@@ -259,7 +263,8 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 "Where the attestation is not in the request (the authorisation endpoint), take the agent instance from the "
                         + AGENT_DETAIL_KEY + " the attestation filter put in each entry at PAR - only for clients that must use PAR",
                 TRUST_AGENT_MARKER_DEFAULT);
-        addCheck(gui, INSECURE_TLS, "Skip TLS verification (dev only)", INSECURE_TLS_DEFAULT);
+        addCheck(gui, INSECURE_TLS, "Trust any PDP certificate - takes effect only with " + PdpUrlPolicy.PROFILE_ENV
+                + "=development; the hostname is still checked", INSECURE_TLS_DEFAULT);
         addText(gui, TIMEOUT_MS, "Request timeout (ms)", "10000", false);
 
         AuthorizationDetailProcessorDescriptor descriptor =
@@ -367,7 +372,12 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         } catch (Exception e) {
             // A PDP that answered and could not be believed, a body that did not parse, a TLS failure, a detail
             // field that collided with a server attribute: none of these is "unreachable", and none is a permit.
-            log.log(Level.WARNING, "PDP call failed for type '" + type + "'; refusing", e);
+            // The WARNING line quotes the failure with the principal hashed, because a PDP's error body can name
+            // whom it was asked about; the exception with its stack goes to FINE.
+            log.warning("PDP call failed for type '" + type + "'; refusing (principal="
+                    + PrincipalResolver.hashForLog(principal.subject()) + "): "
+                    + PrincipalResolver.redact(String.valueOf(e), principal.subject(), userKey));
+            log.log(Level.FINE, "PDP call failure for type '" + type + "'", e);
             throw new AuthorizationDetailProcessingException(
                     "governance engine call failed for type '" + type + "'", e);
         }

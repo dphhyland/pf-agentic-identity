@@ -61,17 +61,9 @@ public final class DecisionResponse {
         return "PERMIT".equalsIgnoreCase(decision);
     }
 
-    /** A body that is not a JSON object is refused: a malformed answer is not a permit. */
+    /** A body that is not a JSON object is refused ({@link PdpResponses#jsonObjectOf}): a malformed answer is not a permit. */
     public static DecisionResponse fromJson(String body, ObjectMapper mapper) throws IOException {
-        JsonNode root;
-        try {
-            root = mapper.readTree(body == null || body.isBlank() ? "{}" : body);
-        } catch (IOException e) {
-            throw new IOException("governance engine response is not JSON: " + PdpResponses.excerpt(body), e);
-        }
-        if (root == null || !root.isObject()) {
-            throw new IOException("governance engine response is not a JSON object: " + PdpResponses.excerpt(body));
-        }
+        JsonNode root = PdpResponses.jsonObjectOf(body, mapper, "governance engine");
         String decision = root.hasNonNull("decision") ? root.get("decision").asText() : null;
         Boolean authorised = root.hasNonNull("authorised") ? root.get("authorised").asBoolean() : null;
 

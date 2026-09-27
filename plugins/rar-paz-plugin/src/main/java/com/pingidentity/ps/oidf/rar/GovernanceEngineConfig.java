@@ -14,8 +14,8 @@ import java.util.Set;
  * <p>Mirrors the field set of the reference {@code RARAuthDetailsProcessor} (PDP URL, domain/service/action,
  * attribute prefix, shared-secret header) and adds the enforcement knobs the reference lacked:
  * {@code failOpenOnError} (fail open when the PDP is unreachable, and only then), the types that need an
- * authenticated principal, and {@code insecureTls} (a scoped dev flag instead of an always-on trust-all
- * manager). The decision is always deny-unless-PERMIT; the switch that once turned that off is gone.
+ * authenticated principal, and {@code insecureTls} (a development-only flag instead of an always-on
+ * trust-all manager). The decision is always deny-unless-PERMIT; the switch that once turned that off is gone.
  */
 public final class GovernanceEngineConfig {
 
@@ -89,6 +89,8 @@ public final class GovernanceEngineConfig {
      */
     public boolean isAllowClientAssertedPrincipal() { return allowClientAssertedPrincipal; }
     public boolean isTrustAgentMarker() { return trustAgentMarker; }
+
+    /** The "Skip TLS verification" switch as stored; {@link #isInsecureTlsHonoured()} is what takes effect. */
     public boolean isInsecureTls() { return insecureTls; }
     public int getTimeoutMillis() { return timeoutMillis; }
 
@@ -102,6 +104,13 @@ public final class GovernanceEngineConfig {
 
     /** The switch, AND the profile that lets it mean anything. */
     public boolean isClientAssertedPrincipalHonoured() { return allowClientAssertedPrincipal && isDevelopment(); }
+
+    /**
+     * Whether the PDP's certificate goes unchecked: the switch AND the development profile. Outside development
+     * the PDP URL must be https ({@link PdpUrlPolicy}), and https to a server whose certificate nobody checks
+     * would meet that rule in name only, so the switch is inert there and configure says so.
+     */
+    public boolean isInsecureTlsHonoured() { return insecureTls && isDevelopment(); }
 
     public static Builder builder() { return new Builder(); }
 

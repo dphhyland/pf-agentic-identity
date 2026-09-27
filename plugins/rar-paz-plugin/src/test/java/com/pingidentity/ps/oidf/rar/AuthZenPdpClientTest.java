@@ -134,6 +134,23 @@ class AuthZenPdpClientTest {
         assertThrows(IOException.class, () -> decide(t));
     }
 
+    /**
+     * AuthZEN Authorization API 1.0 (Final, 11 January 2026) §5.5: "Decision is an object that contains a
+     * REQUIRED decision key with a boolean value, and an OPTIONAL context key with an object value." Only a
+     * JSON boolean is a decision; a string, a number, null or no member is refused, never read as either.
+     */
+    @Test
+    @Requirement("AUTHZEN-1.0 §5.5")
+    void theDecisionIsABooleanOrTheAnswerIsRefused() throws Exception {
+        assertTrue(AuthZenPdpClient.decisionOf(mapper.readTree("{\"decision\":true}"), "{}"));
+        assertFalse(AuthZenPdpClient.decisionOf(mapper.readTree("{\"decision\":false,\"context\":{}}"), "{}"));
+        for (String body : new String[] {"{}", "{\"decision\":\"true\"}", "{\"decision\":1}", "{\"decision\":null}",
+                "{\"allow\":true}"}) {
+            IOException e = assertThrows(IOException.class, () -> AuthZenPdpClient.decisionOf(mapper.readTree(body), body), body);
+            assertTrue(e.getMessage().contains("no boolean 'decision'"), e.getMessage());
+        }
+    }
+
     @Test
     void theAttesterIssuerRidesWithTheActor() throws Exception {
         StubTransport t = new StubTransport(new HttpTransport.Response(200, "{\"decision\":true}"));

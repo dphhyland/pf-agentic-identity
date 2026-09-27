@@ -160,17 +160,22 @@
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.fromPingFederate(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.requiresAuthenticatedPrincipal(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.hashForLog(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PrincipalResolver.redact(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PrincipalResolver$Flow.is*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpResponses.bodyOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpResponses.isJson(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResponses.jsonObjectOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.decisionOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.JdkHttpTransport.classify(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.problem(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.check(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy$Validator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.refuseCollisions(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineRequestBuilder.mirrorNames(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.profileOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.authenticatedPrincipalTypesOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isClientAssertedPrincipalHonoured(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.GovernanceEngineConfig.isInsecureTlsHonoured(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

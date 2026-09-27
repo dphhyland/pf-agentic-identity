@@ -3,6 +3,10 @@
  */
 package com.pingidentity.ps.oidf.rar;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+
 import java.io.IOException;
 
 /**
@@ -17,7 +21,8 @@ import java.io.IOException;
  *       a URL that is wrong, a 500 from a policy that threw, a redirect - is a PDP that answered, and the
  *       answer is not PERMIT: a plain {@link IOException}, which fails closed.</li>
  *   <li>A 2xx that is not JSON is the same: something answered on that URL, and it was not the PDP's
- *       evaluation. A body that then fails to parse is refused by the dialect's parser, closed as well.</li>
+ *       evaluation. A body that then fails to parse, or parses to something other than an object, is refused
+ *       too ({@link #jsonObjectOf}), closed as well.</li>
  * </ul>
  */
 final class PdpResponses {
@@ -44,6 +49,24 @@ final class PdpResponses {
                     + response.contentType() + "', not " + APPLICATION_JSON + ": " + excerpt(response.body()));
         }
         return response.body() == null ? "" : response.body();
+    }
+
+    /**
+     * The body as a JSON object. A body that is not JSON, or is JSON but not an object ({@code null}, an array,
+     * a number), is refused with an {@link IOException}: a malformed answer is not a permit. A blank body reads
+     * as an empty object, which names no decision, so it is not a permit either.
+     */
+    static ObjectNode jsonObjectOf(String body, ObjectMapper mapper, String pdpName) throws IOException {
+        JsonNode root;
+        try {
+            root = mapper.readTree(body == null || body.isBlank() ? "{}" : body);
+        } catch (IOException e) {
+            throw new IOException(pdpName + " response is not JSON: " + excerpt(body), e);
+        }
+        if (!(root instanceof ObjectNode object)) {
+            throw new IOException(pdpName + " response is not a JSON object: " + excerpt(body));
+        }
+        return object;
     }
 
     /** {@code application/json}, with or without parameters, or a {@code +json} structured syntax suffix. */

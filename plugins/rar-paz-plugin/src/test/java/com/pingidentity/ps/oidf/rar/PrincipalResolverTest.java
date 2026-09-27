@@ -128,4 +128,13 @@ class PrincipalResolverTest {
         assertEquals("sha256:2bd806c97f0e00af", alice);
         assertNull(new Principal(null, "none").subject());
     }
+
+    @Test
+    void aQuotedFailureCarriesThePrincipalHashed() {
+        String alice = PrincipalResolver.hashForLog("alice");
+        assertEquals("no such subject " + alice + " for " + alice,
+                PrincipalResolver.redact("no such subject alice for alice", "alice", null, " "));
+        assertEquals("nothing to hide", PrincipalResolver.redact("nothing to hide", (String[]) null));
+        assertEquals("-", PrincipalResolver.redact(null, "alice"));
+    }
 }
