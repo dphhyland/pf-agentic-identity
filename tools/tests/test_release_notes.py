@@ -164,6 +164,10 @@ class CheckTest(unittest.TestCase):
         _, _, err = self.check(GOOD.replace("2. **Then do that.** Link", "2. Then do that. Link"))
         self.assertIn("item 2 does not open with a bold title", err)
 
+    def test_a_bold_title_may_wrap(self):
+        text = GOOD.replace("1. **Do this first.** Because.", "1. **Do this\n   first.** Because.")
+        self.assertEqual(0, self.check(text)[0])
+
     def test_numbering_must_run_from_one(self):
         self.assertIn("item numbered 3, expected 2", self.check(GOOD.replace("2. **Then", "3. **Then"))[2])
         self.assertIn("item numbered 2, expected 1", self.check(GOOD.replace("1. **Do", "2. **Do"))[2])
@@ -217,8 +221,8 @@ class AssembleTest(unittest.TestCase):
         self.assertEqual(0, code, out)
         page = self.tree.read("docs/releases/9.9.0.md")
         self.assertIn("1. **First thing.** Text\n   that continues.\n2. **Second thing.**", page)
-        self.assertIn("\n3. **Do this first.** Because. See **Then do that**.\n4. **Then do that.**", page)
-        self.assertLess(page.index("4. **Then do that.**"), page.index("## What changes for readers"))
+        self.assertIn("\n3. **Do this first.** (A1) Because. See **Then do that**.\n4. **Then do that.** (A1)", page)
+        self.assertLess(page.index("4. **Then do that.** (A1)"), page.index("## What changes for readers"))
         self.assertIn("2. **Second thing.** See [the guide](../operator/README.md).\n3. **Do this first.**", page)
 
     def test_links_are_rebased_to_the_page_and_the_changelog(self):
@@ -295,10 +299,21 @@ class AssembleTest(unittest.TestCase):
             "1. **First thing.** Text\n   that continues.\n2. **Second thing.** See [the guide](../operator/README.md).", many))
         self.tree.run("assemble", "9.9.0")
         page = self.tree.read("docs/releases/9.9.0.md")
-        self.assertIn("9. **Item 9.** Text.\n10. **Do this first.**", page)
-        self.assertIn("11. **Then do that.** Link to [the lib](../../libs/x/README.md#usage), and\n"
+        self.assertIn("9. **Item 9.** Text.\n10. **Do this first.** (A1)", page)
+        self.assertIn("11. **Then do that.** (A1) Link to [the lib](../../libs/x/README.md#usage), and\n"
                       "    [a site](https://example.com/a), and [an anchor](#here).\n"
                       "    - a nested point\n    - another\n", page)
+
+
+class AttributeTest(unittest.TestCase):
+    def test_the_package_follows_the_bold_title(self):
+        self.assertEqual(["1. **T.** (S1B) a"], rn.attribute(["1. **T.** a"], "S1B"))
+
+    def test_a_wrapped_title_is_followed_on_its_last_line(self):
+        self.assertEqual(["1. **A long", "   title.** (HYG) a"], rn.attribute(["1. **A long", "   title.** a"], "HYG"))
+
+    def test_an_item_that_names_its_origin_is_left_alone(self):
+        self.assertEqual(["1. **T.** (S3a) a"], rn.attribute(["1. **T.** (S3a) a"], "S1B"))
 
 
 class RenumberTest(unittest.TestCase):

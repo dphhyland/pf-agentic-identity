@@ -115,6 +115,38 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   at the limit. A `required-checks.txt` that names no job now fails it too; before 0.4.0 it passed. v0.3.0's
   release had failed on a `java` job still running and was re-run by hand.
 
+- **Phase 1 follow-ups** (package HYG, PR #33; plan items X-D02, R-I1, P0-7, M-2, R-CI4 and R-CI5; closes F-0014 and
+  F-0066, opens F-0120, F-0121 and U-0130, updates F-0006) - Build's `java` job runs `RedisLiveTest`'s plain half
+  on a `redis:7-alpine` service and its TLS half on a TLS-only Redis that `tools/ci/start-tls-redis.sh` starts
+  with a CA and a localhost certificate made for the run, and fails if the suite skipped a test; CodeQL does not
+  analyse the iOS client's Swift yet, for the reason U-0130 records; the showcase describes the image as the
+  staging profiles and the entrypoint left it and the release as its gate runs now; the device-instance,
+  device-enrolment and ssf READMEs describe the code as it is.
+
+- **The containment model wired into the token gate and the attester** (S1b, design S-1, blocker B1; PR #37) -
+  the authorization server's token gate and the attester compare every `authorization_details` field with
+  `libs/rar-model`, a refused request is 400 `invalid_authorization_details`, and an instance ceiling keeps what
+  its client's constrains. Closes [F-0034](docs/findings/F-0034.yaml) and [F-0038](docs/findings/F-0038.yaml),
+  and with S1c [F-0001](docs/findings/F-0001.yaml); adds [F-0100](docs/findings/F-0100.yaml) and
+  [U-0110](docs/findings/U-0110.yaml).
+
+- **The RAR plugin asks the containment model** (S1c; PR #36) - the plugin shades and relocates `libs/rar-model`
+  and asks it every containment question - a request before the PDP, the PDP's answer after it (narrow, never
+  widen), a refresh against its grant - and compares the attestation context's `rar_models_fingerprint` with its
+  own. `RarContainment` and its contract test
+  are gone. Closes F-0031 and, with S1b, F-0001 (blocker B1); closes F-0106. New in the register: F-0105, F-0106,
+  F-0107, F-0108, U-0115 and U-0116.
+
+- **The attestation PoP audience and the DPoP `htu`** (S4a, its audience and `htu` parts; the ceiling refusal
+  code is S1b's; PR #34) - a Client Attestation PoP must name this server's issuer and nothing else, and a
+  combined-mode DPoP proof the endpoint URL PingFederate advertises, never one rebuilt from the `Host` header.
+  Closes F-0110 and F-0111.
+
+- **Separate challenges for the authorization server and the attester** (S4b; PR #35) - the attester gets its
+  own challenge endpoint, `GET /federation/attestation/challenge`, issuing into `oidf:cas:challenge:*`; the
+  authorization server keeps `POST /federation/attestation-challenge` in `oidf:as:challenge:*`; a challenge from
+  either is refused at the other, and each surface's metadata names only its own endpoint. Closes F-0037. New in the register: F-0115, F-0116, F-0117, F-0118 and U-0125.
+
 ## [0.3.0] - 2026-09-27
 
 The first release for PingFederate 13.1.3, and the release that completes OpenID Federation. Notes:

@@ -15,8 +15,8 @@ after the ones already on the release page, so "item 3" would point at the wrong
     python3 tools/release-notes.py check              # every fragment well formed; CI runs this
     python3 tools/release-notes.py assemble 0.4.0     # fold them into docs/releases/0.4.0.md and CHANGELOG.md
 
-`assemble` appends each fragment's "Before you deploy" items after the page's own and numbers them on,
-puts its Notes before "## Findings closed" as "## Package <ID>: <title>", appends its Changelog bullets to
+`assemble` appends each fragment's "Before you deploy" items after the page's own, numbers them on and names
+the package after each bold title, puts its Notes before "## Findings closed" as "## Package <ID>: <title>", appends its Changelog bullets to
 CHANGELOG.md's Unreleased section, rewrites relative links for their new place, and deletes the fragment.
 It checks everything before it writes anything, refuses a malformed fragment, and never renumbers an item
 already on the page. Fragments fold in file-name order. Standard library only.
@@ -152,7 +152,13 @@ def _check_items(section, first_line_no):
             continue
         if int(m.group(1)) != expected:
             problems.append(f"{where}: item numbered {m.group(1)}, expected {expected}")
-        if not BOLD_TITLE.match(m.group(2)):
+        # The title may wrap: read the item's opening lines as one.
+        opening = [m.group(2)]
+        for more in section[offset + 1:]:
+            if not more.startswith(" "):
+                break
+            opening.append(more.strip())
+        if not BOLD_TITLE.match(" ".join(opening)):
             problems.append(f"{where}: item {m.group(1)} does not open with a bold title, '**...**'")
         expected = int(m.group(1)) + 1
     if expected == 1:
@@ -194,6 +200,26 @@ def renumber(item, number):
             out.append(line[-shift:])
         else:
             out.append(line)
+    return out
+
+
+def attribute(item, frag_id):
+    """The item with its package named after its bold title, "**Title.** (S1B) ...", as the release page names
+    the plan item each of its own items came from. An item that already names one there is left alone."""
+    out = list(item)
+    seen = 0
+    for n, line in enumerate(out):
+        pos = 0
+        while True:
+            pos = line.find("**", pos)
+            if pos < 0:
+                break
+            seen += 1
+            pos += 2
+            if seen == 2:
+                if not line[pos:].startswith(" ("):
+                    out[n] = line[:pos] + f" ({frag_id})" + line[pos:]
+                return out
     return out
 
 
@@ -244,7 +270,7 @@ def fold_page(page_lines, fragments, page_dir):
             continue
         for item in items(rebase_links(frag["Before you deploy"], UNRELEASED_POSIX, page_dir)):
             number += 1
-            added.extend(renumber(item, number))
+            added.extend(attribute(renumber(item, number), frag["id"]))
     insert_at = end
     while insert_at > start + 1 and not lines[insert_at - 1].strip():
         insert_at -= 1
