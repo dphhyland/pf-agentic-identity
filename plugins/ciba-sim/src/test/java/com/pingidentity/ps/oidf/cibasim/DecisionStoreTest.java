@@ -55,7 +55,7 @@ class DecisionStoreTest {
 
     @Test
     void absentAllowDenyAndOverwrite(@TempDir Path dir) throws Exception {
-        DecisionStore store = new DecisionStore(dir.resolve("decisions"), Duration.ofMinutes(15), new SteppingClock());
+        DecisionStore store = new DecisionStore(dir, Duration.ofMinutes(15), new SteppingClock());
         String tx = DecisionStore.txIdFor("req-1");
 
         assertEquals(Optional.empty(), store.lookup(tx), "nothing recorded");
@@ -65,8 +65,16 @@ class DecisionStoreTest {
         assertEquals(Optional.of(Decision.DENY), store.lookup(tx), "a later decision replaces the earlier");
         store.forget(tx);
         assertEquals(Optional.empty(), store.lookup(tx));
-        assertFalse(Files.list(dir.resolve("decisions")).anyMatch(p -> p.getFileName().toString().endsWith(".tmp")),
+        assertFalse(Files.list(dir).anyMatch(p -> p.getFileName().toString().endsWith(".tmp")),
                 "the write is renamed into place, no temp file is left");
+    }
+
+    /** The directory is provisioned to the gate's shape, never made here: a missing one is an error, not a mkdir. */
+    @Test
+    void recordIntoAMissingDirectoryIsAnErrorNotACreation(@TempDir Path dir) {
+        DecisionStore store = new DecisionStore(dir.resolve("absent"), Duration.ofMinutes(15), new SteppingClock());
+        assertThrows(java.io.IOException.class, () -> store.record("req-1", Decision.ALLOW));
+        assertFalse(Files.exists(dir.resolve("absent")));
     }
 
     @Test
@@ -104,10 +112,8 @@ class DecisionStoreTest {
     }
 
     @Test
-    void directoryComesFromTheEnvironmentOrTheTempDir() {
-        assertEquals(Path.of("/var/x"), DecisionStore.fromEnvironment(k -> "/var/x ").dir());
-        assertEquals(Path.of(System.getProperty("java.io.tmpdir"), "oidf-ciba-sim"), DecisionStore.fromEnvironment(k -> null).dir());
-        assertEquals(Path.of(System.getProperty("java.io.tmpdir"), "oidf-ciba-sim"), DecisionStore.fromEnvironment(k -> " ").dir());
+    void theProductionStoreIsOverTheDirectoryItIsGiven() {
+        assertEquals(Path.of("/var/x"), DecisionStore.at(Path.of("/var/x")).dir());
     }
 
     @Test

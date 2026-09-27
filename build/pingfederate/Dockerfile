@@ -6,8 +6,14 @@
 #   data.zip.age (preferred) or data.zip  <- the config archive (produced by terraform/ export)
 #   overlay/config-store/org.sourceid.saml20.domain.mgmt.impl.DataDeployer.xml
 #   overlay/pf.jwk, overlay/pingfederate-system-keys.xml   only under the plaintext scheme (SECRET, git-ignored)
-#   modules/                         <- stage-modules.sh output of this repo's reactor (merged into
-#                                       pf-runtime.war AND copied to server/default/deploy; see below)
+#   modules/                         <- stage-modules.sh output of this repo's reactor, staged for the
+#                                       profile this image is built for (merged into pf-runtime.war AND
+#                                       copied to server/default/deploy; see below)
+#
+# Build arg STAGING_PROFILE selects what the image is: production (the default; eight module jars) or
+# conformance (nine: the CIBA simulator as well, an approval oracle for the suite's FAPI-CIBA plan that
+# has no business in a production image, plus the directory it keeps its decisions in). The profile is
+# recorded as a label, and the assembler refuses a modules/ that was staged for the other one.
 #   (no jose4j: the assemble call passes "-" and relies on PF's own copy in server/default/lib)
 #   oidf-mock-attesters.json         <- OPTIONAL, consumer-supplied: DEV attester trust
 #                                       (issuer -> public JWK), bypassing federation trust chains
@@ -31,6 +37,12 @@
 # tools/pf-version-sync.py rewrites the env file from this line after a bump.
 FROM pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest@sha256:0d559261d658222179b07de8b2c84a8aea3cb30c7be107970686f58ea9dd3a4a
 USER root
+
+ARG STAGING_PROFILE=production
+LABEL io.github.dphhyland.pf-agentic-identity.staging-profile=$STAGING_PROFILE
+# Refuse a third value here, at the top, rather than let a typo build a production image by default.
+RUN case "$STAGING_PROFILE" in production|conformance) ;; *) \
+      echo "ERROR: STAGING_PROFILE must be production or conformance, not '$STAGING_PROFILE'" >&2; exit 1 ;; esac
 
 # Accept the Ping EULA so the DevOps license hook runs unattended (non-secret; the DEVOPS_USER/KEY that
 # actually authenticate the fetch are supplied as runtime secrets, never baked).
@@ -78,8 +90,9 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # assemble script names (SsfLogoutSignal, Fapi2Profile, FapiResourceServer, OAuthErrorDescription,
 # OidfFrontChannelAutoRegistration, OidfAutoRegistration, ClientAttestationAuth) in its web.xml - via the
 # same assemble script a consumer's CI would use. modules/ holds the reactor's modular jars (oidf.jar +
-# attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance +
-# the CIBA simulator), staged by stage-modules.sh, which writes the MANIFEST the assemble script checks.
+# attestation-issuer/ssf + oidf-jose/client-attestation/openid-federation/agent-registry/device-instance,
+# and under the conformance profile the CIBA simulator), staged by stage-modules.sh for one profile, which
+# writes the MANIFEST the assemble script checks - digests, and the profile against STAGING_PROFILE.
 # (No pf-rar-paz-plugin — that's agentic.)
 COPY assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
 COPY modules/ /tmp/modules/
@@ -88,7 +101,7 @@ RUN mkdir -p /opt/in/instance/server/default/deploy \
  && STOCK="$(find /opt -name pf-runtime.war 2>/dev/null | grep -v '/opt/in/' | head -1)" \
  && { [ -n "$STOCK" ] || { echo 'stock pf-runtime.war not found in base image'; exit 1; }; } \
  && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/modules - \
-      /opt/in/instance/server/default/deploy/pf-runtime.war \
+      /opt/in/instance/server/default/deploy/pf-runtime.war "$STAGING_PROFILE" \
  && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
  && rm -f /tmp/assemble-pf-runtime-war.sh
 # DEV attester trust, OPTIONAL — supplied by the consumer, never baked here. This file is a static
@@ -108,6 +121,16 @@ COPY --chown=9031:0 oidf-mock-attesters.jso[n] /opt/in/instance/server/default/c
 RUN cp /tmp/modules/*.jar /opt/in/instance/server/default/deploy/ \
  && chown 9031:0 /opt/in/instance/server/default/deploy/*.jar \
  && rm -rf /tmp/modules
+
+# The CIBA simulator's decision directory, conformance profile only. plugins/ciba-sim refuses every
+# request unless OIDF_CIBA_SIM_DIR names a directory that exists, is not a symlink, is owned by the user
+# PingFederate runs as and is 0700: it is the handoff between the plugin's two classloaders, and anyone
+# else who could write to it could approve a request. Made here so the rig's vars.env can simply name
+# it; outside /opt/out, which the base image's bootstrap populates by copying without preserving modes.
+# A production image has neither the jar nor the directory.
+RUN if [ "$STAGING_PROFILE" = conformance ]; then \
+      mkdir -m 0700 /opt/ciba-sim && chown 9031:0 /opt/ciba-sim && echo 'ciba-sim: /opt/ciba-sim made for the simulator (conformance profile)'; \
+    else echo 'ciba-sim: not in this image (production profile)'; fi
 
 # A platform that terminates TLS at its edge forwards plain HTTP to the target port; PF's 9031 is
 # HTTPS-only, so expose an HTTP runtime listener on 9080 for that path.
@@ -136,7 +159,9 @@ RUN CONF="$(find /opt -path '*server/default/conf/log4j2.xml' 2>/dev/null | head
     sed -i 's#</Loggers>#    <Logger name="com.pingidentity.ps.oidf" level="DEBUG" />\n    </Loggers>#' "$CONF" \
     && grep -c 'com.pingidentity.ps.oidf' "$CONF"
 
-# Decrypt the archive at boot, then hand over to the base image's own bootstrap.
+# Check and decrypt the archive at boot, with the identity gone from the environment before PingFederate
+# starts, then hand over to the base image's own bootstrap. build/pingfederate/test-entrypoint.sh --image
+# exercises its decisions in the built image.
 COPY --chown=9031:0 pf-entrypoint.sh /opt/pf-entrypoint.sh
 RUN chmod 755 /opt/pf-entrypoint.sh
 

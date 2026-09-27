@@ -9,7 +9,6 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermissions;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
@@ -17,7 +16,6 @@ import java.time.Duration;
 import java.util.HexFormat;
 import java.util.Locale;
 import java.util.Optional;
-import java.util.function.Function;
 
 /**
  * A directory of decisions, one file per CIBA transaction. The decision endpoint writes them from
@@ -34,6 +32,10 @@ import java.util.function.Function;
  * <p>A decision is kept for {@code ttl} and then reads as absent: a stale allow must never approve a
  * later request that happened to reuse a transaction id, and PingFederate's own transaction lifetime
  * is shorter than this anyway.
+ *
+ * <p>The directory is provisioned, not created here: {@link SimulatorGate} says what it must look like
+ * (owned by this process, mode 0700, no symbolic link) and refuses every request until it does, and a
+ * store that made its own directory would satisfy those checks without anyone having decided to.
  */
 public class DecisionStore {
 
@@ -57,8 +59,6 @@ public class DecisionStore {
         }
     }
 
-    /** Environment variable naming the directory; unset, the JVM's temp dir gets a subdirectory. */
-    public static final String DIR_ENV = "OIDF_CIBA_SIM_DIR";
     static final Duration DEFAULT_TTL = Duration.ofMinutes(15);
 
     private final Path dir;
@@ -71,12 +71,8 @@ public class DecisionStore {
         this.clock = clock;
     }
 
-    /** The production store: {@code OIDF_CIBA_SIM_DIR}, else {@code ${java.io.tmpdir}/oidf-ciba-sim}. */
-    public static DecisionStore fromEnvironment(Function<String, String> env) {
-        String configured = env.apply(DIR_ENV);
-        Path dir = configured != null && !configured.isBlank()
-                ? Path.of(configured.trim())
-                : Path.of(System.getProperty("java.io.tmpdir"), "oidf-ciba-sim");
+    /** The production store over {@code dir}, with the default TTL and the system clock. */
+    public static DecisionStore at(Path dir) {
         return new DecisionStore(dir, DEFAULT_TTL, Clock.systemUTC());
     }
 
@@ -103,7 +99,6 @@ public class DecisionStore {
             throw new IllegalArgumentException("decision is required");
         }
         String txId = txIdFor(authReqId);
-        ensureDir();
         Path target = this.dir.resolve(txId);
         Path temp = this.dir.resolve(txId + ".tmp");
         Files.writeString(temp, decision.name().toLowerCase(Locale.ROOT) + " " + this.clock.instant().getEpochSecond() + "\n",
@@ -154,17 +149,5 @@ public class DecisionStore {
 
     Path dir() {
         return this.dir;
-    }
-
-    private void ensureDir() throws IOException {
-        if (Files.isDirectory(this.dir)) {
-            return;
-        }
-        Files.createDirectories(this.dir);
-        try {
-            Files.setPosixFilePermissions(this.dir, PosixFilePermissions.fromString("rwx------"));
-        } catch (UnsupportedOperationException e) {
-            // not a POSIX filesystem; the directory is still private to the process's user by default
-        }
     }
 }

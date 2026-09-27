@@ -13,7 +13,16 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 CAP="${PF_AGENTIC_IDENTITY_HOME:-$(cd "$HERE/.." && pwd)}"
 BUILD="$CAP/build/pingfederate"
 [[ -f "$BUILD/Dockerfile" ]] || { echo "ERROR: no PF image build at $BUILD" >&2; exit 1; }
-[[ -f "$BUILD/modules/MANIFEST" ]] || { echo "ERROR: no staged modules - run mvn package and $BUILD/stage-modules.sh" >&2; exit 1; }
+[[ -f "$BUILD/modules/MANIFEST" ]] || { echo "ERROR: no staged modules - run mvn package and $BUILD/stage-modules.sh --profile conformance" >&2; exit 1; }
+# This image is the conformance profile - the CIBA simulator in it, for the FAPI-CIBA plan - and
+# docker-compose.yml builds it as such. The assembler refuses a modules/ staged for production, so say
+# it here, before a minute of docker build.
+manifest_header="$(head -n 1 "$BUILD/modules/MANIFEST")"
+case "$manifest_header" in
+  "MANIFEST/2 profile=conformance "*) ;;
+  *) echo "ERROR: modules/ is not staged for the conformance profile (its MANIFEST starts '$manifest_header')." >&2
+     echo "       Run $BUILD/stage-modules.sh --profile conformance - up.sh does." >&2; exit 1 ;;
+esac
 for f in data.zip overlay/pf.jwk overlay/pingfederate-system-keys.xml; do
   [[ -f "$HERE/$f" ]] || { echo "ERROR: missing $f - run ./export.sh" >&2; exit 1; }
 done
@@ -31,5 +40,5 @@ cp "$HERE/overlay/pf.jwk" "$HERE/overlay/pingfederate-system-keys.xml" "$CTX/ove
 # No oidf-mock-attesters.json: this PF trusts no attester, and the Dockerfile treats the file as optional.
 
 jars=("$CTX/modules"/*.jar)
-echo "composed $CTX from $CAP (${#jars[@]} module jars, $(wc -l < "$CTX/modules/MANIFEST" | tr -d ' ') manifest lines)" >&2
+echo "composed $CTX from $CAP (${#jars[@]} module jars; $manifest_header)" >&2
 echo "$CTX"
