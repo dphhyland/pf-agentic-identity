@@ -4,13 +4,20 @@ Every release of pf-agentic-identity, newest first, in the shape [Keep a Changel
 describes: one heading per version with its date, and a few lines on what the version was for. A version is a
 tag of this repository (`git tag -l 'v*'`); the dates are the tags' own. Where a version has release notes
 under [docs/releases](docs/releases/), the heading links to them. The convention for the version in progress:
-it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`), and the heading becomes
-`[<version>] - <date>` when David tags it.
+it sits under `Unreleased` with the version the poms declare (a `-SNAPSHOT`); the release's pull request gives
+it the heading `[<version>] - <date>`, the date the tag is cut, and leaves an empty `Unreleased` for the next
+`-SNAPSHOT`.
 
-## [Unreleased] - 0.4.0-SNAPSHOT, the poms' version since 2026-09-27
+## [Unreleased] - 0.5.0-SNAPSHOT
+
+Nothing yet. The poms move to 0.5.0-SNAPSHOT in the pull request that begins it.
+
+## [0.4.0] - 2026-09-27
 
 Phase 1 of the production programme: the review's blockers closed or mitigated, the findings register, CI
-hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
+hygiene, and one PingFederate node only until 0.7.0
+([docs/operator/deployment-limits.md](docs/operator/deployment-limits.md)). Notes:
+[docs/releases/0.4.0.md](docs/releases/0.4.0.md).
 
 - **R-I1 Staging profiles** - `stage-modules.sh --profile production|conformance` (production, the default, leaves
   the CIBA simulator out), a v2 `MANIFEST` naming the profile, a section per module group and a sha256 per jar,
@@ -145,7 +152,13 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
 - **Separate challenges for the authorization server and the attester** (S4b; PR #35) - the attester gets its
   own challenge endpoint, `GET /federation/attestation/challenge`, issuing into `oidf:cas:challenge:*`; the
   authorization server keeps `POST /federation/attestation-challenge` in `oidf:as:challenge:*`; a challenge from
-  either is refused at the other, and each surface's metadata names only its own endpoint. Closes F-0037. New in the register: F-0115, F-0116, F-0117, F-0118 and U-0125.
+  either is refused at the other, and each surface's metadata names only its own endpoint. Closes F-0037. New in
+  the register: F-0115, F-0116, F-0117, F-0118 and U-0125.
+
+- **Release-note fragments** (D-7, brought forward in part) - a pull request describes what it changes for a
+  consumer in `docs/releases/unreleased/<ID>.md`; `tools/release-notes.py check` holds each fragment to four
+  headings and a numbered "Before you deploy" of bold-titled items in the Docs workflow, and `assemble <version>`
+  folds them into the release's notes and this file when it is cut. 0.4.0's notes were assembled with it.
 
 ## [0.3.0] - 2026-09-27
 
@@ -212,7 +225,8 @@ Tier 0/1/2 security work. Supersedes v0.1.0.
 The release workflow, so a consumer could tell when it was behind. It published its Maven artefacts and then
 failed before creating a release; nothing consumed it.
 
-[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.3.0...main
+[Unreleased]: https://github.com/dphhyland/pf-agentic-identity/compare/v0.4.0...main
+[0.4.0]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.4.0
 [0.3.0]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.3.0
 [v0.1.5]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.5
 [v0.1.4]: https://github.com/dphhyland/pf-agentic-identity/releases/tag/v0.1.4

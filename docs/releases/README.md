@@ -9,7 +9,8 @@ fragment under [unreleased/](unreleased/README.md), and `tools/release-notes.py 
 into the page when the release is cut.
 
 - [0.3.0.md](0.3.0.md) - the first release for PingFederate 13.1.3, and OpenID Federation complete.
-- [0.4.0.md](0.4.0.md) - in progress: Phase 1 of the production programme.
+- [0.4.0.md](0.4.0.md) - Phase 1 of the production programme: the blockers closed or mitigated, the guard rails
+  up, and one PingFederate node only until 0.7.0.
 
 [CHANGELOG.md](../../CHANGELOG.md) is the one-paragraph-per-version history and links here; the operator guides
 for moving between releases are under [docs/operator/upgrading](../operator/upgrading/).
