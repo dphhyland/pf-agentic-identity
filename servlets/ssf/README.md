@@ -152,7 +152,7 @@ Until 0.4.0 the exception escaped `SsfConfigurationServlet.init`, which loads at
 designing" 11), and Jetty fails the whole merged `pf-runtime.war` on a load-on-startup servlet whose init
 throws. On the same rig, with `OpenIdFederationServlet`'s init made to throw (no trust anchor named), Jetty
 logged `Failed startup of context` for `pf-runtime.war` and every runtime endpoint on 9031 answered 503 -
-discovery, the token endpoint, the heartbeat, SSF - while the admin console answered (U-0057). And a
+discovery, the token endpoint, the heartbeat, SSF - while the admin console answered (U-0076). And a
 `configure` that failed had already assigned its configuration, so every later servlet found it "configured"
 with no store behind it.
 

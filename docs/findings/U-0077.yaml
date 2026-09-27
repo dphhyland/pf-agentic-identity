@@ -1,4 +1,4 @@
-id: U-0058
+id: U-0077
 title: The JDK HttpClient closes a push connection when its exchange future is cancelled
 area: ssf
 source: design

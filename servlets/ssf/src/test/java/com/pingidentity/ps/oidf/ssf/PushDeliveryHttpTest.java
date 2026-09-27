@@ -141,7 +141,7 @@ class PushDeliveryHttpTest {
      * and part of a body, then waits, and sees the transmitter close the socket at the deadline. Without the
      * cancel in {@code PushDeliveryService.send} the socket stays open after the thread has moved on (tried by
      * hand on JDK 17, 20 and 21.0.12.1, 2026-09-27), and a receiver that stalls every body would hold one of
-     * our connections per attempt (U-0058).
+     * our connections per attempt (U-0077).
      */
     @Test
     void aStalledExchangeIsClosedAtTheDeadline() throws Exception {

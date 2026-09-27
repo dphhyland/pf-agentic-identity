@@ -14,5 +14,5 @@ verification: >
   "Failed startup of context" for pf-runtime.war, and every runtime endpoint on 9031 answered 503 -
   discovery, /as/token.oauth2, /pf/heartbeat.ping, SSF, federation - while the admin console on 9999 answered
   200 and the log still said "PingFederate started". Recorded by the S10-0 package, which needed the same
-  answer for SSF (U-0057).
+  answer for SSF (U-0076).
 notes: ''

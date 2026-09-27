@@ -32,7 +32,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * {@code src/test/resources/idm/}) against a real PostgreSQL. The other store tests in this module are
  * Mockito tests that pin the SQL as text; this is where it runs. The selection {@code dueForPush} makes
  * since 0.4.0 is a join on the stream's state (the B5 stopgap, S10-0), and a join that only a mock has
- * seen is a claim, not a result (U-0059).
+ * seen is a claim, not a result (U-0078).
  *
  * <p>The Postgres comes from {@code IDM_TEST_JDBC_URL} (with {@code IDM_TEST_JDBC_USER} and
  * {@code _PASSWORD}), as for device-instance's registry suite, or else from Testcontainers; with neither

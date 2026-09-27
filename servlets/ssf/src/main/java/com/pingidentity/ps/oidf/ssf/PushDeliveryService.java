@@ -337,7 +337,7 @@ public final class PushDeliveryService {
      * exchange and cancelled when the deadline passes, and the body is read up to {@code bodyCap} bytes and
      * not one more. The cancel closes the connection, so a stalled receiver keeps no socket of ours either:
      * {@code PushDeliveryHttpTest} sees it close at the deadline, and without the cancel it stays open
-     * (U-0058, checked on JDK 17, 20 and 21.0.12.1, the runtime of the PingFederate 13.1.3 image).
+     * (U-0077, checked on JDK 17, 20 and 21.0.12.1, the runtime of the PingFederate 13.1.3 image).
      */
     static HttpResponse<String> send(HttpClient http, HttpRequest request, Duration deadline, int bodyCap)
             throws Exception {
