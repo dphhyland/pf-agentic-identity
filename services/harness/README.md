@@ -38,6 +38,9 @@ mvn -pl services/harness exec:java -Dexec.mainClass=com.pingidentity.ps.oidf.har
 ```
 
 `live` mode env: `OIDF_CLIENT_SECRET` (**required** - it goes on the wire, so there is no default);
+`OIDF_POP_AUDIENCE` (the PoP's `aud`; by default the `issuer` from the target's
+`/.well-known/openid-configuration`, because from 0.4.0 PingFederate refuses a PoP addressed to its token
+endpoint);
 `OIDF_ATTESTER_JWK` (a private JWK JSON matching an entry in the target's mock-attesters trust file —
 without it a random key is used, which any real deployment correctly rejects with
 `attestation_validation_failed`); `OIDF_SALES_REGION`; `OIDF_NO_CHALLENGE=1`;

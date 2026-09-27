@@ -402,7 +402,7 @@ it is left visible rather than filled with a plausible guess.
 | — | `exp` REQUIRED; expiry ⇒ `use_fresh_attestation` | `verifyAttestation` | Implemented |
 | `CLAIM-DICT divergence 1` | `iss` removed in -08 | Retained | Divergence 1 |
 | `ABCA-10 §5.1` | PoP JWT `typ=oauth-client-attestation-pop+jwt`, `aud`, `jti`, `iat` | `verifyPopMode` | Implemented |
-| `ABCA-10 §7.2` | PoP signed by the `cnf` key, allowlisted algorithm, audience is this server | `verifyPopMode`, `JwtCodec` | Implemented |
+| `ABCA-10 §7.2` | PoP signed by the `cnf` key, allowlisted algorithm, audience is this server's issuer and nothing else (item 7; §5.1's single audience, as a string or a one-member array) | `verifyPopMode`, `requireSoleAudience`, `JwtCodec` | Implemented - the token endpoint URL and a second audience are refused since 0.4.0 (S4a, F-0110) |
 | — | `attest_jwt_client_auth` at the token endpoint | `ClientAttestationAuthFilter` | Implemented |
 | `ABCA-10 §7.3` | `attest_jwt_client_auth_dpop` / `dpop_combined`, DPoP key = `cnf` key | `verifyDpopMode`, `Jwks.assertSameKey` | Implemented |
 | — | Both proof headers, or neither, is an error | `verify:91-98` | Implemented |
@@ -419,7 +419,7 @@ it is left visible rather than filled with a plausible guess.
 | Id | Requirement | Where | Status |
 |---|---|---|---|
 | `RFC9449 §4.2` | DPoP proof: `typ=dpop+jwt`, self-signature under the `jwk` header, no private key, alg allowlist | `DpopProofValidator` | Implemented |
-| `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness | `DpopProofValidator`, `services/demo-rs` | Implemented |
+| `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness; `htu` compared after RFC 3986 syntax- and scheme-based normalisation | `DpopProofValidator`, `services/demo-rs`; at the token endpoint the expected `htu` is `ClientAttestationUtils.endpointUrl` | Implemented - the expected `htu` is the URL PingFederate advertises for the endpoint, never one rebuilt from the `Host` header, since 0.4.0 (S4a, F-0111) |
 | `RFC9449 §6.1` | `cnf.jkt` equals the presented proof key's thumbprint | `DelegatedTokenValidator` | Implemented |
 | — | RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial — `unverified.md` item 10 |
 | `RFC9396 §7.1` | `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`, `RarContainment` | Implemented |

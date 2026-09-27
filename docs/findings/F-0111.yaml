@@ -5,7 +5,7 @@ area: client-attestation, pf-integration
 source: design
 status: closed
 plan_items: [S4a]
-prs: []
+prs: [34]
 verification: >
   2026-09-27, commits c200e13 and 7cb2330 on prod/p1-pop-aud-htu. The filter and the OGNL criterion no longer
   read getRequestURL(): the htu is ClientAttestationUtils.endpointUrl - the issuer, or at the token endpoint
