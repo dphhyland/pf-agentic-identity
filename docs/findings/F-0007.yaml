@@ -5,7 +5,7 @@ area: cluster
 source: review-2026-09-26
 status: open
 plan_items: [C-1, C-2, C-3, C-4, C-6, C-7, S-10]
-prs: []
+prs: [38]
 verification: ''
 target_release: 0.7.0
 notes: >
@@ -15,7 +15,7 @@ notes: >
   (C-2), managed executors (C-3), leases (C-4), the reference stacks (C-6) and the cluster verification suite
   (C-7), whose dated results go in docs/operator/clustering.md.
 
-  Documented for 0.4.0 (the release pull request, branch prod/p1-release, 2026-09-27): README.md's Status
+  Documented for 0.4.0 (PR #38, the release pull request, 2026-09-27): README.md's Status
   section, the 0.4.0 notes' "Known gaps" and docs/operator/deployment-limits.md state that 0.4.0 supports one
   PingFederate node only, until 0.7.0. The limits page lists, read from the code at origin/main 714e7ce and not
   driven on a cluster, what goes wrong on two nodes today: without Redis a challenge from one node is refused at
