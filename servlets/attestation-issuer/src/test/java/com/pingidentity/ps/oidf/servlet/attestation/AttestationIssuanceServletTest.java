@@ -1280,6 +1280,32 @@ class AttestationIssuanceServletTest {
     }
 
     @Test
+    @Requirement("CAS §4.4")
+    void aRefusedPresenterDoesNotHoldTheBindingAgainstTheRightfulKey() throws Exception {
+        // A WIA names the rightful instance key. Someone holding the WIA but not that key presents it with a key
+        // of their own: the key proof verifies (it is their key), the cnf check refuses them - and the binding
+        // must not be theirs, or the rightful wallet would be refused as a conflict from then on.
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        servlet.setInstanceValidators(walletRegistry());
+        PublicJsonWebKey rightful = ec("rightful-instance");
+        String theWia = wia(WALLET_INSTANCE_ID, publicParams(rightful), 600L);
+
+        AttestationIssuanceServlet.IssuanceRequest holderOfTheWiaOnly = new AttestationIssuanceServlet.IssuanceRequest();
+        holderOfTheWiaOnly.instanceKey = publicParams(instanceKey);
+        holderOfTheWiaOnly.svid = theWia;
+        holderOfTheWiaOnly.proof = newProof(null);
+        holderOfTheWiaOnly.requestedDetails = List.of();
+        assertEquals("invalid_instance_proof", assertThrows(IssuanceException.class, () -> servlet.issue(holderOfTheWiaOnly)).error());
+
+        AttestationIssuanceServlet.IssuanceRequest wallet = new AttestationIssuanceServlet.IssuanceRequest();
+        wallet.instanceKey = publicParams(rightful);
+        wallet.svid = theWia;
+        wallet.proof = proof(rightful, ISSUER, UUID.randomUUID().toString(), null);
+        wallet.requestedDetails = List.of();
+        assertNotNull(servlet.issue(wallet).get("attestation"), "the rightful key is issued: the refused presenter took no binding");
+    }
+
+    @Test
     void theSameEvidenceForAnotherClientIsAConflictToo() throws Exception {
         AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
         servlet.issue(first);

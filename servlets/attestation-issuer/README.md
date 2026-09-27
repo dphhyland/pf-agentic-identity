@@ -56,7 +56,8 @@ the minted JWT and looks for the token.
 
 ## Evidence binding
 
-After the key proof verifies, the evidence binds to `(instance key thumbprint, client)` in the shared
+Once the key proof and every other check have passed - last, just before minting, so a refused request
+never takes the binding - the evidence binds to `(instance key thumbprint, client)` in the shared
 store (`EvidenceBindingStore`, `oidf:cas:evidence:<sha256>`, Redis `SET NX` with a `GET`-and-compare
 fallback, or the in-memory store per node) for as long as the evidence lives. The first presenter wins;
 the same key and client may present the same evidence again (a workload re-attesting from the evidence it

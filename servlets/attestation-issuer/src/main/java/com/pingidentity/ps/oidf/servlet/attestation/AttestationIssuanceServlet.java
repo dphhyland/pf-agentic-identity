@@ -193,13 +193,6 @@ public class AttestationIssuanceServlet extends HttpServlet {
                 throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
 
-        // 4c. The evidence is acceptable beyond being valid - not longer-lived than this attester allows, one
-        //     audience if required - and, the key proof having verified, it binds to this key and client. The
-        //     first presenter wins; the same presenter may return; anyone else is refused and audited.
-        long now = Instant.now().getEpochSecond();
-        evidencePolicy().check(instance, now);
-        bindEvidence(instance, request.instanceKey, clientId);
-
         // 4a. Deployment-required custom claims must be present in the proof (advertised as
         // custom_claims_required in the /.well-known/client-attestation-service metadata). They are
         // evidence for policy only — never copied into the minted attestation.
@@ -276,6 +269,16 @@ public class AttestationIssuanceServlet extends HttpServlet {
         //     resolveAgentId's own javadoc.
         Optional<String> agentId = resolveAgentId(config.issuer(), clientId, instance);
 
+        // 6b. The evidence is acceptable beyond being valid - not longer-lived than this attester allows, one
+        //     audience if required - and, every refusal above being past, it binds to this key and client. The
+        //     first presenter wins; the same presenter may return; anyone else is refused and audited. Last,
+        //     so a refused request never takes the binding: a presenter holding a WIA but not the key it
+        //     names passes the key proof with a key of its own and fails at 4b, and must not hold the rightful
+        //     key out by having bound first.
+        long now = Instant.now().getEpochSecond();
+        evidencePolicy().check(instance, now);
+        bindEvidence(instance, request.instanceKey, clientId);
+
         // 7. Mint + sign with the attester key. The attester assigns the client_id (the attestation sub);
         //    the workload learns it only from the attestation it receives back.
         JwsSigner signer = attesterSigningKey().signerFor(config.signingKeyRef(), config.signingJwk());
@@ -295,7 +298,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
     }
 
     /**
-     * Binds the evidence to the instance key and client after the key proof verified. A conflict - the same
+     * Binds the evidence to the instance key and client once the key proof and every other check have passed,
+     * so a refused request never holds the binding. A conflict - the same
      * evidence already bound to another key or client - is refused with 401 {@code instance_attestation_bound}
      * and recorded as {@link #EVIDENCE_CONFLICT_EVENT} in the audit log, naming the evidence's digest and type,
      * the client, and both keys' thumbprints. Evidence with nothing to digest (a format without a single token)

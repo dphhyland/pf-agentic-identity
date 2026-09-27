@@ -249,16 +249,17 @@ the verifier supplies them.
 From `AttestationIssuanceServlet.issue`: require `instance_key` / `svid` (alias
 `instance_attestation`) / `proof` → resolve the client from evidence → validate the instance-key proof
 (signature under the *presented* JWK, `typ`, `aud` = attester issuer, challenge consume, `jti` replay
-at 300s; a store that cannot answer is 503 `temporarily_unavailable`) → the evidence policy (remaining
+at 300s; a store that cannot answer is 503 `temporarily_unavailable`) → deployment-required custom proof
+claims (evidence for policy only, never copied into the minted JWT) → if the evidence binds a key (a WIA
+`cnf`) it must equal `instance_key` → workload introspection merged over binding metadata → optional
+asserted-context resolution, **intersected** into the ceiling and never unioned → RAR ceiling
+(`authorize`, or the full ceiling when nothing was requested) → `agent_id` → the evidence policy (remaining
 life at most `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS`, one audience when
 `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE`) → bind the evidence's SHA-256 to the instance key's
-thumbprint and the client for as long as the evidence lives (first presenter wins, the same presenter
-may return, anyone else is 401 `instance_attestation_bound` and an `attestation.evidence.conflict`
-audit event) → deployment-required custom proof claims (evidence for policy only, never copied into the
-minted JWT) → if the evidence binds a key (a WIA `cnf`) it must equal `instance_key` → workload
-introspection merged over binding metadata → optional asserted-context resolution, **intersected**
-into the ceiling and never unioned → RAR ceiling (`authorize`, or the full ceiling when nothing was
-requested) → `agent_id` → mint and sign, `exp` never past the evidence's. The minted `workload` carries
+thumbprint and the client for as long as the evidence lives, last so a refused request never takes the
+binding (first presenter wins, the same presenter may return, anyone else is 401
+`instance_attestation_bound` and an `attestation.evidence.conflict` audit event) → mint and sign, `exp`
+never past the evidence's. The minted `workload` carries
 `instance_attestation_sha256`, `_type` and `_exp` and never the evidence itself (0.3.0's `workload.svid`
 and `workload.instance_attestation` are gone; see §6).
 
