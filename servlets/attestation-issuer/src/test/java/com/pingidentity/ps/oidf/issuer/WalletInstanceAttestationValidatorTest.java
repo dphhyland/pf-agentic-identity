@@ -91,7 +91,8 @@ class WalletInstanceAttestationValidatorTest {
 
     @Test
     void happyPathValidatesToWalletInstanceIdentity() throws Exception {
-        InstanceIdentity id = validate(wia(), config());
+        String w = wia();
+        InstanceIdentity id = validate(w, config());
         assertEquals("wallet", id.format());
         assertEquals(INSTANCE_ID, id.subject());
         assertEquals(PROVIDER, id.trustDomain());
@@ -99,6 +100,10 @@ class WalletInstanceAttestationValidatorTest {
         assertEquals(Jwks.thumbprint(instancePub), Jwks.thumbprint(id.boundKey()));
         assertEquals(PROVIDER, id.workloadClaims().get("wallet_provider"));
         assertEquals(INSTANCE_ID, id.workloadClaims().get("wallet_instance"));
+        assertNull(id.workloadClaims().get("instance_attestation"), "the raw WIA never leaves the attester (F-0002)");
+        assertEquals(InstanceIdentity.sha256Hex(w), id.evidenceDigest());
+        assertEquals(AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, id.evidenceType());
+        assertEquals(java.util.List.of(ATTESTER), id.audiences());
     }
 
     @Test

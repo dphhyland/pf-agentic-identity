@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -15,6 +16,14 @@ import com.pingidentity.ps.oidf.agent.AgentRegistry;
 import com.pingidentity.ps.oidf.agent.AgentRegistryException;
 import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.issuer.InstanceIdentity;
+import com.pingidentity.ps.oidf.issuer.EvidencePolicy;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.clientattestation.InMemoryEvidenceBindingStore;
+import com.pingidentity.ps.oidf.clientattestation.EvidenceBindingStore;
+import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
+import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.Consumption;
+import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.issuer.AttesterSigningKey;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
@@ -48,6 +57,7 @@ import org.jose4j.jwk.JsonWebKeySet;
 import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.json.JsonUtil;
 import org.jose4j.jws.JsonWebSignature;
+import com.pingidentity.ps.oidf.jose.Jwks;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
@@ -81,6 +91,10 @@ class AttestationIssuanceServletTest {
         servlet = new AttestationIssuanceServlet();
         servlet.setClientResolver(fixedResolver(config()));
         servlet.setAttesterSigningKey(new AttesterSigningKey(null, null)); // inline JWK signing
+        // A binding store per test: two tests that mint the same SVID in the same second would otherwise
+        // present the same evidence with different instance keys, and the second would be a conflict.
+        servlet.setEvidenceBindingStore(new InMemoryEvidenceBindingStore());
+        servlet.setEvidencePolicy(EvidencePolicy.defaults());
     }
 
     @Test
@@ -1144,5 +1158,285 @@ class AttestationIssuanceServletTest {
         @Override
         public void setReadListener(ReadListener readListener) {
         }
+    }
+
+    // ---- S3b: the evidence is digested, never carried, and bound to its first presenter --------------
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> workloadOf(String attestation) throws Exception {
+        String payload = new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]), StandardCharsets.UTF_8);
+        return (Map<String, Object>) JsonUtil.parseJson(payload).get("workload");
+    }
+
+    private static String payloadOf(String attestation) {
+        return new String(java.util.Base64.getUrlDecoder().decode(attestation.split("\\.")[1]), StandardCharsets.UTF_8);
+    }
+
+    private static long expOf(String jwt) throws Exception {
+        return JwtClaims.parse(payloadOf(jwt)).getExpirationTime().getValue();
+    }
+
+    /** The events emitted while {@code body} runs, in order. */
+    private static List<com.pingidentity.ps.oidf.federation.event.FederationEvent> eventsWhile(ThrowingRunnable body) throws Exception {
+        List<com.pingidentity.ps.oidf.federation.event.FederationEvent> events = new java.util.ArrayList<>();
+        FederationEvents.reset();
+        FederationEvents.configure(events::add);
+        try {
+            body.run();
+        } finally {
+            FederationEvents.reset();
+        }
+        return events;
+    }
+
+    @FunctionalInterface
+    private interface ThrowingRunnable {
+        void run() throws Exception;
+    }
+
+    @Test
+    @Requirement("CAS §4.5")
+    void theMintedAttestationCarriesTheEvidenceDigestAndNotTheEvidence() throws Exception {
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        String attestation = (String) servlet.issue(req).get("attestation");
+        String payload = payloadOf(attestation);
+        assertFalse(payload.contains(req.svid), "the raw SVID must not appear anywhere in the attestation (F-0002)");
+        assertFalse(payload.contains("\"svid\""), payload);
+        Map<String, Object> workload = workloadOf(attestation);
+        assertEquals(InstanceIdentity.sha256Hex(req.svid), workload.get("instance_attestation_sha256"));
+        assertEquals("spiffe-jwt", workload.get("instance_attestation_type"));
+        assertEquals(expOf(req.svid), ((Number) workload.get("instance_attestation_exp")).longValue());
+        assertEquals(SPIFFE_ID, workload.get("spiffe_id"));
+        assertRoundTrips(attestation);
+    }
+
+    @Test
+    void aWalletInstanceAttestationIsDigestedNotCarried() throws Exception {
+        servlet.setClientResolver(fixedResolver(walletConfig(null)));
+        servlet.setInstanceValidators(walletRegistry());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = wia(WALLET_INSTANCE_ID, publicParams(instanceKey), 600L);
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+        String attestation = (String) servlet.issue(req).get("attestation");
+        String payload = payloadOf(attestation);
+        assertFalse(payload.contains(req.svid), "the raw WIA must not appear in the attestation: it was raw in 0.3.0 too");
+        assertFalse(payload.contains("\"instance_attestation\""), payload);
+        Map<String, Object> workload = workloadOf(attestation);
+        assertEquals(InstanceIdentity.sha256Hex(req.svid), workload.get("instance_attestation_sha256"));
+        assertEquals("wallet-instance-attestation", workload.get("instance_attestation_type"));
+        assertEquals(expOf(req.svid), ((Number) workload.get("instance_attestation_exp")).longValue());
+    }
+
+    @Test
+    void aCloudTokenIsDigestedWithItsOwnEvidenceType() throws Exception {
+        servlet.setClientResolver(fixedResolver(gkeConfig()));
+        servlet.setJwksCache(fakeJwksCache());
+        AttestationIssuanceServlet.IssuanceRequest req = new AttestationIssuanceServlet.IssuanceRequest();
+        req.instanceKey = publicParams(instanceKey);
+        req.svid = ksaToken("system:serviceaccount:demo:payment-agent");
+        req.proof = newProof(null);
+        req.requestedDetails = List.of();
+        Map<String, Object> workload = workloadOf((String) servlet.issue(req).get("attestation"));
+        assertEquals("gke-sa-token", workload.get("instance_attestation_type"));
+        assertEquals(InstanceIdentity.sha256Hex(req.svid), workload.get("instance_attestation_sha256"));
+        assertFalse(workload.containsKey("svid"));
+    }
+
+    @Test
+    @Requirement("CAS §4.4")
+    void evidencePresentedWithASecondInstanceKeyIsRefusedAndAudited() throws Exception {
+        AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        servlet.issue(first);
+
+        PublicJsonWebKey thief = ec("thief-1");
+        AttestationIssuanceServlet.IssuanceRequest second = new AttestationIssuanceServlet.IssuanceRequest();
+        second.clientId = CLIENT_ID;
+        second.instanceKey = publicParams(thief);
+        second.svid = first.svid; // the very same evidence
+        second.proof = proof(thief, ISSUER, UUID.randomUUID().toString(), null);
+        List<com.pingidentity.ps.oidf.federation.event.FederationEvent> events = eventsWhile(() -> {
+            IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(second));
+            assertEquals("instance_attestation_bound", e.error());
+            assertEquals(401, e.status());
+        });
+        assertEquals(1, events.size(), events.toString());
+        com.pingidentity.ps.oidf.federation.event.FederationEvent event = events.get(0);
+        assertEquals(AttestationIssuanceServlet.EVIDENCE_CONFLICT_EVENT, event.code());
+        assertTrue(event.isFailure());
+        assertEquals("evidence_bound_elsewhere", event.reason());
+        assertEquals(CLIENT_ID, event.subject());
+        assertTrue(event.audit(), "a theft signal belongs in the audit log");
+        assertEquals(InstanceIdentity.sha256Hex(first.svid), event.fields().get("evidence_sha256"));
+        assertEquals("spiffe-jwt", event.fields().get("evidence_type"));
+        assertEquals(Jwks.thumbprint(publicParams(thief)), event.fields().get("presented_jkt"));
+        assertEquals(SPIFFE_ID, event.fields().get("instance_subject"));
+
+        // The rightful holder is not disturbed by the attempt.
+        AttestationIssuanceServlet.IssuanceRequest again = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        again.svid = first.svid;
+        assertNotNull(servlet.issue(again).get("attestation"), "the same evidence with the same key re-attests");
+    }
+
+    @Test
+    void theSameEvidenceForAnotherClientIsAConflictToo() throws Exception {
+        AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        servlet.issue(first);
+        // The same workload, the same key, but the binding store already holds the evidence for another client.
+        InMemoryEvidenceBindingStore store = new InMemoryEvidenceBindingStore();
+        store.bind(InstanceIdentity.sha256Hex(first.svid), Jwks.thumbprint(publicParams(instanceKey)), "https://other.example", expOf(first.svid));
+        servlet.setEvidenceBindingStore(store);
+        AttestationIssuanceServlet.IssuanceRequest again = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        again.svid = first.svid;
+        assertEquals("instance_attestation_bound", assertThrows(IssuanceException.class, () -> servlet.issue(again)).error());
+    }
+
+    @Test
+    @Requirement("RFC6749 §5.2")
+    void aStoreThatCannotAnswerIsTemporarilyUnavailableNotARefusal() throws Exception {
+        servlet.setEvidenceBindingStore((digest, jkt, client, exp) -> EvidenceBindingStore.Binding.STORE_UNAVAILABLE);
+        IssuanceException binding = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("temporarily_unavailable", binding.error());
+        assertEquals(503, binding.status());
+
+        servlet.setEvidenceBindingStore(new InMemoryEvidenceBindingStore());
+        servlet.setReplayCache((client, jti, ttl) -> AttestationReplayCache.Verdict.STORE_UNAVAILABLE);
+        IssuanceException replay = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("temporarily_unavailable", replay.error());
+
+        servlet.setReplayCache(new InMemoryAttestationReplayCache());
+        servlet.setChallengeService(new AttestationChallengeService() {
+            @Override
+            public String issue() {
+                return "c";
+            }
+
+            @Override
+            public Consumption consumeChallenge(String challenge) {
+                return Consumption.STORE_UNAVAILABLE;
+            }
+
+            @Override
+            public long ttlSeconds() {
+                return 300L;
+            }
+        });
+        IssuanceException challenge = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof("some-challenge"), List.of())));
+        assertEquals("temporarily_unavailable", challenge.error());
+    }
+
+    @Test
+    void evidenceThatLivesLongerThanThePolicyAllowsIsRefused() throws Exception {
+        servlet.setEvidencePolicy(new EvidencePolicy(60L, false));
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("invalid_svid", e.error());
+        assertTrue(e.getMessage().contains(EvidencePolicy.MAX_LIFETIME_ENV), e.getMessage());
+    }
+
+    @Test
+    void multiAudienceEvidenceIsRefusedWhenThePolicyRequiresOne() throws Exception {
+        servlet.setEvidencePolicy(new EvidencePolicy(86400L, true));
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        JwtClaims claims = new JwtClaims();
+        claims.setSubject(SPIFFE_ID);
+        claims.setAudience(List.of(ISSUER, "https://elsewhere.example.com"));
+        claims.setIssuedAtToNow();
+        claims.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() + 600));
+        req.svid = signCompact(bundleKey, "ES256", "JWT", claims);
+        IssuanceException e = assertThrows(IssuanceException.class, () -> servlet.issue(req));
+        assertEquals("invalid_svid", e.error());
+        assertTrue(e.getMessage().contains(EvidencePolicy.SINGLE_AUDIENCE_ENV), e.getMessage());
+        servlet.setEvidencePolicy(new EvidencePolicy(86400L, false));
+        req.proof = newProof(null);
+        assertNotNull(servlet.issue(req).get("attestation"), "the same evidence is accepted when the policy does not require one");
+    }
+
+    @Test
+    @Requirement("CAS §4.5")
+    void theAttestationExpiresNoLaterThanItsEvidence() throws Exception {
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.svid = svid(bundleKey, SPIFFE_ID, ISSUER, 30L);
+        Map<String, Object> body = servlet.issue(req);
+        long expiresIn = ((Number) body.get("expires_in")).longValue();
+        assertTrue(expiresIn <= 30L && expiresIn >= 28L, "expires_in follows the evidence: " + expiresIn);
+        assertTrue(expOf((String) body.get("attestation")) <= expOf(req.svid));
+    }
+
+    @Test
+    void aMisconfiguredEvidencePolicyFailsTheRequestNamingTheVariable() throws Exception {
+        servlet.setEvidencePolicy(null);
+        System.setProperty(EvidencePolicy.MAX_LIFETIME_PROPERTY, "soon");
+        try {
+            IssuanceException e = assertThrows(IssuanceException.class,
+                    () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+            assertEquals("server_error", e.error());
+            assertTrue(e.getMessage().contains(EvidencePolicy.MAX_LIFETIME_ENV), e.getMessage());
+        } finally {
+            System.clearProperty(EvidencePolicy.MAX_LIFETIME_PROPERTY);
+        }
+        servlet.setEvidencePolicy(null);
+        assertNotNull(servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())).get("attestation"),
+                "with the property gone the policy reads its defaults on the next request");
+        assertEquals(86400L, servlet.evidencePolicy().maxEvidenceLifetimeSeconds());
+    }
+
+    @Test
+    void evidenceWithNothingToDigestIsNotBound() throws Exception {
+        // A validator for the default evidence type whose identity has no digest: the binding step is skipped,
+        // so a second instance key presenting the same evidence is not a conflict.
+        com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator digestless = new com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator() {
+            @Override
+            public String id() {
+                return AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT;
+            }
+
+            @Override
+            public String format() {
+                return "spiffe";
+            }
+
+            @Override
+            public String title() {
+                return "digest-less";
+            }
+
+            @Override
+            public String description() {
+                return "a test validator";
+            }
+
+            @Override
+            public InstanceIdentity validate(String presented, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config) {
+                return new InstanceIdentity("spiffe", SPIFFE_ID, "banking.demo", null, Map.of("spiffe_id", SPIFFE_ID),
+                        NumericDate.now().getValue() + 600);
+            }
+        };
+        servlet.setInstanceValidators(com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators.defaults().with(digestless));
+        AttestationIssuanceServlet.IssuanceRequest first = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        servlet.issue(first);
+        PublicJsonWebKey other = ec("other-2");
+        AttestationIssuanceServlet.IssuanceRequest second = new AttestationIssuanceServlet.IssuanceRequest();
+        second.clientId = CLIENT_ID;
+        second.instanceKey = publicParams(other);
+        second.svid = first.svid;
+        second.proof = proof(other, ISSUER, UUID.randomUUID().toString(), null);
+        Map<String, Object> workload = workloadOf((String) servlet.issue(second).get("attestation"));
+        assertFalse(workload.containsKey("instance_attestation_sha256"));
+        assertNotNull(workload.get("instance_attestation_exp"));
+    }
+
+    @Test
+    void aKeyThatCannotBeThumbprintedIsAnInternalErrorNotAClientOne() throws Exception {
+        assertEquals(Jwks.thumbprint(publicParams(instanceKey)), AttestationIssuanceServlet.thumbprintOf(publicParams(instanceKey)));
+        assertThrows(IllegalStateException.class, () -> AttestationIssuanceServlet.thumbprintOf(Map.of("kty", "EC", "crv", "P-256")));
+        AttestationIssuanceServlet.IssuanceRequest req = request(SPIFFE_ID, ISSUER, newProof(null), List.of());
+        req.instanceKey = new LinkedHashMap<>(Map.of("kty", "EC", "crv", "P-256", "x", "AA", "y", "AA"));
+        // Through the servlet the key proof fails first: a proof signed by the real key does not verify under a garbage key.
+        assertEquals("invalid_instance_proof", assertThrows(IssuanceException.class, () -> servlet.issue(req)).error());
     }
 }

@@ -35,6 +35,7 @@ import org.jose4j.jwt.NumericDate;
 import org.jose4j.keys.EllipticCurves;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import org.junit.jupiter.api.AfterEach;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.mockito.ArgumentCaptor;
@@ -873,5 +874,21 @@ class ClientAttestationAuthFilterTest {
         assertEquals("[not json", ClientAttestationAuthFilter.markAgent("[not json", "agent-7"));
         assertEquals("{\"type\":\"a\"}", ClientAttestationAuthFilter.markAgent("{\"type\":\"a\"}", "agent-7"));
         assertEquals("[\"x\"]", ClientAttestationAuthFilter.markAgent("[\"x\"]", "agent-7"));
+    }
+
+    // ---- S3a: the status a verification failure answers with -----------------------------------------
+
+    /**
+     * RFC 6749 §5.2, {@code temporarily_unavailable}: "The authorization server is currently unable to handle the
+     * request due to a temporary overloading or maintenance of the server." That is the 503, and the only one;
+     * a challenge to fetch is 400 and everything the client got wrong is 401.
+     */
+    @Test
+    @Requirement("RFC6749 §5.2")
+    void anUnavailableStoreIs503AChallengeToFetchIs400AndTheRestIs401() {
+        assertEquals(503, ClientAttestationAuthFilter.statusFor(ClientAttestationException.temporarilyUnavailable("store down")));
+        assertEquals(400, ClientAttestationAuthFilter.statusFor(ClientAttestationException.useChallenge("fetch one")));
+        assertEquals(401, ClientAttestationAuthFilter.statusFor(ClientAttestationException.invalidClient("replay")));
+        assertEquals(401, ClientAttestationAuthFilter.statusFor(ClientAttestationException.accessDenied("ceiling")));
     }
 }

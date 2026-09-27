@@ -77,7 +77,10 @@ class AttestationMinterTest {
         Map<String, Object> workload = (Map<String, Object>) claims.getClaimValue("workload");
         assertEquals("spiffe", workload.get("attested_by"));
         assertEquals(SPIFFE_ID, workload.get("spiffe_id"));
-        assertEquals("raw.svid.token", workload.get("svid"));
+        assertNull(workload.get("svid"), "the raw evidence never leaves the attester (F-0002)");
+        assertEquals(InstanceIdentity.sha256Hex("raw.svid.token"), workload.get("instance_attestation_sha256"));
+        assertEquals("spiffe-jwt", workload.get("instance_attestation_type"));
+        assertEquals(svid.expEpochSeconds(), ((Number) workload.get("instance_attestation_exp")).longValue());
         assertEquals(SPIFFE_ID, workload.get("subject"), "the spec's format-neutral workload.subject");
         @SuppressWarnings("unchecked")
         Map<String, Object> attributes = (Map<String, Object>) workload.get("attributes");
@@ -167,5 +170,41 @@ class AttestationMinterTest {
         pop.setJwtId(jti);
         pop.setIssuedAtToNow();
         return TestJwts.sign(instanceKey, "ES256", "oauth-client-attestation-pop+jwt", pop);
+    }
+
+    // ---- S3b: the attestation never outlives its evidence, and says what the evidence was without carrying it ----
+
+    @Test
+    @Requirement("CAS §4.5")
+    void theAttestationExpiresNoLaterThanItsEvidence() throws Exception {
+        JwsSigner signer = new LocalJwkSigner(TestJwts.privateParams(attesterKey));
+        long evidenceExp = NumericDate.now().getValue() + 30;
+        SpiffeSvid shortLived = new SpiffeSvid(SPIFFE_ID, "banking.demo", "/payment-agent",
+                List.of(ISSUER), evidenceExp, NumericDate.now().getValue(), "raw.svid.token");
+        String jwt = AttestationMinter.mint(ISSUER, CLIENT_ID, instancePublicJwk, shortLived,
+                Map.of(), List.of(), 300L, signer);
+        assertEquals(evidenceExp, payload(jwt).getExpirationTime().getValue());
+        String longer = AttestationMinter.mint(ISSUER, CLIENT_ID, instancePublicJwk, svid, Map.of(), List.of(), 300L, signer);
+        assertTrue(payload(longer).getExpirationTime().getValue() <= svid.expEpochSeconds());
+    }
+
+    @Test
+    void anIdentityWithNothingToDigestCarriesOnlyTheEvidenceExpiry() throws Exception {
+        JwsSigner signer = new LocalJwkSigner(TestJwts.privateParams(attesterKey));
+        InstanceIdentity device = new InstanceIdentity("device", "device:1", null, null, Map.of("device_id", "1"),
+                NumericDate.now().getValue() + 600);
+        @SuppressWarnings("unchecked")
+        Map<String, Object> workload = (Map<String, Object>) payload(AttestationMinter.mint(ISSUER, CLIENT_ID,
+                instancePublicJwk, device, Map.of(), List.of(), 300L, signer, null)).getClaimValue("workload");
+        assertNull(workload.get("instance_attestation_sha256"));
+        assertNull(workload.get("instance_attestation_type"));
+        assertEquals(device.expEpochSeconds(), ((Number) workload.get("instance_attestation_exp")).longValue());
+        assertEquals("1", workload.get("device_id"));
+    }
+
+    @Test
+    void theDigestIsWhatSha256sumPrints() {
+        // printf 'abc' | sha256sum
+        assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", InstanceIdentity.sha256Hex("abc"));
     }
 }

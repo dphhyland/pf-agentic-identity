@@ -120,6 +120,16 @@
                                         <include>com.pingidentity.ps.oidf.issuer.OpenIdFederationClientResolver.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.fromEnvironment(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.attestation.AttesterResolvers.federationValidator(*</include>
+                                        <!-- S3b: the evidence binds to its first presenter and a conflict is refused and audited;
+                                             the policy on evidence lifetime and audience; the attestation never outlives the
+                                             evidence; and the raw evidence is digested, never copied. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.bindEvidence(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.attestation.AttestationIssuanceServlet.evidencePolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.effectiveTtlSeconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.EvidencePolicy.isProduction(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceIdentity.ofSpiffe(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

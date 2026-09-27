@@ -57,6 +57,6 @@ public final class SpiffeInstanceAttestationValidator implements InstanceAttesta
                                      AttestationIssuanceConfig config) throws IssuanceException {
         SpiffeSvid svid = this.delegate.validate(
                 presented, bundleKeys, config.issuer(), config.expectedTrustDomain());
-        return InstanceIdentity.ofSpiffe(svid);
+        return InstanceIdentity.ofSpiffe(svid, this.id());
     }
 }

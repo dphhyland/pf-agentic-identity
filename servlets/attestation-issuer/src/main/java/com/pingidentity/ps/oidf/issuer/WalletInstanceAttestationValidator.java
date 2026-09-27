@@ -211,8 +211,9 @@ public final class WalletInstanceAttestationValidator implements InstanceAttesta
         LinkedHashMap<String, Object> workload = new LinkedHashMap<>();
         workload.put("wallet_provider", provider);
         workload.put("wallet_instance", subject);
-        workload.put("instance_attestation", presented);
-        return new InstanceIdentity(FORMAT, subject, provider, boundKey, workload, exp);
+        // The WIA itself stays here: the attestation carries its digest, type and expiry (F-0002).
+        return new InstanceIdentity(FORMAT, subject, provider, boundKey, workload, exp,
+                AttestationIssuanceConfig.EVIDENCE_WALLET_INSTANCE_ATTESTATION, InstanceIdentity.sha256Hex(presented), aud);
     }
 
     @SuppressWarnings("unchecked")

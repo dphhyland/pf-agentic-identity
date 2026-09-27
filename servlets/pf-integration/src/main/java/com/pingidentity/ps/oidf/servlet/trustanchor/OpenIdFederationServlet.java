@@ -25,6 +25,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
+import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
 import com.pingidentity.ps.oidf.federation.EndpointAuthPolicy;
@@ -173,7 +174,8 @@ extends RequestScopedServlet {
             }
             EndpointAuthPolicy endpointAuth = runtime.endpointAuth();
             // A spent jti is kept where attestation keeps its own - Redis when configured - so a replay is caught on any node.
-            service.endpointAuth(endpointAuth, OpenIdFederationServlet::assertionNotSpent);
+            service.endpointAuth(endpointAuth, (client, jti, ttl) ->
+                    assertionNotSpent(AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT), client, jti, ttl));
             if (endpointAuth.anyEnabled()) {
                 java.util.Map<String, String> modes = new java.util.TreeMap<>();
                 for (String endpoint : EndpointAuthPolicy.ENDPOINTS) {
@@ -214,8 +216,8 @@ extends RequestScopedServlet {
      * (Redis when one is configured). A store that cannot answer is a 503 here, the status
      * {@link FederationErrors} already gives {@link FederationError#TEMPORARILY_UNAVAILABLE}, and never a spent jti.
      */
-    static boolean assertionNotSpent(String client, String jti, long ttl) {
-        switch (AttestationSupport.replayCache(StoreNamespace.FED_ENDPOINT).record(client, jti, ttl)) {
+    static boolean assertionNotSpent(AttestationReplayCache spent, String client, String jti, long ttl) {
+        switch (spent.record(client, jti, ttl)) {
             case FIRST_USE:
                 return true;
             case STORE_UNAVAILABLE:

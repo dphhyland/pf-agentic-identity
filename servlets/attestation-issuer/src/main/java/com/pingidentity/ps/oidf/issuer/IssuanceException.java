@@ -77,4 +77,19 @@ public final class IssuanceException extends Exception {
     public static IssuanceException serverError(String message) {
         return new IssuanceException("server_error", 500, message);
     }
+
+    /**
+     * The challenge, replay or evidence-binding store could not answer. RFC 6749 §5.2 names the code: "The
+     * authorization server is currently unable to handle the request due to a temporary overloading or
+     * maintenance of the server." The caller retries later with the same evidence and proof; nothing about
+     * its request was found wanting.
+     */
+    public static IssuanceException temporarilyUnavailable(String message) {
+        return new IssuanceException("temporarily_unavailable", 503, message);
+    }
+
+    /** The evidence is already bound to a different instance key or client: presented second, it is refused. */
+    public static IssuanceException instanceAttestationBound(String message) {
+        return new IssuanceException("instance_attestation_bound", 401, message);
+    }
 }

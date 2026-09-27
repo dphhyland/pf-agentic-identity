@@ -8,7 +8,14 @@ import com.pingidentity.ps.oidf.issuer.AssertedContextResolver;
 import com.pingidentity.ps.oidf.issuer.AttestationIssuanceConfig;
 import com.pingidentity.ps.oidf.issuer.AttesterClient;
 import com.pingidentity.ps.oidf.issuer.AttestationMinter;
+import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService;
+import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.clientattestation.EvidenceBindingStore;
+import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
+import com.pingidentity.ps.oidf.federation.event.FederationEvents;
+import com.pingidentity.ps.oidf.issuer.EvidencePolicy;
+import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.issuer.AttesterSigningKey;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
@@ -44,6 +51,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.time.Instant;
 import java.util.Optional;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
@@ -90,10 +98,24 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile Map<String, AssertedContextResolver> assertedContextResolvers;
     private boolean challengeRequired;
     private volatile List<String> customClaimsRequired = List.of();
+    private volatile EvidencePolicy evidencePolicy;
+    private volatile EvidenceBindingStore evidenceBindings;
+    private volatile AttestationChallengeService challengeService;
+    private volatile AttestationReplayCache replayCache;
+
+    /**
+     * The audit event for evidence presented by a second instance key or client: the rightful holder's evidence
+     * has been used elsewhere, or the rightful holder is the one being refused because a thief presented first.
+     * Either way the deployment is told, with both keys' thumbprints.
+     */
+    public static final String EVIDENCE_CONFLICT_EVENT = "attestation.evidence.conflict";
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
+        // whichever servlet or filter initialises first.
+        PfAuditEventSink.install();
         this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
         this.customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
                 "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
@@ -151,15 +173,32 @@ public class AttestationIssuanceServlet extends HttpServlet {
         InstanceKeyProofValidator.Result proof =
                 this.proofValidator.validate(request.proof, request.instanceKey, config.issuer());
         if (proof.challenge() != null && !proof.challenge().isBlank()) {
-            if (!AttestationSupport.challengeService().consume(proof.challenge())) {
-                throw IssuanceException.invalidInstanceProof("challenge is unknown, expired, or already used");
+            switch (challengeService().consumeChallenge(proof.challenge())) {
+                case CONSUMED:
+                    break;
+                case STORE_UNAVAILABLE:
+                    throw IssuanceException.temporarilyUnavailable("the attestation challenge store is unavailable");
+                default:
+                    throw IssuanceException.invalidInstanceProof("challenge is unknown, expired, or already used");
             }
         } else if (this.challengeRequired) {
             throw IssuanceException.invalidInstanceProof("a server-issued challenge is required");
         }
-        if (!AttestationSupport.replayCache().firstSeen(clientId, proof.jti(), PROOF_REPLAY_TTL_SECONDS)) {
-            throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
+        switch (replayCache().record(clientId, proof.jti(), PROOF_REPLAY_TTL_SECONDS)) {
+            case FIRST_USE:
+                break;
+            case STORE_UNAVAILABLE:
+                throw IssuanceException.temporarilyUnavailable("the attestation replay store is unavailable");
+            default:
+                throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
+
+        // 4c. The evidence is acceptable beyond being valid - not longer-lived than this attester allows, one
+        //     audience if required - and, the key proof having verified, it binds to this key and client. The
+        //     first presenter wins; the same presenter may return; anyone else is refused and audited.
+        long now = Instant.now().getEpochSecond();
+        evidencePolicy().check(instance, now);
+        bindEvidence(instance, request.instanceKey, clientId);
 
         // 4a. Deployment-required custom claims must be present in the proof (advertised as
         // custom_claims_required in the /.well-known/client-attestation-service metadata). They are
@@ -240,22 +279,119 @@ public class AttestationIssuanceServlet extends HttpServlet {
         // 7. Mint + sign with the attester key. The attester assigns the client_id (the attestation sub);
         //    the workload learns it only from the attestation it receives back.
         JwsSigner signer = attesterSigningKey().signerFor(config.signingKeyRef(), config.signingJwk());
+        // The client's TTL, and never past the evidence: the attestation vouches for the instance no longer
+        // than its platform does.
+        long ttl = EvidencePolicy.effectiveTtlSeconds(config.ttlSeconds(), instance, now);
         String attestation = AttestationMinter.mint(config.issuer(), clientId, request.instanceKey,
-                instance, workloadAttributes, granted, config.ttlSeconds(), signer, agentId.orElse(null));
+                instance, workloadAttributes, granted, ttl, signer, agentId.orElse(null));
 
         LOGGER.info((Object) ("Issued client attestation: client_id=" + clientId
                 + " format=" + instance.format() + " subject=" + instance.subject()
-                + " ttl=" + config.ttlSeconds() + "s"));
+                + " evidence_sha256=" + instance.evidenceDigest() + " ttl=" + ttl + "s"));
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("attestation", attestation);
-        body.put("expires_in", config.ttlSeconds());
+        body.put("expires_in", ttl);
         return body;
+    }
+
+    /**
+     * Binds the evidence to the instance key and client after the key proof verified. A conflict - the same
+     * evidence already bound to another key or client - is refused with 401 {@code instance_attestation_bound}
+     * and recorded as {@link #EVIDENCE_CONFLICT_EVENT} in the audit log, naming the evidence's digest and type,
+     * the client, and both keys' thumbprints. Evidence with nothing to digest (a format without a single token)
+     * is not bound. Residual risk, stated plainly: a thief who presents the evidence first wins the binding and
+     * the rightful holder is the one refused. That is detectable here, not preventable, until evidence is
+     * itself bound to the instance key.
+     */
+    private void bindEvidence(InstanceIdentity instance, Map<String, Object> instanceKey, String clientId)
+            throws IssuanceException {
+        if (instance.evidenceDigest() == null) {
+            return;
+        }
+        String jkt = thumbprintOf(instanceKey);
+        switch (evidenceBindings().bind(instance.evidenceDigest(), jkt, clientId, instance.expEpochSeconds())) {
+            case BOUND:
+                return;
+            case STORE_UNAVAILABLE:
+                throw IssuanceException.temporarilyUnavailable("the evidence binding store is unavailable");
+            default:
+                FederationEvents.event(EVIDENCE_CONFLICT_EVENT).failure("evidence_bound_elsewhere").subject(clientId)
+                        .role("ATTESTER").audit()
+                        .field("evidence_sha256", instance.evidenceDigest())
+                        .field("evidence_type", instance.evidenceType())
+                        .field("instance_subject", instance.subject())
+                        .field("presented_jkt", jkt)
+                        .description("the evidence is already bound to another instance key or client; presented again by "
+                                + jkt + " for " + clientId)
+                        .emit();
+                throw IssuanceException.instanceAttestationBound(
+                        "this evidence is already bound to a different instance key or client; present fresh evidence");
+        }
+    }
+
+    /** The RFC 7638 thumbprint of a key that has just verified a signature, so it cannot lack one. */
+    static String thumbprintOf(Map<String, Object> jwk) {
+        try {
+            return Jwks.thumbprint(jwk);
+        } catch (Exception e) {
+            throw new IllegalStateException("instance_key verified a proof but has no thumbprint", e);
+        }
     }
 
     // ---- seams for tests / runtime defaults -------------------------------------------------------
 
     void setClientResolver(IssuanceClientResolver resolver) {
         this.clientResolver = resolver;
+    }
+
+    void setEvidencePolicy(EvidencePolicy policy) {
+        this.evidencePolicy = policy;
+    }
+
+    void setEvidenceBindingStore(EvidenceBindingStore store) {
+        this.evidenceBindings = store;
+    }
+
+    void setChallengeService(AttestationChallengeService service) {
+        this.challengeService = service;
+    }
+
+    void setReplayCache(AttestationReplayCache cache) {
+        this.replayCache = cache;
+    }
+
+    /** The evidence policy: injected, else read from the environment on first use, so a bad value fails the first request and names itself. */
+    synchronized EvidencePolicy evidencePolicy() throws IssuanceException {
+        if (this.evidencePolicy == null) {
+            try {
+                this.evidencePolicy = EvidencePolicy.fromEnvironment();
+            } catch (IllegalArgumentException e) {
+                throw IssuanceException.serverError("the attester's evidence policy is misconfigured: " + e.getMessage());
+            }
+        }
+        return this.evidencePolicy;
+    }
+
+    /** The evidence bindings: injected, else the shared store's {@code oidf:cas:evidence:*}. */
+    EvidenceBindingStore evidenceBindings() {
+        EvidenceBindingStore local = this.evidenceBindings;
+        return local != null ? local : AttestationSupport.evidenceBindingStore();
+    }
+
+    /**
+     * The challenges this endpoint consumes: injected, else the shared store's {@code oidf:as:challenge:*} - the
+     * authorization server's, because the one challenge endpoint issues into that namespace. Plan item S4b gives
+     * the CAS a challenge endpoint of its own and moves this to {@code oidf:cas:challenge:*}.
+     */
+    AttestationChallengeService challengeService() {
+        AttestationChallengeService local = this.challengeService;
+        return local != null ? local : AttestationSupport.challengeService(StoreNamespace.AS);
+    }
+
+    /** The spent proof jtis: injected, else the shared store's {@code oidf:cas:jti:*}. */
+    AttestationReplayCache replayCache() {
+        AttestationReplayCache local = this.replayCache;
+        return local != null ? local : AttestationSupport.replayCache(StoreNamespace.CAS);
     }
 
     void setAttesterSigningKey(AttesterSigningKey key) {

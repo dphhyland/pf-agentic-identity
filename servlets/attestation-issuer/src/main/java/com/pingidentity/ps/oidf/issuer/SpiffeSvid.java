@@ -58,7 +58,7 @@ public final class SpiffeSvid {
         return this.iatEpochSeconds;
     }
 
-    /** The raw compact JWT-SVID (carried into the attestation's {@code workload.svid} for re-verification). */
+    /** The raw compact JWT-SVID. It is digested into the attestation ({@code workload.instance_attestation_sha256}) and never copied. */
     public String raw() {
         return this.raw;
     }
