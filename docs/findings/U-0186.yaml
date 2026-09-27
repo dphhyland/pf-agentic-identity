@@ -4,7 +4,7 @@ area: build
 source: design
 status: open
 plan_items: [R-I5, D-3]
-prs: []
+prs: [48]
 recorded_in: docs/releases/unreleased/RI5.md, Notes
 verify_by: >
   For each exact path in build/pingfederate/filters.xml, show that PingFederate serves it: a request to it on the

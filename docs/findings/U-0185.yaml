@@ -4,7 +4,7 @@ area: build
 source: design
 status: open
 plan_items: [R-I5, R-CI6]
-prs: []
+prs: [48]
 recorded_in: docs/releases/unreleased/RI5.md, Notes
 verify_by: >
   In the image job plan item R-CI6 adds, extract pf-runtime.war from the pinned pingidentity/pingfederate
