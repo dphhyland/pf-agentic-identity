@@ -41,7 +41,10 @@ listener on 9080 and the admin console on 9999 (`administrator`, password in `.a
 
 Steps 2-4 are how PF is configured **as code**: `terraform/` is the source, `data.zip` the built
 artefact the image imports at boot. There is no volume; a change made in the console is gone at the
-next start. Change the `.tf`, run `./up.sh` again.
+next start. Change the `.tf`, run `./up.sh` again. The provider `terraform init` fetches is the build
+`terraform/.terraform.lock.hcl` records, for Linux and macOS on either architecture; the lock file is
+committed, and build.yml's lint job validates the configuration against it (`tools/ci/lint-terraform.sh`,
+which also says how to move the provider).
 
 **The clients** (`terraform/clients.tf`): two FAPI 2.0 clients (`private_key_jwt` + DPoP + PAR + PKCE),
 an SSF receiver (`ssf.manage`), an SSF event operator (`conformance-ssf-emitter`, `ssf.provision` - the
