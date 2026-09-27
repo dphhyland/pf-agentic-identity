@@ -1,0 +1,15 @@
+id: U-0050
+title: Testcontainers 1.21.4 on Docker Desktop 29
+area: build
+source: design
+status: open
+plan_items: [DB-1]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Libraries
+verify_by: >
+  Run the Postgres-backed tests with Testcontainers 1.21.4 on this machine's Docker Desktop 29 and record
+  whether the container starts.
+verification: ''
+notes: >
+  Testcontainers as pinned today misses Docker Desktop 29 here, so the device-instance tests need
+  IDM_TEST_JDBC_URL.

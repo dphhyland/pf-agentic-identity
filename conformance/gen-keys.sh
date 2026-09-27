@@ -28,6 +28,8 @@ for name in fapi2-client1 fapi2-client2 ssf-receiver ciba-client1 ciba-client2 s
     continue
   fi
   ( umask 177
+    # The ${...} below are JavaScript template literals, expanded by node and not by the shell.
+    # shellcheck disable=SC2016
     KEY_NAME="$name" KEYS_DIR="$KEYS" node -e '
       const { generateKeyPairSync, createHash } = require("crypto");
       const fs = require("fs");

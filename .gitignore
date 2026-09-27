@@ -15,7 +15,8 @@ __pycache__/
 *.tfvars
 *.tfvars.json
 .terraform/
-.terraform.lock.hcl
+# .terraform.lock.hcl is NOT ignored: conformance/terraform's is committed, so every init picks the provider
+# build the lock file records. Update it with `terraform providers lock` (see tools/ci/lint-terraform.sh).
 
 # Key material of any kind. Belt and braces: build.yml fails the build if one is ever tracked.
 *.jwk
@@ -50,3 +51,6 @@ dependency-reduced-pom.xml
 docs/coverage-dashboard.md
 docs/coverage-dashboard.html
 showcase/docs.js
+
+# The hosted microsite is assembled from showcase/ by tools/build-microsite.py; the pages are the source.
+build/microsite/

@@ -1,0 +1,13 @@
+id: U-0001
+title: LATouchIDAuthenticationMaximumAllowableReuseDuration has no published value
+area: ios-client
+source: design
+status: open
+plan_items: [X-I01b]
+prs: []
+recorded_in: docs/unverified.md item 1
+verify_by: >
+  Apple publishing the value, or reading the constant at run time on a device and recording what it returns.
+  The code reads the constant and never hardcodes 300.
+verification: ''
+notes: 'Assumed: nothing. A web search summary asserted 300 seconds; no underlying page says it.'

@@ -1,0 +1,14 @@
+id: F-0063
+title: 'Legacy JwtCodec overloads; 27 parseUnverifiedClaims and 15 raw verifySignature() call sites unaudited'
+severity: medium
+area: oidf-jose
+source: reviewer-report
+status: open
+plan_items: [H-JOSE-1]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. H-JOSE-1 removes or secures the legacy overloads, introduces an
+  UnverifiedClaims type, and audits every call site.

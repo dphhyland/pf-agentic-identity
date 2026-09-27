@@ -1,0 +1,13 @@
+id: U-0042
+title: The Entra access-token deviceid, uti and tid claims
+area: device-enrolment
+source: design
+status: open
+plan_items: [X-I01a, X-A17]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Microsoft
+verify_by: >
+  Quote the section verbatim from the primary source before the code or the docs assert it. X-I01a's spike on
+  an Intune-managed iPhone decides whether Entra emits deviceid at all.
+verification: ''
+notes: ''

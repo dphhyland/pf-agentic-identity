@@ -58,13 +58,35 @@ are mechanical, and CI runs both on every Build whose reactor build completes:
   dashboard have passed, and uploads `showcase/` as the run's `showcase` artefact. Locally, rebuild it after
   changing a document; there is no `--check`, because nothing is committed to compare with.
 - **The source links.** `python3 tools/check-showcase-links.py` fails when a boxed link names a file that isn't
-  tracked or a line past its end, on this page or on `federation.html`, and when a `#doc:` link or the
-  documentation index names a document `docs.js` does not carry - so build `docs.js` first. A citation of the
-  generated dashboard is checked against the copy the last build left, and noted rather than failed when there
-  is none.
+  tracked or a line past its end, on this page, on `federation.html` or on `conformance.html`, and when a
+  `#doc:` link or the documentation index names a document `docs.js` does not carry - so build `docs.js` first.
+  A citation of the generated dashboard is checked against the copy the last build left, and noted rather than
+  failed when there is none.
 
 Neither can tell whether a statement still says what the code does. When the code behind one moves, re-read
 the statement, not just the line numbers.
 
-`federation.html` is a page of its own: the OpenID Federation story in plain language, with the file behind each
-part. The index links to it from the sidebar.
+## The other two pages
+
+`federation.html` is the OpenID Federation story in plain language, with the file behind each part.
+`conformance.html` is what the OpenID Foundation's suite says about a PingFederate built from `conformance/`:
+the six plans and their results, the two FAPI 2.0 rules a filter in this repository enforces because the
+product cannot be configured to, the CIBA gap no configuration closes, and what has not been tested at all.
+Its results table is `conformance/README.md`'s, and it repeats that README's own point that a run against a
+suite you host is not a certification. The index links to both from the sidebar.
+
+## Hosting it
+
+Served from the repository root the pages reach the code with relative links. Hosted on their own there is no
+repository beside them, so `tools/build-microsite.py` rewrites every such link to the file on GitHub at one
+commit, keeping the lines, and copies in the images:
+
+```sh
+python3 tools/build-microsite.py --ref main     # -> build/microsite/ (git-ignored)
+railway up build/microsite --path-as-root --service site
+```
+
+`showcase/deploy/` holds the nginx image that serves the result. The site runs at
+https://agentic-identity.idpartners.global (Railway project `agentic-identity-site`), which needs a CNAME from
+that host to the service's `*.up.railway.app` target. Rebuild and redeploy after changing any page: the pages
+are the source, `build/microsite/` is only an artefact.

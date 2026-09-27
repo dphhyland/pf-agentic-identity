@@ -1,0 +1,14 @@
+id: F-0031
+title: A refresh with no authorization_details reissues the stored details and never re-asks the PDP
+severity: high
+area: rar-paz-plugin, client-attestation
+source: design
+status: open
+plan_items: [S-1, S1c]
+prs: []
+verification: ''
+target_release: 0.4.0
+notes: >
+  Found while designing, item 2. PingFederate enriches the requested detail and then calls isEqualOrSubset
+  without a user key. High: the refresh path extends B1's lenient containment to every renewal, and a policy
+  change between issuance and refresh is never seen. S-1 makes refresh's isEqualOrSubset a strict `contains`.

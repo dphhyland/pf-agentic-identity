@@ -1,8 +1,15 @@
 #!/usr/bin/env bash
-# Stage the reactor's module jars into build/pingfederate/modules/ for the Docker build.
-# Run after `mvn -q -DskipTests package` at the repo root. These nine jars are the modular equivalent
-# of the old monolith pf-oidf-modules.jar (same packages, superset of its classes) plus the CIBA simulator:
-# their external deps (jose4j, jackson, commons-logging) are already on PF's server classpath.
+# Stage the reactor's module jars into build/pingfederate/modules/ for the Docker build, and write the
+# MANIFEST that assemble-pf-runtime-war.sh checks the directory against.
+#
+#   stage-modules.sh [--profile production|conformance]
+#
+# Run after `mvn -q -DskipTests package` at the repo root. The production profile (the default) stages
+# eight jars: the modular equivalent of the old monolith pf-oidf-modules.jar (same packages, superset of
+# its classes). The conformance profile stages a ninth, the CIBA simulator, which exists for the OpenID
+# conformance suite's FAPI-CIBA plan and must never reach a production image - the assembler refuses a
+# stage whose profile is not the one the image is built for. Their external deps (jose4j, jackson,
+# commons-logging) are already on PF's server classpath.
 # agent-registry rides along because attestation-issuer's servlets import it (agent_id minting) —
 # without it the issuance servlet fails at first use with NoClassDefFoundError. device-instance rides
 # along too: servlets/ssf's InstanceRegistryReceiverHandler imports it to turn inbound CAEP signals
@@ -11,6 +18,18 @@
 # library (no App Attest, no HTTP, no PingFederate SDK), unlike app-attest, which stays out: App Attest
 # verification lives in services/device-enrolment, not in the AS.
 set -euo pipefail
+PROFILE=production
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --profile) [[ $# -ge 2 ]] || { echo "ERROR: --profile needs a value" >&2; exit 2; }; PROFILE="$2"; shift 2 ;;
+    --profile=*) PROFILE="${1#--profile=}"; shift ;;
+    *) echo "ERROR: unknown argument '$1' - usage: stage-modules.sh [--profile production|conformance]" >&2; exit 2 ;;
+  esac
+done
+case "$PROFILE" in
+  production | conformance) ;;
+  *) echo "ERROR: --profile must be production or conformance, not '$PROFILE'" >&2; exit 2 ;;
+esac
 # The reactor root is two levels up (build/pingfederate/ -> repo root). PF_AGENTIC_IDENTITY_HOME
 # lets a consuming repo run this script from its own checkout against a sibling clone of this one.
 ROOT="${PF_AGENTIC_IDENTITY_HOME:-$(cd "$(dirname "$0")/../.." && pwd)}"
@@ -23,25 +42,37 @@ DEST="${STAGE_DEST:-$ROOT/build/pingfederate/modules}"
 VERSION="$(sed -n 's|.*<version.internal>\(.*\)</version.internal>.*|\1|p' "$ROOT/bom/pom.xml" | head -1)"
 [[ -n "$VERSION" ]] || { echo "ERROR: could not read version.internal from $ROOT/bom/pom.xml" >&2; exit 1; }
 
-JARS=(
-  servlets/pf-integration/target/oidf.jar
-  "servlets/attestation-issuer/target/attestation-issuer-$VERSION.jar"
-  "servlets/ssf/target/ssf-$VERSION.jar"
-  "libs/oidf-jose/target/oidf-jose-$VERSION.jar"
-  "libs/client-attestation/target/client-attestation-$VERSION.jar"
-  "libs/openid-federation/target/openid-federation-$VERSION.jar"
-  "libs/agent-registry/target/agent-registry-$VERSION.jar"
-  "libs/device-instance/target/device-instance-$VERSION.jar"
+# "<section> <path>": the section is the module group the MANIFEST lists the jar under.
+ENTRIES=(
+  "servlets servlets/pf-integration/target/oidf.jar"
+  "servlets servlets/attestation-issuer/target/attestation-issuer-$VERSION.jar"
+  "servlets servlets/ssf/target/ssf-$VERSION.jar"
+  "libs libs/oidf-jose/target/oidf-jose-$VERSION.jar"
+  "libs libs/client-attestation/target/client-attestation-$VERSION.jar"
+  "libs libs/openid-federation/target/openid-federation-$VERSION.jar"
+  "libs libs/agent-registry/target/agent-registry-$VERSION.jar"
+  "libs libs/device-instance/target/device-instance-$VERSION.jar"
+)
+if [[ "$PROFILE" == conformance ]]; then
   # The CIBA simulator: an OOBAuthPlugin plus its decision servlet in one jar. The Dockerfile puts every
   # staged jar in BOTH places, which is what this one needs - loose in deploy/ (PF-INF discovery, the
-  # pf.plugins. prefix) for the plugin, merged into the war for the servlet. Inert unless a CIBA policy
-  # names the authenticator and OIDF_CIBA_SIM_ENABLED=true; see plugins/ciba-sim.
-  plugins/ciba-sim/target/pf.plugins.ciba-sim.jar
-)
+  # pf.plugins. prefix) for the plugin, merged into the war for the servlet. It is an approval oracle
+  # keyed by nothing but an auth_req_id, so it is staged only here, and even then runs only where
+  # OIDF_CIBA_SIM_ENABLED=true, OIDF_DEPLOYMENT_PROFILE=development and OIDF_CIBA_SIM_DIR passes its
+  # checks; see plugins/ciba-sim/README.md.
+  ENTRIES+=("plugins plugins/ciba-sim/target/pf.plugins.ciba-sim.jar")
+fi
+
+# The same digest the assembler and the release workflow compute; GNU and busybox have sha256sum, macOS
+# has shasum.
+sha256_of() {
+  if command -v sha256sum >/dev/null 2>&1; then sha256sum "$1" | cut -d' ' -f1; else shasum -a 256 "$1" | cut -d' ' -f1; fi
+}
 
 mkdir -p "$DEST"
-rm -f "$DEST"/*.jar
-for j in "${JARS[@]}"; do
+rm -f "$DEST"/*.jar "$DEST/MANIFEST"
+for entry in "${ENTRIES[@]}"; do
+  j="${entry#* }"
   [[ -f "$ROOT/$j" ]] || { echo "ERROR: $j not built — run 'mvn -q -DskipTests package' first" >&2; exit 1; }
   cp "$ROOT/$j" "$DEST/"
 done
@@ -51,8 +82,25 @@ done
 # NoClassDefFoundError at the first request that touches the missing module. That has now happened
 # twice (agent-registry, then device-instance), each time discovered from a 500 in staging rather
 # than from the build.
-: > "$DEST/MANIFEST"
-for j in "${JARS[@]}"; do basename "$j" >> "$DEST/MANIFEST"; done
+#
+# MANIFEST v2: one header line naming the format, the profile, the build time and the commit; then a
+# [section] per module group, and one "<sha256>  <file>" line per jar - sha256sum's own format, so
+# `grep -E '^[0-9a-f]{64}  ' MANIFEST | sha256sum -c` checks the directory by hand. The profile is
+# what the assembler compares with the image's; the digests catch a jar rebuilt or swapped after
+# staging, which the v1 list of bare filenames could not.
+commit="$(git -C "$ROOT" rev-parse --short=12 HEAD 2>/dev/null || echo unknown)"
+if [[ "$commit" != unknown && -n "$(git -C "$ROOT" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+  commit="$commit-dirty"
+fi
+{
+  echo "MANIFEST/2 profile=$PROFILE built=$(date -u +%Y-%m-%dT%H:%M:%SZ) commit=$commit"
+  section=""
+  for entry in "${ENTRIES[@]}"; do
+    s="${entry%% *}"; b="$(basename "${entry#* }")"
+    if [[ "$s" != "$section" ]]; then echo "[$s]"; section="$s"; fi
+    echo "$(sha256_of "$DEST/$b")  $b"
+  done
+} > "$DEST/MANIFEST"
 
-echo "staged $(ls "$DEST"/*.jar | wc -l | tr -d ' ') jars into $DEST:"
-ls -la "$DEST"
+echo "staged ${#ENTRIES[@]} jars ($PROFILE profile) into $DEST:"
+cat "$DEST/MANIFEST"

@@ -1,0 +1,13 @@
+id: U-0009
+title: Whether PingFederate can emit act as a JSON object
+area: gm-api
+source: design
+status: open
+plan_items: [X-C03]
+prs: []
+recorded_in: docs/unverified.md item 8
+verify_by: >
+  A JWT access token manager on a booted 13.1.3 with a nested act mapping; read the token. Meanwhile the
+  resource server accepts both forms and reports the legacy one (ActChain.legacyStringForm).
+verification: ''
+notes: 'RFC 8693 section 4.1 defines act as a JSON object; the demo emits a string.'

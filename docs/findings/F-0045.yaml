@@ -1,0 +1,15 @@
+id: F-0045
+title: Public SDK seams exist for several designs
+severity: low
+area: platform
+source: design
+status: closed
+plan_items: []
+prs: []
+verification: >
+  Design input, nothing to fix: KeyAccessor.getClientSslKeypair and getDsigKeypair,
+  JdbcDatastoreFieldDescriptor, ClusterAccessor.getNodeIndex and ClientManager.isBackendDatabase() were found
+  with javap on the 13.1.3 SDK while designing (2026-09-26), so C-1, X-A20 and S6a use public seams rather
+  than internals. Recorded as closed on 2026-09-27 because it names no defect.
+target_release: 0.3.0
+notes: Found while designing, item 16.

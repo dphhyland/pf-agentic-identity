@@ -1,0 +1,15 @@
+id: F-0046
+title: Federation errors leak detail to unauthenticated callers
+severity: medium
+area: pf-integration, openid-federation
+source: reviewer-report
+status: open
+plan_items: [H-FED-4]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items. ClientAttestationAuthFilter.java:309-313, RegistrationService.java:977-982
+  and TrustChainValidator.java:268-269,952-953 (f95b522) put internal detail in error text. H-FED-4: generic
+  text for unauthenticated callers, plus a correlation id.

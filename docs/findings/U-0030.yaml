@@ -1,0 +1,11 @@
+id: U-0030
+title: Introspection returns cnf for DPoP tokens
+area: pf-integration
+source: design
+status: open
+plan_items: [S8a]
+prs: []
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 16
+verify_by: 'On the rig: introspect a DPoP-bound access token and read the response for cnf.'
+verification: ''
+notes: ''

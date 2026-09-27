@@ -1,0 +1,13 @@
+id: F-0058
+title: 'The stored push authorization_header is plaintext; Kafka TLS settings are not passed through and JAAS is not escaped'
+severity: medium
+area: ssf
+source: reviewer-report
+status: open
+plan_items: [H-SSF-7]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items.

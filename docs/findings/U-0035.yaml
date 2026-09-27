@@ -1,0 +1,11 @@
+id: U-0035
+title: RFC 9449 sections 4.3 and 11.1
+area: platform
+source: design
+status: open
+plan_items: [S8a, X-D01]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, OAuth
+verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
+verification: ''
+notes: ''

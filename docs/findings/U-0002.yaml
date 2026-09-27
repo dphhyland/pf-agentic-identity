@@ -1,0 +1,13 @@
+id: U-0002
+title: Whether the Touch ID reuse window covers Face ID
+area: ios-client
+source: design
+status: open
+plan_items: [X-I01b]
+prs: []
+recorded_in: docs/unverified.md item 2
+verify_by: >
+  An Apple statement, or a test on a Face ID device: unlock with Face ID, then evaluate within the interval
+  and record whether authentication succeeds without a prompt.
+verification: ''
+notes: 'Assumed: it does not, and the design does not rely on it either way.'
