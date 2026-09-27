@@ -52,7 +52,9 @@ import org.apache.hc.core5.http.message.BasicClassicHttpRequest;
  * </ol>
  * Every read on the socket - the handshake's included - waits no longer than what is left of the deadline for its
  * phase ({@link DeadlineSocket}), so the total holds without a watchdog thread. Writes are not bounded (U-0195):
- * a request body is at most {@link OutboundRequest#MAX_REQUEST_BODY_BYTES}.
+ * a request body is at most {@link OutboundRequest#MAX_REQUEST_BODY_BYTES}, which limits how much a write can be
+ * left waiting on, not how long - a peer that stops reading can hold a write that does not fit the socket buffers
+ * past the deadline.
  *
  * <p>Redirects are not followed: a 3xx is returned like any status, and following it is a new request through the
  * policy. A response of any status is returned; only a missing response throws, as {@link OutboundHttpException}
@@ -295,7 +297,9 @@ public final class OutboundHttp {
 
     /** The request as HttpCore writes it: origin-form target, Host, the caller's headers, framing, Connection: close. */
     BasicClassicHttpRequest message(OutboundRequest request, AddressPolicy.Target target) {
-        URI uri = target.uri();
+        // java.net.URI keeps non-ASCII characters as they are in its raw form, and HttpCore would write them as
+        // Latin-1 bytes or '?'; the ASCII form percent-encodes them as UTF-8, as RFC 3987 maps an IRI to a URI.
+        URI uri = URI.create(target.uri().toASCIIString());
         // The policy passed only URIs with a host, which are hierarchical and so have a raw path, if an empty one.
         String path = uri.getRawPath().isEmpty() ? "/" : uri.getRawPath();
         String requestTarget = uri.getRawQuery() == null ? path : path + "?" + uri.getRawQuery();

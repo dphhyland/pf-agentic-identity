@@ -32,8 +32,9 @@ import java.util.function.Predicate;
  *   <li>{@link Builder#trusting} exempts operator-configured endpoints from the scheme and address rules. The
  *       exemption is pinned to the endpoint's scheme, host, port and path prefix, never its host alone: the same
  *       policy screens caller-supplied identifiers, and a host-only exemption would let a caller name
- *       {@code http://<that-host>:6379/} and turn the operator's own endpoint into a port scanner. Within an exempt
- *       prefix the rest of the path is not constrained.</li>
+ *       {@code http://<that-host>:6379/} and turn the operator's own endpoint into a port scanner. A path is inside
+ *       an exempt prefix only when, decoded once, it has no dot segment (with or without {@code ;} parameters), no
+ *       backslash and no percent sign, so a server's own normalisation cannot take it out of the prefix.</li>
  *   <li>{@link Builder#allowPrivateNetworks} turns the address rule off altogether (development only).</li>
  * </ul>
  * There is no port rule beyond the range: {@code OutboundUrlPolicy} has none either, and the port matters only to an
@@ -521,10 +522,18 @@ public final class AddressPolicy {
                 return false;
             }
             String candidate = path == null ? "" : path;
+            // This is the path decoded once. A backslash (a separator to some servers) or a percent sign (a second
+            // round of encoding, %252e or %252f) left in it could climb out of the prefix after the server's own
+            // decoding, so a path with either is never exempt.
+            if (candidate.indexOf('\\') >= 0 || candidate.indexOf('%') >= 0) {
+                return false;
+            }
             for (String segment : candidate.split("/", -1)) {
-                // A dot segment (percent-encoded or not: this is the decoded path) could climb out of the prefix
-                // once the server normalises it, so a path with one is never exempt.
-                if (segment.equals(".") || segment.equals("..")) {
+                // A dot segment, percent-encoded or not and with any ';' path parameters stripped (Tomcat and
+                // Spring read "..;" as ".."), could climb out of the prefix once the server normalises it.
+                int parameters = segment.indexOf(';');
+                String name = parameters < 0 ? segment : segment.substring(0, parameters);
+                if (name.equals(".") || name.equals("..")) {
                     return false;
                 }
             }

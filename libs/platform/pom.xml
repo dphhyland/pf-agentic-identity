@@ -384,6 +384,9 @@
                                         <include>com.pingidentity.ps.oidf.platform.http.DeadlineSocket.DeadlineInputStream.skip(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.insecureIf(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.caBundle(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.TlsTrust.caCertificates(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.uri(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.http.OutboundHttp.get(*</include>
                                         <!-- exec (C-3): add gate includes below this line -->
                                     </includes>
                                     <limits>

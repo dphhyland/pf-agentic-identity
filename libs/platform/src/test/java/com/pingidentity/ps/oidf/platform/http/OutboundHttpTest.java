@@ -109,6 +109,14 @@ class OutboundHttpTest {
     }
 
     @Test
+    void nonAsciiInThePathAndQueryIsSentAsPercentEncodedUtf8() throws Exception {
+        try (TestServer server = TestServer.plain(TestServer.echo())) {
+            client().get("http://127.0.0.1:" + server.port() + "/\u00e9t\u00e9/\u010d?q=\u00e9", "*/*", seconds(5));
+            assertEquals("GET /%C3%A9t%C3%A9/%C4%8D?q=%C3%A9 HTTP/1.1", server.take().requestLine());
+        }
+    }
+
+    @Test
     void aPathlessUrlAsksForTheRoot() throws Exception {
         try (TestServer server = TestServer.plain(TestServer.echo())) {
             client().get("http://127.0.0.1:" + server.port(), "*/*", seconds(5));
@@ -254,7 +262,8 @@ class OutboundHttpTest {
         "hello world\r\n\r\n",
         "",
         "HTTP/1.1 200 OK\r\nNo colon here\r\nContent-Length: 0\r\n\r\n",
-        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\n",
+        // Followed by a well-formed 200, so only the explicit refusal of a 101 can make this fail.
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nzz\r\nhello\r\n0\r\n\r\n",
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\nffffffffffffffffffff\r\nhello\r\n0\r\n\r\n",
         "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n",

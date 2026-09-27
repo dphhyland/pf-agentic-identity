@@ -203,6 +203,12 @@ class AddressPolicyTest {
         assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/../admin"));
         assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/%2e%2e/admin"));
         assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/./x"));
+        assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/..;/admin"));
+        assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/.;x=1/admin"));
+        assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/x%5C..%5C..%5Cadmin"));
+        assertEquals(Reason.REFUSED_URL, refusal(policy, "http://spire.local:8081/bundle/%252e%252e/admin"));
+        assertEquals(8081, policy.check("http://spire.local:8081/bundle/v1;jsessionid=x/keys").port());
+        assertEquals(8081, policy.check("http://spire.local:8081/bundle/...").port());
     }
 
     @Test

@@ -618,8 +618,10 @@ credentials in the URL are refused; a port must be 1 to 65535 (the old policy ha
 matters only to an exemption, which pins it); every resolved address must be public; `addressExemptHosts` names
 hosts and their subdomains that may resolve privately (still resolved once and pinned); `trusting(urls)` exempts
 operator-configured endpoints from the scheme and address rules, pinned to scheme, host, port and path prefix;
-`allowPrivateNetworks` turns the address rule off. New: a path with a `.` or `..` segment, percent-encoded or not,
-is never inside an exemption, because the server would normalise it out of the prefix.
+`allowPrivateNetworks` turns the address rule off. New: a path is never inside an exemption when, decoded once, it
+has a `.` or `..` segment (percent-encoded or not, and with any `;` parameters stripped, so `..;` counts), a backslash
+or a percent sign (a second round of encoding), because a server that normalises or decodes it again could take it
+out of the prefix.
 
 Non-public, IPv4: 0.0.0.0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, the three documentation
 ranges, 192.168/16, 198.18/15, 224/4, and 240/4 with the broadcast address. IPv6: all of ::/96 (the unspecified
@@ -642,12 +644,14 @@ IPv4 address itself), NAT64 64:ff9b::/96 and 6to4 2002::/16. Two decisions:
 Two blocking steps have no timeout in the JDK's API and so are outside every deadline
 ([U-0195](../../docs/findings/U-0195.yaml)): resolving the name (`InetAddress.getAllByName` waits as long as the
 system resolver does) and writing the request (a peer that accepts and stops reading holds a write larger than the
-socket's send buffer; a request body is at most 1 MiB). Hostname verification has no off switch here: InsecureTls's
+socket's send buffer; a request body is at most 1 MiB, which limits how much a write can be left waiting on, not how
+long - in the review's probe on 2026-09-28 a 1 MiB write to a peer that never read returned about 4 s after a 1 s
+deadline on macOS and JDK 17, and at the deadline on the image's JDK 21 over loopback). Hostname verification has no off switch here: InsecureTls's
 JVM-wide `jdk.internal.httpclient.disableHostnameVerification` governs `java.net.http` alone, and carrying it into
 this transport would widen F-0035 rather than keep a behaviour. Under `insecureIf` the chain goes unchecked and the
 name is still checked, as InsecureTls documents for the JDK client.
 
-The package's 253 tests pass on JDK 17 and 20 in the reactor, and on the pinned image's own java 21.0.12.1
+The package's 255 tests pass on JDK 17 and 20 in the reactor, and on the pinned image's own java 21.0.12.1
 against the shaded, minimised jar itself (`docker run --entrypoint java` with the JUnit console launcher,
 2026-09-28), so the relocated HttpCore, the layered TLS reads and SNI are checked on the runtime PingFederate uses.
 The plugins that shade platform carry HttpCore under their own package

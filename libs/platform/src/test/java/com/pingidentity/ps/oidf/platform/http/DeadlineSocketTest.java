@@ -8,19 +8,57 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pingidentity.ps.oidf.platform.http.OutboundHttpException.Reason;
 import java.io.InputStream;
 import java.net.InetAddress;
+import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Proxy;
+import java.net.ProxySelector;
 import java.net.ServerSocket;
+import java.net.SocketAddress;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
 import javax.net.ssl.SSLException;
 import org.junit.jupiter.api.Test;
 
 /** Every way of reading the socket is bounded, and failures are named by the phase they happened in. */
 class DeadlineSocketTest {
+
+    @Test
+    void aJvmWideProxyIsNeverAskedSoThePinnedAddressIsDialledDirectly() throws Exception {
+        AtomicInteger asked = new AtomicInteger();
+        ProxySelector previous = ProxySelector.getDefault();
+        try (ServerSocket server = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"));
+             ServerSocket deadProxy = new ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))) {
+            InetSocketAddress proxyAddress = (InetSocketAddress) deadProxy.getLocalSocketAddress();
+            deadProxy.close();
+            // What a socksProxyHost set for the JVM amounts to: a selector that sends every socket through SOCKS.
+            ProxySelector.setDefault(new ProxySelector() {
+                @Override
+                public List<Proxy> select(URI uri) {
+                    asked.incrementAndGet();
+                    return List.of(new Proxy(Proxy.Type.SOCKS, proxyAddress));
+                }
+
+                @Override
+                public void connectFailed(URI uri, SocketAddress address, IOException e) {
+                    asked.incrementAndGet();
+                }
+            });
+            try (DeadlineSocket socket = new DeadlineSocket(Deadline.after(Duration.ofSeconds(5)))) {
+                socket.connect(new InetSocketAddress(InetAddress.getByName("127.0.0.1"), server.getLocalPort()), 1000);
+                try (Socket peer = server.accept()) {
+                    assertEquals(socket.getLocalPort(), peer.getPort());
+                }
+            }
+        } finally {
+            ProxySelector.setDefault(previous);
+        }
+        assertEquals(0, asked.get());
+    }
 
     @Test
     void singleByteReadsAndSkipsAreBoundedToo() throws Exception {

@@ -25,7 +25,12 @@ public final class OutboundRequest {
     /** The methods {@link OutboundHttp} sends. */
     public enum Method { GET, POST, PUT, PATCH, DELETE }
 
-    /** The largest request body: small enough that writing it does not wait on a peer that has stopped reading. */
+    /**
+     * The largest request body. Writes are not bounded by the deadline (U-0195), so this limits how much a write can
+     * be left waiting on when the peer stops reading; whether a body this size fits the socket buffers, so that the
+     * write returns without the peer reading, is U-0195's open question (on macOS and JDK 17, on 2026-09-28, a 1 MiB
+     * write to a peer that never read returned about 4 s after a 1 s deadline).
+     */
     public static final int MAX_REQUEST_BODY_BYTES = 1 << 20;
 
     /** Header names the client writes itself, lower case. */

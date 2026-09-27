@@ -59,18 +59,18 @@ public final class TlsTrust {
         return new TlsTrust(context.getSocketFactory(), "a supplied SSLContext");
     }
 
-    /** Trusts exactly these CA certificates, and nothing from the JVM's own store. */
-    public static TlsTrust caCertificates(Collection<X509Certificate> certificates) throws GeneralSecurityException {
+    /**
+     * Trusts exactly these CA certificates, and nothing from the JVM's own store. The {@link IOException} is
+     * {@link KeyStore#load}'s signature: creating an empty store reads nothing.
+     */
+    public static TlsTrust caCertificates(Collection<X509Certificate> certificates)
+            throws IOException, GeneralSecurityException {
         Objects.requireNonNull(certificates, "certificates");
         if (certificates.isEmpty()) {
             throw new GeneralSecurityException("a CA bundle must hold at least one certificate");
         }
         KeyStore store = KeyStore.getInstance(KeyStore.getDefaultType());
-        try {
-            store.load(null, null);
-        } catch (IOException e) {
-            throw new GeneralSecurityException("could not create an empty key store", e);
-        }
+        store.load(null, null);
         int index = 0;
         for (X509Certificate certificate : certificates) {
             store.setCertificateEntry("ca-" + index++, Objects.requireNonNull(certificate, "certificate"));
