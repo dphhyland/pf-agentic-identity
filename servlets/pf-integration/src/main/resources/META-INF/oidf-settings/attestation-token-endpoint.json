@@ -1,0 +1,52 @@
+{
+  "format": 1,
+  "component": "attestation-token-endpoint",
+  "module": "servlets/pf-integration",
+  "package": "com.pingidentity.ps.oidf.servlet.clientregistration",
+  "families": [],
+  "settings": [
+    {
+      "name": "OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether an attested agent this authority does not host is refused (401); a hosted agent must be active and inside its notAfter whatever this says",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attestation.require_hosted_agent"},
+        {"from": "env", "name": "OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "oidf.mock.attesters",
+      "kind": "system-property",
+      "type": "path",
+      "default": null,
+      "description": "A JWKS file of attester keys trusted directly, with no federation trust chain: a development and demo hook",
+      "when_wrong": {"effect": "not-checked", "detail": "A file that cannot be read is ignored; one that can is trusted, with a warning"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [{"from": "system-property", "name": "oidf.mock.attesters"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "oidf.attestation.required.claims",
+      "kind": "system-property",
+      "type": "words",
+      "default": null,
+      "description": "The top-level claims every client attestation must carry, comma-separated, for a client whose attestation_required_claims names none",
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given; a claim no attester sends refuses every such client"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "system-property", "name": "oidf.attestation.required.claims"}],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

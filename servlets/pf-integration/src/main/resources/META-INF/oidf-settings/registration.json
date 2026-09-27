@@ -1,0 +1,110 @@
+{
+  "format": 1,
+  "component": "registration",
+  "module": "servlets/pf-integration",
+  "package": "com.pingidentity.ps.oidf.servlet.clientregistration",
+  "families": [],
+  "settings": [
+    {
+      "name": "signingAlgorithm",
+      "kind": "init-param",
+      "type": "choice",
+      "default": "RS256",
+      "choices": ["RS256", "PS256"],
+      "description": "How /federation/register signs its registration response",
+      "when_wrong": {"effect": "first-request", "detail": "Anything but RS256 or PS256, exactly: the registration servlet fails on its first request"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "signingAlgorithm"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "acceptedSigningAlgorithms",
+      "kind": "init-param",
+      "type": "words",
+      "default": null,
+      "description": "Which algorithms a presented chain's statements may use, comma-separated; unset, any asymmetric one",
+      "when_wrong": {"effect": "not-checked", "detail": "An unknown algorithm matches no statement"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "acceptedSigningAlgorithms"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "subordinateStatementCacheMaxEntries",
+      "kind": "init-param",
+      "type": "int",
+      "default": 256,
+      "min": -1,
+      "max": 2147483647,
+      "description": "How many Subordinate Statements the registration servlet and filters keep; -1 is unbounded",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, 0, or below -1: that component does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "subordinateStatementCacheMaxEntries"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "trustChainEntryMaxAgeSeconds",
+      "kind": "init-param",
+      "type": "seconds",
+      "default": 60,
+      "min": 1,
+      "max": 9223372036854775807,
+      "description": "The oldest a statement in a presented trust chain may be",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number above 0: that component does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "trustChainEntryMaxAgeSeconds"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "trustControllerHost",
+      "kind": "init-param",
+      "type": "string",
+      "default": null,
+      "description": "May name the trust controller only to agree with OIDF_FEDERATION_TRUST_CONTROLLER_HOST",
+      "when_wrong": {"effect": "first-request", "detail": "A different value: /federation/register fails on its first request"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "trustControllerHost"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "trustControllerBaseUrl",
+      "kind": "init-param",
+      "type": "string",
+      "default": null,
+      "description": "May name the controller's base URL only to agree with OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL",
+      "when_wrong": {"effect": "first-request", "detail": "A different value: /federation/register fails on its first request"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "trustControllerBaseUrl"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTERED_CLIENTS_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Turns on GET /federation/registered-clients, a list of the clients this module registered, behind the admin token; off, it answers 404",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "registeredClientsEnabled"},
+        {"from": "system-property", "name": "oidf.registered.clients.enabled"},
+        {"from": "env", "name": "OIDF_REGISTERED_CLIENTS_ENABLED"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

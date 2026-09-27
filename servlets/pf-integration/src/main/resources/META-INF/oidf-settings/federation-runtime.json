@@ -1,0 +1,930 @@
+{
+  "format": 1,
+  "component": "federation-runtime",
+  "module": "servlets/pf-integration",
+  "package": "com.pingidentity.ps.oidf.pf",
+  "families": ["OIDF_FEDERATION_", "OIDF_REGISTRATION_", "OIDF_AUTO_REGISTRATION_", "OIDF_PDP_", "OIDF_BRIDGE_"],
+  "settings": [
+    {
+      "name": "OIDF_FEDERATION_TRUST_ANCHOR_JWKS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The pinned trust anchor keys every chain validates to: one JWK Set, for the anchor OIDF_FEDERATION_TRUST_CONTROLLER_HOST names, or a map of anchor to JWK Set in order of preference; public keys only, each with its own kid",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A set with a private or symmetric key, a missing or repeated kid, or PingFederate's own keys beside OIDF_FEDERATION_SELF_ANCHOR: the registration filters do not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.anchor.jwks"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_ANCHOR_JWKS"}
+      ],
+      "aliases": [
+        {"name": "OIDF_TRUST_ANCHOR_JWKS", "sources": [{"from": "system-property", "name": "oidf.trust.anchor.jwks"}, {"from": "env", "name": "OIDF_TRUST_ANCHOR_JWKS"}]}
+      ],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_SELF_ANCHOR",
+      "kind": "env",
+      "type": "https-url",
+      "default": null,
+      "description": "PingFederate's own Entity Identifier, when it is a trust anchor itself: chains ending at it are checked with the key it signs with, read from its key store each time",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not an https URL with a host: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.self.anchor"},
+        {"from": "env", "name": "OIDF_FEDERATION_SELF_ANCHOR"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_CONTROLLER_HOST",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The federation's trust anchor as a bare Entity Identifier: the anchor a single pinned JWK Set belongs to, the one the OGNL criteria and the attestation filter check against, and exempt from the fetch rules",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Set with no anchor keys: the registration filters skip automatic registration and the OGNL criteria refuse. Unset, with no anchor map and no self anchor: the token-endpoint filter does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.controller.host"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_CONTROLLER_HOST"}
+      ],
+      "aliases": [
+        {"name": "OIDF_TRUST_CONTROLLER_HOST", "sources": [{"from": "system-property", "name": "oidf.trust.controller.host"}, {"from": "env", "name": "OIDF_TRUST_CONTROLLER_HOST"}]}
+      ],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "Where the trust controller's own Entity Configuration is fetched, when it is served under a context path; unset, the controller host. Its origin and path prefix are exempt from the fetch rules (https only, no private addresses), as the controller host is",
+      "when_wrong": {"effect": "not-checked", "detail": "A wrong value shows as failed fetches; an http or private-network value is fetched all the same, because it is exempt"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.controller.base.url"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether federation fetches skip certificate checks, for a test federation only; PDP calls always check",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false; the superseded name set to a different value stops PingFederate starting"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.ignore.ssl.errors"},
+        {"from": "env", "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS"}
+      ],
+      "aliases": [
+        {"name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL", "sources": [{"from": "system-property", "name": "oidf.trust.controller.ignore.ssl"}, {"from": "env", "name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL"}]}
+      ],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether the attestation filter refuses to start without bridge signing configured",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attestation.require.bridge.key"},
+        {"from": "env", "name": "OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a client whose bridge-key entry names no attesters is refused at the token endpoint (401); false lets any trusted attester vouch for it",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "accepted-risk:attester-binding-off",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attestation.require.attester.binding"},
+        {"from": "env", "name": "OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REQUIRE_METADATA_POLICY",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a registration whose chain has no superior setting a metadata policy for the role registered is refused (400 invalid_client_metadata)",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "accepted-risk:no-metadata-policy",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.require.metadata.policy"},
+        {"from": "env", "name": "OIDF_REQUIRE_METADATA_POLICY"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_MAX_TTL_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 86400,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "The longest a registration lasts: it ends at its chain's expiry or this, whichever is sooner (12.3)",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or below the minimum: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.registration.max.ttl.seconds"},
+        {"from": "env", "name": "OIDF_REGISTRATION_MAX_TTL_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_MIN_TTL_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 60,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "A chain that would leave a registration less than this registers nothing",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, negative, or above the maximum: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.registration.min.ttl.seconds"},
+        {"from": "env", "name": "OIDF_REGISTRATION_MIN_TTL_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 300,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "How long before its end an automatic registration is renewed at the token endpoint",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or negative: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.registration.refresh.before.expiry.seconds"},
+        {"from": "env", "name": "OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_EXPIRY_ENFORCEMENT",
+      "kind": "env",
+      "type": "choice",
+      "default": "refuse",
+      "choices": ["refuse", "disable", "log"],
+      "description": "What an expired registration that cannot be renewed meets: refuse, the request is refused; disable, and the client disabled until a renewal; log, the expiry is logged and nothing enforced, the sweeper included",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but refuse, disable or log, in any case: PingFederate does not start"},
+      "profile": "accepted-risk:expiry-log-mode",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.registration.expiry.enforcement"},
+        {"from": "env", "name": "OIDF_REGISTRATION_EXPIRY_ENFORCEMENT"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_SWEEP_INTERVAL_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 300,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "How often a background task disables federation clients whose registration has ended; 0 turns it off, and one runs per JVM",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or negative: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.registration.sweep.interval.seconds"},
+        {"from": "env", "name": "OIDF_REGISTRATION_SWEEP_INTERVAL_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_FAIL_CLOSED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a request whose automatic registration fails, or whose expired registration cannot be renewed, is refused with the reason rather than passed on to PingFederate",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "accepted-risk:registration-fail-open",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.fail.closed"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_FAIL_CLOSED"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_FRONT_CHANNEL",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Automatic registration of relying parties at the authorization and PAR endpoints (12.1.1); false passes those requests straight through",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.front.channel"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_FRONT_CHANNEL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_AUTHZ_ERROR_MODE",
+      "kind": "env",
+      "type": "choice",
+      "default": "page",
+      "choices": ["page", "passthrough"],
+      "description": "How a refusal at the authorization endpoint is answered: page, this module's error page and never a redirect; passthrough, the request goes on to PingFederate unregistered",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but page or passthrough, in any case: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.authz.error.mode"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_AUTHZ_ERROR_MODE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_ERROR_PAGE",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "An HTML file for the authorization endpoint's error page, with ${error}, ${errorDescription} and ${trackingId}, read once at start-up; unset, a built-in page",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Cannot be read: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.error.page"},
+        {"from": "env", "name": "OIDF_FEDERATION_ERROR_PAGE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS",
+      "kind": "env",
+      "type": "choice",
+      "default": "allow",
+      "choices": ["allow", "refuse"],
+      "description": "allow: an encrypted request object registers the relying party from its header, and PingFederate checks the rest after decrypting; refuse: such requests are refused",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but allow or refuse, in any case: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.encrypted.request.objects"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_DEFAULT_SCOPES",
+      "kind": "env",
+      "type": "words",
+      "default": "openid",
+      "description": "Space-separated scopes for a front-channel relying party whose metadata names none",
+      "when_wrong": {"effect": "not-checked", "detail": "Registered as given"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.default.scopes"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_DEFAULT_SCOPES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_REQUIRE_PAR",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether every front-channel relying party is registered as PAR-only",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.require.par"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_REQUIRE_PAR"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_REQUIRE_PKCE",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether front-channel relying parties are registered requiring PKCE",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "accepted-risk:pkce-off",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.require.pkce"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_REQUIRE_PKCE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES",
+      "kind": "env",
+      "type": "int",
+      "default": 65536,
+      "min": 1,
+      "max": 2147483647,
+      "description": "The largest request object or PAR client assertion read at the front channel, in bytes",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or below 1: PingFederate does not start. A number past an int wraps before it is checked (F-0198)"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.max.request.object.bytes"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS",
+      "kind": "env",
+      "type": "int",
+      "default": 8,
+      "min": 1,
+      "max": 2147483647,
+      "description": "Chains each registration filter checks at once, the token-endpoint and front-channel filters a pool each; the rest get a 503 with Retry-After",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or below 1: PingFederate does not start. A number past an int wraps before it is checked (F-0198)"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.max.concurrent.resolutions"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 2000,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "How long a request waits for another registration of the same client in the same filter",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or negative: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.auto.registration.lock.wait.ms"},
+        {"from": "env", "name": "OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_REQUIRED_TRUST_MARKS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The Trust Marks an entity needs before it registers, by role: {\"*\": [types], \"openid_relying_party\": [types]}; the * list applies to every role and each role's list adds to it",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not that shape: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.required.trust.marks"},
+        {"from": "env", "name": "OIDF_FEDERATION_REQUIRED_TRUST_MARKS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_MARK_STATUS_CHECK",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether a Trust Mark also needs its issuer's status endpoint to say active (8.4), at registration and in resolve responses",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.mark.status.check"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_MARK_STATUS_CHECK"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_MARK_TYPES",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The Trust Mark types PingFederate issues, by type: lifetime_seconds, subjects (hosted or any), delegation, ref and logo_uri, all optional; unset, it issues none",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not that shape, a lifetime that is not positive, or a ref that is not https: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.mark.types"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_MARK_TYPES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_MARKS",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "Trust Marks other issuers gave PingFederate, carried in its own configuration: a JSON array of {\"trust_mark_type\", \"trust_mark\"}",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not that shape, or a mark whose type does not match: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.marks"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_MARKS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_MARK_ISSUERS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "As an anchor, who may issue each Trust Mark type: {\"<type>\": [entity ids]}, [] for anyone; PingFederate adds itself for the types it issues",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not that shape: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.mark.issuers"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_MARK_ISSUERS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_TRUST_MARK_OWNERS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "As an anchor, who owns each Trust Mark type: {\"<type>\": {\"sub\": entity id, \"jwks\": {...}}}",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not that shape: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.trust.mark.owners"},
+        {"from": "env", "name": "OIDF_FEDERATION_TRUST_MARK_OWNERS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_HISTORICAL_KEYS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether PingFederate records its signing key at each start and publishes the ones it retired at /federation/historical_keys (8.7)",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, or starting while signing with a revoked key: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.historical.keys"},
+        {"from": "env", "name": "OIDF_FEDERATION_HISTORICAL_KEYS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_KEY_HISTORY_GRACE_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 86400,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "How long a retired key still vouches for what it signed before it was retired",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or negative: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.key.history.grace.seconds"},
+        {"from": "env", "name": "OIDF_FEDERATION_KEY_HISTORY_GRACE_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AUTHORITY_METADATA_POLICY",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The metadata policy every hosted agent's Subordinate Statement starts from, by role; an agent's own policy can only narrow it",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a valid policy, or not one well-formed JSON object: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.authority.metadata.policy"},
+        {"from": "env", "name": "OIDF_AUTHORITY_METADATA_POLICY"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The constraints (6.2) on every Subordinate Statement PingFederate issues: max_path_length, naming_constraints, allowed_entity_types",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not valid constraints, federation_entity in allowed_entity_types included: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.subordinate.constraints"},
+        {"from": "env", "name": "OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_ENDPOINT_AUTH",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "Which federation endpoints take private_key_jwt client authentication (8.8), each none, optional or required; an endpoint not named takes none",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not that shape, an endpoint that is not one, or set without trust anchors: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.endpoint.auth"},
+        {"from": "env", "name": "OIDF_FEDERATION_ENDPOINT_AUTH"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_ENDPOINT_AUTH_SIGNING_ALGS",
+      "kind": "env",
+      "type": "words",
+      "default": "RS256 PS256 ES256",
+      "description": "What a client may sign its endpoint assertion with, and what the Entity Configuration advertises",
+      "when_wrong": {"effect": "doesnt-start", "detail": "An algorithm that is not an asymmetric JWS one: PingFederate does not start, even with endpoint authentication off"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.federation.endpoint.auth.signing.algs"},
+        {"from": "env", "name": "OIDF_FEDERATION_ENDPOINT_AUTH_SIGNING_ALGS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_MODE",
+      "kind": "env",
+      "type": "choice",
+      "default": "local",
+      "choices": ["off", "local", "authzen"],
+      "description": "Who decides federation requests: off, nobody; local, only OIDF_REGISTRATION_ALLOWED_SCOPES; authzen, that and then the AuthZEN PDP",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything else, or authzen with no URL: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.mode"},
+        {"from": "env", "name": "OIDF_PDP_MODE"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The PDP's base URL and identifier; it is asked at /access/v1/evaluation under it unless discovered",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not https with a host (http only with OIDF_FETCH_ALLOW_HTTP=true): PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.url"},
+        {"from": "env", "name": "OIDF_PDP_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_EVALUATION_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The AuthZEN evaluation endpoint itself, when it is not at the default path; wins over the URL and discovery",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not https with a host (http only with OIDF_FETCH_ALLOW_HTTP=true): PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.evaluation.url"},
+        {"from": "env", "name": "OIDF_PDP_EVALUATION_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_DISCOVER",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether the evaluation endpoint is read from the PDP's /.well-known/authzen-configuration, whose policy_decision_point must equal OIDF_PDP_URL",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false, or true without OIDF_PDP_URL: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.discover"},
+        {"from": "env", "name": "OIDF_PDP_DISCOVER"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_AUTH",
+      "kind": "env",
+      "type": "choice",
+      "default": "none",
+      "choices": ["none", "bearer", "header"],
+      "description": "How this deployment authenticates to the PDP: none, bearer (Authorization: Bearer) or header (the token in OIDF_PDP_AUTH_HEADER)",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything else, or bearer or header with no token: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.auth"},
+        {"from": "env", "name": "OIDF_PDP_AUTH"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_AUTH_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token or shared secret OIDF_PDP_AUTH sends",
+      "when_wrong": {"effect": "per-request", "detail": "The PDP refuses every call, which counts as no decision"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.auth.token"},
+        {"from": "env", "name": "OIDF_PDP_AUTH_TOKEN"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_AUTH_HEADER",
+      "kind": "env",
+      "type": "string",
+      "default": "CLIENT-TOKEN",
+      "description": "The header the shared secret goes in, for OIDF_PDP_AUTH=header",
+      "when_wrong": {"effect": "per-request", "detail": "The PDP refuses every call, which counts as no decision"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.auth.header"},
+        {"from": "env", "name": "OIDF_PDP_AUTH_HEADER"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_FAIL_OPEN",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "With no decision from the PDP: false refuses (503); true goes ahead without narrowing and logs federation.pdp.failopen",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "accepted-risk:pdp-fail-open",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.fail.open"},
+        {"from": "env", "name": "OIDF_PDP_FAIL_OPEN"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_UNKNOWN_CONTEXT",
+      "kind": "env",
+      "type": "choice",
+      "default": "ignore",
+      "choices": ["ignore", "reject"],
+      "description": "ignore, or reject: a permit carrying context this deployment does not understand is treated as a denial",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Anything but ignore or reject, in any case: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.unknown.context"},
+        {"from": "env", "name": "OIDF_PDP_UNKNOWN_CONTEXT"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_CACHE_TTL_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 0,
+      "min": 0,
+      "max": 9223372036854775807,
+      "description": "How long the PDP's answers are kept - permits and denials, never failures; 0 keeps none",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number, or negative: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.cache.ttl.seconds"},
+        {"from": "env", "name": "OIDF_PDP_CACHE_TTL_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_CONNECT_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 2000,
+      "min": 1,
+      "max": 9223372036854775807,
+      "description": "How long to wait to connect to the PDP",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number above 0: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.connect.timeout.ms"},
+        {"from": "env", "name": "OIDF_PDP_CONNECT_TIMEOUT_MS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_REQUEST_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 3000,
+      "min": 1,
+      "max": 9223372036854775807,
+      "description": "How long to wait for the PDP's answer",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number above 0: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.request.timeout.ms"},
+        {"from": "env", "name": "OIDF_PDP_REQUEST_TIMEOUT_MS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_SURFACE_USER_REASON",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether a refused client is shown the PDP's reason_user",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not true or false: PingFederate does not start"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.surface.user.reason"},
+        {"from": "env", "name": "OIDF_PDP_SURFACE_USER_REASON"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_PDP_DECISION_POINTS",
+      "kind": "env",
+      "type": "words",
+      "default": "explicit_registration automatic_registration",
+      "description": "Where the PDP is asked: explicit_registration, automatic_registration, hosted_entity_enrol, token_issuance",
+      "when_wrong": {"effect": "doesnt-start", "detail": "A name that is not one of the four: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.pdp.decision.points"},
+        {"from": "env", "name": "OIDF_PDP_DECISION_POINTS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_ALLOWED_SCOPES",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "This deployment's own policy: every registration is narrowed to these scopes, space- or comma-separated; unset, no limit",
+      "when_wrong": {"effect": "doesnt-start", "detail": "Set beside OIDF_PDP_MODE=off, or a list of nothing: PingFederate does not start"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.registration.allowed.scopes"},
+        {"from": "env", "name": "OIDF_REGISTRATION_ALLOWED_SCOPES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_BRIDGE_SIGNER_BACKING",
+      "kind": "env",
+      "type": "choice",
+      "default": null,
+      "choices": ["vault", "config"],
+      "description": "Where per-client bridge keys come from: vault, OpenBao transit keys; config, inline JWKs, for development; unset, no bridge signing is configured",
+      "when_wrong": {"effect": "per-request", "detail": "Anything else, or keys the backing cannot use: that client's token requests fail (500)"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.bridge.signer.backing"},
+        {"from": "env", "name": "OIDF_BRIDGE_SIGNER_BACKING"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_BRIDGE_SIGNING_KEYS",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "The JSON file mapping each client id to its bridge key: {\"key_ref\": ...} for vault, {\"jwk\": {...}} for config",
+      "when_wrong": {"effect": "per-request", "detail": "Missing, unreadable or not that shape: token requests that need a bridge key fail (500)"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.bridge.signing.keys"},
+        {"from": "env", "name": "OIDF_BRIDGE_SIGNING_KEYS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_BRIDGE_VAULT_ADDR",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "OpenBao's address, for the vault backing",
+      "when_wrong": {"effect": "per-request", "detail": "Wrong: token requests that need a bridge key fail (500)"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.bridge.vault.addr"},
+        {"from": "env", "name": "OIDF_BRIDGE_VAULT_ADDR"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_BRIDGE_VAULT_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The OpenBao token, for the vault backing",
+      "when_wrong": {"effect": "per-request", "detail": "Refused: token requests that need a bridge key fail (500)"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.bridge.vault.token"},
+        {"from": "env", "name": "OIDF_BRIDGE_VAULT_TOKEN"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": [
+    {"name": "OIDF_BRIDGE_PRIVATE_JWK", "from": "env", "replacement": "OIDF_BRIDGE_SIGNING_KEYS", "release": "0.1.2"},
+    {"name": "oidf.bridge.private.jwk", "from": "system-property", "replacement": "OIDF_BRIDGE_SIGNING_KEYS", "release": "0.1.2"},
+    {"name": "OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK", "from": "env", "replacement": null, "release": "0.1.2"},
+    {"name": "oidf.bridge.previous.public.jwk", "from": "system-property", "replacement": null, "release": "0.1.2"}
+  ]
+}
