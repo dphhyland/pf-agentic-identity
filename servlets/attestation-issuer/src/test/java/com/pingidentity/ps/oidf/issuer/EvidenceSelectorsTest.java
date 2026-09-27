@@ -270,6 +270,139 @@ class EvidenceSelectorsTest {
         assertTrue(x.getMessage().contains("expired"), x.getMessage());
     }
 
+    // --- the same rules over every validator ------------------------------------------------------------------
+
+    /**
+     * One validator, with a verified token whose selector-bearing claim carries {@code value}, the selectors that
+     * token proves, and the error the validator refuses evidence with.
+     */
+    private record Case(String name, InstanceAttestationValidator validator, AttestationIssuanceConfig config,
+                        String typ, java.util.function.Function<String, JwtClaims> claims,
+                        java.util.function.Function<String, SortedMap<String, SortedSet<String>>> expected,
+                        String error) {
+    }
+
+    private List<Case> cases() throws Exception {
+        List<Case> out = new ArrayList<>();
+        out.add(new Case("spiffe-jwt", new SpiffeInstanceAttestationValidator(),
+                config(AttestationIssuanceConfig.EVIDENCE_SPIFFE_JWT, null, null), null,
+                v -> claims(null, "spiffe://banking.demo/ns/payments/sa/" + v),
+                v -> map("spiffe-jwt:spiffe_id", "spiffe://banking.demo/ns/payments/sa/" + v,
+                        "spiffe-jwt:trust_domain", "banking.demo"), "invalid_svid"));
+        String[][] clusters = {
+            {AttestationIssuanceConfig.EVIDENCE_GKE_SA_TOKEN, GKE_ISSUER, "demo-project.svc.id.goog"},
+            {AttestationIssuanceConfig.EVIDENCE_EKS_SA_TOKEN, EKS_ISSUER, "eks.banking.demo"},
+            {AttestationIssuanceConfig.EVIDENCE_AKS_SA_TOKEN, AKS_ISSUER, "aks.banking.demo"},
+        };
+        List<InstanceAttestationValidator> clusterValidators = List.of(new GkeTokenValidator(),
+                new EksTokenValidator(), new AksWorkloadIdentityValidator());
+        for (int i = 0; i < clusters.length; i++) {
+            String type = clusters[i][0];
+            String issuer = clusters[i][1];
+            out.add(new Case(type, clusterValidators.get(i), config(type, clusters[i][2], issuer), null,
+                    v -> claims(issuer, "system:serviceaccount:payments:" + v),
+                    v -> map(type + ":issuer", issuer, type + ":namespace", "payments",
+                            type + ":service_account", v), "invalid_svid"));
+        }
+        out.add(new Case("gcp-id-token", new GcpSaTokenValidator(),
+                config(AttestationIssuanceConfig.EVIDENCE_GCP_ID_TOKEN, "demo-project.gcp.example", GOOGLE_ISSUER), null,
+                v -> {
+                    JwtClaims c = claims(GOOGLE_ISSUER, "104857600000000000001");
+                    c.setClaim("email", v + "@demo-project.iam.gserviceaccount.com");
+                    return c;
+                },
+                v -> map("gcp-id-token:email", v + "@demo-project.iam.gserviceaccount.com",
+                        "gcp-id-token:issuer", GOOGLE_ISSUER), "invalid_svid"));
+        out.add(new Case("aws-sts-web-identity", new AwsStsWebIdentityValidator(),
+                config(AttestationIssuanceConfig.EVIDENCE_AWS_STS_WEB_IDENTITY, "aws.banking.demo", AWS_ISSUER), null,
+                v -> claims(AWS_ISSUER, "arn:aws:iam::123456789012:role/" + v),
+                v -> map("aws-sts-web-identity:account", "123456789012", "aws-sts-web-identity:issuer", AWS_ISSUER,
+                        "aws-sts-web-identity:role", v), "invalid_svid"));
+        out.add(new Case("azure-mi-token", new AzureManagedIdentityValidator(),
+                config(AttestationIssuanceConfig.EVIDENCE_AZURE_MI_TOKEN, "azure.banking.demo", AZURE_ISSUER), null,
+                v -> {
+                    JwtClaims c = claims(AZURE_ISSUER, "opaque-subject");
+                    c.setClaim("tid", TENANT);
+                    c.setClaim("oid", v);
+                    return c;
+                },
+                v -> map("azure-mi-token:issuer", AZURE_ISSUER, "azure-mi-token:object_id", v,
+                        "azure-mi-token:tenant_id", TENANT), "invalid_svid"));
+        out.add(new Case("wallet-instance-attestation", wallet(), walletConfig(), "wallet-instance-attestation+jwt",
+                v -> {
+                    JwtClaims c = claims(WALLET_PROVIDER, "urn:wallet:" + v);
+                    try {
+                        c.setClaim("cnf", Map.of("jwk", TestJwts.publicParams(TestJwts.ec("wallet-instance-1"))));
+                    } catch (Exception e) {
+                        throw new IllegalStateException(e);
+                    }
+                    return c;
+                },
+                v -> map("wallet-instance-attestation:instance", "urn:wallet:" + v,
+                        "wallet-instance-attestation:provider", WALLET_PROVIDER), "invalid_instance_attestation"));
+        List<String> ids = new ArrayList<>();
+        for (Case c : out) {
+            ids.add(c.validator().id());
+        }
+        assertEquals(new TreeSet<>(InstanceAttestationValidators.defaults().ids()), new TreeSet<>(ids),
+                "every registered validator has a case");
+        return out;
+    }
+
+    private InstanceIdentity validate(Case c, PublicJsonWebKey signer, JwtClaims claims) throws Exception {
+        List<JsonWebKey> keys = c.typ() == null ? this.bundle : List.of();
+        return c.validator().validate(TestJwts.sign(signer, "ES256", c.typ(), claims), keys, c.config());
+    }
+
+    @Test
+    void everyValidatorIgnoresExtraAndUnknownClaims() throws Exception {
+        for (Case c : cases()) {
+            JwtClaims claims = c.claims().apply("payment-agent");
+            claims.setClaim("selectors", List.of("k8s:ns:admin", c.name() + ":namespace:admin"));
+            claims.setClaim(c.name() + ":namespace", "admin");
+            claims.setClaim(c.name() + ":spiffe_id", "spiffe://evil.example/admin");
+            for (String name : c.validator().selectorNames()) {
+                if (claims.getClaimValue(name) == null) {
+                    claims.setClaim(name, "admin");
+                }
+            }
+            claims.setClaim("kubernetes.io", Map.of("namespace", "admin", "pod", Map.of("name", "p-1")));
+            claims.setClaim("spire", Map.of("selectors", List.of("k8s:sa:root")));
+            assertEquals(c.expected().apply("payment-agent"), validate(c, this.key, claims).selectors(), c.name());
+        }
+    }
+
+    @Test
+    void everyValidatorRefusesAnOversizedSelectorValue() throws Exception {
+        String longValue = "a".repeat(EvidenceSelectors.MAX_VALUE_BYTES + 1);
+        for (Case c : cases()) {
+            IssuanceException e = assertThrows(IssuanceException.class,
+                    () -> validate(c, this.key, c.claims().apply(longValue)), c.name());
+            assertEquals(c.error(), e.error(), c.name());
+            assertTrue(e.getMessage().contains("longer than " + EvidenceSelectors.MAX_VALUE_BYTES),
+                    c.name() + ": " + e.getMessage());
+        }
+    }
+
+    @Test
+    void everyValidatorRefusesAForgedOrExpiredTokenForThatFaultBeforeAnySelector() throws Exception {
+        String longValue = "a".repeat(5000);
+        PublicJsonWebKey stranger = TestJwts.ec("bundle-1");
+        for (Case c : cases()) {
+            IssuanceException forged = assertThrows(IssuanceException.class,
+                    () -> validate(c, stranger, c.claims().apply(longValue)), c.name());
+            assertEquals(c.error(), forged.error(), c.name());
+            assertTrue(forged.getMessage().contains("signature"), c.name() + ": " + forged.getMessage());
+
+            JwtClaims expired = c.claims().apply(longValue);
+            expired.setExpirationTime(NumericDate.fromSeconds(NumericDate.now().getValue() - 3600));
+            IssuanceException x = assertThrows(IssuanceException.class, () -> validate(c, this.key, expired),
+                    c.name());
+            assertEquals(c.error(), x.error(), c.name());
+            assertTrue(x.getMessage().contains("expired"), c.name() + ": " + x.getMessage());
+        }
+    }
+
     // --- EvidenceSelectors itself --------------------------------------------------------------------------------
 
     @Test

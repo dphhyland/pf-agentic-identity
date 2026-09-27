@@ -43,8 +43,9 @@ source for every type but the wallet's is the client's trust bundle: `attestatio
 `attestation_bundle_url` fetched and cached (`RemoteJwksCache`). The key is the one the header's `kid` names, or
 the bundle's only key when there is no `kid`. The algorithm must be RS, PS or ES 256/384/512 or EdDSA, so `none`
 and HMAC are refused. `aud` must contain the client's `attestation_issuer`. `exp` is required and refused once more
-than 60 s past; `iat` is read when present. Any failure is `invalid_svid`, or `invalid_instance_attestation` for
-the wallet.
+than 60 s past; `iat` is read when present. A failure of the evidence is `invalid_svid`, or
+`invalid_instance_attestation` for the wallet; a cloud type's client with no `attestation_trust_domain` is a
+configuration error, `invalid_client`.
 
 | Evidence type (validator) | Key | `iss` | Other claims required | `subject` | `trustDomain` | `workloadClaims` |
 |---|---|---|---|---|---|---|
@@ -100,8 +101,8 @@ The rules:
   refused (`invalid_svid`, or `invalid_instance_attestation` for the wallet); it is never truncated, because a cut
   set could drop the one selector a condition turns on. 2048 bytes is the SPIFFE ID's own limit - SPIFFE-ID §2.3:
   "SPIFFE implementations MUST support SPIFFE URIs up to 2048 bytes in length and SHOULD NOT generate URIs of length
-  greater than 2048 bytes" - so every SPIFFE ID a conforming implementation must accept fits. 32 is ten times the
-  longest list today (three names, one value each); the room is for SPIRE's selectors, below, and the bound keeps
+  greater than 2048 bytes" - so every SPIFFE ID a conforming implementation must accept fits. 32 is about ten times
+  the longest list today (three names, one value each); the room is for SPIRE's selectors, below, and the bound keeps
   what X-B09 matches per issuance small.
 - **Nothing after the validator.** Not the request's parameters, not the binding's `metadata`, not the introspected
   attributes (step 5 in `AttestationIssuanceServlet`), not the caller-asserted context (step 5a). `InstanceIdentity`
@@ -110,10 +111,11 @@ The rules:
 - **Nothing on the wire.** `AttestationMinter` reads the identity's format, subject, `workloadClaims`, digest,
   evidence type and expiry, and not its selectors, so a minted attestation is the same with or without them.
 
-`EvidenceSelectorsTest` holds each rule: each validator's selectors from a real-shaped token; extra, unknown,
-non-string and oversized claims; refusals that come before any selector is built; the bounds; and, for 200 random
-seeds, binding metadata, asserted context and SPIRE answers that leave the selectors as they were and a minted
-attestation equal to one minted from the same identity without them.
+`EvidenceSelectorsTest` holds each rule: each validator's selectors from a real-shaped token; for every validator,
+extra and unknown claims, an oversized value, and a forged or expired token refused for that fault before any
+selector is built; non-string claims; the bounds; and, for 200 random
+seeds, binding metadata, asserted context and SPIRE answers that leave the selectors as they were, and a minted
+attestation with the same members and the same `workload` as one minted from the same identity without them.
 
 ### SPIRE
 
