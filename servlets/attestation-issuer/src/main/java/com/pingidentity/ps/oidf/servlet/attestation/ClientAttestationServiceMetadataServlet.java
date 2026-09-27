@@ -4,6 +4,7 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.issuer.EvidencePolicy;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import java.io.IOException;
@@ -12,6 +13,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -134,8 +136,22 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
 
     /** Client metadata sources in assurance order, mirroring the issuance servlet's composite resolver. */
     private static List<String> metadataSources() {
+        return metadataSources(System::getProperty, System::getenv);
+    }
+
+    /**
+     * As above, over the given property and environment reads. {@code cimd} is advertised only when
+     * {@code OIDF_CIMD_TRUST_BUNDLES} is set and {@code OIDF_DEPLOYMENT_PROFILE=development}: under any other profile
+     * the attester refuses the CIMD source (plan item M-1), and a document that still listed it would promise
+     * clients a source they cannot be issued from.
+     */
+    static List<String> metadataSources(Function<String, String> props, Function<String, String> env) {
         List<String> sources = new ArrayList<>();
-        if (AttestationIssuanceServlet.env("oidf.cimd.trust.bundles", "OIDF_CIMD_TRUST_BUNDLES") != null) {
+        String bundles = props.apply("oidf.cimd.trust.bundles");
+        if (bundles == null || bundles.isBlank()) {
+            bundles = env.apply("OIDF_CIMD_TRUST_BUNDLES");
+        }
+        if (bundles != null && !bundles.isBlank() && !EvidencePolicy.isProduction(env)) {
             sources.add("cimd");
         }
         sources.add("registration");

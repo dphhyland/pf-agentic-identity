@@ -5,7 +5,7 @@ area: client-attestation, rar-paz-plugin
 source: review-2026-09-26
 status: open
 plan_items: [S-1, S1a, S1b, S1c]
-prs: []
+prs: [26]
 verification: ''
 target_release: 0.4.0
 notes: >
@@ -14,4 +14,7 @@ notes: >
   scalar pass, and a refresh reissues the requested detail when isEqualOrSubset says so. Verified in code by
   the review (2026-09-26). S-1 replaces both with libs/rar-model: per-type rules, strict contains, undeclared
   fields refused, one vector file run by four runners. The ceiling bypass found while designing is F-0032
-  (S4d, Phase 3).
+  (S4d, Phase 3). S1a landed libs/rar-model on 2026-09-27 (the library only: nine rules, alternatives for
+  payment_initiation's two spellings of an amount, three built-in models, contains / authorize / intersect,
+  244 vectors in a test-jar); both copies still run until S1b and S1c wire the library in, so the status stays
+  open.

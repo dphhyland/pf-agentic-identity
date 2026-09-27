@@ -83,7 +83,7 @@ public final class AksWorkloadIdentityValidator implements InstanceAttestationVa
     @Override
     public InstanceIdentity validate(String evidence, List<JsonWebKey> bundleKeys, AttestationIssuanceConfig config)
             throws IssuanceException {
-        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config));
+        return InstanceIdentity.ofSpiffe(validateSvid(evidence, bundleKeys, config), this.id());
     }
 
     /**

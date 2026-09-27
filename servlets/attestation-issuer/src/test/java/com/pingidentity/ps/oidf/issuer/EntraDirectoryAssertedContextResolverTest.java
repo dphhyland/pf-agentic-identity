@@ -32,7 +32,7 @@ class EntraDirectoryAssertedContextResolverTest {
                 EntraDirectoryAssertedContextResolver.fromJson(DIRECTORY_JSON);
         AssertedContext context = resolver.resolve(
                 InstanceIdentity.ofSpiffe(new SpiffeSvid("spiffe://demo/gateway", "demo", "/gateway",
-                        List.of("https://attester.example.com"), 0, 0, "raw")),
+                        List.of("https://attester.example.com"), 0, 0, "header.payload.signature")),
                 "d7c5a2b1-0000-4000-8000-copilot0demo", null);
         assertEquals("entra-copilot-agent-oid", context.claims().get("type"));
         assertEquals("d7c5a2b1-0000-4000-8000-copilot0demo", context.claims().get("oid"));
@@ -48,7 +48,7 @@ class EntraDirectoryAssertedContextResolverTest {
                 EntraDirectoryAssertedContextResolver.fromJson(DIRECTORY_JSON);
         IssuanceException e = assertThrows(IssuanceException.class, () -> resolver.resolve(
                 InstanceIdentity.ofSpiffe(new SpiffeSvid("spiffe://demo/gateway", "demo", "/gateway",
-                        List.of("https://attester.example.com"), 0, 0, "raw")),
+                        List.of("https://attester.example.com"), 0, 0, "header.payload.signature")),
                 "ffffffff-not-registered", null));
         assertEquals("access_denied", e.error());
     }
@@ -59,7 +59,7 @@ class EntraDirectoryAssertedContextResolverTest {
                 EntraDirectoryAssertedContextResolver.fromJson(DIRECTORY_JSON);
         IssuanceException e = assertThrows(IssuanceException.class, () -> resolver.resolve(
                 InstanceIdentity.ofSpiffe(new SpiffeSvid("spiffe://demo/gateway", "demo", "/gateway",
-                        List.of("https://attester.example.com"), 0, 0, "raw")),
+                        List.of("https://attester.example.com"), 0, 0, "header.payload.signature")),
                 "  ", null));
         assertEquals("invalid_request", e.error());
     }
@@ -78,7 +78,7 @@ class EntraDirectoryAssertedContextResolverTest {
                 EntraDirectoryAssertedContextResolver.fromJson("{\"oid-1\":{}}");
         AssertedContext context = resolver.resolve(
                 InstanceIdentity.ofSpiffe(new SpiffeSvid("spiffe://demo/gateway", "demo", "/gateway",
-                        List.of("https://attester.example.com"), 0, 0, "raw")),
+                        List.of("https://attester.example.com"), 0, 0, "header.payload.signature")),
                 "oid-1", null);
         assertEquals(List.of(), context.claims().get("groups"));
         assertTrue(context.ceiling().isEmpty());

@@ -199,6 +199,7 @@ but not by the same code.
 | `federation.trust_mark.verified` | Another issuer's Trust Mark checked out | No |
 | `federation.client.authenticated`, `.refused` | A client authenticated at a federation endpoint, or was refused | Refused only |
 | `federation.key.retired`, `.revoked` | PingFederate's signing key changed since it last started, or a retired key was revoked | Yes |
+| `attestation.evidence.conflict` | The attester was shown instance evidence already bound to another instance key or client: read `evidence_sha256`, `evidence_type`, `instance_subject`, `presented_jkt` (the key refused) and `bound_jkt` and `bound_client` (the key and client that hold the binding). Either the rightful holder's evidence has been used elsewhere, or a thief presented it first and the rightful holder is the one refused: `bound_jkt` is then the thief's. Right after a workload restarts with a new key it is most likely neither (the attester's README, "Evidence binding") | Yes |
 
 Not everything is an event. Serving an Entity Configuration, a fetch, a list or a resolve isn't; a refusal at a
 federation endpoint is a line on `com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors` (INFO for a

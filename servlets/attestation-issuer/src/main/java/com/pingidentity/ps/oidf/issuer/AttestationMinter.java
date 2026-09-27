@@ -44,7 +44,7 @@ public final class AttestationMinter {
      *                             and its {@code workloadClaims} ride in {@code workload})
      * @param workloadMetadata     per-instance attributes surfaced as {@code workload.attributes} (may be empty)
      * @param authorizationDetails the granted RFC 9396 entitlement (may be empty)
-     * @param ttlSeconds           lifetime; {@code exp = iat + ttlSeconds}
+     * @param ttlSeconds           lifetime; {@code exp = iat + ttlSeconds}, capped at the evidence's own expiry
      * @param signer               the attester signer
      * @return the compact Client Attestation JWT
      */
@@ -73,7 +73,9 @@ public final class AttestationMinter {
         claims.setIssuer(issuer);
         claims.setSubject(clientId);
         claims.setIssuedAt(NumericDate.fromSeconds(iat));
-        claims.setExpirationTime(NumericDate.fromSeconds(iat + ttlSeconds));
+        // Never past the evidence: an attestation that outlived what proved it would vouch for an instance
+        // whose platform no longer does.
+        claims.setExpirationTime(NumericDate.fromSeconds(Math.min(iat + ttlSeconds, instance.expEpochSeconds())));
 
         Map<String, Object> cnf = new LinkedHashMap<>();
         cnf.put("jwk", instancePublicJwk);
@@ -85,6 +87,15 @@ public final class AttestationMinter {
         // The spec's format-neutral instance identifier, set after workloadClaims so it is authoritative
         // even if a format's own claims happen to use the same key.
         workload.put("subject", instance.subject());
+        // What the attestation says about the evidence: its digest, its type and its expiry - never the
+        // evidence itself, which anyone reading the attestation could otherwise present to the attester.
+        if (instance.evidenceDigest() != null) {
+            workload.put("instance_attestation_sha256", instance.evidenceDigest());
+        }
+        if (instance.evidenceType() != null) {
+            workload.put("instance_attestation_type", instance.evidenceType());
+        }
+        workload.put("instance_attestation_exp", instance.expEpochSeconds());
         if (workloadMetadata != null && !workloadMetadata.isEmpty()) {
             workload.put("attributes", workloadMetadata);
         }

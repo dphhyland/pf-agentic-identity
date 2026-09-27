@@ -42,6 +42,48 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
+- **Redis verified and tri-state** (S3a) - `rediss://` checks the server's certificate and name and
+  completes the handshake before `AUTH`, an optional `OIDF_REDIS_CA_FILE`, `redis://` refused under the
+  production profile, a URL's userinfo never quoted in a message; store verdicts are
+  `FIRST_USE | REPLAY | STORE_UNAVAILABLE` and `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`, an outage answered
+  503 `temporarily_unavailable` and never "replay"; keys under `oidf:as:*`, `oidf:cas:*`,
+  `oidf:fed:endpoint:*` and `oidf:admin:dpop:*`. The store interfaces' abstract methods are now `record` and
+  `consumeChallenge`.
+- **Evidence digested and bound** (S3b) - the attestation carries `workload.instance_attestation_sha256`,
+  `_type` and `_exp` and never the evidence (`workload.svid` and `workload.instance_attestation` are gone);
+  the digest is the SHA-256 of the evidence's JWS Signing Input, so a re-encoded token is the same evidence;
+  evidence binds to the first instance key and client that present it, a second presenter is 401
+  `instance_attestation_bound` and an `attestation.evidence.conflict` audit event naming both keys; evidence
+  lifetime, whole and remaining, capped at a day in production, the attestation's `exp` never past the
+  evidence's.
+- **CIMD refused outside development** (M-1) - `OIDF_ATTESTER_CIMD_URL` is honoured only under
+  `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere the source is left out with an ERROR naming it, and the CAS
+  document does not list `cimd` among its metadata sources.
+
+- **RAR containment model** (S1a) - `libs/rar-model`, JDK only: per-type field rules (`set`, `set_of_values`, `limit`
+  with a paired unit, `amount`, `instant_limit`, `equal`, `string`, `object`, `forbidden`), alternatives for a thing
+  a type can say two ways, the built-in `sales_agent`, `payment_initiation` and `account_information` models, more
+  from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`, strict `contains`, `authorize` with inheritance, and the meet
+  `intersect`, over lists held to fixed limits (numbers by the digits they would write); a SHA-256 fingerprint of
+  the effective model and the library's semantics; 244 vectors in a test-jar and seeded property tests. The
+  library only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open
+  until then.
+
+- **S2a, S2b RAR plugin: fail-open and the principal** (blocker B3, F-0003; the "fail-open catches everything"
+  high, F-0016) - fail-open is confined to a connection refused or reset, an unresolved name, a deadline, or HTTP
+  429/502/503/504, so a 401 from a wrong secret, a body that is not a JSON object, a status line or header the
+  client cannot parse (F-0093) and a TLS failure deny; a governance answer's `authorised` must be a boolean;
+  "Deny unless PERMIT" is gone and the decision is always deny-unless-PERMIT; the shared secret is an encrypted
+  field under the same name (the upgrade from v0.3.0 rehearsed on the rig); the PDP URL must be https and "Skip
+  TLS verification" is inert unless `OIDF_DEPLOYMENT_PROFILE=development`; the governance-engine request writes
+  the server's attributes last and refuses a field that names one, every `req_`/`att_` mirror included (F-0073);
+  `principal_source` is resolved per flow from the user key PingFederate 13.1.3 passes (client credentials
+  `client`, refresh and the code flow `authenticated`, CIBA `identity_hint`, token exchange `none` until the
+  filter publishes a verified subject, F-0074), and `login_hint` / `_principal_sub` are development-only;
+  `payment_initiation` and `account_information` are refused before any PDP call without an authenticated
+  principal; the PDP request carries the attester `iss`; logs carry the principal hashed;
+  `conformance/verify-rar-principal.sh` drives the flows on the rig.
+
 - **SSF push is no longer starved by paused, disabled or poll backlogs, and no single POST holds it past
   10 s** (S10-0, the B5 stopgap) - the stores select only enabled push streams' SETs; a stream whose delivery
   fails waits out its first SET's backoff as a whole, so the SET that failed goes first and the rest follow
