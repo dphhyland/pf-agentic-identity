@@ -65,11 +65,9 @@ final class EventMetrics {
             return local.counter();
         }
         synchronized (LOCK) {
-            local = bound;
-            if (local == null || local.catalogues() != catalogues || local.registry() != registry) {
-                local = new Bound(catalogues, registry, register(registry, catalogues));
-                bound = local;
-            }
+            // Two threads can both get here; the second registration returns the first's counter.
+            local = new Bound(catalogues, registry, register(registry, catalogues));
+            bound = local;
             return local.counter();
         }
     }

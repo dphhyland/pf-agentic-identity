@@ -102,19 +102,13 @@ public final class ComponentParts {
         synchronized (this) {
             generation = ++this.generations;
             Map<String, Entry> parts = this.components.computeIfAbsent(component, c -> new LinkedHashMap<>());
-            Entry previous = parts.put(part, new Entry(generation, this.clock.instant()));
+            parts.put(part, new Entry(generation, this.clock.instant()));
             try {
                 this.publish(component);
             } catch (IllegalArgumentException e) {
-                // The registry refused the component's name: take the part out again, so nothing half-registered stays.
-                if (previous == null) {
-                    parts.remove(part);
-                } else {
-                    parts.put(part, previous);
-                }
-                if (parts.isEmpty()) {
-                    this.components.remove(component);
-                }
+                // The registry refused the component's name. That can only happen the first time a component is
+                // seen - a name it has accepted once it accepts again - so the component is new and goes again whole.
+                this.components.remove(component);
                 throw e;
             }
         }
@@ -350,6 +344,11 @@ public final class ComponentParts {
 
         public boolean failedDependency(String reason) {
             return this.failedDependency(reason, null);
+        }
+
+        /** The deployment profile forbids how the part is configured (S-9's profile checks, Phase 3). */
+        public boolean refused(String reason) {
+            return move(this.component, this.part, this.generation, ComponentState.REFUSED, reason, null);
         }
 
         /** Failed on a dependency something else retries; ready once {@code probe} returns (see {@link #refresh()}). */
