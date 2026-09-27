@@ -101,6 +101,23 @@ class LabelTest {
         assertNull(slot.admit("y"), "and the cap of one is spent");
     }
 
+    /** Once a cap is spent a new value folds without taking the lock, so a held lock cannot stall the hot path. */
+    @Test
+    void aSpentCapFoldsANewValueWithoutTheLock() throws Exception {
+        Family.Slot slot = new Family.Slot(Label.capped("client", 1));
+        assertEquals("a", slot.admit("a"));
+        assertNull(slot.admit("b"), "spends the cap");
+        java.util.concurrent.ExecutorService other = java.util.concurrent.Executors.newSingleThreadExecutor();
+        try {
+            synchronized (slot) {
+                java.util.concurrent.Future<String> f = other.submit(() -> slot.admit("c"));
+                assertNull(f.get(5, java.util.concurrent.TimeUnit.SECONDS), "folded while the lock is held elsewhere");
+            }
+        } finally {
+            other.shutdownNow();
+        }
+    }
+
     @Test
     void badLabelsAreRefused() {
         assertThrows(IllegalArgumentException.class, () -> Label.oneOf(null, "a"));

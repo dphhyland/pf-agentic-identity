@@ -146,6 +146,13 @@ through a capped label and a declared one, and 100,000 distinct names through th
 stops at its bound. A capped label is for values that come from data, such as a client id; where a set can be
 declared - an outcome, an event code - declare it.
 
+A cap keeps the first values it sees for the life of the copy, so feed a capped label only values that have
+already been checked - an authenticated client's id, not the `client_id` parameter of a request that has not yet
+authenticated. Otherwise anyone can spend the cap on junk early and every real client counts as `other` until the
+next restart; the fold counter shows it happened but cannot undo it. Never use a direct identifier of a person (a
+subject, an e-mail address) or anything derived from a credential as a label value: the MXBean and O-5's endpoint
+show every value.
+
 ### Timers and gauges
 
 A timer keeps a count, a sum, a max and fixed buckets. The buckets are the same for every timer, so O-5's
@@ -155,7 +162,8 @@ is for decisions made in process - an OGNL criterion, a signature check - the mi
 federation calls, and 30 s and 60 s for background runs such as the registration sweeper's. A recording lands in
 the first bucket whose bound it does not exceed, as Prometheus's `le` means. The count is the sum of the buckets,
 so `_count` always equals the `+Inf` bucket. The max is the longest recording since the copy was loaded, not over
-a window. Changing the buckets changes every histogram's series and breaks dashboards built on them, so it is a
+a window. A recording longer than a day counts as a day in the sum and the max (it is in `+Inf` either way), and a
+`Duration` too long for nanoseconds counts as a day too, so a stray value cannot throw or send the sum negative. Changing the buckets changes every histogram's series and breaks dashboards built on them, so it is a
 "Before you deploy" item whenever it happens.
 
 A gauge reads a supplier when the metrics are read - a snapshot, the MXBean, O-5's endpoint - never on the hot
@@ -179,8 +187,8 @@ registers one MXBean, the first time a metric is registered in it or when `Metri
 F-2's listener calls it for the webapp. It is registered in the JVM's platform MBean server as
 `com.pingidentity.ps.oidf:type=Metrics,copy="<package> from <where it was loaded from>"`. The package tells a
 plugin's relocated copy from the others, and the place tells the webapp's copy (`pf-runtime.war`'s
-`WEB-INF/lib`), the engine's (`server/default/deploy`) and another war's (`gm-api.war`'s `WEB-INF/lib`) apart.
-Two copies from the same place - two loaders over one jar - would clash, so a taken name is retried as `... #2`,
+`WEB-INF/lib`), the engine's (`server/default/deploy`) and another war's (`oidf.war`'s or `gm-api.war`'s
+`WEB-INF/lib`) apart. Two copies from the same place - two loaders over one jar - would clash, so a taken name is retried as `... #2`,
 `#3` and so on, up to 16: neither registration fails the other. A registration that fails for any other reason
 is logged once and not retried; the metrics count without it. `ClassLoaderCopiesTest` loads platform twice in
 one JVM through two `URLClassLoader`s over the same classes, and shows two names, two registries, and each
@@ -193,8 +201,8 @@ console shows as it is. A reader in another loader can rebuild the snapshots thr
 
 Unregistering goes through platform.lifecycle: the registration hands this copy's `Lifecycle` a close that
 unregisters the MXBean, and a copy whose lifecycle has shut down registers none again. F-2's listener runs the
-lifecycle's shutdown when `pf-runtime.war` (or `gm-api.war`) is undeployed, which removes that copy's MXBean and
-with it the MBean server's reference to the webapp's loader. Nothing runs the engine's copy's lifecycle - no
+lifecycle's shutdown when the war that holds it - `pf-runtime.war`, `oidf.war` or `gm-api.war` - is undeployed,
+which removes that copy's MXBean and with it the MBean server's reference to that war's loader. Nothing runs the engine's copy's lifecycle - no
 servlet `init` or `destroy` runs for jars in `server/default/deploy` - so its MXBean stays until the JVM stops,
 and that is what is wanted: the OGNL issuance criteria and access-token mappings run in the engine's copy, and
 their decisions are security decisions that have to stay visible. The MBean server's reference would keep that

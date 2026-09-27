@@ -50,4 +50,25 @@ class TimerTest {
         assertEquals(703_000_000, cell.sumNanos.sum(), "a negative duration counts as 0");
         assertArrayEquals(new long[] {1, 1, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3}, cell.cumulative());
     }
+
+    @Test
+    void aRecordingOverADayCountsAsADayAndCannotOverflowTheSum() {
+        Timer.Cell cell = new Timer.Cell();
+        cell.record(Long.MAX_VALUE);
+        cell.record(Long.MAX_VALUE);
+        assertEquals(Timer.MAX_RECORDING_NANOS, cell.maxNanos.get());
+        assertEquals(2 * Timer.MAX_RECORDING_NANOS, cell.sumNanos.sum(), "the sum stays positive");
+        assertEquals(2, cell.cumulative()[15], "both in +Inf");
+        assertEquals(0, cell.cumulative()[14]);
+
+        MetricRegistry r = new MetricRegistry();
+        Timer t = r.timer("oidf_long_seconds", "h");
+        t.record(Duration.ofSeconds(Long.MAX_VALUE));
+        t.record(Duration.ofSeconds(Long.MIN_VALUE));
+        t.record(Duration.ofDays(3));
+        assertEquals(3, t.count(), "a Duration too long for nanoseconds is recorded, not thrown");
+        MetricSnapshot snap = r.snapshot().stream().filter(m -> m.getName().equals("oidf_long_seconds")).findFirst().orElseThrow();
+        assertEquals(2 * 86_400.0, snap.getSeries().get(0).getSumSeconds(), 1e-6, "two days and a negative counted as 0");
+        assertEquals(86_400.0, snap.getSeries().get(0).getMaxSeconds(), 1e-6);
+    }
 }

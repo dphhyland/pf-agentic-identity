@@ -30,6 +30,12 @@ public final class Timer {
 
     private static final long[] BOUNDS_NANOS = BUCKETS_SECONDS.stream().mapToLong(s -> Math.round(s * 1e9)).toArray();
 
+    /**
+     * The longest a recording counts as, one day: longer ones land in {@code +Inf} and add a day to the sum and
+     * the max, so a stray {@code Long.MAX_VALUE} cannot send the sum negative.
+     */
+    static final long MAX_RECORDING_NANOS = Duration.ofDays(1).toNanos();
+
     /** One series' buckets, sum and max. */
     static final class Cell {
         final LongAdder[] buckets = new LongAdder[BOUNDS_NANOS.length + 1];
@@ -43,7 +49,7 @@ public final class Timer {
         }
 
         void record(long nanos) {
-            long n = Math.max(0, nanos);
+            long n = Math.min(Math.max(0, nanos), MAX_RECORDING_NANOS);
             this.buckets[bucketIndex(n)].increment();
             this.sumNanos.add(n);
             this.maxNanos.accumulate(n);
@@ -77,14 +83,20 @@ public final class Timer {
         return BOUNDS_NANOS.length;
     }
 
-    /** Records a duration in nanoseconds; a negative one counts as 0. */
+    /** Records a duration in nanoseconds; a negative one counts as 0, one over a day as a day. */
     public void recordNanos(long nanos, String... labelValues) {
         this.family.cell(labelValues).record(nanos);
     }
 
-    /** Records a duration. */
+    /** Records a duration; one too long for {@link Duration#toNanos()} counts as {@link #MAX_RECORDING_NANOS}. */
     public void record(Duration duration, String... labelValues) {
-        recordNanos(duration.toNanos(), labelValues);
+        long nanos;
+        try {
+            nanos = duration.toNanos();
+        } catch (ArithmeticException tooLong) {
+            nanos = duration.isNegative() ? 0 : MAX_RECORDING_NANOS;
+        }
+        recordNanos(nanos, labelValues);
     }
 
     /** Records the time since {@code startNanos}, a value {@link System#nanoTime()} returned. */
