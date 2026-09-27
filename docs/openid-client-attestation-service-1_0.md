@@ -673,7 +673,7 @@ source, the CAS, the AS).
   here with a key of their own. The CAS MUST NOT embed the Instance Attestation in an issued token
   (Section 4.5 carries its digest instead). It SHOULD bind each Instance Attestation, by its SHA-256, to
   the first Instance Key and client that present it, for as long as the Instance Attestation lives, and
-  only once every step of Section 4.4 has passed, so a refused request never holds a binding. It SHOULD
+  only once steps 1 to 6 of Section 4.4 have passed, so a refused request never holds a binding. It SHOULD
   refuse a later presentation by another key or client with `instance_attestation_bound` and record it.
   A presenter who comes first still wins: the binding detects theft rather than preventing it, and only
   an Instance Attestation that is itself bound to the Instance Key prevents it.

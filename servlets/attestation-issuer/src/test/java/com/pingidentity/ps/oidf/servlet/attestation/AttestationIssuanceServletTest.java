@@ -1288,8 +1288,8 @@ class AttestationIssuanceServletTest {
     }
 
     /**
-     * CAS §9.1: the CAS binds each Instance Attestation "only once every step of Section 4.4 has passed, so a refused
-     * request never holds a binding."
+     * CAS §9.1: the CAS binds each Instance Attestation "only once steps 1 to 6 of Section 4.4 have passed, so a
+     * refused request never holds a binding."
      */
     @Test
     @Requirement("CAS §9.1")
