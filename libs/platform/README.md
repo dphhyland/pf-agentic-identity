@@ -505,6 +505,86 @@ An event the engine's copy emits - from an OGNL criterion - is counted in the en
 copy's MXBean stays registered.
 
 <!-- health (O-4): add this package's section below this line -->
+## health
+
+What the health endpoints decide (plan item O-4), with no servlet API; platform-pf's `HealthServlet` serves it
+([libs/platform-pf, health](../platform-pf/README.md#health)).
+
+**Components and their parts.** One S-9 component can be served by more than one class - automatic registration
+by a filter at the token endpoint and another at the authorization and PAR endpoints - and `ComponentRegistry`
+holds one state per name, retiring the earlier handle when a name registers again. So a servlet or filter
+registers a *part* from its `init`, through `Startup.begin(component, part)`, and `ComponentParts` publishes the
+component's state to the registry: the worst state among its enabled parts, `DISABLED` when none is enabled.
+Worst first: `FAILED_CONFIG`, `REFUSED`, `FAILED_DEPENDENCY`, `STARTING`, `DEGRADED`, `READY`. The reason is each
+part in that state as `part: reason`, joined with `; `. `Startup` holds S-9's nine names as constants and this
+loader's `ComponentParts`; statics are per loader, and nothing in the engine's copy runs an `init`, so the engine's
+registry stays empty ([classloaders](../../docs/development/classloaders.md), rule 1).
+
+A part starts `STARTING`. Its `init` wraps what it did before in `try`, and says what it found:
+
+```java
+var part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+try {
+    ... init as it was, with part.disabled() or part.failedConfig(reason) where it switches off or refuses ...
+} catch (ServletException | RuntimeException | Error e) {
+    part.failed(e);
+    throw e;
+} finally {
+    part.finish();
+}
+```
+
+`failed` records `FAILED_DEPENDENCY` when the exception or one of its causes (16 at most, never round a cycle) is an
+`IOException`, `UncheckedIOException`, `SQLException`, `TimeoutException` or `LinkageError` (a jar missing where it
+runs), and `FAILED_CONFIG` for anything else; the reason is the message, with the deepest cause's when it says
+something the message does not. `init` rethrows unchanged, so whether it throws is what it was: S9a (Phase 3) makes
+`init` never throw. `finish` makes a part still starting ready. A disabled part stays disabled, and registering a
+part again (a second `init`) starts it afresh and retires the earlier handle. A reason is cut to one line of 256
+characters, as the registry cuts it.
+
+There is no supervisor (S9a). The one retry is a probe: a part that failed on a dependency something else keeps
+retrying - the SSF transmitter's boot retry - passes a check with `failedDependency(reason, probe)`, and
+`ComponentParts.refresh()`, which health calls before it reads, makes the part ready once the check returns.
+
+**Which class serves which component**, and when today's configuration enables it (inferred, as S9a infers it in
+development):
+
+| Component | Part (class) | Enabled | Starts |
+|---|---|---|---|
+| `FEDERATION` | `OpenIdFederationServlet` | always | at deploy |
+| `FEDERATION` | `OpenIdRegistrationServlet` (explicit registration, a federation endpoint) | always | first request |
+| `AUTO_REGISTRATION` | `TokenEndpointAutoRegistrationFilter` | always; `FAILED_CONFIG` while the anchor's keys are not pinned | at deploy |
+| `AUTO_REGISTRATION` | `FrontChannelAutoRegistrationFilter` | unless `OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=false`; `FAILED_CONFIG` while the keys are not pinned | at deploy |
+| `ATTESTATION_AUTH` | `ClientAttestationAuthFilter` | unless no bridge signing is configured and `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`; `DEGRADED` while the keys are not pinned | at deploy |
+| `ATTESTATION_ISSUER` | `AttestationIssuanceServlet` | always | first request |
+| `HOSTING` | `HostedEntityServlet` | when an authority entity id is set | first request |
+| `SSF` | `SsfConfigurationServlet` | when the transmitter's settings parse (an issuer is set) | at deploy |
+| `SSF_RECEIVER` | `SsfReceiverServlet` | when SSF is and a receiver issuer is set | first request |
+| `OPERATOR_API` | `FederationAdminServlet` | when `OIDF_AUTHORITY_ADMIN_TOKEN` is set | first request |
+| `FAPI` | `Fapi2ProfileFilter` | when `OIDF_FAPI2_CLIENTS` names a client | at deploy |
+
+The SSF states are read after `SsfHttp.bootstrap`, which never throws, by servlets/ssf's `SsfComponents`. A part
+that starts on its path's first request is absent until then, and readiness ignores it (finding
+[F-0193](../../docs/findings/F-0193.yaml)); a transmitter setting that does not parse reads as SSF not configured,
+as the bootstrap reads it (F-0191).
+
+**Readiness.** `Health.readiness` is `DOWN` when an enabled component is neither `READY` nor `DEGRADED` - starting,
+failed or refused - and `UP` otherwise, disabled components and no components at all included. `DEGRADED` counts
+as ready, per S-9: a dependency blip must not eject every node at once. Liveness is always `UP`. `Health.status`
+is the whole body of both, `{"status":"UP"}`; `Health.detail` is the document only an authorised caller sees:
+the status, the deployment profile, the versions and every component with its state, reason, the time it entered
+the state and its parts. A PingFederate that names a trust controller before its anchor's keys are pinned is
+therefore not ready (finding [F-0192](../../docs/findings/F-0192.yaml)).
+
+**Every event counts itself.** `Events.emit` counts each event it admits in `oidf_events_total{code,outcome}`
+(`EventMetrics`, the one class this package adds to platform.events) before any sink runs, as the metrics section
+above describes: both labels are declared sets taken from the catalogues this loader reads, so an uncatalogued code
+counts as `other` and raises the fold counter, and the counter is registered once per loader on the first event -
+in the engine's registry for an event an OGNL criterion emits. With today's two catalogues that is 41 codes and two
+outcomes, 126 series. Two gauges read the catalogues' own counts: `oidf_events_dropped_fields` and
+`oidf_events_uncatalogued`. A registration the registry refuses is logged once and the events go uncounted;
+counting never fails an event.
+
 <!-- redis (C-2): add this package's section below this line -->
 <!-- http (S5a): add this package's section below this line -->
 <!-- exec (C-3): add this package's section below this line -->

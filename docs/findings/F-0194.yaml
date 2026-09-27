@@ -1,0 +1,21 @@
+id: F-0194
+title: The health detail and /info check the static admin bearer with a second copy of AdminBearer's rule, with no limit on failed attempts
+severity: low
+area: platform-pf, pf-integration
+source: design
+status: open
+plan_items: [S-8, S8a, S8b, O-4]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package O4 (2026-09-28). Phase 2's decision 6 puts the health detail and /agentic-identity/info behind
+  the existing static admin bearer (OIDF_AUTHORITY_ADMIN_TOKEN) until S8b. The rule lives in pf-integration's
+  AdminBearer, and platform-pf cannot call it - pf-integration depends on platform-pf - so platform-pf's
+  HealthAccess repeats it: the same token from the same system property and environment variable, constant-time
+  comparison, fail-closed. Two copies can drift. Neither copy limits failed attempts: a caller can try tokens at
+  the runtime port's rate, answered with the same 404 an unmapped path gets (the admin API answers 401), which hides
+  that the path exists but not the guessing. The token is also JVM-wide, so anyone who holds it for the admin API
+  reads health too. Who and when: S8a (Phase 3) builds OperatorAuthenticator in platform-pf, with its failed
+  authentication limit of 10 a minute per address, and S8b moves both surfaces onto it with the oidf.health.read
+  scope, after which HealthAccess and AdminBearer both go.

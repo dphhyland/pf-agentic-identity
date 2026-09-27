@@ -12,7 +12,7 @@ import java.util.Map;
 import java.util.Properties;
 
 /**
- * What this deployment runs, read once from the jars on the loader: this repository's version from
+ * What this deployment runs, read from the jars on the loader each time it is asked: this repository's version from
  * platform-pf's own {@code pom.properties} (Maven writes one into every jar it builds), PingFederate's from
  * {@code pf-commons.jar}'s - the file PingFederate's own {@code org.sourceid.common.VersionUtil} reads (checked in
  * the 13.1.3 image on 2026-09-28: {@code version=13.1.3.0}) - and the JVM's. No build of this repository records

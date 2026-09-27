@@ -1,0 +1,20 @@
+id: F-0190
+title: No build records the commit it was built from in what it ships, so /agentic-identity/info reports the commit as null
+severity: low
+area: platform-pf, build
+source: design
+status: open
+plan_items: [O-4, F-2, R-I3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package O4 (2026-09-28). The info document and the health detail report this repository's version (from
+  platform-pf's own pom.properties, which Maven writes into every jar), PingFederate's (from pf-commons.jar's
+  pom.properties, the file PingFederate's own org.sourceid.common.VersionUtil reads) and the JVM's, but no build
+  writes the commit anywhere a running PingFederate can read it: the module poms set no manifest entry for it,
+  stage-modules.sh writes none into modules/MANIFEST, and the image carries no label with it. So `commit` is null.
+  Two builds of one SNAPSHOT version cannot be told apart from a running node. Who and when: F-2's start-up banner
+  (Phase 2, wave 4) prints the commit too and needs the same source, and R-I3 (Phase 3) adds the image's OCI labels;
+  one of them should have the build pass the commit in (a manifest entry from a -D property CI sets from
+  GITHUB_SHA) and BuildInfo read it.

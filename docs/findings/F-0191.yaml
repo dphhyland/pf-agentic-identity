@@ -1,0 +1,20 @@
+id: F-0191
+title: An SSF setting that does not parse reads as SSF not configured, so the transmitter is disabled quietly and health says DISABLED
+severity: low
+area: ssf, platform
+source: design
+status: open
+plan_items: [S9a, ST-5]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package O4 (2026-09-28). SsfHttp.bootstrap catches every IllegalArgumentException from
+  SsfConfiguration.fromServletConfig and logs it at INFO as "SSF transmitter not configured (...); endpoints
+  disabled". That is the right reading of a missing issuer, but the same exception comes from a value that does not
+  parse - pushRetryMaxAttempts=lots, signingAlgorithm=ES512, a malformed allowedAudiences - so a typo in an
+  otherwise configured transmitter switches SSF off with an INFO line. O4 keeps today's behaviour and reports what
+  it does: the SSF component is DISABLED in that case, not FAILED_CONFIG (SsfComponents, and
+  SsfComponentsTest.settingsThatDoNotParseAreReadAsDisabledAsTheBootstrapReadsThem). Who and when: S9a (Phase 3)
+  gives SSF its explicit OIDF_SSF_ENABLED switch, after which a configured transmitter whose settings do not parse
+  is FAILED_CONFIG; ST-5 moves the reads onto platform.settings, whose refusals name the setting.
