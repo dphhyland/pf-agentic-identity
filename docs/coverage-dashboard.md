@@ -7,7 +7,7 @@ The same data renders to `coverage-dashboard.html` for reading in a browser.
 
 Run `mvn -o verify` before regenerating; the numbers are only as fresh as the last build.
 
-**2360 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
+**2380 tests, 0 failed, 4 skipped** (surefire, summed over the reactor).
 
 ## Critical-method gates
 
@@ -26,15 +26,16 @@ which says nothing about whether the security paths are the covered ones.
 | `libs/agent-registry` | 7 | green | 92% | 25 |
 | `servlets/pf-integration` | 179 | green | 88% | 591 |
 | `servlets/attestation-issuer` | 17 | green | 87% | 208 |
-| `servlets/ssf` | 38 | green | 76% | 262 |
+| `servlets/ssf` | 44 | **1 failing** | 78% | 282 |
+| | | `com.pingidentity.ps.oidf.ssf.PushDeliveryService$CappedBody.onNext(* (not found in report)` | | |
 | `plugins/rar-paz-plugin` | 4 | green | 88% | 63 |
 | `plugins/instance-registry-datasource` | 2 | green | 82% | 18 |
 | `plugins/ciba-sim` | 6 | green | 90% | 14 |
-| `services/device-enrolment` | 4 | green | 72% | 106 |
+| `services/device-enrolment` | 3 | green | 72% | 106 |
 | `services/demo-rs` | 6 | green | 91% | 29 |
 | `services/gm-api/servlet` | 10 | green | 38% | 88 |
 
-**535 methods gated across the reactor, all green.**
+**540 methods gated across the reactor, 1 failing.**
 
 Module instruction coverage is context, not a target. A module can sit at 30% with every
 decision method gated, and that is the intended shape.
@@ -89,10 +90,10 @@ the three ways to get an id wrong, are documented on the annotation itself
 | RFC9396 | 2 | 7 |
 | RFC9449 | 5 | 9 |
 | RFC9493 | 4 | 6 |
-| SSF | 16 | 55 |
+| SSF | 16 | 59 |
 | UNVERIFIED | 1 | 5 |
 
-**482 distinct requirements pinned by 1031 tests.**
+**482 distinct requirements pinned by 1035 tests.**
 
 **210 of 217 conformance-matrix rows are pinned by a test.** The
 denominator is the rows that declare an id in `docs/client-attestation-architecture.md`,
