@@ -552,7 +552,8 @@ start is refused, with the reason logged and an empty `Optional` returned, in th
    `oidf.exec.owner.<name>` under a lock on `System.class`, holding the claiming copy's id, and given back when
    the executor closes. This is the registration sweeper's owner property made general, and classloaders rule 4
    records it. A servlet initialised twice, or the same servlet in `oidf.war` and `pf-runtime.war`, starts one
-   loop, not two. `ExecutorCopiesTest` loads platform twice through two `URLClassLoader`s and shows the second
+   loop, not two. For the subordinate refresher that means one instance's cache is warmed and the other's is not
+   ([F-0202](../../docs/findings/F-0202.yaml)). `ExecutorCopiesTest` loads platform twice through two `URLClassLoader`s and shows the second
    copy starts nothing while the first runs, and may once the first copy's lifecycle has shut down.
 
 The engine's copy is told apart from the webapp's only by never calling a start: every start is in a servlet's
@@ -575,7 +576,8 @@ The timing, the log lines and each job's own failure handling are what they were
 drives its loop on the executor (`RegistrationExpirySweeperTest`, `SubordinateRefresherTest`,
 `PushDeliveryLoopTest`, `PollReceiverLoopTest`, `SsfSupportBootTest`). Three things differ:
 
-- one of each job runs in the JVM, where the subordinate refresher had no guard and each call started a thread;
+- one of each job runs in the JVM, where the subordinate refresher had no guard and each call started a thread
+  (so a second `FederationService` whose refresher is refused keeps a cold cache: F-0202);
 - an `Error` thrown by a run is logged and counted and the job carries on, where it used to end the job;
 - the subordinate refresher, interrupted at shutdown, stops at the next subordinate rather than logging each of
   the rest as not reachable.

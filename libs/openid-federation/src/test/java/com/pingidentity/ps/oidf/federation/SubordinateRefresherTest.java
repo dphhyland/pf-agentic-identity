@@ -4,10 +4,15 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.jose.HttpGetClient;
+import com.pingidentity.ps.oidf.jose.JdkHttpGetClient;
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import java.io.IOException;
+import java.net.InetAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
 import java.security.KeyPair;
 import java.security.KeyPairGenerator;
 import java.security.interfaces.RSAPrivateKey;
@@ -104,12 +109,8 @@ class SubordinateRefresherTest {
         FederationService anchor = anchor(List.of(DOWN, LEAF), (url, accept) -> {
             this.fetched.add(url);
             fetching.countDown();
-            try {
-                Thread.sleep(10_000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new IOException("interrupted", e);
-            }
+            // As HttpClient.send does: the InterruptedException is thrown with the thread's flag already cleared.
+            Thread.sleep(10_000);
             return "";
         });
         anchor.prewarmSubordinatesAsync();
@@ -120,6 +121,41 @@ class SubordinateRefresherTest {
         assertEquals(List.of(DOWN + "/.well-known/openid-federation"), this.fetched, "the next subordinate was not tried");
         assertEquals(0, executor.failures());
         assertEquals(Optional.empty(), ManagedExecutors.live(FederationService.SUBORDINATE_REFRESH));
+    }
+
+    @Test
+    void shutdownEndsARoundAtTheNextSubordinateWithTheProductionClient() throws Exception {
+        // A subordinate that accepts the connection and never answers: the round is stuck in HttpClient.send when
+        // the executor closes, and the second subordinate must not be fetched after it.
+        try (ServerSocket silent = new ServerSocket(0, 50, InetAddress.getLoopbackAddress())) {
+            CountDownLatch accepted = new CountDownLatch(1);
+            List<Socket> held = new CopyOnWriteArrayList<>();
+            Thread acceptor = new Thread(() -> {
+                try {
+                    while (true) {
+                        held.add(silent.accept());
+                        accepted.countDown();
+                    }
+                } catch (IOException closed) {
+                    // the test is over
+                }
+            });
+            acceptor.setDaemon(true);
+            acceptor.start();
+            String base = "http://127.0.0.1:" + silent.getLocalPort();
+            FederationService anchor = anchor(List.of(base + "/a", base + "/b"),
+                    new JdkHttpGetClient(false, OutboundUrlPolicy.permissive()));
+            anchor.prewarmSubordinatesAsync();
+            assertTrue(accepted.await(10, TimeUnit.SECONDS));
+            ManagedExecutor executor = refresher();
+
+            assertTrue(executor.close(java.time.Duration.ofSeconds(5)), "the round ended within the wait");
+            assertEquals(1, held.size(), "the next subordinate was not tried");
+            assertEquals(0, executor.failures());
+            for (Socket socket : held) {
+                socket.close();
+            }
+        }
     }
 
     @Test

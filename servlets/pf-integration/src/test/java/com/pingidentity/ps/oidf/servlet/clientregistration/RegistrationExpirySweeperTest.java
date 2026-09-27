@@ -21,6 +21,7 @@ import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import java.util.Collection;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
@@ -157,6 +158,15 @@ class RegistrationExpirySweeperTest {
             next.stop();
         }
         new RegistrationExpirySweeper(this.store, new RegistrationLifetime(RegistrationSettings.DEFAULTS, this.clock)).stop();
+    }
+
+    @Test
+    void anOlderCopysOwnerPropertyAloneKeepsThisOneFromStarting() {
+        // An older jar in another loader sets only the owner property, not the executor's claim.
+        System.setProperty(RegistrationExpirySweeper.OWNER_PROPERTY, "older-copy");
+        assertFalse(this.sweeper.startOnce(3600));
+        assertEquals(Optional.empty(), ManagedExecutors.live(RegistrationExpirySweeper.EXECUTOR_NAME), "no executor started");
+        assertEquals("older-copy", System.getProperty(RegistrationExpirySweeper.OWNER_PROPERTY), "and its property is left alone");
     }
 
     @Test

@@ -93,7 +93,9 @@ is invisible to the other. What crosses between loaders is what both see from th
   copy running the job named `<name>`, set and cleared under the same lock, so one of each job runs in the JVM
   whichever copy starts it (`ExecutorRegistry.claim` and `release`). The reasoning is the sweeper's: a
   background job started twice does its work twice, against the same PingFederate and the same stores, and a
-  System property is the one thing every loader sees.
+  System property is the one thing every loader sees. The subordinate refresher is the exception: it warms its
+  own `FederationService`'s cache, so a second instance whose refresher is refused is left cold
+  ([F-0202](../findings/F-0202.yaml)).
 
 Nothing else: no shared static, no interface one copy implements and another calls, no new System property
 without the same reasoning written beside it.

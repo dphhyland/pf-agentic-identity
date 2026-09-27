@@ -887,6 +887,11 @@ public final class FederationService {
             throw e;
         }
         catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                // HttpClient.send clears the flag when it throws this; set it again so the refresher's loop sees
+                // its shutdown and a request thread keeps its interrupt.
+                Thread.currentThread().interrupt();
+            }
             throw new IllegalStateException("Failed to fetch entity configuration of subordinate " + subject, e);
         }
     }
