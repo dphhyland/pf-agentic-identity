@@ -7,6 +7,7 @@ import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
@@ -32,7 +33,6 @@ import java.util.Set;
 import jakarta.servlet.http.HttpServletRequest;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import org.sourceid.saml20.adapter.attribute.AttributeValue;
 
 /**
@@ -133,7 +133,7 @@ public final class ClientAttestationUtils {
     }
 
     private static String pingFederateIssuer(HttpServletRequest request) {
-        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        return PfInternals.issuer(request);
     }
 
     /**
@@ -474,7 +474,7 @@ public final class ClientAttestationUtils {
      */
     public static String configuredTokenEndpointBaseUrl() {
         try {
-            return org.sourceid.saml20.domain.mgmt.MgmtFactory.getAuthzServerManager().getTokenEndpointBaseUrl();
+            return PfInternals.tokenEndpointBaseUrl();
         } catch (RuntimeException | LinkageError e) {
             if (TOKEN_ENDPOINT_BASE_URL_WARNED.compareAndSet(false, true)) {
                 LOGGER.warn((Object) ("PingFederate's token endpoint base URL could not be read, so a DPoP proof at "

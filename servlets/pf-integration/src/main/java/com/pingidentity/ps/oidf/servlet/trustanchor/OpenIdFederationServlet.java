@@ -10,6 +10,7 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfJwksSigningKeyProvider;
 import com.pingidentity.ps.oidf.pf.PfProviderMetadata;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.Arrays;
@@ -24,7 +25,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.StoreNamespace;
@@ -78,13 +78,13 @@ extends RequestScopedServlet {
             "/federation/historical_keys", "federation_historical_keys_endpoint");
 
     public OpenIdFederationServlet() {
-        this.issuerResolver = req -> OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        this.issuerResolver = req -> PfInternals.issuer(req);
         this.providerMetadata = new PfProviderMetadata();
     }
 
     /**
      * Test seam: a ready service and configuration, and an issuer resolver, so the servlet runs without a
-     * booted PingFederate ({@link OAuthIssuerUtils} and PF's signing keys need one).
+     * booted PingFederate ({@link PfInternals#issuer} and PF's signing keys need one).
      */
     OpenIdFederationServlet(FederationService service, FederationConfiguration configuration,
                             Function<HttpServletRequest, String> issuerResolver) {

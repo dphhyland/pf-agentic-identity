@@ -29,7 +29,8 @@ class StagedManifestTest {
         Path modules = Fixtures.stage(dir);
         Files.writeString(modules.resolve("MANIFEST"), Files.readString(modules.resolve("MANIFEST")) + "\n[libs]\n");
         StagedManifest.Staged s = StagedManifest.check(modules, "production");
-        assertEquals(List.of(modules.resolve("oidf.jar"), modules.resolve("ssf-0.5.0-SNAPSHOT.jar")), s.jars());
+        assertEquals(List.of(modules.resolve("oidf.jar"), modules.resolve("platform-pf-0.5.0-SNAPSHOT.jar"),
+                modules.resolve("ssf-0.5.0-SNAPSHOT.jar")), s.jars());
         assertTrue(s.header().startsWith("MANIFEST/2 profile=production "));
     }
 

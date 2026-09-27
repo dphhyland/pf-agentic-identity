@@ -76,8 +76,8 @@ same war byte for byte.
 ```
 
 It declares the seven filters the shell script registered, with the same paths, in the same order, and its
-three order checks as four pairs (the last check was two). It declares no listener yet; plan item F-2 adds the
-lifecycle listener.
+three order checks as four pairs (the last check was two). It also declares one listener, plan item F-2's
+`LifecycleListener` from platform-pf, which the assembler registers after the filters and checks is there once.
 
 ## How it reaches the image, and a consumer
 

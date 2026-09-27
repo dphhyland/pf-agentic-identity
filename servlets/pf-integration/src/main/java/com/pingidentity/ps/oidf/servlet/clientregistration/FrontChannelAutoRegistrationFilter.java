@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.PfTracking;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
@@ -25,7 +26,6 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * OpenID Federation 1.0 §12.1.1 automatic registration at the authorization and PAR endpoints: an RP that has never
@@ -66,7 +66,7 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
     private volatile RequestObject.ReplayGuard replay;
 
     public FrontChannelAutoRegistrationFilter() {
-        this.issuerResolver = request -> OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        this.issuerResolver = request -> PfInternals.issuer(request);
     }
 
     /** Test seam: everything injected, nothing read from PingFederate. */

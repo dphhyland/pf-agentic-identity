@@ -52,9 +52,9 @@ Each of them starts through platform's `ManagedExecutors` (C-3), as `oidf-<name>
 ([libs/platform, exec](../../libs/platform/README.md#exec)), which refuses a start in a plugin's relocated copy, in
 a copy whose lifecycle has shut down, and for a job already running anywhere in the JVM (rule 4). A copy cannot
 tell by itself which loader it is in: `Lifecycle.loaderRole()` says `WEBAPP` once the webapp's lifecycle listener
-(F-2) has called `markWebapp()`, and `UNKNOWN` everywhere else. Until F-2 lands, the engine's copy is kept from
-starting threads only by nothing in it calling a start; refusing every unmarked copy is
-[F-0200](../findings/F-0200.yaml). The one other thread platform starts is `Lifecycle`'s short-lived closer, one
+(F-2) has called `markWebapp()`, and `UNKNOWN` everywhere else. The listener marks the webapp's copy from 0.5.0, but
+the engine's copy is still kept from starting threads only by nothing in it calling a start; refusing every unmarked
+copy is [F-0200](../findings/F-0200.yaml). The one other thread platform starts is `Lifecycle`'s short-lived closer, one
 per resource during shutdown, and one when a `register()` after shutdown closes its resource at once, in whichever
 copy registers it; it starts through `ManagedExecutors.startDaemon` and is refused nowhere, because it is what
 closes the executors.

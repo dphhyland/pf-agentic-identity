@@ -1,6 +1,7 @@
 package au.com.idpartners.gm.servlet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletContext;
@@ -76,11 +77,19 @@ public class McpServlet extends HttpServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        serverVersion = versionOf(config.getServletContext());
-        ServletConfigs cfg = ServletConfigs.of(config);
-        this.ops = new GrantOperations(
-                new PfTokenVerifier(cfg.audience()),
-                new PdpClient(cfg.pdpUrl(), cfg.pdpToken(), cfg.pdpTimeoutMs()));
+        var part = Startup.begin(GrantsServlet.COMPONENT, "McpServlet");
+        try {
+            serverVersion = versionOf(config.getServletContext());
+            ServletConfigs cfg = ServletConfigs.of(config);
+            this.ops = new GrantOperations(
+                    new PfTokenVerifier(cfg.audience()),
+                    new PdpClient(cfg.pdpUrl(), cfg.pdpToken(), cfg.pdpTimeoutMs()));
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
+        }
         log.info("MCP tools ready at /mcp; PDP at " + ops.pdp().getEvaluationUrl());
     }
 

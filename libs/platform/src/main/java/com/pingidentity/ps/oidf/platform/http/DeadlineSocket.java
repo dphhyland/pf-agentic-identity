@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.platform.http;
 import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InterruptedIOException;
 import java.net.Proxy;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
@@ -20,10 +21,20 @@ import java.net.SocketTimeoutException;
  * layered, and {@code SSLSocketImpl.doneConnect} hands that stream to the record layer; JDK 17 and 21 sources, read
  * 2026-09-28), so the handshake's reads and every record's reads come through here too.
  *
+ * <p>A read also ends when the reading thread is interrupted, as the JDK client's {@code send} did, so a
+ * managed executor's close (C-3) stops a fetch stuck on a silent peer: a blocking socket read ignores
+ * {@link Thread#interrupt()}, so no read waits longer than {@value #SLICE_MILLIS} ms at a time, and between waits
+ * the thread's interrupt is looked at and the deadline checked. An interrupted read throws
+ * {@link InterruptedIOException} and leaves the thread's interrupt set. Connecting is not interruptible: it waits
+ * at most the connect deadline.
+ *
  * <p>It is made with {@link Proxy#NO_PROXY}: a {@code socksProxyHost} set for the JVM must not route a connection
  * to a checked address through a proxy that resolves or chooses for itself.
  */
 final class DeadlineSocket extends Socket {
+
+    /** The longest a single socket read waits before the reading thread's interrupt is looked at again. */
+    static final int SLICE_MILLIS = 250;
 
     /** Where an exchange is, for naming a timeout. */
     enum Phase { CONNECT, HEADERS, BODY }
@@ -61,15 +72,34 @@ final class DeadlineSocket extends Socket {
         return this.in;
     }
 
-    /** Sets the read timeout to what is left, or fails the read at once when nothing is. */
+    /**
+     * Sets the read timeout to what is left, at most one slice; fails the read at once when nothing is left or the
+     * thread has been interrupted.
+     */
     void arm() throws IOException {
+        if (Thread.currentThread().isInterrupted()) {
+            throw new InterruptedIOException("interrupted while waiting for the "
+                    + this.phase.name().toLowerCase(java.util.Locale.ROOT));
+        }
         int millis = this.readBy.timeoutMillis();
         if (millis == 0) {
             this.timedOut = true;
             throw new SocketTimeoutException("the " + this.phase.name().toLowerCase(java.util.Locale.ROOT)
                     + " deadline has passed");
         }
-        setSoTimeout(millis);
+        setSoTimeout(Math.min(millis, SLICE_MILLIS));
+    }
+
+    /**
+     * Whether a read that ran out of its slice has also run out of the deadline; when it has, it is a timeout.
+     * Otherwise the read is made again: the socket stays usable after a timed-out read.
+     */
+    boolean deadlinePassed() {
+        if (this.readBy.expired()) {
+            this.timedOut = true;
+            return true;
+        }
+        return false;
     }
 
     private final class DeadlineInputStream extends FilterInputStream {
@@ -79,23 +109,29 @@ final class DeadlineSocket extends Socket {
 
         @Override
         public int read() throws IOException {
-            arm();
-            try {
-                return super.read();
-            } catch (SocketTimeoutException e) {
-                DeadlineSocket.this.timedOut = true;
-                throw e;
+            while (true) {
+                arm();
+                try {
+                    return super.read();
+                } catch (SocketTimeoutException e) {
+                    if (deadlinePassed()) {
+                        throw e;
+                    }
+                }
             }
         }
 
         @Override
         public int read(byte[] buffer, int offset, int length) throws IOException {
-            arm();
-            try {
-                return super.read(buffer, offset, length);
-            } catch (SocketTimeoutException e) {
-                DeadlineSocket.this.timedOut = true;
-                throw e;
+            while (true) {
+                arm();
+                try {
+                    return super.read(buffer, offset, length);
+                } catch (SocketTimeoutException e) {
+                    if (deadlinePassed()) {
+                        throw e;
+                    }
+                }
             }
         }
 

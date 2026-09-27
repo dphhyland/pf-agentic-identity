@@ -1,0 +1,20 @@
+id: U-0220
+title: That the lifecycle listener's shutdown finishes before the JVM exits on a PingFederate stop has not been seen
+area: platform-pf
+source: design
+status: open
+plan_items: [O-6]
+prs: [57]
+recorded_in: libs/platform-pf/README.md, lifecycle; docs/operator/startup-audit.md
+verify_by: >
+  On the rig with an executor or a Redis pool registered (the SSF push executor is, on the conformance profile), stop
+  PingFederate with docker stop -t 30 and show, by something that survives the JVM - a file written by a close, or
+  the Redis server's client list - that each registered resource was closed. Or settle F-0210 first and read the
+  shutdown line.
+verification: ''
+notes: >
+  Package F2 (2026-09-28) showed the shutdown in three ways, none of them a JVM stop of the real listener: unit tests
+  with two classloader copies (LifecycleListenerTest: the webapp's copy is shut down and its MXBean unregistered, the
+  engine's copy untouched); gm-api.war undeployed on the rig, where the line was logged and the MXBean unregistered;
+  and a probe listener whose contextDestroyed ran at docker stop -t 30. The listener waits five seconds at most, and
+  the whole stop took about five seconds with exit 0, but F-0210 hides whether each close finished.
