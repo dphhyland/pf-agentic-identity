@@ -1,0 +1,153 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>war-assembler</artifactId>
+    <version>0.5.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>war-assembler</name>
+    <description>Assembles pf-runtime.war for the image build: the stock war, the staged module jars, and the
+        filters build/pingfederate/filters.xml declares, merged into its WEB-INF/web.xml with the JDK's DOM and
+        checked - one filter and one mapping per name with exactly the declared paths, the declared order,
+        paths the stock descriptor serves, no metadata-complete, the servlet namespace, the declared
+        listeners. A build tool, not a module PingFederate loads: JDK only, compiled for 17, run by the image's
+        21. build/pingfederate/assemble-pf-runtime-war.sh is its command line.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- Empty unless given with -D; see StockWarGoldenTest. -->
+        <warAssembler.stockWar></warAssembler.stockWar>
+        <warAssembler.goldenWebXml></warAssembler.goldenWebXml>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <!-- No compile-scope dependencies: the image runs this jar with `java -jar` and nothing beside it. -->
+    <dependencies>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <!-- The declaration the image build uses, so the tests hold the shipped file, not a copy. -->
+                        <warAssembler.filtersXml>${project.basedir}/../pingfederate/filters.xml</warAssembler.filtersXml>
+                        <!-- Optional: set both (-DwarAssembler.stockWar=... -DwarAssembler.goldenWebXml=...) to
+                             compare against PingFederate's own war; StockWarGoldenTest is skipped without them. -->
+                        <warAssembler.stockWar>${warAssembler.stockWar}</warAssembler.stockWar>
+                        <warAssembler.goldenWebXml>${warAssembler.goldenWebXml}</warAssembler.goldenWebXml>
+                    </systemPropertyVariables>
+                </configuration>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>com.pingidentity.ps.oidf.warassembler.Main</mainClass>
+                            <addDefaultImplementationEntries>true</addDefaultImplementationEntries>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!-- Coverage gate on the decisions, 100% line + branch per METHOD as the libraries do it. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Assembler.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Assembler.assemble(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Assembler.stage(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Assembler.guardNamespace(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Assembler.requireClasses(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Assembler.verifyWar(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.StagedManifest.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Declaration.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Declaration.filter(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Declaration.order(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Declaration.checkPattern(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Declaration.required(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.merge(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.existing(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.unservedPaths(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.splice(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Merge.mappingProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.WebXml.namespace(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.WebXml.metadataComplete(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.UrlPatterns.matches(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.UrlPatterns.servletFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Chains.chain(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Jars.references(*</include>
+                                        <include>com.pingidentity.ps.oidf.warassembler.Xml.parse(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Published to the monorepo's own package registry, as every module is. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
+</project>

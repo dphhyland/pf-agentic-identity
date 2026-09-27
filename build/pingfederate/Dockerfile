@@ -86,24 +86,24 @@ RUN D=/opt/in/instance/server/default/data; mkdir -p "$D/config-store"; \
 # Merge the OIDF attestation/federation/SSF modules into pf-runtime.war (root context, the webapp
 # classloader — the same jars are ALSO copied to server/default/deploy below, so the engine classloader
 # gets its own copy: two classloaders, deliberately, and without Redis the filter and the OGNL criterion
-# therefore keep separate in-memory challenge/replay stores), and register the seven filters the
-# assemble script names (SsfLogoutSignal, Fapi2Profile, FapiResourceServer, OAuthErrorDescription,
-# OidfFrontChannelAutoRegistration, OidfAutoRegistration, ClientAttestationAuth) in its web.xml - via the
-# same assemble script a consumer's CI would use. modules/ holds the reactor's modular jars (oidf.jar +
-# attestation-issuer/ssf and the libraries they need - modules/MANIFEST names every one -
-# and under the conformance profile the CIBA simulator), staged by stage-modules.sh for one profile, which
-# writes the MANIFEST the assemble script checks - digests, and the profile against STAGING_PROFILE.
-# (No pf-rar-paz-plugin — that's agentic.)
-COPY assemble-pf-runtime-war.sh /tmp/assemble-pf-runtime-war.sh
+# therefore keep separate in-memory challenge/replay stores), and register the filters filters.xml declares
+# (SsfLogoutSignal, Fapi2Profile, FapiResourceServer, OAuthErrorDescription, OidfFrontChannelAutoRegistration,
+# OidfAutoRegistration, ClientAttestationAuth) in its web.xml - via the same assemble script a consumer's CI
+# would use, a wrapper round the war assembler (build/war-assembler) that stage-modules.sh stages into
+# assembler/, run here on the base image's own Java 21 (JAVA_HOME=/opt/java). modules/ holds the reactor's jars
+# (modules/MANIFEST names every one; under the conformance profile the CIBA simulator too), staged for one
+# profile, and the assembler checks them against the MANIFEST - digests, and the profile against
+# STAGING_PROFILE. bash is for the wrapper; the base image has unzip itself. (No pf-rar-paz-plugin — agentic.)
+COPY assemble-pf-runtime-war.sh filters.xml assembler/war-assembler.jar /tmp/assembler/
 COPY modules/ /tmp/modules/
 RUN mkdir -p /opt/in/instance/server/default/deploy \
- && apk add --no-cache bash zip unzip \
+ && apk add --no-cache bash \
  && STOCK="$(find /opt -name pf-runtime.war 2>/dev/null | grep -v '/opt/in/' | head -1)" \
  && { [ -n "$STOCK" ] || { echo 'stock pf-runtime.war not found in base image'; exit 1; }; } \
- && bash /tmp/assemble-pf-runtime-war.sh "$STOCK" /tmp/modules - \
-      /opt/in/instance/server/default/deploy/pf-runtime.war "$STAGING_PROFILE" \
+ && WAR_ASSEMBLER_JAR=/tmp/assembler/war-assembler.jar bash /tmp/assembler/assemble-pf-runtime-war.sh "$STOCK" \
+      /tmp/modules - /opt/in/instance/server/default/deploy/pf-runtime.war "$STAGING_PROFILE" \
  && chown 9031:0 /opt/in/instance/server/default/deploy/pf-runtime.war \
- && rm -f /tmp/assemble-pf-runtime-war.sh
+ && rm -rf /tmp/assembler
 # DEV attester trust, OPTIONAL — supplied by the consumer, never baked here. This file is a static
 # issuer -> public JWK map that BYPASSES OpenID Federation trust-chain resolution, so whoever ships it
 # decides which attesters this AS believes. That is a demo's decision about its own trust, not a

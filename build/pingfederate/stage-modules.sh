@@ -116,3 +116,13 @@ fi
 
 echo "staged ${#ENTRIES[@]} jars ($PROFILE profile) into $DEST:"
 cat "$DEST/MANIFEST"
+
+# The war assembler assemble-pf-runtime-war.sh runs (build/war-assembler), into assembler/ beside modules/ -
+# so a context composed from STAGE_DEST's parent carries it too. It is a build tool, not a module, so it is
+# not in ENTRIES or the MANIFEST: it never goes into the war or server/default/deploy.
+ASSEMBLER_JAR="$ROOT/build/war-assembler/target/war-assembler-$VERSION.jar"
+ASSEMBLER_DEST="$(dirname "$DEST")/assembler"
+[[ -f "$ASSEMBLER_JAR" ]] || { echo "ERROR: build/war-assembler/target/war-assembler-$VERSION.jar not built — run 'mvn -q -DskipTests package' first" >&2; exit 1; }
+mkdir -p "$ASSEMBLER_DEST"
+cp "$ASSEMBLER_JAR" "$ASSEMBLER_DEST/war-assembler.jar"
+echo "staged the war assembler into $ASSEMBLER_DEST/war-assembler.jar"
