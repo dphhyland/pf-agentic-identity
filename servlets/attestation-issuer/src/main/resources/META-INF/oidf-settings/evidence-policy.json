@@ -1,0 +1,44 @@
+{
+  "format": 1,
+  "component": "evidence-policy",
+  "module": "servlets/attestation-issuer",
+  "package": "com.pingidentity.ps.oidf.issuer",
+  "families": [],
+  "settings": [
+    {
+      "name": "OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "min": 1,
+      "max": 9223372036854775807,
+      "default": 86400,
+      "description": "The longest lifetime the attester accepts of a piece of evidence: of the whole (exp - iat) when it has an iat, and of what is left (exp - now, with 60 s for a clock behind the issuer's) always; a binding lives as long as its evidence, so this bounds how long a stolen token stays presentable. Production may only shorten it",
+      "when_wrong": {"effect": "first-request", "detail": "Not a whole number, 0 or less, or above 86400 without OIDF_DEPLOYMENT_PROFILE=development: issuance answers 500 server_error naming the variable, from the first request"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.max.evidence.lifetime.seconds"},
+        {"from": "env", "name": "OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether evidence whose aud names more than one party is refused: such evidence is presentable to each of them, so the attester cannot know it was the intended one",
+      "when_wrong": {"effect": "first-request", "detail": "Neither true nor false, in any case: issuance answers 500 server_error naming the variable, from the first request"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.require.single.audience.evidence"},
+        {"from": "env", "name": "OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

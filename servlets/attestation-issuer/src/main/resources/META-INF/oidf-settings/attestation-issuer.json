@@ -1,0 +1,237 @@
+{
+  "format": 1,
+  "component": "attestation-issuer",
+  "module": "servlets/attestation-issuer",
+  "package": "com.pingidentity.ps.oidf.servlet.attestation",
+  "families": ["OIDF_ATTESTER_", "OIDF_ATTESTATION_CUSTOM_CLAIMS_", "OIDF_WALLET_", "OIDF_ENTRA_", "OIDF_CIMD_"],
+  "settings": [
+    {
+      "name": "challengeRequired",
+      "kind": "init-param",
+      "type": "bool",
+      "default": false,
+      "description": "Whether an instance-key proof must carry a challenge from /federation/attestation/challenge; the issuance servlet enforces it and the two discovery servlets advertise it, each from its own init-param, so set the three alike",
+      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false; servlets that disagree advertise one thing and enforce another"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "challengeRequired"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "Claims every instance-key proof must carry besides the protocol's, comma-separated: enforced by the issuance servlet and advertised as custom_claims_required; the init-param customClaimsRequired on each of those two servlets wins over the system property and the environment",
+      "when_wrong": {"effect": "per-request", "detail": "Read as given, split at commas; a claim a client does not send refuses its every issuance"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "init-param", "name": "customClaimsRequired"},
+        {"from": "system-property", "name": "oidf.attestation.custom.claims.required"},
+        {"from": "env", "name": "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_CUSTOM_CLAIMS_SUPPORTED",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "Claims the client attestation service document advertises as custom_claims_supported, comma-separated; advertised only; the init-param customClaimsSupported on the metadata servlet wins over the system property and the environment",
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given, split at commas; nothing enforces it"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "init-param", "name": "customClaimsSupported"},
+        {"from": "system-property", "name": "oidf.attestation.custom.claims.supported"},
+        {"from": "env", "name": "OIDF_ATTESTATION_CUSTOM_CLAIMS_SUPPORTED"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "challengeEndpointEnabled",
+      "kind": "init-param",
+      "type": "bool",
+      "default": true,
+      "description": "Whether the client attestation service document advertises challenge_endpoint; on the metadata servlet",
+      "when_wrong": {"effect": "not-checked", "detail": "Set to anything but true, in any case, means false"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "challengeEndpointEnabled"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "attestationSigningAlgValuesSupported",
+      "kind": "init-param",
+      "type": "words",
+      "default": "RS256,PS256,ES256",
+      "description": "The algorithms the client attestation service document advertises as attestation_signing_alg_values_supported, comma-separated; on the metadata servlet, advertised only",
+      "when_wrong": {"effect": "not-checked", "detail": "Read as given, split at commas; blank is the default, and nothing checks it against the keys attestations are signed with"},
+      "profile": "any",
+      "security": false,
+      "sources": [{"from": "init-param", "name": "attestationSigningAlgValuesSupported"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "openBaoUrl",
+      "kind": "init-param",
+      "type": "string",
+      "default": null,
+      "description": "OpenBao's address for attestation signing keys (a client's attestation_signing_key_ref), on the issuance servlet; used only with openBaoToken, and with either unset both come from OIDF_OPENBAO_URL and OIDF_OPENBAO_TOKEN and their fallbacks (hosted-entity-signing)",
+      "when_wrong": {"effect": "per-request", "detail": "Wrong or unreachable: a client whose attestation_signing_key_ref needs the vault is refused with server_error"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "openBaoUrl"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "openBaoToken",
+      "kind": "init-param",
+      "type": "secret",
+      "default": null,
+      "description": "The OpenBao token for the same, on the issuance servlet; used only with openBaoUrl",
+      "when_wrong": {"effect": "per-request", "detail": "Refused by OpenBao: as for openBaoUrl"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "init-param", "name": "openBaoToken"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_FEDERATION_ENTITY",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "An OpenID Federation entity whose signed statement maps SPIFFE IDs to clients, consulted before the CIMD document and PingFederate's client store, and trusted only through a chain to a pinned trust anchor (OIDF_FEDERATION_TRUST_ANCHOR_JWKS); an entity the anchor stops vouching for loses its clients within 300 s",
+      "when_wrong": {"effect": "first-request", "detail": "Named with no trust anchor pinned: the attester refuses to build its client sources at its first request"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.federation.entity"},
+        {"from": "env", "name": "OIDF_ATTESTER_FEDERATION_ENTITY"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_SIGNING_JWK",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The attester's private signing key as an inline JWK, applied to every client the federation entity or the CIMD document describes; never read from those documents",
+      "when_wrong": {"effect": "per-request", "detail": "Missing or malformed: those clients are refused (invalid_client) at issuance, unless an entry names a signing_key_ref"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.signing.jwk"},
+        {"from": "env", "name": "OIDF_ATTESTER_SIGNING_JWK"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_CIMD_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "A Client ID Metadata Document as a client source, honoured only with OIDF_DEPLOYMENT_PROFILE=development (plan item M-1, F-0067): the document hands the attester every client's bindings and trust roots, so whoever answers at the URL chooses the keys the attester accepts",
+      "when_wrong": {"effect": "first-request", "detail": "Set outside development: at the attester's first request the cimd source is left out with an ERROR naming the variable, and the other sources keep serving"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.cimd.url"},
+        {"from": "env", "name": "OIDF_ATTESTER_CIMD_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_CIMD_TRUST_BUNDLES",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "Only whether it is set counts: set, with OIDF_DEPLOYMENT_PROFILE=development, the client attestation service document lists cimd in client_metadata_sources_supported; nothing reads its value or enforces it",
+      "when_wrong": {"effect": "not-checked", "detail": "Its value is never read"},
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {"from": "system-property", "name": "oidf.cimd.trust.bundles"},
+        {"from": "env", "name": "OIDF_CIMD_TRUST_BUNDLES"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_OP_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The hosted attester's own entity id, the relying party in a wallet provider's trust chain; with a trust controller configured (OIDF_FEDERATION_TRUST_CONTROLLER_HOST) it turns on federation-backed wallet provider trust, in preference to OIDF_WALLET_PROVIDER_JWKS",
+      "when_wrong": {"effect": "per-request", "detail": "Wrong: no wallet provider's chain resolves, and every wallet instance attestation is refused"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.op.issuer"},
+        {"from": "env", "name": "OIDF_ATTESTER_OP_ISSUER"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_WALLET_PROVIDER_JWKS",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "Wallet providers trusted statically, a JSON object of provider entity id to its JWK Set, used only when federation-backed wallet trust is not configured; the keys are trusted with no trust chain",
+      "when_wrong": {"effect": "not-checked", "detail": "Not a JSON object: ignored without a word, and every wallet instance attestation refused; an entry that is not a JWK Set is skipped"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.wallet.provider.jwks"},
+        {"from": "env", "name": "OIDF_WALLET_PROVIDER_JWKS"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ENTRA_AGENT_DIRECTORY",
+      "kind": "env",
+      "type": "json-object",
+      "default": null,
+      "description": "The Entra Agent ID directory, a JSON object of asserted oid to directory entry, which registers the entra-directory asserted-context resolver; its ceiling only narrows an evidenced one",
+      "when_wrong": {"effect": "not-checked", "detail": "Unparseable: no resolver is registered, without a word"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.entra.agent.directory"},
+        {"from": "env", "name": "OIDF_ENTRA_AGENT_DIRECTORY"}
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_SPIRE_ENTRIES_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "A SPIRE entries endpoint whose selectors are added to an instance's workload attributes at issuance; unset, no introspection",
+      "when_wrong": {"effect": "not-checked", "detail": "Unreachable: the instance gets no selectors"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.spire.entries.url"},
+        {"from": "env", "name": "OIDF_ATTESTER_SPIRE_ENTRIES_URL"}
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}
