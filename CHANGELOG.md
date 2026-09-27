@@ -46,7 +46,7 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   with a paired unit, `amount`, `instant_limit`, `equal`, `object`, `forbidden`), the built-in `sales_agent`,
   `payment_initiation` and `account_information` models, more from `OIDF_RAR_MODELS_FILE` / `OIDF_RAR_MODELS`,
   strict `contains`, `authorize` with inheritance, and the meet `intersect`, over lists held to fixed limits; a
-  SHA-256 fingerprint of the effective model; 167 vectors in a test-jar and seeded property tests. The library
+  SHA-256 fingerprint of the effective model; 169 vectors in a test-jar and seeded property tests. The library
   only: the authenticator, the issuer and the plugin move onto it in wave 2 (S1b, S1c), and B1 stays open until then.
 
 ## [0.3.0] - 2026-09-27

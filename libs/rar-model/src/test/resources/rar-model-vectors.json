@@ -2924,6 +2924,44 @@
       }
     },
     {
+      "name": "authorize: INHERIT refuses a malformed candidate even when no ceiling entry has its type",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "actions": []
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "MALFORMED"
+      }
+    },
+    {
+      "name": "authorize: INHERIT refuses an undeclared field even when no ceiling entry has its type",
+      "op": "authorize",
+      "ceiling": [
+        {
+          "type": "payment_initiation"
+        }
+      ],
+      "candidate": [
+        {
+          "type": "sales_agent",
+          "discount": 50
+        }
+      ],
+      "mode": "INHERIT",
+      "expect": {
+        "refused": "UNDECLARED_FIELD"
+      }
+    },
+    {
       "name": "authorize: each granted detail keeps the candidate's order",
       "op": "authorize",
       "ceiling": [

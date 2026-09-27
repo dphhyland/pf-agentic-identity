@@ -209,7 +209,7 @@ recursion stops long before the stack does; the limits above are the model's and
 ## The vectors
 
 `src/test/resources/rar-model-vectors.json` names a case for every rule, every malformed shape, the size limits
-and the models document - 167 on 2026-09-27 - each with an `op`, its lists, an optional `models` and an
+and the models document - 169 on 2026-09-27 - each with an `op`, its lists, an optional `models` and an
 `expect`. `RarModelVectorsTest` runs each as its own test through `Vectors.run`, the library's reading of a
 case; the wave-2 runners (the authenticator's token gate, the issuer's mint, the plugin's refresh check) read
 the same file through `Vectors.load()` from this module's test-jar and compare their surface's answer with the

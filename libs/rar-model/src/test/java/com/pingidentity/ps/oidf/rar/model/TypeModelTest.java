@@ -66,6 +66,15 @@ class TypeModelTest {
     }
 
     @Test
+    void checkValuesLeavesThePairingToCheck() throws Exception {
+        MODEL.checkValues(Map.of("amount", 1), "d");
+        assertEquals(RarModelException.Reason.UNDECLARED_FIELD,
+                assertThrows(RarModelException.class, () -> MODEL.checkValues(Map.of("x", 1), "d")).reason());
+        assertEquals(RarModelException.Reason.MALFORMED,
+                assertThrows(RarModelException.class, () -> MODEL.checkValues(Map.of("actions", "a"), "d")).reason());
+    }
+
+    @Test
     void checkPairsALimitWithItsUnit() throws Exception {
         MODEL.check(Map.of("currency", "EUR"), "d");
         MODEL.check(Map.of("amount", 1, "currency", "EUR"), "d");
@@ -93,7 +102,10 @@ class TypeModelTest {
     @Test
     void inheritFillsOmittedFieldsAndObjects() {
         Map<String, Object> ceiling = Map.of("type", "t", "actions", List.of("a"), "access", Map.of("paths", List.of("/a"), "mode", "r"));
-        Map<String, Object> got = MODEL.inherit(ceiling, Map.of("type", "t", "access", Map.of("paths", List.of("/a"))));
+        Map<String, Object> candidate = new LinkedHashMap<>(); // Map.of's iteration order is salted per JVM run
+        candidate.put("type", "t");
+        candidate.put("access", Map.of("paths", List.of("/a")));
+        Map<String, Object> got = MODEL.inherit(ceiling, candidate);
         assertEquals(List.of("a"), got.get("actions"));
         assertEquals(Map.of("paths", List.of("/a"), "mode", "r"), got.get("access"));
         assertEquals(List.of("type", "access", "actions"), new ArrayList<>(got.keySet()), "the candidate's order, then inherited fields");

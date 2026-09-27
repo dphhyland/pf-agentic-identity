@@ -109,6 +109,7 @@
                                         <!-- A type's fields: shape, containment, inheritance, the meet. -->
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.TypeModel(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.model.TypeModel.checkValues(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.contains(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.inherit(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.model.TypeModel.meet(*</include>

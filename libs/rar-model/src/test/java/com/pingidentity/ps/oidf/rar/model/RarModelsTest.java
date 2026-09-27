@@ -206,6 +206,9 @@ class RarModelsTest {
         RarModelException e = assertThrows(RarModelException.class, () -> models.authorize(request, ceiling, Omission.INHERIT));
         assertEquals(RarModelException.Reason.EXCEEDS_CEILING, e.reason());
         assertEquals("candidate authorization_details[0] of type 'sales_agent' is not within the ceiling", e.getMessage());
+        RarModelException junk = assertThrows(RarModelException.class, () -> models.authorize(
+                details("[{\"type\":\"sales_agent\",\"actions\":[\"a\"]}]"), List.of(), Omission.INHERIT));
+        assertEquals("candidate authorization_details[0] of type 'sales_agent' is not within the ceiling", junk.getMessage());
         List<Map<String, Object>> narrowed = models.intersect(request, ceiling);
         assertEquals("[{\"max_txn_eur\":5000,\"sales_regions\":[\"EMEA\"],\"type\":\"sales_agent\"}]", Json.write(narrowed));
         assertTrue(models.contains(ceiling, narrowed));
@@ -348,17 +351,59 @@ class RarModelsTest {
         assertEquals("candidate authorization_details[0] carries 'discount', which type 'sales_agent' does not declare", e.getMessage());
     }
 
+    /** Names from a request reach a message escaped and cut, so a name cannot forge a log line or fill one. */
+    @Test
+    void namesInMessagesAreQuotedEscapedAndCut() throws Exception {
+        assertEquals("'a'", RarModelException.quote("a"));
+        assertEquals("'a\\u000ab\\u0027c\\u005cd\\u007f'", RarModelException.quote("a\nb'c\\d\u007f"));
+        assertEquals("'" + "x".repeat(64) + "...'", RarModelException.quote("x".repeat(65)));
+        assertEquals("'" + "x".repeat(64) + "'", RarModelException.quote("x".repeat(64)));
+        RarModelException e = assertThrows(RarModelException.class,
+                () -> models.contains(List.of(Map.of("type", SA)), List.of(Map.of("type", SA, "bad\nname", 1))));
+        assertEquals("candidate authorization_details[0] carries 'bad\\u000aname', which type 'sales_agent' does not declare", e.getMessage());
+        RarModelException t = assertThrows(RarModelException.class, () -> models.model("x\u0000y"));
+        assertEquals("no model for authorization_details type 'x\\u0000y'", t.getMessage());
+        RarModelException deep = assertThrows(RarModelException.class, () -> models.validate(
+                List.of(Map.of("type", PI, "creditorAccount", Map.of("k\ty", "x".repeat(2049)))), "candidate"));
+        assertEquals("candidate authorization_details[0].'creditorAccount'.'k\\u0009y' is a string longer than 2048", deep.getMessage(),
+                "the size walk runs before any name is known to be declared, so it quotes every one");
+    }
+
+    /** Under INHERIT a malformed candidate is malformed whatever the ceiling holds, and a limit without its unit waits for inheritance. */
+    @Test
+    void inheritChecksValuesBeforeFittingAndPairingAfter() throws Exception {
+        RarModelException e = assertThrows(RarModelException.class,
+                () -> models.authorize(details("[{\"type\":\"sales_agent\",\"actions\":[]}]"), List.of(), Omission.INHERIT));
+        assertEquals(RarModelException.Reason.MALFORMED, e.reason(), "not EXCEEDS_CEILING: the shape is wrong before the ceiling matters");
+        RarModelException u = assertThrows(RarModelException.class,
+                () -> models.authorize(details("[{\"type\":\"payment_initiation\",\"discount\":1}]"), List.of(), Omission.INHERIT));
+        assertEquals(RarModelException.Reason.UNDECLARED_FIELD, u.reason());
+        List<Map<String, Object>> granted = models.authorize(details("[{\"type\":\"payment_initiation\",\"amount\":\"42.00\"}]"),
+                details("[{\"type\":\"payment_initiation\",\"amount\":\"100.00\",\"currency\":\"EUR\"}]"), Omission.INHERIT);
+        assertEquals("[{\"amount\":\"42.00\",\"currency\":\"EUR\",\"type\":\"payment_initiation\"}]", Json.write(granted));
+        RarModelException p = assertThrows(RarModelException.class,
+                () -> models.authorize(details("[{\"type\":\"payment_initiation\",\"amount\":\"42.00\"}]"),
+                        details("[{\"type\":\"payment_initiation\"}]"), Omission.INHERIT));
+        assertEquals(RarModelException.Reason.MALFORMED, p.reason(), "no currency to inherit: the pairing rule refuses the fitted detail");
+    }
+
     @Test
     void outputsNeverAliasInputs() throws Exception {
         Map<String, Object> entry = new LinkedHashMap<>();
         entry.put("type", SA);
         entry.put("sales_regions", new ArrayList<>(List.of("EMEA")));
         List<Map<String, Object>> ceiling = List.of(entry);
+        Map<String, Object> request = new LinkedHashMap<>();
+        request.put("type", SA);
+        request.put("actions", new ArrayList<>(List.of("read")));
         List<Map<String, Object>> granted = models.authorize(details("[{\"type\":\"sales_agent\"}]"), ceiling, Omission.INHERIT);
+        List<Map<String, Object>> inherited = models.authorize(List.of(request), ceiling, Omission.INHERIT);
         List<Map<String, Object>> strict = models.authorize(ceiling, ceiling, Omission.STRICT);
         List<Map<String, Object>> meet = models.intersect(ceiling, ceiling);
         ((List<Object>) entry.get("sales_regions")).add("APAC");
+        ((List<Object>) request.get("actions")).add("write");
         assertEquals(List.of("EMEA"), granted.get(0).get("sales_regions"));
+        assertEquals(List.of("read"), inherited.get(0).get("actions"), "the candidate's own values are copied too");
         assertEquals(List.of("EMEA"), strict.get(0).get("sales_regions"));
         assertEquals(List.of("EMEA"), meet.get(0).get("sales_regions"));
     }

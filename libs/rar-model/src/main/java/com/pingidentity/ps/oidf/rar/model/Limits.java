@@ -96,7 +96,7 @@ public final class Limits {
                 if (key.length() > MAX_STRING) {
                     throw RarModelException.tooLarge(where + " has a member name longer than " + MAX_STRING);
                 }
-                walk(e.getValue(), depth + 1, where + "." + key);
+                walk(e.getValue(), depth + 1, where + "." + RarModelException.quote(key));
             }
             return;
         }

@@ -68,4 +68,25 @@ public final class RarModelException extends Exception {
     static RarModelException modelInvalid(String message) {
         return new RarModelException(Reason.MODEL_INVALID, message);
     }
+
+    /**
+     * A name from a request as a message may carry it: quoted, control characters and the quote escaped
+     * so a name cannot forge a log line, and cut at 64 characters so a 2048-character name cannot fill one.
+     */
+    static String quote(String name) {
+        StringBuilder out = new StringBuilder("'");
+        int shown = Math.min(name.length(), 64);
+        for (int i = 0; i < shown; i++) {
+            char c = name.charAt(i);
+            if (c < 0x20 || c == 0x7f || c == '\'' || c == '\\') {
+                out.append(String.format("\\u%04x", (int) c));
+            } else {
+                out.append(c);
+            }
+        }
+        if (name.length() > shown) {
+            out.append("...");
+        }
+        return out.append('\'').toString();
+    }
 }

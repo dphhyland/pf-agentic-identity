@@ -70,6 +70,23 @@ public final class TypeModel {
      * @param where  the detail, for the message
      */
     void check(Map<String, Object> detail, String where) throws RarModelException {
+        checkValues(detail, where);
+        for (Map.Entry<String, FieldRule> e : fields.entrySet()) {
+            String unit = e.getValue().unitField();
+            if (unit != null && detail.containsKey(e.getKey()) && !detail.containsKey(unit)) {
+                throw RarModelException.malformed(where + "." + e.getKey() + " needs " + unit + " beside it");
+            }
+        }
+    }
+
+    /**
+     * The part of {@link #check} that does not depend on what else the detail carries: no undeclared
+     * field, no forbidden field, every value the shape its rule compares. What {@link RarModels#authorize}
+     * checks under {@link Omission#INHERIT} before inheritance, so that a malformed candidate is refused as
+     * malformed whatever the ceiling holds, and a limit sent without its unit is not refused for a unit
+     * the ceiling is about to supply.
+     */
+    void checkValues(Map<String, Object> detail, String where) throws RarModelException {
         for (Map.Entry<String, Object> e : detail.entrySet()) {
             String name = e.getKey();
             if (type != null && "type".equals(name)) {
@@ -77,15 +94,10 @@ public final class TypeModel {
             }
             FieldRule rule = fields.get(name);
             if (rule == null) {
-                throw RarModelException.undeclared(where + " carries '" + name + "', which " + owner() + " does not declare");
+                throw RarModelException.undeclared(where + " carries " + RarModelException.quote(name) + ", which " + owner()
+                        + " does not declare");
             }
             rule.check(e.getValue(), where + "." + name);
-        }
-        for (Map.Entry<String, FieldRule> e : fields.entrySet()) {
-            String unit = e.getValue().unitField();
-            if (unit != null && detail.containsKey(e.getKey()) && !detail.containsKey(unit)) {
-                throw RarModelException.malformed(where + "." + e.getKey() + " needs " + unit + " beside it");
-            }
         }
     }
 
@@ -116,7 +128,7 @@ public final class TypeModel {
      * check that follows to refuse.
      */
     Map<String, Object> inherit(Map<String, Object> ceiling, Map<String, Object> candidate) {
-        Map<String, Object> out = new LinkedHashMap<>(candidate);
+        Map<String, Object> out = asMap(Json.copy(candidate));
         for (Map.Entry<String, FieldRule> e : fields.entrySet()) {
             String name = e.getKey();
             if (!ceiling.containsKey(name)) {
@@ -174,7 +186,7 @@ public final class TypeModel {
     }
 
     private String owner() {
-        return type == null ? "the object" : "type '" + type + "'";
+        return type == null ? "the object" : "type " + RarModelException.quote(type);
     }
 
     @SuppressWarnings("unchecked")

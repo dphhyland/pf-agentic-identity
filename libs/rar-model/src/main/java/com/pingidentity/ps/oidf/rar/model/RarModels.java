@@ -166,7 +166,7 @@ public final class RarModels {
         if (commonFieldsFallback) {
             return commonFields;
         }
-        throw RarModelException.unmodelled("no model for authorization_details type '" + type + "'");
+        throw RarModelException.unmodelled("no model for authorization_details type " + RarModelException.quote(type));
     }
 
     /**
@@ -266,10 +266,12 @@ public final class RarModels {
             TypeModel model = model(type);
             if (mode == Omission.STRICT) {
                 model.check(detail, where);
+            } else {
+                model.checkValues(detail, where);
             }
             Optional<Map<String, Object>> fitted = containing(c, detail, mode);
             if (fitted.isEmpty()) {
-                throw RarModelException.exceeds(where + " of type '" + type + "' is not within the ceiling");
+                throw RarModelException.exceeds(where + " of type " + RarModelException.quote(type) + " is not within the ceiling");
             }
             granted.add(fitted.get());
             i++;
@@ -347,7 +349,7 @@ public final class RarModels {
             }
             Map<String, Object> fitted = mode == Omission.INHERIT ? model.inherit(entry, detail) : asMap(Json.copy(detail));
             if (mode == Omission.INHERIT) {
-                model.check(fitted, "candidate authorization_details entry of type '" + type + "'");
+                model.check(fitted, "candidate authorization_details entry of type " + RarModelException.quote(type));
             }
             if (model.contains(entry, fitted)) {
                 return Optional.of(fitted);
