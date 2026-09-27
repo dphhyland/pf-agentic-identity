@@ -5,7 +5,7 @@ area: platform
 source: pr-review
 status: closed
 plan_items: [S5a, C-3]
-prs: []
+prs: [60]
 verification: >
   2026-09-28, on prod/p2-outbound-http-rebase: DeadlineSocket reads in slices of at most 250 ms, looks at the
   thread's interrupt before each, and throws InterruptedIOException with the interrupt left set.

@@ -4,7 +4,7 @@ area: oidf-jose, platform
 source: design
 status: open
 plan_items: [S5a]
-prs: []
+prs: [60]
 recorded_in: libs/platform/README.md, the http section, the bulkhead; docs/releases/unreleased/S5AR.md
 verify_by: >
   Once O-3's counters see OutboundHttpException reasons (S5d moves the call sites onto one client), read the

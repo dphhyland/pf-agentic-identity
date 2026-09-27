@@ -4,7 +4,7 @@ area: consumers, oidf-jose
 source: design
 status: open
 plan_items: [S5a]
-prs: []
+prs: [60]
 recorded_in: docs/releases/unreleased/S5AR.md, Before you deploy
 verify_by: >
   In each consumer's running PingFederate (pf-oidf-modules' rigs, idp-agentic-demo, domain-authority), read the
