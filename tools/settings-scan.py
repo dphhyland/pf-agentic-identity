@@ -19,7 +19,8 @@ src/main/resources/META-INF/oidf-settings/<component>.json in the module that re
   catalogue to code    every name a catalogue declares is read somewhere in the reactor, and at least once in the
                        catalogue's own module; the catalogue's package (or a package under it) has at least one of
                        its reads. A removed name and a secret's _FILE variant are declared, and need no read: the
-                       resolver in platform.settings reads them
+                       resolver in platform.settings reads them. An entry read through platform.settings (a
+                       Settings read, below) is a read of each of its sources and its aliases', where it is read
   once                 a name is declared by one catalogue only (an init-param or plugin field, by one catalogue
                        of its module), whichever modules read it: the component that owns it catalogues it, and
                        the others read it under the same name
@@ -45,6 +46,12 @@ What counts as a read, in main Java code with comments removed:
                         followed), the variable of a for-each over an inline List.of(...) or Set.of(...) whose
                         elements are all literals or constants (a read of each), or a name derived by
                         Parsers.systemPropertyName(x) - directly or through a method that returns it.
+  a Settings read       in a file that imports platform.settings' Settings, one of its accessors (SETTINGS_ACCESSORS:
+                        settings.string(x), .secret(x), .duration(x), .parse(x, raw) ...) on a receiver that is not a
+                        class, with x named as above - read as setting x: the catalogue entry named x, whose sources
+                        and aliases the resolver reads in their order (RedisConfig reads platform-redis this way, and
+                        ST-5 converts the rest). The entry must exist; any accessor of the same name and arity in such
+                        a file is taken for Settings'.
   a helper's argument   a method whose parameter reaches a read call, or another helper, unchanged (or through a
                         for-each over a varargs parameter) is a helper, found by the scan to a fixpoint; a literal
                         or constant passed in that position is a read of that kind. So HostedEntityServlet's
@@ -55,10 +62,12 @@ What counts as a read, in main Java code with comments removed:
                         extended property) and each element of the lists in EXTENDED_PROPERTY_LISTS (the names a
                         module writes onto a client) - read as extended-property <name>.
 
-An argument in a read position - of a read call, an apply on one of APPLY_RECEIVERS, or a helper - that is none of
-those (a local variable, a loop over anything but an inline list of names, an expression) and is not a parameter of
-the enclosing method is itself a problem - "a read the scan cannot name" - so a new way of reading a setting through
-these calls cannot slip past; give the name a constant, or read it through a helper whose parameter carries it.
+An argument in a read position - of a read call, an apply on one of APPLY_RECEIVERS, a Settings read or a helper -
+that is none of those (a local variable, a loop over anything but an inline list of names, an expression) and is not
+a parameter of the enclosing method is itself a problem - "a read the scan cannot name" - so a new way of reading a
+setting through these calls cannot slip past; give the name a constant, or read it through a helper whose parameter
+carries it. The one exception is a name built from a prefix in NOT_SETTING_PREFIXES (a literal or a constant, then
+`+`): a family of names that are not settings, such as platform.exec's oidf.exec.owner.<executor> claims.
 
 Catalogue to code uses the same reads, with one widening: a plugin-field or extended-property entry also counts as
 read when its name is the whole of a string literal in some module's main code, because a plugin's field and a
@@ -112,6 +121,15 @@ NOT_SETTINGS = {
         " declare it, because the format's system-property names are lower case (F-0195)",
 }
 
+# Families of names built from a prefix that are not operator settings, by (kind, prefix) -> why: a read whose
+# argument is the prefix (a literal or a constant) + anything is excused. Nothing else built by concatenation is.
+NOT_SETTING_PREFIXES = {
+    ("system-property", "oidf.exec.owner."):
+        "platform.exec's JVM-wide claims: ExecutorRegistry sets oidf.exec.owner.<executor> to the claiming copy's id"
+        " so that one of each managed executor runs per JVM, reads it back and clears it when the executor closes; an"
+        " operator never sets one (one who did would stop that executor, logged at INFO with the property - F-0196)",
+}
+
 # Static final collections whose elements are extended-property names a module writes onto a client:
 # (class simple name, field) -> why.
 EXTENDED_PROPERTY_LISTS = {
@@ -142,6 +160,13 @@ READ_CALLS = {
     "getDoubleFieldValue": ("plugin-field", None),
 }
 DERIVED = "derived-system-property"
+
+# A Settings read: platform.settings' typed accessors, each (name) -> its arity. In a file that imports Settings, a
+# call of one on a receiver that is not a class reads the catalogue entry its first argument names.
+SETTINGS_IMPORT = re.compile(r"^\s*import\s+com\.pingidentity\.ps\.oidf\.platform\.settings\.(?:Settings|\*)\s*;", re.M)
+SETTINGS_ACCESSORS = {"resolve": 1, "bool": 1, "integer": 1, "longValue": 1, "duration": 1, "string": 1, "choice": 1,
+                      "httpsUrl": 1, "url": 1, "jsonObject": 1, "words": 1, "path": 1, "secret": 1, "parse": 2}
+SETTING = "setting"
 
 OIDF_ENV_LITERAL = re.compile(r"OIDF_[A-Z0-9]+(?:_[A-Z0-9]+)*")
 EXTPROPERTY_LITERAL = re.compile(r"extproperties\.([A-Za-z][A-Za-z0-9_]*)")
@@ -279,6 +304,7 @@ class JavaFile:
         self.package = m.group(1) if m else ""
         self.cls = os.path.splitext(os.path.basename(path))[0]
         self.static_imports = {name: cls.rsplit(".", 1)[-1] for cls, name in STATIC_IMPORT_RE.findall(self.bare)}
+        self.uses_settings = bool(SETTINGS_IMPORT.search(self.bare))
         self.constants = {}
         for m in CONSTANT_RE.finditer(self.code):
             modifiers = m.group(1).split()
@@ -506,6 +532,10 @@ class Reactor:
         if name == "apply" and receiver in APPLY_RECEIVERS and len(args) == 1:
             out.append((0, {APPLY_RECEIVERS[receiver]}))
             return out
+        if jf.uses_settings and SETTINGS_ACCESSORS.get(name) == len(args) and receiver is not None \
+                and not receiver[:1].isupper():
+            out.append((0, {SETTING}))
+            return out
         for target, method in self.targets(jf, name, receiver, len(args)):
             positions = helpers.get((target.path, method[0], len(method[1]), method[3]), {})
             for i in range(len(args)):
@@ -553,7 +583,8 @@ class Reactor:
                     what = self.expression(jf, text, method)
                     line = jf.line(start)
                     if what is None:
-                        unresolved.append((jf, line, f"{call[0]}({text})"))
+                        if not self.not_a_setting(jf, text, method, kinds):
+                            unresolved.append((jf, line, f"{call[0]}({text})"))
                         continue
                     if what[0] == "param":
                         continue
@@ -595,6 +626,14 @@ class Reactor:
             unique.setdefault((kind, name, jf.path, line), (kind, name, jf, line))
         return list(unique.values()), unresolved
 
+    def not_a_setting(self, jf, text, method, kinds):
+        """Whether `text` is a prefix of NOT_SETTING_PREFIXES, as a literal or a constant, then `+` and anything."""
+        head = leading_operand(text)
+        if head is None:
+            return False
+        prefix = literal_of(self.expression(jf, head, method))
+        return prefix is not None and any((kind, prefix) in NOT_SETTING_PREFIXES for kind in kinds)
+
     def literal_names(self):
         """Every whole string literal in main code, by (module, package)."""
         out = {}
@@ -608,6 +647,28 @@ def scope(kind, module):
     module (three servlets read three different `signingAlgorithm`s), so it is declared and matched within the
     module; an environment variable, a system property and a client's extended property are one per process."""
     return module if kind in SCOPED_KINDS else None
+
+
+def leading_operand(text):
+    """The text before the first `+` outside brackets and string literals, or None when there is no such `+`."""
+    depth, i = 0, 0
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            m = LITERAL.match(text, i)
+            if not m:
+                return None
+            i = m.end()
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "+" and depth == 0:
+            head = text[:i].strip()
+            return head or None
+        i += 1
+    return None
 
 
 def literal_of(what):
@@ -639,6 +700,14 @@ class Catalogue:
         self.declared_module = doc["module"]
         self.entries = doc["settings"]
         self.removed = doc["removed"]
+
+    def entry_names(self, entry):
+        """[(kind, name)]: what reading `entry` through platform.settings reads - its sources and its aliases', or the
+        entry itself for a name PingFederate supplies."""
+        if entry["kind"] not in SOURCE_KINDS:
+            return [(entry["kind"], entry["name"])]
+        return [(s["from"], s["name"]) for s in entry["sources"]] + \
+            [(s["from"], s["name"]) for alias in entry["aliases"] for s in alias["sources"]]
 
     def names(self):
         """[(kind, name, entry name, must be read)]: every name it declares."""
@@ -918,8 +987,24 @@ def scan(root):
             continue
         problems.append(f"{jf.path}:{line}: {text} is a read the scan cannot name: read it by a constant, or through a"
                         " helper whose parameter carries it")
+    # Entries by name, where they mean one thing: (entry name, scope) -> [(catalogue, entry)].
+    entries = {}
+    for catalogue in catalogues:
+        for e in catalogue.entries:
+            entries.setdefault((e["name"], scope(e["kind"], catalogue.module)), []).append((catalogue, e))
+
+    def entries_read(name, module):
+        return entries.get((name, None), []) + entries.get((name, module), [])
+
     seen_missing = set()
     for kind, name, jf, line in sorted(reads, key=lambda r: (r[2].path, r[3], r[0], r[1])):
+        if kind == SETTING:
+            if jf.module in exempt or entries_read(name, jf.module) or (jf.module, name) in seen_missing:
+                continue
+            seen_missing.add((jf.module, name))
+            problems.append(f"{jf.path}:{line}: setting {name} is read through platform.settings but no catalogue has"
+                            " an entry of that name")
+            continue
         if jf.module in exempt or (kind, name) in NOT_SETTINGS or (kind, name, scope(kind, jf.module)) in declared:
             continue
         key = (kind, name, jf.module)
@@ -931,6 +1016,11 @@ def scan(root):
     # Catalogue to code.
     read_where = {}
     for kind, name, jf, _line in reads:
+        if kind == SETTING:
+            for catalogue, e in entries_read(name, jf.module):
+                for source in catalogue.entry_names(e):
+                    read_where.setdefault(source, set()).add((jf.module, jf.package))
+            continue
         read_where.setdefault((kind, name), set()).add((jf.module, jf.package))
     literals = reactor.literal_names()
     for (kind, name, in_module), owners in sorted(declared.items(), key=lambda item: item[0][:2]):

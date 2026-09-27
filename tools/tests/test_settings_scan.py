@@ -118,6 +118,26 @@ class WhatIsAReadTest(unittest.TestCase):
             'void f(String suffix) { String name = "OIDF_" + suffix; System.getenv(name); System.getProperty("oidf." + suffix); }')})
         self.assertEqual(['getenv(name)', 'getProperty("oidf." + suffix)'], unresolved)
 
+    def test_a_name_built_from_a_prefix_that_names_no_settings_is_excused_and_no_other(self):
+        _found, unresolved = reads_of({"A.java": java(
+            'static final String OWNER_PREFIX = "oidf.exec.owner.";\n'
+            'void f(String name) {\n  System.getProperty(OWNER_PREFIX + name);\n  System.getProperty("oidf.exec.owner." + name);\n'
+            '  System.getProperty("oidf.exec.other." + name);\n  System.getenv(OWNER_PREFIX + name);\n}')})
+        self.assertEqual(['getProperty("oidf.exec.other." + name)', 'getenv(OWNER_PREFIX + name)'], unresolved)
+
+    def test_a_settings_accessor_reads_the_entry_it_names(self):
+        imports = "package x;\nimport com.pingidentity.ps.oidf.platform.settings.Settings;\nclass A {\n"
+        found, unresolved = reads_of({"A.java": imports +
+            'static final String URL = "OIDF_R_URL";\n'
+            'void f(Settings settings) {\n  String local = pick();\n  settings.secret(URL);\n  settings.duration("OIDF_R_WAIT");\n'
+            '  settings.parse("peerName", "raw");\n  Settings.of("r").path("OIDF_R_CA");\n  Json.path("NOT_A_READ");\n  settings.string(local);\n'
+            '  settings.string("TWO", "args");\n}\n}\n'})
+        self.assertEqual({("setting", "OIDF_R_URL"), ("env", "OIDF_R_URL"), ("setting", "OIDF_R_WAIT"), ("env", "OIDF_R_WAIT"),
+                          ("setting", "peerName"), ("setting", "OIDF_R_CA"), ("env", "OIDF_R_CA")}, found)
+        self.assertEqual(["string(local)"], unresolved)
+        found, unresolved = reads_of({"A.java": java('void f(Json json) { json.string("REDIS_URL"); json.path(local); }')})
+        self.assertEqual((set(), []), (found, unresolved))
+
     def test_an_apply_or_a_helper_whose_argument_the_scan_cannot_name_is_reported(self):
         _found, unresolved = reads_of({"A.java": java(
             'private static String setting(java.util.function.Function<String, String> env, String var) {\n'
@@ -315,6 +335,25 @@ class BothWaysTest(unittest.TestCase):
                 if expected:
                     self.assertIn("names accepted risk not-registered", problems[0])
 
+    def test_a_settings_read_reads_the_entrys_sources_and_aliases(self):
+        doc = catalogue("r", "libs/a", "x", [
+            entry("OIDF_R_URL", sources=[{"from": "system-property", "name": "oidf.r.url"}, {"from": "env", "name": "OIDF_R_URL"}],
+                  aliases=[{"name": "LEGACY_URL", "sources": [{"from": "env", "name": "LEGACY_URL"}]}]),
+            entry("REDIS_URL"), entry("OIDF_R_UNREAD", sources=[{"from": "system-property", "name": "oidf.r.unread"},
+                                                              {"from": "env", "name": "OIDF_R_UNREAD"}])])
+        reads = {"x/A.java": "package x;\nimport com.pingidentity.ps.oidf.platform.settings.Settings;\nclass A {\n"
+                             'static final String URL = "OIDF_R_URL";\nstatic final String UNREAD = "OIDF_R_UNREAD";\n'
+                             'void f(Settings s) { s.secret(URL); s.secret("REDIS_URL"); s.bool("R_MISSING"); }\n}\n'}
+        problems = Tree(self).module("libs/a", reads, [doc]).problems()
+        self.assertEqual(["libs/a/src/main/java/x/A.java:6: setting R_MISSING is read through platform.settings but no"
+                          " catalogue has an entry of that name",
+                          "libs/a/src/main/resources/META-INF/oidf-settings/r.json: system-property oidf.r.unread"
+                          " (OIDF_R_UNREAD) is catalogued but nothing reads it"], problems)
+
+    def test_a_prefix_that_names_no_settings_is_excused_in_the_scan(self):
+        reads = {"x/A.java": java('static final String P = "oidf.exec.owner.";\nvoid f(String n) { System.getProperty(P + n); }')}
+        self.assertEqual([], Tree(self).module("libs/a", reads, []).problems())
+
     def test_not_settings_are_excused(self):
         reads = {"x/A.java": java('void f() { System.getProperty("oidf.registration.sweeper.owner"); }')}
         self.assertEqual([], Tree(self).module("libs/a", reads, []).problems())
@@ -413,7 +452,8 @@ class RepositoryTest(unittest.TestCase):
             self.assertEqual(0, scan.main(["--root", REPO, "--list"]))
         listed = out.getvalue()
         for line in ("env OIDF_PDP_MODE  servlets/pf-integration/", "system-property oidf.pdp.mode  servlets/pf-integration/",
-                     "init-param trustAnchorIssuers  libs/openid-federation/", "extended-property status  servlets/pf-integration/"):
+                     "init-param trustAnchorIssuers  libs/openid-federation/", "extended-property status  servlets/pf-integration/",
+                     "setting OIDF_REDIS_URL  libs/platform/", "setting REDIS_URL  libs/platform/"):
             self.assertIn(line, listed)
 
 

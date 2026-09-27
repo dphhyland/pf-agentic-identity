@@ -27,7 +27,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The bearer token for enrolment, /federation/admin/* and /federation/registered-clients, compared in constant time; unset, every admin request is a 401",
+      "description": "The bearer token for enrolment, /federation/admin/* and /federation/registered-clients, and (from the system property or the environment, never an init-param) for platform-pf's /agentic-identity/health and /agentic-identity/info, compared in constant time; unset, every admin request is a 401 and those two a 404",
       "when_wrong": {"effect": "per-request", "detail": "Every admin request is a 401"},
       "profile": "any",
       "security": true,

@@ -16,3 +16,8 @@ notes: >
   without a word, and the name looks like a setting. It is not one, so the scan excuses it by name
   (NOT_SETTINGS) rather than catalogue it. C-3, which moves the sweeper onto platform.exec, can hold the latch in
   a static of its own and log when it declines to start.
+  C3 (PR #51) kept the latch and added the same kind for every managed executor: ExecutorRegistry claims
+  oidf.exec.owner.<executor> as a system property so that copies of platform in different classloaders see one
+  claim, and a copy that finds it set does not start that executor. It logs the refusal at INFO, naming the
+  property and its value, so a hand-set claim is visible, but it still stops the executor. The scan excuses that
+  family by prefix (NOT_SETTING_PREFIXES) rather than catalogue it.
