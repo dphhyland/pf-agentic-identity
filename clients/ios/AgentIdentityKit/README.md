@@ -65,7 +65,7 @@ swift build --package-path clients/ios/AgentIdentityKit
 swift test --package-path clients/ios/AgentIdentityKit
 ```
 
-66 tests, one of them skipped: the protocol against fakes; the vectors the server's own classes print
+67 tests, one of them skipped: the protocol against fakes; the vectors the server's own classes print
 ([tools/vectors](../tools/vectors/README.md)); the real macOS 27.2 App Attest objects in `libs/app-attest`, which
 the kit's commitments reproduce; RFC 7515's and RFC 7636's worked examples. The skipped one, `InteropTests`, runs
 the kit against the service's own Java over HTTP when [tools/interop](../tools/interop/README.md) starts it; it

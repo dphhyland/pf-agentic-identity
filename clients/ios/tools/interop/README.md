@@ -13,7 +13,9 @@ loopback address that stands in for the two parties no test can reach:
   verifier's JWKS source serves.
 
 The oracle also moves two things in the registry: it ages an instance's user verification, and it records a
-higher App Attest counter for the device, as a renewal that won a race would.
+higher App Attest counter for the device, as a renewal that won a race would. The oracle listens on the loopback
+address only; the service listens on every interface, as `EnrolmentHttpServer` does, for the seconds the run
+takes, and trusts no root but the one this process made.
 
 ```sh
 clients/ios/tools/interop/run.sh

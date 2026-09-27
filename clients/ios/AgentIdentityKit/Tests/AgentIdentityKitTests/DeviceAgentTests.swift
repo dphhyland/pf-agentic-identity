@@ -271,13 +271,25 @@ final class DeviceAgentTests: XCTestCase {
     func testConcurrentRemintsShareOneCeremony() async throws {
         let rig = try await enrolled()
         // The service takes its time, so the second caller arrives while the first re-mint is on the wire.
-        rig.service.delayReissue(nanoseconds: 200_000_000)
+        rig.service.delayReissue(nanoseconds: 500_000_000)
         async let first = rig.agent.remint()
         async let second = rig.agent.remint()
         let (a, b) = try await (first, second)
         XCTAssertEqual(a, b)
         XCTAssertEqual(rig.service.bodies("attestation").count, 1)
         XCTAssertEqual(rig.appAttest.asserted.count, 1)
+    }
+
+    /// The app forgot the enrolment while a re-mint was on the wire: the re-mint's answer does not bring it back.
+    func testAForgetDuringARemintStands() async throws {
+        let rig = try await enrolled()
+        rig.service.delayReissue(nanoseconds: 300_000_000)
+        async let reminted = rig.agent.remint()
+        try await Task.sleep(nanoseconds: 100_000_000)
+        await rig.agent.forget()
+        _ = try await reminted
+        let state = await rig.agent.state
+        XCTAssertEqual(state, .unenrolled)
     }
 
     func testTheCurrentAttestationIsReusedUntilItNearsExpiry() async throws {

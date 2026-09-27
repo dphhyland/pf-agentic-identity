@@ -57,18 +57,17 @@ public final class SecureEnclaveInstanceKey: InstanceKey, @unchecked Sendable {
                                                            gate.flags, &error) else {
             throw AgentIdentityError.secureEnclave(describe(error))
         }
-        var privateAttributes: [String: Any] = [
-            kSecAttrIsPermanent as String: true,
-            kSecAttrApplicationTag as String: Data(tag.utf8),
-            kSecAttrAccessControl as String: access,
-        ]
-        privateAttributes.merge(keychain) { $1 }
-        let attributes: [String: Any] = [
+        var attributes: [String: Any] = [
             kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
             kSecAttrKeySizeInBits as String: 256,
             kSecAttrTokenID as String: kSecAttrTokenIDSecureEnclave,
-            kSecPrivateKeyAttrs as String: privateAttributes,
+            kSecPrivateKeyAttrs as String: [
+                kSecAttrIsPermanent as String: true,
+                kSecAttrApplicationTag as String: Data(tag.utf8),
+                kSecAttrAccessControl as String: access,
+            ] as [String: Any],
         ]
+        attributes.merge(keychain) { $1 }
         guard let key = SecKeyCreateRandomKey(attributes as CFDictionary, &error) else {
             throw AgentIdentityError.secureEnclave(describe(error))
         }
@@ -121,7 +120,8 @@ public final class SecureEnclaveInstanceKey: InstanceKey, @unchecked Sendable {
         return try ES256.rawSignature(fromDER: der)
     }
 
-    /// On a Mac, a Secure Enclave key lives in the data protection keychain, as it always does on iOS.
+    /// On a Mac, a Secure Enclave key lives in the data protection keychain, as it always does on iOS. The Mac is
+    /// where the package's tests run; a Mac app holding its instance key here has not been tried.
     private static var keychain: [String: Any] {
         #if os(macOS)
         return [kSecUseDataProtectionKeychain as String: true]

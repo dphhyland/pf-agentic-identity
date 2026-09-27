@@ -227,7 +227,10 @@ public actor DeviceAgent {
                 let response = try await client.reissue(request)
                 enrolment.attestation = response.attestation
                 enrolment.attestationExpiresAt = clock().addingTimeInterval(TimeInterval(response.expiresIn))
-                state = .enrolled(enrolment)
+                // A forget() that arrived while the request was out stands: the attestation is returned, not kept.
+                if case .enrolled(let current) = state, current.instanceID == enrolment.instanceID {
+                    state = .enrolled(enrolment)
+                }
                 return enrolment
             } catch AgentIdentityError.refused(let refusal) {
                 switch recovery.step(after: refusal) {
