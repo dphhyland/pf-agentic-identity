@@ -1,0 +1,35 @@
+id: U-0090
+title: 'The runs endpoint lists a push''s Build run within seconds, and while build.yml''s concurrency group still holds it pending'
+area: release, ci
+source: pr-review
+status: closed
+plan_items: [P0-6]
+prs: [30]
+recorded_in: 'release.yml, the step "a green Build on this commit" (the wait on the run, and ABSENT_GRACE_SECONDS), and the prod/p1-release-gate-waits pull request''s Unverified list'
+verify_by: >
+  Read `gh api 'repos/dphhyland/pf-agentic-identity/actions/workflows/build.yml/runs?head_sha=<sha>'` for a
+  commit merged while another main Build is running, before its jobs exist, and see its run listed with the
+  status `pending`. Or read the first live tag's Release log, which prints the run and its jobs each time they
+  change.
+verification: >
+  Seen 2026-09-27 on PR #30's own Build. Pushing d8ed91d while the Build on d07c92d was still running put both in
+  build.yml's concurrency group for the pull request. At 08:10:08Z the endpoint the gate reads
+  (`actions/workflows/build.yml/runs?head_sha=d8ed91d...`) listed run 36305310180, created at 08:09:24Z, with
+  the status `pending`, and the run still read `pending` at 08:10:22Z and 08:10:31Z. Its jobs endpoint listed
+  no jobs at all three reads: the run is there while its jobs are not, 67 s after it was created. The
+  concurrency group is the same mechanism for a push to main
+  (`build-refs/heads/main`). The other half is the 17 merges from 2026-09-25 to 2026-09-27, each with its push
+  run created 2 to 3 s after the merge (the notes).
+notes: >
+  The release gate waits on the Build workflow's run, not on its jobs, because the jobs can come late: build.yml's
+  concurrency group (`build-${{ github.ref }}`, cancel-in-progress) holds a new push's run "pending" while the
+  previous main Build cancels (GitHub's concurrency page, read 2026-09-27). Read from the Actions API on
+  2026-09-27: 8b9e435's run was created at 09:15:13Z and its jobs at 09:16:37Z, 84 s later, and ab74038's at
+  02:30:39Z and 02:31:30Z, 51 s later; 11e9780's pending run was cancelled by the next merge and never had a job
+  (run 36232202317). An earlier draft of this change waited on the jobs' check runs, and would have failed such
+  a tag as "never started" after two minutes. The run itself came 2 to 3 s after the merge for each of the
+  17 pull requests merged from 2026-09-25 to 2026-09-27, so the gate's two-minute grace for a missing run has a
+  wide margin. When this was first written no pending run had been read from the runs endpoint, only its
+  reference, which lists `pending` among the statuses it filters on ("Only GitHub Actions can set a status of
+  waiting, pending, or requested"); the verification is the read that settled it. Had such a run not been
+  listed, the gate would have failed a tag pushed while main is busy as "never started" after two minutes.
