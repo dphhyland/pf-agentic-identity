@@ -150,9 +150,7 @@ public final class PfAuditSink implements EventSink {
         } catch (RuntimeException | LinkageError e) {
             // Outside a running PingFederate the SDK's audit service does not exist; inside one, an audit
             // failure is PingFederate's to report. Either way the request the event describes carries on.
-            if (LOG.isDebugEnabled()) {
-                LOG.debug("audit write skipped for " + LogSafe.value(event.code()) + ": " + e.getClass().getSimpleName());
-            }
+            LOG.debug("audit write skipped for " + LogSafe.value(event.code()) + ": " + e.getClass().getSimpleName());
         }
     }
 
@@ -165,14 +163,13 @@ public final class PfAuditSink implements EventSink {
         return catalogues.component(event.component()).map(EventCatalogue::auditProtocol).orElse(DEFAULT_PROTOCOL);
     }
 
-    /** The audit description: the event line without its leading {@code event=} and {@code outcome=}. */
+    /**
+     * The audit description: the event line without its leading {@code event=} and {@code outcome=}. Every line
+     * {@link LoggingSink#format} writes has an {@code outcome=} part.
+     */
     public static String auditDescription(Event event) {
         String line = LoggingSink.format(event);
-        int cut = line.indexOf(" outcome=");
-        if (cut < 0) {
-            return line;
-        }
-        int next = line.indexOf(' ', cut + 1);
+        int next = line.indexOf(' ', line.indexOf(" outcome=") + 1);
         return next < 0 ? "" : line.substring(next + 1);
     }
 

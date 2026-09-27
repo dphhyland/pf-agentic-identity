@@ -90,6 +90,13 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.oneLine(*</include>
                                         <!-- settings (ST-1, ST-2): add gate includes below this line -->
                                         <!-- audit (O-1): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.install(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.configure(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditSwitch(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.emit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.protocolOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditDescription(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.record(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
                                         <!-- lifecycle (F-2): add gate includes below this line -->
                                         <!-- internals (F-1, PfInternals): add gate includes below this line -->
