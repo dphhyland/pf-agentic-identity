@@ -122,9 +122,10 @@ sequenceDiagram
 
 **Why a servlet Filter and not an SDK plugin.** PingFederate has no native support for
 `attest_jwt_client_auth` and no SDK extension point for client authentication. The filter is
-registered by web.xml surgery in the deploy image, and the assemble script asserts the mapping is
-present or fails the build
-([`assemble-pf-runtime-war.sh:136-140`](../build/pingfederate/assemble-pf-runtime-war.sh#L136)).
+registered in the deploy image's web.xml, as [`filters.xml`](../build/pingfederate/filters.xml) declares it, and
+the war assembler fails the build unless the mapping is present exactly once, over exactly its declared paths and
+after `OidfAutoRegistration`
+([`build/war-assembler`](../build/war-assembler/README.md#what-it-refuses)).
 
 **Why it is verified once.** The filter runs on the webapp classloader and the OGNL criterion on the
 engine classloader, and either can verify an attestation. Verifying spends the PoP `jti` and any
