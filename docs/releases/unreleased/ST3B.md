@@ -28,6 +28,11 @@ source), the wallet-provider trust names (the current `OIDF_FEDERATION_*` names,
 warning), the metadata servlet's init-params (their defaults, and `customClaimsSupported`'s property and
 environment fallbacks) and the challenge rate limits (0 or less is the default).
 
+Two security flags worth knowing before Phase 3 reads them: the RAR plugin's "Request timeout (ms)" bears on
+security, because with "Fail open on engine error" on, a request past the deadline counts as the PDP being
+unreachable and goes ahead without its narrowing; and the instance registry's "JDBC URL" is typed as a secret,
+because it carries the database credentials.
+
 The RAR models' two settings carry the rule plan decision 2 set: one document, from the environment, read by every
 classloader - the token-endpoint filter, the attester, the issuance criterion and the RAR plugin - and never a
 plugin field; each logs the set's SHA-256 fingerprint, and the plugin refuses a request whose attestation context
