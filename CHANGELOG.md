@@ -42,11 +42,14 @@ hygiene. Notes: [docs/releases/0.4.0.md](docs/releases/0.4.0.md).
   and `showcase` artefacts (a run that fails in `mvn verify` publishes neither); `tools/coverage-report.py` is
   strict by default and exits 1 for a build that left a module without its reports; the Build's `java` job runs
   device-instance's Postgres suite against a service container.
-- **The release waits for its Build** (P0-6, a Phase 0 leftover; F-0069) - `release.yml`'s first gate reads the
-  tagged commit's check runs every 30 seconds for up to 20 minutes while a required job is still running, and
-  judges the newest run of each job; it fails at once on any conclusion but success, after two minutes when a
-  required job has no check run (Build never started on the commit), after three refused reads in a row, and
-  at the limit. v0.3.0's release had failed on a `java` job still running and was re-run by hand.
+- **The release waits for its Build** (P0-6, a Phase 0 leftover; F-0069) - `release.yml`'s green-Build gate
+  judges the Build workflow's own run on the tagged commit: the newest run a push to `main` or a dispatch
+  started, and the latest attempt of each required job in it. A pull request's Build no longer counts, and the
+  job's permission `checks: read` is now `actions: read`. The gate reads the runs every 30 seconds for up to 20
+  minutes while that run is queued, pending or in progress, then fails on any conclusion but success, after two
+  minutes when there is no such run (Build never started on the commit), after three refused reads in a row, and
+  at the limit. A `required-checks.txt` that names no job now fails it too; before 0.4.0 it passed. v0.3.0's
+  release had failed on a `java` job still running and was re-run by hand.
 
 ## [0.3.0] - 2026-09-27
 

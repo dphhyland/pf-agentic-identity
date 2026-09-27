@@ -1,24 +1,28 @@
 id: U-0090
-title: 'A Build job still waiting for a runner has a check run within the release gate''s two minutes'
+title: 'The runs endpoint lists a push''s Build run within seconds, and while build.yml''s concurrency group still holds it pending'
 area: release, ci
 source: pr-review
 status: open
 plan_items: [P0-6]
 prs: []
-recorded_in: 'release.yml, the step "a green Build on this commit" (ABSENT_GRACE_SECONDS), and the prod/p1-release-gate-waits pull request''s Unverified list'
+recorded_in: 'release.yml, the step "a green Build on this commit" (the wait on the run, and ABSENT_GRACE_SECONDS), and the prod/p1-release-gate-waits pull request''s Unverified list'
 verify_by: >
-  Read `gh api 'repos/dphhyland/pf-agentic-identity/commits/<sha>/check-runs?filter=all'` while a Build job on
-  <sha> has not started - just after a push to main, or when runners are slow - and see the job listed with a
-  status other than completed. Or read the first live tag's Release log, which prints the check runs each time
-  they change.
+  Read `gh api 'repos/dphhyland/pf-agentic-identity/actions/workflows/build.yml/runs?head_sha=<sha>'` for a
+  commit merged while another main Build is running, before its jobs exist, and see its run listed with the
+  status `pending`. Or read the first live tag's Release log, which prints the run and its jobs each time they
+  change.
 verification: ''
 notes: >
-  The gate fails when a required job has no check run two minutes after the step starts, on the reading that a
-  Build which was triggered lists its jobs at once. The evidence, read 2026-09-27: v0.3.0's Build (run
-  36278704385, created 23:12:21Z) created its three jobs at 23:12:22Z and started them at 23:12:25Z, each job's
-  check_run_url naming a check run with the job's own id, and the release read all three at 23:12:35Z; GitHub's
-  check-runs reference says "Only GitHub Actions can set a status of waiting, pending, or requested", states a
-  job is in before it runs. A job waiting longer than seconds for a runner was not seen: nothing on the
-  repository was queued while this was written. If such a job has no check run, a tag whose Build waits more
-  than two minutes for runners fails the gate as "never started", and the release is re-run by hand - which is
-  what happened to every such tag before this change.
+  The release gate waits on the Build workflow's run, not on its jobs, because the jobs can come late: build.yml's
+  concurrency group (`build-${{ github.ref }}`, cancel-in-progress) holds a new push's run "pending" while the
+  previous main Build cancels (GitHub's concurrency page, read 2026-09-27). Read from the Actions API on
+  2026-09-27: 8b9e435's run was created at 09:15:13Z and its jobs at 09:16:37Z, 84 s later, and ab74038's at
+  02:30:39Z and 02:31:30Z, 51 s later; 11e9780's pending run was cancelled by the next merge and never had a job
+  (run 36232202317). An earlier draft of this change waited on the jobs' check runs, and would have failed such
+  a tag as "never started" after two minutes. The run itself came 2 to 3 s after the merge for each of the
+  17 pull requests merged from 2026-09-25 to 2026-09-27, so the gate's two-minute grace for a missing run has a
+  wide margin. Not yet seen: the runs endpoint returning a run while it is pending. The reference lists
+  `pending` among the statuses it filters on ("Only GitHub Actions can set a status of waiting, pending, or
+  requested"), but no pending run was read. If such a run were not listed, the gate would fail a tag pushed
+  while main is busy as "never started" once two minutes pass, and the release would be re-run by hand - which
+  is what happened to v0.3.0 before this change.

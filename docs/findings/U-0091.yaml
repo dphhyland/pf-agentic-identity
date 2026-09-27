@@ -1,21 +1,23 @@
 id: U-0091
-title: 'Check run ids rise in the order the runs are created, so the release gate''s highest id is the newest run'
+title: 'After a re-run of only some of a Build''s jobs, each job it did not repeat still reads success at its latest attempt'
 area: release, ci
 source: pr-review
 status: open
 plan_items: [P0-6]
 prs: []
-recorded_in: 'release.yml, the step "a green Build on this commit" (the sort on the id), and the prod/p1-release-gate-waits pull request''s Unverified list'
+recorded_in: 'release.yml, the step "a green Build on this commit" (the latest attempt of each required job), and the prod/p1-release-gate-waits pull request''s Unverified list'
 verify_by: >
-  GitHub's REST reference gives a check run's `id` as an int64 and says nothing of its order ("List check runs
-  for a Git reference", read 2026-09-27). Settled by GitHub saying so, or by reading `filter=all` on commits
-  with a re-run and with a second Build and finding the newest run with the highest id each time.
+  Re-run one failed job of a Build on a scratch branch (`gh run rerun <run-id> --failed`), then read
+  `gh api 'repos/dphhyland/pf-agentic-identity/actions/runs/<run-id>/jobs?filter=all'` and see how the jobs it
+  did not repeat are listed: at the earlier attempt only, or at the new attempt with conclusion success. Either
+  passes the gate; the new attempt with any other conclusion fails it.
 verification: ''
 notes: >
-  Of several check runs with one name on the tagged commit, the gate judges the one with the highest id. On the
-  two commits read on 2026-09-27 the newer run had the higher id: on 97e5650 the re-run of the release job
-  (started 2026-09-27T00:08:10Z) is 108514273867 and its first attempt (2026-09-26T23:12:31Z) 108506315735; on
-  5d7c30f the push Build's `java` (2026-07-30T23:55:06Z) is 91036058577 and the pull request Build's
-  (23:33:11Z) 91032682013. If ids did not rise with creation, the gate could judge a superseded run of a job on
-  the same commit, as the step did before 0.4.0 whenever a commit had two (the API lists newest first and it
-  took the last) - a stale verdict, but never one about a commit Build did not run on.
+  The gate judges each required job by its record with the highest `run_attempt` in the Build run it reads,
+  over every attempt (`filter=all`). GitHub documents that the run attempt "increments with each re-run"
+  (contexts reference, read 2026-09-27), and a whole re-run lists every job again at the new attempt: Release
+  run 36278709651 lists `release` at attempt 1 (failure) and attempt 2 (success). What a re-run of only the
+  failed jobs does to the jobs it leaves alone is not documented, and no Build on this repository has had one.
+  If GitHub listed such a job at the new attempt as skipped, the gate would fail a release whose Build is
+  green, naming the job as skipped; the way out is a fresh Build on the tag (`gh workflow run build.yml --ref
+  <tag>`) and a re-run of the release. It fails closed: a job that failed at its latest attempt never passes.

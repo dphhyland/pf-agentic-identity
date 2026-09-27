@@ -125,24 +125,29 @@ The maintainer cuts a release. A pull request sets every pom to the version (`py
 order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps and stops once
 `dist/` is assembled, publishing nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
 
-The release's first gate is a green Build on the tagged commit: every job
-[.github/required-checks.txt](.github/required-checks.txt) names must have a check run there, and the newest
-run of each must have concluded success. From 0.4.0 the gate waits for a Build that is still running, because
-a tag pushed straight after its merge arrives while it is: v0.3.0's did, the gate read `java` in progress and
-failed, and the release was re-run by hand (run 36278709651, F-0069). The gate reads the check runs every 30
-seconds for up to 20 minutes and logs what it is waiting for and for how long. It fails, with nothing
-published, when:
+The release's second gate, after the tag-version check, is a green Build on the tagged commit. The newest Build
+run that a push to `main` or a dispatch started there must have concluded success, and so must the latest attempt
+of every job [.github/required-checks.txt](.github/required-checks.txt) names. A pull request's Build never
+counts, even when its head is the tagged commit: it tested the pull request's merge with its base, not the
+commit. From 0.4.0 the gate waits for a Build that is still running, because a tag pushed straight after its
+merge arrives while it is: v0.3.0's did, the gate read `java` in progress and failed, and the release was re-run
+by hand (run 36278709651, F-0069). It reads the Build runs every 30 seconds for up to 20 minutes, waits while
+the run is queued or pending - a run can wait over a minute behind the previous `main` Build before its jobs
+exist - and logs what it is waiting for and for how long. It fails, with nothing published, when:
 
-- a required job concludes anything but success. Get Build green on the commit, then re-run the release
+- the run concludes anything but success, or a required job's latest attempt does. That includes a run
+  cancelled because another push to `main` came before it finished. Start a fresh Build on the tag
+  (`gh workflow run build.yml --ref v<version>`) and, once it is green, re-run the release
   (`gh run rerun <run-id>`, the release's run).
-- no required job has a check run after two minutes: Build was never started on the commit. It runs on a push
-  to `main`, a pull request or by hand, never on a tag alone, so a commit that reached GitHub only through its
-  tag has none. Start one (`gh workflow run build.yml --ref v<version>`), then re-run the release.
-- some required jobs have check runs and one still has none after two minutes: the tagged commit's
-  `required-checks.txt` names a job its `build.yml` does not have, and no re-run can pass. Correct the file in
-  a new commit and release from that.
-- the check runs cannot be read three times in a row, or 20 minutes pass. Re-run the release once the API
-  answers or the Build has finished.
+- there is no such run after two minutes: Build was never started on the commit. It runs on a push to `main`,
+  a pull request or by hand, never on a tag alone, so a commit that reached GitHub only through its tag, or
+  only through a pull request, has none. Start one as above, then re-run the release.
+- the run passed without a job `required-checks.txt` names: the tagged commit's `required-checks.txt` names a
+  job its `build.yml` does not have, and no re-run can pass. Correct the file in a new commit and release from
+  that.
+- `required-checks.txt` names no job, or is missing. Before 0.4.0 a file that named no job passed the gate.
+- the runs cannot be read three times in a row, or 20 minutes pass. Re-run the release once the API answers or
+  the Build has finished.
 
 ## Style
 

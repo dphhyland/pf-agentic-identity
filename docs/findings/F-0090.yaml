@@ -16,7 +16,7 @@ notes: >
   provided jars, which is the key-material check (the composite action is at 129-130); `240-248` for the
   Packages deploy, which starts at 247. The release gate's rewrite (branch prod/p1-release-gate-waits,
   2026-09-27) moves every line below the header's second item down by one and every line below the gate down
-  by 86 in all: the `oidf.war` copy to 239, the deploy step to 333. check-showcase-links.py checks only that a
+  by 118 in all: the `oidf.war` copy to 271, the deploy step to 365. check-showcase-links.py checks only that a
   cited line exists ("It can't tell whether the lines still say what the statement says"), so CI stays green
   while a reader following a citation lands on the wrong code. The fix: once the gate change is on main,
   re-read each release.yml citation against the statement it backs and correct the ranges. D-3 (the showcase
