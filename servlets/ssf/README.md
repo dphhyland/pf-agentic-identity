@@ -8,6 +8,14 @@
 active JWKS key; `jwks_uri` is `<issuer>/pf/JWKS`) and on the `provided` PF SDK for grant revocation
 and PF-managed data sources. `com.pingidentity.ps.oidf.ssf` is the core; `…servlet.ssf` the PF-facing edge.
 
+Since 0.5.0 the PingFederate-free parts live in [`libs/shared-signals`](../../libs/shared-signals) (package
+`com.pingidentity.ps.oidf.signals`): `SecurityEventToken`, `SetMinter`, `SetVerifier`, `ReceivedSet`, `SubjectId`,
+`CaepRiscEvents` and the event URIs. This module adds what needs PingFederate or the network: `PfSetSigningKeys`
+(PingFederate's key, resolved on first use), `JwksHttpSource` (the receiver's JWKS fetch) and `SsfSubjects`, which
+keeps the subjects accepted from outside - stream subjects, the emit API, SCIM ids, an inbound `sub_id` - to the five
+formats it has always handled (`iss_sub`, `email`, `phone_number`, `opaque`, `account`) until plan item H-SSF-1
+(Phase 3) stores, matches and acts on the others.
+
 - **Transmitter** - `SetMinter`, stream management (`StreamManagementService`), poll (`SsfPollServlet`,
   RFC 8936) + push (`PushDeliveryService`, RFC 8935, background retry loop), event sourcing from PF's
   native security-audit log (`SsfAuditLogSource`, a log4j2 appender attached programmatically to PF's

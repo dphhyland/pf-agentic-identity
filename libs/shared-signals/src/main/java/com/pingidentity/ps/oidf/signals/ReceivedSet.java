@@ -1,7 +1,7 @@
 /*
  * A verified, parsed inbound Security Event Token (receiver side).
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

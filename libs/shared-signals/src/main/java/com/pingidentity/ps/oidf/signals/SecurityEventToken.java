@@ -1,7 +1,7 @@
 /*
  * RFC 8417 Security Event Token (SET) value object, shaped for SSF/CAEP/RISC delivery.
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

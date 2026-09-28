@@ -6,7 +6,7 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 import com.pingidentity.ps.oidf.ssf.AuditEventMapper;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfEventBridge;
-import com.pingidentity.ps.oidf.ssf.SubjectId;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;

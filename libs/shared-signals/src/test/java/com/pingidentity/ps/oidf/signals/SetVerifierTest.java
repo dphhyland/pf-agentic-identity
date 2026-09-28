@@ -1,7 +1,7 @@
 /*
  * Receiver-side SET verification: signature, typ, iss/aud enforcement, kid rotation refresh.
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -35,7 +35,7 @@ class SetVerifierTest {
         return minter.sign(SecurityEventToken.builder()
                 .issuer(iss).audience(aud).jti(SetMinter.newJti()).issuedAt(SetMinter.nowSeconds())
                 .subjectId(subject)
-                .event(SsfEventTypes.CAEP_SESSION_REVOKED, Map.of("event_timestamp", 1L))
+                .event(EventTypes.CAEP_SESSION_REVOKED, Map.of("event_timestamp", 1L))
                 .build());
     }
 
@@ -45,7 +45,7 @@ class SetVerifierTest {
         ReceivedSet r = v.verify(mint(ISS, AUD, SubjectId.email("alice@example.com")));
         assertEquals(ISS, r.issuer());
         assertEquals(SubjectId.email("alice@example.com"), r.subjectId());
-        assertTrue(r.hasEvent(SsfEventTypes.CAEP_SESSION_REVOKED));
+        assertTrue(r.hasEvent(EventTypes.CAEP_SESSION_REVOKED));
     }
 
     @Test
@@ -54,7 +54,7 @@ class SetVerifierTest {
         SetVerifier v = new SetVerifier(ISS, AUD, sourceOf(keys));
         String jws = minter.sign(SecurityEventToken.builder()
                 .issuer(ISS).audience(AUD).jti(SetMinter.newJti()).issuedAt(SetMinter.nowSeconds())
-                .event(SsfEventTypes.VERIFICATION, Map.of("state", "s")).build());
+                .event(EventTypes.VERIFICATION, Map.of("state", "s")).build());
         assertNull(v.verify(jws).subjectId());
     }
 

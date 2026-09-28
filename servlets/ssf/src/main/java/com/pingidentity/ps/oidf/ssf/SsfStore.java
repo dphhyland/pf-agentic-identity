@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;

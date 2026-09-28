@@ -19,6 +19,8 @@ import com.pingidentity.ps.oidf.device.InstanceRegistry;
 import com.pingidentity.ps.oidf.device.InstanceStatus;
 import com.pingidentity.ps.oidf.device.OwnerUser;
 import com.pingidentity.ps.oidf.device.RegistryException;
+import com.pingidentity.ps.oidf.signals.ReceivedSet;
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;

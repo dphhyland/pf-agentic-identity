@@ -1,7 +1,7 @@
 /*
  * Verifies SET minting: RFC 8417 claims, secevent+jwt typ, sub_id formats, and a valid signature.
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -27,7 +27,7 @@ class SetMinterTest {
                 .jti(SetMinter.newJti())
                 .issuedAt(SetMinter.nowSeconds())
                 .subjectId(SubjectId.issSub("https://op.example.com", "user-123"))
-                .event(SsfEventTypes.CAEP_SESSION_REVOKED, Map.of("event_timestamp", SetMinter.nowSeconds()))
+                .event(EventTypes.CAEP_SESSION_REVOKED, Map.of("event_timestamp", SetMinter.nowSeconds()))
                 .build();
 
         String jws = minter.sign(set);
@@ -57,7 +57,7 @@ class SetMinterTest {
 
         @SuppressWarnings("unchecked")
         Map<String, Object> events = (Map<String, Object>) claims.get("events");
-        assertTrue(events.containsKey(SsfEventTypes.CAEP_SESSION_REVOKED), "events keyed by event-type URI");
+        assertTrue(events.containsKey(EventTypes.CAEP_SESSION_REVOKED), "events keyed by event-type URI");
     }
 
     @Test
@@ -69,7 +69,7 @@ class SetMinterTest {
                 .jti(SetMinter.newJti())
                 .issuedAt(SetMinter.nowSeconds())
                 .subjectId(SubjectId.email("alice@example.com"))
-                .event(SsfEventTypes.RISC_ACCOUNT_DISABLED, Map.of())
+                .event(EventTypes.RISC_ACCOUNT_DISABLED, Map.of())
                 .txn("txn-42")
                 .build();
 

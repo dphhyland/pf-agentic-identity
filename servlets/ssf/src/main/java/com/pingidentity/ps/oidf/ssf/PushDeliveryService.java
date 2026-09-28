@@ -7,6 +7,7 @@ package com.pingidentity.ps.oidf.ssf;
 import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import java.io.ByteArrayOutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;

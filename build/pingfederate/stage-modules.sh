@@ -26,6 +26,8 @@
 # servlets fail at first use the same way, even when receiverInstanceRegistry is off. It is a pure
 # library (no App Attest, no HTTP, no PingFederate SDK), unlike app-attest, which stays out: App Attest
 # verification lives in services/device-enrolment, not in the AS.
+# shared-signals rides along because servlets/ssf is built on it (plan item X-A14): the SET model, minting,
+# verification and subjects live there, so without it the SSF servlets fail with NoClassDefFoundError.
 set -euo pipefail
 PROFILE=production
 while [[ $# -gt 0 ]]; do
@@ -64,6 +66,7 @@ ENTRIES=(
   "libs libs/openid-federation/target/openid-federation-$VERSION.jar"
   "libs libs/agent-registry/target/agent-registry-$VERSION.jar"
   "libs libs/device-instance/target/device-instance-$VERSION.jar"
+  "libs libs/shared-signals/target/shared-signals-$VERSION.jar"
 )
 if [[ "$PROFILE" == conformance ]]; then
   # The CIBA simulator: an OOBAuthPlugin plus its decision servlet in one jar. The Dockerfile puts every

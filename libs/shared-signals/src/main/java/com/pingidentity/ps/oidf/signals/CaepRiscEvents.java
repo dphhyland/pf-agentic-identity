@@ -1,7 +1,7 @@
 /*
  * Event-specific payload builders for the CAEP 1.0 / RISC 1.0 events this transmitter emits.
  */
-package com.pingidentity.ps.oidf.ssf;
+package com.pingidentity.ps.oidf.signals;
 
 import java.util.LinkedHashMap;
 import java.util.Map;

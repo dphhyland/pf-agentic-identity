@@ -14,6 +14,7 @@ import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;

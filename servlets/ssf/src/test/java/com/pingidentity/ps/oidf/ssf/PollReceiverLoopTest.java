@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.TimeUnit;
