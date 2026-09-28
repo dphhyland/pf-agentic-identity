@@ -387,7 +387,8 @@ abstract class SsfStoreContract {
     /**
      * SETs issued in the same second come back from both reads in one order, by {@code jti}: the push executor
      * holds a stream on {@code peek}'s first SET and posts in {@code dueForPush}'s order, so the two must agree
-     * (SsfStore#peek). Ten minted jtis, so the store's own order is all but certain to be another one.
+     * (SsfStore#peek). Ten minted jtis, so the store's own order is all but certain to be another one. The order is
+     * String's, which is bytewise for a jti's base64url: a glibc en_US.utf8 database sorts them otherwise (F-0236).
      */
     @Test
     void aSecondsSetsComeBackInJtiOrderFromBothReads() {

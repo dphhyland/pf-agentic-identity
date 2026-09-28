@@ -1,0 +1,24 @@
+id: F-0235
+title: The catalogue format cannot name 42 of the SSF transmitter's system properties
+severity: medium
+area: ssf, platform
+source: design
+status: open
+plan_items: [ST-5, ST-3]
+prs: [63]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST3C (2026-09-28) while cataloguing servlets/ssf. SsfConfiguration.param resolves each of its 43
+  settings from the init-param, then the system property oidf.ssf.<name> with the init-param's camelCase name
+  (oidf.ssf.signingAlgorithm, oidf.ssf.receiverJwksUrl), then OIDF_SSF_<UPPER_SNAKE>. The catalogue format's
+  system-property names are lower case (Catalogue.PROPERTY_NAME, [a-z][a-z0-9_-]*(\.[a-z0-9_-]+)*, and the scan's
+  NAME_RES), and Java's system properties are case-sensitive, so only oidf.ssf.issuer fits: the other 42
+  entries of ssf-transmitter.json carry the init-param and the environment variable, and the scan matches the
+  property each call of param() reads to the entry its other two names belong to (tools/settings-scan.py,
+  "computed names"). Nothing is lost at run time today, because param() still reads the properties, and the
+  README documents them (run.properties is how PingFederate sets them). It becomes a loss when ST-5 moves
+  servlets/ssf onto platform.settings, which reads only a catalogue's sources: the 42 properties would stop
+  being read with no word. Before that conversion, either the format takes a camelCase segment after the last
+  dot (the loader and the scan together) or the properties are renamed to oidf.ssf.<dotted.lower> with the old
+  names kept as aliases the format can hold, which it cannot today for the same reason.

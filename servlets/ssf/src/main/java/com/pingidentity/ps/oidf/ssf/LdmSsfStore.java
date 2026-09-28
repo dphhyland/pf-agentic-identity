@@ -222,8 +222,8 @@ public final class LdmSsfStore implements SsfStore {
                 });
     }
 
-    /** SsfStore#peek's order: oldest first, and a second's SETs by {@code jti} - the same as {@link #SELECT_DUE_FOR_PUSH}. */
-    static final String ORDER_PEEK = "ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' LIMIT ?";
+    /** SsfStore#peek's order: oldest first, then {@code jti} bytewise (C), whatever the database's collation - as {@link #SELECT_DUE_FOR_PUSH}. */
+    static final String ORDER_PEEK = "ORDER BY (attrs->>'issuedAt')::bigint, attrs->>'jti' COLLATE \"C\" LIMIT ?";
 
     @Override
     public List<PendingSet> peek(String streamId, int max) {
@@ -264,7 +264,7 @@ public final class LdmSsfStore implements SsfStore {
                     + "FROM idm.entry p JOIN idm.entry s ON s.entry_uuid = p.parent_id AND ? = ANY (s.object_classes) "
                     + "WHERE ? = ANY (p.object_classes) AND s.attrs->>'deliveryMethod' = ? AND s.attrs->>'streamStatus' = ? "
                     + "AND (p.attrs->>'nextAttemptAt')::bigint <= ? "
-                    + "ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' LIMIT ?";
+                    + "ORDER BY (p.attrs->>'issuedAt')::bigint, p.attrs->>'jti' COLLATE \"C\" LIMIT ?";
 
     @Override
     public List<PendingSet> dueForPush(long now, int max) {

@@ -256,7 +256,7 @@ class JdbcSsfStoreTest {
         assertTrue(store.peek("s1", 1).isEmpty());
 
         verify(conn).prepareStatement(JdbcSsfStore.SELECT_PEEK);
-        assertTrue(JdbcSsfStore.SELECT_PEEK.endsWith(" ORDER BY issued_at, jti LIMIT ?"));
-        assertTrue(JdbcSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY p.issued_at, p.jti LIMIT ?"));
+        assertTrue(JdbcSsfStore.SELECT_PEEK.endsWith(" ORDER BY issued_at, jti COLLATE \"C\" LIMIT ?"));
+        assertTrue(JdbcSsfStore.SELECT_DUE_FOR_PUSH.endsWith(" ORDER BY p.issued_at, p.jti COLLATE \"C\" LIMIT ?"));
     }
 }
