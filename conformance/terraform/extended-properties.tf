@@ -15,7 +15,7 @@ resource "pingfederate_extended_properties" "federation" {
   # the set it planned with the one it read back.
   items = [for name in local.federation_extended_properties : {
     name         = name
-    description  = "Written by the OpenID Federation module (docs/extended-properties.json)"
+    description  = "Read or written by the OIDF modules (docs/extended-properties.json)"
     multi_valued = contains(local.multi_valued_extended_properties, name)
   }]
 }

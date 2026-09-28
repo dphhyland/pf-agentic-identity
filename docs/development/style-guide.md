@@ -80,13 +80,21 @@ A settings row has four columns and every row fills all four:
 |---|---|---|---|
 | `OIDF_FEDERATION_SIGNING_ALG` (init-param `signingAlgorithm`) | `RS256` | How this entity signs its statements: `RS256` or `PS256`, with PingFederate's current RSA key | Anything else: PingFederate doesn't start |
 
-"When it's wrong" uses the vocabulary [docs/federation/configuration.md](../federation/configuration.md)
-defines: **PingFederate doesn't start** (the component fails at deploy and the log names the setting), **first
+"When it's wrong" uses the vocabulary
+[docs/federation/configuration.md](../federation/configuration.md#when-a-setting-is-wrong) defines: **PingFederate
+doesn't start** (the component fails at deploy and the log names the setting), **first
 request** (a lazily started servlet fails on its first request, and only its paths), **per request** (nothing
 at start-up; the requests that need it fail), and **not checked** when nothing checks it - which is a sentence
 to write, not a cell to leave empty. A switch is `true` or `false`, in any case, and anything else is refused
-unless the row says otherwise. From Phase 2 the rows are generated from the settings catalogue
-([docs/configuration](../configuration/README.md)); the shape stays.
+unless the row says otherwise.
+
+The rows are generated, not written. Each component's catalogue, `META-INF/oidf-settings/<component>.json` in the
+module that reads the settings ([its format](settings-catalogue.md)), is the one place a row's text lives;
+`tools/config-reference.py` writes one page per component in [docs/configuration](../configuration/README.md) from
+it, in this shape with two more columns, Profile and Security, and the Build workflow's lint job fails when a
+committed page is not what the catalogues generate. To change a row, change the catalogue and run
+`python3 tools/config-reference.py`. The short tables in module READMEs are still written by hand until plan item
+D-8 (Phase 7) turns them into links to the generated pages.
 
 ## Code comments
 

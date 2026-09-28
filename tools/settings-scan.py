@@ -35,7 +35,8 @@ What counts as a read, in main Java code with comments removed:
                         "OIDF_PDP_MODE" - read as env. A literal is a read only when the name is the whole of it,
                         so a message that mentions a name ("set OIDF_PDP_URL") is not one, and neither is a prefix
                         ending in an underscore ("OIDF_SSF_"). The rule is the one ConfigurationDocumentedTest used
-                        from 2026-08 until tools/config-reference.py replaced it: in main code a bare OIDF_ literal exists only to name the variable.
+                        from 2026-08 until tools/config-reference.py replaced it: in main code a bare OIDF_ literal
+                        exists only to name the variable.
   a read call           System.getenv(x) (env); System.getProperty(x), Boolean.getBoolean(x), Integer.getInteger(x)
                         and Long.getLong(x) (system-property); getInitParameter(x) on anything (init-param); the
                         PingFederate plugin configuration's getFieldValue family and a FieldDescriptor's
