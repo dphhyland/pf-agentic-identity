@@ -72,7 +72,7 @@ jobs:
       - name: the PingFederate version, from build/pf-version.env
         # The one place the version is written down; the composite action reads the same file itself.
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         # No Maven cache: a release builds from what Central serves, not from a cache any pull request's build
         # could have written (a restored cache is runtime input, and this workflow publishes what it builds).
         with:

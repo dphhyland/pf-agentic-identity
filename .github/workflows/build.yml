@@ -114,7 +114,7 @@ jobs:
         run: zizmor --no-progress --config .github/zizmor.yml .
       - name: shellcheck over every tracked script
         run: tools/ci/lint-shell.sh
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -205,7 +205,7 @@ jobs:
       - name: the PingFederate version, from build/pf-version.env
         # The one place the version is written down; the composite action reads the same file itself.
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with: { distribution: temurin, java-version: '17', cache: maven }
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
@@ -359,7 +359,7 @@ jobs:
           persist-credentials: false
       - name: the PingFederate version, from build/pf-version.env
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with: { distribution: temurin, java-version: '17', cache: maven }
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
