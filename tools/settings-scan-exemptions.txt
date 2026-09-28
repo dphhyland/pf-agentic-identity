@@ -1,13 +1,15 @@
-# Modules tools/settings-scan.py does not hold to "every setting read is catalogued" yet (plan item ST-3).
+# Modules tools/settings-scan.py does not hold to "every setting read is catalogued" (plan item ST-3): only modules
+# that never reach a deployment.
 #
-# One module path per line, under the `# group` line of the package that will catalogue it; that package deletes
-# its own group and nothing else. A line in the "not shipped" group gives, after a colon, why the module never
-# reaches a deployment. The scan refuses a line for a module that is not in the reactor, that has a catalogue
-# already or that reads nothing, and a "not shipped" line naming a module the image stages. A missing file means
-# no exemptions.
+# One module path per line, under a `# group` line. A line in the "not shipped" group gives, after a colon, why the
+# module never reaches a deployment. The scan refuses a line for a module that is not in the reactor, that has a
+# catalogue already or that reads nothing, and a "not shipped" line naming a module the image stages. A missing
+# file means no exemptions.
 #
-# While the flag below is `no`, any group may exempt a module. ST-4 sets it to `yes` once the ST3B and ST3C
-# groups are gone; from then on only the "not shipped" group may.
+# With the flag below at `yes` the scan refuses an exemption in any group but "not shipped", so every shipped
+# module is held to its catalogues, and the scan says so. ST-4 set it on 2026-09-28, once ST3B and ST3C had
+# catalogued the last shipped modules and deleted their groups; while it was `no`, any group could exempt a module
+# its package had not catalogued yet.
 refuse-shipped-exemptions: yes
 
 # group not shipped

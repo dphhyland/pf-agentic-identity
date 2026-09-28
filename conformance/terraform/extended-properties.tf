@@ -1,8 +1,10 @@
-# The extended properties the federation module writes on a client it registers: docs/extended-properties.json,
-# which FederationClientParamsTest keeps equal to the code. PingFederate drops a property it has not been told
-# about - silently - and without `status` a federation client looks like one an administrator made: never
-# expired, never renewed, its requests held to nothing. The module now refuses to register when that happens;
-# this makes sure it doesn't. trust_chain and contacts hold several values each.
+# The extended properties the modules write on a client they register or read from a client's configuration:
+# docs/extended-properties.json, which tools/config-reference.py generates from the settings catalogues and CI
+# holds current. PingFederate drops a property it has not been told about - silently - and without `status` a
+# federation client looks like one an administrator made: never expired, never renewed, its requests held to
+# nothing. The module now refuses to register when that happens; this makes sure it doesn't. A per-client
+# attestation or chain setting that PingFederate dropped is simply not applied (F-0041). trust_chain and contacts
+# hold several values each.
 locals {
   federation_extended_properties   = jsondecode(file("${path.module}/../../docs/extended-properties.json")).extended_properties
   multi_valued_extended_properties = ["trust_chain", "contacts"]

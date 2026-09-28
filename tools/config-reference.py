@@ -101,39 +101,40 @@ class Refused(Exception):
 
 # --- checks the pages depend on --------------------------------------------------------------------------------
 
+def default_text(value):
+    """A default as text, as the Java loader takes it: a string as it is, true, false or a number as JSON writes it."""
+    if value is None or isinstance(value, str):
+        return value
+    return json.dumps(value)
+
+
 def default_problem(entry):
     """Why the default does not parse as the entry's type, or None."""
-    value, kind = entry["default"], entry["type"]
-    if value is None:
+    text, kind = default_text(entry["default"]), entry["type"]
+    if text is None:
         return None
-    if isinstance(value, bool):
-        return None if kind == "bool" else "true or false is a default only for a bool"
-    if kind == "bool":
-        return "a bool's default is true or false"
-    text = value if isinstance(value, str) else json.dumps(value)
+    if kind == "bool" and text.lower() not in ("true", "false"):
+        return f"{text!r} is not true or false"
     if kind in scan.RANGED:
         if not re.fullmatch(r"-?[0-9]+", text.strip()):
             return f"{text!r} is not a whole number"
         number = int(text)
         if not entry["min"] <= number <= entry["max"]:
             return f"{number} is outside {entry['min']} to {entry['max']}"
-        return None
-    if isinstance(value, (int, float)):
-        return f"a {kind}'s default is text"
-    if kind == "choice" and value.lower() not in {c.lower() for c in entry["choices"]}:
-        return f"{value!r} is not one of the choices"
+    if kind == "choice" and text.strip().lower() not in {c.lower() for c in entry["choices"]}:
+        return f"{text!r} is not one of the choices"
     if kind in ("https-url", "url"):
-        url = urllib.parse.urlsplit(value)
+        url = urllib.parse.urlsplit(text.strip())
         if url.scheme not in (("https",) if kind == "https-url" else ("http", "https")) or not url.hostname:
-            return f"{value!r} is not an absolute {'https' if kind == 'https-url' else 'http or https'} URL with a host"
+            return f"{text!r} is not an absolute {'https' if kind == 'https-url' else 'http or https'} URL with a host"
     if kind == "json-object":
         try:
-            parsed = json.loads(value)
+            parsed = json.loads(text)
         except ValueError:
             parsed = None
         if not isinstance(parsed, dict):
-            return f"{value!r} is not a JSON object"
-    if kind == "words" and not [w for w in re.split(r"[\s,]+", value) if w]:
+            return f"{text!r} is not a JSON object"
+    if kind == "words" and not [w for w in re.split(r"[\s,]+", text) if w]:
         return "a list of nothing"
     return None
 
@@ -249,12 +250,7 @@ def range_text(entry):
 
 def default_cell(entry):
     value = entry["default"]
-    if value is None:
-        out = "Unset"
-    elif isinstance(value, bool):
-        out = code("true" if value else "false")
-    else:
-        out = code(value if isinstance(value, str) else json.dumps(value))
+    out = "Unset" if value is None else code(default_text(value))
     notes = []
     if entry["type"] in TYPE_PHRASE:
         notes.append(TYPE_PHRASE[entry["type"]])
