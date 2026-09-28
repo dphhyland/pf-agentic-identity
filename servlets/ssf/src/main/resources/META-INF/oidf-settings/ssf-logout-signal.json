@@ -1,0 +1,35 @@
+{
+  "format": 1,
+  "component": "ssf-logout-signal",
+  "module": "servlets/ssf",
+  "package": "com.pingidentity.ps.oidf.servlet.ssf",
+  "families": [],
+  "settings": [
+    {
+      "name": "OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether the logout filter takes the subject from an unverified sub parameter when no token verifies, for a development rig; any caller can then aim a session-revoked signal at any subject",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.logout.allow.sub.param"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

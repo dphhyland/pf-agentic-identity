@@ -44,8 +44,9 @@ What counts as a read, in main Java code with comments removed:
                         imported getenv or getProperty from System counts as System's. x is a literal, a String
                         constant (static final, in the same class, a named class or a static import, alias chains
                         followed), the variable of a for-each over an inline List.of(...) or Set.of(...) whose
-                        elements are all literals or constants (a read of each), or a name derived by
-                        Parsers.systemPropertyName(x) - directly or through a method that returns it.
+                        elements are all literals or constants (a read of each), a name derived by
+                        Parsers.systemPropertyName(x) - directly or through a method that returns it - or a computed
+                        name (below).
   a Settings read       in a file that imports platform.settings' Settings, one of its accessors (SETTINGS_ACCESSORS:
                         settings.string(x), .secret(x), .duration(x), .parse(x, raw) ...) on a receiver that is not a
                         class, with x named as above - read as setting x: the catalogue entry named x, whose sources
@@ -58,13 +59,22 @@ What counts as a read, in main Java code with comments removed:
                         setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL") reads an
                         init-param, a system property and an environment variable. A helper is matched by name and
                         arity: a bare call in its own class, or Class.method(...) anywhere.
+  a computed name       a literal or a constant, `+`, and then a name or one of COMPUTED_TRANSFORMS applied to a name,
+                        where the name is any of the above or a parameter of the enclosing method (which makes the
+                        method a helper): a read, of the kind the call reads, of the name computed from it - but a
+                        name computed from a name the call itself derives or computes (a concatenated argument to a
+                        helper that computes, such as param(config, "a" + "B")) is a read the scan cannot name.
+                        servlets/ssf's SsfConfiguration.param(config, "x") reads the init-param x,
+                        System.getProperty("oidf.ssf." + x) and System.getenv("OIDF_SSF_" + camelToUpperSnake(x)), so
+                        param(config, "signingAlgorithm") reads init-param signingAlgorithm, system property
+                        oidf.ssf.signingAlgorithm and env OIDF_SSF_SIGNING_ALGORITHM.
   an extended property  a literal that is "extproperties.<name>" (how PingFederate's OGNL context names a client's
                         extended property) and each element of the lists in EXTENDED_PROPERTY_LISTS (the names a
                         module writes onto a client) - read as extended-property <name>.
 
 An argument in a read position - of a read call, an apply on one of APPLY_RECEIVERS, a Settings read or a helper -
 that is none of those (a local variable, a loop over anything but an inline list of names, an expression) and is not
-a parameter of the enclosing method is itself a problem - "a read the scan cannot name" - so a new way of reading a
+a parameter of the enclosing method, or a computed name from one, is itself a problem - "a read the scan cannot name" - so a new way of reading a
 setting through these calls cannot slip past; give the name a constant, or read it through a helper whose parameter
 carries it. The one exception is a name built from a prefix in NOT_SETTING_PREFIXES (a literal or a constant, then
 `+`): a family of names that are not settings, such as platform.exec's oidf.exec.owner.<executor> claims.
@@ -74,6 +84,13 @@ read when its name is the whole of a string literal in some module's main code, 
 client's property are often read through a map by a constant (attestation-issuer's P_* constants) that no rule
 above can tell from any other string.
 
+A call of a helper that computes a name reads one setting under every name the helper tries, so those names are
+checked as one: they are the sources, in the order the helper tries them, of one catalogue entry (of the reading
+module, when one of them is an init-param). A computed name the format cannot hold is left out of that comparison
+and counts as declared by the entry the rest matched: the format's system-property names are lower case, and 42 of
+SsfConfiguration's oidf.ssf.<camelCase> properties are not (F-0235), so their entries carry the init-param and the
+environment variable, and the scan says how many it matched this way.
+
 The exemption file, tools/settings-scan-exemptions.txt, lists modules the scan does not hold to code-to-catalogue
 yet, one per line under a `# group <name>` comment line for the package that will catalogue them, and a
 "not shipped" group whose lines give a reason after a colon. A missing file means no exemptions. The scan refuses
@@ -82,9 +99,8 @@ reads nothing, and a "not shipped" line without a reason or naming a module buil
 stages. The line `refuse-shipped-exemptions: yes` (ST-4 sets it) refuses every exemption outside the "not
 shipped" group.
 
-What it does not see. It reads Java only, and only the shapes above: a name built by concatenation or formatting
-(servlets/ssf's param() builds its system property and environment names from the init-param's - ST3C adds that
-rule), a Spring or MicroProfile binding, a read in a shell script or a Dockerfile, and a name passed through a
+What it does not see. It reads Java only, and only the shapes above: a name built by formatting, or by
+concatenation other than a computed name's, a Spring or MicroProfile binding, a read in a shell script or a Dockerfile, and a name passed through a
 field or a collection other than the lists named here are not reads to it. Nor is a lookup in the whole environment
 or the whole set of system properties as a map - System.getenv() or System.getProperties() passed on, or followed by
 .get("X") or .getProperty("X") (rar-model's RarModels.fromEnvironment(System.getenv()) is one): a name under OIDF_ read
@@ -130,6 +146,21 @@ NOT_SETTING_PREFIXES = {
         " operator never sets one (one who did would stop that executor, logged at INFO with the property - F-0196)",
 }
 
+def camel_to_upper_snake(camel):
+    """SsfConfiguration.camelToUpperSnake: an underscore before each capital but a leading one, then upper case."""
+    return "".join(("_" if c.isupper() and i > 0 else "") + c.upper() for i, c in enumerate(camel))
+
+
+# What a computed name may apply to the name it is computed from: method name -> (the same function, why). A read
+# whose argument is a literal or constant prefix `+` a name, or `+` one of these applied to a name, reads the name
+# computed from it: SsfConfiguration.param reads System.getProperty("oidf.ssf." + name) and
+# System.getenv("OIDF_SSF_" + camelToUpperSnake(name)). A method is taken for one of these only when the class that
+# calls it declares it with one parameter; nothing else is.
+COMPUTED_TRANSFORMS = {
+    "camelToUpperSnake": (camel_to_upper_snake,
+                          "servlets/ssf's SsfConfiguration: OIDF_SSF_<UPPER_SNAKE> from the init-param's camelCase name"),
+}
+
 # Static final collections whose elements are extended-property names a module writes onto a client:
 # (class simple name, field) -> why.
 EXTENDED_PROPERTY_LISTS = {
@@ -160,6 +191,7 @@ READ_CALLS = {
     "getDoubleFieldValue": ("plugin-field", None),
 }
 DERIVED = "derived-system-property"
+COMPUTED = "computed"
 
 # A Settings read: platform.settings' typed accessors, each (name) -> its arity. In a file that imports Settings, a
 # call of one on a receiver that is not a class reads the catalogue entry its first argument names.
@@ -458,7 +490,26 @@ class Reactor:
         if m and self.derives(jf, m.group(1), m.group(2)):
             inner = self.expression(jf, m.group(3), method, seen)
             return ("derived", inner) if inner is not None else None
-        return None
+        return self.computed_expression(jf, text, method, seen)
+
+    def computed_expression(self, jf, text, method, seen):
+        """("computed", prefix, transform or None, inner) for `prefix + name` or `prefix + transform(name)`, where the
+        prefix is a literal or a constant and the name a parameter, a literal or a loop over literals; else None."""
+        operands = plus_operands(text)
+        if operands is None or len(operands) != 2:
+            return None
+        prefix = literal_of(self.expression(jf, operands[0], None, set(seen or ())))
+        if prefix is None:
+            return None
+        tail, transform = operands[1], None
+        m = re.fullmatch(r"(?:(this|[A-Z][\w$]*)\s*\.\s*)?(\w+)\s*\((.*)\)", tail, re.S)
+        if m and m.group(2) in COMPUTED_TRANSFORMS and m.group(1) in (None, "this", jf.cls) \
+                and any(name == m.group(2) and len(params) == 1 for name, params, _v, _s, _e in jf.methods):
+            transform, tail = m.group(2), m.group(3)
+        inner = self.expression(jf, tail, method, seen)
+        if inner is None or inner[0] not in ("param", "literal", "literals"):
+            return None
+        return ("computed", prefix, transform, inner)
 
     def loop_names(self, jf, var, method, seen):
         """The names a for-each variable takes over an inline List.of(...) or Set.of(...) whose every element is a
@@ -517,35 +568,42 @@ class Reactor:
         return len(method[1]) - 1 if method[2] else None
 
     def call_kinds(self, jf, call, helpers):
-        """For one call: [(arg index, kinds)] - what each argument position reads."""
+        """For one call: [(arg index, kinds)] - what each argument position reads, as {kind: order}. The order says
+        where in a helper, and in the helpers it calls, the read of that kind is made, so that the names one call of
+        a helper reads sort into the order the helper tries them; a read call's own kind has the order ()."""
         name, receiver, is_new, args, offset = call
         out = []
         if is_new:
             if name.endswith("FieldDescriptor") and args:
-                out.append((0, {"plugin-field"}))
+                out.append((0, {"plugin-field": ()}))
             return out
         spec = READ_CALLS.get(name)
         if spec and args and (spec[1] is None or receiver == spec[1]
                               or (receiver is None and jf.static_imports.get(name) == spec[1])):
-            out.append((0, {spec[0]}))
+            out.append((0, {spec[0]: ()}))
             return out
         if name == "apply" and receiver in APPLY_RECEIVERS and len(args) == 1:
-            out.append((0, {APPLY_RECEIVERS[receiver]}))
+            out.append((0, {APPLY_RECEIVERS[receiver]: ()}))
             return out
         if jf.uses_settings and SETTINGS_ACCESSORS.get(name) == len(args) and receiver is not None \
                 and not receiver[:1].isupper():
-            out.append((0, {SETTING}))
+            out.append((0, {SETTING: ()}))
             return out
         for target, method in self.targets(jf, name, receiver, len(args)):
             positions = helpers.get((target.path, method[0], len(method[1]), method[3]), {})
             for i in range(len(args)):
                 p = self.position(method, i)
                 if p is not None and p in positions:
-                    out.append((i, set(positions[p])))
+                    out.append((i, dict(positions[p])))
         return out
 
+    @staticmethod
+    def excused(what, kinds):
+        """Whether a computed name's prefix is one of NOT_SETTING_PREFIXES for a kind read here."""
+        return any((kind, what[1]) in NOT_SETTING_PREFIXES for kind in kinds)
+
     def helpers(self):
-        """(file, method name, arity, body offset) -> {parameter index: kinds}, to a fixpoint."""
+        """(file, method name, arity, body offset) -> {parameter index: {kind: order}}, to a fixpoint."""
         helpers = {}
         changed = True
         while changed:
@@ -557,24 +615,33 @@ class Reactor:
                         continue
                     for index, kinds in self.call_kinds(jf, call, helpers):
                         what = self.expression(jf, call[3][index][0], method)
-                        param = None
+                        param, add = None, {}
                         if what and what[0] == "param":
                             param, add = what[1], kinds
                         elif what and what[0] == "derived" and what[1] and what[1][0] == "param":
-                            param, add = what[1][1], {DERIVED} if "system-property" in kinds else set()
+                            param = what[1][1]
+                            add = {DERIVED: kinds["system-property"]} if "system-property" in kinds else {}
+                        elif what and what[0] == "computed" and what[3][0] == "param" and not self.excused(what, kinds) \
+                                and all(plain_kind(kind) for kind in kinds):
+                            param = what[3][1]
+                            add = {computed_kind(kind, what[1], what[2]): order for kind, order in kinds.items()}
                         if param is None or not add:
                             continue
                         key = (jf.path, method[0], len(method[1]), method[3])
-                        have = helpers.setdefault(key, {}).setdefault(param, set())
-                        if not add <= have:
-                            have |= add
-                            changed = True
+                        have = helpers.setdefault(key, {}).setdefault(param, {})
+                        for kind, order in add.items():
+                            if kind not in have:
+                                have[kind] = (call[4],) + tuple(order)
+                                changed = True
         return helpers
 
     def reads(self):
-        """(reads, unresolved): reads as (kind, name, file, line); unresolved as (file, line, call text)."""
+        """(reads, unresolved): reads as (kind, name, file, line); unresolved as (file, line, call text). Each call of a
+        helper that computes a name goes into self.computed as (file, line, call text, [(kind, name)] in the order the
+        helper reads them)."""
         helpers = self.helpers()
         reads, unresolved = [], []
+        self.computed = []
         for jf in self.files:
             for call in jf.calls:
                 method = jf.enclosing(call[4])
@@ -588,17 +655,38 @@ class Reactor:
                         continue
                     if what[0] == "param":
                         continue
+                    if what[0] == "computed":
+                        if self.excused(what, kinds):
+                            continue
+                        if not all(plain_kind(kind) for kind in kinds):
+                            # A name computed from a name a helper itself computes: nothing here composes the two.
+                            unresolved.append((jf, line, f"{call[0]}({text})"))
+                            continue
+                        if what[3][0] == "param":
+                            continue
+                        for name in names_of(what[3]):
+                            for kind in sorted(kinds):
+                                reads.append(computed_name(computed_kind(kind, what[1], what[2]), name) + (jf, line))
+                        continue
                     if what[0] == "derived":
                         if "system-property" in kinds or DERIVED in kinds:
                             for name in names_of(what[1]):
                                 reads.append(("system-property", derive(name), jf, line))
                         continue
                     for name in names_of(what):
-                        for kind in sorted(kinds):
+                        read = []
+                        for kind, order in kinds.items():
                             if kind == DERIVED:
-                                reads.append(("system-property", derive(name), jf, line))
+                                read.append((order, "system-property", derive(name)))
+                            elif kind.startswith(COMPUTED + "|"):
+                                read.append((order,) + computed_name(kind, name))
                             else:
-                                reads.append((kind, name, jf, line))
+                                read.append((order, kind, name))
+                        for _order, kind, read_name in sorted(read, key=lambda r: (r[0], r[1])):
+                            reads.append((kind, read_name, jf, line))
+                        if any(kind.startswith(COMPUTED + "|") for kind in kinds):
+                            self.computed.append((jf, line, f"{call[0]}({text})",
+                                                  [(kind, read_name) for _o, kind, read_name in sorted(read, key=lambda r: (r[0], r[1]))]))
             for start, _end, value in jf.literals:
                 if OIDF_ENV_LITERAL.fullmatch(value):
                     reads.append(("env", value, jf, jf.line(start)))
@@ -669,6 +757,51 @@ def leading_operand(text):
             return head or None
         i += 1
     return None
+
+
+def plus_operands(text):
+    """The operands of `text` split at each `+` outside brackets and string literals, or None when there is none."""
+    depth, i, start, out = 0, 0, 0, []
+    while i < len(text):
+        c = text[i]
+        if c == '"':
+            m = LITERAL.match(text, i)
+            if not m:
+                return None
+            i = m.end()
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        elif c == "+" and depth == 0:
+            if text[i + 1:i + 2] in ("+", "=") or text[i - 1:i] == "+":
+                return None
+            out.append(text[start:i].strip())
+            start = i + 1
+        i += 1
+    if not out:
+        return None
+    out.append(text[start:].strip())
+    return out if all(out) else None
+
+
+def plain_kind(kind):
+    """Whether a computed name can be taken of a read of this kind: one a read call or a helper names as it is, not
+    one a helper derives or computes (a computed name of those is left unresolved)."""
+    return kind != DERIVED and not kind.startswith(COMPUTED + "|")
+
+
+def computed_kind(kind, prefix, transform):
+    """The kind a helper's parameter reads when the helper computes the name from it: a read of `kind` named
+    prefix + transform(name)."""
+    return f"{COMPUTED}|{kind}|{prefix}|{transform or ''}"
+
+
+def computed_name(computed, name):
+    """(kind, name) that a computed kind reads for `name`."""
+    _tag, kind, prefix, transform = computed.split("|", 3)
+    return kind, prefix + (COMPUTED_TRANSFORMS[transform][0](name) if transform else name)
 
 
 def literal_of(what):
@@ -981,6 +1114,31 @@ def scan(root):
         if len(paths) > 1:
             problems.append(f"{kind} {name} is declared by {', '.join(paths)}; a name is catalogued once, by its owner")
 
+    # Computed names: one call of a helper that computes names reads one setting, so they are one entry's sources in
+    # the order the helper tries them. A computed name the format cannot hold is left out of that comparison and is
+    # declared by the entry it matched (servlets/ssf's oidf.ssf.<camelCase> system properties - F-0235).
+    unholdable = {}
+    for jf, line, text, names in reactor.computed:
+        if jf.module in exempt:
+            continue
+        holdable = [(kind, name) for kind, name in names if NAME_RES[kind].fullmatch(name)]
+        left_out = [(kind, name) for kind, name in names if not NAME_RES[kind].fullmatch(name)]
+        scoped = any(kind in SCOPED_KINDS for kind, _n in names)
+        matches = [(c, e) for c in catalogues if not scoped or c.module == jf.module for e in c.entries
+                   if e["kind"] in SOURCE_KINDS and [(s["from"], s["name"]) for s in e["sources"]] == holdable]
+        if not matches:
+            read = ", ".join(f"{kind} {name}" for kind, name in names)
+            problems.append(f"{jf.path}:{line}: {text} reads {read}, in that order, and no catalogue entry"
+                            f"{' of ' + jf.module if scoped else ''} has exactly those sources in that order"
+                            + (f" (leaving out {', '.join(n for _k, n in left_out)}, which a catalogue cannot name)"
+                               if left_out else ""))
+            continue
+        for kind, name in left_out:
+            unholdable.setdefault((kind, name), set()).update(e["name"] for _c, e in matches)
+    if unholdable:
+        notes.append(f"{len(unholdable)} computed name(s) a catalogue cannot name, matched to their entries by the"
+                     " helper's other names (F-0235)")
+
     # Code to catalogue.
     for jf, line, text in unresolved:
         if jf.module in exempt:
@@ -1005,7 +1163,8 @@ def scan(root):
             problems.append(f"{jf.path}:{line}: setting {name} is read through platform.settings but no catalogue has"
                             " an entry of that name")
             continue
-        if jf.module in exempt or (kind, name) in NOT_SETTINGS or (kind, name, scope(kind, jf.module)) in declared:
+        if jf.module in exempt or (kind, name) in NOT_SETTINGS or (kind, name, scope(kind, jf.module)) in declared \
+                or (kind, name) in unholdable:
             continue
         key = (kind, name, jf.module)
         if key in seen_missing:

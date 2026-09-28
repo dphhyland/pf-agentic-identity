@@ -1,0 +1,150 @@
+{
+  "format": 1,
+  "component": "gm-api",
+  "module": "services/gm-api/servlet",
+  "package": "au.com.idpartners.gm.servlet",
+  "families": [],
+  "settings": [
+    {
+      "name": "pdpUrl",
+      "kind": "init-param",
+      "type": "url",
+      "default": null,
+      "description": "The AuthZEN PDP's base URL for the grants and MCP servlets; /access/v1/evaluation is appended. Then AUTHZEN_BASE_URL; the shipped web.xml sets it, so AUTHZEN_BASE_URL is never read unless web.xml is edited (F-0238)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset: the servlet does not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pdpUrl"
+        },
+        {
+          "from": "env",
+          "name": "AUTHZEN_BASE_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "pdpToken",
+      "kind": "init-param",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token sent to a protected PDP; then AUTHZEN_BEARER_TOKEN",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: the PDP refuses every evaluation"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pdpToken"
+        },
+        {
+          "from": "env",
+          "name": "AUTHZEN_BEARER_TOKEN"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "audience",
+      "kind": "init-param",
+      "type": "string",
+      "default": null,
+      "description": "The aud this API answers to, the access token manager's audience claim; then GM_AUDIENCE; the shipped web.xml sets it, so GM_AUDIENCE is never read unless web.xml is edited (F-0238)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset: the servlet does not start; wrong, every token is a 401"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "audience"
+        },
+        {
+          "from": "env",
+          "name": "GM_AUDIENCE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "pdpTimeoutMs",
+      "kind": "init-param",
+      "type": "millis",
+      "default": 10000,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "How long the grants and MCP servlets wait for the PDP",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the servlet does not start"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pdpTimeoutMs"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "issuer",
+      "kind": "init-param",
+      "type": "string",
+      "default": null,
+      "description": "The issuer the metadata servlet advertises; unset, none is",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Advertised as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "issuer"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "grantManagementEndpoint",
+      "kind": "init-param",
+      "type": "url",
+      "default": null,
+      "description": "The grant_management_endpoint the metadata servlet advertises; <request base>/gm-api/grants when unset",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Advertised as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "grantManagementEndpoint"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

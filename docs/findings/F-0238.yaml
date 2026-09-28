@@ -1,0 +1,20 @@
+id: F-0238
+title: gm-api's AUTHZEN_BASE_URL and GM_AUDIENCE are never read from the shipped war
+severity: medium
+area: gm-api
+source: design
+status: open
+plan_items: [X-C02]
+prs: [63]
+verification: ''
+target_release: 0.9.0
+notes: >
+  Found by ST3C (2026-09-28) while cataloguing gm-api. McpServlet.ServletConfigs reads each of pdpUrl, pdpToken and
+  audience from its init-param and falls back to AUTHZEN_BASE_URL, AUTHZEN_BEARER_TOKEN and GM_AUDIENCE only when
+  the init-param is unset or blank. The web.xml the war ships sets pdpUrl (http://host.docker.internal:9099) and
+  audience (https://gm-api.demo/grants) on both the grants and the MCP servlet, so in a deployed gm-api.war the
+  two environment variables the servlet README's table offers as fallbacks are never read: an operator who sets
+  GM_AUDIENCE gets the demo audience, and a token minted for their API is refused. Only AUTHZEN_BEARER_TOKEN,
+  whose init-param web.xml leaves out, works. F-0015 is the demo URLs being in the build at all; this is what
+  it does to the documented settings. X-C02 moves the configuration to GM_API_* settings with these names as
+  aliases, and has to take the literals out of web.xml for the new names to be read.
