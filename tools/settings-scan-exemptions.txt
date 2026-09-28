@@ -10,14 +10,6 @@
 # groups are gone; from then on only the "not shipped" group may.
 refuse-shipped-exemptions: no
 
-# group ST3B: the attestation side, the RAR model and the plugins
-libs/client-attestation
-libs/rar-model
-servlets/attestation-issuer
-plugins/rar-paz-plugin
-plugins/instance-registry-datasource
-plugins/ciba-sim
-
 # group not shipped
 libs/testkit: DB1's Postgres test support, a test-scoped dependency of the modules whose stores it tests; it is never staged into the image or deployed, and its OIDF_TEST_JDBC_URL, OIDF_TEST_JDBC_USER and OIDF_TEST_JDBC_PASSWORD (and CI) are for the build, described in CONTRIBUTING.md
 services/harness: verification CLIs run by hand with mvn exec:java, and pinned by their smoke tests under mvn test; nothing in build/ or .github/ stages or releases it and its pom skips deploy, so its OIDF_CLIENT_SECRET, OIDF_POP_AUDIENCE and the rest are a developer's, described in services/harness/README.md, and a catalogue would put them in the operators' reference
