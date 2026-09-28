@@ -153,6 +153,26 @@ class WhatIsAReadTest(unittest.TestCase):
                           ("env", "OIDF_SSF_ISSUER"), ("env", "OIDF_A_FOO_BAR"), ("system-property", "oidf.a.plain")}, found)
         self.assertEqual(['getenv("OIDF_A_" + Other.camelToUpperSnake("x"))'], unresolved)
 
+    def test_a_computed_name_of_any_read_kind_is_named_and_a_computed_name_of_a_computed_one_is_not(self):
+        found, unresolved = reads_of({"A.java": java(
+            'void f(javax.servlet.ServletConfig c) { c.getInitParameter("x" + "Y"); }\n'
+            'static String k(javax.servlet.ServletConfig c, String m) { return c.getInitParameter("x" + m); }\n'
+            'void g(javax.servlet.ServletConfig c) { k(c, "Z"); }')})
+        self.assertEqual({("init-param", "xY"), ("init-param", "xZ")}, found)
+        self.assertEqual([], unresolved)
+
+        found, unresolved = reads_of({"A.java": java(SSF_PARAM +
+            'void f(javax.servlet.ServletConfig c) { param(c, "kafka" + "Topic"); }')})
+        self.assertEqual(['param("kafka" + "Topic")'], unresolved)
+        self.assertEqual(set(), found)
+
+        found, unresolved = reads_of({"A.java": java(
+            'static String a(String m) { return System.getenv("A_" + m); }\n'
+            'static String b(String m) { return a("B_" + m); }\n'
+            'void f() { b("C"); }')})
+        self.assertEqual(['a("B_" + m)'], unresolved)
+        self.assertEqual(set(), found)
+
     def test_a_transform_the_class_does_not_declare_is_not_one(self):
         _found, unresolved = reads_of({"A.java": java(
             'static String param(String name) { return System.getenv("OIDF_A_" + camelToUpperSnake(name)); }\n'

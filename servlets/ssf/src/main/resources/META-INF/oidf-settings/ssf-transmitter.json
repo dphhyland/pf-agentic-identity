@@ -401,7 +401,7 @@
       "default": 5,
       "min": -2147483648,
       "max": 2147483647,
-      "description": "How many failed pushes of one SET a push stream takes before it is paused as dead-lettered",
+      "description": "How many failed pushes of one SET a push stream takes before it is paused as dead-lettered; 1 or less pauses it on the first failed push",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
@@ -888,7 +888,7 @@
       "default": 300,
       "min": -9223372036854775808,
       "max": 9223372036854775807,
-      "description": "How long the receiver keeps the transmitter's JWKS",
+      "description": "How long the receiver keeps the transmitter's JWKS; 0 or less fetches it for each SET",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
@@ -990,7 +990,7 @@
       "default": 10,
       "min": -9223372036854775808,
       "max": 9223372036854775807,
-      "description": "How often the receiver polls",
+      "description": "How often the receiver polls; below 1 means 1",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"

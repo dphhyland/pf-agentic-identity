@@ -507,10 +507,10 @@
       "description": "Where to reach the authority from here; the entity id when unset",
       "when_wrong": {
         "effect": "per-request",
-        "detail": "Wrong: each enrolment's registration with the authority fails"
+        "detail": "Wrong: each enrolment's registration with the authority fails, and PF_AUTHORITY_ADMIN_TOKEN goes as a bearer token to whatever host it names"
       },
       "profile": "any",
-      "security": false,
+      "security": true,
       "sources": [
         {
           "from": "env",

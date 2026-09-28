@@ -28,7 +28,7 @@ import org.jose4j.json.JsonUtil;
  *
  * <p>Event lists are stored newline-joined (event-type URIs contain no newlines); subjects are stored as their
  * RFC 9493 JSON plus a canonical key. The SQL is PostgreSQL's, the one database since 0.5.0: a second's SETs are ordered
- * by {@code jti COLLATE "C"}, bytewise whatever the database's collation; see docs/ssf-transmitter.md for the DDL.
+ * by {@code jti COLLATE "C"}, bytewise whatever the database's collation; the DDL is the DDL_* constants below.
  */
 public final class JdbcSsfStore implements SsfStore {
 

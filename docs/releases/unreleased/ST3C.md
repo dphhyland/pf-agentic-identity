@@ -19,7 +19,11 @@
 
 ## Before you deploy
 
-None.
+1. **An SSF JDBC store on a database that is not PostgreSQL.** `JdbcSsfStore`'s two reads of pending SETs now say
+   `COLLATE "C"`, which is PostgreSQL's syntax: on MySQL 8.4 it fails with `Unknown collation: 'C'` (checked
+   2026-09-28), so on a MySQL data store every `peek` and `dueForPush` fails where the old ORDER BY ran. H2 and
+   HSQLDB are already refused at boot, and 0.5.0 supports PostgreSQL only.
+   If `jdbcUrl` or `dataStoreId` points the transmitter at another engine, move it to PostgreSQL before upgrading.
 
 ## Notes
 

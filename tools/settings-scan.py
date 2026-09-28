@@ -61,11 +61,13 @@ What counts as a read, in main Java code with comments removed:
                         arity: a bare call in its own class, or Class.method(...) anywhere.
   a computed name       a literal or a constant, `+`, and then a name or one of COMPUTED_TRANSFORMS applied to a name,
                         where the name is any of the above or a parameter of the enclosing method (which makes the
-                        method a helper): a read of the name computed from it. servlets/ssf's
-                        SsfConfiguration.param(config, "x") reads the init-param x, System.getProperty("oidf.ssf." + x)
-                        and System.getenv("OIDF_SSF_" + camelToUpperSnake(x)), so param(config, "signingAlgorithm")
-                        reads init-param signingAlgorithm, system property oidf.ssf.signingAlgorithm and env
-                        OIDF_SSF_SIGNING_ALGORITHM.
+                        method a helper): a read, of the kind the call reads, of the name computed from it - but a
+                        name computed from a name the call itself derives or computes (a concatenated argument to a
+                        helper that computes, such as param(config, "a" + "B")) is a read the scan cannot name.
+                        servlets/ssf's SsfConfiguration.param(config, "x") reads the init-param x,
+                        System.getProperty("oidf.ssf." + x) and System.getenv("OIDF_SSF_" + camelToUpperSnake(x)), so
+                        param(config, "signingAlgorithm") reads init-param signingAlgorithm, system property
+                        oidf.ssf.signingAlgorithm and env OIDF_SSF_SIGNING_ALGORITHM.
   an extended property  a literal that is "extproperties.<name>" (how PingFederate's OGNL context names a client's
                         extended property) and each element of the lists in EXTENDED_PROPERTY_LISTS (the names a
                         module writes onto a client) - read as extended-property <name>.
@@ -619,10 +621,10 @@ class Reactor:
                         elif what and what[0] == "derived" and what[1] and what[1][0] == "param":
                             param = what[1][1]
                             add = {DERIVED: kinds["system-property"]} if "system-property" in kinds else {}
-                        elif what and what[0] == "computed" and what[3][0] == "param" and not self.excused(what, kinds):
+                        elif what and what[0] == "computed" and what[3][0] == "param" and not self.excused(what, kinds) \
+                                and all(plain_kind(kind) for kind in kinds):
                             param = what[3][1]
-                            add = {computed_kind(kind, what[1], what[2]): order for kind, order in kinds.items()
-                                   if kind in ("env", "system-property")}
+                            add = {computed_kind(kind, what[1], what[2]): order for kind, order in kinds.items()}
                         if param is None or not add:
                             continue
                         key = (jf.path, method[0], len(method[1]), method[3])
@@ -654,12 +656,17 @@ class Reactor:
                     if what[0] == "param":
                         continue
                     if what[0] == "computed":
-                        if what[3][0] == "param" or self.excused(what, kinds):
+                        if self.excused(what, kinds):
+                            continue
+                        if not all(plain_kind(kind) for kind in kinds):
+                            # A name computed from a name a helper itself computes: nothing here composes the two.
+                            unresolved.append((jf, line, f"{call[0]}({text})"))
+                            continue
+                        if what[3][0] == "param":
                             continue
                         for name in names_of(what[3]):
                             for kind in sorted(kinds):
-                                if kind in ("env", "system-property"):
-                                    reads.append(computed_name(computed_kind(kind, what[1], what[2]), name) + (jf, line))
+                                reads.append(computed_name(computed_kind(kind, what[1], what[2]), name) + (jf, line))
                         continue
                     if what[0] == "derived":
                         if "system-property" in kinds or DERIVED in kinds:
@@ -777,6 +784,12 @@ def plus_operands(text):
         return None
     out.append(text[start:].strip())
     return out if all(out) else None
+
+
+def plain_kind(kind):
+    """Whether a computed name can be taken of a read of this kind: one a read call or a helper names as it is, not
+    one a helper derives or computes (a computed name of those is left unresolved)."""
+    return kind != DERIVED and not kind.startswith(COMPUTED + "|")
 
 
 def computed_kind(kind, prefix, transform):
