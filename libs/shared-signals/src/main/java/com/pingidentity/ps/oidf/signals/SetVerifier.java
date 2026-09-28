@@ -43,7 +43,7 @@ import org.jose4j.jws.JsonWebSignature;
  *
  * <p>SSF 1.0 goes further than RFC 8417 on two claims - §4.1.7: "The "exp" claim MUST NOT be used in SETs", and
  * §4.1.2: "The JWT "sub" claim MUST NOT be present" - but both are written to the transmitter; this verifier
- * honours an {@code exp} as RFC 8417 does and ignores {@code sub} (docs/findings/U-0255.yaml).
+ * honours an {@code exp} as RFC 8417 does and ignores {@code sub} (docs/findings/F-0246.yaml).
  *
  * <p>Keys come from a {@link JwksSource}; this class makes no network call. Failures throw
  * {@link SetVerificationException} carrying the RFC 8935 error code the push endpoint must return
@@ -151,7 +151,7 @@ public final class SetVerifier {
         long iat = requireNumericDate(claims, "iat");
         if (claims.containsKey("exp")) {
             long exp = requireNumericDate(claims, "exp");
-            if (this.clock.instant().getEpochSecond() >= exp + EXP_LEEWAY_SECONDS) {
+            if (this.clock.instant().getEpochSecond() - EXP_LEEWAY_SECONDS >= exp) {
                 throw new SetVerificationException("invalid_request", "SET expired at " + exp);
             }
         }

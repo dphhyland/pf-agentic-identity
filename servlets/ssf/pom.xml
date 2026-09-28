@@ -150,7 +150,12 @@
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.logBootFailure(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.SsfSupport.describe(*</include>
 
-                                        <!-- Inbound signals: which subject a received SET acts on. -->
+                                        <!-- Inbound signals: which subject a received SET acts on. receiverVerifier() keeps an inbound
+                                             sub_id to SsfSubjects' five formats, and parse() and fromCanonicalKey() refuse the rest
+                                             from every other door, until H-SSF-1. -->
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSupport.receiverVerifier(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.SsfSubjects.fromCanonicalKey(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.onSet(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.InstanceRegistryReceiverHandler.deviceIdOf(*</include>
 

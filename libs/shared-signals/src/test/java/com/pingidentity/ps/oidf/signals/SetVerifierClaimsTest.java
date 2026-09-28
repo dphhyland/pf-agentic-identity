@@ -155,6 +155,9 @@ class SetVerifierClaimsTest {
         Map<String, Object> future = claims();
         future.put("exp", NOW + 300);
         assertEquals("jti-1", verifier().verify(sign(future)).jti());
+        Map<String, Object> farFuture = claims();
+        farFuture.put("exp", Long.MAX_VALUE);
+        assertEquals("jti-1", verifier().verify(sign(farFuture)).jti(), "the leeway does not overflow into the past");
         Map<String, Object> withinLeeway = claims();
         withinLeeway.put("exp", NOW - SetVerifier.EXP_LEEWAY_SECONDS + 1);
         assertEquals("jti-1", verifier().verify(sign(withinLeeway)).jti());

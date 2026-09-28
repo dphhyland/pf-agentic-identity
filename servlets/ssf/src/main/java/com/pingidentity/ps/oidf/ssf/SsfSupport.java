@@ -86,6 +86,16 @@ public final class SsfSupport {
     }
 
     /**
+     * The receiver's verifier: the configured issuer and audience, and an inbound {@code sub_id} kept to
+     * {@link SsfSubjects#FORMATS} - shared-signals' default accepts every format it parses, the complex subject
+     * among them, and nothing on this receiver matches or acts on those until H-SSF-1.
+     */
+    static SetVerifier receiverVerifier(SsfConfiguration config, SetVerifier.JwksSource keys) {
+        return new SetVerifier(config.receiverExpectedIssuer(), config.receiverAudience(), keys,
+                Clock.systemUTC(), SsfSubjects.FORMATS);
+    }
+
+    /**
      * Idempotently configure the shared singletons from the first servlet's parsed configuration. Throws
      * what opening the store throws (a {@code tables} store applies its DDL here), and then leaves nothing
      * behind: every singleton is built before any is assigned, so a failed configure is a transmitter that
@@ -106,11 +116,9 @@ public final class SsfSupport {
             SsfReceiverService theReceiver = null;
             PollReceiverClient thePollClient = null;
             if (receiverMayRun(config)) {
-                theReceiver = new SsfReceiverService(new SetVerifier(
-                        config.receiverExpectedIssuer(), config.receiverAudience(),
+                theReceiver = new SsfReceiverService(receiverVerifier(config,
                         JwksHttpSource.of(config.receiverJwksUrl(),
-                                config.receiverJwksCacheSeconds(), config.receiverInsecureTls()),
-                        Clock.systemUTC(), SsfSubjects.FORMATS));
+                                config.receiverJwksCacheSeconds(), config.receiverInsecureTls())));
                 LOGGER.info((Object) ("SSF receiver: accepting SETs from " + config.receiverExpectedIssuer()
                         + " (jwks " + config.receiverJwksUrl() + ")"));
                 if (config.receiverInstanceRegistry()) {
