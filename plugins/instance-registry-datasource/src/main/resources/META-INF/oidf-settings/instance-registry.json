@@ -1,0 +1,51 @@
+{
+  "format": 1,
+  "component": "instance-registry",
+  "module": "plugins/instance-registry-datasource",
+  "package": "com.pingidentity.ps.oidf.registry",
+  "families": [],
+  "settings": [
+    {
+      "name": "JDBC URL",
+      "kind": "plugin-field",
+      "type": "secret",
+      "default": null,
+      "description": "The JDBC URL of the Identity Object Model database holding the agent instance registry, the same one device-enrolment's IDM_DATABASE_URL names, credentials included; a PingFederate data store replaces it (plan item PR-3) (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {"effect": "per-request", "detail": "Wrong or unreachable: every lookup fails and the issuance is refused. Another database: every lookup resolves to an unknown instance"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "User verification max age (seconds)",
+      "kind": "plugin-field",
+      "type": "seconds",
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "default": 300,
+      "description": "How recent the owner's user verification must be for uv_fresh to be true; it must match the enrolment service's UV_MAX_AGE_SECONDS, or the two disagree about when an agent stops (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {"effect": "not-checked", "detail": "Not a whole number: 300, with a warning"},
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "instance_id",
+      "kind": "plugin-field",
+      "type": "string",
+      "default": null,
+      "description": "The data source's filter field: an access token mapping supplies the attestation's agent_id here (instance_id=${agent_id}) (plugin com.pingidentity.ps.oidf.registry.InstanceRegistryDataSource, shown as \"Agent Instance Registry\")",
+      "when_wrong": {"effect": "per-request", "detail": "Mapped to anything but the agent_id: every lookup resolves to an unknown instance, and a criterion on instance_active refuses the token"},
+      "profile": "any",
+      "security": true,
+      "sources": [],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

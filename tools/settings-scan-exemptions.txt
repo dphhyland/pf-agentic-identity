@@ -10,14 +10,6 @@
 # groups are gone; from then on only the "not shipped" group may.
 refuse-shipped-exemptions: no
 
-# group ST3B: the attestation side, the RAR model and the plugins
-libs/client-attestation
-libs/rar-model
-servlets/attestation-issuer
-plugins/rar-paz-plugin
-plugins/instance-registry-datasource
-plugins/ciba-sim
-
 # group ST3C: SSF and the services
 servlets/ssf
 services/device-enrolment
