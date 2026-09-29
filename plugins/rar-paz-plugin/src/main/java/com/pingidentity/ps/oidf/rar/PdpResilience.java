@@ -125,23 +125,17 @@ record PdpResilience(String tlsMode, String pinnedPem, String batchUrl, Set<Stri
     /** The admin-console half: every rule above, on save, with the dialect and principal types the form holds. */
     static final class Validator implements ConfigurationValidator {
         private final String profile;
-        private final String dialectField;
-        private final String authzenDialect;
-        private final String principalTypesField;
 
-        Validator(String profile, String dialectField, String authzenDialect, String principalTypesField) {
+        Validator(String profile) {
             this.profile = profile;
-            this.dialectField = dialectField;
-            this.authzenDialect = authzenDialect;
-            this.principalTypesField = principalTypesField;
         }
 
         @Override
         public void validate(Configuration configuration) throws ValidationException {
-            String dialect = configuration.getFieldValue(dialectField);
-            boolean authzen = authzenDialect.equalsIgnoreCase(dialect == null ? "" : dialect.trim());
+            String dialect = configuration.getFieldValue(AttestationAwareRarProcessor.PDP_DIALECT);
+            boolean authzen = AttestationAwareRarProcessor.DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim());
             Set<String> principalTypes = GovernanceEngineConfig.authenticatedPrincipalTypesOf(
-                    configuration.getFieldValue(principalTypesField));
+                    configuration.getFieldValue(AttestationAwareRarProcessor.AUTHENTICATED_PRINCIPAL_TYPES));
             String problem = problem(configuration, profile, authzen, principalTypes);
             if (problem != null) {
                 throw new ValidationException(problem);

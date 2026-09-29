@@ -82,9 +82,9 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
      */
     static final String AGENT_DETAIL_KEY = ModelGate.AGENT_MARKER;
 
-    private static final String PDP_DIALECT = "PDP Dialect";
+    static final String PDP_DIALECT = "PDP Dialect";
     private static final String DIALECT_GOVERNANCE = "governance-engine";
-    private static final String DIALECT_AUTHZEN = "authzen";
+    static final String DIALECT_AUTHZEN = "authzen";
     private static final String PDP_URL = "PDP URL";
     private static final String PDP_DOMAIN_PREFIX = "PDP Domain Prefix";
     private static final String PDP_SERVICE = "PDP Service";
@@ -400,7 +400,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 + " the PDP is not called and counts as unreachable", String.valueOf(CircuitBreaker.DEFAULT_THRESHOLD), false);
         addText(gui, PdpResilience.BREAKER_OPEN, "Seconds the circuit breaker stays open before one trial call",
                 String.valueOf(CircuitBreaker.DEFAULT_OPEN_SECONDS), false);
-        gui.addValidator(new PdpResilience.Validator(deploymentProfile(), PDP_DIALECT, DIALECT_AUTHZEN, AUTHENTICATED_PRINCIPAL_TYPES));
+        gui.addValidator(new PdpResilience.Validator(deploymentProfile()));
 
         AuthorizationDetailProcessorDescriptor descriptor =
                 new AuthorizationDetailProcessorDescriptor(TYPE_NAME, this, gui, VERSION);
