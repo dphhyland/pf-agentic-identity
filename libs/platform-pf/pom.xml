@@ -43,11 +43,19 @@
          under their own anchors and never edit this list. -->
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
+        <!-- rs-validation (plan item S8a): the operator authenticator verifies PingFederate's access tokens, their DPoP
+             proofs and their certificate binding through DelegatedTokenValidator, so DPoP is checked in one place
+             (Phase 3 decision 8). Optional, so a war that bundles platform-pf (gm-api) does not take rs-validation and
+             oidf-jose with it until it uses the authenticator; stage-modules.sh stages its jar into PingFederate
+             beside this one, and a consumer that copies jars copies it too. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rs-validation</artifactId><optional>true</optional></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>org.apache.logging.log4j</groupId><artifactId>log4j-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId><scope>provided</scope></dependency>
+        <!-- The @Requirement annotation only: SOURCE retention. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><scope>test</scope></dependency>

@@ -1,0 +1,73 @@
+{
+  "component": "operator",
+  "module": "libs/platform-pf",
+  "description": "The operator APIs' authentication: every request OperatorAuthenticator lets through or refuses, with the route, the scope it needs and the actor from the token.",
+  "logger": "com.pingidentity.ps.oidf.operator.event",
+  "auditProtocol": "Operator API",
+  "fields": {
+    "route": {
+      "pii": "OPERATIONAL",
+      "description": "The operator API route asked for, by name (hosted-entities.update), as the route table names it."
+    },
+    "scope": {
+      "pii": "OPERATIONAL",
+      "description": "The scope the route requires (oidf.admin.entities)."
+    },
+    "actor": {
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "Who asked: the access token's sub - for a client-credentials token, the client id. Never a header."
+    },
+    "claimed_label": {
+      "pii": "DIRECT_ID",
+      "description": "What the caller's X-Federation-Actor header said it was, cut to 128 characters: a label the caller chose, not an identity anything checked."
+    },
+    "client_address": {
+      "pii": "NETWORK",
+      "description": "The address the request came from, as the container reports it (never X-Forwarded-For)."
+    },
+    "binding": {
+      "pii": "OPERATIONAL",
+      "description": "What the token was bound to: dpop, mtls, or none (development only)."
+    },
+    "status": {
+      "pii": "OPERATIONAL",
+      "description": "The HTTP status the request was refused with: 401, 403, 429 or 503."
+    }
+  },
+  "events": {
+    "admin.request.authorised": {
+      "description": "An operator API request carried a PingFederate access token with the route's scope, bound as the profile requires, and was let through.",
+      "audit": true,
+      "outcomes": [
+        "success"
+      ],
+      "level": "info",
+      "fields": [
+        "route",
+        "scope",
+        "actor",
+        "claimed_label",
+        "client_address",
+        "binding"
+      ],
+      "declaredOnly": false
+    },
+    "admin.request.refused": {
+      "description": "An operator API request was refused: no token, a token that failed a check, a scope it lacks, a rate limit, or an authenticator that is not configured. The reason names which.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "route",
+        "scope",
+        "actor",
+        "claimed_label",
+        "client_address",
+        "status"
+      ],
+      "declaredOnly": false
+    }
+  }
+}
