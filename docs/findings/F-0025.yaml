@@ -5,7 +5,7 @@ area: platform
 source: review-2026-09-26
 status: open
 plan_items: [ST-1, ST-2, ST-3, ST-4, ST-5, ST-6, ST-7, PR-1, PR-2, PR-3, PR-5]
-prs: [43, 47, 50, 52, 62, 63, 64]
+prs: [43, 47, 50, 52, 54, 62, 63, 64]
 verification: ''
 target_release: 0.6.0
 notes: >
@@ -22,6 +22,7 @@ notes: >
   catalogue for every shipped module and tools/settings-scan.py in the lint job, which on origin/main 4b1fd979 reports
   "670 read(s) in 16 module(s), 24 catalogue(s), 444 declared name(s)" and every shipped module held to its
   catalogues; ST4 (PR #64) the configuration reference and docs/extended-properties.json generated from them and
-  checked in CI. Still open: no reader resolves through platform.settings yet, lenient readers remain (listed in
-  libs/platform's README as ST-5's worklist), unknown keys and unaccepted risks are listed and never refused (ST-5 to
-  ST-7, PR-2, PR-3, PR-5, Phase 3).
+  checked in CI; C2 (PR #54) made platform's Redis client (RedisConfig) the one reader that resolves through
+  platform.settings, reading the platform-redis catalogue. Still open: every other reader still reads for itself,
+  lenient readers remain (listed in libs/platform's README as ST-5's worklist), unknown keys and unaccepted risks are
+  listed and never refused (ST-5 to ST-7, PR-2, PR-3, PR-5, Phase 3).

@@ -10,10 +10,12 @@ it the heading `[<version>] - <date>`, the date the tag is cut, and leaves an em
 
 ## [Unreleased] - 0.6.0-SNAPSHOT
 
+Nothing yet. The poms move to 0.6.0-SNAPSHOT in the pull request that begins it.
+
 ## [0.5.0] - 2026-09-29
 
-Phase 2 of the production programme, foundations: every shipped module on the shared `platform` and
-`platform-pf` libraries, a settings catalogue per component with the configuration reference generated from them
+Phase 2 of the production programme, foundations: the shared `platform` and `platform-pf` libraries, which
+most shipped modules now use, a settings catalogue per component with the configuration reference generated from them
 and held to the code both ways, events, metrics, health and a start-up audit, managed background threads, a pooled
 Redis client, an outbound HTTP client pinned to the addresses it checked, PostgreSQL as the only store database,
 and the image built, tested and scanned in CI. Notes: [docs/releases/0.5.0.md](docs/releases/0.5.0.md).
@@ -116,7 +118,8 @@ and the image built, tested and scanned in CI. Notes: [docs/releases/0.5.0.md](d
   registered once with fixed, bounded labels (a declared set, or a cap past which values count as `other` and a
   fold counter rises), timers with a count, sum, max and fifteen fixed buckets from 1 ms to 60 s, and a lock-free
   hot path. Each loaded copy of platform registers one MXBean, `com.pingidentity.ps.oidf:type=Metrics,copy=...`,
-  unregistered through its lifecycle. Nothing registers a metric yet: O-4 and C-3 are the first users, O-5 the
+  unregistered through its lifecycle. O-3 itself registers no metric: C-3 (the `oidf_executor_*` counters and
+  timer) and O-4 (`oidf_events_total` and its companions) are the first users, both in 0.5.0; O-5 is the
   Prometheus endpoint. New in the register: F-0170, U-0180.
 
 - Plan item O-4: PingFederate's runtime port answers `/agentic-identity/health/live` and
@@ -205,9 +208,11 @@ and the image built, tested and scanned in CI. Notes: [docs/releases/0.5.0.md](d
   request count, with child budgets), `AddressPolicy` (oidf-jose's URL rules, plus 0.0.0.0/8, 240.0.0.0/4,
   Teredo, the IPv6 forms that embed a non-public IPv4 address, and no exemption for a path a server could
   normalise or decode out of the exempt prefix), `TlsTrust` and a `Bulkhead` seam
-  (plan item S5a, part 1). Nothing calls it yet.
+  (plan item S5a, part 1). oidf-jose's `JdkHttpClient` (below) and rs-validation's `RemoteJwks` are its callers
+  in 0.5.0.
 - The platform jar now carries Apache HttpComponents Core 5.4.4, relocated under
-  `com.pingidentity.ps.oidf.platform.http.internal.hc5` and minimised; it grows from 227 KB to 448 KB.
+  `com.pingidentity.ps.oidf.platform.http.internal.hc5` and minimised; it grew from 227 KB to 448 KB when S5a added
+  it, within this release (0.4.0 had no platform jar), and the 0.5.0 jar is 527,323 bytes (built 2026-09-29).
 
 - oidf-jose's `JdkHttpClient` (and `JdkHttpGetClient`, which delegates to it) sends through platform's
   `OutboundHttp` instead of the JDK's `java.net.http` client. `OutboundUrlPolicy` resolves the host once, checks
@@ -255,8 +260,9 @@ and the image built, tested and scanned in CI. Notes: [docs/releases/0.5.0.md](d
   is refused rather than ignored; a lookup in the whole environment as a map (`System.getenv()` passed on) is not
   seen, beyond the `OIDF_` literal rule. A read through `platform.settings` (`settings.secret(URL_SETTING)`, as
   platform's Redis client reads the `platform-redis` catalogue) reads the entry it names, and with it the entry's
-  sources and aliases. Modules not catalogued yet are listed, by the package that will catalogue them, in
-  `tools/settings-scan-exemptions.txt`.
+  sources and aliases. `tools/settings-scan-exemptions.txt` lists the modules the scan does not hold to a
+  catalogue; in 0.5.0 it names only `libs/testkit` and `services/harness`, neither shipped, and
+  `refuse-shipped-exemptions: yes` refuses any exemption outside its not-shipped group.
 - Eleven catalogues, one per component, under `src/main/resources/META-INF/oidf-settings/`: `deployment-profile`
   (platform), `pf-audit` (platform-pf), `outbound-fetch` (oidf-jose), `federation-entity` and
   `hosted-entity-signing` (openid-federation), and `federation-runtime`, `registration`,

@@ -99,7 +99,7 @@ The stash is shared by every worktree: prefer a temporary WIP commit to `git sta
   the SDK version the reactor compiles against, and the product version the Terraform provider is told.
   `tools/pf-version-check.py` checks every other place that names the version agrees with it;
   `tools/pf-version-sync.py` rewrites them when it changes.
-- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, `0.5.0-SNAPSHOT` to bump.
+- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, a version such as `0.6.0-SNAPSHOT` to bump.
   gm-api is in the lockstep.
 - `tools/pf-provided-versions.py` compares the BOM's `version.pf.*` properties with the jars the image ships.
 

@@ -23,6 +23,6 @@ notes: >
   needs the read:packages scope, which the gh token here lacks (2026-09-27).
 
   Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: plugins/ciba-sim/pom.xml on origin/main 4b1fd979 still
-  sets no maven.deploy.skip (only services/harness and libs/testkit do), so the 0.5.0 release's deploy step publishes
-  com.pingidentity.ps.oidf:ciba-sim to GitHub Packages again. The fix is a one-line pom change, which the release
+  sets no maven.deploy.skip (only services/gm-api/servlet, services/harness, libs/testkit and the root aggregator
+  do), so the 0.5.0 release's deploy step publishes com.pingidentity.ps.oidf:ciba-sim to GitHub Packages again. The fix is a one-line pom change, which the release
   package does not make: it changes the poms' version only, through tools/set-version.py.
