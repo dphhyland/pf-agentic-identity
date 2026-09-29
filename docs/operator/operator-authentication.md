@@ -138,8 +138,9 @@ answer's source - the configured endpoint, over TLS, as an authenticated client 
 reference token (introspection mode) minted by the same rig, on JDK 17, 20 and 21
 (`OperatorAuthenticatorRigTest`).
 
-An active answer is kept for at most 30 seconds and never past the token's `exp`; an inactive one is not kept. So a
-token revoked in PingFederate keeps working on a node that has just asked about it for at most 30 seconds. Every
+The authenticator does not cache answers: every request in introspection mode asks PingFederate, so a token revoked
+there is refused from the next request on. (platform's `TokenIntrospector` can keep an active answer for at most 30
+seconds, never past the token's `exp`, for a caller that turns its cache on; this one does not.) Every
 introspection call is bounded: 1 second to connect, 2.5 seconds in all, 64 KiB.
 
 ## Replay and the limits across nodes
@@ -152,9 +153,10 @@ so production allows it only with the accepted risk `in-memory-state` (`OIDF_ACC
 
 **Which address counts.** The failed-authentication limit counts the address the servlet container reports
 (`getRemoteAddr()`), never `X-Forwarded-For`. Behind a load balancer that does not preserve the client's address,
-every caller shares one counter, and ten failures from anyone lock out everyone for the rest of the minute. A
-trusted-proxy rule (plan item H-ATT-3) comes later; until then, configure PingFederate's own proxy settings so the
-container reports the client's address, or raise `OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE`.
+every caller shares one counter, and ten failures from anyone lock out everyone for the rest of the minute
+([F-0275](../findings/F-0275.yaml)). The trusted-proxy rule (plan item H-ATT-3, `platform.net.TrustedProxies`)
+arrives later in Phase 3 and moves these limits onto it; until then, configure PingFederate's own proxy settings so
+the container reports the client's address, or raise `OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE`.
 
 ## Audit
 
@@ -173,5 +175,6 @@ Every request let through and every one refused emits an event from the `operato
 ## What it does not do yet
 
 - **DPoP nonces.** RFC 9449 §8 lets a resource server require a server-provided nonce; this authenticator does not,
-  so a proof is fresh by its `iat` (rs-validation's window) and its `jti`.
+  so a proof is fresh by its `iat` (rs-validation's window: 300 s, with 60 s of skew) and its `jti`
+  ([F-0276](../findings/F-0276.yaml)).
 - **Who a surface is for.** The route table (`OperatorRoutes`) and each route's scope arrive with S8b.
