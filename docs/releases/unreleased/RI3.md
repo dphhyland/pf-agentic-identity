@@ -67,6 +67,11 @@
    Docker health, check that 241 seconds' start period and seven failed checks 31 seconds apart suit you; route
    traffic on `/agentic-identity/health/ready` with your own readiness probe. A compose file's own `healthcheck:`
    still replaces the image's.
+8. **Copy `pf-healthcheck.sh` into a build context you compose yourself.** The Dockerfile copies it beside
+   `pf-entrypoint.sh`, so a context composed outside this repository without it fails to build at that `COPY`.
+   `conformance/compose-context.sh` copies it; a consumer's own script (pf-oidf-modules'
+   `deploy/pingfederate/compose-context.sh`, for one) must add `build/pingfederate/pf-healthcheck.sh` to what it
+   copies. The build's error names the missing file; there is no escape, development or otherwise.
 
 ## Notes
 
@@ -98,7 +103,8 @@ heartbeat answered on 9031 and the heartbeat on the plain listener, the banner p
 container was healthy by the image's healthcheck while `/agentic-identity/health/ready` answered 503. No
 conformance plan was re-run.
 
-Consumers that build from this Dockerfile - pf-oidf-modules and idp-agentic-demo - get every item above on their
-next rebuild.
+pf-oidf-modules composes its context from `build/pingfederate` and gets every item above on its next rebuild; its
+`oidf-mock-attesters.json` is no longer read. idp-agentic-demo's image builds from the stock 13.0.3 image with its
+own mock-attester COPY, not from this Dockerfile, so nothing here reaches it until it moves (read 2026-09-30).
 
 F-0026, the umbrella for the image's production posture, stays open.
