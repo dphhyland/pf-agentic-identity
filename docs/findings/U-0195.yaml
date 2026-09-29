@@ -4,7 +4,7 @@ area: platform
 source: design
 status: closed
 plan_items: [S5a]
-prs: [55]
+prs: [55, 69]
 recorded_in: libs/platform/README.md, the http section, What the deadlines do not bound
 verify_by: >
   On the pinned PingFederate image, time InetAddress.getAllByName against a resolver that never answers (the

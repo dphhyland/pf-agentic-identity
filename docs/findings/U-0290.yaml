@@ -4,7 +4,7 @@ area: openid-federation
 source: design
 status: open
 plan_items: [S5b]
-prs: []
+prs: [69]
 recorded_in: libs/openid-federation/README.md, The resolution budget; docs/releases/unreleased/S5B.md
 verify_by: >
   After a week of traffic on a deployment that joins a federation over the internet, search the PingFederate server

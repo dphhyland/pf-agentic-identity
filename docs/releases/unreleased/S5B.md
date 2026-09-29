@@ -83,6 +83,12 @@ to 14.5 s before a check that has nothing to do with time refused them (each `tr
 times the longest, 14.5 s, rounded up: 45 s. It is a ceiling on one request thread, not a target. U-0290 records
 that it has not been checked against a deployment's own federations.
 
+**The rig on the final code** (2026-09-30, the image built from this branch at d3d8934c, slot 3,
+`PF_PROFILE=federation-op`, the suite at release-v5.3.1): `openid-federation-entity-joined-to-test-federation-op-test-plan`,
+plan `1IagM1TIgHkl4`, 20 modules, 20 WARNING, 0 FAILED, PingFederate resolving the suite relying party's chain and
+registering it automatically; `openid-federation-deployed-entity-test-plan`, plan `1xjZtsQkLc3B2`, 5 modules, 5
+WARNING, 0 FAILED. The warning is the suite's note on PingFederate's vendor metadata, as on 0.5.0.
+
 **The bound the budget cannot enforce** (2026-09-30, the image's java 21.0.12.1, `docker run --dns 10.255.255.1`):
 `InetAddress.getAllByName` against a resolver that never answers gave up after 5017 ms, and a connected loopback
 socket's send buffer was 1,313,280 bytes, above the 1 MiB request-body cap. `OutboundHttp` refuses to start a request
