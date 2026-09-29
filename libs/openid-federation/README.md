@@ -23,8 +23,9 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`TrustChainValidator`** — establishes trust in an entity (§10): collects the statements linking it to
   one of the configured anchors, starting from any it was handed, then validates the chain and resolves
   the entity's metadata. The search tries the configured anchors first, follows at most ten
-  `authority_hints` per entity, never revisits an entity on the path, and spends one fetch budget across
-  the whole validation (§18.1). A request can spend less than that budget: `ValidationRequest.maxFetches(0)`
+  `authority_hints` per entity, never revisits an entity on the path, and spends one resolution budget - a
+  wall clock and a number of requests, below - across the whole validation (§18.1). A request can spend less
+  than that budget: `ValidationRequest.maxFetches(0)`
   validates the statements it was handed and nothing else, which is how a chain someone other than its subject
   presents is checked without letting them choose what gets fetched. Every statement passes the §3.2 checks (`EntityStatementChecks`: claims,
   `crit`, which claims may appear where, key sets, `aud`, chain headers) and is verified with the keys the
@@ -47,7 +48,8 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   the issuer's status endpoint (§8.4), and anything but `active` rejects the mark. A rejected mark never
   costs the entity its chain. The anchor's configuration comes from the end of the chain, or is resolved
   against the pinned keys when the chain stops short of it. Each issuer is resolved once per validation, at
-  most eight of them, and at most sixteen marks are examined (§18.1).
+  most eight of them, and at most sixteen marks are examined (§18.1). The whole validation spends one resolution
+  budget: the caller's (`validate(chain, budget)`), or one made from the issuers' validator's options.
 - **`TrustMarkPolicy`** — the marks a deployment requires before it registers an entity, by Entity Type
   (`{"*": [...], "openid_relying_party": [...]}`); every mark listed is required, and only a verified one counts.
 - **`TrustControllerGateway` / `HttpTrustControllerGateway`** — fetch entity configurations, member lists
@@ -55,7 +57,8 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   **`SubordinateStatementCache`** with expiry-buffer and max-age eviction; writes are staged as
   `PendingWrites` and committed only once a chain validates. The validator binds its anchors to the
   gateway, which verifies each anchor's entity configuration against that anchor's pinned keys before
-  using its fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3).
+  using its fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3). Within a
+  resolution each of those requests is paid for from the resolution's budget and made by its deadline.
 - **`ClientEntityAuthorizer`** — the pure AS-side decision for a client that is itself a federation
   entity: member (chain resolves), status active, `oauth_client` metadata within registration policy,
   requested scopes within registered scopes. No I/O.
@@ -82,6 +85,70 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).
   The latter is the `openid_provider` attestation capability set the entity configuration advertises:
   auth methods, per-JWT algorithm lists, `attestation_pop_jwt` + `dpop_combined`, challenge endpoint.
+
+### The resolution budget
+
+One trust chain resolution spends one `ResolutionBudget` (plan item S5b): a wall clock, counted from when the
+resolution starts, and a number of requests, over platform's `Budget` ([libs/platform](../platform/README.md#http)).
+Spending is thread-safe.
+
+- **What spends it.** The validator pays one request for every statement it asks its gateway for, from the cache
+  or not, as the fetch budget did before. `HttpTrustControllerGateway` pays one more for every further request it
+  makes to answer: an authority's Entity Configuration that is neither cached nor staged, which it needs for the
+  fetch endpoint, and the second retrieval of an anchor's Entity Configuration that did not verify (§11.3). One
+  statement can cost three requests, and each is counted, so a resolution never makes more requests than its
+  budget holds, whatever shape the chain has. A `peer_trust_chain` is resolved from a child of the same budget
+  (`ResolutionBudget.child`), and `TrustMarkValidator` resolves the anchor's configuration and each issuer from
+  children of its budget and spends one request on each status call.
+- **The wall clock.** Every request is made by the budget's deadline: `HttpGetClient.get(url, accept, deadline)`
+  and `HttpPostClient.post(..., deadline)`, which `JdkHttpClient` holds to the sooner of the deadline and its own
+  15 s request timeout, the body included. A slow peer's body spends the resolution's time, not a fresh timeout.
+- **Where a budget comes from.** A caller may pass one on `ValidationRequest.budget(...)` - a registration that
+  wants its chain and its Trust Marks held to one budget - and the validation spends from a child of it holding
+  at most the request's `maxFetches`. Otherwise the validation makes one from its `ValidatorOptions`.
+  `FederationService.resolve` and the registration paths still validate a chain and then its Trust Marks on two
+  budgets; S5c passes one budget through registration (finding [F-0280](../../docs/findings/F-0280.yaml)).
+- **What a refusal says.** A resolution that runs out is refused as a `TrustChainValidationException` of kind
+  `BUDGET`, answered as `invalid_trust_chain`, whose description says what ran out and what the budget allowed
+  ("ran out of time: its wall-clock budget of 45000 ms is spent", "ran out of requests: its budget of 24 requests
+  is spent") and never names what was being fetched, which a peer chose. The validator logs a WARN naming the
+  subject (through `LogSafe`), what ran out, how long it took, how many requests it spent, and the two settings; at
+  DEBUG it logs each resolution that succeeds, with its time and requests.
+- **A gateway that does not know budgets.** The budget travels as a trailing parameter on
+  `TrustControllerGateway`'s fetch overloads, whose defaults forward to the overloads without it, so every
+  existing gateway and caller compiles and behaves as before. Such a gateway is still held to one request per
+  statement asked for; the requests it makes inside a call are its own to bound. `LocalFirstTrustControllerGateway`
+  answers this deployment's own statements with no request and passes the budget to its delegate.
+- **What the budget does not bound.** Name resolution and writing a request have no timeout in the JDK
+  ([U-0195](../../docs/findings/U-0195.yaml)); `OutboundHttp` refuses to start a request once its deadline has
+  passed, so a resolution overruns its wall clock by at most one lookup. On the pinned image's java 21.0.12.1 a
+  lookup against a resolver that never answers gave up after 5.05 s (2026-09-29) and 5.02 s (2026-09-30), and a connected socket's send
+  buffer is 1,313,280 bytes, larger than the 1 MiB request-body cap.
+
+**The settings.** `ValidatorOptions.defaults()` reads the `federation-resolution` catalogue
+([docs/configuration/federation-resolution.md](../../docs/configuration/federation-resolution.md)), so every
+validator built with it follows them: `OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS` (45, 1 to 300),
+`OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS` (24, 1 to 256), `OIDF_FEDERATION_RESOLUTION_MAX_AUTHORITY_HINTS` (10, 1 to
+64), `OIDF_FEDERATION_RESOLUTION_MAX_ROUTE_ATTEMPTS` (8, 1 to 64) and `OIDF_FEDERATION_RESOLUTION_CLOCK_SKEW_SECONDS`
+(60, 0 to 300). A value out of its range is refused, naming the setting, when a validator is built. These are
+tuning: how much work one resolution is worth depends on the federations a deployment joins. The constants that
+stay constants are safety bounds, which hold whatever the tuning says: `TrustChainValidator.MAX_ROUTE_STATEMENTS`
+(16 Subordinate Statements on one route) and `MAX_SEARCH_STEPS` (128 statements added to routes, which bounds the
+work presented statements cause at no request at all), and `TrustMarkValidator.MAX_MARKS_EXAMINED` (16) and
+`MAX_ISSUERS_RESOLVED` (8). Nothing measured says they must move.
+
+**The measurement behind the wall clock** (2026-09-29, this branch, `DEBUG` on `TrustChainValidator`). On the
+conformance rig (`PF_PROFILE=federation-op`, PingFederate 13.1.3, the suite at release-v5.3.1 on the same Docker
+host), the successful resolutions took 179 ms (the suite's relying party, 4 requests, cold, plan `g3wLhsJueO2zv`),
+85 ms (the same relying party with the next run's keys, plan `kP63AXqiOpCZx`) and 5 ms (PingFederate's own chain,
+plan `xyVeQDsQoS533`). Three times the longest is 0.54 s, which would round to 1 s. That is loopback: against a
+federation on the internet, this validator, fetching from this machine (in Australia) the chains of ten entities
+chosen at random from the list of the Italian public-sector anchor `https://oidc.registry.servizicie.interno.gov.it`,
+spent 4.3 s to 14.5 s on each of eight before `EntityStatementChecks` refused it, every `trust_marks` entry carrying
+`id` where the check looks for `trust_mark_type`; the other two stopped at 2.2 s and 9.7 s on leaves that did not
+answer. A single fetch of the anchor's configuration took 1.3 s, 1.0 s of it the TLS handshake. A 1 s default would refuse every one of those chains on the network time alone, so the default is
+three times the longest of them, 14.5 s, rounded: **45 s**. It is a ceiling on a request thread, not a target:
+before it a resolution could hold one for up to 24 requests of 15 s each.
 
 ## `authority` — hosting entities
 

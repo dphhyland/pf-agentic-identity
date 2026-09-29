@@ -2,7 +2,7 @@ id: U-0195
 title: Whether name resolution and request writes, which no OutboundHttp deadline bounds, stay short in practice
 area: platform
 source: design
-status: open
+status: closed
 plan_items: [S5a]
 prs: [55]
 recorded_in: libs/platform/README.md, the http section, What the deadlines do not bound
@@ -11,7 +11,17 @@ verify_by: >
   image's resolv.conf timeout and attempts decide it), and read the default SO_SNDBUF of a connected socket to
   compare with OutboundRequest.MAX_REQUEST_BODY_BYTES (1 MiB). If either is long enough to matter, S5AR resolves
   on a thread of a managed executor (C-3) bounded by the deadline, or lowers the body cap.
-verification: ''
+verification: >
+  2026-09-30, package S5B, on the pinned PingFederate image's java (openjdk 21.0.12.1, pfai-p3-s5b/pingfederate:local
+  built from this branch) with docker run --dns 10.255.255.1 so the only resolver never answers:
+  InetAddress.getAllByName of an unknown name gave up after 5017 ms with UnknownHostException "Try again" (the
+  image's resolv.conf sets no timeout or attempts, so glibc's defaults decide it); and a connected loopback
+  socket's SO_SNDBUF was 1,313,280 bytes, above OutboundRequest.MAX_REQUEST_BODY_BYTES (1 MiB), so a capped body
+  fits the send buffer and its write does not wait on the peer reading. The same figures were first read on
+  2026-09-29. Neither is long enough to matter: a lookup costs at most about 5 s past a deadline, once per request,
+  and S5B's resolution budget refuses to start a request once its wall clock has passed, so a resolution overruns
+  its budget by at most one lookup. No resolver thread or lower cap is needed; libs/openid-federation/README.md
+  records the bound.
 notes: >
   Every read OutboundHttp makes is bounded by what is left of its deadline (DeadlineSocket), and the connect is
   bounded by Socket.connect's timeout. Two blocking steps are not: InetAddress.getAllByName takes no timeout, so
