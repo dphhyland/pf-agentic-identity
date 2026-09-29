@@ -105,6 +105,8 @@
                                         <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.priorActors(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.verifyAccessToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.introspected(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.acceptsBearer(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.selectKey(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkClaims(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkAct(*</include>
@@ -120,6 +122,7 @@
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Presentation.requireMethodAndUri(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.build(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowLegacyStringAct(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowUnbound(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.clockSkew(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.proofMaxAge(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.asymmetric(*</include>

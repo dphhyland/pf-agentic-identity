@@ -9,7 +9,8 @@ whom. Package `com.pingidentity.ps.oidf.rs`. Formerly `services/demo-rs`, which 
 X-D01).
 
 It is a library: a resource server embeds `DelegatedTokenValidator`, directly or through `ResourceServerFilter`, a
-`jakarta.servlet.Filter`. Nothing here is staged into PingFederate's image.
+`jakarta.servlet.Filter`. From 0.6.0 its jar is staged into PingFederate's image beside platform-pf, whose operator
+authenticator verifies the operator APIs' tokens through it (plan item S8a); `ResourceServerFilter` is not used there.
 
 ## What it checks
 
@@ -67,7 +68,8 @@ servletContext.addFilter("rs", new ResourceServerFilter(validator, "https://rs.e
 ```
 
 A request that passes carries the `Result` in the request attribute `com.pingidentity.ps.oidf.rs.Result`:
-`subject()`, `actingInstance()`, `scopes()`, `claims()`, and `describe()`, which is what a demo endpoint can echo
+`subject()`, `actingInstance()`, `scopes()`, `claims()`, `binding()` (`DPOP`, `MTLS` or, in development only,
+`NONE`), and `describe()`, which is what a demo endpoint can echo
 (no raw token, no `cnf`). Authorising on the result - which scopes, which actor - is the resource's job; the library
 only establishes who is asking and who is acting.
 
@@ -75,7 +77,8 @@ only establishes who is asking and who is acting.
 
 | Method | Default | What it does |
 |---|---|---|
-| `keys(JwksSource)` / `keys(Collection<JsonWebKey>)` | required | the authorisation server's public keys |
+| `keys(JwksSource)` / `keys(Collection<JsonWebKey>)` | this or `introspection` | the authorisation server's public keys |
+| `introspection(TokenIntrospector)` | this or `keys` | ask the authorisation server about each token (RFC 7662) instead of verifying a JWT - see [Introspection](#introspection) |
 | `replayStore(ReplayStore)` | required | where accepted proofs are remembered; `build()` refuses without one |
 | `accessTokenType(AccessTokenType)` | `RFC9068` | `at+jwt` or `application/at+jwt`; `ABSENT` for no `typ`; `exactly("...")` |
 | `tokenAlgorithms(Set)` / `proofAlgorithms(Set)` | `ES256 PS256 RS256` | ES, RS and PS algorithms only |
@@ -84,10 +87,26 @@ only establishes who is asking and who is acting.
 | `nonces(DpopNonces)` | off | require resource-server nonces (RFC 9449 §9) |
 | `dpop(boolean)` / `mtls(boolean)` | on / off | which schemes are accepted; at least one |
 | `allowLegacyStringAct()` | off | accept `act` as a string holding JSON; reads this process's profile, and `build()` throws unless it is development |
+| `allowUnbound()` / `allowUnbound(DeploymentProfile)` | off | accept a token with no `cnf` under `Authorization: Bearer`, reported as `Binding.NONE`; `build()` throws unless the profile is development. A DPoP-bound token sent as a bearer token is still refused (RFC 9449 §7.2) |
 
 The library reads no environment variable or system property of its own: the embedding application builds it from
 its own configuration, and `RedisConfig.current()` (the platform's catalogued `OIDF_REDIS_*` settings) is one way to
 build the Redis client.
+
+### Introspection
+
+With `introspection(TokenIntrospector)` (platform.auth: RFC 7662 over `OutboundHttp`, 1 s to connect, 2.5 s in
+all, 64 KiB) the token is not parsed at all: the authorisation server says whether it is active, and its answer's
+members stand in for the JWT's claims and go through the same checks - `iss`, `aud`, `exp`, `nbf`, the `act` chain
+and the binding - with two differences. RFC 7662 §2.2 makes `iss` and `exp` OPTIONAL, and PingFederate 13.1.3 leaves
+`iss` out for a reference token (seen on the rig on 2026-09-29, [U-0030](../../docs/findings/U-0030.yaml)), so an
+answer without them is accepted on the configured server's word; one that carries them is checked. The binding comes
+from the answer's `cnf`: RFC 9449 §6.2, "For a DPoP-bound access token, the hash of the public key to which the token
+is bound is conveyed to the protected resource as metainformation in a token introspection response", and "If the
+token_type member is included in the introspection response, it MUST contain the value DPoP" - an answer with
+`cnf.jkt` and another `token_type` is refused. The proof is then checked against that `jkt` and its `ath` against the
+opaque token exactly as for a JWT. An inactive token is `invalid_token` (401); an endpoint that gives no usable
+answer is a 503.
 
 ### Replay stores
 
@@ -155,8 +174,8 @@ container take the certificate from the proxy for mTLS-bound tokens to pass.
 mvn -pl libs/rs-validation -am verify
 ```
 
-Versions come from the repo BOM; depends on `oidf-jose`, `client-attestation` (for `DpopProofValidator`),
-`platform` (redis, http, profile), jose4j and Jackson; `jakarta.servlet-api` is provided. Every refusal test an RFC
+Versions come from the repo BOM; depends on `oidf-jose` (for `DpopProofValidator`, since 0.6.0: F-0225),
+`platform` (redis, http, auth, json, profile), jose4j and Jackson; `jakarta.servlet-api` is provided. Every refusal test an RFC
 requires quotes the sentence it enforces, with its `@Requirement` id where the RFC has a declared prefix (RFC 8705
 and RFC 9068 have none yet, F-0227); the refusals that are this library's own policy - the exact `kid`, a shared
 `kid`, the `act` depth cap, no bearer mode, the 503s - say so in their javadoc. The jacoco gate holds the decision methods at 100% line and branch.
@@ -164,7 +183,6 @@ and RFC 9068 have none yet, F-0227); the refusals that are this library's own po
 
 ## Caveats
 
-- `DpopProofValidator` lives in client-attestation, so this module depends on it. Moving it where platform-pf's
-  operator authenticator (plan item S8a) can share it is [F-0225](../../docs/findings/F-0225.yaml).
-- No token introspection yet (RFC 7662): the token must be a JWT. gm-api's move onto this module (X-C03) adds it.
+- Introspection answers are not cached here: `TokenIntrospector.Builder.cacheFor` can keep an active one for up to
+  30 s (never past its `exp`), which is the caller's choice of liveness against load.
 - The actor is reported, not authorised: nothing here checks it against a registry or `may_act`.
