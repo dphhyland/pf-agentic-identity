@@ -153,7 +153,7 @@
         "true",
         "false"
       ],
-      "description": "Switches on the Shared Signals transmitter: true or false; unset, inferred from its settings - always in development, and in production only while none of these is set: OIDF_SSF_ISSUER, OIDF_SSF_JDBC_URL, OIDF_SSF_DATA_STORE_ID",
+      "description": "Switches on the Shared Signals transmitter: true or false; unset, inferred from its settings - always in development, and in production only while none of these is set: OIDF_SSF_ISSUER, OIDF_SSF_JDBC_URL, OIDF_SSF_DATA_STORE_ID. Not applied yet: the SSF servlets start as their own settings say until ST-5 moves their start-up onto the component parts (Phase 3, wave 3); until then this switch is catalogued and parsed, and changes nothing",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Not true or false, unset in production while one of its settings is set, or true without the settings it needs: the component is FAILED_CONFIG and its surfaces answer 503; PingFederate's own endpoints keep serving"
@@ -178,7 +178,7 @@
         "true",
         "false"
       ],
-      "description": "Switches on the Shared Signals receiver of inbound SETs: true or false; unset, inferred from its settings - always in development, and in production only while none of these is set: OIDF_SSF_RECEIVER_EXPECTED_ISSUER, OIDF_SSF_RECEIVER_JWKS_URL, OIDF_SSF_RECEIVER_POLL_URL",
+      "description": "Switches on the Shared Signals receiver of inbound SETs: true or false; unset, inferred from its settings - always in development, and in production only while none of these is set: OIDF_SSF_RECEIVER_EXPECTED_ISSUER, OIDF_SSF_RECEIVER_JWKS_URL, OIDF_SSF_RECEIVER_POLL_URL. Not applied yet: the SSF servlets start as their own settings say until ST-5 moves their start-up onto the component parts (Phase 3, wave 3); until then this switch is catalogued and parsed, and changes nothing",
       "when_wrong": {
         "effect": "doesnt-start",
         "detail": "Not true or false, unset in production while one of its settings is set, or true without the settings it needs: the component is FAILED_CONFIG and its surfaces answer 503; PingFederate's own endpoints keep serving"
