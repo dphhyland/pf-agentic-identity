@@ -18,12 +18,14 @@
 #      composite action Build uses;
 #   4. `mvn -B verify` with tests and coverage gates on, then tools/pf-linkcheck.py against that PF;
 #   5. the module set is staged and dist/ assembled with a PROVENANCE derived from the staged MANIFEST;
-#   6. the GitHub release is created as a DRAFT, so a failure after this point leaves nothing public;
-#   7. Maven artifacts go to GitHub Packages, and every jar and war that deploy rebuilt is checked byte
-#      for byte against dist/;
-#   8. the draft is published.
-# A workflow_dispatch with dry_run does 1 to 5, then the rebuild of 7 with `mvn install` in place of
-# `mvn deploy`, and the same byte comparison: everything built and checked, nothing released or published.
+#   6. the rebuild deploy will make is made first with `mvn install`, on this runner only, and every jar
+#      and war it rebuilt is checked byte for byte against dist/, so a build that is not reproducible
+#      stops here, before any draft and before Packages;
+#   7. the GitHub release is created as a DRAFT, so a failure after this point leaves nothing public;
+#   8. Maven artifacts go to GitHub Packages, and what deploy rebuilt is checked against dist/ again;
+#   9. the draft is published.
+# A workflow_dispatch with dry_run stops after 6: everything built, rebuilt and compared, nothing released
+# or published.
 #
 # THE REBUILD IS REAL. deploy runs the lifecycle again, and the compiler recompiles every module whose reactor
 # dependency verify has just rebuilt ("Recompiling the module because of changed dependency"), so the jar,
@@ -31,8 +33,9 @@
 # pom sets project.build.outputTimestamp, the date written on each archive entry, which tools/set-version.py
 # sets with the version. Before it did, the v0.5.0 Release (run 36518030296) failed at the comparison: 12 of
 # the 14 jars deploy published differed from dist/. Rebuilt the same way locally, rar-model's jar has the same
-# entries, sizes and CRCs as the first build's, and different entry dates. The dry run did not catch it
-# because it stopped before the comparison; it now runs it.
+# entries, sizes and CRCs as the first build's, and different entry dates. The comparison ran only after
+# deploy, so those jars were already in Packages when it failed, and the dry run, which stopped before
+# it, never ran it at all. Step 6 is the fix for both: it runs in every run, before anything is published.
 #
 # TWO PUBLICATION CHANNELS, deliberately, because the consumers are not alike:
 #   Maven / GitHub Packages   for anything resolving dependencies (domain-authority's phone-simulator
@@ -338,12 +341,12 @@ jobs:
 
           ( cd dist && sha256sum -- * > SHA256SUMS )
           # Where each dist file came from in the reactor (the target/ file deploy will publish, not the
-          # staged copy), so the deploy step can prove it published the same bytes. A basename can name
-          # two reactor files: oidf.jar is servlets/pf-integration's module (what stage-modules.sh
-          # stages) AND servlets/oidf-war's jar-packaged aggregate, which is never staged or deployed.
-          # So the aggregate is excluded, any other collision is an error rather than a first hit, and
-          # the resolved source is compared with the dist file HERE - a wrong resolution fails this
-          # step, before the draft and before Packages, not the check after them.
+          # staged copy), so the comparisons after the install and after the deploy can prove the rebuilds
+          # made the same bytes. A basename can name two reactor files: oidf.jar is servlets/pf-integration's
+          # module (what stage-modules.sh stages) AND servlets/oidf-war's jar-packaged aggregate, which is
+          # never staged or deployed. So the aggregate is excluded, any other collision is an error rather
+          # than a first hit, and the resolved source is compared with the dist file HERE - a wrong
+          # resolution fails this step, not the byte comparisons after it.
           ( for f in dist/*.jar dist/*.war; do
               b="$(basename "$f")"
               src="$(find libs servlets plugins services -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
@@ -358,6 +361,33 @@ jobs:
           cat dist-sources.sha256
           echo "--- release contents"; ls -la dist
           echo "--- PROVENANCE"; cat dist/PROVENANCE.txt
+
+      - name: the rebuild deploy will make, installed on this runner first
+        # deploy is install plus the upload, so install runs the lifecycle deploy runs, recompiles what deploy
+        # recompiles and rebuilds the archives deploy rebuilds (the header's "THE REBUILD IS REAL"). It
+        # writes only target/ and this runner's ~/.m2, so the comparison below can stop the release before
+        # a draft or a package exists. Tests already ran in verify; running them again here would double a
+        # slow build for no new signal.
+        run: mvn -B -DskipTests install
+
+      - name: the rebuilt jars and wars are what dist/ holds
+        # Every jar and war in dist/ against the reactor file the install above left in target/, byte for
+        # byte. Runs in both modes, and before anything is published. dist-sources.sha256 has one line per
+        # dist jar and war (the assemble step writes it, and fails when it cannot). The wars are held to it
+        # too: the same lifecycle rebuilds oidf.war and gm-api.war (which is never deployed), so a war that
+        # differed would mean the release's war is not the one this commit builds. Before 0.6.0 they were
+        # only reported, because without an outputTimestamp a rebuilt war differed.
+        run: |
+          [ -s dist-sources.sha256 ] || { echo "::error::dist-sources.sha256 is missing or empty"; exit 1; }
+          sha256sum -c --strict dist-sources.sha256 || {
+            echo "::error::the rebuild made different bytes from dist/ (the FAILED lines above). The poms' outputTimestamp passed the tag check, so something else in the build is not reproducible: compare a FAILED file with its dist/ copy (zipinfo -T, unzip -v). Nothing has been published."
+            exit 1
+          }
+
+      - name: dry run stops here
+        if: env.DRY_RUN == 'true'
+        run: |
+          echo "dry run: built, verified, assembled dist/ and rebuilt it byte for byte for $VERSION; nothing released, nothing published"
 
       - name: the draft GitHub release
         # A draft: nothing is public until the last step, so a failure in between leaves no half-release.
@@ -393,39 +423,22 @@ jobs:
         env:
           MAVEN_USERNAME: ${{ github.actor }}
           MAVEN_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # Tests already ran above; re-running them here would double a slow build for no new signal.
-        # deploy does not leave verify's jars alone: it recompiles every module with a reactor dependency and
-        # rebuilds its jar or war (the header's "THE REBUILD IS REAL"). The poms' outputTimestamp makes the
-        # rebuilt archives the same bytes as the ones verify built, and the comparison below proves it rather
-        # than assuming it.
+        # deploy rebuilds once more: the install above rebuilt every reactor dependency again, so the compiler
+        # recompiles the modules that have one and their archives are built again. The outputTimestamp keeps them the
+        # bytes the comparison above accepted, and the step after this checks it for the files deploy sent.
         run: mvn -B -DskipTests deploy
 
-      - name: "dry run: the same rebuild, installed on this runner and published nowhere"
-        # deploy is install plus the upload, so install runs the lifecycle deploy runs, recompiles what deploy
-        # recompiles and rebuilds the archives deploy rebuilds. The comparison below then checks them as it
-        # checks a real release's.
-        if: env.DRY_RUN == 'true'
-        run: mvn -B -DskipTests install
-
-      - name: the rebuilt jars and wars are what dist/ holds
-        # Every jar and war in dist/ against the reactor file the rebuild above left in target/, byte for
-        # byte: the files deploy published, or in a dry run the files install left. Runs in both modes.
-        # dist-sources.sha256 has one line per dist jar and war (the assemble step writes it, and fails when
-        # it cannot). The wars are held to it too: the same lifecycle rebuilds oidf.war and gm-api.war (which
-        # is never deployed), so a war that differed would mean the release's war is not the one this commit
-        # builds. Before 0.6.0 they were only reported, because without an outputTimestamp a rebuilt war
-        # differed.
+      - name: what deploy published is still what dist/ holds
+        # The same check as before the deploy, on the files deploy just rebuilt and published. The install
+        # comparison above makes a failure here unlikely; if it happens anyway, Packages holds the files and
+        # the draft stays a draft.
+        if: env.DRY_RUN != 'true'
         run: |
           [ -s dist-sources.sha256 ] || { echo "::error::dist-sources.sha256 is missing or empty"; exit 1; }
           sha256sum -c --strict dist-sources.sha256 || {
-            echo "::error::the rebuild made different bytes from dist/ (the FAILED lines above). The poms' outputTimestamp passed the tag check, so something else in the build is not reproducible: compare a FAILED file with its dist/ copy (zipinfo -T, unzip -v). In a real run Packages already holds the rebuilt files, and the draft stays a draft."
+            echo "::error::the rebuild made different bytes from dist/ (the FAILED lines above). The poms' outputTimestamp passed the tag check, so something else in the build is not reproducible: compare a FAILED file with its dist/ copy (zipinfo -T, unzip -v). Packages already holds these files; the draft stays a draft."
             exit 1
           }
-
-      - name: dry run stops here
-        if: env.DRY_RUN == 'true'
-        run: |
-          echo "dry run: built, verified, assembled dist/ and rebuilt it byte for byte for $VERSION; nothing released, nothing published"
 
       - name: publish the release
         if: env.DRY_RUN != 'true'

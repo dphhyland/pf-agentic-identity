@@ -241,10 +241,11 @@ The maintainer cuts a release. A pull request folds the fragments (`python3 tool
 deletes them), sets every pom to the version and its outputTimestamp (`python3 tools/set-version.py <version>`), gives the changelog's
 `Unreleased` heading the version and date, and finishes `docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
 [release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
-order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps up to `dist/`, then
-the rebuild the deploy makes with `mvn install` in its place, and compares every rebuilt jar and war with `dist/`
-byte for byte, as a real release does; it publishes nothing. Afterwards a pull request moves the poms to the next
-`-SNAPSHOT`.
+order is in the workflow's header. Once `dist/` is assembled, and before anything is published, it makes the
+rebuild the deploy will make with `mvn install` and compares every rebuilt jar and war with `dist/` byte for byte,
+so a build that is not reproducible stops the release before a draft or a package exists; after the deploy it
+compares again. A `workflow_dispatch` with `dry_run` runs the same steps up to and including that first
+comparison, and publishes nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
 
 The release's second gate, after the tag-version check, is a green Build on the tagged commit. The newest Build
 run that a push to `main` or a dispatch started there must have concluded success, and so must the latest attempt
