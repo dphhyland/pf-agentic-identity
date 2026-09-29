@@ -29,7 +29,7 @@ corrected.
 
 **Where v0.5.0 stands (checked 2026-09-29).** The tag v0.5.0 exists, at 0d049d79. The release is still a draft;
 its assets are the `dist/` files that run verified and assembled before the deploy. That run's deploy step
-succeeded, so GitHub Packages holds the 0.5.0 artifacts it published. The Packages jars and the draft's jars were
+succeeded, so GitHub Packages holds the 0.5.0 artefacts it published. The Packages jars and the draft's jars were
 built from the same commit in the same job, but their bytes were not compared here: the local gh token cannot
 read Packages (the packages API answers "Not Found"). By the failed step's own log, 12 of those Packages jars
 differ from the draft's, in the way the paragraph above describes. Whether to publish the draft, and what to do

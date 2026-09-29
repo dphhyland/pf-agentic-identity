@@ -409,16 +409,16 @@ jobs:
 
       - name: the rebuilt jars and wars are what dist/ holds
         # Every jar and war in dist/ against the reactor file the rebuild above left in target/, byte for
-        # byte: the files deploy published, or in a dry run the ones install would have. Runs in both modes.
+        # byte: the files deploy published, or in a dry run the files install left. Runs in both modes.
         # dist-sources.sha256 has one line per dist jar and war (the assemble step writes it, and fails when
         # it cannot). The wars are held to it too: the same lifecycle rebuilds oidf.war and gm-api.war (which
         # is never deployed), so a war that differed would mean the release's war is not the one this commit
-        # builds. Before 0.6.0 they were only reported, because without an outputTimestamp every rebuild of a
-        # war differed.
+        # builds. Before 0.6.0 they were only reported, because without an outputTimestamp a rebuilt war
+        # differed.
         run: |
           [ -s dist-sources.sha256 ] || { echo "::error::dist-sources.sha256 is missing or empty"; exit 1; }
           sha256sum -c --strict dist-sources.sha256 || {
-            echo "::error::the rebuild made different bytes from dist/ (above). Every pom needs project.build.outputTimestamp: python3 tools/set-version.py --check"
+            echo "::error::the rebuild made different bytes from dist/ (the FAILED lines above). The poms' outputTimestamp passed the tag check, so something else in the build is not reproducible: compare a FAILED file with its dist/ copy (zipinfo -T, unzip -v). In a real run Packages already holds the rebuilt files, and the draft stays a draft."
             exit 1
           }
 
