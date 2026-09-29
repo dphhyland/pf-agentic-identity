@@ -44,7 +44,7 @@ two cannot read them differently.
 
 A list setting's Default cell says only "a list"; its description says how it is separated. Readers differ -
 most split on commas only, a few on spaces or commas - and a space-separated `OIDF_FAPI2_CLIENTS` is one client
-id, so no client is held to FAPI 2.0. Nine catalogue descriptions gained the separator their reader uses, and the
+id, so no client is held to FAPI 2.0. Ten catalogue descriptions gained the separator their reader uses, and the
 generator refuses a list whose description does not name one.
 
 `docs/federation/configuration.md` lost its tables to the generated pages. Where a generated row says less than
