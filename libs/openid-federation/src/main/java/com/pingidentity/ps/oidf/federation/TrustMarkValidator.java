@@ -42,6 +42,12 @@ import org.jose4j.jwt.JwtClaims;
  * <p>Each issuer costs a chain resolution, so one validation examines at most {@value #MAX_MARKS_EXAMINED} marks and
  * resolves at most {@value #MAX_ISSUERS_RESOLVED} issuers (§18.1); the rest are rejected unexamined. An issuer is
  * resolved once per validation however many of its marks the entity carries.
+ *
+ * <p>One {@link ResolutionBudget} bounds the whole validation (plan item S5b): the caller's, or one made from the
+ * issuers' validator's {@link ValidatorOptions}. The anchor's configuration and each issuer are resolved from a
+ * {@link ResolutionBudget#child child} of it, and each status call spends one request from it and ends by its
+ * deadline, so however many issuers the marks name, the validation spends no more than the one budget. A mark
+ * whose issuer or status could not be had within it is rejected, saying so.
  */
 public final class TrustMarkValidator {
     private static final Log LOGGER = LogFactory.getLog(TrustMarkValidator.class);
@@ -117,6 +123,15 @@ public final class TrustMarkValidator {
      * pinned keys - a fetch nothing in a request can steer. Without it every mark is rejected.
      */
     public Result validate(TrustChainValidationResult subject) {
+        return this.validate(subject, ResolutionBudget.of(this.issuers.options()));
+    }
+
+    /**
+     * {@link #validate(TrustChainValidationResult)} spending from {@code budget}, the caller's: the same budget as
+     * the subject's own resolution, when the caller wants the chain and its marks held to one.
+     */
+    public Result validate(TrustChainValidationResult subject, ResolutionBudget budget) {
+        Objects.requireNonNull(budget, "budget");
         Object raw = subject.leafEntityStatement().getClaimValue("trust_marks");
         List<Verified> verified = new ArrayList<>();
         List<Rejected> rejected = new ArrayList<>();
@@ -125,7 +140,7 @@ public final class TrustMarkValidator {
         }
         JwtClaims anchor = anchorConfiguration(subject);
         if (anchor == null) {
-            anchor = this.resolveAnchorConfiguration(subject.trustAnchorIssuer());
+            anchor = this.resolveAnchorConfiguration(subject.trustAnchorIssuer(), budget);
         }
         Map<String, Object> issuerConfigurations = new HashMap<>();
         int examined = 0;
@@ -141,7 +156,7 @@ public final class TrustMarkValidator {
                 continue;
             }
             try {
-                Verified mark = this.validateOne(type, jwt, subject, anchor, issuerConfigurations);
+                Verified mark = this.validateOne(type, jwt, subject, anchor, issuerConfigurations, budget);
                 verified.add(mark);
                 FederationEvents.event(FederationEvents.TRUST_MARK_VERIFIED).subject(subject.leafSubject()).partner(mark.issuer())
                         .field("trust_mark_type", type).field("trust_anchor", subject.trustAnchorIssuer()).emit();
@@ -155,7 +170,7 @@ public final class TrustMarkValidator {
     }
 
     private Verified validateOne(String type, String jwt, TrustChainValidationResult subject, JwtClaims anchor,
-                                 Map<String, Object> issuerConfigurations) throws Refusal {
+                                 Map<String, Object> issuerConfigurations, ResolutionBudget budget) throws Refusal {
         if (anchor == null) {
             throw new Refusal("the trust anchor's configuration, which says whose Trust Marks it recognises, could not be read");
         }
@@ -171,7 +186,7 @@ public final class TrustMarkValidator {
             throw new Refusal("it is about another entity (§7.3 step 4)");
         }
         recognised(anchor, type, issuer, subject.trustAnchorIssuer());
-        JwtClaims issuerConfiguration = this.issuerConfiguration(issuer, subject, issuerConfigurations);
+        JwtClaims issuerConfiguration = this.issuerConfiguration(issuer, subject, issuerConfigurations, budget);
         verify(jwt, keysOf(issuerConfiguration, "the issuer's"), "the Trust Mark");
         long now = this.clock.instant().getEpochSecond();
         long iat = ((Number) claims.getClaimValue("iat")).longValue();
@@ -187,7 +202,7 @@ public final class TrustMarkValidator {
             throw new Refusal("it has expired (§7.3 step 6)");
         }
         this.delegation(anchor, type, issuer, claims.getClaimValue("delegation"), now);
-        this.status(jwt, issuer, issuerConfiguration);
+        this.status(jwt, issuer, issuerConfiguration, budget);
         return new Verified(type, issuer, subject.leafSubject(), iat, expiresAt, jwt);
     }
 
@@ -210,7 +225,8 @@ public final class TrustMarkValidator {
      * chain to the same anchor ends with (§7.3: established "by following the procedure defined in Section 10").
      * {@code resolved} keeps each issuer's outcome - its configuration, or why not - for the rest of the validation.
      */
-    private JwtClaims issuerConfiguration(String issuer, TrustChainValidationResult subject, Map<String, Object> resolved) throws Refusal {
+    private JwtClaims issuerConfiguration(String issuer, TrustChainValidationResult subject, Map<String, Object> resolved,
+                                          ResolutionBudget budget) throws Refusal {
         if (EntityId.same(issuer, subject.leafSubject())) {
             return subject.leafEntityStatement();
         }
@@ -220,7 +236,7 @@ public final class TrustMarkValidator {
             outcome = resolved.size() >= MAX_ISSUERS_RESOLVED
                     ? new Refusal("its issuer " + issuer + " was not resolved: one validation resolves at most " + MAX_ISSUERS_RESOLVED
                             + " issuers (§18.1)")
-                    : this.resolveIssuer(issuer, subject.trustAnchorIssuer());
+                    : this.resolveIssuer(issuer, subject.trustAnchorIssuer(), budget);
             resolved.put(key, outcome);
         }
         if (outcome instanceof Refusal refusal) {
@@ -229,18 +245,30 @@ public final class TrustMarkValidator {
         return (JwtClaims) outcome;
     }
 
-    private Object resolveIssuer(String issuer, String anchor) {
+    /** The issuer's configuration, its chain resolved from a child of the validation's budget; or why not. */
+    private Object resolveIssuer(String issuer, String anchor, ResolutionBudget budget) {
         try {
-            return this.issuers.validate(ValidationRequest.forSubject(issuer).requestedAnchors(List.of(anchor)).build()).leafEntityStatement();
+            return this.issuers.validate(ValidationRequest.forSubject(issuer).requestedAnchors(List.of(anchor))
+                    .budget(budget.child()).build()).leafEntityStatement();
+        } catch (TrustChainValidationException e) {
+            if (e.kind() == TrustChainValidationException.Kind.BUDGET) {
+                return new Refusal("its issuer " + issuer + " was not resolved: the validation's budget ran out of "
+                        + budget.exhaustion().name().toLowerCase(Locale.ROOT));
+            }
+            return new Refusal("its issuer " + issuer + " does not validate to the same trust anchor (" + e.error().code() + ")");
         } catch (FederationException e) {
             return new Refusal("its issuer " + issuer + " does not validate to the same trust anchor (" + e.error().code() + ")");
         }
     }
 
-    /** The anchor's configuration, from the anchor resolved as its own subject: verified against its pinned keys. */
-    private JwtClaims resolveAnchorConfiguration(String anchor) {
+    /**
+     * The anchor's configuration, from the anchor resolved as its own subject from a child of the validation's
+     * budget: verified against its pinned keys.
+     */
+    private JwtClaims resolveAnchorConfiguration(String anchor, ResolutionBudget budget) {
         try {
-            return this.issuers.validate(ValidationRequest.forSubject(anchor).requestedAnchors(List.of(anchor)).build()).leafEntityStatement();
+            return this.issuers.validate(ValidationRequest.forSubject(anchor).requestedAnchors(List.of(anchor))
+                    .budget(budget.child()).build()).leafEntityStatement();
         } catch (FederationException e) {
             return null;
         }
@@ -290,7 +318,7 @@ public final class TrustMarkValidator {
      * §8.4, when a status client is configured and the issuer publishes a status endpoint: the issuer's signed
      * {@code trust-mark-status-response+jwt} about this very mark must say {@code active}.
      */
-    private void status(String jwt, String issuer, JwtClaims issuerConfiguration) throws Refusal {
+    private void status(String jwt, String issuer, JwtClaims issuerConfiguration, ResolutionBudget budget) throws Refusal {
         if (this.statusClient == null) {
             return;
         }
@@ -298,10 +326,18 @@ public final class TrustMarkValidator {
         if (!(endpoint instanceof String url)) {
             return;
         }
+        if (!budget.trySpend("the trust mark status endpoint of " + issuer)) {
+            throw new Refusal("its status was not asked: the validation's budget ran out of "
+                    + budget.exhaustion().name().toLowerCase(Locale.ROOT));
+        }
         HttpPostClient.Response response;
         try {
-            response = this.statusClient.postForm(url, Map.of("trust_mark", jwt), null, "application/trust-mark-status-response+jwt");
+            response = this.statusClient.postForm(url, Map.of("trust_mark", jwt), null, "application/trust-mark-status-response+jwt",
+                    budget.deadline());
         } catch (Exception e) {
+            if (budget.expired()) {
+                throw new Refusal("its issuer's status endpoint did not answer before the validation's budget ran out of time");
+            }
             throw new Refusal("its issuer's status endpoint could not be reached");
         }
         if (response.status() == 404) {

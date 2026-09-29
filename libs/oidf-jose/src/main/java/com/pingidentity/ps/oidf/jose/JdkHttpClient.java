@@ -32,7 +32,8 @@ import java.util.Objects;
  *
  * <p>The timeouts: the connect timeout bounds connecting and the TLS handshake; the request timeout is the whole
  * exchange's deadline, the body included (the JDK client's stopped at the headers, finding F-0010), and the
- * headers must arrive within it. Every request to one origin also takes a place in a {@link HostBulkhead} shared by
+ * headers must arrive within it. A caller with a deadline of its own - a trust chain resolution's budget (plan item
+ * S5b) - passes it, and the exchange ends by the sooner of the two. Every request to one origin also takes a place in a {@link HostBulkhead} shared by
  * every client in this copy of oidf-jose ({@link HostBulkhead#DEFAULT_MAX_PER_ORIGIN} places an origin), waiting for
  * one no longer than the request's deadline.
  *
@@ -87,9 +88,18 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
 
     @Override
     public String get(String url, String acceptHeader) throws Exception {
+        return get(url, acceptHeader, null);
+    }
+
+    /**
+     * The GET, ending by the sooner of {@code deadline} and this client's request timeout: a resolution's slow peer
+     * spends the resolution's time, never more than one request's.
+     */
+    @Override
+    public String get(String url, String acceptHeader, Deadline deadline) throws Exception {
         URI uri = OutboundUrlPolicy.parse(url);
         OutboundResponse response = send(OutboundRequest.builder(OutboundRequest.Method.GET, uri)
-                .header("Accept", acceptHeader), uri, url, "GET");
+                .header("Accept", acceptHeader), uri, url, "GET", deadline);
         if (!response.successful()) {
             throw new IllegalArgumentException("GET failed: " + url + " status=" + response.status());
         }
@@ -98,6 +108,13 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
 
     @Override
     public Response post(String url, String contentType, String body, Map<String, String> headers, String accept) throws Exception {
+        return post(url, contentType, body, headers, accept, null);
+    }
+
+    /** The POST, ending by the sooner of {@code deadline} and this client's request timeout. */
+    @Override
+    public Response post(String url, String contentType, String body, Map<String, String> headers, String accept,
+            Deadline deadline) throws Exception {
         URI uri = OutboundUrlPolicy.parse(url);
         OutboundRequest.Builder request = OutboundRequest.builder(OutboundRequest.Method.POST, uri)
                 .body(Objects.requireNonNull(contentType, "contentType"), body == null ? "" : body);
@@ -111,14 +128,19 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
                 }
             }
         }
-        OutboundResponse response = send(request, uri, url, "POST");
+        OutboundResponse response = send(request, uri, url, "POST", deadline);
         return new Response(response.status(), response.bodyText(), headerMap(response));
     }
 
-    /** Sends through the transport within the request timeout; a failure comes back as {@link #failure} says. */
-    private OutboundResponse send(OutboundRequest.Builder request, URI uri, String url, String method) throws Exception {
+    /**
+     * Sends through the transport within the request timeout, and by {@code deadline} when there is one; a failure
+     * comes back as {@link #failure} says.
+     */
+    private OutboundResponse send(OutboundRequest.Builder request, URI uri, String url, String method, Deadline deadline)
+            throws Exception {
+        Deadline own = Deadline.after(this.requestTimeout);
         try {
-            return this.http.send(request.build(), Deadline.after(this.requestTimeout));
+            return this.http.send(request.build(), deadline == null ? own : own.min(deadline));
         } catch (OutboundHttpException e) {
             throw failure(e, uri, url, method);
         }

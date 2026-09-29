@@ -1,0 +1,127 @@
+{
+  "format": 1,
+  "component": "federation-resolution",
+  "module": "libs/openid-federation",
+  "package": "com.pingidentity.ps.oidf.federation",
+  "families": [
+    "OIDF_FEDERATION_RESOLUTION_"
+  ],
+  "settings": [
+    {
+      "name": "OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "min": 1,
+      "max": 300,
+      "default": 10,
+      "description": "How long one trust chain resolution may spend on the network, from when it starts: every fetch it causes, its peer chain and a Trust Mark validation's issuers and status calls included, ends by then; a resolution that runs out is refused as invalid_trust_chain",
+      "when_wrong": {
+        "effect": "first-request",
+        "detail": "Not a whole number of seconds from 1 to 300: refused, naming the setting, when a trust chain validator is built - at start-up for most, on the first request that needs one for the rest"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS",
+      "kind": "env",
+      "type": "int",
+      "min": 1,
+      "max": 256,
+      "default": 24,
+      "description": "How many requests one trust chain resolution may spend: each statement asked for (from the cache or not) and each further request made to answer it, such as an authority's Entity Configuration to find its fetch endpoint",
+      "when_wrong": {
+        "effect": "first-request",
+        "detail": "Not a whole number from 1 to 256: refused, naming the setting, when a trust chain validator is built - at start-up for most, on the first request that needs one for the rest"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_RESOLUTION_MAX_AUTHORITY_HINTS",
+      "kind": "env",
+      "type": "int",
+      "min": 1,
+      "max": 64,
+      "default": 10,
+      "description": "How many authority_hints of one Entity Configuration a resolution follows, after the configured trust anchors are moved to the front",
+      "when_wrong": {
+        "effect": "first-request",
+        "detail": "Not a whole number from 1 to 64: refused, naming the setting, when a trust chain validator is built - at start-up for most, on the first request that needs one for the rest"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_FEDERATION_RESOLUTION_MAX_AUTHORITY_HINTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_RESOLUTION_MAX_ROUTE_ATTEMPTS",
+      "kind": "env",
+      "type": "int",
+      "min": 1,
+      "max": 64,
+      "default": 8,
+      "description": "How many routes that reach a trust anchor a resolution validates in full before it reports the first one's failure",
+      "when_wrong": {
+        "effect": "first-request",
+        "detail": "Not a whole number from 1 to 64: refused, naming the setting, when a trust chain validator is built - at start-up for most, on the first request that needs one for the rest"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_FEDERATION_RESOLUTION_MAX_ROUTE_ATTEMPTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_FEDERATION_RESOLUTION_CLOCK_SKEW_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "min": 0,
+      "max": 300,
+      "default": 60,
+      "description": "The leeway allowed on an Entity Statement's iat and exp when a chain is validated",
+      "when_wrong": {
+        "effect": "first-request",
+        "detail": "Not a whole number of seconds from 0 to 300: refused, naming the setting, when a trust chain validator is built - at start-up for most, on the first request that needs one for the rest"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_FEDERATION_RESOLUTION_CLOCK_SKEW_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}
