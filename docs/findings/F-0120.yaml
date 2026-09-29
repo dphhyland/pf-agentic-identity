@@ -7,7 +7,7 @@ status: open
 plan_items: [X-D02]
 prs: []
 verification: ''
-target_release: 0.5.0
+target_release: 0.6.0
 notes: >
   Found while verifying F-0014 for PR #33 on 2026-09-27. plugins/ciba-sim sets no maven.deploy.skip, so a
   release's `mvn -B -DskipTests deploy` (release.yml line 392) publishes com.pingidentity.ps.oidf:ciba-sim to
@@ -21,3 +21,8 @@ notes: >
   in plugins/ciba-sim/pom.xml, as services/harness has, once it is checked that no consumer resolves the
   artefact: nothing in this repository does, and the rig builds it from the reactor. Listing the packages
   needs the read:packages scope, which the gh token here lacks (2026-09-27).
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: plugins/ciba-sim/pom.xml on origin/main 4b1fd979 still
+  sets no maven.deploy.skip (only services/harness and libs/testkit do), so the 0.5.0 release's deploy step publishes
+  com.pingidentity.ps.oidf:ciba-sim to GitHub Packages again. The fix is a one-line pom change, which the release
+  package does not make: it changes the poms' version only, through tools/set-version.py.

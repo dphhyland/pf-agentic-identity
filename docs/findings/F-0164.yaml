@@ -4,10 +4,10 @@ severity: low
 area: platform, rar-paz-plugin
 source: design
 status: open
-plan_items: [F-2]
+plan_items: [F-2, PR-5]
 prs: []
 verification: ''
-target_release: 0.5.0
+target_release: 0.6.0
 notes: >
   InsecureTls records each use in a static of the copy that was loaded (PR1, 2026-09-28), and statics are per
   loader (docs/development/classloaders.md). The RAR plugin shades and relocates platform, so when its "Skip
@@ -16,3 +16,9 @@ notes: >
   does not load. The WARN still reaches server.log; the audit's list of uses would not include it. F2 decides
   how the audit learns of a plugin's use - for example through the per-loader MXBean O3 registers, or by
   reading the plugin's configuration - or says in the banner that plugins report only in the log.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open. F2 (PR #57) built the start-up audit and did not settle
+  this: its insecure TLS line lists "each setting that turned certificate or host-name checking off in this war"
+  (docs/operator/startup-audit.md), read from the war's own copy of InsecureTls, so a plugin's use still reaches only
+  server.log, as its WARN. PR-5 (0.6.0), which turns the audit into refused components, is where the audit has to
+  learn of a plugin's use or say that it cannot.

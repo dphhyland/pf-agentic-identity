@@ -4,10 +4,10 @@ severity: low
 area: federation
 source: pr-review
 status: open
-plan_items: [F-2]
+plan_items: [F-2, C-4]
 prs: [51]
 verification: ''
-target_release: 0.5.0
+target_release: 0.7.0
 notes: >
   Package C3 (2026-09-28) put the subordinate refresher on a managed executor, whose name is claimed once in the
   JVM. The refresher's only work is to keep its own FederationService's subordinateConfigCache fresh, so the
@@ -20,3 +20,10 @@ notes: >
   pf-runtime.war, whose init runs once per boot, so no production deployment is affected today. The redeploy case
   closes when F-2's listener runs the lifecycle's shutdown on undeploy, which gives the claim back; the two-war
   demo case needs the refresher to key its claim per instance, or the demo to drop the servlet from one war.
+
+  Retargeted from 0.5.0 to 0.7.0 on 2026-09-29, half closed. The redeploy case is closed by F2 (PR #57): the lifecycle
+  listener runs the war's lifecycle shutdown at undeploy, which closes the managed executors and gives their claims
+  back, so a servlet initialised again in a new loader can start its refresher (seen on the rig 2026-09-28 for
+  gm-api.war, whose removal logged "closed 1"). The two-war demo case is still open: nothing keys the refresher's
+  claim per instance, and oidf.war and pf-runtime.war both still carry OpenIdFederationServlet. Production's single
+  servlet in pf-runtime.war is not affected. C-4's executor work (Phase 4) is where the claim's scope is revisited.
