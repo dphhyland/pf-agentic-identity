@@ -73,6 +73,16 @@ failures trip it, the memo across repeated `enrich` calls, the cache's refusal o
 types with its TTL and key, the batch's happy path and each malformed answer; `ShadedJarCheck` finds platform only
 relocated, with its HttpCore inside it; the jacoco METHOD gate holds the new classes at 100%.
 
+On the rig, 2026-09-30 (slot 5, PingFederate 13.1.3.0, `ONLY_CONFIGURE=1 conformance/verify-rar-principal.sh`, the
+instance pointed at a stub AuthZEN PDP with "AuthZEN batch URL" set): one client-credentials token request with
+three `sales_agent` details answered 200 with all three, PingFederate called `enrich` three times, and the PDP
+received one `POST /access/v1/evaluations` with three evaluations and no single evaluation. PingAuthorize's own
+AuthZEN servlet in `plugins/rar-paz-plugin/paz` could not be booted: the profile's licence expired on 2026-08-12
+([U-0302](../../findings/U-0302.yaml)).
+
+Tested on the pinned image's Java, OpenJDK 21.0.12.1: the TLS, transport, breaker, decision and processor
+resilience tests, 53 of 53. `tools/pf-linkcheck.py` against the 13.1.3.0 libraries: nothing unresolved.
+
 Not seen on a running PingFederate: the `pingfederate-trusted-cas` mode with a CA added in the console
 ([U-0300](../../findings/U-0300.yaml)) and the metrics in PingFederate's JMX ([U-0301](../../findings/U-0301.yaml)).
 

@@ -1,0 +1,21 @@
+id: U-0302
+title: PingAuthorize's AuthZEN servlet in the paz/ profile has not been seen answering the plugin's evaluations batch
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2c]
+prs: []
+recorded_in: plugins/rar-paz-plugin/README.md, The PDP call and Verified on the rig
+verify_by: >
+  With a current PingAuthorize 10.2 licence in the profile the paz/ compose mounts, bring the stack up, set the
+  processor's dialect to authzen with PDP URL and AuthZEN batch URL on the PDP's /access/v1/evaluation and
+  /access/v1/evaluations (the plain listener on 1080 in development, Shared Secret Header Authorization and the
+  servlet's bearer api-key), make one client-credentials token request with three sales_agent details, and read one
+  POST /access/v1/evaluations in the PDP's access log and three decisions in its answer.
+verification: ''
+notes: >
+  The servlet (ID Partners' authzen-adapter-1.0.0, com.idpartners.authzen.AuthZenServletExtension, in the paz/
+  profile's server-sdk-extensions) serves /access/v1/evaluations with the three evaluations_semantic values (javap,
+  2026-09-29). Package S2C tried to boot it on 2026-09-30 with the local pingauthorize:10.2.0.1-latest image (the tag
+  is no longer on Docker Hub): setup refused the profile's licence, "The provided license key expired 12/Aug/2026".
+  The batch was then shown on the rig against a stub AuthZEN PDP instead (README, Verified on the rig).

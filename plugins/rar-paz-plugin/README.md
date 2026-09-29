@@ -516,6 +516,18 @@ with nothing of the PDP's answer: `APAC` appears nowhere in `server.log`. The at
 was not exercised there: the probe client is secret-authenticated, and the filter publishes the fingerprint only
 from S1b on (U-0116).
 
+**The AuthZEN batch on the rig (2026-09-30, PingFederate 13.1.3.0, this jar at 0.6.0-SNAPSHOT).** The rig on
+slot 5 (`PF_RIG_NAME=pfai-p3-s2c`), configured by `ONLY_CONFIGURE=1 conformance/verify-rar-principal.sh`, with the
+instance switched through the admin API to a stub AuthZEN PDP on the host that answers both
+`/access/v1/evaluation` and `/access/v1/evaluations` (one `{"decision": true}` per evaluation, in order) and
+"AuthZEN batch URL" set. The admin API filled the instance's seven new fields with their defaults, and the
+configure line read `tlsTrust=jvm-default totalMillis=5000 batch=true cacheTypes=[] breaker=5/30s`. One
+client-credentials token request with three `sales_agent` details (EMEA, APAC, AMER): 200, the token carrying all
+three; PingFederate called `enrich` three times (three `RAR governance: type=sales_agent` lines), and the PDP
+received exactly one request, a `POST /access/v1/evaluations` with three evaluations in the order asked, and
+nothing on the single-evaluation path. PingAuthorize's own AuthZEN servlet could not be run: the licence in the
+`paz/` profile expired on 2026-08-12 ([U-0302](../../docs/findings/U-0302.yaml)).
+
 Not verified there: the device flow's user key (U-0066), the JWT-bearer grant (U-0017; `javap` finds no call
 to enrich in `JwtGrantProcessor`), the `subject` recipe on an authentication *policy* contract rather than an
 adapter mapping (U-0067), and what PingFederate makes of an instance whose `configure` threw (U-0068; the rig
