@@ -113,6 +113,10 @@
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.failure(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.headerMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.postForm(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

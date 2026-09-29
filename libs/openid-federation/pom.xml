@@ -142,10 +142,9 @@
                                         <include>com.pingidentity.ps.oidf.federation.ValidatorOptions.defaults(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.ValidatorOptions.fromSettings(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.refuseIfExhausted(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.entityStatement(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.subordinateStatement(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchSubordinateStatement(*</include>
-                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.fetchEntityStatement(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.payFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.configurationOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway.binding(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.refusal(*</include>
                                         <include>com.pingidentity.ps.oidf.federation.TrustChainValidator.Run.execute(*</include>

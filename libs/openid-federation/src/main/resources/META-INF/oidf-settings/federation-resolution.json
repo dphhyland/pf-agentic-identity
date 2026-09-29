@@ -13,7 +13,7 @@
       "type": "seconds",
       "min": 1,
       "max": 300,
-      "default": 10,
+      "default": 45,
       "description": "How long one trust chain resolution may spend on the network, from when it starts: every fetch it causes, its peer chain and a Trust Mark validation's issuers and status calls included, ends by then; a resolution that runs out is refused as invalid_trust_chain",
       "when_wrong": {
         "effect": "first-request",

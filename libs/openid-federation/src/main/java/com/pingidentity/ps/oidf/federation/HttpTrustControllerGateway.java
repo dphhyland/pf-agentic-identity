@@ -145,9 +145,7 @@ implements TrustControllerGateway {
         if (LOGGER.isDebugEnabled()) {
             LOGGER.debug(String.format("fetchEntityStatement-cache-not-found: issuer(%s)", issuer));
         }
-        if (!paid) {
-            budget.spend("the entity configuration of " + issuer);
-        }
+        payFor(budget, paid, "the entity configuration of " + issuer);
         String jwt = this.http.get(this.entityConfigurationUrl(issuer), ENTITY_STATEMENT_ACCEPT, budget.deadline());
         this.recordCacheWrite(issuer, issuer, jwt, pendingWrites);
         return jwt;
@@ -182,16 +180,31 @@ implements TrustControllerGateway {
     @Override
     public String anchorConfiguration(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms,
             SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
-        return this.verifiedAnchorConfiguration(new Binding(anchor, acceptedSigningAlgorithms == null ? Set.of()
-                : Set.copyOf(acceptedSigningAlgorithms)), pendingWrites, ownBudget(), false);
+        return this.verifiedAnchorConfiguration(binding(anchor, acceptedSigningAlgorithms), pendingWrites, ownBudget(), false);
     }
 
     /** As above, the configuration paid for by {@code budget} and a second retrieval (§11.3) paid from it. */
     @Override
     public String anchorConfiguration(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms,
             SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
-        return this.verifiedAnchorConfiguration(new Binding(anchor, acceptedSigningAlgorithms == null ? Set.of()
-                : Set.copyOf(acceptedSigningAlgorithms)), pendingWrites, Objects.requireNonNull(budget, "budget"), true);
+        return this.verifiedAnchorConfiguration(binding(anchor, acceptedSigningAlgorithms), pendingWrites,
+                Objects.requireNonNull(budget, "budget"), true);
+    }
+
+    private static Binding binding(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms) {
+        return new Binding(anchor, acceptedSigningAlgorithms == null ? Set.of() : Set.copyOf(acceptedSigningAlgorithms));
+    }
+
+    /**
+     * Pays for a request about to go on the network from {@code budget}, unless the caller already has: the
+     * statement a resolution asked for is paid by the validator, anything further by this gateway.
+     *
+     * @throws TrustChainValidationException of kind BUDGET when the budget has no request or time left
+     */
+    static void payFor(ResolutionBudget budget, boolean paid, String what) {
+        if (!paid) {
+            budget.spend(what);
+        }
     }
 
     /**
@@ -218,9 +231,7 @@ implements TrustControllerGateway {
         Binding binding = this.anchors.get(EntityId.comparable(authorityIssuer));
         if (binding == null) {
             // Only the statement was paid for: this lookup, when it goes to the network, is paid here.
-            String jwt = this.entityStatement(authorityIssuer, -1L, pendingWrites, budget, false);
-            EntityStatementType.require(jwt, "iss=sub=" + authorityIssuer);
-            return JwtCodec.parseUnverifiedClaims(jwt);
+            return this.configurationOf(authorityIssuer, pendingWrites, budget);
         }
         return JwtCodec.parseUnverifiedClaims(this.verifiedAnchorConfiguration(binding, pendingWrites, budget, false));
     }
@@ -245,7 +256,7 @@ implements TrustControllerGateway {
             LOGGER.warn("Trust anchor " + authorityIssuer + " entity configuration did not verify against the configured keys ("
                     + first.getMessage() + "); retrieving it again (OpenID Federation 1.0 §11.3)");
             this.subordinateStatementCache.evict(authorityIssuer, authorityIssuer);
-            budget.spend("a second retrieval of the entity configuration of " + authorityIssuer);
+            payFor(budget, false, "a second retrieval of the entity configuration of " + authorityIssuer);
             String again = this.http.get(this.entityConfigurationUrl(authorityIssuer), ENTITY_STATEMENT_ACCEPT, budget.deadline());
             EntityStatementType.require(again, "iss=sub=" + authorityIssuer);
             try {
@@ -266,9 +277,15 @@ implements TrustControllerGateway {
 
     @Override
     public JwtClaims fetchEntityConfigurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
+        return this.configurationOf(issuer, pendingWrites, ownBudget());
+    }
+
+    /** An Entity Configuration, a request of {@code budget} when it goes to the network. */
+    private JwtClaims configurationOf(String issuer, SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget)
+            throws Exception {
         // Its federation_fetch_endpoint decides where subordinate statements are requested from, so an
         // untyped configuration is refused here (OpenID Federation 1.0 §3), not only once it is in a chain.
-        String jwt = this.fetchEntityStatement(issuer, -1L, pendingWrites);
+        String jwt = this.entityStatement(issuer, -1L, pendingWrites, budget, false);
         EntityStatementType.require(jwt, "iss=sub=" + issuer);
         return JwtCodec.parseUnverifiedClaims(jwt);
     }
@@ -334,9 +351,7 @@ implements TrustControllerGateway {
         String url = endpoint + (endpoint.contains("?") ? "&" : "?")
                 + "sub=" + URLEncoder.encode(subject, StandardCharsets.UTF_8)
                 + "&iss=" + URLEncoder.encode(authorityIssuer, StandardCharsets.UTF_8);
-        if (!paid) {
-            budget.spend("the subordinate statement " + authorityIssuer + " -> " + subject);
-        }
+        payFor(budget, paid, "the subordinate statement " + authorityIssuer + " -> " + subject);
         String jwt = this.http.get(url, "application/entity-statement+jwt", budget.deadline());
         this.recordCacheWrite(authorityIssuer, subject, jwt, pendingWrites);
         return jwt;

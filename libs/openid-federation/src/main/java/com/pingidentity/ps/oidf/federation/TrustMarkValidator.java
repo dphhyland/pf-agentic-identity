@@ -251,12 +251,11 @@ public final class TrustMarkValidator {
             return this.issuers.validate(ValidationRequest.forSubject(issuer).requestedAnchors(List.of(anchor))
                     .budget(budget.child()).build()).leafEntityStatement();
         } catch (TrustChainValidationException e) {
+            // A validator refuses only with this; it says whether the budget ran out or the chain did not validate.
             if (e.kind() == TrustChainValidationException.Kind.BUDGET) {
                 return new Refusal("its issuer " + issuer + " was not resolved: the validation's budget ran out of "
                         + budget.exhaustion().name().toLowerCase(Locale.ROOT));
             }
-            return new Refusal("its issuer " + issuer + " does not validate to the same trust anchor (" + e.error().code() + ")");
-        } catch (FederationException e) {
             return new Refusal("its issuer " + issuer + " does not validate to the same trust anchor (" + e.error().code() + ")");
         }
     }

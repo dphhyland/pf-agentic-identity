@@ -14,6 +14,7 @@ import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.federation.testkit.Statements;
 import com.pingidentity.ps.oidf.jose.HttpPostClient;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Base64;
@@ -616,4 +617,154 @@ class TrustMarkValidatorTest {
         assertEquals(1, this.validate(this.federation(List.of(this.mark(s -> { }))), this.answering(500, "", asked)).verified().size());
         assertEquals(List.of(), asked);
     }
+
+    // ---- one budget for the whole validation (plan item S5b) --------------------------------------------------------
+
+    private static final String TMI2 = "https://tmi2.example.com";
+    private static final String TMI3 = "https://tmi3.example.com";
+    private final PublicJsonWebKey tmi2Key = Keys.ec("tmi2-1");
+    private final PublicJsonWebKey tmi3Key = Keys.ec("tmi3-1");
+
+    /** The RP carrying one mark from each of three issuers, any issuer allowed for the type; built afresh, cache and all. */
+    private Federation threeIssuers(List<String> marks) {
+        return Federation.builder(this.clock).anchor(TA).leaf(RP, TA).leaf(TMI, TA).leaf(TMI2, TA).leaf(TMI3, TA)
+                .keys(RP, this.rpKey).keys(TMI, this.tmiKey).keys(TMI2, this.tmi2Key).keys(TMI3, this.tmi3Key)
+                .entityConfiguration(TA, s -> s.claim("trust_mark_issuers", issuers(TYPE, List.of())))
+                .entityConfiguration(RP, s -> s.claim("trust_marks", entries(marks)))
+                .build();
+    }
+
+    private List<String> threeMarks() {
+        return List.of(this.mark(this.tmiKey, TMI, s -> { }), this.mark(this.tmi2Key, TMI2, s -> { }),
+                this.mark(this.tmi3Key, TMI3, s -> { }));
+    }
+
+    /** The RP's chain, and the requests the Trust Mark validation then makes within {@code budget}. */
+    private TrustMarkValidator.Result withinBudget(Federation f, ResolutionBudget budget, HttpPostClient status) {
+        TrustChainValidator validator = f.validator(ValidatorOptions.defaults().withClock(this.clock), TA);
+        TrustChainValidationResult chain = validator.validate(ValidationRequest.forSubject(RP).includeAnchorConfiguration(true).build());
+        f.http().clearRequests();
+        return new TrustMarkValidator(validator, Set.of(), this.clock, status).validate(chain, budget);
+    }
+
+    @Test
+    @Requirement("OIDFED §18.1(3)")
+    void severalIssuersAreResolvedWithinOneBudget() {
+        List<String> marks = this.threeMarks();
+        Federation generous = this.threeIssuers(marks);
+        ResolutionBudget plenty = ResolutionBudget.of(java.time.Duration.ofSeconds(30), 100);
+
+        TrustMarkValidator.Result all = this.withinBudget(generous, plenty, null);
+
+        assertEquals(3, all.verified().size(), all.rejected().toString());
+        int perIssuer = generous.http().requests().size() / 3;
+        assertTrue(perIssuer >= 2, "an issuer's configuration and its anchor's statement about it: " + generous.http().requests());
+        assertEquals(generous.http().requests().size(), plenty.used(), "every issuer spent the one budget");
+
+        // Room for one issuer, not three: the first verifies, the rest are rejected, saying why.
+        Federation tight = this.threeIssuers(marks);
+        ResolutionBudget room = ResolutionBudget.of(java.time.Duration.ofSeconds(30), perIssuer + 1);
+        TrustMarkValidator.Result some = this.withinBudget(tight, room, null);
+
+        assertEquals(1, some.verified().size(), some.rejected().toString());
+        assertEquals(2, some.rejected().size());
+        for (TrustMarkValidator.Rejected rejected : some.rejected()) {
+            assertTrue(rejected.reason().contains("budget ran out of requests"), rejected.reason());
+        }
+        assertTrue(tight.http().requests().size() <= perIssuer + 1, "three issuers, one budget: " + tight.http().requests());
+    }
+
+    @Test
+    void withoutABudgetTheValidationMakesOneFromTheValidatorsOptions() {
+        Federation f = this.threeIssuers(this.threeMarks());
+        TrustChainValidationResult chain = f.validator(ValidatorOptions.defaults().withClock(this.clock), TA)
+                .validate(ValidationRequest.forSubject(RP).includeAnchorConfiguration(true).build());
+        f.http().clearRequests();
+        TrustChainValidator issuers = f.validator(ValidatorOptions.defaults().withClock(this.clock).withMaxFetches(2), TA);
+
+        TrustMarkValidator.Result result = new TrustMarkValidator(issuers, Set.of(), this.clock).validate(chain);
+
+        assertTrue(f.http().requests().size() <= 2, "two requests for all three issuers: " + f.http().requests());
+        assertTrue(result.verified().size() <= 1, result.toString());
+    }
+
+    @Test
+    void theAnchorsConfigurationIsResolvedWithinTheBudgetToo() {
+        Federation f = this.federation(List.of(this.mark(s -> { })));
+        TrustChainValidator validator = f.validator(ValidatorOptions.defaults().withClock(this.clock), TA);
+        // Without the anchor's configuration in the chain it has to be resolved - and there is nothing to spend.
+        TrustChainValidationResult chain = validator.validate(ValidationRequest.forSubject(RP).build());
+        f.http().clearRequests();
+
+        TrustMarkValidator.Result result = new TrustMarkValidator(validator, Set.of(), this.clock)
+                .validate(chain, ResolutionBudget.of(java.time.Duration.ofSeconds(30), 0));
+
+        assertEquals(0, result.verified().size());
+        assertTrue(result.rejected().get(0).reason().contains("could not be read"), result.rejected().toString());
+        assertEquals(List.of(), f.http().requests());
+    }
+
+    /** The status call spends a request of the same budget and is made by its deadline. */
+    @Test
+    @Requirement("OIDFED §8.4(2)")
+    void theStatusCallSpendsTheBudgetAndItsDeadline() {
+        String mark = this.mark(s -> { });
+        String active = this.statusResponse(this.tmiKey, mark, "active", s -> { });
+        List<Deadline> deadlines = new ArrayList<>();
+        HttpPostClient status = new HttpPostClient() {
+            @Override
+            public Response post(String url, String contentType, String body, Map<String, String> headers, String accept) {
+                throw new AssertionError("a status call within a budget carries its deadline");
+            }
+
+            @Override
+            public Response post(String url, String contentType, String body, Map<String, String> headers, String accept, Deadline deadline) {
+                deadlines.add(deadline);
+                return new Response(200, active, Map.of());
+            }
+        };
+        ResolutionBudget plenty = ResolutionBudget.of(java.time.Duration.ofSeconds(30), 100);
+
+        TrustMarkValidator.Result result = this.withinBudget(this.withStatusEndpoint(mark), plenty, status);
+
+        assertEquals(1, result.verified().size(), result.rejected().toString());
+        assertEquals(1, deadlines.size());
+        assertTrue(deadlines.get(0).remainingNanos() <= plenty.deadline().remainingNanos() + 1_000_000L);
+
+        // Exactly enough for the issuer, none left for its status: the mark is rejected, saying so, and nothing is sent.
+        Federation f = this.withStatusEndpoint(mark);
+        ResolutionBudget probe = ResolutionBudget.of(java.time.Duration.ofSeconds(30), 100);
+        this.withinBudget(f, probe, status);
+        int forIssuer = probe.used() - 1;
+        deadlines.clear();
+        TrustMarkValidator.Result starved = this.withinBudget(this.withStatusEndpoint(mark),
+                ResolutionBudget.of(java.time.Duration.ofSeconds(30), forIssuer), status);
+        assertEquals(0, starved.verified().size());
+        assertTrue(starved.rejected().get(0).reason().contains("status was not asked"), starved.rejected().toString());
+        assertEquals(List.of(), deadlines);
+    }
+
+    @Test
+    void aStatusEndpointStillAnsweringWhenTheTimeRunsOutRejectsTheMarkSayingSo() {
+        String mark = this.mark(s -> { });
+        HttpPostClient timingOut = new HttpPostClient() {
+            @Override
+            public Response post(String url, String contentType, String body, Map<String, String> headers, String accept) {
+                throw new AssertionError("a status call within a budget carries its deadline");
+            }
+
+            @Override
+            public Response post(String url, String contentType, String body, Map<String, String> headers, String accept,
+                    Deadline deadline) throws Exception {
+                Thread.sleep(Math.max(0L, deadline.remaining().toMillis()) + 20L);
+                throw new java.io.IOException("the deadline passed");
+            }
+        };
+        TrustMarkValidator.Result result = this.withinBudget(this.withStatusEndpoint(mark),
+                ResolutionBudget.of(java.time.Duration.ofMillis(1500), 100), timingOut);
+
+        assertEquals(0, result.verified().size());
+        assertTrue(result.rejected().get(0).reason().contains("before the validation's budget ran out of time"), result.rejected().toString());
+    }
 }
+

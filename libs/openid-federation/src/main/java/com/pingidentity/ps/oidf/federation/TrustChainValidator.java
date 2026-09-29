@@ -179,10 +179,8 @@ public final class TrustChainValidator {
             }
             throw e;
         }
-        if (LOGGER.isDebugEnabled()) {
-            LOGGER.debug("Trust chain for " + LogSafe.value(request.subject()) + " resolved in " + elapsedMillis(started) + " ms, "
-                    + budget.used() + " requests");
-        }
+        LOGGER.debug("Trust chain for " + LogSafe.value(request.subject()) + " resolved in " + elapsedMillis(started) + " ms, "
+                + budget.used() + " requests");
         // Statements fetched on the way are cached only once the chain they belong to validated, so a
         // refused chain leaves nothing behind for the next caller.
         pendingWrites.commit();

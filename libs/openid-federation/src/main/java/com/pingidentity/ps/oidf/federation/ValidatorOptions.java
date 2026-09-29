@@ -50,7 +50,7 @@ public record ValidatorOptions(int maxFetches, int maxAuthorityHints, int clockS
     public static final int DEFAULT_CLOCK_SKEW_SECONDS = 60;
     public static final int DEFAULT_MAX_ROUTE_ATTEMPTS = 8;
     /** The catalogue's default wall clock; the measurement behind it is in the module README. */
-    public static final Duration DEFAULT_RESOLUTION_WALL_CLOCK = Duration.ofSeconds(10);
+    public static final Duration DEFAULT_RESOLUTION_WALL_CLOCK = Duration.ofSeconds(45);
 
     public ValidatorOptions {
         if (maxFetches < 1) {
