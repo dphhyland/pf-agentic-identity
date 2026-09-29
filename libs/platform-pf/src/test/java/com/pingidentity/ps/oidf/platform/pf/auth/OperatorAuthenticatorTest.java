@@ -347,9 +347,11 @@ class OperatorAuthenticatorTest {
         assertEquals("invalid_token", r.reason());
     }
 
-    /** RFC 8705 §3: a certificate-bound token is accepted over the connection whose certificate it names. */
+    /**
+     * RFC 8705 §3: a certificate-bound token is accepted over the connection whose certificate it names. (No
+     * {@code @Requirement}: conformance's Requirement does not declare the RFC8705 prefix.)
+     */
     @Test
-    @Requirement("RFC8705 §3")
     void aCertificateBoundTokenIsAcceptedWhereTheContainerPresentsTheCertificate() throws Exception {
         byte[] der = "operator certificate".getBytes(StandardCharsets.UTF_8);
         String x5t = Base64.getUrlEncoder().withoutPadding()
