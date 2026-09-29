@@ -255,6 +255,33 @@ logger classes (`org.sourceid.websso.profiles.idp.IdpAuditLogger` and four more)
 change with nothing linking them.
 
 
+<!-- auth (S8a): add this package's section below this line -->
+## auth
+
+`OperatorAuthenticator` decides who may use an operator API (plan item S8a; the programme's decision 1): a
+PingFederate-issued access token, verified against PingFederate's JWKS (`jwt` mode) or its introspection endpoint
+(`introspection` mode, platform's `TokenIntrospector`), whose `iss` is PingFederate's issuer through
+`PfInternals.issuer`, whose `aud` holds `OIDF_OPERATOR_AUDIENCE`, bound in production by DPoP or a client
+certificate, and carrying the route's scope. The actor is the token's `sub`, never a header. Each request it lets
+through or refuses emits `admin.request.authorised` or `admin.request.refused` from the `operator` event catalogue.
+Failed authentications are limited to 10 a minute per client address and changes to 60 a minute per actor, in Redis
+when `OIDF_REDIS_URL` names one. The scopes are `OperatorScopes`, one per surface; a surface names its routes in an
+`OperatorRoutes` table and calls `authorise(request, response, route)`, going on only when it answers true.
+
+DPoP is checked in one place (Phase 3 decision 8): the authenticator hands the token, the proof, the method, the
+configured base URL plus the path, and the container's client certificate to rs-validation's
+`DelegatedTokenValidator`, which uses oidf-jose's `DpopProofValidator`. So platform-pf depends on rs-validation,
+declared optional so that a war bundling platform-pf does not take it until it uses the authenticator;
+stage-modules.sh stages its jar into PingFederate beside this one.
+
+Nothing calls it in this release: plan item S8b moves the operator surfaces onto it. The settings (the
+`operator-auth` catalogue), what each request goes through, every refusal and what PingFederate needs are in
+[docs/operator/operator-authentication.md](../../docs/operator/operator-authentication.md).
+`OperatorAuthenticatorRigTest` runs it against a running PingFederate when `OIDF_TEST_OPERATOR_RIG` names a file of
+tokens minted there; `OperatorRateLimitTest` runs the limits and the replay store on Redis when
+`OIDF_TEST_REDIS_URL` is set, as build.yml's java job sets it.
+
+
 ## Build
 
 ```sh

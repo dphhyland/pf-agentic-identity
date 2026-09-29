@@ -977,6 +977,26 @@ test database and is never shipped; and the Kafka producer's own I/O thread when
 which the Kafka client starts ([F-0201](../../docs/findings/F-0201.yaml)).
 
 
+<!-- auth (S8a): add this package's section below this line -->
+## auth
+
+`TokenIntrospector` asks an authorisation server about an access token (RFC 7662, plan item S8a) over
+`OutboundHttp`, within 1 s to connect, 2.5 s in all and a 64 KiB answer. The caller supplies how it authenticates
+(`ClientAuthentication.clientSecretBasic` or `privateKeyJwt`) and the `AddressPolicy` that lets it reach the
+endpoint. The answer is an `Introspection`: `active`, `scope`, `client_id`, `sub`, `aud`, `iss`, `exp`, `iat`, `nbf`,
+`token_type` and `cnf` (`jkt`, `x5t#S256`). A token that is not active is a value; no answer - unreachable, a status
+other than 200, a body that is not a JSON object of the types RFC 7662 §2.2 gives - is an `IntrospectionException`,
+which the caller maps to 503. An active answer is kept for at most 30 s and never past its `exp`, and only when the
+caller turns the cache on.
+
+RFC 7662 defines no `cnf`; RFC 9449 §6.2 conveys the DPoP key's thumbprint "as a top-level member of the
+introspection response JSON", and PingFederate 13.1.3 sends it, with `token_type` `DPoP`, for JWT and reference
+tokens alike (the rig, 2026-09-29; [U-0030](../../docs/findings/U-0030.yaml)). rs-validation's
+`DelegatedTokenValidator` checks the binding from it, and platform-pf's `OperatorAuthenticator` is the first user
+([docs/operator/operator-authentication.md](../../docs/operator/operator-authentication.md)). The package is
+JDK-only, like the rest of platform; JSON goes through platform.json.
+
+
 ## Build
 
 ```sh
