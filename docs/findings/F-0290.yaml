@@ -1,0 +1,22 @@
+id: F-0290
+title: 'The AuthZEN batch matches each decision to its evaluation by position alone, so a PDP that reorders them cannot be detected'
+severity: low
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2c]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  OpenID AuthZEN Authorization API 1.0 (Final, 11 January 2026), section 7.2: the Access Evaluations response "adds
+  an evaluations array that lists the decisions in the same order they were provided in the evaluations array in
+  the request". A decision carries no identifier of the evaluation it answers, so the plugin's batch
+  (AuthZenPdpClient.decideAll, package S2C, 2026-09-30) refuses a response whose array is missing, shorter or
+  longer than the request's, or holds an element that is not a decision object with a boolean decision, and can do
+  nothing about a PDP that returns the right number of decisions in another order: each detail would then be
+  granted or refused on another detail's decision, and its statements applied to the wrong detail. The narrowing
+  check after the PDP still holds each grant within its own request, so a reordered PERMIT can grant a detail the
+  policy denied but never widen one. Only a PDP bug produces it; the batch is off unless "AuthZEN batch URL" is set.
+  Closing it needs either a correlation member in a later AuthZEN revision or a per-evaluation echo the PDP can be
+  asked for; until then an operator who cannot trust the PDP's ordering leaves the batch URL blank.

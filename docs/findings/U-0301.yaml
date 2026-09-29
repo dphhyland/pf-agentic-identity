@@ -1,0 +1,18 @@
+id: U-0301
+title: The RAR plugin's PDP metrics have not been read from PingFederate's JMX
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2c]
+prs: []
+recorded_in: plugins/rar-paz-plugin/README.md, The PDP call (Metrics)
+verify_by: >
+  On the rig with a processor instance configured and a decision made, list the MBeans under com.pingidentity.ps.oidf
+  in PingFederate's JVM (jcmd or a JMX console) and read the Samples of the one whose copy names
+  com.pingidentity.ps.oidf.rar.shaded.platform.metrics: oidf_rar_pdp_calls_total, oidf_rar_pdp_answers_total and
+  oidf_rar_pdp_breakers are there with the counts the requests made.
+verification: ''
+notes: >
+  The counters and the gauge are registered through the plugin's relocated copy of platform.metrics, whose
+  MXBeanRegistration names the bean com.pingidentity.ps.oidf:type=Metrics,copy="<package> from <location>"
+  (read 2026-09-30). The unit tests read the registry, not JMX in a running PingFederate.
