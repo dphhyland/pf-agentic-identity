@@ -23,7 +23,7 @@ It is a library: a resource server embeds `DelegatedTokenValidator`, directly or
    leeway by default).
 2. **The sender proves the binding.** The token's `cnf` must carry `jkt`, `x5t#S256` or both; a token with neither
    is refused, because there is no bearer mode.
-   - `cnf.jkt`, under `Authorization: DPoP`: exactly one `DPoP` header, holding a proof that passes client-attestation's
+   - `cnf.jkt`, under `Authorization: DPoP`: exactly one `DPoP` header, holding a proof that passes oidf-jose's
      `DpopProofValidator` (type `dpop+jwt`, a public `jwk`, the signature, `htm`, `htu` after RFC 3986
      normalisation, `iat` within the window) and whose key's RFC 7638 thumbprint is `jkt`, whose `ath` is this
      token's hash and, with `DpopNonces` on, whose `nonce` this server issued.

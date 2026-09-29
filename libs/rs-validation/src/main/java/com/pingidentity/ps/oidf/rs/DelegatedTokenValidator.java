@@ -3,9 +3,9 @@
  */
 package com.pingidentity.ps.oidf.rs;
 
-import com.pingidentity.ps.oidf.clientattestation.DpopProof;
-import com.pingidentity.ps.oidf.clientattestation.DpopProofValidator;
 import com.pingidentity.ps.oidf.jose.Jwks;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProof;
+import com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;

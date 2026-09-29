@@ -113,6 +113,13 @@
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.failure(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.headerMap(*</include>
+                                        <!-- The DPoP proof checks, moved here from client-attestation with their gate (F-0225). -->
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.requireHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizeHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizePercentEncoding(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.removeDotSegments(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.shown(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

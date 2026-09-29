@@ -37,11 +37,10 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- oidf-jose, for the JOSE helpers and, since S8a, DpopProofValidator: RFC 9449's proof checks, moved there from
+             client-attestation (finding F-0225) so that this library, and platform-pf's operator authenticator through
+             it, no longer take client-attestation and rar-model with them. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
-        <!-- DpopProofValidator already implements RFC 9449's proof checks here, with tests. No reason to write it
-             twice. It stays in client-attestation for now; F-0225 records moving it, so that platform-pf's operator
-             authenticator (S8a) can share it without depending on client-attestation. -->
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
         <!-- platform.redis for RedisReplayStore, platform.http for RemoteJwks, platform.profile for the legacy act
              switch. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
