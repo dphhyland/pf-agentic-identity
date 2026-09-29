@@ -3,10 +3,16 @@ title: The image's entrypoint does not trim OIDF_DEPLOYMENT_PROFILE and the Java
 severity: low
 area: image, platform
 source: design
-status: open
+status: closed
 plan_items: [PR-2]
-prs: []
-verification: ''
+prs: [68]
+verification: >
+  Closed 2026-09-29 by package RI3 (PR #68). is_development in build/pingfederate/pf-entrypoint.sh
+  deletes the characters Java's String.trim removes (U+0001 to U+0020) and accepts the value only when what is left
+  is development and the word was whole, so padding around it is trimmed and padding inside it is not.
+  DeploymentProfileShellTest runs one table - unset, empty, typos, every case, space, tab, vertical tab, control
+  characters, a no-break space, DEL, two words - through DeploymentProfile.parse and the script's rule and expects no
+  difference; the test that pinned the difference is gone.
 target_release: 0.6.0
 notes: >
   Found by PR1 (2026-09-28): DeploymentProfileShellTest (libs/platform) runs one table through
