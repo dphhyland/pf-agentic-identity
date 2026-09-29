@@ -29,6 +29,9 @@
         <!-- The commit this jar is built from, written into its manifest (below) for BuildInfo: CI passes
              -Doidf.build.commit=$GITHUB_SHA; a build that passes nothing says unknown (F-0190). -->
         <oidf.build.commit>unknown</oidf.build.commit>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
