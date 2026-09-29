@@ -9,8 +9,10 @@ a row has no room for. [Operations](operations.md) shows the settings in use.
 
 ## How a setting is read
 
-Most settings are environment variables, and each can also be a Java system property: the same name in lower
-case with `.` for `_` (`OIDF_PDP_MODE` is `oidf.pdp.mode`). The system property wins. They are read once, when the
+Most settings are environment variables, and most can also be a Java system property, usually the same name in
+lower case with `.` for `_` (`OIDF_PDP_MODE` is `oidf.pdp.mode`). The system property wins. A generated row names
+the property wherever there is one, and a few keep an underscore (`OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT` is
+`oidf.attestation.require_hosted_agent`). They are read once, when the
 first component asks, and kept for as long as PingFederate runs; change one and restart.
 
 The exceptions:

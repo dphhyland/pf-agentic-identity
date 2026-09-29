@@ -4,10 +4,10 @@ severity: low
 area: platform
 source: design
 status: open
-plan_items: [F-2]
+plan_items: [F-2, X-A01]
 prs: [51]
 verification: ''
-target_release: 0.5.0
+target_release: 0.7.0
 notes: >
   Package C3 (2026-09-28) refuses a managed executor in a plugin's relocated copy of platform, in a copy whose
   lifecycle has shut down, and for a job already running anywhere in the JVM (libs/platform README, "exec").
@@ -19,3 +19,10 @@ notes: >
   marked, with one check. Standalone programs that use platform (services/device-enrolment through X-A01's
   service-kit, for instance) would then need to mark themselves, or the check must treat a JVM with no servlet
   container differently; F-2 or X-A01 decides which.
+
+  Retargeted from 0.5.0 to 0.7.0 on 2026-09-29, still open. F2 (PR #57) now marks the webapp's copy
+  (Lifecycle.markWebapp from LifecycleListener), so the check is possible, but it was not added: F2's README
+  (libs/platform-pf, "What it does not do") leaves it to platform.exec's owner and to X-A01's service-kit, which
+  standalone programs would need in order to mark themselves. ExecutorRegistry on origin/main 4b1fd979 still refuses
+  only a relocated copy, a shut-down copy and a name already claimed. X-A01 is recommended for Phase 4 (the Phase 2
+  plan, decision 4).
