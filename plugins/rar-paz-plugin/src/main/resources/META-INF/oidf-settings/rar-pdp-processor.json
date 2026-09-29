@@ -208,7 +208,7 @@
       "kind": "env",
       "type": "words",
       "default": null,
-      "description": "More authorization_details types PingFederate may bind to the processor, beyond sales_agent, payment_initiation and account_information; read from the plugin descriptor at start-up, before any instance is configured, so not an instance field. A type needs a model too (rar-models): named here without one it is refused in production",
+      "description": "More authorization_details types PingFederate may bind to the processor, beyond sales_agent, payment_initiation and account_information, space- or comma-separated; read from the plugin descriptor at start-up, before any instance is configured, so not an instance field. A type needs a model too (rar-models): named here without one it is refused in production",
       "when_wrong": {"effect": "not-checked", "detail": "Read as given, comma- or space-separated; a type named here that no model names is refused (UNMODELLED_TYPE) on every request"},
       "profile": "any",
       "security": true,

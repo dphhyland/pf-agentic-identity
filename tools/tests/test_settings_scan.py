@@ -76,11 +76,15 @@ class Tree:
             f.write(text)
 
     def problems(self):
+        return self.scan()[0]
+
+    def scan(self):
+        """(problems, notes) of the scan over this tree."""
         self.write("pom.xml", "<project><modules>" + "".join(f"<module>{m}</module>" for m in self.modules)
                    + "</modules></project>")
-        problems, _reads, _notes, unreadable = scan.scan(self.root)
+        problems, _reads, notes, unreadable = scan.scan(self.root)
         assert not unreadable, unreadable
-        return problems
+        return problems, notes
 
 
 class WhatIsAReadTest(unittest.TestCase):
@@ -521,13 +525,23 @@ class ExemptionsTest(unittest.TestCase):
         self.assertIn("only the 'not shipped' group may be", problems[0])
         self.assertEqual([], self.tree("refuse-shipped-exemptions: yes\n# group not shipped\nlibs/b: why\n").problems())
 
+    def test_the_flag_is_reported(self):
+        problems, notes = self.tree("refuse-shipped-exemptions: yes\n# group not shipped\nlibs/b: why\n").scan()
+        self.assertEqual([], problems)
+        self.assertIn("every shipped module is held to its catalogues: only modules that are not shipped may be exempt"
+                      " (libs/b)", notes)
+        _problems, notes = self.tree("# group not shipped\nlibs/b: why\n").scan()
+        self.assertFalse([n for n in notes if "every shipped module" in n], notes)
+
     def test_the_repository_file_parses_into_its_groups(self):
         lines, refuse, problems = scan.read_exemptions(os.path.join(REPO, scan.EXEMPTIONS))
         self.assertEqual([], problems)
         groups = {group for _m, group, _r, _n in lines}
-        self.assertTrue(groups <= {"ST3B", "ST3C", scan.NOT_SHIPPED}, groups)
+        # ST-4: the ST3B and ST3C groups are gone, and the flag holds every shipped module to its catalogues.
+        self.assertEqual({scan.NOT_SHIPPED}, groups)
+        self.assertTrue(refuse)
         self.assertIn(("libs/testkit", scan.NOT_SHIPPED), {(m, g) for m, g, _r, _n in lines})
-        self.assertFalse(refuse and groups - {scan.NOT_SHIPPED})
+        self.assertTrue(all(reason for _m, _g, reason, _n in lines))
 
 
 class RepositoryTest(unittest.TestCase):
@@ -537,6 +551,7 @@ class RepositoryTest(unittest.TestCase):
             status = scan.main(["--root", REPO])
         self.assertEqual(0, status, err.getvalue())
         self.assertIn("clean", out.getvalue())
+        self.assertIn("every shipped module is held to its catalogues", out.getvalue())
 
     def test_the_staged_modules_are_read_from_stage_modules_sh(self):
         staged = scan.staged_modules(REPO)

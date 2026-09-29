@@ -248,8 +248,8 @@ permit narrowed, context it ignored, and `reason_admin`.
 
 ## Configuration
 
-Every setting, its default and what happens when it's wrong is in
-[docs/federation/configuration.md](../../docs/federation/configuration.md), which a test keeps complete. This table is
+Every setting, its default and what happens when it's wrong is in the generated pages
+[docs/federation/configuration.md](../../docs/federation/configuration.md) points to. This table is
 the short version. Most settings are environment variables, each also a system property (lower case, `.` for `_`,
 the property winning); the federation servlet's own settings are its init-params first, then the environment.
 

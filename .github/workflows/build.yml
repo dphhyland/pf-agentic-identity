@@ -135,10 +135,17 @@ jobs:
       - name: every setting read is catalogued, and every catalogued setting is read
         # Plan item ST-3: each name a module's main code reads - an OIDF_ literal, a System.getenv or getProperty,
         # an init-param, a plugin field, a client's extended property, directly or through a helper - is declared
-        # in a META-INF/oidf-settings catalogue, and each declared name is read. Modules not catalogued yet are
-        # listed in tools/settings-scan-exemptions.txt by the package that will catalogue them.
-        # tools/tests/test_settings_scan.py holds the scan to its fixtures.
+        # in a META-INF/oidf-settings catalogue, and each declared name is read. Only modules that are never
+        # shipped may be exempt, each with its reason, in tools/settings-scan-exemptions.txt (plan item ST-4 set its
+        # refuse-shipped-exemptions flag). tools/tests/test_settings_scan.py holds the scan to its fixtures.
         run: python3 tools/settings-scan.py
+      - name: the configuration reference and docs/extended-properties.json are what the catalogues generate
+        # Plan item ST-4: docs/configuration/<component>.md, the README's list of components and the extended-
+        # property contract a consumer's Terraform is diffed against are generated from the same catalogues, and
+        # committed; this fails, naming the file, when one is not current. The scan above holds the catalogues to
+        # the code, so the two together hold the reference to the code both ways. Run python3
+        # tools/config-reference.py and commit what it writes.
+        run: python3 tools/config-reference.py --check
 
   java:
     runs-on: ubuntu-latest
