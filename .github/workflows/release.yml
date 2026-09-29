@@ -269,7 +269,9 @@ jobs:
       # Tests ON, coverage gates ON (they are bound to verify, not package). A release is the one build
       # where "it compiled" is not the bar.
       - name: build the reactor with tests
-        run: mvn -B verify
+        # The commit goes into platform-pf's manifest, where /agentic-identity/info and the start-up banner read it
+        # (F-0190). deploy below passes the same, so the jars it publishes are still the ones verify built.
+        run: mvn -B verify -Doidf.build.commit="$GITHUB_SHA"
 
       - name: every PingFederate and servlet member the artifacts link resolves on this image
         run: python3 tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib --reactor .
@@ -389,7 +391,7 @@ jobs:
         # Tests already ran above; re-running them here would double a slow build for no new signal.
         # deploy re-runs package, but the jar and shade plugins leave an up-to-date jar alone, so the
         # jars this publishes are the ones verify built - which the next step proves rather than assumes.
-        run: mvn -B -DskipTests deploy
+        run: mvn -B -DskipTests -Doidf.build.commit="$GITHUB_SHA" deploy
 
       - name: what Packages got is what dist/ holds
         # Every jar in dist/ against the reactor file deploy just published, byte for byte. The wars are

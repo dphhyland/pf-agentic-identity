@@ -32,7 +32,7 @@ done
 
 CTX="$HERE/.context"
 rm -rf "$CTX"; mkdir -p "$CTX/overlay"
-cp "$BUILD/Dockerfile" "$BUILD/assemble-pf-runtime-war.sh" "$BUILD/filters.xml" "$BUILD/pf-entrypoint.sh" "$CTX/"
+cp "$BUILD/Dockerfile" "$BUILD/assemble-pf-runtime-war.sh" "$BUILD/filters.xml" "$BUILD/pf-entrypoint.sh" "$BUILD/pf-healthcheck.sh" "$CTX/"
 cp -R "$BUILD/modules" "$CTX/modules"
 cp -R "$BUILD/assembler" "$CTX/assembler"
 cp -R "$BUILD/overlay/config-store" "$CTX/overlay/config-store"
