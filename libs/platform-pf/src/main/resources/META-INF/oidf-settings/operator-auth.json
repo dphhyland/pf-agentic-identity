@@ -96,6 +96,27 @@
       "file": false
     },
     {
+      "name": "OIDF_OPERATOR_ACCESS_TOKEN_TYP",
+      "kind": "env",
+      "type": "string",
+      "default": "at+jwt",
+      "description": "The typ header PingFederate's JWT access token manager puts on its tokens (its Type Header Value), in jwt mode: at+jwt or application/at+jwt as RFC 9068 asks, the default; none for a manager whose field is blank, which then requires the header to be missing; or another value, compared exactly",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not the manager's value: every operator request in jwt mode is a 401 invalid_token"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_ACCESS_TOKEN_TYP"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
       "name": "OIDF_OPERATOR_INTROSPECTION_ENDPOINT",
       "kind": "env",
       "type": "url",

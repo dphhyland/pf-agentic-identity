@@ -18,6 +18,7 @@ import com.pingidentity.ps.oidf.platform.redis.RedisClient;
 import com.pingidentity.ps.oidf.platform.redis.RedisConfig;
 import com.pingidentity.ps.oidf.platform.redis.WindowCount;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.rs.AccessTokenType;
 import com.pingidentity.ps.oidf.rs.DelegatedTokenValidator;
 import com.pingidentity.ps.oidf.rs.InMemoryReplayStore;
 import com.pingidentity.ps.oidf.rs.JwksSource;
@@ -343,12 +344,24 @@ public final class OperatorAuthenticator {
         if (this.introspector != null) {
             b.introspection(this.introspector);
         } else {
-            b.keys(this.keys);
+            b.keys(this.keys).accessTokenType(accessTokenType(this.config.tokenTyp()));
         }
         if (this.config.profile().isDevelopment()) {
             b.allowUnbound(this.config.profile());
         }
         return b.build();
+    }
+
+    /**
+     * {@code OIDF_OPERATOR_ACCESS_TOKEN_TYP} as rs-validation's {@link AccessTokenType}: {@code at+jwt} (the default)
+     * is RFC 9068's rule, {@code none} a token manager whose "Type Header Value" is blank, anything else exactly that.
+     */
+    static AccessTokenType accessTokenType(String typ) {
+        if (typ == null || typ.isBlank() || "at+jwt".equalsIgnoreCase(typ.strip())) {
+            return AccessTokenType.RFC9068;
+        }
+        return OperatorAuthConfig.NO_TYP.equalsIgnoreCase(typ.strip()) ? AccessTokenType.ABSENT
+                : AccessTokenType.exactly(typ.strip());
     }
 
     private static final class IssuerUnavailable extends Exception {

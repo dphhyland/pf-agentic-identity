@@ -21,7 +21,8 @@ import java.util.function.Supplier;
  *
  * @param problem why nothing can be authenticated, or null when the configuration is usable
  */
-public record OperatorAuthConfig(Mode mode, String audience, String baseUrl, URI jwksUrl, URI introspectionEndpoint,
+public record OperatorAuthConfig(Mode mode, String audience, String baseUrl, URI jwksUrl, String tokenTyp,
+                                 URI introspectionEndpoint,
                                  String introspectionClientId, Supplier<String> introspectionClientSecret,
                                  boolean insecureTls, int authFailuresPerMinute, int mutationsPerMinute,
                                  DeploymentProfile profile, boolean redisConfigured, String problem) {
@@ -32,6 +33,9 @@ public record OperatorAuthConfig(Mode mode, String audience, String baseUrl, URI
     public static final String AUDIENCE = "OIDF_OPERATOR_AUDIENCE";
     public static final String BASE_URL = "OIDF_OPERATOR_BASE_URL";
     public static final String JWKS_URL = "OIDF_OPERATOR_JWKS_URL";
+    public static final String ACCESS_TOKEN_TYP = "OIDF_OPERATOR_ACCESS_TOKEN_TYP";
+    /** {@link #ACCESS_TOKEN_TYP}'s value for a token manager that sends no {@code typ} header. */
+    public static final String NO_TYP = "none";
     public static final String INTROSPECTION_ENDPOINT = "OIDF_OPERATOR_INTROSPECTION_ENDPOINT";
     public static final String INTROSPECTION_CLIENT_ID = "OIDF_OPERATOR_INTROSPECTION_CLIENT_ID";
     public static final String INTROSPECTION_CLIENT_SECRET = "OIDF_OPERATOR_INTROSPECTION_CLIENT_SECRET";
@@ -65,6 +69,7 @@ public record OperatorAuthConfig(Mode mode, String audience, String baseUrl, URI
         String audience = null;
         String baseUrl = null;
         URI jwks = null;
+        String typ = "at+jwt";
         URI endpoint = null;
         String clientId = null;
         Supplier<String> secret = null;
@@ -78,6 +83,7 @@ public record OperatorAuthConfig(Mode mode, String audience, String baseUrl, URI
             URI base = settings.url(BASE_URL);
             baseUrl = base == null ? null : base.toString();
             jwks = settings.url(JWKS_URL);
+            typ = settings.string(ACCESS_TOKEN_TYP);
             endpoint = settings.url(INTROSPECTION_ENDPOINT);
             clientId = settings.string(INTROSPECTION_CLIENT_ID);
             Secret s = settings.secret(INTROSPECTION_CLIENT_SECRET);
@@ -91,7 +97,7 @@ public record OperatorAuthConfig(Mode mode, String audience, String baseUrl, URI
             // SettingRefused, or a value its entry refuses: the message names the setting, never a secret's value.
             problem = e.getMessage();
         }
-        return new OperatorAuthConfig(mode, audience, baseUrl == null ? null : stripSlash(baseUrl), jwks, endpoint,
+        return new OperatorAuthConfig(mode, audience, baseUrl == null ? null : stripSlash(baseUrl), jwks, typ, endpoint,
                 clientId, secret, insecure, failures, mutations, profile, redisConfigured, problem);
     }
 

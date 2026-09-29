@@ -144,6 +144,30 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.getClients(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.isBackendDatabase(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.internals.PfInternals.discoveryHandler(*</include>
+                                        <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authenticate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.authorise(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.validator(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.accessTokenType(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.actorOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.refusedToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.checkFailureLimit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.checkMutationLimit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.retryAfter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.failureKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.challenges(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.headerSafe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.claimedLabel(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.baseUrlProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes.match(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes.Builder.route(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter.hit(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.InMemoryWindowCounter.peek(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.RedisWindowCounter.peek(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
