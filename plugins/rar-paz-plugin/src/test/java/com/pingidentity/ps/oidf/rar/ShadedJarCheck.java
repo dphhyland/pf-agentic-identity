@@ -88,9 +88,15 @@ class ShadedJarCheck {
                     named.add(entry.getName());
                 }
             }
-            String transport = new String(read(jar, jar.getEntry("com/pingidentity/ps/oidf/rar/JdkHttpTransport.class")),
+            String transport = new String(read(jar, jar.getEntry("com/pingidentity/ps/oidf/rar/PdpTransport.class")),
                     StandardCharsets.ISO_8859_1);
-            assertTrue(transport.contains(PLATFORM_RELOCATED + "tls/InsecureTls"), "the transport links to the relocated InsecureTls");
+            assertTrue(transport.contains(PLATFORM_RELOCATED + "http/OutboundHttp"), "the transport links to the relocated OutboundHttp");
+            String tls = new String(read(jar, jar.getEntry("com/pingidentity/ps/oidf/rar/PdpTls.class")), StandardCharsets.ISO_8859_1);
+            assertTrue(tls.contains(PLATFORM_RELOCATED + "http/TlsTrust"), "the trust links to the relocated TlsTrust");
+            // HttpCore travels inside platform, relocated twice: under platform's package, then under this plugin's.
+            assertTrue(entries.stream().anyMatch(e -> e.getName().startsWith(PLATFORM_RELOCATED + "http/internal/hc5/")),
+                    "HttpCore is shaded in under the plugin's copy of platform");
+            assertTrue(entries.stream().noneMatch(e -> e.getName().startsWith("org/apache/hc/")), "no unrelocated HttpCore");
         }
         assertEquals(List.of(), named, "classes that still name platform's unrelocated package");
     }

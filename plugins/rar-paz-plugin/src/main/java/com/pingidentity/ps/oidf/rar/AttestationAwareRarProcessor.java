@@ -18,13 +18,18 @@ import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import org.sourceid.saml20.adapter.conf.Configuration;
 import org.sourceid.saml20.adapter.gui.CheckBoxFieldDescriptor;
+import org.sourceid.saml20.adapter.gui.SelectFieldDescriptor;
+import org.sourceid.saml20.adapter.gui.TextAreaFieldDescriptor;
 import org.sourceid.saml20.adapter.gui.TextFieldDescriptor;
 import org.sourceid.saml20.adapter.gui.validation.impl.RequiredFieldValidator;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.logging.Level;
@@ -107,7 +112,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private static final String FAIL_OPEN = "Fail open on engine error";
     private static final String ALLOW_CLIENT_ASSERTED_PRINCIPAL = "Trust a client-asserted principal";
     private static final String TRUST_AGENT_MARKER = "Trust the PAR-carried agent marker";
-    private static final String INSECURE_TLS = JdkHttpTransport.INSECURE_TLS_SETTING;
+    private static final String INSECURE_TLS = PdpTransport.INSECURE_TLS_SETTING;
     private static final String TIMEOUT_MS = "Request timeout (ms)";
     static final String AUTHENTICATED_PRINCIPAL_TYPES = "Types requiring an authenticated principal";
 
@@ -137,6 +142,10 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private GovernanceEngineConfig config;
     private PdpClient client;
     private HttpTransport transport;
+    private PdpDecisions decisions;
+    private CircuitBreaker breaker;
+    /** The request attribute this instance's per-request memo lives under: one per instance, so two never share. */
+    private final String memoAttribute = AttestationAwareRarProcessor.class.getName() + ".memo." + System.identityHashCode(this);
 
     /** What PingFederate calls: the process's RAR model set, read from the environment once per classloader. */
     public AttestationAwareRarProcessor() {
@@ -157,6 +166,18 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         this.client = client;
         this.config = config;
         this.gate = gate;
+        this.decisions = client == null ? null : new PdpDecisions(client, null, null, memoAttribute);
+    }
+
+    /** Test seam with the PDP step of the test's choosing: a decision cache, a batch URL. */
+    AttestationAwareRarProcessor(PdpDecisions decisions, GovernanceEngineConfig config, ModelGate gate) {
+        this(decisions.client(), config, gate);
+        this.decisions = decisions;
+    }
+
+    /** The per-request memo's attribute name, for a test that looks at the request. */
+    String memoAttribute() {
+        return memoAttribute;
     }
 
     @Override
@@ -166,14 +187,25 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
 
     /** {@link #configure(Configuration)} under a named profile, so a test can be production or development at will. */
     void configure(Configuration configuration, String profile) {
-        this.config = settings(configuration, profile);
-        this.transport = new JdkHttpTransport(config.isInsecureTlsHonoured(), config.getTimeoutMillis());
+        GovernanceEngineConfig settings = settings(configuration, profile);
         String dialect = configuration.getFieldValue(PDP_DIALECT);
-        if (DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim())) {
-            this.client = new AuthZenPdpClient(config, transport, new AuthZenRequestBuilder(config), mapper);
-        } else {
-            this.client = new GovernanceEngineClient(config, transport, new GovernanceEngineRequestBuilder(config, mapper), mapper);
-        }
+        boolean authzen = DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim());
+        PdpResilience resilience = PdpResilience.of(configuration, profile, authzen, settings.getAuthenticatedPrincipalTypes());
+        CircuitBreaker newBreaker = new CircuitBreaker(resilience.breakerFailures(), resilience.breakerOpenSeconds());
+        HttpTransport newTransport = new CircuitBreaker.Guarded(
+                new PdpTransport(tlsOf(settings, resilience), settings.getTimeoutMillis(), settings.isDevelopment()), newBreaker);
+        PdpClient newClient = authzen
+                ? new AuthZenPdpClient(settings, newTransport, new AuthZenRequestBuilder(settings), mapper, resilience.batchUrl())
+                : new GovernanceEngineClient(settings, newTransport, new GovernanceEngineRequestBuilder(settings, mapper), mapper);
+        DecisionCache cache = resilience.cacheTypes().isEmpty() ? null
+                : new DecisionCache(resilience.cacheTypes(), resilience.cacheTtlSeconds());
+        this.config = settings;
+        this.transport = newTransport;
+        this.breaker = newBreaker;
+        this.client = newClient;
+        this.decisions = new PdpDecisions(newClient, cache,
+                settings.getPdpUrl() + "\n" + (gate.loaded() ? gate.fingerprint() : "-"), memoAttribute);
+        PdpMetrics.track(newBreaker);
         if (config.isAllowClientAssertedPrincipal() && !config.isDevelopment()) {
             log.warning("'" + ALLOW_CLIENT_ASSERTED_PRINCIPAL + "' is on but " + PdpUrlPolicy.PROFILE_ENV
                     + " is not development: login_hint and " + PRINCIPAL_DETAIL_KEY + " are ignored in this deployment.");
@@ -189,7 +221,58 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl() + " profile=" + config.getDeploymentProfile()
                 + " authenticatedPrincipalTypes=" + config.getAuthenticatedPrincipalTypes()
                 + " failOpenOnUnavailable=" + config.isFailOpenOnError()
-                + " rarModels=" + (gate.loaded() ? gate.fingerprint() : "not loaded"));
+                + " rarModels=" + (gate.loaded() ? gate.fingerprint() : "not loaded")
+                + " tlsTrust=" + pdpTransport().tls().mode()
+                + " totalMillis=" + PdpTransport.totalMillisOf(config.getTimeoutMillis())
+                + " batch=" + (resilience.batchUrl() != null)
+                + " cacheTypes=" + resilience.cacheTypes()
+                + " breaker=" + resilience.breakerFailures() + "/" + resilience.breakerOpenSeconds() + "s");
+    }
+
+    /**
+     * The trust for the PDP's certificate: the development-only switch first (any chain; honoured only in
+     * development), then the instance's choice. PingFederate's trusted CAs are read on each call, not here, so this
+     * never touches PingFederate's services at configure time.
+     */
+    static PdpTls tlsOf(GovernanceEngineConfig settings, PdpResilience resilience) {
+        if (settings.isInsecureTlsHonoured()) {
+            return PdpTls.insecure(INSECURE_TLS);
+        }
+        switch (resilience.tlsMode()) {
+            case PdpTls.PINGFEDERATE_TRUSTED_CAS:
+                return PdpTls.pingFederate(TRUSTED_CAS);
+            case PdpTls.PINNED_CA:
+                try {
+                    return PdpTls.pinned(resilience.pinnedPem());
+                } catch (java.security.GeneralSecurityException | java.io.IOException e) {
+                    throw new IllegalStateException(PdpResilience.PINNED_CAS + " could not be used: " + e.getMessage(), e);
+                }
+            default:
+                return PdpTls.jvmDefault();
+        }
+    }
+
+    /**
+     * PingFederate's trust anchors, through the SDK's accessor: {@code com.pingidentity.access.TrustedCAAccessor} is
+     * public in pingfederate-sdk 13.1.3.0 ({@code public java.util.Set<java.security.cert.TrustAnchor>
+     * getAllTrustAnchors()}, javap 2026-09-29) and resolves PingFederate's {@code TrustedCAAccessorService} each time.
+     */
+    static final java.util.function.Supplier<Set<java.security.cert.TrustAnchor>> TRUSTED_CAS =
+            () -> new com.pingidentity.access.TrustedCAAccessor().getAllTrustAnchors();
+
+    /** The platform transport under the breaker {@link #configure} built, or {@code null} before it ran. */
+    PdpTransport pdpTransport() {
+        return transport instanceof CircuitBreaker.Guarded guarded ? (PdpTransport) guarded.delegate() : null;
+    }
+
+    /** The circuit breaker {@link #configure} built, or {@code null} before it ran. */
+    CircuitBreaker breaker() {
+        return breaker;
+    }
+
+    /** The PDP step {@link #configure} built. */
+    PdpDecisions decisions() {
+        return decisions;
     }
 
     /** The transport {@link #configure} built, or {@code null} before it ran: for a test of what it trusts. */
@@ -236,7 +319,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                         ALLOW_CLIENT_ASSERTED_PRINCIPAL_DEFAULT))
                 .trustAgentMarker(configuration.getBooleanFieldValue(TRUST_AGENT_MARKER, TRUST_AGENT_MARKER_DEFAULT))
                 .insecureTls(configuration.getBooleanFieldValue(INSECURE_TLS, INSECURE_TLS_DEFAULT))
-                .timeoutMillis(parseInt(configuration.getFieldValue(TIMEOUT_MS), 10_000))
+                .timeoutMillis(PdpTransport.totalMillisOf(parseInt(configuration.getFieldValue(TIMEOUT_MS), PdpTransport.DEFAULT_TOTAL_MILLIS)))
                 .authenticatedPrincipalTypes(GovernanceEngineConfig.authenticatedPrincipalTypesOf(
                         configuration.getFieldValue(AUTHENTICATED_PRINCIPAL_TYPES)))
                 .deploymentProfile(profile)
@@ -292,7 +375,32 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 TRUST_AGENT_MARKER_DEFAULT);
         addCheck(gui, INSECURE_TLS, "Trust any PDP certificate - takes effect only with " + PdpUrlPolicy.PROFILE_ENV
                 + "=development; the hostname is still checked", INSECURE_TLS_DEFAULT);
-        addText(gui, TIMEOUT_MS, "Request timeout (ms)", "10000", false);
+        addText(gui, TIMEOUT_MS, "The PDP call's total deadline in milliseconds, connecting to the last byte of the answer ("
+                + PdpTransport.MIN_TOTAL_MILLIS + "-" + PdpTransport.MAX_TOTAL_MILLIS + "); past it the PDP counts as unreachable",
+                String.valueOf(PdpTransport.DEFAULT_TOTAL_MILLIS), false);
+        SelectFieldDescriptor tls = new SelectFieldDescriptor(PdpResilience.TLS_TRUST,
+                "How the PDP's certificate is trusted: the JVM's CAs, PingFederate's trusted CAs (which include the JVM's),"
+                        + " or only the CAs pasted below. The certificate must name the PDP URL's host in every case",
+                PdpTls.MODES.toArray(new String[0]));
+        tls.setDefaultValue(PdpTls.JVM_DEFAULT);
+        gui.addField(tls);
+        TextAreaFieldDescriptor pinned = new TextAreaFieldDescriptor(PdpResilience.PINNED_CAS,
+                "The CA certificates (PEM) to trust the PDP with when " + PdpResilience.TLS_TRUST + " is " + PdpTls.PINNED_CA,
+                6, 64);
+        pinned.setDefaultValue("");
+        gui.addField(pinned);
+        addText(gui, PdpResilience.BATCH_URL, "authzen only: the PDP's Access Evaluations URL (/access/v1/evaluations);"
+                + " when set, a request's details are decided in one call. Blank: one call per detail", "", false);
+        addText(gui, PdpResilience.CACHE_TYPES, "Detail types whose PDP decisions may be reused for up to the TTL"
+                + " (comma-separated; blank means none). Never payment_initiation or a type requiring an authenticated principal",
+                "", false);
+        addText(gui, PdpResilience.CACHE_TTL, "How long a cached decision is reused, in seconds (1-" + DecisionCache.MAX_TTL_SECONDS + ")",
+                String.valueOf(DecisionCache.DEFAULT_TTL_SECONDS), false);
+        addText(gui, PdpResilience.BREAKER_FAILURES, "Transport failures in a row that open the circuit breaker, after which"
+                + " the PDP is not called and counts as unreachable", String.valueOf(CircuitBreaker.DEFAULT_THRESHOLD), false);
+        addText(gui, PdpResilience.BREAKER_OPEN, "Seconds the circuit breaker stays open before one trial call",
+                String.valueOf(CircuitBreaker.DEFAULT_OPEN_SECONDS), false);
+        gui.addValidator(new PdpResilience.Validator(deploymentProfile(), PDP_DIALECT, DIALECT_AUTHZEN, AUTHENTICATED_PRINCIPAL_TYPES));
 
         AuthorizationDetailProcessorDescriptor descriptor =
                 new AuthorizationDetailProcessorDescriptor(TYPE_NAME, this, gui, VERSION);
@@ -343,71 +451,15 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                     + "' has no RAR model to hold it to; see the RAR models line in the server log");
         }
         HttpServletRequest request = requestOf(context);
-        AttestationSubject subject = readSubject(request);
-        // Detail on which the decision is made - a copy without the internal markers, so they never reach the
-        // model, the governance engine as payload fields, the consent page, or the issued token. Their values are
-        // read first, for the principal resolver and the agent below. (The SDK's AuthorizationDetail always
-        // holds a map: getType() reads it without a null check.)
-        Map<String, Object> raw = authDetail.getDetail();
-        Object principalInDetail = raw.get(PRINCIPAL_DETAIL_KEY);
-        Object agentInDetail = raw.get(AGENT_DETAIL_KEY);
-        Map<String, Object> detail = ModelGate.strip(raw);
-        if (subject.getAgentId() == null && config.isTrustAgentMarker() && agentInDetail instanceof String marked && !marked.isBlank()) {
-            subject = subject.withAgentId(marked);
-        }
-
-        // Who the decision is about, and how we know. PingFederate's user key is a different thing in each
-        // flow, and two caller-supplied names (login_hint, _principal_sub) are honoured only in development.
-        String clientId = context == null ? null : context.getClientId();
-        String userKey = context == null ? null : context.getUserKey();
-        PrincipalResolver.Flow flow = flowOf(request);
-        String clientAsserted = firstNonBlank(readLoginHint(request), asString(principalInDetail));
-        PrincipalResolver.Principal principal = PrincipalResolver.resolve(flow, userKey, clientId, subject,
-                clientAsserted, config.isClientAssertedPrincipalHonoured());
-        if (notBlank(clientAsserted) && !PrincipalResolver.CLIENT_ASSERTED.equals(principal.source())
-                && log.isLoggable(Level.FINE)) {
-            log.fine("RAR governance: a caller-asserted principal on this request was not used for type '" + type
-                    + "' (source=" + principal.source() + ")");
-        }
-        if (log.isLoggable(Level.INFO)) {
-            // The path and the parameter NAMES say which of PingFederate's callers this was (the resume after
-            // authentication passes the mapped authentication attributes; the others pass none); the values
-            // are the person's and stay out of the log.
-            log.info("RAR governance: type=" + type + " flow=" + describe(flow) + " path=" + flow.requestPath()
-                    + " principalSource=" + principal.source()
-                    + " principal=" + PrincipalResolver.hashForLog(principal.subject())
-                    + " userKey=" + PrincipalResolver.hashForLog(userKey)
-                    + " paramKeys=" + (parameters == null ? "-" : parameters.keySet())
-                    + " attestationClient=" + subject.getClientId() + " agentId=" + subject.getAgentId()
-                    + " attester=" + subject.getAttesterIssuer() + " clientId=" + clientId);
-        }
-        // The attestation filter and this plugin must hold requests to one model: a context the filter published
-        // names its model set by fingerprint. No context at all is a request the filter did not verify, decided
-        // as before the model (the PDP sees no attested ceiling).
-        String mismatch = gate.fingerprintProblem(subject);
-        if (mismatch != null) {
-            log.warning("RAR governance: refusing type '" + type + "' before any PDP call: " + mismatch);
-            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
-                    + "' refused before any PDP call: " + mismatch);
-        }
-        // A detail the model cannot compare is refused here rather than decided: an unmodelled type, an undeclared
-        // field, a value of the wrong shape (RFC 9396 section 5). Neither the PDP nor the fail-open path below is
-        // ever handed one, so whatever is granted is something the refresh check can compare later.
-        try {
-            gate.check(detail);
-        } catch (RarModelException e) {
-            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
-                    + "' is not one this processor's RAR model accepts (" + e.reason() + "): " + e.getMessage()
-                    + "; refused before any PDP call");
-        }
-        if (PrincipalResolver.requiresAuthenticatedPrincipal(type, principal, config.getAuthenticatedPrincipalTypes())) {
-            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
-                    + "' needs an authenticated principal and this request has " + principal.source()
-                    + " (flow " + describe(flow) + "); refused before any PDP call");
-        }
+        AttestationSubject requestSubject = readSubject(request);
+        Prepared prepared = prepare(type, authDetail.getDetail(), context, request, requestSubject, parameters, false);
+        Map<String, Object> detail = prepared.detail();
+        PrincipalResolver.Principal principal = prepared.principal();
+        String userKey = prepared.userKey();
 
         try {
-            DecisionResponse decision = client.decide(type, detail, subject, principal.subject(), clientId, principal.source());
+            DecisionResponse decision = decisions.decide(request, prepared.ask(type),
+                    () -> batchCandidates(context, request, requestSubject, parameters));
             if (!decision.isPermit()) {
                 throw new AuthorizationDetailProcessingException(
                         "governance engine denied authorization_details of type '" + type
@@ -455,6 +507,139 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
             throw new AuthorizationDetailProcessingException(
                     "governance engine call failed for type '" + type + "': " + failure);
         }
+    }
+
+    /**
+     * What {@link #enrich} asks the PDP about one detail: the stripped copy the decision is made on, the attestation
+     * context (with the PAR-carried agent where that is trusted), the principal and how it was established.
+     */
+    private record Prepared(Map<String, Object> detail, AttestationSubject subject, PrincipalResolver.Principal principal,
+                            String clientId, String userKey) {
+        PdpDecisions.Ask ask(String type) {
+            return new PdpDecisions.Ask(type, detail, subject, principal.subject(), clientId, principal.source());
+        }
+    }
+
+    /**
+     * The steps before the PDP call, for one detail: strip the markers, resolve the principal, and refuse - before any
+     * PDP call - a model-set mismatch, a detail the model does not accept and a type that needs an authenticated
+     * principal it does not have. {@link #enrich} runs it on the detail PingFederate hands it; the batch runs it,
+     * {@code quiet}, on each detail the request carries, so the batch never asks the PDP a question {@code enrich}
+     * would have refused.
+     */
+    private Prepared prepare(String type, Map<String, Object> raw, AuthorizationDetailContext context,
+                             HttpServletRequest request, AttestationSubject requestSubject, Map<String, Object> parameters,
+                             boolean quiet) throws AuthorizationDetailProcessingException {
+        AttestationSubject subject = requestSubject;
+        // Detail on which the decision is made - a copy without the internal markers, so they never reach the
+        // model, the governance engine as payload fields, the consent page, or the issued token. Their values are
+        // read first, for the principal resolver and the agent below. (The SDK's AuthorizationDetail always
+        // holds a map: getType() reads it without a null check.)
+        Object principalInDetail = raw.get(PRINCIPAL_DETAIL_KEY);
+        Object agentInDetail = raw.get(AGENT_DETAIL_KEY);
+        Map<String, Object> detail = ModelGate.strip(raw);
+        if (subject.getAgentId() == null && config.isTrustAgentMarker() && agentInDetail instanceof String marked && !marked.isBlank()) {
+            subject = subject.withAgentId(marked);
+        }
+
+        // Who the decision is about, and how we know. PingFederate's user key is a different thing in each
+        // flow, and two caller-supplied names (login_hint, _principal_sub) are honoured only in development.
+        String clientId = context == null ? null : context.getClientId();
+        String userKey = context == null ? null : context.getUserKey();
+        PrincipalResolver.Flow flow = flowOf(request);
+        String clientAsserted = firstNonBlank(readLoginHint(request), asString(principalInDetail));
+        PrincipalResolver.Principal principal = PrincipalResolver.resolve(flow, userKey, clientId, subject,
+                clientAsserted, config.isClientAssertedPrincipalHonoured());
+        if (!quiet && notBlank(clientAsserted) && !PrincipalResolver.CLIENT_ASSERTED.equals(principal.source())
+                && log.isLoggable(Level.FINE)) {
+            log.fine("RAR governance: a caller-asserted principal on this request was not used for type '" + type
+                    + "' (source=" + principal.source() + ")");
+        }
+        if (!quiet && log.isLoggable(Level.INFO)) {
+            // The path and the parameter NAMES say which of PingFederate's callers this was (the resume after
+            // authentication passes the mapped authentication attributes; the others pass none); the values
+            // are the person's and stay out of the log.
+            log.info("RAR governance: type=" + type + " flow=" + describe(flow) + " path=" + flow.requestPath()
+                    + " principalSource=" + principal.source()
+                    + " principal=" + PrincipalResolver.hashForLog(principal.subject())
+                    + " userKey=" + PrincipalResolver.hashForLog(userKey)
+                    + " paramKeys=" + (parameters == null ? "-" : parameters.keySet())
+                    + " attestationClient=" + subject.getClientId() + " agentId=" + subject.getAgentId()
+                    + " attester=" + subject.getAttesterIssuer() + " clientId=" + clientId);
+        }
+        // The attestation filter and this plugin must hold requests to one model: a context the filter published
+        // names its model set by fingerprint. No context at all is a request the filter did not verify, decided
+        // as before the model (the PDP sees no attested ceiling).
+        String mismatch = gate.fingerprintProblem(subject);
+        if (mismatch != null) {
+            if (!quiet) {
+                log.warning("RAR governance: refusing type '" + type + "' before any PDP call: " + mismatch);
+            }
+            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
+                    + "' refused before any PDP call: " + mismatch);
+        }
+        // A detail the model cannot compare is refused here rather than decided: an unmodelled type, an undeclared
+        // field, a value of the wrong shape (RFC 9396 section 5). Neither the PDP nor the fail-open path below is
+        // ever handed one, so whatever is granted is something the refresh check can compare later.
+        try {
+            gate.check(detail);
+        } catch (RarModelException e) {
+            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
+                    + "' is not one this processor's RAR model accepts (" + e.reason() + "): " + e.getMessage()
+                    + "; refused before any PDP call");
+        }
+        if (PrincipalResolver.requiresAuthenticatedPrincipal(type, principal, config.getAuthenticatedPrincipalTypes())) {
+            throw new AuthorizationDetailProcessingException("authorization_details of type '" + type
+                    + "' needs an authenticated principal and this request has " + principal.source()
+                    + " (flow " + describe(flow) + "); refused before any PDP call");
+        }
+
+        return new Prepared(detail, subject, principal, clientId, userKey);
+    }
+
+    /**
+     * Every other detail the request carries that this processor would ask the PDP about, for an AuthZEN batch: the
+     * {@code authorization_details} parameter of the request PingFederate passed (the token endpoint's and CIBA's
+     * requests carry it; at the authorization endpoint PingFederate reads the details from the pushed request, the
+     * parameter is not there, and each detail is asked on its own). An entry that is not an object, has no type, or
+     * that {@link #prepare} refuses - another processor's type, one the model does not accept - is left out: it is
+     * never sent to this PDP in a batch.
+     */
+    List<PdpDecisions.Ask> batchCandidates(AuthorizationDetailContext context, HttpServletRequest request,
+                                           AttestationSubject requestSubject, Map<String, Object> parameters) {
+        List<PdpDecisions.Ask> asks = new ArrayList<>();
+        String param;
+        try {
+            param = request == null ? null : request.getParameter("authorization_details");
+        } catch (RuntimeException e) {
+            return asks;
+        }
+        if (param == null || param.isBlank()) {
+            return asks;
+        }
+        JsonNode root;
+        try {
+            root = mapper.readTree(param);
+        } catch (java.io.IOException e) {
+            return asks;
+        }
+        if (root == null || !root.isArray()) {
+            return asks;
+        }
+        for (JsonNode entry : root) {
+            if (!entry.isObject() || !entry.path("type").isTextual() || entry.path("type").asText().isBlank()) {
+                continue;
+            }
+            String type = entry.path("type").asText();
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> raw = mapper.convertValue(entry, Map.class);
+                asks.add(prepare(type, raw, context, request, requestSubject, parameters, true).ask(type));
+            } catch (AuthorizationDetailProcessingException | IllegalArgumentException e) {
+                // Not one this processor would ask about: its own enrich, if PingFederate calls it, says why.
+            }
+        }
+        return asks;
     }
 
     /**
