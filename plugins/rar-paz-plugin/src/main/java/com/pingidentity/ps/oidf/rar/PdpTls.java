@@ -138,15 +138,25 @@ final class PdpTls {
      * holds none, by {@link TlsTrust#caCertificates} when the trust is built.
      */
     static List<X509Certificate> certificatesOf(String pem) throws CertificateException {
+        return certificatesOf(pem, in -> CertificateFactory.getInstance("X.509").generateCertificates(in));
+    }
+
+    /** The JDK's certificate parser, as {@link #certificatesOf(String)} calls it: a seam for its unchecked failures. */
+    interface Parser {
+        Collection<? extends Certificate> parse(java.io.InputStream in) throws CertificateException;
+    }
+
+    /** {@link #certificatesOf(String)} with the parser of the caller's choosing. */
+    static List<X509Certificate> certificatesOf(String pem, Parser parser) throws CertificateException {
         if (pem == null || pem.isBlank()) {
             throw new CertificateException("the pinned CA field holds no certificate");
         }
         Collection<? extends Certificate> read;
         try {
-            read = CertificateFactory.getInstance("X.509")
-                    .generateCertificates(new ByteArrayInputStream(pem.trim().getBytes(StandardCharsets.US_ASCII)));
+            read = parser.parse(new ByteArrayInputStream(pem.trim().getBytes(StandardCharsets.US_ASCII)));
         } catch (RuntimeException e) {
-            // The JDK's parser throws a NullPointerException for some malformed PKCS#7 (JDK 17, 2026-09-29).
+            // The JDK's parser throws a NullPointerException for some malformed PKCS#7 on some builds (Oracle JDK
+            // 17.0.11, 2026-09-29; CI's Temurin 17 throws a CertificateException for the same input).
             throw new CertificateException("the pinned CA field is not a certificate: " + e, e);
         }
         List<X509Certificate> certificates = new ArrayList<>();

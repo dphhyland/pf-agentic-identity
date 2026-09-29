@@ -168,7 +168,11 @@ class PdpTlsTest {
         assertThrows(CertificateException.class, () -> PdpTls.certificatesOf("-----BEGIN CERTIFICATE-----\nnot base64\n-----END CERTIFICATE-----"));
         assertThrows(CertificateException.class, () -> PdpTls.certificatesOf("not a certificate at all"));
         assertThrows(CertificateException.class, () -> PdpTls.certificatesOf(
-                "-----BEGIN PKCS7-----\nMAsGCSqGSIb3DQEHAqA=\n-----END PKCS7-----"), "the JDK's own NullPointerException is a refusal too");
+                "-----BEGIN PKCS7-----\nMAsGCSqGSIb3DQEHAqA=\n-----END PKCS7-----"), "a malformed PKCS#7 is refused, however the JDK fails on it");
+        CertificateException npe = assertThrows(CertificateException.class, () -> PdpTls.certificatesOf("x", in -> {
+            throw new NullPointerException("the parser's own");
+        }));
+        assertTrue(npe.getMessage().contains("the parser's own"), "an unchecked failure of the JDK's parser is a refusal too");
         assertEquals(2, PdpTls.certificatesOf(ca.caPem + "\n" + ca.caPem).size());
         assertEquals("PdpTls[pinned-ca]", PdpTls.pinned(ca.caPem).toString());
     }
