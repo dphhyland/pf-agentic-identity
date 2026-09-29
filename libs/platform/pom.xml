@@ -475,6 +475,20 @@
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.every(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.after(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.startDaemon(*</include>
+                                        <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.introspect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.ask(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.string(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.audience(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.seconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.cached(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.remember(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.cacheUntil(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.Builder.cacheFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.clientSecretBasic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.privateKeyJwt(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
