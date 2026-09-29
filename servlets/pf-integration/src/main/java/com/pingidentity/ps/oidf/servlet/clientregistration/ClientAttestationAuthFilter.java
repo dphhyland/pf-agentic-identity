@@ -145,76 +145,82 @@ public final class ClientAttestationAuthFilter implements Filter {
     public void init(FilterConfig filterConfig) throws ServletException {
         ComponentParts.Part part = Startup.begin(Startup.ATTESTATION_AUTH, "ClientAttestationAuthFilter");
         this.part = part;
-        part.start(() -> {
-            // Everything is resolved into locals and published at the end, so a retry after a failure starts clean
-            // and a request never meets half of one attempt. OIDF_ATTESTATION_AUTH_ENABLED=false - or its superseded
-            // name OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false - disables the part before any of this runs.
-            boolean requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
-                    System.getenv(REQUIRE_HOSTED_AGENT_ENV));
-            boolean bridgeConfigured;
-            RarModels rarModels = null;
-            // Signing keys are per client and resolved per request, so what is checked here is whether bridge
-            // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
-            // signing configured is one where this filter passes everything through and those clients are
-            // authenticated by nothing - the failure that must not be silent. Per-client absence is a
-            // different thing and is a 401 for that client, not a boot failure for everyone.
-            try {
-                bridgeConfigured = BridgeSigners.isConfigured();
-            }
-            catch (IllegalStateException e) {
-                // A broken or superseded configuration is a deployment error, and the container contract for
-                // that is ServletException - an IllegalStateException out of init is not reliably surfaced.
-                throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
-            }
-            if (!bridgeConfigured) {
-                // Switched on, or inferred: either way a deployment that runs this filter without a bridge key is one
-                // whose attestation clients are authenticated by nothing, so the part is refused, not disabled.
-                part.failedConfig("attest_jwt_client_auth: no bridge signing configured. Set " + BridgeSigners.BACKING_ENV + " and "
-                        + BridgeSigners.KEYS_ENV + ", or set " + ComponentSwitches.ATTESTATION_AUTH
-                        + "=false to deploy without attestation-based client authentication");
-                return;
-            } else {
-                // Attestation authentication is live, so an attester that is not statically trusted resolves
-                // through a trust chain to the deployment's anchor, whose keys are pinned out of band (OpenID
-                // Federation 1.0 §4). A pinned JWKS that is not a usable public key set can never work: refuse
-                // to start. An absent one is refused per attester instead - failing init would also stop this
-                // web app's own /.well-known/openid-federation, which a self-anchored PF has to serve before
-                // its keys can be captured - so say so once, loudly, here.
-                FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-                if (runtime.isTrustControllerConfigured()) {
-                    if (!runtime.hasTrustAnchors()) {
-                        LOGGER.error((Object) ("attest_jwt_client_auth: " + FederationRuntimeConfig.HOST_ENV + " names "
-                                + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
-                                + " is unset - every attester resolved through the federation is refused until the trust"
-                                + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
-                        part.degraded(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: every attester resolved through"
-                                + " the federation is refused; statically trusted attesters are unaffected");
-                    } else {
-                        try {
-                            runtime.trustAnchors();
-                        }
-                        catch (RuntimeException e) {
-                            throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
-                        }
+        part.start(() -> this.init(filterConfig, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(FilterConfig filterConfig, ComponentParts.Part part) throws ServletException {
+        // Everything is resolved into locals and published at the end, so a retry after a failure starts clean
+        // and a request never meets half of one attempt. OIDF_ATTESTATION_AUTH_ENABLED=false - or its superseded
+        // name OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false - disables the part before any of this runs.
+        boolean requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
+                System.getenv(REQUIRE_HOSTED_AGENT_ENV));
+        boolean bridgeConfigured;
+        RarModels rarModels = null;
+        // Signing keys are per client and resolved per request, so what is checked here is whether bridge
+        // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
+        // signing configured is one where this filter passes everything through and those clients are
+        // authenticated by nothing - the failure that must not be silent. Per-client absence is a
+        // different thing and is a 401 for that client, not a boot failure for everyone.
+        try {
+            bridgeConfigured = BridgeSigners.isConfigured();
+        }
+        catch (IllegalStateException e) {
+            // A broken or superseded configuration is a deployment error, and the container contract for
+            // that is ServletException - an IllegalStateException out of init is not reliably surfaced.
+            throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
+        }
+        if (!bridgeConfigured) {
+            // Switched on, or inferred: either way a deployment that runs this filter without a bridge key is one
+            // whose attestation clients are authenticated by nothing, so the part is refused, not disabled.
+            part.failedConfig("attest_jwt_client_auth: no bridge signing configured. Set " + BridgeSigners.BACKING_ENV + " and "
+                    + BridgeSigners.KEYS_ENV + ", or set " + ComponentSwitches.ATTESTATION_AUTH
+                    + "=false to deploy without attestation-based client authentication");
+            return;
+        } else {
+            // Attestation authentication is live, so an attester that is not statically trusted resolves
+            // through a trust chain to the deployment's anchor, whose keys are pinned out of band (OpenID
+            // Federation 1.0 §4). A pinned JWKS that is not a usable public key set can never work: refuse
+            // to start. An absent one is refused per attester instead - failing init would also stop this
+            // web app's own /.well-known/openid-federation, which a self-anchored PF has to serve before
+            // its keys can be captured - so say so once, loudly, here.
+            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+            if (runtime.isTrustControllerConfigured()) {
+                if (!runtime.hasTrustAnchors()) {
+                    LOGGER.error((Object) ("attest_jwt_client_auth: " + FederationRuntimeConfig.HOST_ENV + " names "
+                            + runtime.trustControllerHost() + " but " + FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV
+                            + " is unset - every attester resolved through the federation is refused until the trust"
+                            + " anchor's keys are pinned; statically trusted attesters (oidf.mock.attesters) are unaffected"));
+                    part.degraded(FederationRuntimeConfig.TRUST_ANCHOR_JWKS_ENV + " is unset: every attester resolved through"
+                            + " the federation is refused; statically trusted attesters are unaffected");
+                } else {
+                    try {
+                        runtime.trustAnchors();
+                    }
+                    catch (RuntimeException e) {
+                        throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
                     }
                 }
-                // The containment model the token gate asks, once per classloader: a models document that cannot be
-                // read would leave the gate enforcing something other than what the deployment wrote, so the filter
-                // is FAILED_CONFIG - the same contract as a broken bridge configuration above - and, as plan item S-9
-                // has it, the web app still starts and the gate refuses only attestation traffic.
-                try {
-                    rarModels = AttestationRarModels.get();
-                }
-                catch (RarModelException e) {
-                    throw new ServletException("attest_jwt_client_auth: the RAR containment models could not be loaded: "
-                            + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
-                }
-                LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
             }
-            this.requireHostedAgent = requireHostedAgent;
-            this.rarModels = rarModels;
-            this.bridgeConfigured = bridgeConfigured;
-        });
+            // The containment model the token gate asks, once per classloader: a models document that cannot be
+            // read would leave the gate enforcing something other than what the deployment wrote, so the filter
+            // is FAILED_CONFIG - the same contract as a broken bridge configuration above - and, as plan item S-9
+            // has it, the web app still starts and the gate refuses only attestation traffic.
+            try {
+                rarModels = AttestationRarModels.get();
+            }
+            catch (RarModelException e) {
+                throw new ServletException("attest_jwt_client_auth: the RAR containment models could not be loaded: "
+                        + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
+            }
+            LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
+        }
+        this.requireHostedAgent = requireHostedAgent;
+        this.rarModels = rarModels;
+        this.bridgeConfigured = bridgeConfigured;
     }
 
     @Override

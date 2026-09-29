@@ -66,11 +66,7 @@ public final class Startup {
      * {@code false} when the switch cannot be read.
      */
     public static boolean mayStart(String component) {
-        try {
-            return ComponentSwitches.process().verdict(component).mayStart();
-        } catch (RuntimeException e) {
-            return false;
-        }
+        return PARTS.verdict(component).mayStart();
     }
 
     /** This loader's parts. */

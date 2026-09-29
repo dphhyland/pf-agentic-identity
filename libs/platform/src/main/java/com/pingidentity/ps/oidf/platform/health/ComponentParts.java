@@ -122,6 +122,19 @@ public final class ComponentParts {
         this.supervisor = supervisor;
     }
 
+    /**
+     * {@code component}'s switch verdict, asked of the switches these parts were built with; {@code FAILED_CONFIG} when
+     * they cannot be read (the catalogue is missing or broken: a packaging fault, refused rather than guessed at).
+     */
+    public ComponentSwitches.Verdict verdict(String component) {
+        try {
+            return this.switches.apply(component);
+        } catch (RuntimeException e) {
+            return new ComponentSwitches.Verdict(component, "", ComponentSwitches.Kind.FAILED_CONFIG,
+                    "the enable switches could not be read: " + reasonOf(e));
+        }
+    }
+
     /** The component's state as this parts' registry holds it; empty when no part of it has registered. */
     public java.util.Optional<ComponentStatus> component(String component) {
         return this.registry.status(component);
@@ -442,13 +455,7 @@ public final class ComponentParts {
 
         /** The component's switch verdict, asked of the switches this parts was built with. */
         public ComponentSwitches.Verdict verdict() {
-            try {
-                return ComponentParts.this.switches.apply(this.component);
-            } catch (RuntimeException e) {
-                // The catalogue could not be read: a packaging fault, refused rather than guessed at.
-                return new ComponentSwitches.Verdict(this.component, "", ComponentSwitches.Kind.FAILED_CONFIG,
-                        "the enable switches could not be read: " + reasonOf(e));
-            }
+            return ComponentParts.this.verdict(this.component);
         }
 
         /**

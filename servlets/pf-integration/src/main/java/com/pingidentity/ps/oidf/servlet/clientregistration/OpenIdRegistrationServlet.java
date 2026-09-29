@@ -51,19 +51,25 @@ extends RequestScopedServlet {
         boolean injected = this.RegistrationService != null;
         ComponentParts.Part part = Startup.begin(Startup.FEDERATION, "OpenIdRegistrationServlet");
         this.part = part;
-        part.start(() -> {
-            PfAuditEventSink.install();
-            if (injected) {
-                return;
-            }
-            try {
-                RegistrationConfiguration registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
-                this.RegistrationService = new RegistrationService(registrationConfiguration);
-            }
-            catch (Exception e) {
-                throw new ServletException("Failed to initialize OpenID Registration servlet", e);
-            }
-        });
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
+        PfAuditEventSink.install();
+        if (injected) {
+            return;
+        }
+        try {
+            RegistrationConfiguration registrationConfiguration = RegistrationConfiguration.fromServletConfig(config);
+            this.RegistrationService = new RegistrationService(registrationConfiguration);
+        }
+        catch (Exception e) {
+            throw new ServletException("Failed to initialize OpenID Registration servlet", e);
+        }
     }
 
     @Override

@@ -97,30 +97,36 @@ public final class Fapi2ProfileFilter implements Filter {
     public void init(FilterConfig config) {
         ComponentParts.Part part = Startup.begin(Startup.FAPI, "Fapi2ProfileFilter");
         this.part = part;
-        part.start(() -> {
-            String setting = config == null ? null : config.getInitParameter("clients");
-            if (setting == null || setting.isBlank()) {
-                setting = System.getProperty(CLIENTS_PROPERTY);
+        part.start(() -> this.init(config, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(FilterConfig config, ComponentParts.Part part) throws ServletException {
+        String setting = config == null ? null : config.getInitParameter("clients");
+        if (setting == null || setting.isBlank()) {
+            setting = System.getProperty(CLIENTS_PROPERTY);
+        }
+        if (setting == null || setting.isBlank()) {
+            setting = this.environment.apply(CLIENTS_ENV);
+        }
+        Set<String> listed = new LinkedHashSet<>();
+        for (String id : (setting == null ? "" : setting).split(",")) {
+            if (!id.isBlank()) {
+                listed.add(id.trim());
             }
-            if (setting == null || setting.isBlank()) {
-                setting = this.environment.apply(CLIENTS_ENV);
-            }
-            Set<String> listed = new LinkedHashSet<>();
-            for (String id : (setting == null ? "" : setting).split(",")) {
-                if (!id.isBlank()) {
-                    listed.add(id.trim());
-                }
-            }
-            this.clients = Set.copyOf(listed);
-            if (this.clients.isEmpty()) {
-                part.notConfigured(CLIENTS_ENV + " names no client");
-            }
-            LOGGER.info((Object) (this.clients.isEmpty()
-                    ? "FAPI 2.0 enforcement off (" + CLIENTS_ENV + " names no client): requests pass through unchanged"
-                    : "FAPI 2.0 enforcement ON for " + (this.clients.contains(EVERY_CLIENT) ? "every client" : this.clients)
-                            + ": client assertions must name the issuer as a string aud, and DPoP proofs must be"
-                            + " signed with " + Fapi2RequestPolicy.ALLOWED_ALGORITHMS));
-        });
+        }
+        this.clients = Set.copyOf(listed);
+        if (this.clients.isEmpty()) {
+            part.notConfigured(CLIENTS_ENV + " names no client");
+        }
+        LOGGER.info((Object) (this.clients.isEmpty()
+                ? "FAPI 2.0 enforcement off (" + CLIENTS_ENV + " names no client): requests pass through unchanged"
+                : "FAPI 2.0 enforcement ON for " + (this.clients.contains(EVERY_CLIENT) ? "every client" : this.clients)
+                        + ": client assertions must name the issuer as a string aud, and DPoP proofs must be"
+                        + " signed with " + Fapi2RequestPolicy.ALLOWED_ALGORITHMS));
     }
 
     @Override

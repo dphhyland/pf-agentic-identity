@@ -126,34 +126,40 @@ public class AttestationIssuanceServlet extends HttpServlet {
         super.init(config);
         ComponentParts.Part part = Startup.begin(Startup.ATTESTATION_ISSUER, "AttestationIssuanceServlet");
         this.part = part;
-        part.start(() -> {
-            // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
-            // whichever servlet or filter initialises first.
-            PfAuditEventSink.install();
-            boolean challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
-            List<String> customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
-                    "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
-            String baoUrl = config.getInitParameter("openBaoUrl");
-            String baoToken = config.getInitParameter("openBaoToken");
-            AttesterSigningKey signingKey = baoUrl != null && baoToken != null ? new AttesterSigningKey(baoUrl, baoToken) : null;
-            // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
-            // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
-            // against something other than what the deployment wrote, so the part is FAILED_CONFIG and the gate answers
-            // 503 on its path, and only its path (plan item S-9).
-            if (this.rarModels == null) {
-                try {
-                    this.rarModels = AttestationRarModels.get();
-                } catch (RarModelException e) {
-                    throw new ServletException("attestation issuance: the RAR containment models could not be loaded: "
-                            + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
-                }
+        part.start(() -> this.init(config, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part) throws ServletException {
+        // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
+        // whichever servlet or filter initialises first.
+        PfAuditEventSink.install();
+        boolean challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
+        List<String> customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
+                "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
+        String baoUrl = config.getInitParameter("openBaoUrl");
+        String baoToken = config.getInitParameter("openBaoToken");
+        AttesterSigningKey signingKey = baoUrl != null && baoToken != null ? new AttesterSigningKey(baoUrl, baoToken) : null;
+        // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
+        // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
+        // against something other than what the deployment wrote, so the part is FAILED_CONFIG and the gate answers
+        // 503 on its path, and only its path (plan item S-9).
+        if (this.rarModels == null) {
+            try {
+                this.rarModels = AttestationRarModels.get();
+            } catch (RarModelException e) {
+                throw new ServletException("attestation issuance: the RAR containment models could not be loaded: "
+                        + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
             }
-            this.challengeRequired = challengeRequired;
-            this.customClaimsRequired = customClaimsRequired;
-            if (signingKey != null) {
-                this.attesterSigningKey = signingKey;
-            }
-        });
+        }
+        this.challengeRequired = challengeRequired;
+        this.customClaimsRequired = customClaimsRequired;
+        if (signingKey != null) {
+            this.attesterSigningKey = signingKey;
+        }
     }
 
     @Override

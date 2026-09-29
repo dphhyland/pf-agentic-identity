@@ -137,17 +137,14 @@ public final class Supervisor {
         return Duration.ofSeconds(Math.min(seconds, CAP_SECONDS));
     }
 
-    private static void count(String component) {
-        try {
-            Retries.RETRIES.inc(component);
-        } catch (RuntimeException e) {
-            LOG.warn("Supervisor: the retry of " + component + " could not be counted (" + e + ")");
-        }
+    /** Counts one attempt at {@code component} in {@code oidf_component_retries_total}. */
+    static void count(String component) {
+        Retries.RETRIES.inc(component);
     }
 
     /** The metric, registered on the first retry, so loading this class registers nothing. */
-    private static final class Retries {
-        static final Counter RETRIES = Metrics.counter("oidf_component_retries_total",
+    interface Retries {
+        Counter RETRIES = Metrics.counter("oidf_component_retries_total",
                 "Attempts by the supervisor to start a component part again after it failed on a dependency",
                 Label.capped("component", 16));
     }
@@ -172,8 +169,7 @@ public final class Supervisor {
 
         @Override
         public boolean schedule(Duration delay, Runnable task) {
-            Optional<ManagedExecutor> e = this.executor();
-            return e.isPresent() && e.get().after(delay, task);
+            return this.executor().map(e -> e.after(delay, task)).orElse(false);
         }
 
         private synchronized Optional<ManagedExecutor> executor() {

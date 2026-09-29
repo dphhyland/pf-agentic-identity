@@ -96,24 +96,30 @@ public class HostedEntityServlet extends RequestScopedServlet {
         super.init(config);
         ComponentParts.Part part = Startup.begin(Startup.HOSTING, "HostedEntityServlet");
         this.part = part;
-        part.start(() -> {
-            PfAuditEventSink.install();
-            try {
-                // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
-                // not, and a servlet that refuses to boot just because enrolment isn't configured would take
-                // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
-                String adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-                if (!configureAuthority(config::getInitParameter)) {
-                    // No authority: this deployment hosts nothing - disabled, or FAILED_CONFIG when OIDF_HOSTING_ENABLED=true.
-                    part.notConfigured("no authority entity id is set (OIDF_AUTHORITY_ENTITY_ID, oidf.authority.entity_id or the"
-                            + " init-param authorityEntityId)");
-                    return;
-                }
-                this.adminToken = adminToken;
-            } catch (RuntimeException e) {
-                throw new ServletException("Failed to initialize HostedEntityServlet", e);
+        part.start(() -> this.init(config, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part) throws ServletException {
+        PfAuditEventSink.install();
+        try {
+            // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
+            // not, and a servlet that refuses to boot just because enrolment isn't configured would take
+            // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
+            String adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+            if (!configureAuthority(config::getInitParameter)) {
+                // No authority: this deployment hosts nothing - disabled, or FAILED_CONFIG when OIDF_HOSTING_ENABLED=true.
+                part.notConfigured("no authority entity id is set (OIDF_AUTHORITY_ENTITY_ID, oidf.authority.entity_id or the"
+                        + " init-param authorityEntityId)");
+                return;
             }
-        });
+            this.adminToken = adminToken;
+        } catch (RuntimeException e) {
+            throw new ServletException("Failed to initialize HostedEntityServlet", e);
+        }
     }
 
     /**
@@ -132,9 +138,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         if (authorityEntityId == null) {
             return false;
         }
-        // Everything that can fail is resolved before anything is published: the store, the policy and the signer. A
-        // signer that cannot be built then leaves no registry and no policy behind - the authority is configured
-        // whole or not at all - and a later attempt (the supervisor's, or another servlet's) starts from nothing.
+        // Everything that can fail is resolved before the registry or the signing is published: the store, the policy
+        // and the signer. A signer that cannot be built, or a policy that is not one, then leaves no registry behind -
+        // the authority is configured whole or not at all - and a later attempt (the supervisor's, or another
+        // servlet's) starts from nothing. The policy alone is harmless: nothing reads it until signing is published,
+        // and the next attempt sets it again.
         javax.sql.DataSource store = null;
         String jdbcUrl = setting(initParams, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
         if (jdbcUrl != null) {
@@ -146,8 +154,7 @@ public class HostedEntityServlet extends RequestScopedServlet {
                 store = PfDataSources.pfManaged(dataStoreId);
             }
         }
-        Map<String, Object> policy = FederationRuntimeConfig.get().authorityMetadataPolicy();
-        AuthoritySupport.checkDomainDefaultMetadataPolicy(policy);
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
         String baoUrl = setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
         String baoToken = setting(initParams, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
         HostedEntitySigner signer = baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken)
@@ -163,7 +170,6 @@ public class HostedEntityServlet extends RequestScopedServlet {
         }
         // Neither set: AuthoritySupport.registry() falls back to an in-memory registry with its own loud warning the first
         // time it is actually used.
-        AuthoritySupport.configureDomainDefaultMetadataPolicy(policy);
         AuthoritySupport.configureSigning(signer, authorityEntityId);
         return true;
     }

@@ -109,46 +109,52 @@ public class FederationAdminServlet extends RequestScopedServlet {
         boolean injected = this.registry != null;
         ComponentParts.Part part = Startup.begin(Startup.OPERATOR_API, "FederationAdminServlet");
         this.part = part;
-        part.start(() -> {
-            PfAuditEventSink.install();
-            if (injected) {
-                return;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
+        PfAuditEventSink.install();
+        if (injected) {
+            return;
+        }
+        String adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+        if (adminToken == null) {
+            // No token, no caller: the API is off - or FAILED_CONFIG when OIDF_OPERATOR_API_ENABLED=true.
+            part.notConfigured("OIDF_AUTHORITY_ADMIN_TOKEN is unset");
+            return;
+        }
+        try {
+            if (Startup.mayStart(Startup.HOSTING)) {
+                HostedEntityServlet.configureAuthority(config::getInitParameter);
             }
-            String adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-            if (adminToken == null) {
-                // No token, no caller: the API is off - or FAILED_CONFIG when OIDF_OPERATOR_API_ENABLED=true.
-                part.notConfigured("OIDF_AUTHORITY_ADMIN_TOKEN is unset");
-                return;
+        } catch (RuntimeException e) {
+            // The entity routes then answer that nothing is hosted; the rest of the API still works.
+            log("Hosting could not be configured for the admin API", e);
+        }
+        FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
+        Map<String, TrustMarkType> types = runtime.trustMarkIssuing().types();
+        if (!TrustMarkSupport.isConfigured()) {
+            AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
+        }
+        Clock clock = Clock.systemUTC();
+        KeyHistory keyHistory = null;
+        if (runtime.keyHistory().enabled()) {
+            if (!KeyHistorySupport.isConfigured()) {
+                AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
             }
-            try {
-                if (Startup.mayStart(Startup.HOSTING)) {
-                    HostedEntityServlet.configureAuthority(config::getInitParameter);
-                }
-            } catch (RuntimeException e) {
-                // The entity routes then answer that nothing is hosted; the rest of the API still works.
-                log("Hosting could not be configured for the admin API", e);
-            }
-            FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-            Map<String, TrustMarkType> types = runtime.trustMarkIssuing().types();
-            if (!TrustMarkSupport.isConfigured()) {
-                AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-            }
-            Clock clock = Clock.systemUTC();
-            KeyHistory keyHistory = null;
-            if (runtime.keyHistory().enabled()) {
-                if (!KeyHistorySupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
-                }
-                keyHistory = new KeyHistory(KeyHistorySupport.shared(), clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
-            }
-            // Published last, once everything above resolved; the gate keeps requests out until the part is ready.
-            this.adminToken = adminToken;
-            this.types = types;
-            this.clock = clock;
-            this.keyHistory = keyHistory;
-            this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
-            this.registry = TrustMarkSupport.shared();
-        });
+            keyHistory = new KeyHistory(KeyHistorySupport.shared(), clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
+        }
+        // Published last, once everything above resolved; the gate keeps requests out until the part is ready.
+        this.adminToken = adminToken;
+        this.types = types;
+        this.clock = clock;
+        this.keyHistory = keyHistory;
+        this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
+        this.registry = TrustMarkSupport.shared();
     }
 
     @Override

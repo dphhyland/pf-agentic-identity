@@ -219,16 +219,6 @@ public final class AuthoritySupport {
      * hazard in an operator updating it without a restart.
      */
     public static void configureDomainDefaultMetadataPolicy(Map<String, Object> policy) {
-        domainDefaultMetadataPolicy = checkDomainDefaultMetadataPolicy(policy);
-    }
-
-    /**
-     * {@code policy} as {@link #configureDomainDefaultMetadataPolicy} would keep it, checked, without keeping it - for a
-     * caller that checks everything before it publishes anything.
-     *
-     * @throws IllegalArgumentException naming the entity type whose policy is not one
-     */
-    public static Map<String, Object> checkDomainDefaultMetadataPolicy(Map<String, Object> policy) {
         Map<String, Object> checked = policy == null ? Map.of() : Map.copyOf(policy);
         for (Map.Entry<String, Object> type : checked.entrySet()) {
             if (!(type.getValue() instanceof Map)) {
@@ -241,7 +231,7 @@ public final class AuthoritySupport {
                         + e.getMessage(), e);
             }
         }
-        return checked;
+        domainDefaultMetadataPolicy = checked;
     }
 
     /**
