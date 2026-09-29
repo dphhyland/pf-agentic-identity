@@ -10,7 +10,7 @@ it the heading `[<version>] - <date>`, the date the tag is cut, and leaves an em
 
 ## [Unreleased] - 0.6.0-SNAPSHOT
 
-Nothing yet. The poms move to 0.6.0-SNAPSHOT in the pull request that begins it.
+Phase 3 of the production programme, secure by default: the production profile enforced, operator authentication on OAuth, components that fail soft, attestation policy on the filter path, and every high finding closed. Release notes arrive as fragments under [docs/releases/unreleased](docs/releases/unreleased/) and are folded in at release.
 
 ## [0.5.0] - 2026-09-29
 
