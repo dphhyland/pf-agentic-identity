@@ -83,16 +83,9 @@ public final class ComponentGate {
             // This part is off (its own setting, or its switch), whatever its component's other parts are doing.
             return Action.DISABLED;
         }
+        // A part that is not disabled keeps its component enabled, so the component is never DISABLED here.
         ComponentState state = part.componentState();
-        switch (state) {
-            case READY:
-            case DEGRADED:
-                return Action.SERVE;
-            case DISABLED:
-                return Action.DISABLED;
-            default:
-                return Action.UNAVAILABLE;
-        }
+        return state == ComponentState.READY || state == ComponentState.DEGRADED ? Action.SERVE : Action.UNAVAILABLE;
     }
 
     /**

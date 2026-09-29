@@ -94,6 +94,15 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.evaluate(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.describe(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.ognl.CriterionGuard.oneLine(*</include>
+                                        <!-- component (S-9): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.action(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.servlet(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.filter(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.attestationTraffic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.federationClientTraffic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.entityIdentifier(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.jwtPart(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.component.ComponentGate.write(*</include>
                                         <!-- settings (ST-1, ST-2): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.pf.settings.InitParams.of(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.settings.InitParams.sources(*</include>
