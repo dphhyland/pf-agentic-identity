@@ -35,7 +35,9 @@ import com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
@@ -85,7 +87,9 @@ import org.jose4j.jwk.JsonWebKeySet;
  * <p>Response: {@code 200 {"attestation":"<jwt>","expires_in":N}} ({@code Cache-Control: no-store}); on
  * failure a JSON body {@code {"error":..,"error_description":..}} with a stable code and 4xx/5xx status.
  */
-@WebServlet(urlPatterns = {"/federation/attestation"})
+// loadOnStartup: ATTESTATION_ISSUER's part registers at deploy, not on the first request (finding F-0193); its init
+// never throws.
+@WebServlet(urlPatterns = {"/federation/attestation"}, loadOnStartup = 1)
 public class AttestationIssuanceServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(AttestationIssuanceServlet.class);
@@ -106,6 +110,8 @@ public class AttestationIssuanceServlet extends HttpServlet {
     private volatile AttestationChallengeService challengeService;
     private volatile AttestationReplayCache replayCache;
     private volatile RarModels rarModels;
+    /** This servlet's part of ATTESTATION_ISSUER, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
 
     /**
      * The audit event for evidence presented by a second instance key or client: the rightful holder's evidence
@@ -117,25 +123,23 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        var part = Startup.begin(Startup.ATTESTATION_ISSUER, "AttestationIssuanceServlet");
-        try {
-            super.init(config);
+        super.init(config);
+        ComponentParts.Part part = Startup.begin(Startup.ATTESTATION_ISSUER, "AttestationIssuanceServlet");
+        this.part = part;
+        part.start(() -> {
             // The conflict event belongs in PingFederate's audit log; the sink is installed once per classloader, by
             // whichever servlet or filter initialises first.
             PfAuditEventSink.install();
-            this.challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
-            this.customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
+            boolean challengeRequired = Boolean.parseBoolean(config.getInitParameter("challengeRequired"));
+            List<String> customClaimsRequired = customClaimsFrom(config.getInitParameter("customClaimsRequired"),
                     "oidf.attestation.custom.claims.required", "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
             String baoUrl = config.getInitParameter("openBaoUrl");
             String baoToken = config.getInitParameter("openBaoToken");
-            if (baoUrl != null && baoToken != null) {
-                this.attesterSigningKey = new AttesterSigningKey(baoUrl, baoToken);
-            }
+            AttesterSigningKey signingKey = baoUrl != null && baoToken != null ? new AttesterSigningKey(baoUrl, baoToken) : null;
             // The containment model every ceiling here is held to, once per classloader (the token-endpoint filter
             // shares it in pf-runtime.war). A models document that cannot be read would have this attester mint
-            // against something other than what the deployment wrote, so the servlet does not start: it starts
-            // lazily, so its path fails from the first request on, and only its path. Plan item S-9 (Phase 3) gives
-            // the component a state of its own instead.
+            // against something other than what the deployment wrote, so the part is FAILED_CONFIG and the gate answers
+            // 503 on its path, and only its path (plan item S-9).
             if (this.rarModels == null) {
                 try {
                     this.rarModels = AttestationRarModels.get();
@@ -144,12 +148,20 @@ public class AttestationIssuanceServlet extends HttpServlet {
                             + e.getMessage() + ". Fix " + RarModels.ENV_MODELS_FILE + " or " + RarModels.ENV_MODELS + ".", e);
                 }
             }
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
+            this.challengeRequired = challengeRequired;
+            this.customClaimsRequired = customClaimsRequired;
+            if (signingKey != null) {
+                this.attesterSigningKey = signingKey;
+            }
+        });
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
         }
+        super.service(req, resp);
     }
 
     @Override

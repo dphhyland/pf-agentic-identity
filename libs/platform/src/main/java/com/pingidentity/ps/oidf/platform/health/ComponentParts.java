@@ -5,6 +5,10 @@ package com.pingidentity.ps.oidf.platform.health;
 
 import com.pingidentity.ps.oidf.platform.component.ComponentRegistry;
 import com.pingidentity.ps.oidf.platform.component.ComponentState;
+import com.pingidentity.ps.oidf.platform.component.ComponentStatus;
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
+import com.pingidentity.ps.oidf.platform.component.Supervisor;
+import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.sql.SQLException;
@@ -20,6 +24,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.StringJoiner;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 
 /**
@@ -30,17 +35,24 @@ import java.util.regex.Pattern;
  * publishes the component's state to the registry: the worst state among its enabled parts, and
  * {@link ComponentState#DISABLED} when none is enabled.
  *
- * <p>A part starts {@link ComponentState#STARTING}. The {@code init} that registered it then says what it found:
- * {@link Part#disabled()} where today's configuration switches the part off, {@link Part#failed(Throwable)} on the
- * exception {@code init} throws, which {@code init} then rethrows unchanged,
- * {@link Part#failedConfig(String)} or {@link Part#degraded(String)} where {@code init} refuses or limits the part
- * without throwing, and {@link Part#finish()} at the end, which makes a part that is still starting ready. A
- * disabled part stays disabled. Registering a part again - a servlet initialised a second time - starts it afresh
- * and retires the earlier handle.
+ * <p>A part starts {@link ComponentState#STARTING}. Its {@code init} hands its start function to
+ * {@link Part#start(Start)}, which never throws (plan item S-9): it applies the component's enable switch
+ * ({@link ComponentSwitches}) - a component switched off is {@link ComponentState#DISABLED} and its start function
+ * never runs, one refused by its switch is {@link ComponentState#FAILED_CONFIG} - then runs the function, records
+ * what it threw as {@link Part#failed(Throwable)} does, and makes a part still starting ready. Inside, the function
+ * says what it found: {@link Part#notConfigured(String)} where the settings it needs are absent (disabled, or
+ * {@code FAILED_CONFIG} when its switch is {@code true}), {@link Part#failedConfig(String)} or
+ * {@link Part#degraded(String)} where it refuses or limits the part. A part that ends in
+ * {@link ComponentState#FAILED_DEPENDENCY} is handed to the {@link Supervisor}, which runs the same start function
+ * again with backoff until the part is ready or fails in a way a retry does not fix. A disabled part stays
+ * disabled. Registering a part again - a servlet initialised a second time - starts it afresh and retires the
+ * earlier handle, and the supervisor stops retrying the retired one.
  *
- * <p>There is no supervisor here (S9a, Phase 3). The one retry is a <em>probe</em>: a part that failed on a
- * dependency another thread keeps retrying - the SSF transmitter's boot retry - can pass a check that
- * {@link #refresh()}, called by health before it reads the states, runs; the part is ready once the check returns.
+ * <p>Parts that do not start through {@link Part#start(Start)} (the SSF servlets until ST-5 moves them) report as
+ * before: {@link Part#failed(Throwable)} on what their {@code init} throws, {@link Part#finish()} at the end. The
+ * pull probe stays for them: a part that failed on a dependency another thread keeps retrying - the SSF
+ * transmitter's boot retry - can pass a check that {@link #refresh()}, called by health before it reads the
+ * states, runs; the part is ready once the check returns.
  */
 public final class ComponentParts {
 
@@ -53,6 +65,14 @@ public final class ComponentParts {
     private static final List<ComponentState> WORST_FIRST = List.of(ComponentState.FAILED_CONFIG, ComponentState.REFUSED,
             ComponentState.FAILED_DEPENDENCY, ComponentState.STARTING, ComponentState.DEGRADED, ComponentState.READY);
 
+    private static final PlatformLog LOG = PlatformLog.get(ComponentParts.class);
+
+    /** A part's start function: what its {@code init} did before S-9, run once at deploy and again by each retry. */
+    @FunctionalInterface
+    public interface Start {
+        void start() throws Exception;
+    }
+
     /** A check that returns when a dependency is back, and throws while it is not. */
     @FunctionalInterface
     public interface Probe {
@@ -61,8 +81,12 @@ public final class ComponentParts {
 
     private final ComponentRegistry registry;
     private final Clock clock;
+    private final Function<String, ComponentSwitches.Verdict> switches;
+    private final Supervisor supervisor;
     private final Map<String, Map<String, Entry>> components = new LinkedHashMap<>();
     private final Map<String, Published> published = new LinkedHashMap<>();
+    /** Each component's note: how its switch was read, shown beside a state that needs no reason. */
+    private final Map<String, String> notes = new LinkedHashMap<>();
     private long generations;
 
     private static final class Entry {
@@ -81,9 +105,26 @@ public final class ComponentParts {
     private record Published(ComponentRegistry.Component handle, boolean enabled) {
     }
 
+    /** Parts with no switches (every component inferred) and no supervisor (nothing retried). */
     public ComponentParts(ComponentRegistry registry, Clock clock) {
+        this(registry, clock, component -> new ComponentSwitches.Verdict(component, "", ComponentSwitches.Kind.INFERRED, ""), null);
+    }
+
+    /**
+     * @param switches   each component's switch verdict, asked when a part starts
+     * @param supervisor what retries a part that failed on a dependency, or null for nothing
+     */
+    public ComponentParts(ComponentRegistry registry, Clock clock, Function<String, ComponentSwitches.Verdict> switches,
+            Supervisor supervisor) {
         this.registry = Objects.requireNonNull(registry, "registry");
         this.clock = Objects.requireNonNull(clock, "clock");
+        this.switches = Objects.requireNonNull(switches, "switches");
+        this.supervisor = supervisor;
+    }
+
+    /** The component's state as this parts' registry holds it; empty when no part of it has registered. */
+    public java.util.Optional<ComponentStatus> component(String component) {
+        return this.registry.status(component);
     }
 
     /**
@@ -188,20 +229,21 @@ public final class ComponentParts {
         ComponentState worst = worst(parts);
         boolean enabled = worst != ComponentState.DISABLED;
         Published was = this.published.get(component);
+        String note = this.notes.getOrDefault(component, "");
         ComponentRegistry.Component handle = was == null || was.enabled() != enabled
-                ? this.registry.register(component, enabled) : was.handle();
+                ? this.registry.register(component, enabled, note) : was.handle();
         this.published.put(component, new Published(handle, enabled));
         if (!enabled) {
             return;
         }
         String reason = reasons(parts, worst);
         switch (worst) {
-            case READY -> handle.ready();
+            case READY -> handle.ready(note);
             case DEGRADED -> handle.degraded(reason);
             case FAILED_CONFIG -> handle.failedConfig(reason);
             case FAILED_DEPENDENCY -> handle.failedDependency(reason);
             case REFUSED -> handle.refused(reason);
-            default -> handle.starting();
+            default -> handle.starting(note);
         }
     }
 
@@ -323,6 +365,107 @@ public final class ComponentParts {
                 Entry e = ComponentParts.this.components.get(this.component).get(this.part);
                 return new PartStatus(this.component, this.part, e.state, e.reason, e.since);
             }
+        }
+
+        /**
+         * Starts the part: applies its component's switch, runs {@code start}, records the outcome, and hands a part
+         * that failed on a dependency to the supervisor, which runs {@code start} again with backoff. Never throws:
+         * what {@code start} throws is recorded ({@link ComponentParts#stateFor}, with its message as the reason)
+         * and logged with its stack, and nothing reaches the container.
+         *
+         * @return the part's state once this first attempt is recorded
+         */
+        public ComponentState start(Start start) {
+            Objects.requireNonNull(start, "start");
+            ComponentSwitches.Verdict verdict = this.verdict();
+            synchronized (ComponentParts.this) {
+                ComponentParts.this.notes.put(this.component, verdict.note());
+            }
+            if (verdict.kind() == ComponentSwitches.Kind.DISABLED) {
+                this.disabled();
+                return this.status().state();
+            }
+            if (verdict.kind() == ComponentSwitches.Kind.FAILED_CONFIG) {
+                LOG.warn("Component " + this.component + ": " + this.part + " not started - " + verdict.note());
+                this.failedConfig(verdict.note());
+                return this.status().state();
+            }
+            this.attempt(start);
+            ComponentState now = this.status().state();
+            if (now == ComponentState.FAILED_DEPENDENCY && ComponentParts.this.supervisor != null && !this.hasProbe()) {
+                boolean scheduled = ComponentParts.this.supervisor.retry(this.component, () -> this.retry(start));
+                if (!scheduled) {
+                    LOG.warn("Component " + this.component + ": " + this.part + " failed on a dependency and nothing will retry it in"
+                            + " this copy; it stays FAILED_DEPENDENCY until it starts again");
+                }
+            }
+            return now;
+        }
+
+        /** One retry: starting again, the start function, the outcome. Answers whether the supervisor should stop. */
+        boolean retry(Start start) {
+            if (!move(this.component, this.part, this.generation, ComponentState.STARTING, null, null)) {
+                return true;
+            }
+            this.attempt(start);
+            PartStatus now = this.status();
+            return now.state() != ComponentState.FAILED_DEPENDENCY || !this.current();
+        }
+
+        private void attempt(Start start) {
+            try {
+                start.start();
+            } catch (Throwable thrown) {
+                if (thrown instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                }
+                ComponentState state = stateFor(thrown);
+                LOG.warn("Component " + this.component + ": " + this.part + " did not start (" + state + ")", thrown);
+                this.failed(thrown);
+                return;
+            }
+            this.finish();
+        }
+
+        private boolean hasProbe() {
+            synchronized (ComponentParts.this) {
+                return ComponentParts.this.components.get(this.component).get(this.part).probe != null;
+            }
+        }
+
+        /** Whether this handle is the part's current registration. */
+        private boolean current() {
+            synchronized (ComponentParts.this) {
+                return ComponentParts.this.components.get(this.component).get(this.part).generation == this.generation;
+            }
+        }
+
+        /** The component's switch verdict, asked of the switches this parts was built with. */
+        public ComponentSwitches.Verdict verdict() {
+            try {
+                return ComponentParts.this.switches.apply(this.component);
+            } catch (RuntimeException e) {
+                // The catalogue could not be read: a packaging fault, refused rather than guessed at.
+                return new ComponentSwitches.Verdict(this.component, "", ComponentSwitches.Kind.FAILED_CONFIG,
+                        "the enable switches could not be read: " + reasonOf(e));
+            }
+        }
+
+        /**
+         * The settings the part needs are absent: {@code FAILED_CONFIG} when its switch is {@code true} (the reason says
+         * the switch and what is missing), disabled otherwise - the inferred answer, as before the switches existed.
+         */
+        public boolean notConfigured(String missing) {
+            ComponentSwitches.Verdict verdict = this.verdict();
+            if (verdict.kind() == ComponentSwitches.Kind.ENABLED) {
+                return this.failedConfig(verdict.name() + "=true but " + missing);
+            }
+            return this.disabled();
+        }
+
+        /** The component's state now, as the registry holds it - what a surface's gate asks. */
+        public ComponentState componentState() {
+            return ComponentParts.this.registry.status(this.component).map(ComponentStatus::state).orElse(ComponentState.STARTING);
         }
 
         /** Today's configuration switches this part off; it stays off. */

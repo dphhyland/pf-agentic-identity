@@ -1,11 +1,11 @@
 /*
- * FAPI registers its part at init: ready when it names a client, disabled when it names none, failed on a throw.
+ * FAPI registers its part at init: ready when it names a client, disabled when it names none, failed on a throw - and
+ * init returns whatever happened.
  */
 package com.pingidentity.ps.oidf.servlet.fapi2;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -37,12 +37,12 @@ class Fapi2ProfileFilterComponentTest {
     }
 
     @Test
-    void anExceptionFromInitIsRecordedAndRethrownUnchanged() {
+    void anExceptionFromInitIsRecordedAndInitReturns() {
         IllegalStateException boom = new IllegalStateException("the environment could not be read");
         Fapi2ProfileFilter filter = new Fapi2ProfileFilter(r -> "https://op.example", name -> {
             throw boom;
         });
-        assertSame(boom, assertThrows(IllegalStateException.class, () -> filter.init(null)));
+        assertDoesNotThrow(() -> filter.init(null));
         assertEquals(ComponentState.FAILED_CONFIG, part("Fapi2ProfileFilter").state());
         assertEquals("the environment could not be read", part("Fapi2ProfileFilter").reason());
     }

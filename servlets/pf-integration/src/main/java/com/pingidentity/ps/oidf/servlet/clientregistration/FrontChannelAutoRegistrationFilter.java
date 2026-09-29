@@ -8,7 +8,9 @@ import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSetti
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.PfTracking;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.oauth.FederationErrorPage;
 import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
@@ -59,11 +61,20 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
     private static final String REPLAY_NAMESPACE = "oidf-registration:";
 
     private final Function<HttpServletRequest, String> issuerResolver;
-    private volatile RegistrationService service;
-    private volatile AutoRegistrationSettings settings;
-    private volatile boolean failClosed = true;
-    private volatile FederationErrorPage errorPage = FederationErrorPage.builtIn();
-    private volatile RequestObject.ReplayGuard replay;
+    /** Everything init resolves, published in one write once it all resolved; null until then, and the filter passes through. */
+    private volatile Wiring wiring;
+    /** This filter's part of AUTO_REGISTRATION, from init; null when a test's constructor made it and init never ran. */
+    private volatile ComponentParts.Part part;
+
+    /** What a request needs from init, whole: a reader sees all of it or none of it. No service: pass everything through. */
+    record Wiring(RegistrationService service, AutoRegistrationSettings settings, boolean failClosed, FederationErrorPage errorPage,
+                  RequestObject.ReplayGuard replay) {
+        Wiring {
+            Objects.requireNonNull(settings, "settings");
+            Objects.requireNonNull(errorPage, "errorPage");
+            Objects.requireNonNull(replay, "replay");
+        }
+    }
 
     public FrontChannelAutoRegistrationFilter() {
         this.issuerResolver = request -> PfInternals.issuer(request);
@@ -73,20 +84,18 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
     FrontChannelAutoRegistrationFilter(RegistrationService service, Function<HttpServletRequest, String> issuerResolver,
                                        AutoRegistrationSettings settings, boolean failClosed, RequestObject.ReplayGuard replay,
                                        FederationErrorPage errorPage) {
-        this.service = service;
         this.issuerResolver = Objects.requireNonNull(issuerResolver, "issuerResolver");
-        this.settings = Objects.requireNonNull(settings, "settings");
-        this.failClosed = failClosed;
-        this.replay = Objects.requireNonNull(replay, "replay");
-        this.errorPage = Objects.requireNonNull(errorPage, "errorPage");
+        this.wiring = new Wiring(service, settings, failClosed, errorPage, replay);
     }
 
     @Override
     public void init(FilterConfig config) throws ServletException {
-        var part = Startup.begin(Startup.AUTO_REGISTRATION, "FrontChannelAutoRegistrationFilter");
-        try {
+        boolean injected = this.wiring != null;
+        ComponentParts.Part part = Startup.begin(Startup.AUTO_REGISTRATION, "FrontChannelAutoRegistrationFilter");
+        this.part = part;
+        part.start(() -> {
             PfAuditEventSink.install();
-            if (this.service != null) {
+            if (injected) {
                 return;
             }
             FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
@@ -106,32 +115,32 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
                         + " authorization and PAR endpoints is off until the trust anchor's keys are pinned");
                 return;
             }
+            FederationErrorPage errorPage;
             try {
-                this.errorPage = FederationErrorPage.from(configured.errorPage());
+                errorPage = FederationErrorPage.from(configured.errorPage());
             } catch (IOException e) {
                 throw new ServletException(FederationRuntimeConfig.FEDERATION_ERROR_PAGE_ENV + " names " + configured.errorPage()
                         + ", which cannot be read", e);
             }
+            RegistrationService service;
             try {
-                this.service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
+                service = new RegistrationService(RegistrationConfiguration.forFilter(runtime, config));
             } catch (RuntimeException e) {
                 throw new ServletException("OpenID Federation automatic registration: " + e.getMessage(), e);
             }
-            this.settings = configured;
-            this.failClosed = runtime.registration().failClosed();
-            this.replay = (clientId, jti, ttl) -> AttestationSupport.replayCache().firstSeen(REPLAY_NAMESPACE + clientId, jti, ttl);
+            this.wiring = new Wiring(service, configured, runtime.registration().failClosed(), errorPage,
+                    (clientId, jti, ttl) -> AttestationSupport.replayCache().firstSeen(REPLAY_NAMESPACE + clientId, jti, ttl));
             LOGGER.info((Object)("FrontChannelAutoRegistrationFilter initialised (trust controller " + runtime.trustControllerHost() + ")"));
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
-        }
+        });
     }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
-        if (!(request instanceof HttpServletRequest http) || !(response instanceof HttpServletResponse httpResponse) || this.service == null) {
+        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::federationClientTraffic)) {
+            return;
+        }
+        Wiring wired = this.wiring;
+        if (!(request instanceof HttpServletRequest http) || !(response instanceof HttpServletResponse httpResponse) || wired == null || wired.service() == null) {
             chain.doFilter(request, response);
             return;
         }
@@ -162,16 +171,16 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
                 unreadable = e;
             }
             String issuer = this.issuerResolver.apply(http);
-            RegistrationService.Channel channel = this.service.frontChannel(par ? "par" : "authorization", clientId, issuer, proof, unreadable,
-                    this.replay, this.settings);
+            RegistrationService.Channel channel = wired.service().frontChannel(par ? "par" : "authorization", clientId, issuer, proof,
+                    unreadable, wired.replay(), wired.settings());
             try {
-                this.service.admit(clientId, proof == null ? List.of() : proof.trustChain(), issuer, channel);
+                wired.service().admit(clientId, proof == null ? List.of() : proof.trustChain(), issuer, channel);
             } catch (RegistrationRejectedException e) {
-                this.refuse(http, httpResponse, chain, par, e.status(), e.error(), e.getMessage(), e.isRetryable() ? retryAfter(e) : null);
+                this.refuse(wired, http, httpResponse, chain, par, e.status(), e.error(), e.getMessage(), e.isRetryable() ? retryAfter(e) : null);
                 return;
             } catch (Exception e) {
                 LOGGER.error((Object)("Federation registration at the " + (par ? "PAR" : "authorization") + " endpoint failed"), e);
-                this.refuse(http, httpResponse, chain, par, 500, "server_error", "the federation registration could not be completed", null);
+                this.refuse(wired, http, httpResponse, chain, par, 500, "server_error", "the federation registration could not be completed", null);
                 return;
             }
             chain.doFilter(request, response);
@@ -201,10 +210,10 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
         return e.kind() == RegistrationRejectedException.Kind.BUSY ? "2" : Long.toString(RegistrationService.TRANSPORT_FAILURE_BACKOFF_SECONDS);
     }
 
-    private void refuse(HttpServletRequest request, HttpServletResponse response, FilterChain chain, boolean par, int status, String error,
+    private void refuse(Wiring wired, HttpServletRequest request, HttpServletResponse response, FilterChain chain, boolean par, int status, String error,
                         String description, String retryAfter) throws IOException, ServletException {
         LOGGER.info((Object)("Automatic registration refused at the " + (par ? "PAR" : "authorization") + " endpoint (" + error + ")"));
-        if (!this.failClosed) {
+        if (!wired.failClosed()) {
             chain.doFilter(request, response);
             return;
         }
@@ -213,8 +222,8 @@ public final class FrontChannelAutoRegistrationFilter implements Filter {
         }
         if (par) {
             OAuthErrorWriter.write(response, status, error, description);
-        } else if (this.settings.pageOnAuthorizationError()) {
-            this.errorPage.write(response, status, error, description, PfTracking.trackingIdOr("oidf"));
+        } else if (wired.settings().pageOnAuthorizationError()) {
+            wired.errorPage().write(response, status, error, description, PfTracking.trackingIdOr("oidf"));
         } else {
             chain.doFilter(request, response);
         }

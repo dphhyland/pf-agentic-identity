@@ -42,7 +42,9 @@ import com.pingidentity.ps.oidf.federation.ValidatorOptions;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkIssuer;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 
@@ -61,6 +63,8 @@ public class OpenIdFederationServlet
 extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private FederationService federationService;
+    /** This servlet's part of FEDERATION, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
     private FederationConfiguration federationConfiguration;
     private final Function<HttpServletRequest, String> issuerResolver;
     /** PingFederate's own discovery documents, which this entity's openid_provider and AS metadata start from. */
@@ -101,11 +105,14 @@ extends RequestScopedServlet {
     }
 
     public void init(ServletConfig config) throws ServletException {
-        var part = Startup.begin(Startup.FEDERATION, "OpenIdFederationServlet");
-        try {
-            super.init(config);
+        super.init(config);
+        // A test's constructor supplies the service; a retry after a failure builds it again, whatever the last attempt set.
+        boolean injected = this.federationService != null;
+        ComponentParts.Part part = Startup.begin(Startup.FEDERATION, "OpenIdFederationServlet");
+        this.part = part;
+        part.start(() -> {
             PfAuditEventSink.install();
-            if (this.federationService != null) {
+            if (injected) {
                 return;
             }
             try {
@@ -147,9 +154,11 @@ extends RequestScopedServlet {
                 // Hosting is configured now, not on HostedEntityServlet's first request, when the environment names an authority:
                 // fetches about hosted entities are answered from the first request on.
                 try {
-                    HostedEntityServlet.configureAuthority(null);
+                    if (Startup.mayStart(Startup.HOSTING)) {
+                        HostedEntityServlet.configureAuthority(null);
+                    }
                 } catch (RuntimeException e) {
-                    log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again on its first request", e);
+                    log.error("Hosting could not be configured at start-up; HostedEntityServlet tries again at its own start and reports HOSTING's state", e);
                 }
                 service.subordinateConstraints(runtime.subordinateConstraints());
                 FederationRuntimeConfig.TrustMarkIssuingSettings marks = runtime.trustMarkIssuing();
@@ -210,12 +219,7 @@ extends RequestScopedServlet {
             catch (Exception e) {
                 throw new ServletException("Failed to initialize OpenID Federation servlet", e);
             }
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
-        }
+        });
     }
 
     /**
@@ -233,6 +237,14 @@ extends RequestScopedServlet {
             default:
                 return false;
         }
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

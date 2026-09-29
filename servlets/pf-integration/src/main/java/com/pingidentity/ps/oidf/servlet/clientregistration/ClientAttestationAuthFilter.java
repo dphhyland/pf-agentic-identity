@@ -16,7 +16,10 @@ import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.clientattestation.AttestationRarModels;
 import com.pingidentity.ps.oidf.clientattestation.AttestationSupport;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationException;
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
@@ -106,6 +109,8 @@ public final class ClientAttestationAuthFilter implements Filter {
     static final String REQUIRE_HOSTED_AGENT_PROP = "oidf.attestation.require_hosted_agent";
 
     private volatile boolean bridgeConfigured;
+    /** This filter's part of ATTESTATION_AUTH, from init; null when a test's constructor made it and init never ran. */
+    private volatile ComponentParts.Part part;
     private volatile boolean requireHostedAgent;
     /** The RAR model set the token gate asks, loaded at {@code init} when attestation authentication is live. */
     private volatile RarModels rarModels;
@@ -138,34 +143,36 @@ public final class ClientAttestationAuthFilter implements Filter {
 
     @Override
     public void init(FilterConfig filterConfig) throws ServletException {
-        var part = Startup.begin(Startup.ATTESTATION_AUTH, "ClientAttestationAuthFilter");
-        try {
-            this.requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
+        ComponentParts.Part part = Startup.begin(Startup.ATTESTATION_AUTH, "ClientAttestationAuthFilter");
+        this.part = part;
+        part.start(() -> {
+            // Everything is resolved into locals and published at the end, so a retry after a failure starts clean
+            // and a request never meets half of one attempt. OIDF_ATTESTATION_AUTH_ENABLED=false - or its superseded
+            // name OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false - disables the part before any of this runs.
+            boolean requireHostedAgent = requireHostedAgentSetting(System.getProperty(REQUIRE_HOSTED_AGENT_PROP),
                     System.getenv(REQUIRE_HOSTED_AGENT_ENV));
+            boolean bridgeConfigured;
+            RarModels rarModels = null;
             // Signing keys are per client and resolved per request, so what is checked here is whether bridge
             // signing is configured AT ALL. A deployment that registers clients for attestation auth with no
             // signing configured is one where this filter passes everything through and those clients are
             // authenticated by nothing - the failure that must not be silent. Per-client absence is a
             // different thing and is a 401 for that client, not a boot failure for everyone.
             try {
-                this.bridgeConfigured = BridgeSigners.isConfigured();
+                bridgeConfigured = BridgeSigners.isConfigured();
             }
             catch (IllegalStateException e) {
                 // A broken or superseded configuration is a deployment error, and the container contract for
                 // that is ServletException - an IllegalStateException out of init is not reliably surfaced.
                 throw new ServletException("attest_jwt_client_auth: " + e.getMessage(), e);
             }
-            if (!this.bridgeConfigured) {
-                if (BridgeSigners.isRequired()) {
-                    throw new ServletException("attest_jwt_client_auth: no bridge signing configured. Set "
-                            + BridgeSigners.BACKING_ENV + " and " + BridgeSigners.KEYS_ENV + ", or set "
-                            + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV
-                            + "=false to deploy without attestation-based client authentication.");
-                }
-                LOGGER.warn((Object) ("attest_jwt_client_auth: no bridge signing and "
-                        + FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV + "=false - attestation headers will "
-                        + "pass through and PF will enforce each client's configured authentication."));
-                part.disabled();
+            if (!bridgeConfigured) {
+                // Switched on, or inferred: either way a deployment that runs this filter without a bridge key is one
+                // whose attestation clients are authenticated by nothing, so the part is refused, not disabled.
+                part.failedConfig("attest_jwt_client_auth: no bridge signing configured. Set " + BridgeSigners.BACKING_ENV + " and "
+                        + BridgeSigners.KEYS_ENV + ", or set " + ComponentSwitches.ATTESTATION_AUTH
+                        + "=false to deploy without attestation-based client authentication");
+                return;
             } else {
                 // Attestation authentication is live, so an attester that is not statically trusted resolves
                 // through a trust chain to the deployment's anchor, whose keys are pinned out of band (OpenID
@@ -193,10 +200,10 @@ public final class ClientAttestationAuthFilter implements Filter {
                 }
                 // The containment model the token gate asks, once per classloader: a models document that cannot be
                 // read would leave the gate enforcing something other than what the deployment wrote, so the filter
-                // refuses to start - the same contract as a broken bridge configuration above. Plan item S-9 (Phase 3)
-                // replaces refusing to start with a filter that starts and refuses only attestation traffic.
+                // is FAILED_CONFIG - the same contract as a broken bridge configuration above - and, as plan item S-9
+                // has it, the web app still starts and the gate refuses only attestation traffic.
                 try {
-                    this.rarModels = AttestationRarModels.get();
+                    rarModels = AttestationRarModels.get();
                 }
                 catch (RarModelException e) {
                     throw new ServletException("attest_jwt_client_auth: the RAR containment models could not be loaded: "
@@ -204,17 +211,18 @@ public final class ClientAttestationAuthFilter implements Filter {
                 }
                 LOGGER.info((Object) "attest_jwt_client_auth: per-client bridge signing configured");
             }
-        } catch (ServletException | RuntimeException | Error e) {
-            part.failed(e);
-            throw e;
-        } finally {
-            part.finish();
-        }
+            this.requireHostedAgent = requireHostedAgent;
+            this.rarModels = rarModels;
+            this.bridgeConfigured = bridgeConfigured;
+        });
     }
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
+        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::attestationTraffic)) {
+            return;
+        }
         if (!(request instanceof HttpServletRequest) || !(response instanceof HttpServletResponse)) {
             chain.doFilter(request, response);
             return;

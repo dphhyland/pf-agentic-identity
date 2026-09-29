@@ -3,24 +3,27 @@
  */
 package com.pingidentity.ps.oidf.platform.health;
 
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
 import com.pingidentity.ps.oidf.platform.component.Components;
+import com.pingidentity.ps.oidf.platform.component.Supervisor;
 import java.time.Clock;
 
 /**
- * The {@link ComponentParts} over this loader's {@link Components} registry, and S-9's component names. A servlet
- * or filter registers its part at the top of {@code init}:
+ * The {@link ComponentParts} over this loader's {@link Components} registry, with the enable switches
+ * ({@link ComponentSwitches}) and this loader's {@link Supervisor}, and S-9's component names. A servlet or filter
+ * registers its part in {@code init} and hands it its start function; {@code init} then returns, whatever
+ * happened:
  *
  * <pre>{@code
- * var part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
- * try {
- *     ... init as it was, with part.disabled() or part.failedConfig(reason) where it switches off or refuses ...
- * } catch (ServletException | RuntimeException | Error e) {
- *     part.failed(e);
- *     throw e;
- * } finally {
- *     part.finish();
- * }
+ * this.part = Startup.begin(Startup.AUTO_REGISTRATION, "TokenEndpointAutoRegistrationFilter");
+ * this.part.start(() -> {
+ *     ... what init did, with part.notConfigured(what) where its settings are absent, part.failedConfig(reason)
+ *     where it refuses, and a throw for anything else ...
+ * });
  * }</pre>
+ *
+ * <p>Its request methods start with platform-pf's {@code ComponentGate}, which answers for the part while its
+ * component is not serving.
  *
  * <p>Statics are per loader, so the webapp's copy holds the webapp's parts; nothing in the engine's copy runs an
  * {@code init}, so its registry stays empty (docs/development/classloaders.md).
@@ -46,7 +49,8 @@ public final class Startup {
     /** FAPI 2.0 enforcement for the clients it names. */
     public static final String FAPI = "FAPI";
 
-    private static final ComponentParts PARTS = new ComponentParts(Components.registry(), Clock.systemUTC());
+    private static final ComponentParts PARTS = new ComponentParts(Components.registry(), Clock.systemUTC(),
+            component -> ComponentSwitches.process().verdict(component), Supervisor.shared());
 
     private Startup() {
     }
@@ -54,6 +58,19 @@ public final class Startup {
     /** See {@link ComponentParts#begin(String, String)}. */
     public static ComponentParts.Part begin(String component, String part) {
         return PARTS.begin(component, part);
+    }
+
+    /**
+     * Whether {@code component}'s switch lets it start - switched on, or inferred - for a start function that
+     * configures another component's shared state on its behalf (the federation servlet configures hosting).
+     * {@code false} when the switch cannot be read.
+     */
+    public static boolean mayStart(String component) {
+        try {
+            return ComponentSwitches.process().verdict(component).mayStart();
+        } catch (RuntimeException e) {
+            return false;
+        }
     }
 
     /** This loader's parts. */
