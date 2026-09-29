@@ -42,6 +42,11 @@ Maven module last in the reactor: the catalogues are JSON in the source tree (pl
 build, runs in the lint job in under a second, and reads the catalogues through the scan's own loader, so the
 two cannot read them differently.
 
+A list setting's Default cell says only "a list"; its description says how it is separated. Readers differ -
+most split on commas only, a few on spaces or commas - and a space-separated `OIDF_FAPI2_CLIENTS` is one client
+id, so no client is held to FAPI 2.0. Nine catalogue descriptions gained the separator their reader uses, and the
+generator refuses a list whose description does not name one.
+
 `docs/federation/configuration.md` lost its tables to the generated pages. Where a generated row says less than
 the old one did, the page keeps the rest under the part of the federation it belongs to; where it says something
 different, the catalogue follows the code.

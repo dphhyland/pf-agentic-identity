@@ -90,7 +90,7 @@ INT_RANGE = (-2 ** 31, 2 ** 31 - 1)
 LONG_RANGE = (-2 ** 63, 2 ** 63 - 1)
 TYPE_PHRASE = {"int": "a whole number", "long": "a whole number", "seconds": "seconds", "millis": "milliseconds",
                "https-url": "an https URL", "url": "an http or https URL", "json-object": "a JSON object",
-               "words": "a list, space- or comma-separated", "path": "a file path", "secret": "a secret, never shown"}
+               "words": "a list", "path": "a file path", "secret": "a secret, never shown"}
 PROFILE_LABEL = {"any": "Any", "forbidden-in-production": "Not in production",
                  "required-in-production": "Required in production"}
 
@@ -165,6 +165,10 @@ def check(catalogues):
                 if e["min"] > e["max"]:
                     problems.append(f"{at}: min is more than max")
                     continue
+            if e["type"] == "words" and isinstance(e["description"], str) and "separated" not in e["description"]:
+                # Legacy readers split on commas only, platform.settings on spaces or commas: the page cannot know
+                # which, so the description says (comma-separated, space-separated, space- or comma-separated).
+                problems.append(f"{at}: a list's description says how it is separated")
             if e["type"] == "choice":
                 folded = [c2.lower() if isinstance(c2, str) else c2 for c2 in e["choices"]]
                 if not folded or len(set(folded)) != len(folded) or not all(isinstance(c2, str) for c2 in folded):

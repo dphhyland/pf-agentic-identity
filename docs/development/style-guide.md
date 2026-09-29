@@ -78,13 +78,13 @@ A settings row has four columns and every row fills all four:
 
 | Setting | Default | What it does | When it's wrong |
 |---|---|---|---|
-| `OIDF_FEDERATION_SIGNING_ALG` (init-param `signingAlgorithm`) | `RS256` | How this entity signs its statements: `RS256` or `PS256`, with PingFederate's current RSA key | Anything else: PingFederate doesn't start |
+| `OIDF_FEDERATION_SIGNING_ALG` (init-param `signingAlgorithm`) | `RS256` | How this entity signs its statements: `RS256` or `PS256`, with PingFederate's current RSA key | **Doesn't start**: anything else |
 
 "When it's wrong" uses the vocabulary
-[docs/federation/configuration.md](../federation/configuration.md#when-a-setting-is-wrong) defines: **PingFederate
-doesn't start** (the component fails at deploy and the log names the setting), **first
-request** (a lazily started servlet fails on its first request, and only its paths), **per request** (nothing
-at start-up; the requests that need it fail), and **not checked** when nothing checks it - which is a sentence
+[docs/federation/configuration.md](../federation/configuration.md#when-a-setting-is-wrong) defines, and the generated rows print: **Doesn't
+start** (the component fails at deploy and the log names the setting), **First
+request** (a lazily started servlet fails on its first request, and only its paths), **Per request** (nothing
+at start-up; the requests that need it fail), and **Not checked** when nothing checks it - which is a sentence
 to write, not a cell to leave empty. A switch is `true` or `false`, in any case, and anything else is refused
 unless the row says otherwise.
 

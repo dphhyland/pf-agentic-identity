@@ -7,7 +7,7 @@ The settings of the `registration` component of `servlets/pf-integration`, read 
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `signingAlgorithm` (init-param) | `RS256`; one of `RS256`, `PS256` | How /federation/register signs its registration response | **First request**: Anything but RS256 or PS256, exactly: the registration servlet fails on its first request | Any | Yes |
-| `acceptedSigningAlgorithms` (init-param) | Unset; a list, space- or comma-separated | Which algorithms a presented chain's statements may use, comma-separated; unset, any asymmetric one | **Not checked**: An unknown algorithm matches no statement | Any | Yes |
+| `acceptedSigningAlgorithms` (init-param) | Unset; a list | Which algorithms a presented chain's statements may use, comma-separated; unset, any asymmetric one | **Not checked**: An unknown algorithm matches no statement | Any | Yes |
 | `subordinateStatementCacheMaxEntries` (init-param) | `256`; a whole number, at least -1 | How many Subordinate Statements the registration servlet and filters keep; -1 is unbounded | **Doesn't start**: Not a whole number, 0, or below -1: that component does not start | Any | No |
 | `trustChainEntryMaxAgeSeconds` (init-param) | `60`; seconds, at least 1 | The oldest a statement in a presented trust chain may be | **Doesn't start**: Not a whole number above 0: that component does not start | Any | Yes |
 | `trustControllerHost` (init-param) | Unset | May name the trust controller only to agree with OIDF_FEDERATION_TRUST_CONTROLLER_HOST | **First request**: A different value: /federation/register fails on its first request | Any | No |

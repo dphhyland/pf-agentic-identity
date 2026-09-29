@@ -142,6 +142,8 @@ The same modules carry client attestation and a FAPI 2.0 filter. The
 [pf-integration README](../../servlets/pf-integration/README.md#configuration) has the detail.
 
 - `OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT`: a revoked hosted agent is refused (401) whatever it says.
+- `OIDF_BRIDGE_PRIVATE_JWK` and `OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK` are removed (bridge keys are per client now). Set
+  at all, the attestation filter doesn't start: `BridgeSigners` refuses them and names where the key goes.
 - `OIDF_RAR_MODELS_FILE` and `OIDF_RAR_MODELS` are environment variables only, with no system property. A document
   the model refuses stops `pf-runtime.war` (PingFederate's runtime endpoints answer 503) when attestation
   authentication is configured; otherwise the attester fails from its first request and the issuance criterion

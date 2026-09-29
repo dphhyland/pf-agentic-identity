@@ -56,10 +56,15 @@ The columns are the style guide's four ([style-guide.md](../development/style-gu
   field (a field of the plugin's screen in PingFederate's admin console) or an extended property (a property of
   an OAuth client in PingFederate, which PingFederate must be told about first - below). When a setting is read
   from more than one place, they follow in the order they are tried: the first one set wins. A superseded name is
-  still read when the new one is unset, with a warning in the log; set to a different value from the new one, it
-  is refused. "Or from the file ... names" is a secret that may be read from a file instead.
+  still read when the new one is unset. The `OIDF_TRUST_*` names, and any read through `platform.settings`, log a
+  warning when used and are refused when set to a different value from the new one; `OPENBAO_ADDR`, `BAO_ADDR`,
+  `VAULT_ADDR` and the matching `*_TOKEN` names are plain fallbacks, tried in turn with no warning (checked
+  2026-09-29 in `RegistryHostedEntitySigner`). "Or from the file ... names" is a secret that may be read from a
+  file instead.
 - **Default** - what applies when nothing sets it, or Unset, and then what a value must be: a whole number in its
-  range, seconds, one of a list of choices, an https URL, a JSON object, a list separated by spaces or commas. A
+  range, seconds, one of a list of choices, an https URL, a JSON object, a list. How a list is separated is in its
+  description, because readers differ: most split on commas only, and a list written with spaces is then one
+  item (`OIDF_FAPI2_CLIENTS=a b` holds no client to FAPI 2.0). A
   switch is `true` or `false`, in any case, and anything else is refused unless its row says otherwise. A secret
   is never shown in a message, a log line or a `toString`.
 - **What it does** - one line.

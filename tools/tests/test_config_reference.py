@@ -258,6 +258,19 @@ class RefusedTest(unittest.TestCase):
         self.assertIn("OIDF_E: when_wrong.detail is one line", err)
         self.assertIn("removed OIDF_OLD's replacement OIDF_NOWHERE is not a setting of this catalogue", err)
 
+    def test_a_list_says_how_it_is_separated(self):
+        # Many readers split on commas only (Fapi2ProfileFilter, FederationConfiguration, ClientAttestationUtils), so
+        # the page prints no separator of its own and the description must name one (review of PR #64, 2026-09-29).
+        self.assertEqual("a list", ref.TYPE_PHRASE["words"])
+        err = self.refused(catalogue("c", "libs/m0", [entry("OIDF_A", type="words", description="The clients")]))
+        self.assertIn("OIDF_A: a list's description says how it is separated", err)
+        tree = Tree(self).module("libs/m0", catalogue("c", "libs/m0", [
+            entry("OIDF_B", type="words", description="The clients, comma-separated")]))
+        self.assertEqual(0, tree.run()[0])
+        page = tree.read("docs/configuration/c.md")
+        self.assertIn("| `OIDF_B` | Unset; a list | The clients, comma-separated |", page)
+        self.assertNotIn("space- or comma", page)
+
     def test_a_component_in_two_modules_and_a_catalogue_the_scan_refuses(self):
         err = self.refused(catalogue("c", "libs/m0", [entry("OIDF_A")]), catalogue("c", "libs/m1", [entry("OIDF_B")]))
         self.assertIn("component c is catalogued by", err)
