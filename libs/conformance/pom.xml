@@ -28,6 +28,9 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- No dependencies at all, so no BOM import either. This pom stays standalone: no parent, plugin
