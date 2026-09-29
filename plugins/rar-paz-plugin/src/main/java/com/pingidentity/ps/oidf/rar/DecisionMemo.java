@@ -104,12 +104,10 @@ final class DecisionMemo {
 
     /** A decision whose statements' payloads are copies: applying one never reaches the remembered one. */
     static DecisionResponse copyOf(DecisionResponse decision) {
-        List<DecisionResponse.Statement> statements = null;
-        if (decision.getStatements() != null) {
-            statements = new ArrayList<>();
-            for (DecisionResponse.Statement s : decision.getStatements()) {
-                statements.add(new DecisionResponse.Statement(s.getName(), copyValue(s.getPayload())));
-            }
+        // DecisionResponse holds an empty list for none, never null.
+        List<DecisionResponse.Statement> statements = new ArrayList<>();
+        for (DecisionResponse.Statement s : decision.getStatements()) {
+            statements.add(new DecisionResponse.Statement(s.getName(), copyValue(s.getPayload())));
         }
         return new DecisionResponse(decision.getDecision(), decision.getAuthorised(), statements, decision.getRawBody());
     }

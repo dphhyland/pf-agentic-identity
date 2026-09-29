@@ -7,7 +7,8 @@ import org.sourceid.saml20.adapter.conf.Configuration;
 import org.sourceid.saml20.adapter.gui.validation.ConfigurationValidator;
 import org.sourceid.saml20.adapter.gui.validation.ValidationException;
 
-import java.security.cert.CertificateException;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
 import java.util.Set;
 
 /**
@@ -58,8 +59,8 @@ record PdpResilience(String tlsMode, String pinnedPem, String batchUrl, Set<Stri
         }
         if (PdpTls.PINNED_CA.equals(mode)) {
             try {
-                PdpTls.certificatesOf(configuration.getFieldValue(PINNED_CAS));
-            } catch (CertificateException | RuntimeException e) {
+                PdpTls.pinned(configuration.getFieldValue(PINNED_CAS));
+            } catch (GeneralSecurityException | IOException e) {
                 return PINNED_CAS + " must hold the PEM of at least one CA certificate when " + TLS_TRUST + " is "
                         + PdpTls.PINNED_CA + ": " + e.getMessage();
             }

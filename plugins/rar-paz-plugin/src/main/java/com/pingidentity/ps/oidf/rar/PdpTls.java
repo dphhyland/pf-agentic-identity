@@ -133,19 +133,25 @@ final class PdpTls {
         return lastTrust;
     }
 
-    /** Every certificate in a PEM (or DER) text; none, or text that is not certificates, is refused. */
+    /**
+     * Every certificate in a PEM (or DER) text. Blank, or text that is not certificates, is refused; so is text that
+     * holds none, by {@link TlsTrust#caCertificates} when the trust is built.
+     */
     static List<X509Certificate> certificatesOf(String pem) throws CertificateException {
         if (pem == null || pem.isBlank()) {
             throw new CertificateException("the pinned CA field holds no certificate");
         }
-        Collection<? extends Certificate> read = CertificateFactory.getInstance("X.509")
-                .generateCertificates(new ByteArrayInputStream(pem.trim().getBytes(StandardCharsets.US_ASCII)));
+        Collection<? extends Certificate> read;
+        try {
+            read = CertificateFactory.getInstance("X.509")
+                    .generateCertificates(new ByteArrayInputStream(pem.trim().getBytes(StandardCharsets.US_ASCII)));
+        } catch (RuntimeException e) {
+            // The JDK's parser throws a NullPointerException for some malformed PKCS#7 (JDK 17, 2026-09-29).
+            throw new CertificateException("the pinned CA field is not a certificate: " + e, e);
+        }
         List<X509Certificate> certificates = new ArrayList<>();
         for (Certificate certificate : read) {
             certificates.add((X509Certificate) certificate);
-        }
-        if (certificates.isEmpty()) {
-            throw new CertificateException("the pinned CA field holds no certificate");
         }
         return certificates;
     }

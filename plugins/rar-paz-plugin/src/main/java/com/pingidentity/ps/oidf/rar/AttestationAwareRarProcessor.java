@@ -623,7 +623,8 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         } catch (java.io.IOException e) {
             return asks;
         }
-        if (root == null || !root.isArray()) {
+        if (!root.isArray()) {
+            // Jackson reads blank text as a missing node, never null; the blank case returned above anyway.
             return asks;
         }
         for (JsonNode entry : root) {

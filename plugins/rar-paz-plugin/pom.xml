@@ -159,7 +159,7 @@
                 alone and closed on everything else; flowOf and PrincipalResolver, which decide who the PDP
                 is asked about and label how that was established, per OAuth flow, and redact and describe,
                 which keep that principal hashed in what reaches a log; PdpResponses, AuthZenPdpClient.decisionOf,
-                DecisionResponse.decisionOf and authorisedOf, and JdkHttpTransport.classify, which sort a PDP's
+                DecisionResponse.decisionOf and authorisedOf, and PdpTransport.classify, which sort a PDP's
                 answer and a transport's failure into "unreachable" and "refuse"; PdpUrlPolicy, the https rule, and isInsecureTlsHonoured beside
                 it; refuseCollisions and mirrorNames, a detail field that would overwrite a server attribute;
                 and the config's profile and type-list parsing.
@@ -174,7 +174,13 @@
                 behind a lowered number. The request builders' mapping, the PDP clients' header paths and
                 the processor's other PF-SDK entry points (configure/validate/getUserConsentDescription)
                 still carry missed branches; they are the next work queue, and each is added here only once
-                a test closes it. JdkHttpTransport.post opens real sockets and is covered by the rig.
+                a test closes it.
+
+                The 0.6.0 PDP call (S2c): PdpTransport - the deadline, the cap, the bulkhead and which of platform's
+                failures read as unreachable - and PdpTls, the trust modes; the circuit breaker; the per-request memo,
+                the decision cache and its refusal of payments and principal types; the AuthZEN batch and the reading
+                of its answer; the new fields' checks; and the processor's batch candidates and trust choice. The
+                transport's tests open real sockets on loopback, so its post is gated too.
             -->
             <plugin>
                 <groupId>org.jacoco</groupId>
@@ -238,7 +244,37 @@
                                         <include>com.pingidentity.ps.oidf.rar.PdpResponses.isJson(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpResponses.jsonObjectOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.decisionOf(*</include>
-                                        <include>com.pingidentity.ps.oidf.rar.JdkHttpTransport.classify(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.classify(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.peerWentAway(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.totalMillisOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.InstanceBulkhead.enter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTls.modeOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTls.current(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTls.certificatesOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.state(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.allow(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.onReached(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.onUnreachable(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.Guarded.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.answer(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.copyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionMemo.copyValue(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.ttlSecondsOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.DecisionCache.put(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.batch(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.keyOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpDecisions.typesOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.decideAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AuthZenPdpClient.parseAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResilience.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpResilience.Validator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.batchCandidates(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.AttestationAwareRarProcessor.tlsOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.problem(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.check(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpUrlPolicy.Validator.validate(*</include>
