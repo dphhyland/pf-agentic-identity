@@ -26,6 +26,9 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The commit this jar is built from, written into its manifest (below) for BuildInfo: CI passes
+             -Doidf.build.commit=$GITHUB_SHA; a build that passes nothing says unknown (F-0190). -->
+        <oidf.build.commit>unknown</oidf.build.commit>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
@@ -58,6 +61,19 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <!-- The commit (F-0190): /agentic-identity/info and the start-up banner read it through BuildInfo. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration>
+                    <archive>
+                        <manifestEntries>
+                            <Build-Commit>${oidf.build.commit}</Build-Commit>
+                        </manifestEntries>
+                    </archive>
+                </configuration>
+            </plugin>
 
             <!--
               Coverage gate on the decisions, 100% line + branch per METHOD. As in platform's pom, each package
@@ -107,6 +123,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthAccess.isAuthorized(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.read(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.version(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.commit(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.init(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.service(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.answer(*</include>

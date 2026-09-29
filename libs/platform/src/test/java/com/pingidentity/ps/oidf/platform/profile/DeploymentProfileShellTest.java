@@ -24,9 +24,10 @@ import org.junit.jupiter.api.Test;
  * - and run by {@code /bin/sh}, which the script's shebang names, so an edit to either side that changes an answer
  * fails here.
  *
- * <p>They differ in one way, pinned below: the shell does not trim, so a value with a space or a tab around
- * {@code development} is production to the entrypoint and development to Java (finding F-0161). The shell is the
- * stricter side, and the plaintext archive it guards stays refused.
+ * <p>They agree on padding too: the shell trims what {@link String#trim} trims (U+0001 to U+0020 around the word;
+ * an environment variable cannot hold U+0000), and nothing inside it. Until finding F-0161 was closed the shell
+ * compared the value untrimmed, so a padded {@code development} refused a plaintext archive at boot and then ran
+ * the Java modules as development.
  */
 class DeploymentProfileShellTest {
 
@@ -62,7 +63,7 @@ class DeploymentProfileShellTest {
     }
 
     @Test
-    void theEntrypointAndTheJavaRuleAgreeOnEveryValueButPaddedOnes() throws Exception {
+    void theEntrypointAndTheJavaRuleAgreeOnEveryValuePaddedOrNot() throws Exception {
         String rule = shellRule();
         Map<String, String> agreed = new LinkedHashMap<>();
         agreed.put(null, "production");
@@ -76,6 +77,23 @@ class DeploymentProfileShellTest {
         agreed.put("Development", "development");
         agreed.put("DEVELOPMENT", "development");
         agreed.put("development\n", "development");
+        // Padding, which Java's trim removes and the entrypoint now does too (F-0161).
+        agreed.put(" development", "development");
+        agreed.put("development ", "development");
+        agreed.put("\tdevelopment", "development");
+        agreed.put(" \tDEVELOPMENT\t ", "development");
+        agreed.put("\u000Bdevelopment\r", "development");
+        agreed.put("\u0001development\u001F", "development");
+        agreed.put("\ndevelopment", "development");
+        // Not padding: inside the word, next to another word, or above U+0020, which trim leaves alone.
+        agreed.put("devel opment", "production");
+        agreed.put(" devel\topment ", "production");
+        agreed.put("development x", "production");
+        agreed.put("x development", "production");
+        agreed.put("development development", "production");
+        agreed.put("\u00A0development", "production");
+        agreed.put("development\u007F", "production");
+        agreed.put(" ", "production");
         List<String> wrong = new ArrayList<>();
         for (Map.Entry<String, String> row : agreed.entrySet()) {
             String java = DeploymentProfile.parse(row.getKey()).value();
@@ -85,14 +103,5 @@ class DeploymentProfileShellTest {
             }
         }
         assertEquals(List.of(), wrong);
-    }
-
-    @Test
-    void paddingIsTheOneDifferenceAndTheShellIsTheStricterSide() throws Exception {
-        String rule = shellRule();
-        for (String padded : new String[] {" development", "development ", "\tdevelopment"}) {
-            assertEquals("development", DeploymentProfile.parse(padded).value(), "'" + padded + "' in Java");
-            assertEquals("production", shell(rule, padded), "'" + padded + "' in the entrypoint (F-0161)");
-        }
     }
 }
