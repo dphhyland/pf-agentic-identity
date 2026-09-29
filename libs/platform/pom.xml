@@ -176,6 +176,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.attempt(*</include>
                                                                                 <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.notConfigured(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentState(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentRefused(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.verdict(*</include>
                                         <!-- json (F-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.parse(*</include>

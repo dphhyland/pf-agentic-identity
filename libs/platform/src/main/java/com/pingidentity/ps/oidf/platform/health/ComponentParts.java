@@ -470,9 +470,20 @@ public final class ComponentParts {
             return this.disabled();
         }
 
-        /** The component's state now, as the registry holds it - what a surface's gate asks. */
+        /** The component's state now, as the registry holds it: the worst of its enabled parts. */
         public ComponentState componentState() {
             return ComponentParts.this.registry.status(this.component).map(ComponentStatus::state).orElse(ComponentState.STARTING);
+        }
+
+        /**
+         * Whether any part of this part's component is {@code REFUSED}: a violation of the deployment profile refuses the
+         * whole component (the programme's decision 4), so a surface's gate asks this beside its own part's state.
+         */
+        public boolean componentRefused() {
+            synchronized (ComponentParts.this) {
+                return ComponentParts.this.components.get(this.component).values().stream()
+                        .anyMatch(e -> e.state == ComponentState.REFUSED);
+            }
         }
 
         /** Today's configuration switches this part off; it stays off. */

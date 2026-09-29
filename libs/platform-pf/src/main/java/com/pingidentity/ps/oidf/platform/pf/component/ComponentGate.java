@@ -42,18 +42,26 @@ import java.util.function.Predicate;
  * }
  * }</pre>
  *
+ * <p>The gate reads the surface's own part: what a servlet or filter serves is what its own start function configured,
+ * so a part that finished its start is not half-configured whatever a sibling part did. One servlet of a component
+ * failing must not close the others - on a PingFederate that is its own trust anchor, explicit registration fails
+ * until the anchor's keys are pinned, and the Entity Configuration those keys are captured from has to keep serving
+ * (seen on the rig, 2026-09-30). The component's state counts only when a part of it is {@code REFUSED}: a violation
+ * of the deployment profile refuses the whole component (the programme's decision 4).
+ *
  * <ul>
- *   <li>{@code READY} and {@code DEGRADED}: the gate does nothing; the surface serves.</li>
- *   <li>{@code STARTING}, {@code FAILED_CONFIG}, {@code FAILED_DEPENDENCY} and {@code REFUSED}: a servlet answers
- *       503 with {@code {"error":"temporarily_unavailable","error_description":...}}, the body both OpenID Federation
- *       1.0 §8.9 and RFC 6749 §5.2 give that code, and never runs. A filter over PingFederate's own endpoints answers
- *       the same 503 for the traffic its component acts on - the filter's own trigger, read from the request alone
+ *   <li>The part {@code READY} or {@code DEGRADED}, and no part of its component {@code REFUSED}: the gate does
+ *       nothing; the surface serves.</li>
+ *   <li>The part {@code STARTING}, {@code FAILED_CONFIG}, {@code FAILED_DEPENDENCY} or {@code REFUSED}, or a part of its
+ *       component {@code REFUSED}: a servlet answers 503 with
+ *       {@code {"error":"temporarily_unavailable","error_description":...}}, the body both OpenID Federation 1.0 §8.9
+ *       and RFC 6749 §5.2 give that code, and never runs. A filter over PingFederate's own endpoints answers the same
+ *       503 for the traffic its component acts on - the filter's own trigger, read from the request alone
  *       ({@link #federationClientTraffic}, {@link #attestationTraffic}, {@link #everyRequest}) - and passes the rest on
  *       unchanged, as the filter itself passes it when it is healthy, so PingFederate's own SSO and OAuth keep
  *       serving (the programme's decision 4).</li>
- *   <li>{@code DISABLED}: a filter passes every request on, as a filter that is switched off always has. A servlet
- *       answers 404 {@code not_found}, as a war without it would: its start function never ran, so it has nothing to
- *       serve, and before S-9 its answer was whatever the container gave for an {@code init} that threw.</li>
+ *   <li>The part {@code DISABLED}: a filter passes every request on, as a filter that is switched off always has. A
+ *       servlet answers 404 {@code not_found}, as a war without it would.</li>
  *   <li>No part ({@code init} never ran - a test's constructor): the gate does nothing.</li>
  * </ul>
  *
@@ -79,13 +87,17 @@ public final class ComponentGate {
         if (part == null) {
             return Action.SERVE;
         }
-        if (part.status().state() == ComponentState.DISABLED) {
+        ComponentState own = part.status().state();
+        if (own == ComponentState.DISABLED) {
             // This part is off (its own setting, or its switch), whatever its component's other parts are doing.
             return Action.DISABLED;
         }
-        // A part that is not disabled keeps its component enabled, so the component is never DISABLED here.
-        ComponentState state = part.componentState();
-        return state == ComponentState.READY || state == ComponentState.DEGRADED ? Action.SERVE : Action.UNAVAILABLE;
+        if (part.componentRefused()) {
+            // A violation of the deployment profile refuses the whole component (the programme's decision 4).
+            return Action.UNAVAILABLE;
+        }
+        // Otherwise the part's own start decides: what this surface serves is what its own start function configured.
+        return own == ComponentState.READY || own == ComponentState.DEGRADED ? Action.SERVE : Action.UNAVAILABLE;
     }
 
     /**

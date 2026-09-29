@@ -237,6 +237,17 @@ class ComponentPartsStartTest {
     }
 
     @Test
+    void aRefusedPartRefusesItsComponentForEveryPart() {
+        ComponentParts.Part front = this.parts.begin("AUTO_REGISTRATION", "FrontChannelAutoRegistrationFilter");
+        front.ready();
+        ComponentParts.Part token = this.parts.begin("AUTO_REGISTRATION", "TokenEndpointAutoRegistrationFilter");
+        token.failedConfig("no trust controller");
+        assertFalse(front.componentRefused());
+        token.refused("a forbidden setting");
+        assertTrue(front.componentRefused());
+    }
+
+    @Test
     void mayStartAnswersForAComponentWithNoSwitch() {
         // No switch: always inferred, so another component's start function may configure it.
         assertTrue(Startup.mayStart("GM_API"));

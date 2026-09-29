@@ -131,6 +131,24 @@ class ComponentGateTest {
     }
 
     @Test
+    void aPartThatStartedServesWhileASiblingHasFailedButNotWhileOneIsRefused() throws Exception {
+        ComponentParts.Part entity = this.parts.begin("FEDERATION", "OpenIdFederationServlet");
+        entity.ready();
+        ComponentParts.Part registration = this.parts.begin("FEDERATION", "OpenIdRegistrationServlet");
+        registration.failedConfig("the anchor's keys are not pinned");
+        assertFalse(ComponentGate.servlet(entity, this.response), "the Entity Configuration keeps serving");
+        assertTrue(ComponentGate.servlet(registration, this.response));
+        verify(this.response).setStatus(503);
+
+        registration.refused("a forbidden setting");
+        ServletOutputStream out = this.response.getOutputStream();
+        HttpServletResponse refused = mock(HttpServletResponse.class);
+        when(refused.getOutputStream()).thenReturn(out);
+        assertTrue(ComponentGate.servlet(entity, refused), "a violation refuses the whole component");
+        verify(refused).setStatus(503);
+    }
+
+    @Test
     void aDisabledComponentsFilterPassesEveryRequestOn() throws Exception {
         assertTrue(ComponentGate.filter(this.part(ComponentState.DISABLED), this.request, this.response, this.chain,
                 ComponentGate::everyRequest));
