@@ -11,6 +11,8 @@ into the page when the release is cut.
 - [0.3.0.md](0.3.0.md) - the first release for PingFederate 13.1.3, and OpenID Federation complete.
 - [0.4.0.md](0.4.0.md) - Phase 1 of the production programme: the blockers closed or mitigated, the guard rails
   up, and one PingFederate node only until 0.7.0.
+- [0.5.0.md](0.5.0.md) - Phase 2: foundations - every module on the shared platform libraries, the configuration
+  reference generated from the settings catalogues, PostgreSQL only, and the image built and scanned in CI.
 
 [CHANGELOG.md](../../CHANGELOG.md) is the one-paragraph-per-version history and links here; the operator guides
 for moving between releases are under [docs/operator/upgrading](../operator/upgrading/).
