@@ -206,6 +206,34 @@ class ScimEndpointTest {
         assertTrue(read.json().get("id").toString().contains("+tag"));
     }
 
+    /** A value the service or the store refused as an argument - a stream deleted mid-request - is 400, not 500. */
+    @Test
+    void anArgumentRefusedBelowTheServiceIs400InvalidValue() throws Exception {
+        ScimSubjectService refusing = mock(ScimSubjectService.class);
+        when(refusing.get(org.mockito.ArgumentMatchers.anyString(), org.mockito.ArgumentMatchers.any()))
+                .thenThrow(new IllegalArgumentException("no such stream: s9"));
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getMethod()).thenReturn("GET");
+        when(req.getPathInfo()).thenReturn("/" + ALICE);
+        ByteArrayOutputStream sink = new ByteArrayOutputStream();
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        when(resp.getWriter()).thenReturn(new PrintWriter(sink, true, StandardCharsets.UTF_8));
+        SsfScimSubjectServletAccess.handle(req, resp, refusing, TOKENS.get("provisioner"));
+        Exchange x = new Exchange(resp, sink);
+        assertScimError(x, 400, "invalidValue");
+        assertEquals("no such stream: s9", x.json().get("detail"));
+    }
+
+    /** RFC 7644 §3.5.1 and the RISC deprovision a pre-0.6.0 user still gets: PUT and DELETE with no record deactivate. */
+    @Test
+    void aDeactivationOfAUserWithNoRecordIsAnsweredNot404() throws Exception {
+        Exchange put = call("PUT", "/email:bob@example.com", "{\"emails\":[{\"value\":\"bob@example.com\"}],\"active\":false}");
+        assertEquals(200, put.status());
+        assertEquals(false, put.json().get("active"));
+        assertEquals(204, call("DELETE", "/email:carol@example.com", null).status());
+        assertScimError(call("PUT", "/email:dave@example.com", "{\"emails\":[{\"value\":\"dave@example.com\"}]}"), 404, null);
+    }
+
     @Test
     void anUnexpectedFailureIs500WithoutItsMessage() throws Exception {
         ScimSubjectService failing = mock(ScimSubjectService.class);

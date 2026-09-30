@@ -40,18 +40,15 @@ import org.jose4j.json.JsonUtil;
  * MUST attributes only, so the attribute needs no migration to be written - and it has to stay a MAY if
  * the model repo declares it, because the trigger runs on UPDATE too and the streams already there have none.
  *
- * <p>The optional stream members of SSF 1.0 §8.1.1 (plan item H-SSF-3) are the attributes {@code description},
- * {@code minVerificationInterval} and {@code inactivityTimeout}, absent when the stream has none. The model declares
- * none of them yet; like {@code ownerClientId} they need no migration to be written, since the trigger checks MUST
- * attributes only, and the model repo is asked to declare them as MAY attributes of {@code ssfStream} (the 0.6.0
- * release notes). Until it does, the model's validator reports them as undeclared; the database stores them.
- *
- * <p>The SCIM endpoint's user records (plan item H-SSF-4) are {@code ssfStreamSubject} entries with no parent: the
- * subject, not on any stream, with the SCIM attributes beside its MUST ones ({@code scimUserName},
- * {@code scimExternalId}, {@code scimActive}, {@code scimRestoreStreams}, {@code scimCreatedAt},
- * {@code scimUpdatedAt}). Every membership query here names its stream as {@code parent_id}, so none of them reads a
- * record as a membership. The model repo is asked for a class of their own; until then this is the one class the
- * trigger accepts that already means "an SSF subject".
+ * <p>The model declares no attribute for the optional stream members of SSF 1.0 §8.1.1 (plan item H-SSF-3) and no
+ * class for the SCIM endpoint's user records (H-SSF-4), and this repo does not change the model: the Phase 3 plan's
+ * cross-repo rule raises them in the model repo as MAY attributes and a class of their own (the 0.6.0 release notes'
+ * owner action, F-0387). Until they land this store keeps neither ({@link #keepsOptionalStreamMembers},
+ * {@link #keepsScimUsers}): a stream reads back with no {@code description}, {@code minVerificationInterval} or
+ * {@code inactivityTimeout}, so the service refuses a {@code description} and reports the transmitter's settings for
+ * the two Transmitter-Supplied members, which SSF 1.0 makes OPTIONAL; and the SCIM endpoint sees only the subjects
+ * the streams hold. No {@code ssfStreamSubject} is written without a stream as its parent, which is the class's
+ * meaning in the model.
  *
  * <p>Postgres-specific SQL (JSONB operators, {@code ANY(object_classes)}). The schema is owned by the
  * model repo's migration workflow — this store never creates tables. Connections come from the supplied
@@ -63,9 +60,6 @@ public final class LdmSsfStore implements SsfStore {
     private static final String SUBJECT_CLASS = "ssfStreamSubject";
     private static final String PENDING_CLASS = "ssfPendingSet";
     private static final String OWNER_ATTR = "ownerClientId";
-    private static final String DESCRIPTION_ATTR = "description";
-    private static final String MIN_VERIFICATION_INTERVAL_ATTR = "minVerificationInterval";
-    private static final String INACTIVITY_TIMEOUT_ATTR = "inactivityTimeout";
 
     private final DataSource dataSource;
 
@@ -315,113 +309,39 @@ public final class LdmSsfStore implements SsfStore {
                 });
     }
 
-    // ─────────────────────────────── SCIM users ───────────────────────────────
+    // ─────────────────────────────── what the model has no place for ───────────────────────────────
 
-    /** A SCIM user record: an {@code ssfStreamSubject} with no parent (see the class comment). */
-    static final String SCIM_WHERE = "parent_id IS NULL AND ? = ANY (object_classes)";
+    /** {@code false} until the model declares the members as MAY attributes of {@code ssfStream} (the class comment). */
+    @Override
+    public boolean keepsOptionalStreamMembers() {
+        return false;
+    }
+
+    /** {@code false} until the model has a class for a SCIM user record (the class comment). */
+    @Override
+    public boolean keepsScimUsers() {
+        return false;
+    }
 
     @Override
     public Optional<ScimUser> getScimUser(String id) {
-        return query("SELECT attrs::text AS attrs FROM idm.entry WHERE subject_id = ? AND " + SCIM_WHERE,
-                ps -> {
-                    ps.setString(1, id);
-                    ps.setString(2, SUBJECT_CLASS);
-                },
-                rs -> rs.next() ? Optional.of(mapScimUser(rs.getString("attrs"))) : Optional.<ScimUser>empty());
+        return Optional.empty();
     }
 
     @Override
     public List<ScimUser> listScimUsers() {
-        return query("SELECT attrs::text AS attrs FROM idm.entry WHERE " + SCIM_WHERE,
-                ps -> ps.setString(1, SUBJECT_CLASS),
-                rs -> {
-                    List<ScimUser> out = new ArrayList<>();
-                    while (rs.next()) {
-                        out.add(mapScimUser(rs.getString("attrs")));
-                    }
-                    return out;
-                });
+        return List.of();
     }
 
-    /**
-     * An update, or an insert when there was nothing to update, in one transaction under an advisory lock on the id:
-     * {@code idm.entry} has no unique key a parent-less subject could conflict on, so without the lock two provisioners
-     * writing the same new user would leave two records.
-     */
+    /** Kept nowhere: see {@link #keepsScimUsers}. */
     @Override
-    public void putScimUser(ScimUser u) {
-        String attrs = JsonUtil.toJson(scimAttrs(u));
-        try (Connection c = this.dataSource.getConnection()) {
-            boolean autoCommit = c.getAutoCommit();
-            c.setAutoCommit(false);
-            try {
-                try (PreparedStatement lock = c.prepareStatement("SELECT pg_advisory_xact_lock(hashtext(?))")) {
-                    lock.setString(1, "ssfScimUser:" + u.id());
-                    lock.executeQuery().close();
-                }
-                int updated;
-                try (PreparedStatement up = c.prepareStatement("UPDATE idm.entry SET attrs = ?::jsonb WHERE subject_id = ? AND "
-                        + SCIM_WHERE)) {
-                    up.setString(1, attrs);
-                    up.setString(2, u.id());
-                    up.setString(3, SUBJECT_CLASS);
-                    updated = up.executeUpdate();
-                }
-                if (updated == 0) {
-                    try (PreparedStatement ins = c.prepareStatement("INSERT INTO idm.entry (object_classes, subject_id, attrs) "
-                            + "VALUES (?::text[], ?, ?::jsonb)")) {
-                        ins.setString(1, "{" + SUBJECT_CLASS + "}");
-                        ins.setString(2, u.id());
-                        ins.setString(3, attrs);
-                        ins.executeUpdate();
-                    }
-                }
-                c.commit();
-            } catch (SQLException e) {
-                c.rollback();
-                throw e;
-            } finally {
-                c.setAutoCommit(autoCommit);
-            }
-        } catch (SQLException e) {
-            throw new IllegalStateException("SSF LDM store error: " + e.getMessage(), e);
-        }
+    public void putScimUser(ScimUser user) {
+        // The model has no class for it yet.
     }
 
     @Override
     public boolean deleteScimUser(String id) {
-        return exec("DELETE FROM idm.entry WHERE subject_id = ? AND " + SCIM_WHERE, ps -> {
-            ps.setString(1, id);
-            ps.setString(2, SUBJECT_CLASS);
-        }) > 0;
-    }
-
-    private static Map<String, Object> scimAttrs(ScimUser u) {
-        LinkedHashMap<String, Object> attrs = new LinkedHashMap<>();
-        attrs.put("subjectFormat", u.subject().format());
-        attrs.put("subjectJson", u.subject().toMap());
-        if (u.userName() != null) {
-            attrs.put("scimUserName", u.userName());
-        }
-        if (u.externalId() != null) {
-            attrs.put("scimExternalId", u.externalId());
-        }
-        attrs.put("scimActive", u.active());
-        attrs.put("scimRestoreStreams", u.restoreStreams());
-        attrs.put("scimCreatedAt", u.createdAt());
-        attrs.put("scimUpdatedAt", u.updatedAt());
-        return attrs;
-    }
-
-    private static ScimUser mapScimUser(String attrsJson) {
-        Map<String, Object> attrs = parseJson(attrsJson);
-        return new ScimUser(parseSubject(attrsJson),
-                attrs.get("scimUserName") instanceof String n ? n : null,
-                attrs.get("scimExternalId") instanceof String x ? x : null,
-                Boolean.TRUE.equals(attrs.get("scimActive")),
-                stringList(attrs.get("scimRestoreStreams")),
-                asLong(attrs.get("scimCreatedAt")),
-                asLong(attrs.get("scimUpdatedAt")));
+        return false;
     }
 
     // ─────────────────────────────── attrs mapping ───────────────────────────────
@@ -445,15 +365,6 @@ public final class LdmSsfStore implements SsfStore {
         if (s.statusReason() != null) {
             attrs.put("statusReason", s.statusReason());
         }
-        if (s.description() != null) {
-            attrs.put(DESCRIPTION_ATTR, s.description());
-        }
-        if (s.minVerificationInterval() != null) {
-            attrs.put(MIN_VERIFICATION_INTERVAL_ATTR, s.minVerificationInterval());
-        }
-        if (s.inactivityTimeout() != null) {
-            attrs.put(INACTIVITY_TIMEOUT_ATTR, s.inactivityTimeout());
-        }
         return attrs;
     }
 
@@ -472,9 +383,6 @@ public final class LdmSsfStore implements SsfStore {
                 .statusReason((String) attrs.get("statusReason"))
                 .createdAt(rs.getLong("created_epoch"))
                 .updatedAt(rs.getLong("modified_epoch"))
-                .description(attrs.get(DESCRIPTION_ATTR) instanceof String d ? d : null)
-                .minVerificationInterval(attrs.get(MIN_VERIFICATION_INTERVAL_ATTR) instanceof Number n ? n.intValue() : null)
-                .inactivityTimeout(attrs.get(INACTIVITY_TIMEOUT_ATTR) instanceof Number n ? n.longValue() : null)
                 .build();
     }
 

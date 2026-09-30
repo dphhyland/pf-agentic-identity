@@ -214,7 +214,7 @@ public final class StreamManagementService {
                 .status(StreamStatus.ENABLED)
                 .createdAt(now)
                 .updatedAt(now)
-                .description(parseDescription(body))
+                .description(description(body))
                 .minVerificationInterval(this.config.minVerificationIntervalSeconds() > 0
                         ? this.config.minVerificationIntervalSeconds() : null)
                 .inactivityTimeout(this.config.inactivityTimeoutSeconds() > 0 ? this.config.inactivityTimeoutSeconds() : null);
@@ -254,7 +254,7 @@ public final class StreamManagementService {
         requireTransmitterSuppliedToMatch(existing, body);
         Stream.Builder b = existing.toBuilder().updatedAt(SetMinter.nowSeconds());
         if (body.containsKey("description")) {
-            b.description(parseDescription(body));
+            b.description(description(body));
         }
         if (body.containsKey("events_requested")) {
             List<String> requested = parseEvents(body.get("events_requested"));
@@ -301,7 +301,7 @@ public final class StreamManagementService {
         Stream.Builder b = existing.toBuilder()
                 .eventsRequested(requested)
                 .eventsDelivered(narrowToDeliverable(requested))
-                .description(parseDescription(body))
+                .description(description(body))
                 .updatedAt(SetMinter.nowSeconds());
         if (method == DeliveryMethod.PUSH) {
             Map<String, Object> delivery = asMap(body.get("delivery"));
@@ -567,6 +567,21 @@ public final class StreamManagementService {
             return s.inactivityTimeout();
         }
         return this.config.inactivityTimeoutSeconds() > 0 ? this.config.inactivityTimeoutSeconds() : null;
+    }
+
+    /**
+     * {@link #parseDescription}, refused on a store that cannot keep it ({@link SsfStore#keepsOptionalStreamMembers}):
+     * SSF 1.0 §8.1.1 lets a transmitter truncate a description ("The transmitter MAY truncate the string beyond an
+     * allowed max length") and says nothing of dropping one, so a stream that would lose it is a 400 rather than a
+     * stream created without it.
+     */
+    private String description(Map<String, Object> body) {
+        String d = parseDescription(body);
+        if (d != null && !this.store.keepsOptionalStreamMembers()) {
+            throw new IllegalArgumentException("description is not supported by this transmitter's stream store (ldm) "
+                    + "until the Identity Object Model declares it; send the stream without one");
+        }
+        return d;
     }
 
     /**

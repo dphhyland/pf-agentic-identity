@@ -166,14 +166,65 @@ class ScimSubjectServiceTest {
 
     @Test
     @Requirement({"RFC7644 §3.4.1", "RFC7644 §3.12"})
-    void anUnknownIdIs404WhateverTheMethod() {
+    void anUnknownIdIs404UnlessTheRequestDeactivatesIt() {
         for (Executable call : new Executable[] {() -> svc.get(ALICE, PROVISIONER), () -> svc.replace(ALICE, user(null, null), PROVISIONER),
-                () -> svc.patch(ALICE, patch(op("replace", "active", false)), PROVISIONER), () -> svc.delete(ALICE, PROVISIONER),
-                () -> svc.get("not-a-key", PROVISIONER)}) {
+                () -> svc.replace(ALICE, user(null, "true"), PROVISIONER),
+                () -> svc.patch(ALICE, patch(op("replace", "userName", "alice")), PROVISIONER),
+                () -> svc.patch(ALICE, patch(op("replace", "active", true)), PROVISIONER),
+                () -> svc.get("not-a-key", PROVISIONER), () -> svc.delete("not-a-key", PROVISIONER)}) {
             ScimException e = scim(404, null, call);
             assertEquals("404", e.body().get("status"));
             assertFalse(e.body().containsKey("scimType"));
         }
+    }
+
+    /**
+     * The transmitter delivers to every stream about every subject under {@code OIDF_SSF_DEFAULT_SUBJECTS=ALL}, so a
+     * user with no record on no stream - one provisioned before 0.6.0 - is still heard about, and deactivating it by
+     * PATCH, PUT or DELETE raises account-disabled as every deprovision did before 0.6.0.
+     */
+    @Test
+    void deactivatingAUserWithNoRecordOnNoStreamStillRaisesAccountDisabled() throws Exception {
+        svc = serviceWith(new SsfConfiguration.Builder().issuer("https://op.example.com").provisionerScope(PROVISIONER_SCOPE)
+                .defaultSubjects("ALL").build());
+        riscStream("risc");
+
+        Map<String, Object> off = svc.patch(ALICE, patch(op("replace", "active", "False")), PROVISIONER);
+        assertEquals(List.of(SsfEventTypes.RISC_ACCOUNT_DISABLED), events("risc"));
+        assertEquals(false, off.get("active"));
+        assertFalse(store.getScimUser(ALICE).orElseThrow().active(), "an inactive record, so a reactivation is heard");
+        svc.patch(ALICE, patch(op("replace", "active", true)), PROVISIONER);
+        assertEquals(Set.of(SsfEventTypes.RISC_ACCOUNT_DISABLED, SsfEventTypes.RISC_ACCOUNT_ENABLED), Set.copyOf(events("risc")));
+        store.deleteScimUser(ALICE);
+
+        SubjectId bob = SubjectId.email("bob@example.com");
+        Map<String, Object> bobOff = new LinkedHashMap<>(Map.of("emails", List.of(Map.of("value", "bob@example.com")),
+                "active", false));
+        assertEquals(false, svc.replace("email:bob@example.com", bobOff, PROVISIONER).get("active"));
+        assertEquals(3, events("risc").size());
+        assertFalse(store.getScimUser(bob.canonicalKey()).orElseThrow().active());
+
+        svc.delete("email:carol@example.com", PROVISIONER);
+        assertEquals(4, events("risc").size(), "a DELETE of a user with no record deactivates it too");
+        assertTrue(store.getScimUser("email:carol@example.com").isEmpty(), "and keeps no record");
+    }
+
+    @Test
+    void aValueLongerThanTheStoresKeepIs400InvalidValue() throws Exception {
+        stream("s1", SsfEventTypes.CAEP_SESSION_REVOKED);
+        String tooLong = "x".repeat(ScimSubjectService.MAX_VALUE + 1);
+        Map<String, Object> longName = user(List.of("s1"), null);
+        longName.put("userName", tooLong);
+        scim(400, "invalidValue", () -> svc.create(longName, PROVISIONER));
+        Map<String, Object> longExternal = user(List.of("s1"), null);
+        longExternal.put("externalId", tooLong);
+        scim(400, "invalidValue", () -> svc.create(longExternal, PROVISIONER));
+        scim(400, "invalidValue", () -> svc.create(Map.of("emails", List.of(Map.of("value", tooLong + "@example.com"))),
+                PROVISIONER));
+        assertTrue(store.listScimUsers().isEmpty());
+        Map<String, Object> fits = user(List.of("s1"), null);
+        fits.put("userName", "x".repeat(ScimSubjectService.MAX_VALUE));
+        assertEquals(fits.get("userName"), svc.create(fits, PROVISIONER).get("userName"));
     }
 
     @Test
@@ -197,6 +248,7 @@ class ScimSubjectServiceTest {
     void activeAndStreamsMustHaveTheirTypes() {
         stream("s1", SsfEventTypes.CAEP_SESSION_REVOKED);
         scim(400, "invalidValue", () -> svc.create(user(List.of("s1"), "yes"), PROVISIONER));
+        scim(400, "invalidValue", () -> svc.create(user(List.of("s1"), 1), PROVISIONER));
         scim(400, "invalidValue", () -> svc.create(user("s1", null), PROVISIONER));
         scim(400, "invalidValue", () -> svc.create(user(List.of(1), null), PROVISIONER));
     }

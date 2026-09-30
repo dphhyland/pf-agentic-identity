@@ -1,5 +1,5 @@
 id: F-0387
-title: The ldm SSF store writes attributes and records the Identity Object Model does not declare
+title: The ldm SSF store cannot keep the optional stream members or SCIM user records the Identity Object Model does not declare
 severity: low
 area: ssf
 source: design
@@ -10,11 +10,12 @@ verification: ''
 target_release: 0.7.0
 notes: >
   Found 2026-09-30 by package HSSF2. The IOM (idp-scim-service, migrations 0001 and 002) declares no attribute for
-  SSF 1.0's optional stream members and no class for a SCIM user record. The entry trigger checks MUST attributes only,
-  so LdmSsfStore writes description, minVerificationInterval and inactivityTimeout on ssfStream (as it already wrote
-  ownerClientId), and each SCIM user record as an ssfStreamSubject entry with no parent_id and scim-prefixed attributes;
-  LdmSsfStoreOnPostgresTest holds both against the vendored 0000 and 0001 migrations. The model's validator reports the
-  attributes as undeclared, and a parent-less ssfStreamSubject stretches that class's "membership by containment".
+  SSF 1.0's optional stream members and no class for a SCIM user record, and this repo does not change the model
+  (programme plan, Cross-repo). So LdmSsfStore keeps neither (keepsOptionalStreamMembers and keepsScimUsers are false,
+  since 2026-10-01): a stream on it reports the transmitter's interval and timeout settings, a description is refused
+  with a 400, and the SCIM endpoint keeps no user records there - a deactivated user is forgotten and its reactivation
+  (a POST) emits no account-enabled. LdmSsfStoreOnPostgresTest holds this against the vendored 0000 and 0001
+  migrations. An earlier revision of the package wrote the attributes and parent-less ssfStreamSubject entries; the
+  review of 2026-09-30 found that against the model's meaning of that class, and it was taken out before merge.
   Owner action: raise in idp-scim-service the MAY attributes ownerClientId, description, minVerificationInterval and
-  inactivityTimeout on ssfStream, and a class for SCIM user records (or the scim* MAY attributes on ssfStreamSubject);
-  LdmSsfStore then moves to it. We do not edit that repo from here (programme plan, Cross-repo).
+  inactivityTimeout on ssfStream, and a class for SCIM user records; LdmSsfStore then keeps them.

@@ -468,6 +468,17 @@ abstract class SsfStoreContract {
 
     // ─────────────────────────────── optional members (H-SSF-3) ───────────────────────────────
 
+    /** Whether this store keeps the optional members and SCIM records: the ldm store does not until the model has them. */
+    protected boolean keepsWhatTheModelLacks() {
+        return true;
+    }
+
+    @Test
+    void theStoreSaysWhetherItKeepsTheOptionalMembersAndScimRecords() {
+        assertEquals(keepsWhatTheModelLacks(), this.store.keepsOptionalStreamMembers());
+        assertEquals(keepsWhatTheModelLacks(), this.store.keepsScimUsers());
+    }
+
     /** SSF 1.0 §8.1.1's optional members are stored and read back, through a create and through an update. */
     @Test
     @Requirement("SSF §8.1.1")
@@ -476,6 +487,13 @@ abstract class SsfStoreContract {
         this.store.createStream(pollStream(id).toBuilder().description("For receiver A \u00e9").minVerificationInterval(30)
                 .inactivityTimeout(86_400L).build());
         Stream read = this.store.getStream(id).orElseThrow();
+        if (!keepsWhatTheModelLacks()) {
+            assertNull(read.description(), "a store that does not keep the members reads the stream back without them");
+            assertNull(read.minVerificationInterval());
+            assertNull(read.inactivityTimeout());
+            assertEquals(pollStream(id).audience(), read.audience(), "and keeps the rest");
+            return;
+        }
         assertEquals("For receiver A \u00e9", read.description());
         assertEquals(30, read.minVerificationInterval());
         assertEquals(86_400L, read.inactivityTimeout());
@@ -509,6 +527,13 @@ abstract class SsfStoreContract {
     @Test
     void aScimUserIsWrittenReadReplacedListedAndDeleted() {
         SubjectId alice = SubjectId.email("alice@example.com");
+        if (!keepsWhatTheModelLacks()) {
+            this.store.putScimUser(new ScimUser(alice, "alice", "ext-1", false, List.of(), 100, 200));
+            assertTrue(this.store.getScimUser(alice.canonicalKey()).isEmpty(), "a store that keeps no records answers none");
+            assertTrue(this.store.listScimUsers().isEmpty());
+            assertFalse(this.store.deleteScimUser(alice.canonicalKey()));
+            return;
+        }
         String a = newId();
         String b = newId();
         this.store.createStream(pollStream(a));

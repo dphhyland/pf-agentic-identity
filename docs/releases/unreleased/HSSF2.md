@@ -5,8 +5,10 @@
 - SSF streams carry SSF 1.0 §8.1.1's optional members (plan item H-SSF-3, finding F-0055, closed): `description`
   (the receiver's, cut at 1,024 characters), and `min_verification_interval` and `inactivity_timeout`, which the
   transmitter gives each new stream from the new `OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS` (30, 0-86400) and
-  `OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS` (0 = none, 0-31536000). All three are stored by the JDBC, `ldm` and in-memory
-  stores and returned; a receiver echoing a Transmitter-Supplied member on PATCH or PUT must send the stream's value.
+  `OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS` (0 = none, 0-31536000). All three are stored by the JDBC and in-memory stores and
+  returned; a receiver echoing a Transmitter-Supplied member on PATCH or PUT must send the stream's value. The `ldm`
+  store keeps none of them until the Identity Object Model declares them: there a stream reports the two settings and
+  a `description` is refused with a 400.
 - A verification request sooner than the stream's `min_verification_interval` after its last is answered 429 with
   `Retry-After`, and nothing is signed.
 - `OIDF_SSF_MAX_STREAMS_PER_CLIENT` (10, 1-1000) caps the streams one receiver client may have; one more create is 409.
@@ -19,7 +21,9 @@
   `filter` (a subset of RFC 7644 §3.4.2.2, 400 `invalidFilter` for the rest), `startIndex` and `count`; every error in
   the RFC 7644 §3.12 schema as `application/scim+json`; `PUT` replaces, and is 404 for an unknown id; `POST` of a user
   already recorded is 409 `uniqueness`; `active` false to true puts the subject back on its streams and emits RISC
-  `account-enabled`. The endpoint keeps a record per user (the JDBC store's new `ssf_scim_users` table).
+  `account-enabled`. The endpoint keeps a record per user (the JDBC store's new `ssf_scim_users` table; the `ldm`
+  store keeps none until the model has a class for it). A PATCH, PUT or DELETE that deactivates a user the endpoint
+  has no record of still emits `account-disabled`, as every deprovision did before.
 
 ## Before you deploy
 
@@ -42,27 +46,35 @@
    OIDF_SSF_ISSUER is http" - and an issuer with a query, a fragment or no host does so in any profile. How to tell:
    that ERROR line, and SSF `FAILED_CONFIG` in the health detail. Development-profile escape: with
    `OIDF_DEPLOYMENT_PROFILE=development` an http issuer starts, with a WARN naming it.
-3. **The ldm SSF store needs the new IOM attributes for the optional stream members.** What to do: nothing for the
-   store to work; have the Identity Object Model's owner (idp-scim-service) declare `description`,
+3. **The ldm SSF store needs the new IOM attributes for the optional stream members.** What to do: with
+   `OIDF_SSF_STORE_DIALECT=ldm`, have the Identity Object Model's owner (idp-scim-service) declare `description`,
    `minVerificationInterval`, `inactivityTimeout` and `ownerClientId` as MAY attributes of `ssfStream`, and a class
-   (or `scim`-prefixed MAY attributes on `ssfStreamSubject`) for the SCIM endpoint's user records. Why: with
-   `OIDF_SSF_STORE_DIALECT=ldm` the store now writes those attributes on `ssfStream` entries and keeps each SCIM user
-   as an `ssfStreamSubject` entry with no parent; the model's entry trigger checks MUST attributes only, so the
-   database takes them, but the model does not declare them. What now happens: SSF runs as before; the model's
-   validator (ldm-copilot's `validate_entry`) reports the attributes as undeclared, and a query of the model for
-   `ssfStreamSubject` entries also finds the parent-less records. How to tell: `SELECT count(*) FROM idm.entry WHERE
-   'ssfStreamSubject' = ANY (object_classes) AND parent_id IS NULL` counts the records. Development-profile escape:
-   none needed; the store works in either profile until the model declares them (finding F-0387).
+   for the SCIM endpoint's user records; until then, have receivers create streams without a `description`. Why: this
+   repo does not change the shared model (the programme plan's Cross-repo rule), and the model declares none of them,
+   so the ldm store keeps none of them. What now happens: on the ldm store a stream reports this transmitter's
+   `OIDF_SSF_MIN_VERIFICATION_INTERVAL_SECONDS` and `OIDF_SSF_INACTIVITY_TIMEOUT_SECONDS` as its
+   `min_verification_interval` and `inactivity_timeout` - both "Transmitter-Supplied, OPTIONAL" in SSF 1.0 §8.1.1, so
+   a changed setting changes what every stream reports - and a create, PATCH or PUT carrying a `description` is 400
+   "description is not supported by this transmitter's stream store (ldm)", since SSF lets a transmitter truncate a
+   description ("The transmitter MAY truncate the string beyond an allowed max length") and not drop it. The SCIM
+   endpoint keeps no user records there: a user is the subject the streams hold, `userName` and `externalId` are not
+   kept, a deactivated user is forgotten (GET 404), a second POST adds to its streams rather than answering 409, and
+   reactivating a forgotten user is a POST, which emits no `account-enabled`. How to tell: a receiver's create with a
+   `description` fails 400 with that message. Development-profile escape: none needed; the JDBC and in-memory stores
+   keep everything, in either profile (finding F-0387).
 4. **SCIM PUT now replaces.** What to do: a provisioner that sent `PUT /ssf/scim/v2/Users/{id}` with part of a user -
-   only the SSF extension, say - must send the whole resource, or use PATCH; and one that relied on PUT or DELETE of an
-   id this endpoint had never seen, or on a second POST of the same user, must create with POST and then update. Why:
+   only the SSF extension, say - must send the whole resource, or use PATCH; and one that relied on PUT or PATCH to create a
+   user this endpoint had never seen, or on a second POST of the same user, must create with POST and then update. Why:
    RFC 7644 §3.5.1: "HTTP PUT is used to replace a resource's attributes", and "HTTP PUT MUST NOT be used to create
    new resources"; §3.3 has a duplicate create answered "409 (Conflict) with a "scimType" error code of
    "uniqueness"". What now happens: an attribute a PUT leaves out is removed - no `userName` clears it, and no SSF
-   extension takes the subject off every stream it was on; a PUT or DELETE of an unknown id is 404; a second POST of a
-   recorded user is 409; every error body is the SCIM error schema, not `{"error": ...}`. Also, `active` false to true
+   extension takes the subject off every stream it was on; a GET, or a PUT or PATCH that leaves `active` true, of an id
+   the endpoint has no record of and no stream holds is 404; a second POST of a recorded user is 409; every error body is the SCIM error schema, not `{"error": ...}`. Also, `active` false to true
    now emits RISC `account-enabled` and puts the subject back on the streams it was taken off, and an `active:false`
-   for a user already inactive emits nothing again. How to tell: the provisioner's log shows 404 or 409 from
+   for a user already inactive emits nothing again. A deactivation is never lost for want of a record: a PATCH or PUT
+   setting `active` false, or a DELETE, for a user with no record on no stream - one provisioned before 0.6.0, heard
+   about through `OIDF_SSF_DEFAULT_SUBJECTS=ALL` - emits `account-disabled` as it did before, and the PATCH or PUT
+   leaves an inactive record. How to tell: the provisioner's log shows 404 or 409 from
    `/ssf/scim/v2/Users`, or a user's streams empty after a PUT. Development-profile escape: none; these are the
    protocol's rules, the same in every profile.
 5. **`OIDF_SSF_BASE_PATH` is removed.** What to do: unset `OIDF_SSF_BASE_PATH`, the system property
@@ -96,6 +108,12 @@
   `invalidFilter`; PATCH `active` false then true, each logged ("account-disabled raised", "account-enabled raised");
   PUT without `userName` answered without it; PUT of an unknown id 404; DELETE 204 and then GET 404; no token 401 with
   `WWW-Authenticate: Bearer` - every error body in the RFC 7644 §3.12 schema as `application/scim+json`.
+- After the review (2026-10-01): deactivating a user with no record by PATCH, PUT or DELETE emits
+  `account-disabled` again (a regression the review found under `OIDF_SSF_DEFAULT_SUBJECTS=ALL`); the ldm store no
+  longer writes attributes or parent-less entries the model does not declare; an over-long `userName`, `externalId`
+  or id and an argument refused below the service are 400 `invalidValue`, not 500; `active` reads the same in POST,
+  PUT and PATCH. `mvn verify` of servlets/ssf on JDK 17 then passed with 557 tests, none skipped, the Postgres store
+  contracts on Postgres 16 and the coverage gate met.
 - `mvn verify` of servlets/ssf (547 tests, the Postgres store contracts on a local Postgres 16 through
   `OIDF_TEST_JDBC_URL`, the 100% METHOD gate with the new methods added) passed on JDK 20, and with libs/conformance
   (549 tests, none skipped) on JDK 17 and on JDK 21.0.12 (`maven:3-eclipse-temurin-21`, the Postgres suites against

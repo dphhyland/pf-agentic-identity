@@ -338,6 +338,16 @@ public final class JdbcSsfStore implements SsfStore {
     // ─────────────────────────────── SCIM users ───────────────────────────────
 
     @Override
+    public boolean keepsOptionalStreamMembers() {
+        return true;
+    }
+
+    @Override
+    public boolean keepsScimUsers() {
+        return true;
+    }
+
+    @Override
     public Optional<ScimUser> getScimUser(String id) {
         return query("SELECT * FROM ssf_scim_users WHERE subject_key = ?", ps -> ps.setString(1, id),
                 rs -> rs.next() ? Optional.of(mapScimUser(rs)) : Optional.<ScimUser>empty());

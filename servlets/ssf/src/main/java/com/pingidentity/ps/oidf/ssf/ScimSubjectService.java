@@ -37,15 +37,24 @@ import org.jose4j.lang.JoseException;
  *       {@code uniqueness}; the streams named are added to whatever already holds the subject.</li>
  *   <li>{@code GET /Users/{id}} (§3.4.1) and {@code GET /Users} with an optional {@code filter} (§3.4.2.2, the subset
  *       {@link ScimFilter} lists), {@code startIndex} and {@code count} (§3.4.2.4), answering a ListResponse.</li>
- *   <li>{@code PUT} replaces (§3.5.1): "HTTP PUT MUST NOT be used to create new resources", so an unknown id is 404;
+ *   <li>{@code PUT} replaces (§3.5.1): "HTTP PUT MUST NOT be used to create new resources", so an unknown id is 404
+ *       unless the body deactivates it (below);
  *       an attribute the body leaves out is removed - no {@code userName} clears it, and no SSF extension takes the
  *       subject off every stream. The body's subject must be the one the path names ({@code mutability} otherwise):
  *       a subject is the id, and changing it is a delete and a create.</li>
  *   <li>{@code PATCH} (§3.5.2) applies {@code add}, {@code replace} and {@code remove} to {@code active},
  *       {@code userName}, {@code externalId} and the extension's {@code streams}; operations on attributes this
  *       endpoint does not keep are ignored.</li>
- *   <li>{@code DELETE} (§3.6) deactivates the subject if it is active and forgets the user; an unknown id is 404.</li>
+ *   <li>{@code DELETE} (§3.6) deactivates the subject if it is active and forgets the user.</li>
  * </ul>
+ *
+ * <p>A deactivation is never lost for want of a record. A subject this endpoint has no record of and no stream holds
+ * may still be heard about: a transmitter with {@code OIDF_SSF_DEFAULT_SUBJECTS=ALL} delivers to every stream about
+ * every subject, and a user provisioned before 0.6.0 has no record. So a {@code PATCH} or {@code PUT} that sets
+ * {@code active} false, or a {@code DELETE}, for such a subject counts it as an active user seen for the first time:
+ * {@code account-disabled} is emitted, as every deprovision did before 0.6.0, and the {@code PATCH} or {@code PUT}
+ * leaves an inactive record, so a later reactivation emits {@code account-enabled}. Anything else addressed to it is
+ * 404.
  *
  * <p>Every refusal is a {@link ScimException}, rendered in the RFC 7644 §3.12 error schema.
  *
@@ -158,7 +167,7 @@ public final class ScimSubjectService {
         requireProvisioner(caller);
         SubjectId subject = subjectOfId(id);
         Current now = current(subject);
-        if (!now.exists()) {
+        if (!now.exists() && isActive(scimUser)) {
             throw ScimException.notFound("no user with id " + id + "; PUT does not create one (RFC 7644 §3.5.1), POST does");
         }
         if (!subject.equals(subjectOf(scimUser))) {
@@ -177,9 +186,6 @@ public final class ScimSubjectService {
         requireProvisioner(caller);
         SubjectId subject = subjectOfId(id);
         Current now = current(subject);
-        if (!now.exists()) {
-            throw ScimException.notFound("no user with id " + id);
-        }
         Object operations = patchOp.get("Operations");
         if (!(operations instanceof List)) {
             throw ScimException.badRequest("invalidSyntax", "a PatchOp needs an Operations array");
@@ -191,17 +197,21 @@ public final class ScimSubjectService {
             }
             w.apply((Map<String, Object>) o);
         }
-        return apply(subject, now, w.desired(), false);
+        Desired want = w.desired();
+        if (!now.exists() && want.active()) {
+            throw ScimException.notFound("no user with id " + id);
+        }
+        return apply(subject, now, want, false);
     }
 
-    /** {@code DELETE /Users/{id}}: deactivate the subject if it is active, and forget the user. */
+    /**
+     * {@code DELETE /Users/{id}}: deactivate the subject if it is active, and forget the user. A subject with no record
+     * on no stream is deactivated too (the class comment), so a DELETE is 204 for any id that names a subject.
+     */
     public void delete(String id, AuthContext caller) throws JoseException {
         requireProvisioner(caller);
         SubjectId subject = subjectOfId(id);
         Current now = current(subject);
-        if (!now.exists()) {
-            throw ScimException.notFound("no user with id " + id);
-        }
         if (now.active()) {
             deactivate(subject, now);
         }
@@ -242,13 +252,16 @@ public final class ScimSubjectService {
      * the subject (a create) rather than replacing them.
      *
      * <p>Deactivating: {@code account-disabled} first, so the streams still holding the subject hear it, then the
-     * subject comes off every stream, and those streams are kept to restore. A subject this endpoint has never seen
-     * counts as active, as every {@code active:false} did before 0.6.0: the event is emitted. One already inactive
+     * subject comes off every stream, and those streams are kept to restore. A subject with no record counts as
+     * active, whether or not a stream holds it, as every {@code active:false} did before 0.6.0: the event is emitted. One already inactive
      * emits nothing again. Reactivating (a record that is inactive): the subject goes back on the streams named, or
      * those it was taken off, then {@code account-enabled} (RISC 1.0 §2.4: "Account Enabled signals that the account
      * identified by the subject has been enabled"), after, so those streams hear it.
      */
     private Map<String, Object> apply(SubjectId subject, Current now, Desired want, boolean additive) throws JoseException {
+        requireFits("id", subject.canonicalKey());
+        requireFits("userName", want.userName());
+        requireFits("externalId", want.externalId());
         if (want.streams() != null) {
             requireStreamsExist(want.streams());
         }
@@ -303,6 +316,16 @@ public final class ScimSubjectService {
         LOGGER.info((Object) ("SSF SCIM deactivation: account-disabled raised and the subject removed from "
                 + now.streams().size() + " stream(s)"));
         return now.streams();
+    }
+
+    /** The longest {@code id}, {@code userName} or {@code externalId} kept: the stores' columns for them hold 1024. */
+    static final int MAX_VALUE = 1024;
+
+    /** A value longer than {@value #MAX_VALUE} characters is 400 {@code invalidValue}, not a store error. */
+    private static void requireFits(String name, String value) {
+        if (value != null && value.length() > MAX_VALUE) {
+            throw ScimException.badRequest("invalidValue", name + " is longer than " + MAX_VALUE + " characters");
+        }
     }
 
     private void requireStreamsExist(Collection<String> streamIds) {
@@ -580,16 +603,13 @@ public final class ScimSubjectService {
         throw ScimException.badRequest("invalidValue", "a SCIM user needs an email, userName or externalId to key a subject on");
     }
 
-    /** {@code active}, true when absent (RFC 7643 leaves it to the service provider); anything but a boolean is a 400. */
+    /**
+     * {@code active}, true when absent (RFC 7643 leaves it to the service provider), read as a PATCH reads it: a JSON
+     * boolean or the string form some provisioners send; anything else is a 400.
+     */
     private static boolean isActive(Map<String, Object> scimUser) {
         Object active = scimUser.get("active");
-        if (active == null) {
-            return true;
-        }
-        if (active instanceof Boolean b) {
-            return b;
-        }
-        throw ScimException.badRequest("invalidValue", "active must be true or false");
+        return active == null || Working.booleanValue(active);
     }
 
     /** The extension's {@code streams}, or {@code null} when the user carries no extension or it names none. */

@@ -102,7 +102,20 @@ public interface SsfStore {
      */
     int evictExpired(long now);
 
+    /**
+     * Whether this store keeps a stream's {@code description}, {@code minVerificationInterval} and
+     * {@code inactivityTimeout} (SSF 1.0 §8.1.1). A store that does not reads each back as {@code null}; the service
+     * then refuses a {@code description} and reports this transmitter's settings for the other two.
+     */
+    boolean keepsOptionalStreamMembers();
+
     // ---- SCIM users (plan item H-SSF-4) ----
+
+    /**
+     * Whether this store keeps SCIM user records. A store that does not answers none and drops what it is given, so
+     * a SCIM user is only what the streams hold: a deactivated user is forgotten.
+     */
+    boolean keepsScimUsers();
 
     /** The SCIM endpoint's record of the user whose SCIM {@code id} (subject canonical key) is {@code id}. */
     Optional<ScimUser> getScimUser(String id);

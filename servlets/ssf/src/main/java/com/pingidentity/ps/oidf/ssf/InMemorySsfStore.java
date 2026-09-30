@@ -164,6 +164,16 @@ public final class InMemorySsfStore implements SsfStore {
     }
 
     @Override
+    public boolean keepsOptionalStreamMembers() {
+        return true;
+    }
+
+    @Override
+    public boolean keepsScimUsers() {
+        return true;
+    }
+
+    @Override
     public Optional<ScimUser> getScimUser(String id) {
         return Optional.ofNullable(this.scimUsers.get(id));
     }

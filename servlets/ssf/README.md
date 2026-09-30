@@ -382,8 +382,9 @@ From 0.6.0 (plan item H-SSF-3; SSF 1.0 final, 29 August 2025):
   `inactivity_timeout` are "Transmitter-Supplied": a stream is given `minVerificationIntervalSeconds` and
   `inactivityTimeoutSeconds` when it is created (0 gives it none), a receiver cannot set them, and one it echoes
   back on PATCH or PUT must match or is a 400. A stream stored before 0.6.0 reports, and is held to, the current
-  settings. `inactivity_timeout` is recorded and reported only: nothing pauses or deletes an inactive stream on this
-  release (S-10's, Phase 4).
+  settings, and so does every stream on the `ldm` store, which keeps none of the three and refuses a `description`
+  with a 400 until the model declares them ([SCIM](#scim), "The `ldm` store"). `inactivity_timeout` is recorded and
+  reported only: nothing pauses or deletes an inactive stream on this release (S-10's, Phase 4).
 - **429 on verification.** A verification request sooner than the stream's `min_verification_interval` after the
   last one accepted is answered 429 with `Retry-After` (the seconds left, rounded up), and nothing is signed. §8.1.1:
   "If an Event Receiver submits verification requests more frequently than this, the Event Transmitter MAY respond
@@ -418,8 +419,7 @@ From 0.6.0 (plan item H-SSF-3; SSF 1.0 final, 29 August 2025):
   exists when this endpoint keeps a record of it - its `userName`, `externalId`, `active`, and the streams a
   deactivation took it off - or when any stream holds its subject, whoever put it there. An active user's `streams`
   (in the extension) are the streams holding its subject; an inactive user's are the ones a reactivation restores.
-  The JDBC store keeps the records in `ssf_scim_users`; the `ldm` store as `ssfStreamSubject` entries with no
-  parent (below).
+  The JDBC store keeps the records in `ssf_scim_users`; the `ldm` store keeps none yet (below).
 - **`GET /Users/{id}`**, and **`GET /Users`** with `filter`, `startIndex` and `count` (at most 200 a page), answering
   a ListResponse ordered by id. The filter subset: the attributes `id`, `userName`, `externalId`, `active`,
   `emails.value` (or `emails`) and the extension's `streams`, with or without their schema URN; the operators `eq`,
@@ -430,26 +430,31 @@ From 0.6.0 (plan item H-SSF-3; SSF 1.0 final, 29 August 2025):
 - **`POST`** creates, adding the subject to the streams named; a user already recorded is 409 `uniqueness` (RFC 7644
   §3.3). **`PUT` replaces** (§3.5.1): an attribute the body leaves out is removed - no `userName` clears it, no SSF
   extension takes the subject off every stream - and a PUT to an id that does not exist is 404, since "HTTP PUT MUST
-  NOT be used to create new resources". The body's subject must be the path's (400 `mutability`). **`PATCH`**
+  NOT be used to create new resources", unless it sets `active` false (below). The body's subject must be the path's (400 `mutability`). **`PATCH`**
   applies `add`, `replace` and `remove` to `active`, `userName`, `externalId` and `streams`, and ignores attributes
-  this endpoint does not keep. **`DELETE`** deactivates an active user and forgets it; an unknown id is 404.
+  this endpoint does not keep. **`DELETE`** deactivates an active user and forgets it (204).
 - **Deactivation and reactivation.** `active` true to false emits RISC `account-disabled` to the streams holding the
   subject, then takes it off them and keeps them to restore; a user already inactive emits nothing again. `active`
   false to true puts the subject back on the streams named, or those it was taken off (less any since deleted),
   and then emits `account-enabled` (RISC 1.0 §2.4: "Account Enabled signals that the account identified by the
-  subject has been enabled"), so those streams hear it. A subject the endpoint has never seen counts as active, as
-  every `active:false` did before 0.6.0.
+  subject has been enabled"), so those streams hear it. A deactivation is never lost for want of a record: a
+  subject with no record, on a stream or not, counts as an active user, as every `active:false` did before 0.6.0. So
+  a PATCH or PUT setting `active` false, or a DELETE, for a user with no record on no stream - one provisioned before
+  0.6.0 and heard about through `OIDF_SSF_DEFAULT_SUBJECTS=ALL` - emits `account-disabled`, and the PATCH or PUT
+  leaves an inactive record so that a reactivation emits `account-enabled`. Any other request for such an id is 404.
 - **Errors** are in the RFC 7644 §3.12 schema - `{"schemas":["urn:ietf:params:scim:api:messages:2.0:Error"],
   "status":"400","scimType":"invalidFilter","detail":"..."}` - as `application/scim+json`, the 401, 403 and 503 of
   token validation included (their `WWW-Authenticate` kept). The component gate's 503 and 404, the same on every SSF
   surface, are not rewritten.
 - **The `ldm` store.** The Identity Object Model has no class for a SCIM user record and no attributes for the
-  optional stream members. The trigger on `idm.entry` checks MUST attributes only, so the store writes them as it
-  writes `ownerClientId`: the members as `description`, `minVerificationInterval` and `inactivityTimeout` on
-  `ssfStream`, and a record as an `ssfStreamSubject` with no parent, its SCIM attributes prefixed `scim`. Every
-  membership query names its stream as the parent, so none reads a record as a membership. The model repo
-  (idp-scim-service) is asked to declare them - the MAY attributes, and a class for the records; until it does, its
-  validator reports them as undeclared.
+  optional stream members, and this repo does not change the model, so the store keeps neither
+  (`keepsOptionalStreamMembers` and `keepsScimUsers` are false). A stream there reports the transmitter's
+  `minVerificationIntervalSeconds` and `inactivityTimeoutSeconds` - both "Transmitter-Supplied, OPTIONAL" in SSF 1.0
+  §8.1.1 - and a `description` is refused with a 400, since SSF lets a transmitter truncate one ("The transmitter MAY
+  truncate the string beyond an allowed max length") and not drop it. The SCIM endpoint keeps no records there: a
+  user is the subject the streams hold, a deactivated user is forgotten, a second POST adds to its streams, and
+  reactivating a forgotten user is a POST, which emits no `account-enabled`. The model repo (idp-scim-service) is
+  asked to declare the MAY attributes and a class for the records (F-0387).
 
 ## CAEP Interop
 

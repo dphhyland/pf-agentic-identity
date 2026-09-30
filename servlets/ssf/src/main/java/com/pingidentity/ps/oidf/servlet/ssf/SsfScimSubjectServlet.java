@@ -47,7 +47,7 @@ public class SsfScimSubjectServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Log log = LogFactory.getLog(SsfScimSubjectServlet.class);
 
-    /** RFC 7644 §3.1: "The SCIM protocol uses the media type "application/scim+json"". */
+    /** RFC 7644 §3.1: "SCIM uses a media type of "application/scim+json"". */
     static final String SCIM_JSON = "application/scim+json";
 
     @Override
@@ -107,8 +107,9 @@ public class SsfScimSubjectServlet extends HttpServlet {
         AuthContext auth = SsfHttp.authorizeProvisioner(req, captured, cfg);
         if (auth == null) {
             Map<String, Object> oauth = captured.json();
-            Object detail = oauth.get("error_description") != null ? oauth.get("error_description") : oauth.get("error");
-            writeScim(resp, captured.status, ScimException.body(captured.status, null, detail == null ? null : detail.toString()));
+            // Every refusal SsfHttp writes carries an error_description.
+            writeScim(resp, captured.status, ScimException.body(captured.status, null,
+                    java.util.Objects.toString(oauth.get("error_description"), null)));
         }
         return auth;
     }
@@ -151,6 +152,9 @@ public class SsfScimSubjectServlet extends HttpServlet {
             }
         } catch (ScimException e) {
             writeScim(resp, e.status(), e.body());
+        } catch (IllegalArgumentException e) {
+            // A value the store or a stream refused, such as a stream deleted between the check and the write.
+            writeScim(resp, 400, ScimException.body(400, "invalidValue", e.getMessage()));
         } catch (Exception e) {
             log.error((Object) "SSF SCIM error", e);
             writeScim(resp, 500, ScimException.body(500, null, "internal error; see the server log"));
