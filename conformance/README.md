@@ -56,16 +56,21 @@ provisioner scope the servlet requires for SCIM and `/ssf/events:emit`), and the
 the SSF servlet validates receiver tokens with. Scopes are in `oauth-server.tf`; `ssf.manage` and
 `ssf.provision` are exclusive, so no client carries either unless named there.
 
-**Federation and attestation are present, inert and closed.** The image runs the whole module set,
-and two of the modules refuse to boot without a trust anchor and a trust controller. `vars.env` names
-PF itself as both and leaves `OIDF_FEDERATION_TRUST_ANCHOR_JWKS` unset, which is the state the filters
-are written to survive: they log the refusal, validate no trust chain, register nobody, and pass every
-token request to PF's own client authentication. `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` does the
-same for attestation-based client authentication. Its comments say why each line is there.
+**Federation and attestation are present and switched off.** The image runs the whole module set, and
+`vars.env` switches three of its components off: `OIDF_FEDERATION_ENABLED=false`,
+`OIDF_AUTO_REGISTRATION_ENABLED=false` and `OIDF_ATTESTATION_AUTH_ENABLED=false` (plan item S-9;
+[docs/operator/components.md](../docs/operator/components.md)). A component switched off never starts: its
+filters pass every token request to PF's own client authentication, which is what the FAPI, SSF and CIBA plans
+test, its endpoints answer 404, and ready ignores it. Before 0.6.0 the rig kept federation inert by naming PF
+itself trust anchor and trust controller with no pinned keys, because a module that could not start took
+`pf-runtime.war` down; from 0.6.0 that leaves both components enabled and failed, and ready answers 503
+([F-0192](../docs/findings/F-0192.yaml)). `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`, the old way to switch
+attestation off, is a superseded name for the third switch.
 
 **The federation profile makes PF a trust anchor.** `PF_PROFILE=federation ./up.sh` adds
-`vars.federation.env`: `OIDF_FEDERATION_SELF_ANCHOR` names PF as a trust anchor trusted with the key it
-signs with, read from its own key store, so nothing is pinned before it boots. That is the PF the
+`vars.federation.env`: it switches federation and automatic registration back on, names PF as its own trust
+anchor and controller, and `OIDF_FEDERATION_SELF_ANCHOR` trusts that anchor with the key PF signs with, read
+from its own key store, so nothing is pinned before it boots. Attestation stays off. That is the PF the
 suite's OpenID Federation plans test. The FAPI, SSF and CIBA plans are run without it.
 
 **The federation-op profile joins PF to the suite's own federation.** For the OP plan the suite hosts a

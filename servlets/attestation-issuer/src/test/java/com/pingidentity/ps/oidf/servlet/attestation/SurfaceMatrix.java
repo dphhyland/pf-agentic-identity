@@ -61,7 +61,7 @@ import org.w3c.dom.NodeList;
 final class SurfaceMatrix {
 
     /** What a surface does while its component is disabled or failed (ComponentGate's table). */
-    enum Kind { FEDERATION_ENDPOINT, OAUTH_ENDPOINT, AUTO_REGISTRATION, ATTESTATION, EVERY_REQUEST, EMISSION }
+    enum Kind { FEDERATION_ENDPOINT, OAUTH_ENDPOINT, AUTO_REGISTRATION, ATTESTATION, LISTED_CLIENTS, EMISSION }
 
     /** Every state a part can be put in; the first two serve. */
     static final List<ComponentState> STATES = List.of(ComponentState.READY, ComponentState.DEGRADED, ComponentState.DISABLED,
@@ -229,7 +229,7 @@ final class SurfaceMatrix {
             return switch (component) {
                 case Startup.AUTO_REGISTRATION -> Kind.AUTO_REGISTRATION;
                 case Startup.ATTESTATION_AUTH -> Kind.ATTESTATION;
-                case Startup.FAPI -> Kind.EVERY_REQUEST;
+                case Startup.FAPI -> Kind.LISTED_CLIENTS;
                 case Startup.SSF -> Kind.EMISSION;
                 default -> throw new AssertionError("a filter of " + component + " has no row in S-9's table: add one");
             };

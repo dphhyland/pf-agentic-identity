@@ -63,8 +63,9 @@ import java.util.function.Predicate;
  *       with attestation headers, and the filter's own refusal for a client that authenticates only with an
  *       attestation; everything else passes on</td><td>503 for attestation traffic, the same refusal for such a
  *       client; everything else passes on</td></tr>
- *   <tr><td>{@link #filter} with {@link #everyRequest} - FAPI's filter, which needs its client list to tell whose
- *       traffic is whose</td><td>passes every request on</td><td>503 for every request</td></tr>
+ *   <tr><td>{@link #filter} with the filter's own trigger - FAPI's filter, whose traffic is a request from a client
+ *       {@code OIDF_FAPI2_CLIENTS} lists</td><td>passes every request on</td><td>503 for its traffic; everything else
+ *       passes on</td></tr>
  *   <tr><td>{@link #emits} - the logout filter</td><td colspan="2">passes every request on; only the emission stops</td></tr>
  * </table>
  *
@@ -151,7 +152,7 @@ public final class ComponentGate {
 
     /**
      * A filter's first statement, for a filter whose component's traffic is {@code owns}: failed, that traffic answers
-     * 503 and the rest passes on; disabled, everything passes on. FAPI's filter uses it with {@link #everyRequest}.
+     * 503 and the rest passes on; disabled, everything passes on. FAPI's filter uses it with its client list.
      *
      * @return {@code true} when the gate answered the request or passed it down the chain, and the filter must
      *         return; {@code false} to run the filter
@@ -171,7 +172,7 @@ public final class ComponentGate {
         return true;
     }
 
-    /** Every request: for a filter whose trigger needs the failed component's own configuration (FAPI's client list). */
+    /** Every request: for a filter that cannot tell its traffic from any other without the configuration it failed to read. */
     public static boolean everyRequest(HttpServletRequest request) {
         return true;
     }

@@ -163,14 +163,15 @@ class SurfaceMatrixTest {
                 HttpServletRequest plain = SurfaceMatrix.request("POST", token, Map.of("grant_type", "client_credentials"), Map.of());
                 filterRow(instance, state, attested, plain, 401, "invalid_client", unavailable);
             }
-            case EVERY_REQUEST -> {
-                SurfaceMatrix.Answer a = SurfaceMatrix.drive(instance, SurfaceMatrix.request("POST", path, Map.of("client_id", "x"), Map.of()));
-                if (state == ComponentState.DISABLED) {
-                    assertTrue(a.passed && a.status == -1, "disabled must pass every request on: " + a);
-                } else if (!serving(state)) {
-                    assertTrue(!a.passed && a.status == 503 && a.body().equals(unavailable), "failed must answer every request 503: " + a);
-                } else {
-                    assertFalse(a.status == 503 && a.body().equals(unavailable), "serving answered as the gate: " + a);
+            case LISTED_CLIENTS -> {
+                // FAPI's traffic is a request from a client OIDF_FAPI2_CLIENTS names (F-0270).
+                System.setProperty("oidf.fapi2.clients", "fapi-client");
+                try {
+                    HttpServletRequest listed = SurfaceMatrix.request("POST", path, Map.of("client_id", "fapi-client"), Map.of());
+                    HttpServletRequest other = SurfaceMatrix.request("POST", path, Map.of("client_id", "an-ordinary-client"), Map.of());
+                    filterRow(instance, state, listed, other, -1, null, unavailable);
+                } finally {
+                    System.clearProperty("oidf.fapi2.clients");
                 }
             }
             case EMISSION -> {
@@ -198,18 +199,23 @@ class SurfaceMatrixTest {
                 : a.body().isEmpty() && Integer.valueOf(0).equals(a.contentLength);
     }
 
-    /** A filter's row: its own traffic refused while disabled, 503 while failed; every other request passed on. */
+    /**
+     * A filter's row: its own traffic refused while disabled ({@code disabledError} null: passed on, as FAPI's is), 503
+     * while failed; every other request passed on.
+     */
     private static void filterRow(Object instance, ComponentState state, HttpServletRequest own, HttpServletRequest other, int disabledStatus,
             String disabledError, String unavailable) throws Exception {
         SurfaceMatrix.Answer a = SurfaceMatrix.drive(instance, own);
         SurfaceMatrix.Answer b = SurfaceMatrix.drive(instance, other);
         if (serving(state)) {
             assertFalse(a.status == 503 && a.body().equals(unavailable), "serving answered its traffic as the gate: " + a);
-            assertFalse(a.status == disabledStatus && a.body().startsWith("{\"error\":\"" + disabledError + "\"") && !a.passed,
-                    "serving refused its traffic as the gate: " + a);
+            assertFalse(disabledError != null && a.status == disabledStatus && a.body().startsWith("{\"error\":\"" + disabledError + "\"")
+                    && !a.passed, "serving refused its traffic as the gate: " + a);
             return;
         }
-        if (state == ComponentState.DISABLED) {
+        if (state == ComponentState.DISABLED && disabledError == null) {
+            assertTrue(a.passed && a.status == -1, "disabled must pass its own traffic on too: " + a);
+        } else if (state == ComponentState.DISABLED) {
             assertTrue(!a.passed && a.status == disabledStatus && a.body().startsWith("{\"error\":\"" + disabledError + "\""),
                     "disabled must refuse its own traffic " + disabledStatus + " " + disabledError + ": " + a);
         } else {
