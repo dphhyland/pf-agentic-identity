@@ -1,0 +1,25 @@
+{
+  "type": "account_information",
+  "name": "RAR account_information",
+  "description": "Account information is read for a person PingFederate authenticated. A request for balances and transactions is narrowed to balances; transactions alone are denied.",
+  "domain": "idpartners.authorization_details.account_information",
+  "combining": "DenyUnlessPermit",
+  "rules": [
+    {
+      "name": "narrow to balances",
+      "when": {"all": [
+        ["principal_source", "Equals", "authenticated"],
+        ["req_datatypes", "Contains", "balances"],
+        ["req_datatypes", "Contains", "transactions"]
+      ]},
+      "statements": [{"name": "datatypes", "payload": ["balances"]}]
+    },
+    {
+      "name": "permit a person's balances",
+      "when": {"all": [
+        ["principal_source", "Equals", "authenticated"],
+        ["req_datatypes", "NotContains", "transactions"]
+      ]}
+    }
+  ]
+}

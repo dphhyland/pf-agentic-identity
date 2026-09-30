@@ -2,7 +2,7 @@ id: U-0068
 title: What PingFederate 13.1.3 does with an authorization detail processor instance whose configure throws
 area: rar-paz-plugin
 source: design
-status: open
+status: closed
 plan_items: [S-2]
 prs: []
 recorded_in: 'docs/releases/0.4.0.md, Before you deploy, the item on an https PDP URL'
@@ -10,7 +10,19 @@ verify_by: >
   On the rig under the production profile, import an archive whose RAR processor instance names an http PDP
   URL, then read the admin API's view of the instance, the server log at import and at start, and the answer to
   a token request carrying one of its types.
-verification: ''
+verification: >
+  2026-09-30, package PLG, rig slot 2 (pfai-p3-plg, PingFederate 13.1.3.0, the plugin at 0.6.0-SNAPSHOT). An
+  instance with "Skip TLS verification (dev only)" on was saved under the development profile, bound to sales_agent
+  with a client-credentials client, and exported. The rig recreated under the production profile booted from that
+  archive (age-encrypted); PingFederate imported it without complaint, and the admin API read the instance back with
+  its fields and no sign of failure. PingFederate configured the instance lazily, at its first use, and logged
+  "Unexpected exception thrown attempting to configure plugin: plgSkipTls (au.idp.rar.FedRar)" at ERROR with the
+  plugin's IllegalStateException and its message; it did not retry per request, only again after the next import. A
+  client-credentials request carrying sales_agent was answered 400 invalid_authorization_details ("the processor
+  bound to it is not configured"), from the plugin's validate; the same request without details was issued a token
+  and discovery answered 200. Importing the archive again through /configArchive/import?forceImport=true answered 200
+  and left the same state. So PingFederate neither refuses the import nor disables the instance: it keeps the
+  instance, logs the reason once per configure, and routes its types to it, where the plugin refuses them.
 notes: >
   From 0.4.0 the plugin's configure throws for a plaintext PDP URL outside development (the field validator
   refuses it in the console and the admin API, but an archive import runs no validator), and enrich on an

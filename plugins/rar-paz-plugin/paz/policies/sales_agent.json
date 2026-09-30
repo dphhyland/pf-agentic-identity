@@ -1,0 +1,26 @@
+{
+  "type": "sales_agent",
+  "name": "RAR sales_agent",
+  "description": "A sales agent may act in the regions its attestation vouches for. A request the attested regions do not cover is denied; a request made by a client alone (no person) that covers EMEA is narrowed to EMEA.",
+  "domain": "idpartners.authorization_details.sales_agent",
+  "combining": "DenyUnlessPermit",
+  "rules": [
+    {
+      "name": "narrow a client-only request to EMEA",
+      "description": "No person stands behind a client-credentials request, so it is held to the home region.",
+      "when": {"all": [
+        ["principal_source", "Equals", "client"],
+        ["req_sales_regions", "Contains", "EMEA"],
+        ["att_sales_regions", "Contains", {"attribute": "req_sales_regions"}]
+      ]},
+      "statements": [{"name": "sales_regions", "payload": ["EMEA"]}]
+    },
+    {
+      "name": "permit the attested regions",
+      "description": "The requested regions are within the attestation's (a substring test on the space-joined lists, as the processor orders them).",
+      "when": {"all": [
+        ["att_sales_regions", "Contains", {"attribute": "req_sales_regions"}]
+      ]}
+    }
+  ]
+}

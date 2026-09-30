@@ -1,0 +1,22 @@
+id: U-0385
+title: The reference PingAuthorize policies decided through a PingAuthorize Server in external mode, called by the RAR plugin
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [H-RAR-1]
+prs: []
+recorded_in: plugins/rar-paz-plugin/paz/README.md, How the policies are shaped
+verify_by: >
+  Bring up a PingAuthorize Server whose policy decision service is external, pointed at the Policy Editor of
+  paz/paz-compose.yml with the branch and decision node author-policies.py prints; set the RAR processor's PDP URL
+  to that server's /governance-engine, and drive a client-credentials request per type through PingFederate: the
+  sales_agent narrowing reaching the token as sales_regions ["EMEA"], a payment over 1000 refused, and a request for
+  balances and transactions issued with balances only.
+verification: ''
+notes: >
+  Package PLG ran the decision tests (2026-09-30) against the Policy Editor's own decision endpoint,
+  /api/governance-engine, with the request shape GovernanceEngineRequestBuilder writes; the processor calls a
+  PingAuthorize Server's /governance-engine instead, and that server asks the Policy Editor. The paz/ compose file
+  runs no PingAuthorize Server (the one it used to run mounted a profile from a checkout beside this one, and its
+  licence expired 2026-08-12; U-0302). The processor's handling of each narrowing's statement is unit-tested
+  (StatementApplier, ModelGate.within), not seen end to end.

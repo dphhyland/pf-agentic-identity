@@ -1,0 +1,17 @@
+id: U-0386
+title: The RAR processor's production refusals on save as the admin console shows them
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [PR-3]
+prs: []
+recorded_in: plugins/rar-paz-plugin/README.md, Configuration (The production profile's refusals)
+verify_by: >
+  On the rig under the production profile, open the RAR processor instance in the admin console, turn "Skip TLS
+  verification (dev only)" on and save: the console refuses with the processor's message naming the field.
+verification: ''
+notes: >
+  Package PLG saw the refusal through the admin API on the rig (2026-09-30: 422 with the message, for "Skip TLS
+  verification (dev only)" and for "Fail open on engine error" without pdp-fail-open), and in unit tests through the
+  descriptor's validation chain. The console runs the same GuiConfigDescriptor validation chain as far as the SDK
+  shows (getValidationChain, javap 13.1.3); it was not clicked.

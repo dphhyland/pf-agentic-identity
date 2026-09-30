@@ -3,10 +3,16 @@ title: 'The settings catalogue cannot record a removed plugin field, such as the
 severity: low
 area: platform, rar-paz-plugin
 source: design
-status: open
+status: closed
 plan_items: [ST-5, PR-3]
 prs: [62]
-verification: ''
+verification: >
+  2026-09-30, package PLG: rar-pdp-processor.json lists "Deny unless PERMIT" under removed, from plugin-field,
+  release 0.4.0, no replacement (PR5's form), so the settings scan and the generated
+  docs/configuration/rar-pdp-processor.md show it. The plugin still ignores a stored value rather than refusing it:
+  ProcessorConfigurationTest.theDenySwitchIsGoneAndAStoredValueIsIgnored configures an instance holding it under
+  the production profile and asserts the catalogue's removed entry. The generated page's generic sentence that a
+  removed name is refused is wrong for this field: F-0375.
 target_release: 0.6.0
 notes: >
   Found by ST3B (2026-09-28). The RAR plugin's "Deny unless PERMIT" field went in 0.4.0 (S2a; the item "'Deny unless PERMIT' is gone" in
