@@ -445,6 +445,14 @@ class ClientAttestationIssuedDetailsTest {
         assertNull(o.forwarded());
     }
 
+    /** A blank request_uri or request at PAR is no parameter: nothing to refuse and nothing to hold. */
+    @Test
+    void aBlankRequestUriOrRequestAtParIsNoParameter() throws Exception {
+        Outcome o = attested(AttestedEndpoint.PAR.path(), CEILING, params("request_uri", " ", "request", " ", "scope", "openid"));
+        assertNotNull(o.forwarded(), o.body());
+        assertNull(o.forwarded().getParameter("authorization_details"));
+    }
+
     @Test
     void theAttestationsOwnDetailsTheModelRefusesAreTheCredentialsFaultForARequestObject() {
         ClientAttestationException e = assertThrows(ClientAttestationException.class, () -> GrantedDetails.requestObjectWithin(
@@ -462,7 +470,7 @@ class ClientAttestationIssuedDetailsTest {
     }
 
     @Test
-    @Requirement({"RFC9126 §2.1", "RFC9396 §5"})
+    @Requirement("RFC9126 §2.1")
     void anAttestationRequiredClientsDetailsWithoutParAreRefusedWithAPageNeverARedirect() throws Exception {
         required.add(CLIENT);
         List<Map<String, String[]>> refused = List.of(
@@ -528,6 +536,103 @@ class ClientAttestationIssuedDetailsTest {
             System.clearProperty("oidf.federation.error.page");
             FederationRuntimeConfig.resetForTests();
         }
+    }
+
+    /** A filter over {@code properties} for every client, started as {@link #filter()} is. */
+    private static ClientAttestationAuthFilter filterOver(Map<String, List<String>> properties) throws Exception {
+        AttestationPolicyResolver resolver = AttestationPolicyResolver.over(id -> properties, Clock.systemUTC(), () -> false);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(r -> ISSUER, () -> null, ClientAttestationAuthFilter.NO_CLIENTS,
+                resolver, new SubjectTokenVerifier(() -> null));
+        filter.init(null);
+        return filter;
+    }
+
+    /**
+     * Only attestation_required that cannot be read refuses at the authorization endpoint: another property that does
+     * not parse is the token endpoint's refusal, and leaves the rule to what attestation_required says.
+     */
+    @Test
+    void anUnreadableOtherPropertyLeavesTheRuleToAttestationRequired() throws Exception {
+        Map<String, String[]> asks = params("client_id", CLIENT, "authorization_details", "[{\"type\":\"sales_agent\"}]");
+        Outcome requiredAndBad = run(filterOver(Map.of("attestation_required", List.of("true"), "attestation_pop_max_age", List.of("soon"))),
+                request(AttestedEndpoint.AUTHORIZATION.path(), null, null, asks));
+        assertEquals(400, requiredAndBad.status());
+        assertTrue(requiredAndBad.body().contains("pushed authorization request (PAR)"), requiredAndBad.body());
+        assertNull(requiredAndBad.forwarded());
+        Outcome onlyBad = run(filterOver(Map.of("attestation_pop_max_age", List.of("soon"))),
+                request(AttestedEndpoint.AUTHORIZATION.path(), null, null, asks));
+        assertSame(onlyBad.original(), onlyBad.forwarded(), onlyBad.body());
+    }
+
+    /** A blank request or request_uri asks for nothing, as a blank authorization_details does. */
+    @Test
+    void aBlankRequestOrRequestUriAtTheAuthorizationEndpointAsksForNothing() throws Exception {
+        required.add(CLIENT);
+        for (Map<String, String[]> params : List.of(params("client_id", CLIENT, "request", " "), params("client_id", CLIENT, "request_uri", " "),
+                params("client_id", CLIENT, "request", ""), params("client_id", CLIENT, "request_uri", ""))) {
+            Outcome o = authorize(params);
+            assertSame(o.original(), o.forwarded(), params.keySet() + ": " + o.body());
+        }
+    }
+
+    /** A request object's client_id or iss that is not a non-blank string names no client. */
+    @Test
+    void aRequestObjectsNonStringOrBlankClientNamesNoClient() throws Exception {
+        String object = sign(clientKey, "oauth-authz-req+jwt", "{\"iss\":\" \",\"client_id\":7,"
+                + "\"authorization_details\":[{\"type\":\"sales_agent\"}]}");
+        assertEquals(java.util.Set.of(CLIENT), PushedDetailsRule.namedClients(request(AttestedEndpoint.AUTHORIZATION.path(), null, null,
+                params("client_id", CLIENT, "request", object))));
+        assertEquals(java.util.Set.of(), PushedDetailsRule.namedClients(request(AttestedEndpoint.AUTHORIZATION.path(), null, null,
+                params("client_id", " ", "request", object))));
+        String named = requestObject("[{\"type\":\"sales_agent\"}]");
+        assertEquals(List.of(CLIENT), new ArrayList<>(PushedDetailsRule.namedClients(request(AttestedEndpoint.AUTHORIZATION.path(), null, null,
+                params("client_id", CLIENT, "request", named)))), "client_id, iss and the parameter are one client, named once");
+    }
+
+    /** With no bridge signing the filter authenticates nobody, so it refuses nothing at the authorization endpoint either. */
+    @Test
+    void withNoBridgeSigningTheAuthorizationEndpointIsPassedOn() throws Exception {
+        required.add(CLIENT);
+        AttestationPolicyResolver policies = AttestationPolicyResolver.over(id -> Map.of("attestation_required", List.of("true")),
+                Clock.systemUTC(), () -> false);
+        // Never started: no part (so no gate) and no bridge signing, as before init has run.
+        ClientAttestationAuthFilter unstarted = new ClientAttestationAuthFilter(r -> ISSUER, () -> null, ClientAttestationAuthFilter.NO_CLIENTS,
+                policies, new SubjectTokenVerifier(() -> null));
+        Outcome o = run(unstarted, request(AttestedEndpoint.AUTHORIZATION.path(), null, null,
+                params("client_id", CLIENT, "authorization_details", "[{\"type\":\"sales_agent\"}]")));
+        assertSame(o.original(), o.forwarded(), o.body());
+    }
+
+    /** The agent marker is the verified agent's or none: a client's own is dropped either way, and so is a stray principal. */
+    @Test
+    void theForwardedDetailsCarryNoAgentWhenNoneWasVerified() throws Exception {
+        List<Map<String, Object>> granted = List.of(new LinkedHashMap<>(Map.of("type", "sales_agent",
+                ClientAttestationAuthFilter.AGENT_MARKER, "forged", GrantedDetails.PRINCIPAL_MARKER, "stray")));
+        for (String agent : java.util.Arrays.asList(null, "", " ")) {
+            String text = GrantedDetails.forwarded(granted, List.of(), agent);
+            assertEquals("[{\"type\":\"sales_agent\"}]", text, "agent " + agent);
+        }
+        List<Map<String, Object>> requested = List.of(Map.of("type", "sales_agent", GrantedDetails.PRINCIPAL_MARKER, "alice"));
+        assertEquals("[{\"_agent_id\":\"a-1\",\"_principal_sub\":\"alice\",\"type\":\"sales_agent\"}]",
+                Json.write(details(GrantedDetails.forwarded(granted, requested, "a-1"))), "the request's principal marker, and the verified agent");
+        assertNull(GrantedDetails.forwarded(List.of(), requested, "a-1"));
+        assertNull(GrantedDetails.forwarded(null, requested, "a-1"));
+    }
+
+    /** An attestation with no details is an empty ceiling: a request object asking for any is outside it. */
+    @Test
+    @Requirement("RFC9396 §5")
+    void aRequestObjectUnderAnAttestationWithNoDetailsIsOutsideIt() throws Exception {
+        assertEquals(List.of(), GrantedDetails.ceilingOf(attestation(null)));
+        ClientAttestationException e = assertThrows(ClientAttestationException.class, () -> GrantedDetails.requestObjectWithin(
+                RarModels.builtIn(), requestObject("[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":1}]"),
+                attestation(null)));
+        assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, e.error());
+        assertEquals(GrantedDetails.EXCEEDS, e.getMessage());
+        Outcome o = attested(AttestedEndpoint.PAR.path(), null,
+                params("request", requestObject("[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":1}]")));
+        assertEquals(400, o.status());
+        assertEquals("invalid_authorization_details", o.error().get("error"));
     }
 
     // ---- which endpoint a path is ------------------------------------------------------------------------------

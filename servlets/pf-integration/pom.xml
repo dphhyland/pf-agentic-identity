@@ -411,6 +411,25 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.namedClients(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.unverifiedSubject(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.subjectChanged(*</include>
+                                        <!-- S4d1: which endpoint a request is, and so what the filter does there; the details it
+                                             forwards in place of the client's, and a request object's held to the attestation's
+                                             as it stands; a repeated parameter refused; and, at the authorization endpoint, which
+                                             requests are an attestation-required client's details that did not come through PAR,
+                                             and the page that answers them. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.AttestedEndpoint.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.repeatedParameter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.present(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.errorPage(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.forwarded(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.requested(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.requestObjectWithin(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.requestObjectDetails(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.ceilingOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.payload(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.asksForUnpushedDetails(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.namedClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.add(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

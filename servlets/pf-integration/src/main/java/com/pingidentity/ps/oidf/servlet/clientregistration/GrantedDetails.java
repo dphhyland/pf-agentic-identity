@@ -35,7 +35,7 @@ final class GrantedDetails {
     static final String PARAMETER = "authorization_details";
     /** The BFF's principal marker, which the RAR plugin reads only in development; carried over from the request. */
     static final String PRINCIPAL_MARKER = "_principal_sub";
-    /** RFC 9101 §6.3's error for a request object that cannot be used. */
+    /** RFC 9101 §7: "invalid_request_object - The request parameter contains an invalid Request Object." */
     static final String INVALID_REQUEST_OBJECT = "invalid_request_object";
     /** The fixed description of a request object whose details are outside the attestation's (the token gate's text). */
     static final String EXCEEDS = "authorization_details exceeds what the client attestation allows";
@@ -92,7 +92,9 @@ final class GrantedDetails {
 
     /**
      * Holds a signed request object's {@code authorization_details} to the attestation's, strictly: every detail must be
-     * within the attestation's as it stands (RFC 9396 §5 for what the model refuses). The object is not verified here -
+     * within the attestation's as it stands. What the model refuses is RFC 9396 §5's: "The AS MUST abort processing and
+     * respond with an error invalid_authorization_details to the client if any of the following are true of the objects
+     * in the authorization_details structure". The object is not verified here -
      * PingFederate verifies it against the client's keys - and a failed signature only refuses a request this check let
      * through. A request object with no {@code authorization_details} asks for none and passes.
      *

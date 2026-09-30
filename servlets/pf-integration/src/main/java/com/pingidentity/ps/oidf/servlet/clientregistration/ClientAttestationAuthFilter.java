@@ -762,7 +762,7 @@ public final class ClientAttestationAuthFilter implements Filter {
     /**
      * The HTTP status a verification failure answers with: 400 for a challenge the client must fetch, for
      * {@code authorization_details} the token gate refuses and for a request object that cannot be held to the
-     * attestation ({@code invalid_request_object}, RFC 9101 §6.3's code), 503 when the challenge or replay store could not
+     * attestation ({@code invalid_request_object}, RFC 9101 §7's code), 503 when the challenge or replay store could not
      * answer ({@code temporarily_unavailable}, RFC 6749 §4.1.2.1's code for the condition, used at this endpoint
      * by plan item S3a: an outage of ours, never reported as a replay), 401 for everything else the client got
      * wrong.
