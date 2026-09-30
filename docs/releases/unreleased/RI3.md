@@ -97,7 +97,8 @@ Alpine's age 1.3.1-r6 carried, and zlib's CVE-2026-85091, no longer match anythi
 are gone from `.github/grype.yaml`. F-0221, which accepted Alpine's age, is superseded by F-0285 and was not this
 package's to close.
 
-Verified 2026-09-29: the reactor's tests on JDK 17; `test-entrypoint.sh --image` (68 checks) inside the rig's image;
+Verified 2026-09-29: the reactor's tests on JDK 17; `test-entrypoint.sh --image` (68 checks, 71 from 2026-09-30 with `-0` and
+`-00` refused in production) inside the rig's image;
 the conformance rig on slot 4 (`PF_RIG_NAME=pfai-p3-ri3`) built from this branch with `vars.env` accepting the
 agreement and turning the listener on - the archive imported with `ForceUnsupportedImport` false, discovery and the
 heartbeat answered on 9031 and the heartbeat on the plain listener, the banner printed the commit, and the
