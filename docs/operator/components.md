@@ -162,3 +162,22 @@ What PingFederate 13.1.3's Jetty does with an `init` that throws, the three case
 
 So "init never throws" is needed for servlets and filters alike, and a lazily started servlet that throws is not a
 safe alternative either: it answers 500 once and 404 from then on, with nothing in readiness until S9a.
+
+What this change does instead, in production (2026-09-30, this branch at 7497bd2b, the rig in production profile with
+`OIDF_AUTO_REGISTRATION_ENABLED` unset, `OIDF_FEDERATION_TRUST_CONTROLLER_HOST=not a url`, and the rig's other
+components switched explicitly: `OIDF_FEDERATION_ENABLED=true`, `OIDF_FAPI_ENABLED=true`,
+`OIDF_OPERATOR_API_ENABLED=false`): the war started and every `init` returned. The start-up audit said
+
+```
+AUTO_REGISTRATION FAILED_CONFIG: FrontChannelAutoRegistrationFilter: OIDF_AUTO_REGISTRATION_ENABLED is unset and OIDF_FEDERATION_TRUST_CONTROLLER_HOST is set: in production set OIDF_AUTO_REGISTRATION_ENABLED to true or false; TokenEndpointAutoRegistrationF...
+```
+
+and the health detail gave both automatic-registration parts that reason. Ready answered 503 `{"status":"DOWN"}`;
+live, `/pf/heartbeat.ping` and the Entity Configuration answered 200. At `/as/token.oauth2`, a
+`client_credentials` request from `conformance-ssf-emitter` (a PingFederate client with a secret) answered 200
+with a Bearer token, and one naming an unknown plain client answered PingFederate's own 401 `invalid_client`,
+while one whose `client_id` is an https URL answered 503 `{"error":"temporarily_unavailable","error_description":
+"AUTO_REGISTRATION is not available"}`. `FEDERATION` was `FAILED_CONFIG` too, from explicit registration (the
+trust controller names no pinned anchor keys), and `OpenIdFederationServlet` stayed `READY`. Left unset in
+production, the rig's `OIDF_FAPI2_CLIENTS` makes `FAPI` `FAILED_CONFIG` and every token request answers 503
+(the same boot with only the two switches unset): the FAPI floor is every request.

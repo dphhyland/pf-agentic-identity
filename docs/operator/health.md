@@ -29,15 +29,17 @@ does not count. The table of which class serves which component, and when each i
 
 Things to know before routing on ready:
 
-- **A failed component no longer takes the war down.** Before 0.6.0 a servlet or filter that refused to start
-  stopped the whole `pf-runtime.war`, live included, and every runtime endpoint answered 503 (verified on the rig,
+- **A failed component no longer takes the war down.** Before 0.6.0 a servlet or filter that refused to start stopped
+  the whole `pf-runtime.war`, live included, and every runtime endpoint answered 503 (verified on the rig,
   [components.md](components.md#verified-on-the-rig)). Now every `init` returns: the component is `FAILED_CONFIG` or
   `FAILED_DEPENDENCY` with its reason, its own surfaces answer 503 `temporarily_unavailable`, ready is 503, and live,
-  `/pf/heartbeat.ping` and PingFederate's own SSO and OAuth endpoints keep answering. A load balancer that routes on
-  ready takes such a node out; one that routes on live or on PingFederate's heartbeat keeps sending it traffic, and
-  the component's own requests meet the 503. A component that failed on a dependency (a store, OpenBao, a file
-  that is not there yet) is retried with backoff from 5 s to 300 s and becomes ready by itself once the dependency is
-  back; one that failed on configuration waits for a restart.
+  `/pf/heartbeat.ping` and PingFederate's own SSO and OAuth endpoints keep answering - except under a failed `FAPI`,
+  whose filter cannot tell a FAPI client from any other without the client list it failed to read, so every request to
+  the endpoints it covers answers 503 ([components.md](components.md#what-a-component-does-when-it-fails)). A load
+  balancer that routes on ready takes such a node out; one that routes on live or on PingFederate's heartbeat keeps
+  sending it traffic, and the component's own requests meet the 503. A component that failed on a dependency (a store,
+  OpenBao, a file that is not there yet) is retried with backoff from 5 s to 300 s and becomes ready by itself once
+  the dependency is back; one that failed on configuration waits for a restart.
 - **Every part starts at deploy.** Explicit registration, hosting, the admin API and the attester's issuance endpoint
   used to start on their first request, so ready did not see them until someone called them
   ([F-0193](../findings/F-0193.yaml), closed by S9a). They now load at start-up. The SSF receiver still starts on its
