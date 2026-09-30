@@ -451,6 +451,10 @@ class AttestationPolicyResolverTest {
         };
     }
 
+    private List<Event> policyInvalid() {
+        return this.events.stream().filter(e -> e.code().equals(AttestationEvents.POLICY_INVALID)).toList();
+    }
+
     private static ComponentParts.Part part() {
         return new ComponentParts(new ComponentRegistry(), Clock.systemUTC()).begin("ATTESTATION_AUTH", AttestationPolicyScan.PART);
     }
@@ -470,11 +474,12 @@ class AttestationPolicyResolverTest {
         assertTrue(detail.contains("loose (attestation_dpop_max_age)") && detail.contains("garbled (attestation_required)"), detail);
         assertFalse(detail.contains("3600") || detail.contains("sometimes"), "never a value: " + detail);
         assertEquals(2, this.events.stream().filter(e -> e.code().equals(AttestationEvents.POLICY_INVALID)).count());
-        assertEquals(AttestationEvents.SCAN, this.events.get(0).fields().get("endpoint"));
+        assertEquals(AttestationEvents.SCAN, this.policyInvalid().get(0).fields().get("endpoint"));
 
-        // Found again ten minutes later: still in health, not a second event.
+        // Found again ten minutes later: still in health, not a second event. (The part's own moves emit
+        // platform.component.changed since PR-5; only this scan's events are counted here.)
         AttestationPolicyScan.runOnce(part, store(client("loose", Map.of(ClientAttestationPolicy.DPOP_MAX_AGE, "3600"))), resolver);
-        assertEquals(2, this.events.size());
+        assertEquals(2, this.policyInvalid().size());
 
         // Fixed: the part is ready.
         assertEquals(List.of(), AttestationPolicyScan.runOnce(part, store(client("loose", Map.of())), resolver));
