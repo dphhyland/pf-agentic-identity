@@ -1,0 +1,18 @@
+id: F-0356
+title: device-enrolment keeps its challenges and its jti replay store in memory, and the production profile asks for no risk
+severity: low
+area: device-enrolment
+source: design
+status: open
+plan_items: [PR-2, X-A11]
+prs: []
+verification: ''
+target_release: 0.9.0
+notes: >
+  Found by package ST5S (2026-09-30). services/device-enrolment's Main wires InMemoryAttestationChallengeService and
+  InMemoryAttestationReplayCache unconditionally, so every node keeps its own challenges and its own record of spent
+  jtis, lost at a restart. The Phase 3 plan's decision 9 asks the in-memory-state accepted risk of security state held
+  in memory in production, and ST5S's start-up audit asks it only of REGISTRY=memory, the one store the catalogue
+  classes. Requiring the risk for these two would refuse every production start today, since the service has no
+  other store for them, and the device path is not production-usable until Phase 6 anyway (the programme plan's M-2).
+  X-A11, which replaces the service's HTTP and stores, is where they get a shared store or the risk.
