@@ -180,10 +180,28 @@ class PdpDecisionsTest {
                 ask("payment_initiation", "amount", "43.00", "currency", "AUD"))) {
             assertNotEquals(key, PdpDecisions.keyOf(other), other.toString());
         }
+        // Pairs that differ in one attestation member and nothing else: the attester's iss, the RAR models
+        // fingerprint and the key thumbprint each make a different question on their own.
+        for (String member : List.of("iss", "rar_models", "cnf")) {
+            AttestationSubject one = subjectWith(member, "one");
+            AttestationSubject two = subjectWith(member, "two");
+            assertNotEquals(
+                    PdpDecisions.keyOf(new PdpDecisions.Ask("payment_initiation", base.detail(), one, "alice", "agent-client", "authenticated")),
+                    PdpDecisions.keyOf(new PdpDecisions.Ask("payment_initiation", base.detail(), two, "alice", "agent-client", "authenticated")),
+                    member);
+        }
         Map<String, Object> unwritable = new LinkedHashMap<>(base.detail());
         unwritable.put("self", new Object());
         assertNull(PdpDecisions.keyOf(new PdpDecisions.Ask("payment_initiation", unwritable, null, null, null, null)),
                 "a question JSON cannot hold is only ever asked");
+    }
+
+    /** An attestation context whose one member {@code member} is {@code value}; every other member is fixed. */
+    private static AttestationSubject subjectWith(String member, String value) {
+        return new AttestationSubject("agent-client", "agent-client", List.of(), Map.of(),
+                "cnf".equals(member) ? value : "thumb", "agent-7",
+                "iss".equals(member) ? "https://" + value + ".example" : "https://attester.example", null,
+                "rar_models".equals(member) ? value : "fingerprint", true);
     }
 
     @Test

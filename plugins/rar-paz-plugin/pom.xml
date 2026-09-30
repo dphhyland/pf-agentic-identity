@@ -251,6 +251,7 @@
                                         <include>com.pingidentity.ps.oidf.rar.PdpTransport.peerWentAway(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpTransport.totalMillisOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpTransport.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpTransport.client(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpTransport.InstanceBulkhead.enter(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpTls.modeOf(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.PdpTls.current(*</include>
@@ -260,6 +261,7 @@
                                         <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.onReached(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.onUnreachable(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.CircuitBreaker.Guarded.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.rar.PdpMetrics.untrack(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.DecisionMemo.of(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.DecisionMemo.answer(*</include>
                                         <include>com.pingidentity.ps.oidf.rar.DecisionMemo.copyOf(*</include>

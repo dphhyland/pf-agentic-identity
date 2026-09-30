@@ -90,6 +90,13 @@ final class PdpMetrics {
         BREAKERS.add(breaker);
     }
 
+    /** Stops counting a breaker a reconfigure replaced, rather than until the collector takes it. Null is nothing. */
+    static void untrack(CircuitBreaker breaker) {
+        if (breaker != null) {
+            BREAKERS.remove(breaker);
+        }
+    }
+
     static long calls(String mode, String outcome) {
         return CALLS.get(mode, outcome);
     }

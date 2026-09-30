@@ -98,6 +98,22 @@ class PdpTlsTest {
         assertThrows(IOException.class, pingFederate::current, "a set that goes missing is nothing to trust, not the last one");
     }
 
+    /** One transport, as configure builds it, follows a reload of PingFederate's CAs without being built again. */
+    @Test
+    void oneTransportRebuildsItsClientWhenPingFederatesCasChange() throws Exception {
+        AtomicReference<Set<TrustAnchor>> anchors = new AtomicReference<>(Set.of(new TrustAnchor(ca.ca, null)));
+        PdpTransport transport = new PdpTransport(PdpTls.pingFederate(() -> new HashSet<>(anchors.get())), 5_000, false);
+        String url = right.httpsUrl("localhost", "/access/v1/evaluation");
+        assertEquals(200, transport.post(url, "{}", JSON).status());
+        assertEquals(200, transport.post(url, "{}", JSON).status(), "the same anchors, the same client");
+        anchors.set(Set.of(new TrustAnchor(someOtherCa(), null)));
+        IOException refused = assertThrows(IOException.class, () -> transport.post(url, "{}", JSON),
+                "the CA was removed in PingFederate: the next call is made on a client built without it");
+        assertEquals(OutboundHttpException.Reason.TLS, ((OutboundHttpException) refused).reason(), refused.toString());
+        anchors.set(Set.of(new TrustAnchor(ca.ca, null)));
+        assertEquals(200, transport.post(url, "{}", JSON).status(), "and put back, it is trusted again");
+    }
+
     @Test
     void pingFederateWithNothingToTrustOrThatCannotBeReadRefuses() {
         PdpTls empty = PdpTls.pingFederate(Set::of);

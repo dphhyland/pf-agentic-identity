@@ -32,6 +32,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -144,8 +145,13 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private HttpTransport transport;
     private PdpDecisions decisions;
     private CircuitBreaker breaker;
-    /** The request attribute this instance's per-request memo lives under: one per instance, so two never share. */
-    private final String memoAttribute = AttestationAwareRarProcessor.class.getName() + ".memo." + System.identityHashCode(this);
+    /** Numbers the instances in this classloader, for {@link #memoAttribute}. */
+    private static final AtomicLong INSTANCES = new AtomicLong();
+    /**
+     * The request attribute this instance's per-request memo lives under: one per instance, so two never share (a
+     * sequence, not an identity hash, which two instances can have in common).
+     */
+    private final String memoAttribute = AttestationAwareRarProcessor.class.getName() + ".memo." + INSTANCES.incrementAndGet();
 
     /** What PingFederate calls: the process's RAR model set, read from the environment once per classloader. */
     public AttestationAwareRarProcessor() {
@@ -201,6 +207,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
                 : new DecisionCache(resilience.cacheTypes(), resilience.cacheTtlSeconds());
         this.config = settings;
         this.transport = newTransport;
+        PdpMetrics.untrack(this.breaker);
         this.breaker = newBreaker;
         this.client = newClient;
         this.decisions = new PdpDecisions(newClient, cache,

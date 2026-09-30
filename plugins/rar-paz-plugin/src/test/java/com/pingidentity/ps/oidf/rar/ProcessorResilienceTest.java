@@ -24,7 +24,9 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -210,6 +212,81 @@ class ProcessorResilienceTest {
             assertEquals(3, evaluations.size(), "another processor's type and the malformed entries are not sent");
             assertEquals("AMER", evaluations.get(1).path("resource").path("properties").path("sales_regions").get(0).asText());
         }
+    }
+
+    /**
+     * The batch sends what enrich would send: each detail without its bookkeeping markers, the principal and the
+     * PAR-carried agent (trusted here) as the actor - each evaluation is the body a single call for that detail
+     * carries. The memo then answers the enrich of each marker-bearing detail.
+     */
+    @Test
+    void theBatchSendsThePreparedDetailAndSubject() throws Exception {
+        String marked = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"_principal_sub\":\"bob\",\"_agent_id\":\"agent-7\"},"
+                + "{\"type\":\"sales_agent\",\"sales_regions\":[\"APAC\"],\"_principal_sub\":\"bob\",\"_agent_id\":\"agent-7\"}]";
+        JsonNode single;
+        try (StubPdp pdp = StubPdp.plain(StubPdp.json(200, "{\"decision\":true}"))) {
+            AttestationAwareRarProcessor processor = markerTrusting(pdp, false);
+            processor.enrich(markedDetail("EMEA"), noPerson(marked), Map.of());
+            single = MAPPER.readTree(pdp.take().body());
+        }
+        try (StubPdp pdp = StubPdp.plain(StubPdp.json(200, "{\"evaluations\":[{\"decision\":true},{\"decision\":true}]}"))) {
+            AttestationAwareRarProcessor processor = markerTrusting(pdp, true);
+            AuthorizationDetailContext context = noPerson(marked);
+            for (String region : List.of("EMEA", "APAC")) {
+                AuthorizationDetail granted = processor.enrich(markedDetail(region), context, Map.of());
+                assertEquals(List.of(region), granted.getDetail().get("sales_regions"));
+            }
+            assertEquals(1, pdp.accepted.get(), "one batch call; the memo answered both enrich calls");
+            StubPdp.Recorded call = pdp.take();
+            assertEquals("/access/v1/evaluations", call.path());
+            assertFalse(call.body().contains("_principal_sub") || call.body().contains("_agent_id"),
+                    "no marker reaches the PDP: " + call.body());
+            JsonNode evaluations = MAPPER.readTree(call.body()).get("evaluations");
+            assertEquals(2, evaluations.size());
+            assertEquals(single, evaluations.get(0), "the batch's evaluation is the single call's body");
+            assertEquals("agent-7", evaluations.get(1).path("context").path("actor").path("id").asText(), call.body());
+        }
+    }
+
+    private static AttestationAwareRarProcessor markerTrusting(StubPdp pdp, boolean batch) {
+        AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor();
+        processor.configure(stored("PDP URL", pdp.url("/access/v1/evaluation"), "PDP Dialect", "authzen",
+                "AuthZEN batch URL", batch ? pdp.url("/access/v1/evaluations") : "",
+                "Trust a client-asserted principal", "true", "Trust the PAR-carried agent marker", "true",
+                "Types requiring an authenticated principal", "-"), "development");
+        return processor;
+    }
+
+    private static AuthorizationDetail markedDetail(String region) {
+        Map<String, Object> detail = new HashMap<>();
+        detail.put("type", "sales_agent");
+        detail.put("sales_regions", List.of(region));
+        detail.put("_principal_sub", "bob");
+        detail.put("_agent_id", "agent-7");
+        return new AuthorizationDetail(detail);
+    }
+
+    private static AuthorizationDetailContext noPerson(String authorizationDetails) {
+        HttpServletRequest request = PdpDecisionsTest.request(authorizationDetails);
+        when(request.getParameter("grant_type")).thenReturn("client_credentials");
+        return new AuthorizationDetailContext.Builder().withRequest(request)
+                .withClientId("agent-client").withUserKey("agent-client").build();
+    }
+
+    /** A reconfigure's new breaker replaces the old one in the gauge, and each instance has a memo of its own. */
+    @Test
+    void aReconfigureCountsOnlyTheNewBreakerAndInstancesKeepSeparateMemos() {
+        AttestationAwareRarProcessor processor = new AttestationAwareRarProcessor();
+        Configuration configuration = stored("PDP URL", "https://pdp.example/access/v1/evaluation", "PDP Dialect", "authzen",
+                "Types requiring an authenticated principal", "-");
+        processor.configure(configuration, "development");
+        CircuitBreaker first = processor.breaker();
+        double closed = PdpMetrics.breakers(CircuitBreaker.State.CLOSED);
+        processor.configure(configuration, "development");
+        assertNotSame(first, processor.breaker());
+        assertEquals(closed, PdpMetrics.breakers(CircuitBreaker.State.CLOSED), "the replaced breaker is no longer counted");
+        PdpMetrics.untrack(null);
+        assertNotEquals(processor.memoAttribute(), new AttestationAwareRarProcessor().memoAttribute());
     }
 
     @Test
