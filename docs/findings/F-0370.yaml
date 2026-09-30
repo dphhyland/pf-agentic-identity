@@ -1,0 +1,18 @@
+id: F-0370
+title: The admin API can grant Trust Marks into an in-memory registry while the production profile refuses the federation servlet for it
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [PR-2]
+prs: [91]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST5F (2026-09-30) while wiring PR-2's store refusals. With OIDF_FEDERATION_TRUST_MARK_TYPES set and no
+  authority store (neither OIDF_AUTHORITY_DATA_STORE_ID nor OIDF_AUTHORITY_JDBC_URL), the federation servlet is now
+  REFUSED in production unless in-memory-state is accepted (AuthorityDataSource.trustMarkRegistry). FederationAdminServlet
+  (OPERATOR_API) still wires TrustMarkSupport.shared(), which falls back to memory on first use, so an operator can grant
+  marks that live in one node's memory and are lost on restart. They are never issued while FEDERATION is refused,
+  which is why this is low; the fix is to refuse the Trust Mark routes (or OPERATOR_API) on the same condition, a
+  decision about the operator API's shape left to its owner. Who and when: not allocated - the release package decides.

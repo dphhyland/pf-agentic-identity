@@ -1,0 +1,21 @@
+id: U-0380
+title: That the federation stores' production refusals - in memory without the risk, not PostgreSQL - show REFUSED on a running PingFederate
+area: pf-integration
+source: design
+status: open
+plan_items: [PR-2, ST-5]
+prs: [91]
+recorded_in: servlets/pf-integration/README.md, Configuration; docs/releases/unreleased/ST5F.md
+verify_by: >
+  Boot a PingFederate built from 0.6.0 with OIDF_DEPLOYMENT_PROFILE=production, an encrypted archive (data.zip.age),
+  OIDF_AUTHORITY_ENTITY_ID set and no authority store: expect HOSTING REFUSED in the start-up audit with a reason
+  naming in-memory-state, and READY once OIDF_ACCEPTED_RISKS names in-memory-state. With OIDF_FEDERATION_ENABLED=true
+  and OIDF_FEDERATION_TRUST_MARK_TYPES or OIDF_FEDERATION_HISTORICAL_KEYS=true set, the same for FEDERATION. Then point
+  OIDF_AUTHORITY_DATA_STORE_ID at a PingFederate data store on PostgreSQL (expect READY: DataSourceAccessor's connection
+  reports the product name PostgreSQL) and at one on another database (expect REFUSED naming its product name).
+verification: ''
+notes: >
+  ST5F (2026-09-30) tested each refusal in both profiles in unit tests (AuthorityStoresTest,
+  HostedEntityServletEnrolTest) and booted the rig in the development profile, conformance and federation profiles,
+  where no refusal applies. The rig cannot boot in production for the reason U-0340 gives (a plaintext archive is
+  refused there), and it configures no authority store.
