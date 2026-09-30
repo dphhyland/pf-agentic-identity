@@ -3,10 +3,19 @@ title: A PingFederate that names a trust controller before its anchor's keys are
 severity: medium
 area: platform-pf, pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S9a, S9b, O-4]
-prs: [53]
-verification: ''
+prs: [53, 86]
+verification: >
+  2026-09-30, PR #86 (package S9B). Readiness never counts a disabled component, and explicit registration without the
+  trust anchor's keys is DEGRADED rather than FAILED_CONFIG (OpenIdRegistrationServlet answers each registration 503
+  until the keys are configured), so a PingFederate that is its own trust anchor and controller with no keys pinned and
+  OIDF_AUTO_REGISTRATION_ENABLED=false is ready and serves its Entity Configuration. On the rig (slot 1, PingFederate
+  13.1.3.0, development profile, OIDF_FEDERATION_ENABLED=true, OIDF_FEDERATION_TRUST_ANCHORS and
+  OIDF_FEDERATION_TRUST_CONTROLLER_HOST naming the rig, no OIDF_FEDERATION_TRUST_ANCHOR_JWKS):
+  /.well-known/openid-federation 200, POST /federation/register 503 temporarily_unavailable,
+  /agentic-identity/health/ready 200, and PingFederate's own client was issued a token (conformance/fail-soft-matrix.sh
+  bootstrap_anchor). The rig itself now switches federation off (conformance/vars.env) and is ready at boot.
 target_release: 0.6.0
 notes: >
   Found by package O4 (2026-09-28). With OIDF_FEDERATION_TRUST_CONTROLLER_HOST set and

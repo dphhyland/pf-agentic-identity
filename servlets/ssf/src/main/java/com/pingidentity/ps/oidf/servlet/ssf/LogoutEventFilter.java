@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
 import com.pingidentity.ps.oidf.ssf.SsfEventBridge;
@@ -80,11 +81,18 @@ public final class LogoutEventFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
+        // The logout always goes on (S9b): SSF disabled or failed stops only the emission, and nothing is read to
+        // emit. No part - SSF's configuration servlet never ran init - leaves it to the bridge, a no-op until then.
+        if (!ComponentGate.emits(SsfComponents.transmitterPart())) {
+            chain.doFilter(request, response);
+            return;
+        }
         SubjectId subject = null;
         if (request instanceof HttpServletRequest) {
             try {
                 subject = this.extractor.extract((HttpServletRequest) request);
-            } catch (RuntimeException e) {
+            } catch (RuntimeException | LinkageError e) {
+                // Whatever the extraction meets - PingFederate's key lookup not linking included - the logout goes on (S9b).
                 LOGGER.warn((Object) ("SSF logout signal: could not extract subject: " + e.getMessage()));
             }
         }

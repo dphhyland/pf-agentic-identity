@@ -112,13 +112,7 @@ public final class Fapi2ProfileFilter implements Filter {
         if (setting == null || setting.isBlank()) {
             setting = this.environment.apply(CLIENTS_ENV);
         }
-        Set<String> listed = new LinkedHashSet<>();
-        for (String id : (setting == null ? "" : setting).split(",")) {
-            if (!id.isBlank()) {
-                listed.add(id.trim());
-            }
-        }
-        this.clients = Set.copyOf(listed);
+        this.clients = listed(setting);
         if (this.clients.isEmpty()) {
             part.notConfigured(CLIENTS_ENV + " names no client");
         }
@@ -132,8 +126,10 @@ public final class Fapi2ProfileFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
-        // FAPI's own trigger is its client list, which a failed start did not read: every request is its traffic then.
-        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::everyRequest)) {
+        // Disabled, everything passes on. Failed, FAPI's traffic answers 503 and the rest passes on: FAPI's traffic is a
+        // request from a client its list names, read here as the start reads it (F-0270), so PingFederate's other
+        // clients keep their token endpoint while FAPI is failed.
+        if (ComponentGate.filter(this.part, request, response, chain, this::fromAListedClient)) {
             return;
         }
         if (!this.clients.isEmpty() && request instanceof HttpServletRequest && response instanceof HttpServletResponse) {
@@ -147,6 +143,45 @@ public final class Fapi2ProfileFilter implements Filter {
             }
         }
         chain.doFilter(request, response);
+    }
+
+    /** The client list a setting names: comma-separated ids, {@value #EVERY_CLIENT} for every client, empty for none. */
+    static Set<String> listed(String setting) {
+        Set<String> listed = new LinkedHashSet<>();
+        for (String id : (setting == null ? "" : setting).split(",")) {
+            if (!id.isBlank()) {
+                listed.add(id.trim());
+            }
+        }
+        return Set.copyOf(listed);
+    }
+
+    /**
+     * For the gate while FAPI is failed (S9b, F-0270): whether the request is FAPI's - its list names every client, or
+     * the client the request names, as {@link #violationIn} reads it; or an assertion whose owner cannot be read, or
+     * one repeated, which a healthy filter refuses too. The list is read from the system property and the environment,
+     * as the start reads it (the war gives this filter no init-params).
+     */
+    boolean fromAListedClient(HttpServletRequest request) {
+        Set<String> listed;
+        try {
+            String setting = System.getProperty(CLIENTS_PROPERTY);
+            listed = listed(setting == null || setting.isBlank() ? this.environment.apply(CLIENTS_ENV) : setting);
+        } catch (RuntimeException e) {
+            // The list cannot be read: nobody can say whose request this is, so every one is FAPI's.
+            return true;
+        }
+        if (listed.isEmpty() || listed.contains(EVERY_CLIENT)) {
+            return !listed.isEmpty();
+        }
+        String[] assertions = request.getParameterValues("client_assertion");
+        if (assertions != null && assertions.length > 0) {
+            String sub = assertions.length == 1 ? Fapi2RequestPolicy.subjectOf(assertions[0]) : null;
+            return sub == null || listed.contains(sub);
+        }
+        String named = request.getParameter("client_id");
+        String client = named != null && !named.isBlank() ? named : Fapi2RequestPolicy.clientOfAccessToken(request.getHeader("Authorization"));
+        return client != null && listed.contains(client);
     }
 
     private Violation violationIn(HttpServletRequest request) {

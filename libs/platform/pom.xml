@@ -178,6 +178,11 @@
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentState(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentRefused(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.verdict(*</include>
+                                        <!-- component (S-9, S9B): the readiness grace and the gate's published view -->
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.graced(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.blip(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.gateView(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Health.readiness(*</include>
                                         <!-- json (F-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.readValue(*</include>

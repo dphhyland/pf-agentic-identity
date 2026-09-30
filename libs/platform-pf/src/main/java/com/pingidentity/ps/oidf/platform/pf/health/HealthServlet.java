@@ -35,8 +35,9 @@ import java.util.function.Supplier;
  *
  * <ul>
  *   <li>{@value #LIVE}: 200 {@code {"status":"UP"}} whenever this webapp answers.</li>
- *   <li>{@value #READY}: 200 {@code {"status":"UP"}}, or 503 {@code {"status":"DOWN"}} when an enabled component is
- *       not ready ({@link Health#readiness}).</li>
+ *   <li>{@value #READY}: 200 {@code {"status":"UP"}}, or 503 {@code {"status":"DOWN"}} exactly when an enabled component
+ *       is not {@code READY} or {@code DEGRADED} ({@link Health#readiness}); a component in the first seconds of a
+ *       dependency blip counts as {@code DEGRADED} ({@link ComponentParts#graced}), and a disabled one never counts.</li>
  *   <li>{@value #DETAIL}: each component's state and reason, its parts, the profile and the versions, with the
  *       readiness status and code; {@value #INFO}: the versions.</li>
  * </ul>
@@ -155,14 +156,16 @@ public class HealthServlet extends HttpServlet {
         ComponentParts parts = Startup.parts();
         parts.refresh();
         List<ComponentStatus> components = Components.snapshot();
-        Health.Status status = Health.readiness(components);
+        // A component in the first seconds of a dependency blip counts as DEGRADED (S9b): a database that drops
+        // briefly must not take every node out of rotation at once.
+        Health.Status status = Health.readiness(components, parts::graced);
         int code = status == Health.Status.UP ? HttpServletResponse.SC_OK : HttpServletResponse.SC_SERVICE_UNAVAILABLE;
         if (READY.equals(path)) {
             write(resp, code, Health.status(status), head);
             return;
         }
         write(resp, code, Health.detail(components, parts.parts(), DeploymentProfile.of(this.environment).value(),
-                this.versions.get()), head);
+                this.versions.get(), parts::graced), head);
     }
 
     private static void write(HttpServletResponse resp, int code, Map<String, Object> body, boolean head) throws IOException {

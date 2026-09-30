@@ -1,5 +1,5 @@
 /*
- * S-9's fail-closed floor: what a surface answers while its component is not serving.
+ * S-9's per-surface rules (S9b): what each kind of surface answers while its component is disabled or failed.
  */
 package com.pingidentity.ps.oidf.platform.pf.component;
 
@@ -84,12 +84,51 @@ class ComponentGateTest {
                 + ".c2ln";
     }
 
+    private HttpServletResponse fresh() throws Exception {
+        this.body.reset();
+        ServletOutputStream out = this.response.getOutputStream();
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(response.getOutputStream()).thenReturn(out);
+        return response;
+    }
+
+    private static final ComponentState[] FAILED = {ComponentState.STARTING, ComponentState.FAILED_CONFIG,
+            ComponentState.FAILED_DEPENDENCY, ComponentState.REFUSED};
+
+    /** A store in which the named clients are federation clients, the ordinary ones are not, and nothing else exists. */
+    private static ComponentGate.FederationClients store(java.util.Set<String> federation, java.util.Set<String> ordinary) {
+        return id -> federation.contains(id) ? Boolean.TRUE : ordinary.contains(id) ? Boolean.FALSE : null;
+    }
+
+    private static final ComponentGate.FederationClients NOBODY = id -> null;
+
+    /** Rules for a filter that authenticates at every endpoint and refuses a client named "required". */
+    private static final ComponentGate.AttestationRules RULES = new ComponentGate.AttestationRules() {
+        @Override
+        public boolean authenticates(HttpServletRequest request) {
+            return !"/as/authorization.oauth2".equals(request.getRequestURI());
+        }
+
+        @Override
+        public boolean refusedWithoutAttestation(HttpServletRequest request, HttpServletResponse response) {
+            if ("required".equals(request.getParameter("client_id"))) {
+                response.setStatus(401);
+                return true;
+            }
+            return false;
+        }
+    };
+
     @Test
     void aServingComponentsSurfacesServe() throws Exception {
         for (ComponentState state : new ComponentState[] {ComponentState.READY, ComponentState.DEGRADED}) {
             ComponentParts.Part part = this.part(state);
-            assertFalse(ComponentGate.servlet(part, this.response));
+            assertFalse(ComponentGate.federationEndpoint(part, this.response));
+            assertFalse(ComponentGate.oauthEndpoint(part, this.response));
             assertFalse(ComponentGate.filter(part, this.request, this.response, this.chain, ComponentGate::everyRequest));
+            assertFalse(ComponentGate.autoRegistration(part, this.request, this.response, this.chain, NOBODY));
+            assertFalse(ComponentGate.attestation(part, this.request, this.response, this.chain, RULES));
+            assertTrue(ComponentGate.emits(part));
         }
         verifyNoInteractions(this.chain);
         verify(this.response, never()).setStatus(any(Integer.class));
@@ -97,32 +136,44 @@ class ComponentGateTest {
 
     @Test
     void noPartMeansInitNeverRanAndTheGateStandsAside() throws Exception {
-        assertFalse(ComponentGate.servlet(null, this.response));
+        assertFalse(ComponentGate.federationEndpoint(null, this.response));
+        assertFalse(ComponentGate.oauthEndpoint(null, this.response));
         assertFalse(ComponentGate.filter(null, this.request, this.response, this.chain, ComponentGate::everyRequest));
+        assertFalse(ComponentGate.autoRegistration(null, this.request, this.response, this.chain, NOBODY));
+        assertFalse(ComponentGate.attestation(null, this.request, this.response, this.chain, RULES));
+        assertTrue(ComponentGate.emits(null));
         verifyNoInteractions(this.chain, this.response);
     }
 
     @Test
-    void aServletWhoseComponentIsNotServingAnswers503AndNeverRuns() throws Exception {
-        for (ComponentState state : new ComponentState[] {ComponentState.STARTING, ComponentState.FAILED_CONFIG,
-                ComponentState.FAILED_DEPENDENCY, ComponentState.REFUSED}) {
-            this.body.reset();
-            ServletOutputStream out = this.response.getOutputStream();
-            HttpServletResponse response = mock(HttpServletResponse.class);
-            when(response.getOutputStream()).thenReturn(out);
-            assertTrue(ComponentGate.servlet(this.part(state), response), state.name());
+    void aFailedEndpointAnswers503WithTheErrorBodyAndNeverRuns() throws Exception {
+        for (ComponentState state : FAILED) {
+            HttpServletResponse response = this.fresh();
+            assertTrue(ComponentGate.federationEndpoint(this.part(state), response), state.name());
             verify(response).setStatus(503);
             verify(response).setContentType("application/json");
             verify(response).setHeader("Cache-Control", "no-store");
+            assertEquals("{\"error\":\"temporarily_unavailable\",\"error_description\":\"AUTO_REGISTRATION is not available\"}", this.body());
+
+            response = this.fresh();
+            assertTrue(ComponentGate.oauthEndpoint(this.part(state), response), state.name());
+            verify(response).setStatus(503);
             assertEquals("{\"error\":\"temporarily_unavailable\",\"error_description\":\"AUTO_REGISTRATION is not available\"}", this.body());
         }
     }
 
     @Test
-    void aDisabledServletAnswers404AsAWarWithoutItWould() throws Exception {
-        assertTrue(ComponentGate.servlet(this.part(ComponentState.DISABLED), this.response));
+    void aDisabledFederationEndpointAnswers404NotFoundAndAnOAuthOne404WithNoBody() throws Exception {
+        assertTrue(ComponentGate.federationEndpoint(this.part(ComponentState.DISABLED), this.response));
         verify(this.response).setStatus(404);
         assertEquals("{\"error\":\"not_found\",\"error_description\":\"no such endpoint\"}", this.body());
+
+        HttpServletResponse response = this.fresh();
+        assertTrue(ComponentGate.oauthEndpoint(this.part(ComponentState.DISABLED), response));
+        verify(response).setStatus(404);
+        verify(response).setContentLength(0);
+        verify(response).setHeader("Cache-Control", "no-store");
+        assertEquals("", this.body());
     }
 
     @Test
@@ -140,16 +191,24 @@ class ComponentGateTest {
         entity.ready();
         ComponentParts.Part registration = this.parts.begin("FEDERATION", "OpenIdRegistrationServlet");
         registration.failedConfig("the anchor's keys are not pinned");
-        assertFalse(ComponentGate.servlet(entity, this.response), "the Entity Configuration keeps serving");
-        assertTrue(ComponentGate.servlet(registration, this.response));
+        assertFalse(ComponentGate.federationEndpoint(entity, this.response), "the Entity Configuration keeps serving");
+        assertTrue(ComponentGate.federationEndpoint(registration, this.response));
         verify(this.response).setStatus(503);
 
         registration.refused("a forbidden setting");
-        ServletOutputStream out = this.response.getOutputStream();
-        HttpServletResponse refused = mock(HttpServletResponse.class);
-        when(refused.getOutputStream()).thenReturn(out);
-        assertTrue(ComponentGate.servlet(entity, refused), "a violation refuses the whole component");
+        HttpServletResponse refused = this.fresh();
+        assertTrue(ComponentGate.federationEndpoint(entity, refused), "a violation refuses the whole component");
         verify(refused).setStatus(503);
+    }
+
+    @Test
+    void theGateReadsThePublishedViewOfTheLatestRegistration() {
+        ComponentParts.Part first = this.part(ComponentState.FAILED_CONFIG);
+        assertEquals(ComponentState.FAILED_CONFIG, first.gateView().state());
+        this.parts.begin("AUTO_REGISTRATION", "TokenEndpointAutoRegistrationFilter").ready();
+        // A later registration of the same part is what the earlier handle's gate sees, as status() does.
+        assertEquals(ComponentState.READY, first.gateView().state());
+        assertFalse(first.gateView().componentRefused());
     }
 
     @Test
@@ -182,6 +241,217 @@ class ComponentGateTest {
         verify(this.chain).doFilter(plain, plainResponse);
         assertTrue(ComponentGate.filter(part, this.request, plainResponse, this.chain, r -> true));
         verify(this.chain).doFilter(this.request, plainResponse);
+        assertTrue(ComponentGate.autoRegistration(part, plain, plainResponse, this.chain, NOBODY));
+        verify(this.chain, org.mockito.Mockito.times(2)).doFilter(plain, plainResponse);
+        assertTrue(ComponentGate.autoRegistration(part, this.request, plainResponse, this.chain, NOBODY));
+        verify(this.chain, org.mockito.Mockito.times(2)).doFilter(this.request, plainResponse);
+        assertTrue(ComponentGate.attestation(part, plain, plainResponse, this.chain, RULES));
+        verify(this.chain, org.mockito.Mockito.times(3)).doFilter(plain, plainResponse);
+        assertTrue(ComponentGate.attestation(part, this.request, plainResponse, this.chain, RULES));
+        verify(this.chain, org.mockito.Mockito.times(3)).doFilter(this.request, plainResponse);
+    }
+
+    @Test
+    void automaticRegistrationDisabledRefusesAFederationClient401AndPassesTheRest() throws Exception {
+        ComponentParts.Part part = this.part(ComponentState.DISABLED);
+        ComponentGate.FederationClients clients = store(java.util.Set.of("https://rp.example"), java.util.Set.of("https://app.example"));
+        when(this.request.getParameter("client_id")).thenReturn("https://rp.example");
+        assertTrue(ComponentGate.autoRegistration(part, this.request, this.response, this.chain, clients));
+        verify(this.response).setStatus(401);
+        assertTrue(this.body().startsWith("{\"error\":\"invalid_client\""), this.body());
+        verify(this.chain, never()).doFilter(any(), any());
+
+        // PingFederate's own clients - one with a plain id, one whose id happens to be an https URL - go on.
+        for (String id : new String[] {"an-ordinary-client", "https://app.example"}) {
+            HttpServletRequest own = mock(HttpServletRequest.class);
+            when(own.getParameter("client_id")).thenReturn(id);
+            assertTrue(ComponentGate.autoRegistration(part, own, this.response, this.chain, clients));
+            verify(this.chain).doFilter(own, this.response);
+        }
+    }
+
+    @Test
+    void automaticRegistrationFailedAnswersAFederationClient503AndPassesTheRest() throws Exception {
+        ComponentGate.FederationClients clients = store(java.util.Set.of(), java.util.Set.of("https://app.example"));
+        for (ComponentState state : FAILED) {
+            ComponentParts.Part part = this.part(state);
+            HttpServletResponse response = this.fresh();
+            HttpServletRequest unknown = mock(HttpServletRequest.class);
+            when(unknown.getParameter("client_id")).thenReturn("https://rp.example");
+            assertTrue(ComponentGate.autoRegistration(part, unknown, response, this.chain, clients), state.name());
+            verify(response).setStatus(503);
+
+            HttpServletRequest own = mock(HttpServletRequest.class);
+            when(own.getParameter("client_id")).thenReturn("https://app.example");
+            assertTrue(ComponentGate.autoRegistration(part, own, response, this.chain, clients));
+            verify(this.chain).doFilter(own, response);
+        }
+    }
+
+    @Test
+    void aStoreThatCannotAnswerIs503WhetherDisabledOrFailed() throws Exception {
+        ComponentGate.FederationClients broken = id -> {
+            throw new IllegalStateException("the client manager is down");
+        };
+        when(this.request.getParameter("client_id")).thenReturn("https://rp.example");
+        for (ComponentState state : new ComponentState[] {ComponentState.DISABLED, ComponentState.FAILED_CONFIG}) {
+            HttpServletResponse response = this.fresh();
+            assertTrue(ComponentGate.autoRegistration(this.part(state), this.request, response, this.chain, broken));
+            verify(response).setStatus(503);
+        }
+        verify(this.chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void theFederationClientSignals() {
+        ComponentGate.FederationClients clients = store(java.util.Set.of("https://rp.example"), java.util.Set.of("https://app.example"));
+        // PingFederate's own client, by id and by an assertion about it: no lookup for an id that is not a URL.
+        ComponentGate.FederationClients never = id -> {
+            throw new AssertionError("looked up " + id);
+        };
+        when(this.request.getParameter("client_id")).thenReturn("an-ordinary-client");
+        assertEquals(ComponentGate.Named.ORDINARY, ComponentGate.namesFederationClient(this.request, never));
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"an-ordinary-client\"}"));
+        assertEquals(ComponentGate.Named.ORDINARY, ComponentGate.namesFederationClient(this.request, never));
+
+        // A trust_chain header, whoever it names.
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\",\"trust_chain\":[]}", "{\"sub\":\"x\"}"));
+        assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, never));
+
+        // An assertion whose sub is a stored federation client, an unknown Entity Identifier, an ordinary https client.
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"https://rp.example\"}"));
+        assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, clients));
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"https://new.example\"}"));
+        assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, clients));
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"https://app.example\"}"));
+        assertEquals(ComponentGate.Named.ORDINARY, ComponentGate.namesFederationClient(this.request, clients));
+        // The same federation assertion in the standard base64 alphabet, padded, as jose4j (and so a healthy filter) reads it.
+        String standard = "{\"sub\":\"https://rp.example\",\"n\":\"???\"}";
+        String std = Base64.getEncoder().encodeToString(standard.getBytes(StandardCharsets.UTF_8));
+        assertTrue(std.contains("/") || std.contains("+"), std);
+        when(this.request.getParameter("client_assertion")).thenReturn(b64u("{\"alg\":\"RS256\"}") + "." + std + ".sig");
+        assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, clients));
+
+        // An assertion without a sub is judged by client_id.
+        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{}"));
+        assertEquals(ComponentGate.Named.ORDINARY, ComponentGate.namesFederationClient(this.request, never));
+
+        // An assertion the gate cannot read is the component's traffic, whatever client_id says: it fails closed.
+        for (String unreadable : new String[] {jwt("{\"alg\":\"RS256\"}", "{\"sub\":42}"), jwt("[1]", "{\"sub\":\"x\"}"),
+                jwt("{\"alg\":\"RS256\"}", "[2]"), "not a jwt"}) {
+            when(this.request.getParameter("client_assertion")).thenReturn(unreadable);
+            assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, never), unreadable);
+        }
+
+        // No assertion: client_id, then the attestation's sub, decide.
+        when(this.request.getParameter("client_assertion")).thenReturn(null);
+        when(this.request.getParameter("client_id")).thenReturn("https://rp.example");
+        assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, clients));
+        when(this.request.getParameter("client_id")).thenReturn(null);
+        assertEquals(ComponentGate.Named.ORDINARY, ComponentGate.namesFederationClient(this.request, never));
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.enumeration(
+                java.util.List.of(jwt("{\"alg\":\"ES256\"}", "{\"sub\":\"https://rp.example\"}"))));
+        assertEquals(ComponentGate.Named.FEDERATION, ComponentGate.namesFederationClient(this.request, clients));
+
+        // A store that cannot answer, for any name that needs it.
+        when(this.request.getParameter("client_id")).thenReturn("https://app.example");
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(null);
+        assertEquals(ComponentGate.Named.UNKNOWN, ComponentGate.namesFederationClient(this.request, id -> {
+            throw new Exception("down");
+        }));
+    }
+
+    @Test
+    void theAttestedClientIsTheSubOfTheOneAttestation() {
+        assertNull(ComponentGate.attestedClient(this.request));
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.emptyEnumeration());
+        assertNull(ComponentGate.attestedClient(this.request));
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.enumeration(java.util.List.of(" ")));
+        assertNull(ComponentGate.attestedClient(this.request));
+        String one = jwt("{\"alg\":\"ES256\"}", "{\"sub\":\"https://rp.example\"}");
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.enumeration(java.util.List.of(one, one)));
+        assertNull(ComponentGate.attestedClient(this.request));
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.enumeration(
+                java.util.List.of(jwt("{\"alg\":\"ES256\"}", "{\"sub\":7}"))));
+        assertNull(ComponentGate.attestedClient(this.request));
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.enumeration(java.util.List.of("x.y.z")));
+        assertNull(ComponentGate.attestedClient(this.request));
+        when(this.request.getHeaders("OAuth-Client-Attestation")).thenReturn(java.util.Collections.enumeration(java.util.List.of(one)));
+        assertEquals("https://rp.example", ComponentGate.attestedClient(this.request));
+    }
+
+    @Test
+    void attestationDisabledTellsAClientThatSendsOneThatThisServerDoesNotAcceptThem() throws Exception {
+        ComponentParts.Part part = this.part(ComponentState.DISABLED);
+        when(this.request.getHeader("OAuth-Client-Attestation")).thenReturn("a.b.c");
+        when(this.request.getHeader("Authorization")).thenReturn("Basic Y2xpZW50OnNlY3JldA==");
+        assertTrue(ComponentGate.attestation(part, this.request, this.response, this.chain, RULES));
+        verify(this.response).setStatus(401);
+        verify(this.response).setHeader("WWW-Authenticate", "Basic");
+        assertTrue(this.body().startsWith("{\"error\":\"invalid_client\""), this.body());
+        verify(this.chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void attestationFailedAnswersAttestationTraffic503() throws Exception {
+        for (ComponentState state : FAILED) {
+            HttpServletResponse response = this.fresh();
+            HttpServletRequest attested = mock(HttpServletRequest.class);
+            when(attested.getHeader("OAuth-Client-Attestation-PoP")).thenReturn("a.b.c");
+            assertTrue(ComponentGate.attestation(this.part(state), attested, response, this.chain, RULES), state.name());
+            verify(response).setStatus(503);
+            verify(response, never()).setHeader(org.mockito.ArgumentMatchers.eq("WWW-Authenticate"), any());
+        }
+        verify(this.chain, never()).doFilter(any(), any());
+    }
+
+    @Test
+    void attestationDisabledOrFailedRefusesAClientThatRequiresOneAndPassesTheRest() throws Exception {
+        for (ComponentState state : new ComponentState[] {ComponentState.DISABLED, ComponentState.FAILED_CONFIG}) {
+            ComponentParts.Part part = this.part(state);
+            HttpServletResponse response = this.fresh();
+            HttpServletRequest required = mock(HttpServletRequest.class);
+            when(required.getParameter("client_id")).thenReturn("required");
+            assertTrue(ComponentGate.attestation(part, required, response, this.chain, RULES));
+            verify(response).setStatus(401);
+            verify(this.chain, never()).doFilter(required, response);
+
+            HttpServletRequest ordinary = mock(HttpServletRequest.class);
+            when(ordinary.getParameter("client_id")).thenReturn("ordinary");
+            assertTrue(ComponentGate.attestation(part, ordinary, response, this.chain, RULES));
+            verify(this.chain).doFilter(ordinary, response);
+
+            // Where the filter authenticates nobody - the authorization endpoint - even attestation headers pass on.
+            HttpServletRequest browser = mock(HttpServletRequest.class);
+            when(browser.getRequestURI()).thenReturn("/as/authorization.oauth2");
+            when(browser.getHeader("OAuth-Client-Attestation")).thenReturn("a.b.c");
+            when(browser.getParameter("client_id")).thenReturn("required");
+            assertTrue(ComponentGate.attestation(part, browser, response, this.chain, RULES));
+            verify(this.chain).doFilter(browser, response);
+        }
+    }
+
+    @Test
+    void aChallengeNamesOnlyASchemeThatIsAToken() {
+        HttpServletResponse response = mock(HttpServletResponse.class);
+        when(this.request.getHeader("Authorization")).thenReturn(null);
+        ComponentGate.challenge(this.request, response);
+        when(this.request.getHeader("Authorization")).thenReturn("B@d\u0000Scheme x");
+        ComponentGate.challenge(this.request, response);
+        when(this.request.getHeader("Authorization")).thenReturn("x".repeat(33) + " y");
+        ComponentGate.challenge(this.request, response);
+        verify(response, never()).setHeader(any(), any());
+        when(this.request.getHeader("Authorization")).thenReturn("  DPoP abc");
+        ComponentGate.challenge(this.request, response);
+        verify(response).setHeader("WWW-Authenticate", "DPoP");
+    }
+
+    @Test
+    void aDisabledOrFailedComponentOnlyStopsTheEmission() {
+        assertFalse(ComponentGate.emits(this.part(ComponentState.DISABLED)));
+        for (ComponentState state : FAILED) {
+            assertFalse(ComponentGate.emits(this.part(state)), state.name());
+        }
     }
 
     @Test
@@ -194,53 +464,6 @@ class ComponentGateTest {
         when(this.request.getHeader("OAuth-Client-Attestation")).thenReturn("a.b.c");
         when(this.request.getHeader("OAuth-Client-Attestation-PoP")).thenReturn(null);
         assertTrue(ComponentGate.attestationTraffic(this.request));
-    }
-
-    @Test
-    void federationClientTrafficNamesAnEntityIdentifierOrCarriesATrustChain() {
-        // PingFederate's own client, by id and by an assertion about it.
-        when(this.request.getParameter("client_id")).thenReturn("an-ordinary-client");
-        assertFalse(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"an-ordinary-client\"}"));
-        assertFalse(ComponentGate.federationClientTraffic(this.request));
-
-        // A trust_chain header, whoever it names.
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\",\"trust_chain\":[]}", "{\"sub\":\"x\"}"));
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-
-        // An assertion whose sub is an Entity Identifier.
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":\"https://rp.example\"}"));
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-        // The same assertion in the standard base64 alphabet, padded, as jose4j (and so a healthy filter) reads it.
-        String standard = "{\"sub\":\"https://rp.example.com\",\"n\":\"???\"}";
-        String std = Base64.getEncoder().encodeToString(standard.getBytes(StandardCharsets.UTF_8));
-        assertTrue(std.contains("/") || std.contains("+"), std);
-        when(this.request.getParameter("client_assertion")).thenReturn(b64u("{\"alg\":\"RS256\"}") + "." + std + ".sig");
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-
-        // An assertion without a sub is judged by client_id.
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{}"));
-        assertFalse(ComponentGate.federationClientTraffic(this.request));
-
-        // An assertion the gate cannot read is the component's traffic, whatever client_id says: the floor fails closed.
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "{\"sub\":42}"));
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("[1]", "{\"sub\":\"x\"}"));
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_assertion")).thenReturn(jwt("{\"alg\":\"RS256\"}", "[2]"));
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_assertion")).thenReturn("not a jwt");
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-
-        // No assertion: client_id decides.
-        when(this.request.getParameter("client_assertion")).thenReturn(null);
-        assertFalse(ComponentGate.federationClientTraffic(this.request));
-        when(this.request.getParameter("client_id")).thenReturn("https://rp.example");
-        assertTrue(ComponentGate.federationClientTraffic(this.request));
-
-        when(this.request.getParameter("client_assertion")).thenReturn(null);
-        when(this.request.getParameter("client_id")).thenReturn(null);
-        assertFalse(ComponentGate.federationClientTraffic(this.request));
     }
 
     @Test
