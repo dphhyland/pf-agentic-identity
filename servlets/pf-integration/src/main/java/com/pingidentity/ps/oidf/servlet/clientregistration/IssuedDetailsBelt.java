@@ -102,6 +102,18 @@ public final class IssuedDetailsBelt implements Filter {
     }
 
     /** Test seam: the models and the revoker supplied. */
+    private static final ComponentGate.AttestationRules BELT_RULES = new ComponentGate.AttestationRules() {
+        @Override
+        public boolean authenticates(HttpServletRequest request) {
+            return true;
+        }
+
+        @Override
+        public boolean refusedWithoutAttestation(HttpServletRequest request, HttpServletResponse response) {
+            return false;
+        }
+    };
+
     IssuedDetailsBelt(Supplier<RarModels> modelSource, GrantRevoker revoker) {
         this.modelSource = modelSource;
         this.revoker = revoker;
@@ -116,7 +128,10 @@ public final class IssuedDetailsBelt implements Filter {
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
-        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::attestationTraffic)) {
+        // Disabled or failed: the attestation component's rule (S9b), as ClientAttestationAuthFilter answers it -
+        // attestation traffic refused 401 while disabled and 503 while failed, everything else passed on. The belt
+        // sits only on the token endpoint, and the per-client attestation_required check is the filter's to make.
+        if (ComponentGate.attestation(this.part, request, response, chain, BELT_RULES)) {
             return;
         }
         if (!(request instanceof HttpServletRequest http) || !(response instanceof HttpServletResponse out)
