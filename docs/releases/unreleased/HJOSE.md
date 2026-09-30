@@ -56,7 +56,7 @@
    taken out of rotation for it. Development-profile escape: none needed - the check reports and refuses nothing the
    first request did not already refuse.
 3. **`SdJwt` is gone.** What to do: if your own code imports `com.pingidentity.ps.oidf.jose.SdJwt` or `SdJwtException`
-   from the `oidf-jose` artifact, move to a maintained SD-JWT library before taking 0.6.0. Why: the class was unused
+   from the `oidf-jose` artefact, move to a maintained SD-JWT library before taking 0.6.0. Why: the class was unused
    here, the reviewers of 2026-09-26 found it non-conformant ([F-0064](../../findings/F-0064.yaml)), and the
    attestation verifier refuses SD-JWT presentations. How to tell: the build fails with `cannot find symbol: class SdJwt`. No
    consumer in this repository imports it, and none outside it is known. What to change: the import. Development-profile
