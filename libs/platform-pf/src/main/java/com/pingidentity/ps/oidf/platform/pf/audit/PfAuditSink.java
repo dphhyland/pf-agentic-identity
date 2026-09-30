@@ -35,8 +35,15 @@ import java.util.function.Supplier;
  * <p>Before either write the event is admitted again by its catalogue ({@link EventCatalogues#readmit}: a field
  * its code does not declare is dropped; {@code Events.emit} has admitted and counted the event already); the audit
  * record is then passed through the {@link PiiPolicy} for {@link PiiPolicy.Destination#AUDIT_LOG} - the caller's
- * address, for the {@code ip} column, as {@link PiiClass#NETWORK} - and the server-log sink applies the policy for
- * server.log.
+ * address, for the {@code ip} column, as {@link PiiClass#NETWORK} - and the server-log copy through the policy for
+ * {@link PiiPolicy.Destination#SERVER_LOG} before the server-log sink sees it, since that sink may be one that applies
+ * no policy of its own (pf-integration's federation shim hands it the federation module's writer).
+ *
+ * <p>{@link #PROCESS_POLICY}, the policy this sink is built with unless a test gives another, keeps every class in
+ * the audit log and replaces a {@link PiiClass#DIRECT_ID} in server.log with its digest (finding F-0165, closed by plan
+ * item S8b): the one such field left is the operator events' {@code claimed_label} - the caller's own
+ * {@code X-Federation-Actor}, which can be a person's name or e-mail address - and server.log is usually shipped more
+ * widely than the audit log. An operator reading server.log still sees that two lines carry the same label.
  *
  * <p>Nothing here can fail a request: an audit write that throws is noted at DEBUG and dropped.
  * {@code OIDF_EVENTS_AUDIT=false} keeps events in {@code server.log} only.
@@ -50,6 +57,10 @@ public final class PfAuditSink implements EventSink {
     public static final String DEFAULT_PROTOCOL = "OpenID Federation";
 
     private static final PlatformLog LOG = PlatformLog.get(PfAuditSink.class);
+
+    /** Every class kept, but a direct identifier digested in server.log (finding F-0165). */
+    public static final PiiPolicy PROCESS_POLICY = PiiPolicy.DEFAULT.with(PiiPolicy.Destination.SERVER_LOG, PiiClass.DIRECT_ID,
+            PiiPolicy.Treatment.DIGEST);
 
     /** Writes one audit record; the production one is {@link #loggingUtil()}. */
     @FunctionalInterface
@@ -65,9 +76,9 @@ public final class PfAuditSink implements EventSink {
     private final Supplier<EventCatalogues> catalogues;
     private final PiiPolicy policy;
 
-    /** With this loader's catalogues and {@link PiiPolicy#DEFAULT}. */
+    /** With this loader's catalogues and {@link #PROCESS_POLICY}. */
     public PfAuditSink(EventSink serverLog, AuditWriter auditWriter, boolean auditEnabled, Supplier<String> remoteAddress) {
-        this(serverLog, auditWriter, auditEnabled, remoteAddress, EventCatalogues::current, PiiPolicy.DEFAULT);
+        this(serverLog, auditWriter, auditEnabled, remoteAddress, EventCatalogues::current, PROCESS_POLICY);
     }
 
     public PfAuditSink(EventSink serverLog, AuditWriter auditWriter, boolean auditEnabled, Supplier<String> remoteAddress,
@@ -143,7 +154,7 @@ public final class PfAuditSink implements EventSink {
     public void emit(Event event) {
         EventCatalogues known = this.catalogues.get();
         Event admitted = known.readmit(event);
-        this.serverLog.emit(admitted);
+        this.serverLog.emit(this.policy.apply(admitted, PiiPolicy.Destination.SERVER_LOG, known));
         if (!admitted.audit() || !this.auditEnabled) {
             return;
         }

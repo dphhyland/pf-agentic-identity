@@ -15,7 +15,7 @@
     },
     "actor": {
       "pii": "PSEUDONYMOUS_ID",
-      "description": "Who asked: the access token's sub - for a client-credentials token, the client id. Never a header."
+      "description": "Who asked: the access token's sub - for a client-credentials token, the client id - or, for the development static bearer, admin: and the first eight hex digits of its SHA-256. Never a header."
     },
     "claimed_label": {
       "pii": "DIRECT_ID",
@@ -27,7 +27,7 @@
     },
     "binding": {
       "pii": "OPERATIONAL",
-      "description": "What the token was bound to: dpop, mtls, or none (development only)."
+      "description": "What the token was bound to: dpop, mtls, or none (development only); static-bearer for the development static bearer, OIDF_AUTHORITY_ADMIN_TOKEN."
     },
     "status": {
       "pii": "OPERATIONAL",

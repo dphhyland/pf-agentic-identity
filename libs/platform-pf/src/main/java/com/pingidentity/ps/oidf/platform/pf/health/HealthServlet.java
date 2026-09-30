@@ -9,9 +9,11 @@ import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Health;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.json.Json;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoute;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorRoutes;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorScopes;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
-import jakarta.servlet.ServletConfig;
-import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
@@ -20,6 +22,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
@@ -37,11 +40,12 @@ import java.util.function.Supplier;
  *       readiness status and code; {@value #INFO}: the versions.</li>
  * </ul>
  *
- * <p>Live and ready are open and say nothing but the status. The detail and info answer only a caller presenting
- * the static admin bearer token ({@link HealthAccess}); anyone else - a wrong token, no token, or a deployment with no
- * token configured - gets the container's 404 for every method, as if nothing were mapped there. S8b (Phase 3) moves
- * them behind the operator scope {@code oidf.health.read}. Only GET and HEAD are served; any other method is 405.
- * Every answer is JSON and {@code Cache-Control: no-store}.
+ * <p>Live and ready are open and say nothing but the status. The detail and info are operator routes ({@link #ROUTES}):
+ * each needs a PingFederate-issued access token with the scope {@code oidf.health.read}, checked by this webapp's
+ * {@link OperatorAuthenticator} - DPoP-bound in production, and in development the static bearer as well - and a
+ * refusal is the authenticator's 401, 403, 429 or 503 with its challenge (plan item S8b; finding F-0194 closed the
+ * second copy of the static-bearer rule that lived here). Only GET and HEAD are served; any other method is 405, before
+ * a token is looked at. Every answer is JSON and {@code Cache-Control: no-store}.
  */
 @WebServlet(urlPatterns = {HealthServlet.LIVE, HealthServlet.READY, HealthServlet.DETAIL, HealthServlet.INFO})
 public class HealthServlet extends HttpServlet {
@@ -53,43 +57,56 @@ public class HealthServlet extends HttpServlet {
     public static final String DETAIL = "/agentic-identity/health";
     public static final String INFO = "/agentic-identity/info";
 
-    private final transient Function<String, String> systemProperties;
+    /** The detail's route: read, with {@code oidf.health.read}. */
+    public static final OperatorRoute DETAIL_ROUTE = OperatorRoute.read("health.detail", OperatorScopes.HEALTH_READ);
+    /** /agentic-identity/info's route: read, with {@code oidf.health.read}. */
+    public static final OperatorRoute INFO_ROUTE = OperatorRoute.read("health.info", OperatorScopes.HEALTH_READ);
+
+    /**
+     * The operator routes this servlet serves, by method and servlet path: the table lives beside the paths it names
+     * (platform-pf's own), and HealthRoutesTest holds it to the {@code @WebServlet} mapping.
+     */
+    public static final OperatorRoutes ROUTES = OperatorRoutes.builder()
+            .route("GET", DETAIL, DETAIL_ROUTE).route("HEAD", DETAIL, DETAIL_ROUTE)
+            .route("GET", INFO, INFO_ROUTE).route("HEAD", INFO, INFO_ROUTE)
+            .build();
+
     private final transient Function<String, String> environment;
     private final transient Supplier<Map<String, Object>> versions;
-    private transient String token;
+    private final transient Supplier<OperatorAuthenticator> authenticator;
 
     public HealthServlet() {
-        this(System::getProperty, System::getenv, () -> BuildInfo.read(HealthServlet.class.getClassLoader()));
+        this(OperatorAuthenticator::shared, System::getenv, () -> BuildInfo.read(HealthServlet.class.getClassLoader()));
     }
 
-    HealthServlet(Function<String, String> systemProperties, Function<String, String> environment,
+    HealthServlet(Supplier<OperatorAuthenticator> authenticator, Function<String, String> environment,
             Supplier<Map<String, Object>> versions) {
-        this.systemProperties = systemProperties;
+        this.authenticator = authenticator;
         this.environment = environment;
         this.versions = versions;
     }
 
     @Override
-    public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        this.token = HealthAccess.resolveToken(this.systemProperties, this.environment);
-    }
-
-    @Override
     protected void service(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         String path = req.getServletPath();
-        // Fails closed: only live and ready are open. Any other servlet path - the detail, info, or one a later
-        // mapping or dispatch brings here - needs the bearer, and answer() serves nothing it does not name.
-        boolean open = LIVE.equals(path) || READY.equals(path);
-        if (!open && !HealthAccess.isAuthorized(this.token, req.getHeader("Authorization"))) {
-            resp.sendError(HttpServletResponse.SC_NOT_FOUND);
-            return;
-        }
         String method = req.getMethod();
+        boolean open = LIVE.equals(path) || READY.equals(path);
         if (!"GET".equals(method) && !"HEAD".equals(method)) {
             resp.setHeader("Allow", "GET, HEAD");
             resp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED);
             return;
+        }
+        // Fails closed: only live and ready are open. Any other servlet path - the detail, info, or one a later
+        // mapping or dispatch brings here - needs its route, and answer() serves nothing it does not name.
+        if (!open) {
+            Optional<OperatorRoute> route = ROUTES.match(method, path);
+            if (route.isEmpty()) {
+                resp.sendError(HttpServletResponse.SC_NOT_FOUND);
+                return;
+            }
+            if (!this.authenticator.get().authorise(req, resp, route.get())) {
+                return;
+            }
         }
         this.answer(path, "HEAD".equals(method), resp);
     }

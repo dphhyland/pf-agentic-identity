@@ -112,7 +112,7 @@ class SurfaceGateTest {
     }
 
     @Test
-    void theOperatorApiWithNoTokenIsOffAndAnswers404() throws Exception {
+    void theOperatorApiWithNoOperatorAuthenticationIsOffAndAnswers404() throws Exception {
         FederationAdminServlet servlet = new FederationAdminServlet();
         servlet.init(mock(ServletConfig.class));
         assertEquals(ComponentState.DISABLED, GateTesting.part("FederationAdminServlet").state());

@@ -84,6 +84,11 @@
                         </manifestEntries>
                     </archive>
                 </configuration>
+                <!-- S8b: OperatorTestKit (authenticators, tokens and DPoP proofs) for the operator surfaces' tests in
+                     pf-integration and ssf, published as a test-jar as openid-federation's fixtures are. -->
+                <executions>
+                    <execution><goals><goal>test-jar</goal></goals></execution>
+                </executions>
             </plugin>
 
             <!--
@@ -139,12 +144,9 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.auditDescription(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.audit.PfAuditSink.record(*</include>
                                         <!-- health (O-4): add gate includes below this line -->
-                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthAccess.resolveToken(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthAccess.isAuthorized(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.read(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.version(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.BuildInfo.commit(*</include>
-                                        <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.init(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.service(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.answer(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.health.HealthServlet.write(*</include>
@@ -190,6 +192,17 @@
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.challenges(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.headerSafe(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.claimedLabel(*</include>
+                                        <!-- auth (S8b): the static bearer's one rule, and what a surface's init asks -->
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.withStaticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.staticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.shared(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.productionRefusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.configured(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.usable(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.problem(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.developmentStaticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.staticOperator(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator.sameSecret(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.from(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.problem(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthConfig.baseUrlProblem(*</include>

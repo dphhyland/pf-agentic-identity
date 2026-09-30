@@ -72,6 +72,7 @@
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>${version.internal}</version></dependency>

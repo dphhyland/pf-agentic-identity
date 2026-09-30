@@ -1,5 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -77,10 +80,12 @@ class HostedEntityServletSelfSignedTest {
             when(request.getRemoteAddr()).thenReturn("192.0.2.62");
             when(request.getServletPath()).thenReturn("/federation/agents");
             when(request.getPathInfo()).thenReturn(pathInfo);
-            when(request.getHeader("Authorization")).thenReturn(withToken ? "Bearer " + TOKEN : null);
+            OperatorRequests.stub(request, "/federation/agents" + (pathInfo == null ? "" : pathInfo),
+                    withToken ? "Bearer " + TOKEN : null, null);
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(requestBody == null ? "" : requestBody)));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            new HostedEntityServlet(TOKEN).service(request, this.response);
+            new HostedEntityServlet(OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(TOKEN))
+                    .service(request, this.response);
         }
 
         Exchange(String method, String pathInfo, String requestBody) throws Exception {
@@ -205,12 +210,14 @@ class HostedEntityServletSelfSignedTest {
     @Test
     void anAgentIsRevokedByTheAuthorityAlone() throws Exception {
         this.enrolSelfSigned();
-        assertEquals("unauthorized", new Exchange("DELETE", "/a1", null, false).error(401));
+        verify(new Exchange("DELETE", "/a1", null, false).response).setStatus(401);
         assertEquals("not_found", new Exchange("DELETE", "/Not A Slug", null).error(404));
         assertEquals("not_found", new Exchange("DELETE", "/nobody", null).error(404));
 
         verify(new Exchange("DELETE", "/a1", null).response).setStatus(204);
         assertEquals(EntityStatus.REVOKED, AuthoritySupport.registry().find(AGENT).orElseThrow().status());
+        String actor = AuthoritySupport.registry().auditTrail(AGENT).get(AuthoritySupport.registry().auditTrail(AGENT).size() - 1).actor();
+        assertTrue(actor.matches("admin:[0-9a-f]{8}"), "the revocation names its operator: " + actor);
         assertEquals("not_found", new Exchange("GET", "/a1/.well-known/openid-federation", null).error(404), "a revoked agent is not served");
     }
 }

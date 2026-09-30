@@ -16,6 +16,11 @@ import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
 import com.pingidentity.ps.oidf.pf.PfRequestScope;
 import com.pingidentity.ps.oidf.pf.testkit.AuditCapture;
+import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorScopes;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.trustmark.InMemoryTrustMarkRegistry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
@@ -38,8 +43,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 /**
- * The operator's API for Trust Mark grants: only with the admin token, only for a type this entity issues, only to an
- * entity that may hold it - and every change audited with who made it.
+ * The operator's API for Trust Mark grants: only for an operator the authenticator lets through with the route's scope,
+ * only for a type this entity issues, only to an entity that may hold it - and every change audited with the token's
+ * subject as who made it. Most tests use the development static bearer; the OAuth tests a production DPoP token.
  */
 class FederationAdminServletTest {
     private static final String TOKEN = "admin-token";
@@ -52,6 +58,10 @@ class FederationAdminServletTest {
     private final MutableClock clock = new MutableClock(Instant.ofEpochSecond(1_800_000_000L));
     private final InMemoryTrustMarkRegistry registry = new InMemoryTrustMarkRegistry(this.clock);
     private KeyHistory keyHistory = new KeyHistory(new InMemoryKeyHistoryStore(), this.clock, Duration.ofDays(1));
+    private OperatorAuthenticator authenticator = OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(TOKEN);
+    /** When set, a request carries a production DPoP token from this kit with {@link #scopes} instead of the static bearer. */
+    private OperatorTestKit kit;
+    private String[] scopes;
     private EventCapture events;
 
     @BeforeEach
@@ -65,7 +75,7 @@ class FederationAdminServletTest {
     }
 
     private FederationAdminServlet servlet(TrustMarkRegistry registry) {
-        return new FederationAdminServlet(TOKEN, Map.of(OPEN, new TrustMarkType(OPEN, 3600, TrustMarkType.Subjects.ANY, null, null, null),
+        return new FederationAdminServlet(this.authenticator, Map.of(OPEN, new TrustMarkType(OPEN, 3600, TrustMarkType.Subjects.ANY, null, null, null),
                 HOSTED_ONLY, new TrustMarkType(HOSTED_ONLY, 3600, TrustMarkType.Subjects.HOSTED, null, null, null)), registry, AGENT::equals, this.clock,
                 this.keyHistory);
     }
@@ -81,7 +91,12 @@ class FederationAdminServletTest {
             when(request.getMethod()).thenReturn(method);
             when(request.getRemoteAddr()).thenReturn(CALLER);
             when(request.getPathInfo()).thenReturn(path);
-            when(request.getHeader("Authorization")).thenReturn(token == null ? null : "Bearer " + token);
+            String uri = "/federation/admin" + (path == null ? "" : path);
+            if (FederationAdminServletTest.this.kit != null) {
+                OperatorRequests.dpop(request, FederationAdminServletTest.this.kit, method, uri, FederationAdminServletTest.this.scopes);
+            } else {
+                OperatorRequests.stub(request, uri, token == null ? null : "Bearer " + token, null);
+            }
             when(request.getHeader("X-Federation-Actor")).thenReturn(actor);
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             params.forEach((name, value) -> when(request.getParameter(name)).thenReturn(value));
@@ -130,9 +145,10 @@ class FederationAdminServletTest {
         assertEquals(this.clock.epochSecond(), ((Number) grant.get("granted_at")).longValue());
         assertEquals(this.clock.epochSecond() + 3600, ((Number) grant.get("not_after")).longValue());
         String actor = (String) grant.get("actor");
-        assertTrue(actor.matches("admin:[0-9a-f]{8} \\(dave\\)"), actor);
-        assertEquals(actor, FederationAdminServlet.actor(TOKEN, "dave"), "the token is never recorded, only a digest of it");
+        assertTrue(actor.matches("admin:[0-9a-f]{8}"), "the static bearer's digest, never the token: " + actor);
         assertEquals(actor, this.events.only(FederationEvents.TRUST_MARK_GRANTED).fields().get("actor"));
+        assertTrue(!this.events.only(FederationEvents.TRUST_MARK_GRANTED).fields().toString().contains("dave"),
+                "X-Federation-Actor names nobody in the grant (F-0165)");
         assertTrue(this.events.only(FederationEvents.TRUST_MARK_GRANTED).audit());
         verify(exchange.response).setHeader("Cache-Control", "no-store");
     }
@@ -201,20 +217,65 @@ class FederationAdminServletTest {
     }
 
     @Test
-    void withoutTheAdminTokenNothingIsAnswered() throws Exception {
+    void withoutACredentialNothingIsAnsweredAndTheRefusalCarriesTheChallenge() throws Exception {
         for (String token : new String[]{null, "wrong"}) {
             Exchange get = new Exchange(this.registry, "GET", "/trust-marks", token, null, Map.of("sub", RP), null);
-            assertEquals("unauthorized", get.json(401).get("error"));
-            verify(get.response).setHeader("WWW-Authenticate", "Bearer");
-            assertEquals("unauthorized", new Exchange(this.registry, "POST", "/trust-marks", token, "{}", Map.of(), null).json(401).get("error"));
+            verify(get.response).setStatus(401);
+            verify(get.response).addHeader(org.mockito.ArgumentMatchers.eq("WWW-Authenticate"),
+                    org.mockito.ArgumentMatchers.startsWith("DPoP algs="));
+            assertEquals("", get.body.toString());
+            verify(new Exchange(this.registry, "POST", "/trust-marks", token, "{}", Map.of(), null).response).setStatus(401);
         }
-        FederationAdminServlet unconfigured = new FederationAdminServlet(null, Map.of(), this.registry, id -> true, this.clock, null);
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        when(request.getHeader("Authorization")).thenReturn("Bearer ");
+        assertTrue(this.registry.find(OPEN, RP).isEmpty());
+    }
+
+    @Test
+    void aProductionTokenIsLetThroughForItsScopeAndItsSubjectIsTheActor() throws Exception {
+        this.kit = new OperatorTestKit();
+        this.authenticator = this.kit.authenticator(DeploymentProfile.PRODUCTION);
+        this.scopes = new String[] {OperatorScopes.ADMIN_TRUST_MARKS};
+        Map<String, Object> grant = new Exchange(this.registry, "POST", "/trust-marks", null,
+                "{\"trust_mark_type\": \"" + OPEN + "\", \"sub\": \"" + RP + "\"}", Map.of(), "Dave <dave@example.com>").json(201);
+        assertEquals(OperatorTestKit.CLIENT, grant.get("actor"));
+        assertEquals(OperatorTestKit.CLIENT, this.events.only(FederationEvents.TRUST_MARK_GRANTED).fields().get("actor"));
+        assertEquals(OperatorTestKit.CLIENT, this.registry.auditTrail(OPEN, RP).get(0).actor());
+    }
+
+    @Test
+    void eachRouteNeedsItsOwnScope() throws Exception {
+        this.kit = new OperatorTestKit();
+        this.authenticator = this.kit.authenticator(DeploymentProfile.PRODUCTION);
+        this.scopes = new String[] {OperatorScopes.ADMIN_READ};
+        verify(this.get("/trust-marks", Map.of("sub", RP)).response).setStatus(200);
+        for (String path : List.of("/trust-marks", "/trust-marks/revoke", "/keys/revoke", "/entities/suspend", "/entities/rotate-key")) {
+            Exchange post = this.post(path, "{}");
+            verify(post.response).setStatus(403);
+            assertEquals("", post.body.toString(), path);
+        }
+        this.scopes = new String[] {OperatorScopes.ADMIN_TRUST_MARKS};
+        verify(this.get("/keys", Map.of()).response).setStatus(403);
+        verify(this.post("/keys/revoke", "{}").response).setStatus(403);
+        this.scopes = new String[] {OperatorScopes.ADMIN_KEYS};
+        verify(this.post("/keys/revoke", "{}").response).setStatus(400);
+        verify(this.post("/trust-marks", "{}").response).setStatus(403);
+        assertTrue(this.registry.find(OPEN, RP).isEmpty());
+    }
+
+    @Test
+    void productionRefusesTheStaticBearer() throws Exception {
+        this.authenticator = new OperatorTestKit().authenticator(DeploymentProfile.PRODUCTION).withStaticBearer(TOKEN);
+        verify(this.get("/trust-marks", Map.of("sub", RP)).response).setStatus(503);
+        this.authenticator = new OperatorTestKit().authenticator(DeploymentProfile.PRODUCTION);
+        verify(this.get("/trust-marks", Map.of("sub", RP)).response).setStatus(401);
+    }
+
+    @Test
+    void aHandlerAskedForARouteItDoesNotServeAnswers404() throws Exception {
         HttpServletResponse response = mock(HttpServletResponse.class);
         when(response.getWriter()).thenReturn(new PrintWriter(new StringWriter()));
-        unconfigured.doGet(request, response);
-        verify(response).setStatus(401);
+        this.servlet(this.registry).read("/grants", mock(HttpServletRequest.class), response);
+        this.servlet(this.registry).change("/grant", Map.of(), "operator", response);
+        verify(response, org.mockito.Mockito.times(2)).setStatus(404);
     }
 
     @Test
@@ -270,15 +331,6 @@ class FederationAdminServletTest {
         assertTrue(!get.body.toString().contains("secret-host") && !post.body.toString().contains("secret-host"), "nothing of the fault is shown");
     }
 
-    @Test
-    void anActorCanNameItselfButNotForgeALine() {
-        assertTrue(FederationAdminServlet.actor(TOKEN, null).matches("admin:[0-9a-f]{8}"));
-        assertEquals(FederationAdminServlet.actor(TOKEN, null), FederationAdminServlet.actor(TOKEN, " "));
-        String forged = FederationAdminServlet.actor(TOKEN, "dave\nevent=federation.trust_mark.granted");
-        assertTrue(!forged.contains("\n"), forged);
-        assertTrue(FederationAdminServlet.actor(TOKEN, "x".repeat(500)).length() < 160, "the name is capped");
-    }
-
     // ---- the key history (§8.7) -----------------------------------------------------------------------
 
     @Test
@@ -292,7 +344,7 @@ class FederationAdminServletTest {
         Map<String, Object> revoked = new Exchange(this.registry, "POST", "/keys/revoke", TOKEN, "{\"kid\": \"pf-1\", \"reason\": \"compromised\"}",
                 Map.of(), "dave").json(200);
         assertEquals("compromised", ((Map<?, ?>) revoked.get("revoked")).get("reason"));
-        assertTrue(((String) this.events.only(FederationEvents.KEY_REVOKED).fields().get("actor")).endsWith("(dave)"));
+        assertTrue(((String) this.events.only(FederationEvents.KEY_REVOKED).fields().get("actor")).matches("admin:[0-9a-f]{8}"));
     }
 
     @Test

@@ -453,7 +453,7 @@ public final class SsfSupport {
         }
         return PfIntrospectionReceiverAuthenticator.forEndpoint(
                 cfg.introspectionEndpoint(), cfg.introspectionClientId(),
-                cfg.introspectionClientSecret(), cfg.introspectionInsecureTls());
+                cfg.introspectionClientSecret(), cfg.introspectionInsecureTls(), cfg.issuer());
     }
 
     /** Test hook: reset all singletons so a fresh {@link #configure} takes effect. */

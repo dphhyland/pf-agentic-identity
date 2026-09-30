@@ -3,9 +3,11 @@
  */
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
-import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.pf.OperatorApi;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.auth.Operator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
@@ -33,8 +35,6 @@ import com.pingidentity.ps.oidf.pf.PfDataSources;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -78,17 +78,20 @@ public class HostedEntityServlet extends RequestScopedServlet {
     private static final String PUBLISH_SUFFIX = "/entity-configuration";
     /** Mirrors the lighthouse trust anchor's own enrolment slug shape (harness/ui/server.py's SLUG_RE). */
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
+    /** The history's reason for a revocation through {@code DELETE}. */
+    static final String REVOKED_REASON = "revoked via the hosted-entity API";
 
-    private String adminToken;
+    /** Who may enrol and revoke: this webapp's operator authenticator (plan item S8b). */
+    private transient OperatorAuthenticator authenticator;
     /** This servlet's part of HOSTING, from init; null when a test's constructor made it and init never ran. */
     private transient volatile ComponentParts.Part part;
 
     public HostedEntityServlet() {
     }
 
-    /** Test seam: the servlet with its admin token, and hosting configured by the test through {@link AuthoritySupport}. */
-    HostedEntityServlet(String adminToken) {
-        this.adminToken = adminToken;
+    /** Test seam: the servlet with its authenticator, and hosting configured by the test through {@link AuthoritySupport}. */
+    HostedEntityServlet(OperatorAuthenticator authenticator) {
+        this.authenticator = authenticator;
     }
 
     @Override
@@ -109,14 +112,14 @@ public class HostedEntityServlet extends RequestScopedServlet {
             // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
             // not, and a servlet that refuses to boot just because enrolment isn't configured would take
             // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
-            String adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+            OperatorAuthenticator authenticator = OperatorApi.authenticator(config);
             if (!configureAuthority(config::getInitParameter)) {
                 // No authority: this deployment hosts nothing - disabled, or FAILED_CONFIG when OIDF_HOSTING_ENABLED=true.
                 part.notConfigured("no authority entity id is set (OIDF_AUTHORITY_ENTITY_ID, oidf.authority.entity_id or the"
                         + " init-param authorityEntityId)");
                 return;
             }
-            this.adminToken = adminToken;
+            this.authenticator = authenticator;
         } catch (RuntimeException e) {
             throw new ServletException("Failed to initialize HostedEntityServlet", e);
         }
@@ -260,22 +263,17 @@ public class HostedEntityServlet extends RequestScopedServlet {
      * }
      * }</pre>
      *
-     * <p>Gated by a static bearer token (the {@code adminToken} configured at startup), compared in
-     * constant time — this endpoint creates federation-trusted identities, so unlike the read path it
-     * cannot be left open. Mirrors the shape of the lighthouse trust anchor's own
+     * <p>An operator route ({@link OperatorApi#HOSTED_ENTITIES}): a PingFederate-issued access token with
+     * {@code oidf.admin.entities}, DPoP-bound in production - this endpoint creates federation-trusted
+     * identities, so unlike the read path it cannot be left open. The enrolment's actor is the token's
+     * {@code sub}. Mirrors the shape of the lighthouse trust anchor's own
      * {@code POST /api/v1/admin/subordinates}, which this repo's demo harness already drives
      * programmatically, adapted to this registry's richer, multi-type-metadata model.
      */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!authorized(req)) {
-            resp.setHeader("WWW-Authenticate", "Bearer");
-            writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
-            return;
-        }
-        String pathInfo = req.getPathInfo();
-        if (pathInfo != null && !pathInfo.equals("/")) {
-            writeError(resp, 404, "not_found", "POST only the collection root, e.g. /federation/agents");
+        Operator operator = this.operator(req, resp, "POST only the collection root, e.g. /federation/agents");
+        if (operator == null) {
             return;
         }
 
@@ -360,7 +358,7 @@ public class HostedEntityServlet extends RequestScopedServlet {
             return;
         }
 
-        String actor = FederationAdminServlet.actor(this.adminToken, req.getHeader("X-Federation-Actor"));
+        String actor = operator.actor();
         Refusal refusal = askPolicy(FederationPolicySupport.decisionPointFor(DecisionPoint.HOSTED_ENTITY_ENROL), FederationPolicySupport.settings(),
                 entity, AuthoritySupport.authorityEntityId(), actor);
         if (refusal != null) {
@@ -438,15 +436,16 @@ public class HostedEntityServlet extends RequestScopedServlet {
     }
 
     /**
-     * {@code DELETE <collection>/<id>}: revoke a hosted entity (admin bearer token). Revocation is
-     * permanent; the entity stops resolving and the authority stops issuing a Subordinate Statement about
-     * it, so every trust chain through it fails at the next resolution.
+     * {@code DELETE <collection>/<id>}: revoke a hosted entity - an operator route with
+     * {@code oidf.admin.entities}, whose actor, the token's {@code sub}, the entity's history and the
+     * {@code federation.hosted_entity.revoked} event record. Revocation is permanent; the entity stops
+     * resolving and the authority stops issuing a Subordinate Statement about it, so every trust chain
+     * through it fails at the next resolution.
      */
     @Override
     protected void doDelete(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!authorized(req)) {
-            resp.setHeader("WWW-Authenticate", "Bearer");
-            writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
+        Operator operator = this.operator(req, resp, "DELETE <collection>/<id>");
+        if (operator == null) {
             return;
         }
         String pathInfo = req.getPathInfo();
@@ -457,13 +456,14 @@ public class HostedEntityServlet extends RequestScopedServlet {
         }
         String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + slug;
         try {
-            AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, "revoked via the hosted-entity API");
+            AuthoritySupport.registry().setStatus(entityId, EntityStatus.REVOKED, REVOKED_REASON, operator.actor());
         } catch (AuthorityRegistryException e) {
             int status = AuthorityRegistryException.NOT_FOUND.equals(e.reason()) ? 404 : 500;
             writeError(resp, status, e.reason(), e.getMessage());
             return;
         }
-        LOGGER.info("hosted entity revoked: " + entityId);
+        FederationEvents.event(FederationEvents.HOSTED_ENTITY_REVOKED).subject(entityId).role("authority").audit()
+                .field("actor", operator.actor()).description(REVOKED_REASON).emit();
         resp.setStatus(204);
     }
 
@@ -572,20 +572,16 @@ public class HostedEntityServlet extends RequestScopedServlet {
                 : "this deployment's policy does not allow " + entity.entityId() + " to be enrolled");
     }
 
-    /** Constant-time comparison against the configured admin token — a timing side channel on this check
-     *  would leak the token one byte at a time, exactly what {@link MessageDigest#isEqual} exists to prevent. */
-    private boolean authorized(HttpServletRequest req) {
-        return isAuthorized(this.adminToken, req.getHeader("Authorization"));
-    }
-
     /**
-     * The actual bearer-token check, factored out from {@link #authorized(HttpServletRequest)} so it's
-     * testable without a servlet container. Constant-time: a timing side channel on this comparison
-     * would leak the configured token one byte at a time, exactly what {@link MessageDigest#isEqual}
-     * exists to prevent.
+     * The operator this request is from, by its servlet path and path info in {@link OperatorApi#HOSTED_ENTITIES}; null
+     * when the response is written - a 404 naming {@code shape} for a path no route names, or the authenticator's
+     * refusal.
      */
-    static boolean isAuthorized(String configuredAdminToken, String authorizationHeader) {
-        return AdminBearer.isAuthorized(configuredAdminToken, authorizationHeader);
+    private Operator operator(HttpServletRequest req, HttpServletResponse resp, String shape) throws IOException {
+        String pathInfo = req.getPathInfo();
+        String path = req.getServletPath() + (pathInfo == null || "/".equals(pathInfo) ? "" : pathInfo);
+        return OperatorApi.authorise(this.authenticator, OperatorApi.HOSTED_ENTITIES, path, req, resp,
+                r -> writeError(r, 404, "not_found", shape)).orElse(null);
     }
 
     private static String readBody(HttpServletRequest req) throws IOException {

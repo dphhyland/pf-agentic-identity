@@ -1,5 +1,5 @@
 /*
- * Live and ready answer anyone with the status alone; the detail and info answer only the admin bearer, and 404 otherwise.
+ * Live and ready answer anyone with the status alone; the detail and info are operator routes with oidf.health.read.
  */
 package com.pingidentity.ps.oidf.platform.pf.health;
 
@@ -11,6 +11,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.json.Json;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorScopes;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletContext;
 import jakarta.servlet.ServletOutputStream;
@@ -20,7 +24,9 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.ByteArrayOutputStream;
 import java.lang.reflect.Proxy;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -35,6 +41,7 @@ class HealthServletTest {
         int status = 200;
         Integer error;
         final Map<String, String> headers = new LinkedHashMap<>();
+        final List<String> challenges = new ArrayList<>();
         String contentType;
         int contentLength = -1;
         final ByteArrayOutputStream body = new ByteArrayOutputStream();
@@ -50,11 +57,22 @@ class HealthServletTest {
     }
 
     private static HttpServletRequest request(String method, String path, String authorization) {
+        return request(method, path, authorization, null);
+    }
+
+    private static HttpServletRequest request(String method, String path, String authorization, String dpop) {
+        Map<String, Object> attributes = new HashMap<>();
         return (HttpServletRequest) Proxy.newProxyInstance(HealthServletTest.class.getClassLoader(), new Class<?>[] {HttpServletRequest.class},
                 (proxy, m, args) -> switch (m.getName()) {
                     case "getMethod" -> method;
-                    case "getServletPath" -> path;
+                    case "getServletPath", "getRequestURI" -> path;
                     case "getHeader" -> "Authorization".equalsIgnoreCase((String) args[0]) ? authorization : null;
+                    case "getHeaders" -> Collections.enumeration("Authorization".equals(args[0])
+                            ? (authorization == null ? List.of() : List.of(authorization))
+                            : "DPoP".equals(args[0]) && dpop != null ? List.of(dpop) : List.<String>of());
+                    case "getRemoteAddr" -> "192.0.2.44";
+                    case "getAttribute" -> attributes.get((String) args[0]);
+                    case "setAttribute" -> attributes.put((String) args[0], args[1]);
                     case "toString" -> method + " " + path;
                     default -> null;
                 });
@@ -82,6 +100,7 @@ class HealthServletTest {
                         case "setStatus" -> answer.status = (Integer) args[0];
                         case "sendError" -> answer.error = (Integer) args[0];
                         case "setHeader" -> answer.headers.put((String) args[0], (String) args[1]);
+                        case "addHeader" -> answer.challenges.add((String) args[1]);
                         case "setContentType" -> answer.contentType = (String) args[0];
                         case "setContentLength" -> answer.contentLength = (Integer) args[0];
                         case "getOutputStream" -> {
@@ -105,30 +124,36 @@ class HealthServletTest {
                 });
     }
 
-    private static HealthServlet servlet(String propertyToken, String envToken) throws Exception {
+    private static HealthServlet servlet(OperatorAuthenticator authenticator) throws Exception {
         Map<String, Object> versions = new LinkedHashMap<>();
         versions.put("agentic-identity", "0.5.0-TEST");
         versions.put("commit", null);
         versions.put("pingfederate", "13.1.3.0");
-        HealthServlet servlet = new HealthServlet(name -> HealthAccess.TOKEN_PROPERTY.equals(name) ? propertyToken : null,
-                name -> switch (name) {
-                    case HealthAccess.TOKEN_ENV -> envToken;
-                    case "OIDF_DEPLOYMENT_PROFILE" -> "development";
-                    default -> null;
-                }, () -> versions);
+        HealthServlet servlet = new HealthServlet(() -> authenticator,
+                name -> "OIDF_DEPLOYMENT_PROFILE".equals(name) ? "development" : null, () -> versions);
         servlet.init(config());
         return servlet;
     }
 
+    /** Development, no PingFederate token settings, and the static bearer {@link #TOKEN}. */
+    private static HealthServlet developmentWithStaticBearer() throws Exception {
+        return servlet(OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(TOKEN));
+    }
+
     private static Answer call(HealthServlet servlet, String method, String path, String authorization) throws Exception {
+        return call(servlet, method, path, authorization, null);
+    }
+
+    private static Answer call(HealthServlet servlet, String method, String path, String authorization, String dpop)
+            throws Exception {
         Answer answer = new Answer();
-        servlet.service(request(method, path, authorization), response(answer));
+        servlet.service(request(method, path, authorization, dpop), response(answer));
         return answer;
     }
 
     @Test
     void liveIsUpAndSaysNothingElse() throws Exception {
-        Answer a = call(servlet(null, null), "GET", HealthServlet.LIVE, null);
+        Answer a = call(developmentWithStaticBearer(), "GET", HealthServlet.LIVE, null);
         assertEquals(200, a.status);
         assertEquals("{\"status\":\"UP\"}", a.text());
         assertEquals("application/json", a.contentType);
@@ -138,7 +163,7 @@ class HealthServletTest {
 
     @Test
     void readyFollowsTheComponentsAndSaysNothingElse() throws Exception {
-        HealthServlet servlet = servlet(null, null);
+        HealthServlet servlet = developmentWithStaticBearer();
         ComponentParts.Part part = Startup.begin(Startup.HOSTING, "HealthServletTestPart");
         Answer starting = call(servlet, "GET", HealthServlet.READY, null);
         assertEquals(503, starting.status, "an enabled component that is starting is not ready");
@@ -159,27 +184,57 @@ class HealthServletTest {
     }
 
     @Test
-    void theDetailAndInfoAre404WithoutTheBearer() throws Exception {
-        for (HealthServlet servlet : List.of(servlet(null, null), servlet(TOKEN, null))) {
-            for (String path : List.of(HealthServlet.DETAIL, HealthServlet.INFO)) {
-                for (String auth : new String[] {null, "Bearer wrong", "Basic " + TOKEN, "Bearer " + TOKEN + "x", "Bearer"}) {
-                    for (String method : List.of("GET", "HEAD", "POST", "DELETE")) {
-                        Answer a = call(servlet, method, path, auth);
-                        assertEquals(404, a.error, method + " " + path + " with " + auth);
-                        assertEquals("", a.text());
-                        assertTrue(a.headers.isEmpty(), "nothing says the path exists: " + a.headers);
-                    }
+    void theDetailAndInfoRefuseACallerWithoutACredentialWithTheChallenge() throws Exception {
+        HealthServlet servlet = developmentWithStaticBearer();
+        for (String path : List.of(HealthServlet.DETAIL, HealthServlet.INFO)) {
+            for (String auth : new String[] {null, "Bearer wrong", "Basic " + TOKEN, "Bearer " + TOKEN + "x"}) {
+                Answer a = call(servlet, "GET", path, auth);
+                assertTrue(a.status == 401 || a.status == 400 || a.status == 429, path + " with " + auth + ": " + a.status);
+                assertEquals("", a.text());
+                if (a.status != 429) {
+                    assertTrue(a.challenges.stream().anyMatch(c -> c.startsWith("DPoP ")), "the DPoP challenge: " + a.challenges);
                 }
             }
         }
-        Answer noTokenConfigured = call(servlet(null, null), "GET", HealthServlet.DETAIL, "Bearer " + TOKEN);
-        assertEquals(404, noTokenConfigured.error, "with no token configured nobody is authorised");
+    }
+
+    @Test
+    void theStaticBearerOpensTheDetailInDevelopmentOnly() throws Exception {
+        assertEquals(200, call(developmentWithStaticBearer(), "GET", HealthServlet.INFO, "Bearer " + TOKEN).status);
+        HealthServlet production = servlet(OperatorTestKit.unconfigured(DeploymentProfile.PRODUCTION).withStaticBearer(TOKEN));
+        Answer refused = call(production, "GET", HealthServlet.INFO, "Bearer " + TOKEN);
+        assertEquals(503, refused.status, "production never accepts the static bearer, and refuses while it is set");
+        assertEquals("", refused.text());
+        OperatorTestKit kit = new OperatorTestKit();
+        HealthServlet productionOAuth = servlet(kit.authenticator(DeploymentProfile.PRODUCTION).withStaticBearer(TOKEN));
+        String token = kit.token(OperatorScopes.HEALTH_READ);
+        assertEquals(503, call(productionOAuth, "GET", HealthServlet.INFO, "DPoP " + token,
+                kit.proof(token, "GET", HealthServlet.INFO)).status, "even a good token, while the static bearer is set");
+    }
+
+    @Test
+    void aProductionTokenNeedsTheHealthScopeAndItsProof() throws Exception {
+        OperatorTestKit kit = new OperatorTestKit();
+        HealthServlet servlet = servlet(kit.authenticator(DeploymentProfile.PRODUCTION));
+        String token = kit.token(OperatorScopes.HEALTH_READ);
+        Answer ok = call(servlet, "GET", HealthServlet.INFO, "DPoP " + token, kit.proof(token, "GET", HealthServlet.INFO));
+        assertEquals(200, ok.status);
+        assertEquals("{\"agentic-identity\":\"0.5.0-TEST\",\"commit\":null,\"pingfederate\":\"13.1.3.0\"}", ok.text());
+
+        String admin = kit.token(OperatorScopes.ADMIN_READ);
+        Answer lacking = call(servlet, "GET", HealthServlet.DETAIL, "DPoP " + admin, kit.proof(admin, "GET", HealthServlet.DETAIL));
+        assertEquals(403, lacking.status, "oidf.admin.read does not read health");
+        assertTrue(lacking.challenges.get(0).contains("scope=\"oidf.health.read\""), lacking.challenges.toString());
+
+        String unbound = kit.bearerToken(OperatorScopes.HEALTH_READ);
+        assertEquals(401, call(servlet, "GET", HealthServlet.INFO, "Bearer " + unbound).status,
+                "production refuses a token bound to nothing");
     }
 
     @Test
     void aPathTheServletDoesNotNameIs404WithOrWithoutTheBearer() throws Exception {
         // A wildcard mapping, a forward or a named dispatch could bring another servlet path here: it fails closed.
-        HealthServlet servlet = servlet(TOKEN, null);
+        HealthServlet servlet = developmentWithStaticBearer();
         java.util.Arrays.asList("/agentic-identity", "/agentic-identity/health/", "/agentic-identity/health/other", "", null)
                 .forEach(path -> {
                     for (String auth : new String[] {null, "Bearer " + TOKEN}) {
@@ -192,10 +247,8 @@ class HealthServletTest {
                         }
                     }
                 });
-        // Each layer on its own: the access check turns an unnamed path away before the method check does...
-        assertEquals(404, call(servlet, "POST", "/agentic-identity", null).error, "an unnamed path is not open");
         assertEquals(405, call(servlet, "POST", "/agentic-identity", "Bearer " + TOKEN).error);
-        // ...and answer() serves nothing it does not name, whoever got the request that far.
+        // answer() serves nothing it does not name, whoever got the request that far.
         Answer direct = new Answer();
         servlet.answer("/agentic-identity", false, response(direct));
         assertEquals(404, direct.error);
@@ -203,8 +256,8 @@ class HealthServletTest {
     }
 
     @Test
-    void theDetailAnswersTheBearerWithEveryComponentAndTheReadinessCode() throws Exception {
-        HealthServlet servlet = servlet(null, TOKEN);
+    void theDetailAnswersWithEveryComponentAndTheReadinessCode() throws Exception {
+        HealthServlet servlet = developmentWithStaticBearer();
         ComponentParts.Part part = Startup.begin(Startup.SSF_RECEIVER, "HealthServletDetailPart");
         part.failedConfig("receiverAudience must be set");
 
@@ -229,31 +282,41 @@ class HealthServletTest {
     }
 
     @Test
-    void infoAnswersTheBearerWithTheVersions() throws Exception {
-        Answer a = call(servlet(TOKEN, "a different token"), "GET", HealthServlet.INFO, "Bearer " + TOKEN);
-        assertEquals(200, a.status);
-        assertEquals("{\"agentic-identity\":\"0.5.0-TEST\",\"commit\":null,\"pingfederate\":\"13.1.3.0\"}", a.text());
-    }
-
-    @Test
-    void onlyGetAndHeadAreServedAndHeadHasNoBody() throws Exception {
-        HealthServlet servlet = servlet(TOKEN, null);
+    void onlyGetAndHeadAreServedBeforeAnyTokenAndHeadHasNoBody() throws Exception {
+        HealthServlet servlet = developmentWithStaticBearer();
         Answer post = call(servlet, "POST", HealthServlet.LIVE, null);
         assertEquals(405, post.error);
         assertEquals("GET, HEAD", post.headers.get("Allow"));
-        Answer authorisedPut = call(servlet, "PUT", HealthServlet.INFO, "Bearer " + TOKEN);
-        assertEquals(405, authorisedPut.error, "an authorised caller learns the method is wrong");
+        Answer put = call(servlet, "PUT", HealthServlet.INFO, null);
+        assertEquals(405, put.error, "the method is refused before a token is looked at");
+        assertTrue(put.challenges.isEmpty());
         Answer head = call(servlet, "HEAD", HealthServlet.LIVE, null);
         assertEquals(200, head.status);
         assertEquals("", head.text());
         assertEquals("{\"status\":\"UP\"}".length(), head.contentLength);
+        Answer headInfo = call(servlet, "HEAD", HealthServlet.INFO, "Bearer " + TOKEN);
+        assertEquals(200, headInfo.status);
+        assertEquals("", headInfo.text());
     }
 
     @Test
-    void theDefaultServletReadsTheProcesssTokenAndThisJarsVersions() throws Exception {
+    void theDefaultServletAsksThisWebappsAuthenticator() throws Exception {
         HealthServlet servlet = new HealthServlet();
         servlet.init(config());
-        assertEquals(404, call(servlet, "GET", HealthServlet.INFO, "Bearer " + TOKEN).error);
+        // No operator settings and no static bearer in this JVM: production, and nothing can be authenticated.
+        assertEquals(503, call(servlet, "GET", HealthServlet.INFO, "Bearer " + TOKEN).status);
         assertFalse(call(servlet, "GET", HealthServlet.LIVE, null).text().isEmpty());
+    }
+
+    @Test
+    void theRouteTableNamesTheDetailAndInfoForGetAndHeadOnly() {
+        for (String path : List.of(HealthServlet.DETAIL, HealthServlet.INFO)) {
+            for (String method : List.of("GET", "HEAD")) {
+                assertEquals(OperatorScopes.HEALTH_READ, HealthServlet.ROUTES.match(method, path).orElseThrow().scope());
+            }
+            assertTrue(HealthServlet.ROUTES.match("POST", path).isEmpty());
+        }
+        assertTrue(HealthServlet.ROUTES.match("GET", HealthServlet.LIVE).isEmpty(), "live is open");
+        assertTrue(HealthServlet.ROUTES.match("GET", HealthServlet.READY).isEmpty(), "ready is open");
     }
 }
