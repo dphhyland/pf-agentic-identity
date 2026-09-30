@@ -145,7 +145,7 @@ public final class ClientAttestationPolicy {
      * The effective policy: {@code global} tightened by this client's properties.
      *
      * @param htuAliases the URLs the server answers at for this request's endpoint (its advertised URL, and the issuer
-     *                   followed by the endpoint's path). Empty when the endpoint is not the token endpoint, and then
+     *                   followed by the endpoint's path), none of them null. Empty when the endpoint is not the token endpoint, and then
      *                   {@code attestation_expected_htu}, a token endpoint pin, is not applied.
      * @throws AttestationPolicyException when the properties do not parse, or one would loosen {@code global}
      */
@@ -209,7 +209,7 @@ public final class ClientAttestationPolicy {
     private String pinned(Set<String> htuAliases) throws AttestationPolicyException {
         String pin = normalise(this.expectedHtu);
         for (String alias : htuAliases) {
-            if (alias != null && pin.equals(normalise(alias))) {
+            if (pin.equals(normalise(alias))) {
                 return this.expectedHtu;
             }
         }

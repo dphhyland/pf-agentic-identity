@@ -202,8 +202,13 @@ public final class AttestationPolicyResolver {
         s.append("\nchallenge=").append(config.challengeRequired());
         s.append("\nclaims=").append(new TreeSet<>(config.requiredDisclosedClaims()));
         s.append("\nmaxLifetime=").append(config.maxAttestationLifetimeSeconds());
+        return AttestationPolicyResolver.sha256Hex(s.toString());
+    }
+
+    /** The SHA-256 of {@code text}'s UTF-8, lower-case hex. Every JDK has SHA-256 (the {@code MessageDigest} contract). */
+    private static String sha256Hex(String text) {
         try {
-            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(s.toString().getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(text.getBytes(StandardCharsets.UTF_8)));
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is not available", e);
         }

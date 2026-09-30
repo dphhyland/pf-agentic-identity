@@ -141,6 +141,7 @@ class AttestationPolicyResolverTest {
         assertEquals(Set.of("ES256"), effective(Map.of(ClientAttestationPolicy.ACCEPTED_ALGS, "ES256, HS256")).attestationAlgorithms());
         assertEquals(Set.of("PS256", "ES256"), effective(Map.of(ClientAttestationPolicy.POP_ALGS, "PS256 ES256")).popAlgorithms());
         assertEquals(Set.of("ES256"), effective(Map.of(ClientAttestationPolicy.DPOP_ALGS, "ES256")).dpopAlgorithms());
+        assertEquals(Set.of("ES256"), effective(Map.of(ClientAttestationPolicy.DPOP_ALGS, ",ES256")).dpopAlgorithms());
         for (String property : List.of(ClientAttestationPolicy.ACCEPTED_ALGS, ClientAttestationPolicy.POP_ALGS,
                 ClientAttestationPolicy.DPOP_ALGS)) {
             assertEquals("empty_intersection", refused(Map.of(property, "HS256,none")).problem());
@@ -176,6 +177,9 @@ class AttestationPolicyResolverTest {
         assertEquals("unparsable", refused(Map.of(ClientAttestationPolicy.EXPECTED_HTU, TOKEN_ENDPOINT + "#f")).problem());
         assertEquals("unparsable", refused(Map.of(ClientAttestationPolicy.EXPECTED_HTU, "ftp://as.example.com/t")).problem());
         assertEquals("unparsable", refused(Map.of(ClientAttestationPolicy.EXPECTED_HTU, "https://exa mple/")).problem());
+        assertEquals("unparsable", refused(Map.of(ClientAttestationPolicy.EXPECTED_HTU, "https:///as/token.oauth2")).problem());
+        assertEquals("http://as.example.com/as/token.oauth2", parse(Map.of(ClientAttestationPolicy.EXPECTED_HTU,
+                "http://as.example.com/as/token.oauth2")).apply(GLOBAL, Set.of("http://as.example.com/as/token.oauth2")).expectedHtu());
         // At another endpoint (PAR, from S4d) a token endpoint pin does not apply.
         assertEquals(TOKEN_ENDPOINT, parse(Map.of(ClientAttestationPolicy.EXPECTED_HTU, "https://other.example/as/token.oauth2"))
                 .apply(GLOBAL, Set.of()).expectedHtu());
@@ -187,8 +191,11 @@ class AttestationPolicyResolverTest {
         assertEquals("http://as.example.com/a", ClientAttestationPolicy.normalise("http://as.example.com:80/b/../a?q#f"));
         assertEquals("https://as.example.com:8443/a", ClientAttestationPolicy.normalise("https://as.example.com:8443/a"));
         assertEquals("http://h:443/", ClientAttestationPolicy.normalise("http://h:443"));
+        assertEquals("https://h:80/", ClientAttestationPolicy.normalise("https://h:80"));
         assertEquals("://h/", ClientAttestationPolicy.normalise("//h"));
         assertEquals("a b", ClientAttestationPolicy.normalise("a b"));
+        assertEquals(":///a", ClientAttestationPolicy.normalise("/a"));
+        assertEquals("mailto:///", ClientAttestationPolicy.normalise("mailto:x"));
     }
 
     @Test
@@ -577,5 +584,41 @@ class AttestationPolicyResolverTest {
         assertEquals("https://attester.example.com", this.events.get(1).partner());
         assertEquals("federation", this.events.get(2).component());
         assertTrue(this.events.stream().allMatch(Event::audit));
+    }
+
+    @Test
+    void theSubjectTokensSubAndActAreReadOnlyWhenTheyAreWhatTheySay() throws Exception {
+        org.jose4j.jwt.JwtClaims claims = new org.jose4j.jwt.JwtClaims();
+        assertNull(SubjectTokenVerifier.subject(null));
+        assertNull(SubjectTokenVerifier.subject(claims));
+        claims.setClaim("sub", " ");
+        assertNull(SubjectTokenVerifier.subject(claims));
+        claims.setClaim("sub", 7);
+        assertNull(SubjectTokenVerifier.subject(claims));
+        claims.setClaim("sub", "alice");
+        assertEquals("alice", SubjectTokenVerifier.subject(claims));
+        assertNull(SubjectTokenVerifier.act(null));
+        claims.setClaim("act", " ");
+        assertNull(SubjectTokenVerifier.act(claims));
+        claims.setClaim("act", "{\"sub\":\"a\"}");
+        assertEquals(Map.of("sub", "a"), SubjectTokenVerifier.act(claims));
+    }
+
+    @Test
+    void aReusedVerificationMustNameTheClientAndCarryItsPolicy() {
+        Map<String, Object> verified = Map.of("client_id", CLIENT, ClientAttestationUtils.POLICY_FINGERPRINT_KEY, "f");
+        assertNull(ClientAttestationUtils.reusedVerificationProblem(verified, CLIENT, "f"));
+        assertNotNull(ClientAttestationUtils.reusedVerificationProblem(verified, null, "f"));
+        assertNotNull(ClientAttestationUtils.reusedVerificationProblem(verified, "other", "f"));
+        assertNotNull(ClientAttestationUtils.reusedVerificationProblem(verified, CLIENT, "g"));
+    }
+
+    @Test
+    void onlyATokenExchangeWithOneSubjectTokenIsLookedAt() {
+        jakarta.servlet.http.HttpServletRequest request = org.mockito.Mockito.mock(jakarta.servlet.http.HttpServletRequest.class);
+        org.mockito.Mockito.when(request.getParameter("grant_type")).thenReturn(ClientAttestationUtils.TOKEN_EXCHANGE_GRANT);
+        assertNull(ClientAttestationUtils.verifiedSubjectTokenSubject(request, ISSUER, CriterionTesting.NO_SUBJECT_TOKENS));
+        org.mockito.Mockito.when(request.getParameterValues("subject_token")).thenReturn(new String[0]);
+        assertNull(ClientAttestationUtils.verifiedSubjectTokenSubject(request, ISSUER, CriterionTesting.NO_SUBJECT_TOKENS));
     }
 }
