@@ -203,8 +203,9 @@ public final class FederationConfiguration {
 
     /**
      * Whether {@code issuer} is one of the configured anchors: the same Entity Identifier as one of them
-     * ({@link EntityId#same}, a trailing slash aside), with the scheme and host compared in any case (RFC 3986 §3.2.2:
-     * "The host subcomponent is case-insensitive"; §3.1 for the scheme). An anchor is validated when it is read, so only
+     * ({@link EntityId#same}, a trailing slash aside), with the scheme and host compared in any case - RFC 3986
+     * §6.2.2.1: "the scheme and host are case-insensitive and therefore should be normalized to lowercase"; "The other
+     * generic syntax components are assumed to be case-sensitive". An anchor is validated when it is read, so only
      * {@code issuer} can fail to parse, and then it is compared as it stands.
      */
     boolean isTrustAnchor(String issuer) {
