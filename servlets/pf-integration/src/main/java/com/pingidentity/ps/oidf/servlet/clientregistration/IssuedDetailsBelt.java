@@ -135,6 +135,12 @@ public final class IssuedDetailsBelt implements Filter {
         if (body == null) {
             return;
         }
+        if (out.isCommitted()) {
+            // PingFederate answered past the wrapper (sendError, say): whatever it wrote has gone, and nothing held can follow.
+            LOGGER.warn((Object) ("IssuedDetailsBelt: the response was committed past the belt; " + body.length
+                    + " held bytes are dropped"));
+            return;
+        }
         int status = held.getStatus();
         boolean success = status >= 200 && status < 300;
         String clientId = IssuedDetailsBelt.clientOf(request);

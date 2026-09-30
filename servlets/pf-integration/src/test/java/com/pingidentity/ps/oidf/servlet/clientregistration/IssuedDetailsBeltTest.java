@@ -450,6 +450,19 @@ class IssuedDetailsBeltTest {
         assertEquals(5L, real.contentLength);
     }
 
+    /** PingFederate answering past the wrapper - sendError goes to the real response - leaves nothing for the belt to send. */
+    @Test
+    void aResponseCommittedPastTheBeltIsLeftAlone() throws Exception {
+        Real real = new Real();
+        when(real.response.isCommitted()).thenReturn(true);
+        this.belt().doFilter(request(attestation(CEILING), true), real.response, (req, resp) -> {
+            resp.getOutputStream().write('x');
+            ((HttpServletResponse) resp).sendError(500);
+        });
+        assertEquals(0, real.sink.size());
+        assertEquals(List.of(), this.events);
+    }
+
     @Test
     void theHeldStreamIsNotAsynchronous() throws Exception {
         this.through(this.belt(), request(attestation(CEILING), true), (req, resp) -> {

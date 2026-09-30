@@ -51,7 +51,9 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
  *       to be issued within a ceiling entry of its type, every constrained field present and within. Anything else is
  *       {@code false}, and PingFederate refuses the token with the criterion's Error Result.</li>
  *   <li>A request with no attestation passes for a client that may authenticate without one, whatever it is issued:
- *       the criterion does not invent a ceiling. A client with {@code attestation_required} is {@code false}.</li>
+ *       the criterion does not invent a ceiling. A client with {@code attestation_required} is {@code false} at the
+ *       token endpoint; PingFederate also asks the criteria where the authorization endpoint resumes, and no attestation
+ *       is sent there.</li>
  *   <li>A refresh that sends no {@code authorization_details}, of a grant holding a detail of a type named in
  *       {@value #REDECIDE_SETTING} (default {@code payment_initiation,account_information}), is {@code false} for every
  *       client, attested or not. PingFederate reissues a bare refresh's stored details without calling the RAR
