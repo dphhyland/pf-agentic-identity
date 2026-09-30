@@ -130,6 +130,9 @@ class ClientAttestationAuthFilterTest {
         configureKeysFor(dir, "https://rp.example.com/agent-1");
 
         assertDoesNotThrow(() -> new ClientAttestationAuthFilter().init(null));
+        // The start function is what starts the check of every client's bridge key (plan item H-JOSE-2, F-0112).
+        assertTrue(com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.live(BridgeSigners.CHECK_JOB).isPresent(),
+                "the filter's start function starts the bridge key check");
     }
 
     // ---- init: is the trust anchor's key pinned? ----------------------------------------------------

@@ -11,7 +11,9 @@
   `"use": "enc"` (RFC 8725 §3.1, §3.2; RFC 7517 §4.2). The `verifyAgainstKeys` and `verifyAgainstInlineJwks` overloads
   that take no `VerificationPolicy` are deprecated for removal; no code in this repository calls them.
 - A configured subordinate's keys are asserted in a Subordinate Statement only once its Entity Configuration verifies
-  under one of them ([F-0415](../../findings/F-0415.yaml)). The trust mark status endpoint decides on the verified
+  under one of them ([F-0415](../../findings/F-0415.yaml)). This is the OpenID Federation §3.2 check, not pinning: a
+  party that answers at the subordinate's URL still signs with the keys it lists, which stays open as
+  [F-0012](../../findings/F-0012.yaml). The trust mark status endpoint decides on the verified
   mark, the Trust Mark validator verifies the anchor configuration it reuses against the anchor's pinned keys, and a
   request object's replay window reads its verified `exp` and `jti`.
 - `LocalJwkSigner` (plan item H-JOSE-2, [F-0064](../../findings/F-0064.yaml), [F-0112](../../findings/F-0112.yaml))
@@ -48,7 +50,9 @@
    names each client once with the reason, at WARN, under `BridgeSigners`. Why: before 0.6.0 a key that could not sign
    was found by its client's first bridged request, which answered `500 server_error` after the attestation had
    verified ([F-0112](../../findings/F-0112.yaml)). The check runs when the attestation filter starts and every ten
-   minutes, so a vault that was down at start, or a file you mend, is found again. How to tell: the part, and
+   minutes, so a vault that was down at start is found again, and so is a key file that could not be read at all. A
+   key file that was read is kept until PingFederate restarts: after you mend an entry in it, restart to see the part
+   go `READY` (the client stays refused until then, as before 0.6.0). How to tell: the part, and
    `attest_jwt_client_auth` requests for a named client, which are still refused as before. What to change: fix or
    replace the key the log names ("Signing keys under 2048 bits (RSA) or on other curves are refused" says how for
    size and curve; a `"key_ref"` needs a transit key
@@ -70,6 +74,22 @@
    verifier. What to change: the types; and pass a `VerificationPolicy` to `verifyAgainstKeys` and
    `verifyAgainstInlineJwks` - the overloads without one are deprecated and go in a later release. Development-profile
    escape: none - these are library types, not settings.
+5. **A configured subordinate whose Entity Configuration does not verify under its own keys is no longer vouched
+   for.** What to do: for each entity in `OIDF_FEDERATION_SUBORDINATES`, check that the Entity Configuration it
+   serves at `/.well-known/openid-federation` is signed with a key in its own `jwks`, with a `kid` header that matches
+   that key's `kid` exactly, a `typ` header of `entity-statement+jwt`, an `iat` that is not in the future, and an `exp`
+   that has not passed; and that every key in that `jwks` is public, asymmetric and has a unique `kid`. An entity built
+   from this repository signs its configuration this way. Why: before 0.6.0 this entity took a subordinate's `jwks`
+   and `metadata` from its configuration without checking the signature, and asserted those keys in the Subordinate
+   Statements it signed ([F-0415](../../findings/F-0415.yaml)); OpenID Federation 1.0 §3.2 has an Entity Statement
+   signed with one of its issuer's keys. How to tell: the fetch endpoint answers a request for that subordinate
+   `temporarily_unavailable` ("the subordinate's entity configuration could not be fetched yet"), and PingFederate's
+   server log has "subordinate-refresh: <subordinate> not reachable (will retry; serving stale if cached): Entity
+   configuration of <subordinate> does not verify under its own jwks (<reason>)" every refresh, where the reason is
+   `typ`, `key`, `signature`, `expired`, `algorithm` or another code of `JwtVerificationException`. What to change:
+   the subordinate re-signs its Entity Configuration with a key it lists, with `kid`, `typ` and `iat` set. Nothing
+   changes on this side. Development-profile escape: none - an unverified configuration is not a thing this entity
+   can vouch for in either profile, and the refusal only stops it asserting keys it has not checked.
 
 ## Notes
 

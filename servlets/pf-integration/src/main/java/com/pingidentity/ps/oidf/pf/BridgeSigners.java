@@ -79,7 +79,10 @@ public final class BridgeSigners {
     public static final String CHECK_PART = "BridgeSigners";
     /** The executor the check runs on. */
     public static final String CHECK_JOB = "bridge-signer-check";
-    /** How often the check runs again: a vault that was down at start is found again, and so is a mended file. */
+    /**
+     * How often the check runs again: a vault that was down at start is found again, and so is a key file that could
+     * not be read at all. A file that was read is kept until PingFederate restarts, so a key mended in it is not.
+     */
     public static final Duration CHECK_INTERVAL = Duration.ofMinutes(10);
 
     private static final Log LOGGER = LogFactory.getLog(BridgeSigners.class);

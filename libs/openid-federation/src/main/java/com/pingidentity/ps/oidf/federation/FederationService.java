@@ -936,10 +936,6 @@ public final class FederationService {
         }
     }
 
-    /**
-     * Live-fetch {@code subject}'s entity configuration and cache its jwks, Entity Types and role. Only called
-     * with a fetcher configured (both callers check).
-     */
     /** A subordinate's Entity Configuration, verified under a key in its own {@code jwks} (§3.2), or an IllegalStateException. */
     private static JwtClaims verifiedSelfSigned(String body, Map<String, Object> jwks, String issuer) {
         try {
@@ -949,6 +945,10 @@ public final class FederationService {
         }
     }
 
+    /**
+     * Live-fetch {@code subject}'s entity configuration and cache its jwks, Entity Types and role. Only called
+     * with a fetcher configured (both callers check).
+     */
     private Map<String, Object> refreshSubordinateJwks(String subject) {
         try {
             String body = this.subordinateFetcher.get(EntityId.wellKnownUrl(subject), ENTITY_STATEMENT_ACCEPT);
@@ -962,6 +962,8 @@ public final class FederationService {
             }
             // The keys this entity asserts for its subordinate in a signed statement: only once the configuration they
             // come from verifies under one of them (OpenID Federation 1.0 §3.2, the Entity Statement rules), never as fetched.
+            // That proves the signer holds a key it lists, not that the keys are the subordinate's: whoever answers at the
+            // subordinate's URL signs with the keys it lists. Pinning them is F-0012.
             JwtClaims selfConfig = verifiedSelfSigned(body, unverifiedJwks, unverified.unverifiedIssuer());
             @SuppressWarnings("unchecked")
             Map<String, Object> jwks = (Map<String, Object>) selfConfig.getClaimValue("jwks");
