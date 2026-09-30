@@ -17,8 +17,11 @@ import jakarta.servlet.http.HttpServletResponse;
  * what went wrong instead, and given the tracking id to quote.
  *
  * <p>The page is an operator's HTML file ({@code OIDF_FEDERATION_ERROR_PAGE}) with {@code ${error}},
- * {@code ${errorDescription}} and {@code ${trackingId}} in it, or a plain built-in one. Every value is
- * HTML-escaped: the description can name the client, which the request chose.
+ * {@code ${errorDescription}} and {@code ${trackingId}} in it, or a plain built-in one. The End-User has not
+ * authenticated and the RP is not trusted, so {@code ${errorDescription}} is the error code's fixed description
+ * ({@link PublicErrors#generic}) and {@code ${trackingId}} the correlation id; the detail the caller passes, which can
+ * name the client the request chose, goes to {@code server.log} under that id and never onto the page (plan item
+ * H-FED-4). Every value is HTML-escaped all the same.
  */
 public final class FederationErrorPage {
     private static final String BUILT_IN = """
@@ -57,8 +60,14 @@ public final class FederationErrorPage {
         return path == null ? builtIn() : new FederationErrorPage(Files.readString(Path.of(path), StandardCharsets.UTF_8));
     }
 
-    /** Writes the page: {@code status}, HTML, never cached or framed. */
-    public void write(HttpServletResponse response, int status, String error, String description, String trackingId) throws IOException {
+    /**
+     * Writes the page: {@code status}, HTML, never cached or framed. {@code detail} is logged, not shown; {@code trackingId}
+     * is the correlation id the page and the log line carry, or null for {@link PublicErrors#correlationId()}.
+     */
+    public void write(HttpServletResponse response, int status, String error, String detail, String trackingId) throws IOException {
+        String correlationId = trackingId == null ? PublicErrors.correlationId() : trackingId;
+        String description = PublicErrors.generic(error);
+        PublicErrors.refused("Authorization endpoint filter", status, error, detail, correlationId);
         response.setStatus(status);
         response.setContentType("text/html;charset=UTF-8");
         response.setHeader("Cache-Control", "no-store");
@@ -66,7 +75,7 @@ public final class FederationErrorPage {
         response.setHeader("X-Frame-Options", "DENY");
         response.setHeader("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'");
         java.util.Map<String, String> values = java.util.Map.of("error", escape(error), "errorDescription", escape(description),
-                "trackingId", escape(trackingId));
+                "trackingId", escape(correlationId));
         // One pass: a value that happens to contain a placeholder is never substituted into.
         java.util.regex.Matcher placeholder = PLACEHOLDER.matcher(this.template);
         StringBuilder page = new StringBuilder();
