@@ -5,7 +5,7 @@ area: device-enrolment
 source: review-2026-09-26
 status: closed
 plan_items: [ST-5, PR-3]
-prs: []
+prs: [85]
 verification: >
   Fixed by package ST5S (2026-09-30). services/device-enrolment's Main reads every setting through the
   device-enrolment catalogue with platform's Settings, so REQUIRE_COMPLIANT_DEVICE is true or false in any case and

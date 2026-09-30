@@ -4,7 +4,7 @@ area: instance-registry-datasource
 source: design
 status: open
 plan_items: [PR-3, X-A21]
-prs: []
+prs: [85]
 recorded_in: plugins/instance-registry-datasource/README.md, PF admin console
 verify_by: >
   On the rig: a PingFederate JDBC data store on the Identity Object Model's PostgreSQL (the driver copied into

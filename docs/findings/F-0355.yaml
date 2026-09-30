@@ -5,7 +5,7 @@ area: platform
 source: design
 status: open
 plan_items: [PR-3]
-prs: []
+prs: [85]
 verification: ''
 target_release: 0.6.0
 notes: >

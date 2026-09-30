@@ -5,7 +5,7 @@ area: gm-api
 source: design
 status: closed
 plan_items: [PR-3]
-prs: []
+prs: [85]
 verification: >
   Fixed by package ST5S (2026-09-30). GrantManagementClient takes --cacert FILE: the PEM certificates in
   the file become the only trust anchors of an SSLContext built with the JDK's TrustManagerFactory, and the chain and

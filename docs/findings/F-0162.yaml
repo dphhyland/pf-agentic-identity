@@ -5,7 +5,7 @@ area: harness
 source: design
 status: closed
 plan_items: [PR-3]
-prs: []
+prs: [85]
 verification: >
   Fixed by package ST5S (2026-09-30). AttestationFlowHarness.main sets
   jdk.internal.httpclient.disableHostnameVerification through InsecureTls only when OIDF_HARNESS_INSECURE_TLS is true,
