@@ -17,8 +17,9 @@
 // The page loads no libraries, so this renders the way it expects: headings carry ids (lower case, anything that
 // isn't a letter or digit turned into one hyphen), a Mermaid block is shown as its source in pre.mermaid-src, a
 // link to another rendered document becomes #doc:<path>, a link to any other file in the repository is made
-// relative to showcase/, and "</" is escaped so no document can close a script. marked is pinned in
-// tools/package.json: another version renders differently, and a page built elsewhere would differ.
+// relative to showcase/, and "</" is escaped so no document can close a script. marked is pinned to 18.0.13 in
+// tools/package.json (Node 20 or later): another version renders differently, and a page built elsewhere would
+// differ. Moving from 12.0.2 to 18.0.13 left docs.js byte for byte the same for every document the repository had.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
@@ -90,50 +91,82 @@ function rewrite(href, doc, documents) {
   return `../${resolved}${fragment.startsWith('#L') ? '' : fragment}`;
 }
 
+/**
+ * Puts the blank lines after a block of raw HTML (a generated file's "Do not edit" comment, say) back into its text.
+ * marked 18 moved them into the space token that follows, which renders as nothing, so without this the next
+ * element would sit on the comment's line - harmless in a browser, but a different page from the one marked 12 built.
+ */
+function keepBlankLinesAfterHtml(tokens) {
+  tokens.forEach((token, i) => {
+    const next = tokens[i + 1];
+    if (token.type === 'html' && token.block && next && next.type === 'space') {
+      token.text += next.raw;
+    }
+    if (token.tokens) {
+      keepBlankLinesAfterHtml(token.tokens);
+    }
+    (token.items || []).forEach(item => keepBlankLinesAfterHtml(item.tokens));
+  });
+}
+
 function render(doc, source, documents) {
   const seen = new Map();
   let title = null;
   const marked = new Marked({ gfm: true });
+  // marked 13 and later hand each renderer its token; inline content is rendered with this.parser.parseInline.
   marked.use({
+    hooks: {
+      processAllTokens(tokens) {
+        keepBlankLinesAfterHtml(tokens);
+        return tokens;
+      },
+    },
     renderer: {
-      heading(text, level) {
+      heading({ tokens, depth }) {
+        const text = this.parser.parseInline(tokens);
         let id = slug(text);
         const count = seen.get(id) || 0;
         seen.set(id, count + 1);
         if (count) {
           id = `${id}-${count}`;
         }
-        if (level === 1 && title === null) {
+        if (depth === 1 && title === null) {
           title = plain(text).trim();
         }
-        return `<h${level} id="${id}">${text}</h${level}>\n`;
+        return `<h${depth} id="${id}">${text}</h${depth}>\n`;
       },
-      code(code, infostring) {
-        if ((infostring || '').trim() === 'mermaid') {
-          return `<pre class="mermaid-src"><code>${escapeHtml(code)}</code></pre>\n`;
+      code({ text, lang }) {
+        if ((lang || '').trim() === 'mermaid') {
+          return `<pre class="mermaid-src"><code>${escapeHtml(text)}</code></pre>\n`;
         }
         return false;
       },
-      link(href, linkTitle, text) {
+      // marked 12 escaped a link's title, and an <angle-bracket> autolink's href, before this saw them, so a
+      // title's & or " and an autolink's & came out escaped twice; marked 18 hands them over raw and they are
+      // escaped once. No document had either when the pin moved.
+      link({ href, title: linkTitle, tokens }) {
         const to = rewrite(href, doc, documents);
         const titled = linkTitle ? ` title="${escapeAttribute(linkTitle)}"` : '';
-        return `<a href="${escapeAttribute(to)}"${titled}>${text}</a>`;
+        return `<a href="${escapeAttribute(to)}"${titled}>${this.parser.parseInline(tokens)}</a>`;
       },
       hr() {
         return '<hr />\n';
       },
       // Tables sit in div.table-wrap, which the page scrolls sideways on a narrow screen.
-      table(header, body) {
-        return `<div class="table-wrap"><table><thead>${header}</thead><tbody>${body}</tbody></table></div>\n`;
+      table({ header, rows }) {
+        const head = this.tablerow({ text: header.map(cell => this.tablecell(cell)).join('') });
+        const body = rows.map(row => this.tablerow({ text: row.map(cell => this.tablecell(cell)).join('') })).join('');
+        return `<div class="table-wrap"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>\n`;
       },
-      tablerow(content) {
-        return `<tr>${content}</tr>`;
+      tablerow({ text }) {
+        return `<tr>${text}</tr>`;
       },
-      tablecell(content, flags) {
-        if (flags.header) {
-          return flags.align ? `<th style="text-align:${flags.align}">${content}</th>` : `<th>${content}</th>`;
+      tablecell({ tokens, header, align }) {
+        const content = this.parser.parseInline(tokens);
+        if (header) {
+          return align ? `<th style="text-align:${align}">${content}</th>` : `<th>${content}</th>`;
         }
-        return `<td style="text-align:${flags.align || 'left'}">${content}</td>`;
+        return `<td style="text-align:${align || 'left'}">${content}</td>`;
       },
     },
   });
