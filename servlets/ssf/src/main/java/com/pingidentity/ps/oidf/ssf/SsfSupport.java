@@ -252,6 +252,8 @@ public final class SsfSupport {
         }
         try {
             return KafkaSetPublisher.create(config);
+        } catch (com.pingidentity.ps.oidf.platform.settings.ProfileRefused e) {
+            throw e; // PR-2: Kafka in clear refuses SSF under production (HSSF3), it does not just switch Kafka off
         } catch (RuntimeException e) {
             LOGGER.error((Object) ("SSF Kafka publisher disabled — " + e.getMessage()));
             return SetPublisher.NOOP;

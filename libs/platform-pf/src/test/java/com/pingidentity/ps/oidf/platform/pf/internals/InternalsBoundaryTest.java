@@ -32,11 +32,10 @@ class InternalsBoundaryTest {
             + "|import\\s+org\\.sourceid\\.oauth20\\.domain\\.\\*");
 
     /**
-     * Files that still name an internal, each with the finding that records why. Package PFI could not edit
-     * servlets/ssf (outside its scope); the entry goes when the call moves onto {@link PfInternals#issuer}.
+     * Files that still name an internal, each with the finding that records why. None since 0.6.0: the last one,
+     * servlets/ssf's PfIdTokenVerifier, moved onto {@link PfInternals#issuer} (HSSF3, finding F-0215).
      */
-    static final Map<String, String> RECORDED = Map.of(
-            "servlets/ssf/src/main/java/com/pingidentity/ps/oidf/servlet/ssf/PfIdTokenVerifier.java", "F-0215");
+    static final Map<String, String> RECORDED = Map.of();
 
     private static final Path ROOT = Path.of("").toAbsolutePath().resolve("../..").normalize();
 

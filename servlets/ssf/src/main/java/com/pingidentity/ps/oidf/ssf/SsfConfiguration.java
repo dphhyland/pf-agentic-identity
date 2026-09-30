@@ -33,7 +33,12 @@ public final class SsfConfiguration {
     private static final String DEFAULT_STORE_DIALECT = "tables";
     private static final Set<String> SUPPORTED_STORE_DIALECTS = Set.of("tables", "ldm");
     private static final String DEFAULT_KAFKA_TOPIC = "sse-events";
-    private static final String DEFAULT_KAFKA_SECURITY_PROTOCOL = "PLAINTEXT";
+    /** TLS by default (plan item PR-2): PLAINTEXT and SASL_PLAINTEXT are forbidden in production and must be asked for. */
+    private static final String DEFAULT_KAFKA_SECURITY_PROTOCOL = "SSL";
+    /** Kafka's producer timeouts, bounded (S5d): send() blocks the thread that raised the event for up to max.block.ms. */
+    static final int DEFAULT_KAFKA_REQUEST_TIMEOUT_MS = 10_000;
+    static final int DEFAULT_KAFKA_DELIVERY_TIMEOUT_MS = 30_000;
+    static final int DEFAULT_KAFKA_MAX_BLOCK_MS = 2_000;
     private static final String DEFAULT_RECEIVER_SCOPE = "ssf.manage";
     private static final int DEFAULT_PUSH_RETRY_MAX_ATTEMPTS = 5;
     private static final int DEFAULT_PUSH_RETRY_BACKOFF_SECONDS = 5;
@@ -66,6 +71,19 @@ public final class SsfConfiguration {
     private final String kafkaSaslMechanism;
     private final String kafkaSaslUsername;
     private final String kafkaSaslPassword;
+    private final String kafkaSslTruststoreLocation;
+    private final String kafkaSslTruststorePassword;
+    private final String kafkaSslTruststoreType;
+    private final String kafkaSslKeystoreLocation;
+    private final String kafkaSslKeystorePassword;
+    private final String kafkaSslKeystoreType;
+    private final String kafkaSslKeyPassword;
+    private final boolean kafkaSslHostnameVerification;
+    private final int kafkaRequestTimeoutMs;
+    private final int kafkaDeliveryTimeoutMs;
+    private final int kafkaMaxBlockMs;
+    private final String secretKey;
+    private final String secretKeyPrevious;
     private final int pushRetryMaxAttempts;
     private final int pushRetryBackoffSeconds;
     private final int pollMaxEvents;
@@ -128,6 +146,27 @@ public final class SsfConfiguration {
         this.kafkaSaslMechanism = b.kafkaSaslMechanism;
         this.kafkaSaslUsername = b.kafkaSaslUsername;
         this.kafkaSaslPassword = b.kafkaSaslPassword;
+        this.kafkaSslTruststoreLocation = trimOrNull(b.kafkaSslTruststoreLocation);
+        this.kafkaSslTruststorePassword = b.kafkaSslTruststorePassword;
+        this.kafkaSslTruststoreType = trimOrNull(b.kafkaSslTruststoreType);
+        this.kafkaSslKeystoreLocation = trimOrNull(b.kafkaSslKeystoreLocation);
+        this.kafkaSslKeystorePassword = b.kafkaSslKeystorePassword;
+        this.kafkaSslKeystoreType = trimOrNull(b.kafkaSslKeystoreType);
+        this.kafkaSslKeyPassword = b.kafkaSslKeyPassword;
+        this.kafkaSslHostnameVerification = b.kafkaSslHostnameVerification;
+        this.kafkaRequestTimeoutMs = b.kafkaRequestTimeoutMs;
+        this.kafkaDeliveryTimeoutMs = b.kafkaDeliveryTimeoutMs;
+        this.kafkaMaxBlockMs = b.kafkaMaxBlockMs;
+        if (this.kafkaDeliveryTimeoutMs < this.kafkaRequestTimeoutMs) {
+            // Kafka's producer refuses to start otherwise: delivery.timeout.ms "should be greater than or equal to the
+            // sum of request.timeout.ms and linger.ms", and KafkaSetPublisher sets linger.ms to 0.
+            throw new Refused(KAFKA_DELIVERY_TIMEOUT_MS, KAFKA_DELIVERY_TIMEOUT_MS + " (" + this.kafkaDeliveryTimeoutMs
+                    + ") is less than " + KAFKA_REQUEST_TIMEOUT_MS + " (" + this.kafkaRequestTimeoutMs + "): Kafka's producer"
+                    + " requires delivery.timeout.ms >= request.timeout.ms + linger.ms (0 here)");
+        }
+        this.secretKey = trimOrNull(b.secretKey);
+        this.secretKeyPrevious = trimOrNull(b.secretKeyPrevious);
+        checkSecretKeys(this.secretKey, this.secretKeyPrevious);
         this.pushRetryMaxAttempts = b.pushRetryMaxAttempts;
         this.pushRetryBackoffSeconds = b.pushRetryBackoffSeconds;
         this.pollMaxEvents = b.pollMaxEvents;
@@ -252,6 +291,19 @@ public final class SsfConfiguration {
     static final String KAFKA_SASL_MECHANISM = "OIDF_SSF_KAFKA_SASL_MECHANISM";
     static final String KAFKA_SASL_USERNAME = "OIDF_SSF_KAFKA_SASL_USERNAME";
     static final String KAFKA_SASL_PASSWORD = "OIDF_SSF_KAFKA_SASL_PASSWORD";
+    static final String KAFKA_SSL_TRUSTSTORE_LOCATION = "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION";
+    static final String KAFKA_SSL_TRUSTSTORE_PASSWORD = "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD";
+    static final String KAFKA_SSL_TRUSTSTORE_TYPE = "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_TYPE";
+    static final String KAFKA_SSL_KEYSTORE_LOCATION = "OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION";
+    static final String KAFKA_SSL_KEYSTORE_PASSWORD = "OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD";
+    static final String KAFKA_SSL_KEYSTORE_TYPE = "OIDF_SSF_KAFKA_SSL_KEYSTORE_TYPE";
+    static final String KAFKA_SSL_KEY_PASSWORD = "OIDF_SSF_KAFKA_SSL_KEY_PASSWORD";
+    static final String KAFKA_SSL_HOSTNAME_VERIFICATION = "OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION";
+    static final String KAFKA_REQUEST_TIMEOUT_MS = "OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS";
+    static final String KAFKA_DELIVERY_TIMEOUT_MS = "OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS";
+    static final String KAFKA_MAX_BLOCK_MS = "OIDF_SSF_KAFKA_MAX_BLOCK_MS";
+    static final String SECRET_KEY = PushHeaderCipher.KEY_SETTING;
+    static final String SECRET_KEY_PREVIOUS = PushHeaderCipher.PREVIOUS_KEY_SETTING;
     static final String PUSH_RETRY_MAX_ATTEMPTS = "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS";
     static final String PUSH_RETRY_BACKOFF_SECONDS = "OIDF_SSF_PUSH_RETRY_BACKOFF_SECONDS";
     static final String POLL_MAX_EVENTS = "OIDF_SSF_POLL_MAX_EVENTS";
@@ -349,10 +401,23 @@ public final class SsfConfiguration {
                 .kafkaEnabled(s.bool(KAFKA_ENABLED))
                 .kafkaBootstrapServers(s.string(KAFKA_BOOTSTRAP_SERVERS))
                 .kafkaTopic(s.string(KAFKA_TOPIC))
-                .kafkaSecurityProtocol(s.string(KAFKA_SECURITY_PROTOCOL))
+                .kafkaSecurityProtocol(s.choice(KAFKA_SECURITY_PROTOCOL))
                 .kafkaSaslMechanism(s.string(KAFKA_SASL_MECHANISM))
                 .kafkaSaslUsername(s.string(KAFKA_SASL_USERNAME))
                 .kafkaSaslPassword(reveal(s.secret(KAFKA_SASL_PASSWORD)))
+                .kafkaSslTruststoreLocation(text(s.path(KAFKA_SSL_TRUSTSTORE_LOCATION)))
+                .kafkaSslTruststorePassword(reveal(s.secret(KAFKA_SSL_TRUSTSTORE_PASSWORD)))
+                .kafkaSslTruststoreType(s.choice(KAFKA_SSL_TRUSTSTORE_TYPE))
+                .kafkaSslKeystoreLocation(text(s.path(KAFKA_SSL_KEYSTORE_LOCATION)))
+                .kafkaSslKeystorePassword(reveal(s.secret(KAFKA_SSL_KEYSTORE_PASSWORD)))
+                .kafkaSslKeystoreType(s.choice(KAFKA_SSL_KEYSTORE_TYPE))
+                .kafkaSslKeyPassword(reveal(s.secret(KAFKA_SSL_KEY_PASSWORD)))
+                .kafkaSslHostnameVerification(s.bool(KAFKA_SSL_HOSTNAME_VERIFICATION))
+                .kafkaRequestTimeoutMs(millis(s.duration(KAFKA_REQUEST_TIMEOUT_MS)))
+                .kafkaDeliveryTimeoutMs(millis(s.duration(KAFKA_DELIVERY_TIMEOUT_MS)))
+                .kafkaMaxBlockMs(millis(s.duration(KAFKA_MAX_BLOCK_MS)))
+                .secretKey(reveal(s.secret(SECRET_KEY)))
+                .secretKeyPrevious(reveal(s.secret(SECRET_KEY_PREVIOUS)))
                 .pushRetryMaxAttempts(s.integer(PUSH_RETRY_MAX_ATTEMPTS))
                 .pushRetryBackoffSeconds(s.integer(PUSH_RETRY_BACKOFF_SECONDS))
                 .pollMaxEvents(s.integer(POLL_MAX_EVENTS))
@@ -423,6 +488,32 @@ public final class SsfConfiguration {
 
     private static String text(URI uri) {
         return uri == null ? null : uri.toString();
+    }
+
+    private static String text(java.nio.file.Path path) {
+        return path == null ? null : path.toString();
+    }
+
+    private static Integer millis(java.time.Duration d) {
+        return d == null ? null : (int) d.toMillis();
+    }
+
+    /** Each key 32 bytes of base64, and the previous key only with a current one; a refusal names the setting. */
+    private static void checkSecretKeys(String current, String previous) {
+        try {
+            if (current != null) {
+                PushHeaderCipher.key(SECRET_KEY, current);
+            }
+            if (previous != null) {
+                PushHeaderCipher.key(SECRET_KEY_PREVIOUS, previous);
+                if (current == null) {
+                    throw new IllegalArgumentException(SECRET_KEY_PREVIOUS + " is set without " + SECRET_KEY
+                            + ": the previous key only opens values while a current key seals new ones");
+                }
+            }
+        } catch (IllegalArgumentException e) {
+            throw new Refused(e.getMessage().startsWith(SECRET_KEY_PREVIOUS) ? SECRET_KEY_PREVIOUS : SECRET_KEY, e.getMessage());
+        }
     }
 
     private static List<String> list(Set<String> words) {
@@ -498,6 +589,72 @@ public final class SsfConfiguration {
 
     public String kafkaSaslPassword() {
         return this.kafkaSaslPassword;
+    }
+
+    /** {@code ssl.truststore.location}: the file of the CAs that sign the brokers' certificates; null for the JVM's. */
+    public String kafkaSslTruststoreLocation() {
+        return this.kafkaSslTruststoreLocation;
+    }
+
+    public String kafkaSslTruststorePassword() {
+        return this.kafkaSslTruststorePassword;
+    }
+
+    /** {@code ssl.truststore.type}: JKS, PKCS12 or PEM; null for Kafka's default. */
+    public String kafkaSslTruststoreType() {
+        return this.kafkaSslTruststoreType;
+    }
+
+    /** {@code ssl.keystore.location}: the client certificate and key for mutual TLS; null for none. */
+    public String kafkaSslKeystoreLocation() {
+        return this.kafkaSslKeystoreLocation;
+    }
+
+    public String kafkaSslKeystorePassword() {
+        return this.kafkaSslKeystorePassword;
+    }
+
+    public String kafkaSslKeystoreType() {
+        return this.kafkaSslKeystoreType;
+    }
+
+    public String kafkaSslKeyPassword() {
+        return this.kafkaSslKeyPassword;
+    }
+
+    /** Whether the broker's certificate is checked against its host name ({@code ssl.endpoint.identification.algorithm=https}). */
+    public boolean kafkaSslHostnameVerification() {
+        return this.kafkaSslHostnameVerification;
+    }
+
+    public int kafkaRequestTimeoutMs() {
+        return this.kafkaRequestTimeoutMs;
+    }
+
+    public int kafkaDeliveryTimeoutMs() {
+        return this.kafkaDeliveryTimeoutMs;
+    }
+
+    public int kafkaMaxBlockMs() {
+        return this.kafkaMaxBlockMs;
+    }
+
+    /** {@value #SECRET_KEY}, as set (the cipher is {@link #pushHeaderCipher}). */
+    String secretKey() {
+        return this.secretKey;
+    }
+
+    /** {@value #SECRET_KEY_PREVIOUS}, as set. */
+    String secretKeyPrevious() {
+        return this.secretKeyPrevious;
+    }
+
+    /**
+     * The cipher that seals a push stream's {@code authorization_header} at rest ({@value #SECRET_KEY}, and
+     * {@value #SECRET_KEY_PREVIOUS} during a rotation), for a store under the production profile or not.
+     */
+    public PushHeaderCipher pushHeaderCipher(boolean production) {
+        return PushHeaderCipher.of(this.secretKey, this.secretKeyPrevious, production);
     }
 
     public int pushRetryMaxAttempts() {
@@ -889,6 +1046,19 @@ public final class SsfConfiguration {
         private String kafkaSaslMechanism;
         private String kafkaSaslUsername;
         private String kafkaSaslPassword;
+        private String kafkaSslTruststoreLocation;
+        private String kafkaSslTruststorePassword;
+        private String kafkaSslTruststoreType;
+        private String kafkaSslKeystoreLocation;
+        private String kafkaSslKeystorePassword;
+        private String kafkaSslKeystoreType;
+        private String kafkaSslKeyPassword;
+        private boolean kafkaSslHostnameVerification = true;
+        private int kafkaRequestTimeoutMs = DEFAULT_KAFKA_REQUEST_TIMEOUT_MS;
+        private int kafkaDeliveryTimeoutMs = DEFAULT_KAFKA_DELIVERY_TIMEOUT_MS;
+        private int kafkaMaxBlockMs = DEFAULT_KAFKA_MAX_BLOCK_MS;
+        private String secretKey;
+        private String secretKeyPrevious;
         private int pushRetryMaxAttempts = DEFAULT_PUSH_RETRY_MAX_ATTEMPTS;
         private int pushRetryBackoffSeconds = DEFAULT_PUSH_RETRY_BACKOFF_SECONDS;
         private int pollMaxEvents = DEFAULT_POLL_MAX_EVENTS;
@@ -1005,6 +1175,78 @@ public final class SsfConfiguration {
 
         public Builder kafkaSaslPassword(String v) {
             this.kafkaSaslPassword = v;
+            return this;
+        }
+
+        public Builder kafkaSslTruststoreLocation(String v) {
+            this.kafkaSslTruststoreLocation = v;
+            return this;
+        }
+
+        public Builder kafkaSslTruststorePassword(String v) {
+            this.kafkaSslTruststorePassword = v;
+            return this;
+        }
+
+        public Builder kafkaSslTruststoreType(String v) {
+            this.kafkaSslTruststoreType = v;
+            return this;
+        }
+
+        public Builder kafkaSslKeystoreLocation(String v) {
+            this.kafkaSslKeystoreLocation = v;
+            return this;
+        }
+
+        public Builder kafkaSslKeystorePassword(String v) {
+            this.kafkaSslKeystorePassword = v;
+            return this;
+        }
+
+        public Builder kafkaSslKeystoreType(String v) {
+            this.kafkaSslKeystoreType = v;
+            return this;
+        }
+
+        public Builder kafkaSslKeyPassword(String v) {
+            this.kafkaSslKeyPassword = v;
+            return this;
+        }
+
+        public Builder kafkaSslHostnameVerification(boolean v) {
+            this.kafkaSslHostnameVerification = v;
+            return this;
+        }
+
+        public Builder kafkaRequestTimeoutMs(Integer v) {
+            if (v != null) {
+                this.kafkaRequestTimeoutMs = v;
+            }
+            return this;
+        }
+
+        public Builder kafkaDeliveryTimeoutMs(Integer v) {
+            if (v != null) {
+                this.kafkaDeliveryTimeoutMs = v;
+            }
+            return this;
+        }
+
+        public Builder kafkaMaxBlockMs(Integer v) {
+            if (v != null) {
+                this.kafkaMaxBlockMs = v;
+            }
+            return this;
+        }
+
+        /** {@value SsfConfiguration#SECRET_KEY}: 32 bytes, base64. */
+        public Builder secretKey(String v) {
+            this.secretKey = v;
+            return this;
+        }
+
+        public Builder secretKeyPrevious(String v) {
+            this.secretKeyPrevious = v;
             return this;
         }
 

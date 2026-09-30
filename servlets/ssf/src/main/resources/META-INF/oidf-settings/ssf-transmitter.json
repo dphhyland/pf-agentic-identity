@@ -308,14 +308,24 @@
     {
       "name": "OIDF_SSF_KAFKA_SECURITY_PROTOCOL",
       "kind": "env",
-      "type": "string",
-      "default": "PLAINTEXT",
-      "description": "Kafka's security.protocol; PLAINTEXT, the default, is the value PR-2 forbids in production",
+      "type": "choice",
+      "default": "SSL",
+      "choices": [
+        "SSL",
+        "SASL_SSL",
+        "PLAINTEXT",
+        "SASL_PLAINTEXT"
+      ],
+      "description": "Kafka's security.protocol: SSL (the default), SASL_SSL, or PLAINTEXT and SASL_PLAINTEXT, which send SETs (and a SASL password) in clear and which the production profile refuses",
       "when_wrong": {
-        "effect": "not-checked",
-        "detail": "Passed to Kafka as it is"
+        "effect": "doesnt-start",
+        "detail": "Anything but SSL, SASL_SSL, PLAINTEXT or SASL_PLAINTEXT (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. PLAINTEXT or SASL_PLAINTEXT under the production profile: SSF is REFUSED, by the start-up sweep whether Kafka is on or not, and by KafkaSetPublisher again when Kafka starts, for a value that reached it another way (an init-param); under development each is used, with a WARN. A protocol the brokers do not speak: every publish fails and is logged, and the streams still get their SETs"
       },
-      "profile": "any",
+      "profile": "forbidden-in-production",
+      "governed": [
+        "PLAINTEXT",
+        "SASL_PLAINTEXT"
+      ],
       "security": true,
       "sources": [
         {
@@ -1739,6 +1749,399 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "Kafka's ssl.truststore.location: the file of the CAs that sign the brokers' certificates, with SSL or SASL_SSL; unset, the JVM's own CAs",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a path: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A file that is missing or not a trust store Kafka can read: the Kafka producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslTruststoreLocation"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslTruststoreLocation"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Kafka's ssl.truststore.password",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is; wrong, the producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslTruststorePassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslTruststorePassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_TYPE",
+      "kind": "env",
+      "type": "choice",
+      "default": null,
+      "choices": [
+        "JKS",
+        "PKCS12",
+        "PEM"
+      ],
+      "description": "Kafka's ssl.truststore.type: JKS, PKCS12 or PEM; unset, Kafka's default (JKS)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but JKS, PKCS12 or PEM (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslTruststoreType"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslTruststoreType"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_TRUSTSTORE_TYPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "Kafka's ssl.keystore.location: the client certificate and key, for brokers that require mutual TLS; unset, none",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a path: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. A file that is missing or not a key store Kafka can read: the Kafka producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeystoreLocation"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeystoreLocation"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Kafka's ssl.keystore.password",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is; wrong, the producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeystorePassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeystorePassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_TYPE",
+      "kind": "env",
+      "type": "choice",
+      "default": null,
+      "choices": [
+        "JKS",
+        "PKCS12",
+        "PEM"
+      ],
+      "description": "Kafka's ssl.keystore.type: JKS, PKCS12 or PEM; unset, Kafka's default (JKS)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but JKS, PKCS12 or PEM (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeystoreType"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeystoreType"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEYSTORE_TYPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_KEY_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Kafka's ssl.key.password: the private key's own password in the keystore",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is; wrong, the producer is not built, an ERROR says why, and SSF runs without Kafka"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslKeyPassword"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslKeyPassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_KEY_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether the broker's certificate is checked against its host name (Kafka's ssl.endpoint.identification.algorithm, https when true, empty when false); false only on a development rig",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but true or false (in any case): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. The development profile reads a legacy spelling (yes, no, 1, 0, on, off) as false, with a warning naming the strict spelling; production refuses it. false under the production profile: SSF is REFUSED, by the start-up sweep whether Kafka is on or not, and by KafkaSetPublisher again when Kafka starts; under development the producer takes any certificate its truststore's CAs signed, with a WARN"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSslHostnameVerification"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaSslHostnameVerification"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 10000,
+      "min": 1000,
+      "max": 60000,
+      "description": "Kafka's request.timeout.ms: how long the producer waits for a broker's answer to one request, 1000-60000",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, or outside 1000-60000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaRequestTimeoutMs"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaRequestTimeoutMs"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 30000,
+      "min": 1000,
+      "max": 300000,
+      "description": "Kafka's delivery.timeout.ms: how long a SET may take to reach Kafka, retries included, before the send is reported failed, 1000-300000 and at least OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, outside 1000-300000, or less than OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS (Kafka's producer requires delivery.timeout.ms >= request.timeout.ms + linger.ms, and linger.ms is 0 here): SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaDeliveryTimeoutMs"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaDeliveryTimeoutMs"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_MAX_BLOCK_MS",
+      "kind": "env",
+      "type": "millis",
+      "default": 2000,
+      "min": 0,
+      "max": 10000,
+      "description": "Kafka's max.block.ms: the longest a send blocks the thread that raised the event (a PingFederate request, or its audit logging) waiting for metadata or buffer space, 0-10000; Kafka's own default is a minute",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, or outside 0-10000: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Too short for the brokers: sends fail while metadata is fetched, and are logged"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaMaxBlockMs"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.kafkaMaxBlockMs"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_MAX_BLOCK_MS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_SECRET_KEY",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "32 bytes, base64 (openssl rand -base64 32): the AES-256-GCM key that encrypts a push stream's authorization_header in the SSF store; a value sealed under it carries its key id",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not 32 bytes of base64: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting. Unset under the production profile with a JDBC or ldm store: SSF is FAILED_CONFIG naming the setting if the store holds a push header, and a new stream's authorization_header is refused (500, with an ERROR naming the setting); under development headers are stored in clear, with a WARN. Changed without the old key in OIDF_SSF_SECRET_KEY_PREVIOUS: headers sealed under the old key stay sealed, an ERROR names its key id, and those streams' pushes are refused by their receivers"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "secretKey"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.secretKey"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SECRET_KEY"
+        }
+      ],
+      "aliases": [],
+      "file": true
+    },
+    {
+      "name": "OIDF_SSF_SECRET_KEY_PREVIOUS",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The key OIDF_SSF_SECRET_KEY replaced, during a rotation: headers sealed under it still open, and each is sealed under the new key on its stream's next write",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not 32 bytes of base64, or set without OIDF_SSF_SECRET_KEY: SSF is FAILED_CONFIG and its endpoints answer 503, with an ERROR in server.log naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "secretKeyPrevious"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.secretKeyPrevious"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SECRET_KEY_PREVIOUS"
+        }
+      ],
+      "aliases": [],
+      "file": true
     }
   ],
   "removed": [

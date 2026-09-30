@@ -5,9 +5,11 @@ package com.pingidentity.ps.oidf.servlet.ssf;
 
 import com.pingidentity.access.DataSourceAccessor;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import com.pingidentity.ps.oidf.ssf.JdbcSsfStore;
 import com.pingidentity.ps.oidf.ssf.LdmSsfStore;
+import com.pingidentity.ps.oidf.ssf.PushHeaderCipher;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfStore;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
@@ -42,13 +44,19 @@ public final class PfJdbcStoreFactory implements SsfSupport.StoreFactory {
                 ? new DriverManagerDataSource(config.jdbcUrl(), config.jdbcUsername(), config.jdbcPassword())
                 : new PfManagedDataSource(config.dataStoreId());
         checkDatabase(ds, source);
+        // H-SSF-7: a push stream's authorization_header is sealed at rest; production refuses to keep one without the key.
+        PushHeaderCipher headers = config.pushHeaderCipher(DeploymentProfile.current().isProduction());
+        SsfStore store;
         if ("ldm".equals(config.storeDialect())) {
             // Identity Object Model entry store — schema owned by the model repo's migration workflow
             // (0001-add-shared-signals-ssf); this store never creates tables.
-            return new LdmSsfStore(ds);
+            store = new LdmSsfStore(ds, headers);
+        } else {
+            JdbcSsfStore tables = new JdbcSsfStore(ds, headers);
+            tables.ensureSchema();
+            store = tables;
         }
-        JdbcSsfStore store = new JdbcSsfStore(ds);
-        store.ensureSchema();
+        headers.refuseStoredWithoutKey(store);
         return store;
     }
 
