@@ -150,5 +150,7 @@ class StartupRefusalTest {
         ComponentState expected = Startup.parts().verdict(Startup.FAPI).kind() == ComponentSwitches.Kind.DISABLED
                 ? ComponentState.STARTING : ComponentState.REFUSED;
         assertEquals(expected, part.status().state());
+        part.disabled();
+        assertEquals(ComponentState.DISABLED, part.status().state(), "out of this JVM's readiness for the tests after this one");
     }
 }

@@ -73,6 +73,7 @@ class LifecycleSweepTest {
         assertEquals(ComponentState.REFUSED, part.status().state());
         assertTrue(part.status().reason().startsWith("refused by the production profile: OIDF_OPERATOR_INSECURE_TLS=true"),
                 part.status().reason());
+        leave(part);
         assertThrows(ProfileRefused.class, () -> ProfileRefusals.refuse("SSF", "the stream store is in memory"));
 
         String banner = listener.audit("/ (pf-runtime)").orElseThrow();
@@ -118,6 +119,15 @@ class LifecycleSweepTest {
         assertTrue(log.contains(System.lineSeparator() + "  not refused (development): OIDF_OPERATOR_INSECURE_TLS=true"), log);
         ComponentParts.Part part = Startup.begin(Startup.OPERATOR_API, "LifecycleSweepTestPart");
         assertEquals(ComponentState.STARTING, part.status().state());
+        leave(part);
+    }
+
+    /**
+     * Takes a part this test registered in the process-wide registry out of readiness: disabled, it no longer counts, so
+     * a health test that runs after this one in the same JVM reads the components it registered itself.
+     */
+    private static void leave(ComponentParts.Part part) {
+        assertTrue(part.disabled());
     }
 
     @Test
