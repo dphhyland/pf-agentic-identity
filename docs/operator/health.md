@@ -2,19 +2,36 @@
 
 From 0.5.0, a PingFederate built from this repository answers four paths on its runtime port (plan item O-4).
 They come from `libs/platform-pf`'s `HealthServlet`, which `pf-runtime.war` maps by annotation, and they answer from
-the webapp's own record of its components. Nothing needs configuring for live and ready; the detail and info need
-the admin token the federation operator API already uses.
+the webapp's own record of its components. Nothing needs configuring for live and ready; the detail and info are
+operator routes, which need a PingFederate-issued access token with the scope `oidf.health.read` (from 0.6.0, plan
+item S8b; [operator-authentication.md](operator-authentication.md)).
 
 | Path | Authentication | Answer |
 |---|---|---|
 | `/agentic-identity/health/live` | none | 200 `{"status":"UP"}` while the webapp answers |
 | `/agentic-identity/health/ready` | none | 200 `{"status":"UP"}`, or 503 `{"status":"DOWN"}` |
-| `/agentic-identity/health` | `Authorization: Bearer <OIDF_AUTHORITY_ADMIN_TOKEN>` | the detail, with ready's status code |
+| `/agentic-identity/health` | an operator access token with `oidf.health.read` | the detail, with ready's status code |
 | `/agentic-identity/info` | the same | this repository's version, the commit (null for now), PingFederate's and the JVM's |
 
-Without the token, with a wrong one, or on a deployment where `OIDF_AUTHORITY_ADMIN_TOKEN` is not set, the detail
-and info answer 404, as a path with nothing mapped does. Only GET and HEAD are served. Every answer has
-`Cache-Control: no-store`.
+## Access
+
+The detail and info go through the same `OperatorAuthenticator` as the federation operator API (route `health.detail`
+and `health.info`): in production a token DPoP-bound (or certificate-bound) to the caller, with `oidf.health.read` in
+its scope, and each request - let through or refused - is an `admin.request.*` event in PingFederate's audit log. A
+refusal is the authenticator's, with its challenge and no body: 401 without a usable token, 403
+`insufficient_scope` for a token without `oidf.health.read` (an `oidf.admin.read` token does not read health), 429
+after ten failed attempts from one address in a minute, and 503 when operator authentication is not configured.
+Before 0.6.0 these answered 404 to anyone without the static bearer, as if nothing were mapped; they now say they are
+there and what they need, because the failed-attempt limit, not obscurity, is what stops guessing.
+
+`OIDF_AUTHORITY_ADMIN_TOKEN` opens them in development only, with a WARN per request; in production it is never
+accepted, and while it is set the detail and info answer 503 like every operator route
+([the static bearer](operator-authentication.md#the-static-bearer)). The second copy of the static-bearer rule that
+lived here, `HealthAccess`, is gone (finding [F-0194](../findings/F-0194.yaml)).
+
+Only GET and HEAD are served; any other method is 405 before a token is looked at. Every answer has
+`Cache-Control: no-store`. A war that bundles platform-pf without rs-validation - `gm-api.war` today - cannot load the
+authenticator, so its detail and info answer 503 while its live and ready work.
 
 ## What ready means
 
@@ -65,12 +82,13 @@ Things to know before routing on ready:
  "versions":{"agentic-identity":"0.5.0","commit":null,"java":"21.0.12.1+1-LTS","pingfederate":"13.1.3.0"}}
 ```
 
-A reason can carry a setting's name, a file path or an exception message, which is why the detail is not open. The
-admin token is the same one that guards `/federation/admin/*`; S8b (Phase 3) replaces it with the operator scope
-`oidf.health.read` ([F-0194](../findings/F-0194.yaml)).
+A reason can carry a setting's name, a file path or an exception message, which is why the detail is not open: it
+needs `oidf.health.read`, a scope of its own, so a monitoring client can read health without being able to read or
+change the federation administration.
 
 ## Other wars
 
 `oidf.war` (demo-only) answers the same paths under `/oidf`, and `gm-api.war`, which bundles platform-pf from 0.5.0,
 under `/gm-api`; each reports only its own components. gm-api's are one, `GM_API`, the worst of its two load-on-startup
-servlets (seen on the rig on 2026-09-28: live and ready 200 `{"status":"UP"}` with `GM_API` READY).
+servlets (seen on the rig on 2026-09-28: live and ready 200 `{"status":"UP"}` with `GM_API` READY). gm-api.war does
+not carry rs-validation, so from 0.6.0 its detail and info answer 503 (see [Access](#access)).

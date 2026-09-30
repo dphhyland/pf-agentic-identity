@@ -3,10 +3,16 @@ title: The health detail and /info check the static admin bearer with a second c
 severity: low
 area: platform-pf, pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S-8, S8a, S8b, O-4]
-prs: [53, 71]
-verification: ''
+prs: [53, 71, 75]
+verification: >
+  2026-09-30, branch prod/p3-operator-surfaces (PR 75, plan item S8b): HealthAccess and AdminBearer are deleted. The
+  static-bearer rule lives once, in OperatorAuthenticator (withStaticBearer, productionRefusal; StaticBearerTest),
+  which the health detail and info reach through HealthServlet.ROUTES with oidf.health.read. A wrong static bearer is
+  a failed authentication counted against the 10-a-minute limit (StaticBearerTest.
+  aWrongStaticBearerIsAFailedAuthenticationThatCountsAgainstTheLimit: the eleventh attempt is a 429). The detail and
+  info now answer the authenticator's 401/403/429/503 with its challenge, not a disguising 404.
 target_release: 0.6.0
 notes: >
   Found by package O4 (2026-09-28). Phase 2's decision 6 puts the health detail and /agentic-identity/info behind

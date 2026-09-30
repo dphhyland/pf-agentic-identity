@@ -1,0 +1,22 @@
+id: F-0313
+title: A production container that restarts refuses to boot, because the entrypoint finds the archive it decrypted and takes it for a plaintext one
+severity: medium
+area: build
+source: design
+status: open
+plan_items: [R-I3]
+prs: [75]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package S8B on the conformance rig (2026-09-30, PingFederate 13.1.3.0, an image built from this
+  repository with data.zip.age and OIDF_DEPLOYMENT_PROFILE=production). The first start decrypted the archive, booted
+  and served; `docker restart` of the same container then stopped at once with "pf-entrypoint: FATAL: a plaintext
+  archive (/opt/in/instance/server/default/data/drop-in-deployer/data.zip) is refused when OIDF_DEPLOYMENT_PROFILE is
+  production". build/pingfederate/pf-entrypoint.sh decrypts data.zip.age to data.zip in the drop-in directory,
+  removes the ciphertext ("The ciphertext has served its purpose"), and on the next start finds only the plaintext
+  it wrote, which production refuses. Any restart that keeps the container's writable layer - a restart policy, a
+  node reboot, `docker restart`, a Kubernetes container restart in the same pod - fails the same way. Fix (the
+  image's owner): remove the decrypted archive once the base image's bootstrap has copied it, or keep the ciphertext
+  and decrypt again on every start, or tell the file this script wrote from one an operator supplied; and a
+  test-entrypoint.sh case that restarts.

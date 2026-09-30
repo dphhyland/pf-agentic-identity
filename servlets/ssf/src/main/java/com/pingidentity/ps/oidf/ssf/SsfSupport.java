@@ -445,7 +445,8 @@ public final class SsfSupport {
         return local;
     }
 
-    private static ReceiverAuthenticator buildIntrospectionAuthenticator(SsfConfiguration cfg) {
+    /** The receiver authenticator {@code cfg} describes: introspection, holding an answer's {@code aud} to the issuer. */
+    static ReceiverAuthenticator buildIntrospectionAuthenticator(SsfConfiguration cfg) {
         if (!cfg.receiverAuthConfigured()) {
             LOGGER.warn((Object) "SSF receiver auth: introspection client not configured; all receiver "
                     + "requests will be rejected until introspectionClientId/Secret are set");
@@ -453,7 +454,7 @@ public final class SsfSupport {
         }
         return PfIntrospectionReceiverAuthenticator.forEndpoint(
                 cfg.introspectionEndpoint(), cfg.introspectionClientId(),
-                cfg.introspectionClientSecret(), cfg.introspectionInsecureTls());
+                cfg.introspectionClientSecret(), cfg.introspectionInsecureTls(), cfg.issuer());
     }
 
     /** Test hook: reset all singletons so a fresh {@link #configure} takes effect. */

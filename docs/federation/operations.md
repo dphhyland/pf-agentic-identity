@@ -46,16 +46,21 @@ those statements expire - at most their lifetime, often an hour.
 
 ## Hosting agents
 
-With `OIDF_AUTHORITY_ENTITY_ID` and `OIDF_AUTHORITY_ADMIN_TOKEN` set, PingFederate is a domain authority: it
+With `OIDF_AUTHORITY_ENTITY_ID` set and operator authentication configured, PingFederate is a domain authority: it
 publishes and signs Entity Configurations for agents that can't publish their own, with a key per agent kept
 in OpenBao. Keep the agents in a database (`OIDF_AUTHORITY_JDBC_URL` or `OIDF_AUTHORITY_DATA_STORE_ID`, with the
 `V100`-`V101` migrations applied) - in memory they are gone at the next restart.
+
+Every admin call below is an operator route: from 0.6.0 it needs a PingFederate-issued access token with the route's
+scope, DPoP-bound in production ([operator-authentication.md](../operator/operator-authentication.md#the-routes)).
+The examples use `$TOKEN` and `$PROOF`, a token from your operator client and a fresh DPoP proof for the request; in
+development `OIDF_AUTHORITY_ADMIN_TOKEN` also works, as `Authorization: Bearer`.
 
 **Enrol an agent** - the OpenBao transit key must exist already:
 
 ```sh
 curl -sS https://pf.example.com/federation/agents \
-  -H "Authorization: Bearer $OIDF_AUTHORITY_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: DPoP $TOKEN" -H "DPoP: $PROOF" -H 'Content-Type: application/json' \
   -d '{"id": "payments-agent", "hostingKeyRef": "agent-payments-1",
        "metadata": {"oauth_client": {"client_name": "Payments agent", "scope": "payments.read"}}}'
 ```
@@ -66,7 +71,8 @@ Its Entity Configuration is then at `https://pf.example.com/federation/agents/pa
 can only narrow the domain default (`OIDF_AUTHORITY_METADATA_POLICY`). With the policy engine asked at enrolment,
 a refusal is a 403.
 
-**Change it** through the admin API, each a POST with the admin bearer and a JSON body naming the agent:
+**Change it** through the admin API, each a POST with an operator token (`oidf.admin.entities`, or `oidf.admin.keys`
+for `rotate-key`) and a JSON body naming the agent:
 
 | Route | Body | What happens |
 |---|---|---|
@@ -79,9 +85,9 @@ a refusal is a 403.
 
 `GET /federation/admin/entities` lists every hosted agent whatever its status; `?entity_id=` gives one, with its
 metadata and policy; `/federation/admin/entities/audit?entity_id=` gives its history. Every change records who
-made it: `admin:` and the first eight hex digits of the admin token's SHA-256, followed by the
-`X-Federation-Actor` header when you send one - for accountability, it grants nothing. The token itself is never
-logged.
+made it: the operator token's `sub` - for a client-credentials token, the operator client's id. An
+`X-Federation-Actor` header names nobody: it is recorded only as the operator event's `claimed_label`. The token
+itself is never logged.
 
 Suspending or revoking stops the agent resolving here straight away. What it doesn't stop is in
 [how it works](how-it-works.md#what-stops-when).
@@ -93,7 +99,7 @@ database (`V102__trust_mark.sql`). Then grant them:
 
 ```sh
 curl -sS https://pf.example.com/federation/admin/trust-marks \
-  -H "Authorization: Bearer $OIDF_AUTHORITY_ADMIN_TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: DPoP $TOKEN" -H "DPoP: $PROOF" -H 'Content-Type: application/json' \
   -d '{"trust_mark_type": "https://pf.example.com/marks/certified", "sub": "https://rp.example.com"}'
 ```
 
@@ -186,13 +192,15 @@ Every code, and every field it may carry, is declared in its component's event c
 the attester's in `servlets/attestation-issuer`'s
 [`attestation-issuer.json`](../../servlets/attestation-issuer/src/main/resources/META-INF/oidf-events/attestation-issuer.json).
 The catalogue gives each field one PII class - `OPERATIONAL`, `PSEUDONYMOUS_ID` (a client id, an entity
-identifier, a workload's subject), `DIRECT_ID` (can name a person: `actor`, which carries whatever name an
-administrator sends in `X-Federation-Actor`), `NETWORK` or `CREDENTIAL_DIGEST` (a key's thumbprint, evidence's
+identifier, a workload's subject, and from 0.6.0 `actor`, the operator token's subject), `DIRECT_ID` (can name a
+person: the operator events' `claimed_label`, whatever an administrator sends in `X-Federation-Actor`), `NETWORK` or
+`CREDENTIAL_DIGEST` (a key's thumbprint, evidence's
 SHA-256). The description (`desc=`) is free text with no class: it can carry an administrator's free-text
-`reason`, the policy decision point's `reason_admin`, an exception message, client ids and key thumbprints. Today
-every class, and the description, is written to both logs as it was before the catalogues existed; the policy that
-would digest or drop a class or the description in one log is in place and not yet used (the platform README's
-"events" section, findings F-0165 and F-0166). A field
+`reason`, the policy decision point's `reason_admin`, an exception message, client ids and key thumbprints. Inside
+PingFederate every class is written to the audit log as it is; server.log carries a `DIRECT_ID` as `sha256:` and
+twelve hex digits of it (from 0.6.0, finding F-0165), and every other class, and the description, as it did before the
+catalogues existed. Whether to digest or drop more in one log is left to the PII policy of plan item D-6 (the platform
+README's "events" section, finding F-0166). A field
 an event's catalogue does not declare is dropped before any log sees it, and counted: the first drop of each code
 and field is a WARN line naming the field, never its value.
 

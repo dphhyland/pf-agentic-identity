@@ -30,10 +30,20 @@ formats it has always handled (`iss_sub`, `email`, `phone_number`, `opaque`, `ac
 - **Kafka** - `KafkaSetPublisher` is reflection-only: no compile-time dependency, no Kafka class loaded
   unless `kafkaEnabled`.
 - **Auth** - every management/poll call carries a receiver bearer, validated by PF's own RFC 7662
-  introspection (`PfIntrospectionReceiverAuthenticator`) and required to hold `receiverScope`. The scope
+  introspection and required to hold `receiverScope`. The scope
   gets a client to the endpoints, not to every stream behind them: a stream is its creator's
   ([Stream ownership](#stream-ownership)). SCIM takes a different scope, `provisionerScope`, and the
   receiver scope never opens it ([What the transmitter signs](#what-the-transmitter-signs)).
+  `PfIntrospectionReceiverAuthenticator` is a thin adapter over libs/platform's `TokenIntrospector` (from 0.6.0, plan
+  item S8b): the call is bounded (1 s to connect, 2.5 s in all, 64 KiB; no answer is a 503), the answer is read
+  strictly (`scope` a space-separated string, as RFC 7662 §2.2 has it), and an active token must also be within its
+  `exp` and `nbf`, carry a `client_id`, and - when it carries an `aud` - name `issuer` in it. A token bound to a key or
+  a certificate (`cnf`, which PingFederate 13.1.3's introspection returns for a DPoP-bound token) is refused: these
+  endpoints take `Bearer` tokens only, and RFC 9449 §7.2 says a resource that takes both schemes "MUST reject a
+  DPoP-bound access token received as a bearer token". The receivers this repository knows - the conformance suite's
+  and pf-oidf-modules' `probe-ssf.sh` - send bearer tokens (checked 2026-09-30), so SSF's receivers stay on bearer
+  tokens: they are the transmitter's clients, not operators, and the operator APIs' DPoP rule is not theirs. No SSF
+  path is an operator route (`SsfRoutes`; `SsfRoutesTest` fails on an SSF path it does not class).
 
 Events: `SsfEventTypes` / `CaepRiscEvents` - CAEP session-revoked, credential-change,
 assurance-level-change, token-claims-change, device-compliance-change, session-established; RISC

@@ -44,7 +44,7 @@ written by hand is this page, outside its generated list.
 | [rar-pdp-processor](rar-pdp-processor.md) | `plugins/rar-paz-plugin` | `com.pingidentity.ps.oidf.rar` | 23 |
 | [instance-registry](instance-registry.md) | `plugins/instance-registry-datasource` | `com.pingidentity.ps.oidf.registry` | 3 |
 | [ciba-simulator](ciba-simulator.md) | `plugins/ciba-sim` | `com.pingidentity.ps.oidf.cibasim` | 2 |
-| [device-enrolment](device-enrolment.md) | `services/device-enrolment` | `com.pingidentity.ps.oidf.enrolment` | 31 |
+| [device-enrolment](device-enrolment.md) | `services/device-enrolment` | `com.pingidentity.ps.oidf.enrolment` | 35 |
 | [gm-api](gm-api.md) | `services/gm-api/servlet` | `au.com.idpartners.gm.servlet` | 6 |
 
 <!-- END GENERATED -->

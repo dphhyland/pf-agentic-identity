@@ -67,13 +67,13 @@ class InsecureTlsSitesTest {
 
     @Test
     void theIntrospectionCall() throws Exception {
-        assertFalse(PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true)
+        assertFalse(PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true, null)
                 .authenticate("token").isActive());
         assertTrue(SelfSignedTlsServer.isWrongName(assertThrows(ReceiverAuthException.class,
-                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(wrongName.url("/as/introspect.oauth2"), "id", "secret", true)
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(wrongName.url("/as/introspect.oauth2"), "id", "secret", true, null)
                         .authenticate("token"))));
         assertFalse(SelfSignedTlsServer.isWrongName(assertThrows(ReceiverAuthException.class,
-                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", false)
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", false, null)
                         .authenticate("token"))));
     }
 
@@ -92,7 +92,7 @@ class InsecureTlsSitesTest {
                 () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", true)));
         assertEquals(receiver, SelfSignedTlsServer.settingsRecordedBy(() -> ReceiverStreamClient.httpTransport("t", true)));
         assertEquals(Set.of("OIDF_SSF_INTROSPECTION_INSECURE_TLS"), SelfSignedTlsServer.settingsRecordedBy(
-                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true)));
+                () -> PfIntrospectionReceiverAuthenticator.forEndpoint(rightName.url("/as/introspect.oauth2"), "id", "secret", true, null)));
         assertEquals(Set.of(), SelfSignedTlsServer.settingsRecordedBy(
                 () -> PollReceiverClient.httpTransport(rightName.url("/poll"), "t", false)), "off: nothing recorded");
     }

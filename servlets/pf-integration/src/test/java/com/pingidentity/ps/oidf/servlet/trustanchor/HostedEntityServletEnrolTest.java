@@ -1,5 +1,10 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorScopes;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -97,26 +102,32 @@ class HostedEntityServletEnrolTest {
         final StringWriter body = new StringWriter();
 
         Exchange(String method, String pathInfo, String json) throws Exception {
-            this(TOKEN, method, pathInfo, json);
+            this(development(TOKEN), method, pathInfo, json, "Bearer " + TOKEN, null);
         }
 
-        Exchange(String servletToken, String method, String pathInfo, String json) throws Exception {
+        Exchange(OperatorAuthenticator authenticator, String method, String pathInfo, String json, String authorization,
+                 String dpop) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
             when(request.getMethod()).thenReturn(method);
             when(request.getRemoteAddr()).thenReturn(CALLER);
             when(request.getServletPath()).thenReturn("/federation/agents");
             when(request.getPathInfo()).thenReturn(pathInfo);
-            when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+            OperatorRequests.stub(request, "/federation/agents" + (pathInfo == null ? "" : pathInfo), authorization, dpop);
             when(request.getHeader("X-Federation-Actor")).thenReturn("dave");
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            new HostedEntityServlet(servletToken).service(request, this.response);
+            new HostedEntityServlet(authenticator).service(request, this.response);
         }
 
         Map<String, Object> json(int status) throws Exception {
             verify(this.response).setStatus(status);
             return JsonUtil.parseJson(this.body.toString());
         }
+    }
+
+    /** Development with {@code token} as the static bearer, or with none. */
+    private static OperatorAuthenticator development(String token) {
+        return OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(token);
     }
 
     private static String enrolment(String extra) {
@@ -134,7 +145,8 @@ class HostedEntityServletEnrolTest {
         assertEquals(id, created.get("entityId"));
         HostedEntity stored = AuthoritySupport.registry().find(id).orElseThrow();
         assertEquals(Map.of("oauth_client", Map.of("scope", Map.of("subset_of", java.util.List.of("read")))), stored.metadataPolicy());
-        assertTrue(AuthoritySupport.registry().auditTrail(id).get(0).actor().endsWith("(dave)"));
+        assertTrue(AuthoritySupport.registry().auditTrail(id).get(0).actor().matches("admin:[0-9a-f]{8}"),
+                "the operator, never X-Federation-Actor");
         assertEquals(id, this.events.only(FederationEvents.HOSTED_ENTITY_ENROLLED).subject());
         assertEquals("duplicate", new Exchange("POST", "/", enrolment("")).json(409).get("error"));
     }
@@ -246,14 +258,38 @@ class HostedEntityServletEnrolTest {
     }
 
     @Test
-    void enrolmentNeedsTheAdminTokenAndTheCollectionRoot() throws Exception {
+    void enrolmentNeedsAnOperatorAndTheCollectionRoot() throws Exception {
         host(SIGNER);
 
-        Exchange refused = new Exchange("another-token", "POST", null, enrolment(""));
-        assertEquals("unauthorized", refused.json(401).get("error"));
-        verify(refused.response).setHeader("WWW-Authenticate", "Bearer");
-        assertEquals("unauthorized", new Exchange(null, "POST", null, enrolment("")).json(401).get("error"), "no token configured opens nothing");
+        Exchange refused = new Exchange(development(TOKEN), "POST", null, enrolment(""), "Bearer another-token", null);
+        verify(refused.response).setStatus(401);
+        verify(refused.response).addHeader(org.mockito.ArgumentMatchers.eq("WWW-Authenticate"),
+                org.mockito.ArgumentMatchers.startsWith("DPoP algs="));
+        verify(new Exchange(development(null), "POST", null, enrolment(""), "Bearer " + TOKEN, null).response).setStatus(503);
         assertEquals("not_found", new Exchange("POST", "/a1", enrolment("")).json(404).get("error"));
+        assertTrue(AuthoritySupport.registry().find(AUTHORITY + "/federation/agents/a1").isEmpty());
+    }
+
+    @Test
+    void aProductionOperatorEnrolsWithItsScopeAndIsTheActor() throws Exception {
+        host(SIGNER);
+        OperatorTestKit kit = new OperatorTestKit();
+        OperatorAuthenticator production = kit.authenticator(DeploymentProfile.PRODUCTION);
+
+        String reader = kit.token(OperatorScopes.ADMIN_READ);
+        verify(new Exchange(production, "POST", null, enrolment(""), "DPoP " + reader,
+                kit.proof(reader, "POST", "/federation/agents")).response).setStatus(403);
+        String unbound = kit.bearerToken(OperatorScopes.ADMIN_ENTITIES);
+        verify(new Exchange(production, "POST", null, enrolment(""), "Bearer " + unbound, null).response).setStatus(401);
+        verify(new Exchange(production.withStaticBearer(TOKEN), "POST", null, enrolment(""), "Bearer " + TOKEN, null).response)
+                .setStatus(503);
+
+        String token = kit.token(OperatorScopes.ADMIN_ENTITIES);
+        Map<String, Object> created = new Exchange(production, "POST", null, enrolment(""), "DPoP " + token,
+                kit.proof(token, "POST", "/federation/agents")).json(201);
+        String id = (String) created.get("entityId");
+        assertEquals(OperatorTestKit.CLIENT, AuthoritySupport.registry().auditTrail(id).get(0).actor());
+        assertEquals(OperatorTestKit.CLIENT, this.events.only(FederationEvents.HOSTED_ENTITY_ENROLLED).fields().get("actor"));
     }
 
     @Test

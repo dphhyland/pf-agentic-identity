@@ -1,5 +1,8 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import com.pingidentity.ps.oidf.pf.testkit.OperatorRequests;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorTestKit;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
@@ -86,12 +89,14 @@ class HostedEntityAdminTest {
         Exchange(String method, String path, String json, Map<String, String> params) throws Exception {
             HttpServletRequest request = mock(HttpServletRequest.class);
             when(request.getPathInfo()).thenReturn(path);
-            when(request.getHeader("Authorization")).thenReturn("Bearer " + TOKEN);
+            when(request.getMethod()).thenReturn(method);
+            OperatorRequests.stub(request, "/federation/admin" + path, "Bearer " + TOKEN, null);
             when(request.getHeader("X-Federation-Actor")).thenReturn("dave");
             when(request.getReader()).thenReturn(new BufferedReader(new StringReader(json == null ? "" : json)));
             params.forEach((name, value) -> when(request.getParameter(name)).thenReturn(value));
             when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
-            FederationAdminServlet servlet = new FederationAdminServlet(TOKEN, Map.of(), new InMemoryTrustMarkRegistry(HostedEntityAdminTest.this.clock),
+            FederationAdminServlet servlet = new FederationAdminServlet(
+                    OperatorTestKit.unconfigured(DeploymentProfile.DEVELOPMENT).withStaticBearer(TOKEN), Map.of(), new InMemoryTrustMarkRegistry(HostedEntityAdminTest.this.clock),
                     id -> true, HostedEntityAdminTest.this.clock, null);
             if ("POST".equals(method)) {
                 servlet.doPost(request, this.response);
@@ -153,7 +158,7 @@ class HostedEntityAdminTest {
 
         List<?> history = this.get("/entities/audit", Map.of("entity_id", AGENT)).array();
         assertEquals(4, history.size(), "the second revocation wrote nothing");
-        assertTrue(((String) ((Map<?, ?>) history.get(1)).get("actor")).endsWith("(dave)"));
+        assertTrue(((String) ((Map<?, ?>) history.get(1)).get("actor")).matches("admin:[0-9a-f]{8}"), "the actor is the operator, never X-Federation-Actor");
         assertEquals("key lost", this.events.only(FederationEvents.HOSTED_ENTITY_REVOKED).description());
         assertEquals(1, this.events.withCode(FederationEvents.HOSTED_ENTITY_SUSPENDED).size());
         assertEquals(1, this.events.withCode(FederationEvents.HOSTED_ENTITY_REACTIVATED).size());
@@ -199,7 +204,9 @@ class HostedEntityAdminTest {
     void requestsNamingNothingOrNobodyAreRefused() throws Exception {
         assertEquals("invalid_request", this.post("suspend", "{}").json(400).get("error"));
         assertEquals("not_found", this.post("suspend", "{\"entity_id\": \"" + AUTHORITY + "/federation/agents/nobody\"}").json(404).get("error"));
-        assertEquals("not_found", this.post("frobnicate", body()).json(404).get("error"));
+        assertEquals("not_found", this.post("frobnicate", body()).json(404).get("error"), "no operator route names it");
+        assertEquals(404, HostedEntityAdmin.change("frobnicate", JsonUtil.parseJson(body()), "operator").status(),
+                "and the handler refuses it too");
         assertEquals("invalid_request", this.get("/entities/audit", Map.of()).json(400).get("error"));
     }
 

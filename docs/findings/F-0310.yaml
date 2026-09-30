@@ -1,0 +1,19 @@
+id: F-0310
+title: gm-api.war's health detail and info answer 503, because the war carries platform-pf without rs-validation
+severity: low
+area: platform-pf, gm-api
+source: design
+status: open
+plan_items: [S8b, S5d]
+prs: [75]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package S8B (2026-09-30). The health detail and /agentic-identity/info are operator routes on
+  OperatorAuthenticator from 0.6.0, which verifies tokens through rs-validation. platform-pf declares rs-validation
+  optional so that a war bundling platform-pf does not take it (libs/platform-pf/pom.xml), and gm-api.war bundles
+  platform-pf alone (services/gm-api/servlet/pom.xml), so its HealthServlet cannot load the authenticator. It fails
+  closed - HealthServlet catches the LinkageError and answers 503 (HealthServletTest.
+  aWarThatCannotLoadTheAuthenticatorFailsClosed) - while live and ready work. Fix: gm-api's servlet pom takes
+  rs-validation (and gm-api gets the operator-auth settings), in the package that next owns gm-api's build (S5D, wave
+  6, which moves gm-api onto platform's HTTP client), or the release notes keep saying gm-api's detail is closed.

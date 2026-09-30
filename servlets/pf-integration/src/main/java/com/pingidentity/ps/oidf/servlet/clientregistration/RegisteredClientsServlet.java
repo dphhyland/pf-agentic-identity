@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
-import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.pf.OperatorApi;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.ServletConfig;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,10 +30,12 @@ import org.sourceid.oauth20.domain.ParamValues;
  * PingFederate's own/system clients are never disclosed.
  *
  * <p>This reveals client identifiers and their granted scopes, so it is off unless a deployment turns
- * it on ({@code OIDF_REGISTERED_CLIENTS_ENABLED}) and is gated by the same operator bearer token as
- * the hosted-entity admin surface ({@code OIDF_AUTHORITY_ADMIN_TOKEN}) - no token configured means no
- * access, which is the safe direction to fail. It used to be neither: unauthenticated, always on, and
- * it also returned a count of EVERY client in the instance, disclosing more than the list itself.
+ * it on ({@code OIDF_REGISTERED_CLIENTS_ENABLED}) and is an operator route
+ * ({@link OperatorApi#REGISTERED_CLIENTS}): a PingFederate-issued access token with
+ * {@code oidf.admin.clients.read}, DPoP-bound in production, through platform-pf's operator authenticator
+ * (plan item S8b) - no operator authentication configured means no access, which is the safe direction to
+ * fail. It used to be neither: unauthenticated, always on, and it also returned a count of EVERY client in
+ * the instance, disclosing more than the list itself.
  *
  * <p>The {@code status}-shaped fallback is gone too. It listed any PRIVATE_KEY_JWT client with a URL
  * id and an inline JWKS as "federation", which swept in clients Terraform or the console had created -
@@ -45,7 +48,7 @@ public final class RegisteredClientsServlet extends HttpServlet {
     private static final Log LOGGER = LogFactory.getLog(RegisteredClientsServlet.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private final transient ClientStore clientStore;
-    private transient String adminToken;
+    private transient OperatorAuthenticator authenticator;
     private boolean enabled;
 
     public RegisteredClientsServlet() {
@@ -56,24 +59,33 @@ public final class RegisteredClientsServlet extends HttpServlet {
         this.clientStore = clientStore;
     }
 
-    /** Test seam: the servlet with an explicit token and enabled state, no container required. */
-    RegisteredClientsServlet(ClientStore clientStore, String adminToken, boolean enabled) {
+    /** Test seam: the servlet with an explicit authenticator and enabled state, no container required. */
+    RegisteredClientsServlet(ClientStore clientStore, OperatorAuthenticator authenticator, boolean enabled) {
         this.clientStore = clientStore;
-        this.adminToken = adminToken;
+        this.authenticator = authenticator;
         this.enabled = enabled;
     }
 
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
-        this.adminToken = AdminBearer.resolveToken(config, "adminToken",
-                "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-        String enabledSetting = AdminBearer.resolveToken(config, "registeredClientsEnabled",
+        String enabledSetting = OperatorApi.setting(config, "registeredClientsEnabled",
                 "oidf.registered.clients.enabled", "OIDF_REGISTERED_CLIENTS_ENABLED");
-        this.enabled = Boolean.parseBoolean(enabledSetting);
-        if (this.enabled && this.adminToken == null) {
-            LOGGER.warn((Object) "/federation/registered-clients is enabled but no admin token is configured; "
-                    + "every request will be refused (OIDF_AUTHORITY_ADMIN_TOKEN)");
+        this.configure(OperatorApi.authenticator(config), Boolean.parseBoolean(enabledSetting));
+    }
+
+    /**
+     * Takes {@code authenticator} - null when it could not be built, on which every request answers 503 - and whether
+     * the surface is enabled, warning when it is enabled and nobody can be authenticated.
+     */
+    void configure(OperatorAuthenticator authenticator, boolean enabled) {
+        this.authenticator = authenticator;
+        this.enabled = enabled;
+        if (this.enabled && (this.authenticator == null || !this.authenticator.usable())) {
+            LOGGER.warn((Object) ("/federation/registered-clients is enabled but no operator can be authenticated, so"
+                    + " every request will be refused: " + (this.authenticator == null
+                            ? "the operator authenticator could not be built (server.log says why)"
+                            : this.authenticator.problem())));
         }
     }
 
@@ -84,9 +96,8 @@ public final class RegisteredClientsServlet extends HttpServlet {
             response.sendError(404);
             return;
         }
-        if (!AdminBearer.isAuthorized(this.adminToken, request.getHeader("Authorization"))) {
-            response.setHeader("WWW-Authenticate", "Bearer");
-            response.sendError(401);
+        if (OperatorApi.authorise(this.authenticator, OperatorApi.REGISTERED_CLIENTS, request.getServletPath(), request,
+                response, r -> r.sendError(404)).isEmpty()) {
             return;
         }
         Collection<Client> all = this.clientStore.getAll();
@@ -115,8 +126,6 @@ public final class RegisteredClientsServlet extends HttpServlet {
         body.put("clients", clients);
         MAPPER.writeValue(response.getWriter(), body);
     }
-
-    /** A federation client by shape: private_key_jwt auth, an http(s) entity-id, and an inline jwks. */
 
     private static String registrationType(String status) {
         if ("auto_registered".equals(status)) {
