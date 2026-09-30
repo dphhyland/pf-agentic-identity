@@ -50,7 +50,8 @@
    `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE`, were strict already; a wrong one is now refused at deploy
    instead of by every issuance's 500. A client's `attestation_bundle_url` that is not an http or https URL, or an
    `attestation_spiffe_bundle` that is not a JSON object, is that client's `invalid_client`. How to tell: server.log
-   and `/agentic-identity/health/ready` name the setting; `docs/configuration/attestation-challenge.md`,
+   and the health detail (`/agentic-identity/health`) name the setting, and `/agentic-identity/health/ready` answers
+   503; `docs/configuration/attestation-challenge.md`,
    `attestation-issuer.md`, `evidence-policy.md`, `issuance-client-properties.md` and `rar-models.md` give each
    entry's rule. What to change: write each switch as `true` or `false`, each number as a whole number, and remove a
    list of nothing. Development-profile escape: under `OIDF_DEPLOYMENT_PROFILE=development` a switch spelt `yes`,
@@ -64,7 +65,8 @@
    challenges and evidence bindings, lost on restart and invisible to the other nodes, so a replayed proof or a
    challenge redeemed twice passes on a second node, and a restart forgets every spent `jti`. How to tell: the start-up
    audit lists the refusal ("... would be kept in this node's memory, because OIDF_REDIS_URL is unset"), the
-   component is `REFUSED` in `/agentic-identity/health/ready`, and its paths answer 503. What to change: set
+   component is `REFUSED` in the health detail (`/agentic-identity/health`), `/agentic-identity/health/ready` answers 503,
+   and its paths answer 503. What to change: set
    `OIDF_REDIS_URL` to a `rediss://` URL; or, on a standalone node, add `in-memory-state` to `OIDF_ACCEPTED_RISKS`; or,
    where the component is not used, switch it off (`OIDF_ATTESTATION_ISSUER_ENABLED=false`,
    `OIDF_ATTESTATION_AUTH_ENABLED=false`) - an attester left unswitched in production is inferred and so is refused

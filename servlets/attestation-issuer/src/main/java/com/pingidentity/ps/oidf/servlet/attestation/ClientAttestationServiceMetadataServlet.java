@@ -186,7 +186,7 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
      */
     static List<String> metadataSources(Function<String, String> props, Function<String, String> env) {
         List<String> sources = new ArrayList<>();
-        String bundles = Settings.of(AttestationIssuanceServlet.SETTINGS).with(Sources.of(env, props, null))
+        String bundles = Settings.of(AttestationIssuanceServlet.Catalogues.ISSUER, Sources.of(env, props, null))
                 .string("OIDF_CIMD_TRUST_BUNDLES");
         if (bundles != null && DeploymentProfile.of(env).isDevelopment()) {
             sources.add("cimd");

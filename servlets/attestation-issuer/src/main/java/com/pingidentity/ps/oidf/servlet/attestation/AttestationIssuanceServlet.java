@@ -38,8 +38,10 @@ import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
 import com.pingidentity.ps.oidf.platform.settings.Secret;
 import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.rar.model.Omission;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
@@ -188,7 +190,15 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     /** This process's attestation-issuer settings, for a read made when a request first needs it. */
     static Settings processSettings() {
-        return Settings.of(SETTINGS);
+        return Settings.of(Catalogues.ISSUER, Sources.process());
+    }
+
+    /** The attestation-issuer catalogue, loaded once from this class's loader, for the reads a request makes. */
+    static final class Catalogues {
+        static final Catalogue ISSUER = Catalogue.load(AttestationIssuanceServlet.class.getClassLoader(), SETTINGS);
+
+        private Catalogues() {
+        }
     }
 
     /** {@code challengeRequired} from {@code config}'s init-params, strictly, for the attester's configuration servlet. */
