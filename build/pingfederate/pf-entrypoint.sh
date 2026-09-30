@@ -97,8 +97,10 @@ HTTP_PORT="${PF_RUN_PF_HTTP_PORT:--1}"
 case "${HTTP_PORT#-}" in
     "" | *[!0-9]*) die "PF_RUN_PF_HTTP_PORT is '$HTTP_PORT', not a whole number (-1, or unset, leaves the plain HTTP listener off)" ;;
 esac
+# Off means strictly negative. Jetty reads -0 or -00 as the port 0, which opens a listener on a port the system
+# picks, so those are ports here too.
 case "$HTTP_PORT" in
-    -*) ;;
+    -*[1-9]*) ;;
     *)
         is_development || die "PF_RUN_PF_HTTP_PORT=$HTTP_PORT opens PingFederate's plain HTTP listener, which is refused when OIDF_DEPLOYMENT_PROFILE is production (it is '$PROFILE', and unset means production). Terminate TLS in front of 9031 instead, or set OIDF_DEPLOYMENT_PROFILE=development on a rig"
         log "WARNING: PingFederate's plain HTTP listener is on (port $HTTP_PORT) because OIDF_DEPLOYMENT_PROFILE=$PROFILE."

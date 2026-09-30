@@ -289,8 +289,8 @@ Count the digest lines instead: `grep -cE '^[0-9a-f]{64}  ' MANIFEST`.
    image's hooks go on to copy are readable by PingFederate's user alone.
 2. Refuses to start unless `PING_IDENTITY_ACCEPT_EULA` is `YES` or `Y`, in any case - the base image's own
    reading, which its licence hook applies only when it fetches an evaluation licence - and refuses a plain
-   HTTP listener (`PF_RUN_PF_HTTP_PORT` of 0 or more) unless `OIDF_DEPLOYMENT_PROFILE=development`. Both
-   come before the archive is touched.
+   HTTP listener (`PF_RUN_PF_HTTP_PORT` of 0 or more, `-0` included) unless
+   `OIDF_DEPLOYMENT_PROFILE=development`. Both come before the archive is touched.
 3. Chooses the archive: `PF_ARCHIVE_FILE` if set, else `data.zip.age` in the drop-in directory, else
    `data.zip` there. Encrypted and plain are told apart by content, not by name: an age file starts with
    `age-encryption.org/v1`, or with `-----BEGIN AGE ENCRYPTED FILE-----` when it was made with `age -a`.
@@ -311,7 +311,7 @@ Count the digest lines instead: `grep -cE '^[0-9a-f]{64}  ' MANIFEST`.
 | `PF_ARCHIVE_AGE_KEY` | unset | The identity itself, read only when `_FILE` is unset. Gone from the process environment before PingFederate starts, but still in `docker inspect` - the reason to prefer the file | Wrong: as above. Neither set for an encrypted archive: `FATAL: ... neither PF_ARCHIVE_AGE_KEY_FILE nor PF_ARCHIVE_AGE_KEY is set` |
 | `PF_ARCHIVE_SHA256` | unset (no check) | The archive's SHA-256 in hex, any case, of the file as shipped - the ciphertext for an encrypted archive | Mismatch: `FATAL: ... does not match PF_ARCHIVE_SHA256`, before anything is decrypted. Not 64 hex digits: `FATAL: PF_ARCHIVE_SHA256 is not a hex SHA-256` |
 | `PING_IDENTITY_ACCEPT_EULA` | the base image's `NO` | `YES` or `Y`, in any case, accepts Ping Identity's licence agreement. Until 0.6.0 the image set `YES` for everyone who ran it | Anything else: `FATAL: PING_IDENTITY_ACCEPT_EULA is '...': set PING_IDENTITY_ACCEPT_EULA=YES at run time`, before anything else |
-| `PF_RUN_PF_HTTP_PORT` | `-1` (off) | PingFederate's plain HTTP runtime listener, `pf.http.port`, which the Dockerfile has the base image's `run.properties` template read from this variable. A port turns it on, with a warning, in development only | A port in production: `FATAL: PF_RUN_PF_HTTP_PORT=... opens PingFederate's plain HTTP listener, which is refused ...`. Not a whole number: `FATAL: PF_RUN_PF_HTTP_PORT is '...', not a whole number` |
+| `PF_RUN_PF_HTTP_PORT` | `-1` (off) | PingFederate's plain HTTP runtime listener, `pf.http.port`, which the Dockerfile has the base image's `run.properties` template read from this variable. A negative number other than `-0` is off. A port, `0` and `-0` included, turns it on, with a warning, in development only | A port in production: `FATAL: PF_RUN_PF_HTTP_PORT=... opens PingFederate's plain HTTP listener, which is refused ...`. Not a whole number: `FATAL: PF_RUN_PF_HTTP_PORT is '...', not a whole number` |
 | `OIDF_DEPLOYMENT_PROFILE` | unset, which is `production` | `development` lets a plaintext archive boot and the plain listener open, each with a warning. Read here in shell by `is_development`, which applies the Java modules' rule (libs/platform's `DeploymentProfile`): `development` in any case, trimmed as Java's `String.trim` trims. `DeploymentProfileShellTest` runs one table through both (F-0161, closed in 0.6.0; the entrypoint did not trim before) | Unset, `production` or anything else with a plaintext archive: `FATAL: a plaintext archive (...) is refused when OIDF_DEPLOYMENT_PROFILE is production` |
 | `PF_DATA_DIR`, `PF_BOOTSTRAP` | `/opt/in/instance/server/default/data`, `/opt/bootstrap.sh` | Where the archive and keys go, and what to hand over to. `test-entrypoint.sh` points both at a scratch directory and a stub | - |
 

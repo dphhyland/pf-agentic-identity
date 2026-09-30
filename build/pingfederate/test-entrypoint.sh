@@ -166,6 +166,16 @@ prepare http-zero-production
 run PF_RUN_PF_HTTP_PORT=0 OIDF_DEPLOYMENT_PROFILE=production
 check "0 is a port, not off" 'refused'
 
+for zero in -0 -00; do
+  prepare "http-negative-zero-production$zero"
+  run PF_RUN_PF_HTTP_PORT="$zero" OIDF_DEPLOYMENT_PROFILE=production
+  check "$zero is the port 0 to Jetty, not off, and is refused in production" 'refused && logged "opens PingFederate'"'"'s plain HTTP listener"'
+done
+
+prepare http-minus-five
+run PF_RUN_PF_HTTP_PORT=-5
+check "any negative number is off" 'booted && env_is PF_RUN_PF_HTTP_PORT -5'
+
 prepare http-development
 run PF_RUN_PF_HTTP_PORT=9080 OIDF_DEPLOYMENT_PROFILE=development
 check "development opens it, with a warning" 'booted && env_is PF_RUN_PF_HTTP_PORT 9080 && logged "WARNING: PingFederate'"'"'s plain HTTP listener is on (port 9080)"'

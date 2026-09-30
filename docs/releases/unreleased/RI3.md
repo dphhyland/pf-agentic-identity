@@ -45,8 +45,9 @@
    A development deployment that trusts attesters directly mounts the file and sets the system property
    `oidf.mock.attesters` to its path itself, through `JAVA_OPTS` or a server profile's `run.properties`. The
    settings catalogue classes the property forbidden in production; there is no production equivalent, because
-   attester trust in production comes from the federation. To tell, the start-up log warned that it trusted mock
-   attesters; after the upgrade it does not, and an attestation signed only by such an attester is refused.
+   attester trust in production comes from the federation. To tell, server.log warned, when the resolver was first
+   used, that it trusted mock attesters; after the upgrade it does not, and an attestation signed only by such an
+   attester is refused.
 5. **`ForceUnsupportedImport` is no longer set.** The overlay set it `true`; it is `false` now, PingFederate's own
    default. With it `false`, an archive whose version PingFederate's import check refuses is not imported: the
    drop-in deployer logs the reason as an error and the import fails, where before it logged a warning and
