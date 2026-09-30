@@ -46,8 +46,8 @@ import java.util.function.Function;
  * {@code OutboundHttp} with the same rules. There the host is resolved once, every address is checked,
  * and the connection goes to a checked address and nowhere else, so a name that resolves publicly for
  * the check and privately for the connection (DNS rebinding) has nothing to rebind. {@link #check} on
- * its own still only checks: a caller that sends through another client (the SSF push delivery,
- * until S5d moves it) resolves the name again when it connects.
+ * its own still only checks: a caller that sends through another client resolves the name again when it
+ * connects, so a caller that sends does so through {@link #addressPolicy()} instead.
  */
 public final class OutboundUrlPolicy {
 
@@ -173,8 +173,11 @@ public final class OutboundUrlPolicy {
         return this.maxBodyBytes;
     }
 
-    /** The rules as platform's {@link AddressPolicy}, for {@link JdkHttpClient}'s transport. */
-    AddressPolicy addressPolicy() {
+    /**
+     * The rules as platform's {@link AddressPolicy}, for a transport that sends through platform's {@code OutboundHttp}:
+     * {@link JdkHttpClient}, and the SSF push delivery and device-enrolment's PingOne JWKS fetch (plan item S5d).
+     */
+    public AddressPolicy addressPolicy() {
         return this.addresses;
     }
 
@@ -217,7 +220,7 @@ public final class OutboundUrlPolicy {
      * refuse; a name that does not resolve is refused only where the address rule applies (the
      * rule cannot pass a name it cannot resolve), and is otherwise a failed fetch like any other.
      */
-    IllegalArgumentException refusal(OutboundHttpException e, URI uri) {
+    public IllegalArgumentException refusal(OutboundHttpException e, URI uri) {
         switch (e.reason()) {
             case REFUSED_URL:
                 String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);

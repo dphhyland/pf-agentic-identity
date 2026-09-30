@@ -178,6 +178,23 @@ The connector-agent path (the Mac connector) reads the rest, and each is off unt
 | `AGENT_DISPLAY_NAME` / `AGENT_DESCRIPTION` / `AGENT_KEYWORDS` | what the authority vouches for about every agent, in its own words; the keywords as a JSON array |
 | `AGENT_MISSION_TYPES` / `AGENT_MISSION_PURPOSES` | JSON arrays: the RAR types and the DPV purposes an agent may claim. Each one set becomes an essential `subset_of` policy in the authority's statement, so an agent that declares none does not resolve |
 
+## Outbound calls
+
+From 0.6.0 (plan item S5d) the service's three outbound calls go through libs/platform's `OutboundHttp`, each with
+a deadline on the whole exchange, the body included, and at most platform's default 256 KiB of an answer read:
+
+| Call | Connect | Whole exchange | Address rule | Trust |
+|---|---|---|---|---|
+| The authority's hosted-entity API (`HostedEntityRegistrar`) | 5 s | 10 s | the configured `PF_AUTHORITY_URL` only, which may be internal | the JVM's, or any chain with `PF_AUTHORITY_INSECURE_TLS` (development) |
+| The authority's token endpoint (`AuthorityCredentials`) | 5 s | 10 s | the configured `PF_AUTHORITY_TOKEN_ENDPOINT` (or the one under `PF_AUTHORITY_URL`) only | as the API's |
+| PingOne's JWKS (`PingOneIdTokenVerifier`) | 5 s | 10 s | public, https (the `outbound-fetch` rules; `OIDF_FETCH_ALLOW_HTTP`, `OIDF_FETCH_HOST_ALLOWLIST` and `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS` widen them for a development IdP) | the JVM's |
+
+The values are platform's default connect timeout and the 10 s the JDK client gave the headers alone before: an
+enrolment waits on each call, and none has a reason to be quicker or slower than platform's defaults. Every
+certificate must name the host its URL names, whatever the trust. A call that fails is the enrolment's `server_error`
+(the authority) or `user_authentication_failed` (PingOne's keys), with the reason - `HEADER_TIMEOUT`, `DEADLINE`, `TLS`,
+`BODY_TOO_LARGE` and the rest - in the message. No redirect is followed, and no JVM proxy setting is read.
+
 ## Deploy
 
 **There is no deploy definition for this service, deliberately.** One existed here until 2026-08-21 —

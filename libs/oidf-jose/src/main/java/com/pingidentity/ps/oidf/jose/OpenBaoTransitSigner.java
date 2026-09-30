@@ -3,11 +3,14 @@
  */
 package com.pingidentity.ps.oidf.jose;
 
-import java.io.IOException;
+import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.security.KeyFactory;
 import java.security.interfaces.ECPublicKey;
 import java.security.spec.X509EncodedKeySpec;
@@ -28,15 +31,22 @@ import org.jose4j.json.JsonUtil;
  * derive the public JWK and compute its RFC 7638 thumbprint {@code kid}; signatures then always request
  * that pinned version so a concurrent key rotation cannot make the emitted {@code kid} lie.
  *
- * <p>Dependency-free (JDK {@link HttpClient}). Instances are immutable after initialization and safe to
- * share. Vault errors surface as {@link IllegalStateException} with the HTTP status (fail-closed: an
- * unreachable vault means the attestation is not issued).
+ * <p>The calls go through platform's {@link OutboundHttp} (plan item S5d): connecting within 1 s and each
+ * call within 2.5 s ({@link #CONNECT_TIMEOUT}, {@link #TOTAL_TIMEOUT}), since a signature is made while a client
+ * waits for its attestation; bodies up to platform's default cap, 256 KiB. The vault is internal by design, so the
+ * address it is configured at is exempt from the scheme and address rules - pinned to that URL's scheme, host,
+ * port and path - and nothing else is; the JVM's trust store decides its certificate, which must name its host.
+ * Instances are immutable after initialization and safe to share. Vault errors surface as
+ * {@link IllegalStateException} with the HTTP status or the transport's reason (fail-closed: an unreachable vault
+ * means the attestation is not issued).
  */
 public final class OpenBaoTransitSigner implements JwsSigner {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(5);
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(1);
+    static final Duration TOTAL_TIMEOUT = Duration.ofMillis(2500);
 
-    private final HttpClient http;
+    private final OutboundHttp http;
+    private final Duration total;
     private final String baseUrl;
     private final String token;
     private final String keyName;
@@ -52,8 +62,17 @@ public final class OpenBaoTransitSigner implements JwsSigner {
      * @param keyName the transit key name, e.g. {@code attestation-es256}
      */
     public OpenBaoTransitSigner(String baoAddr, String token, String keyName) {
-        this.http = HttpClient.newBuilder().connectTimeout(TIMEOUT).build();
+        this(baoAddr, token, keyName, TlsTrust.jvmDefault(), CONNECT_TIMEOUT, TOTAL_TIMEOUT);
+    }
+
+    /** The signer with its trust and deadlines given: the test seam. */
+    OpenBaoTransitSigner(String baoAddr, String token, String keyName, TlsTrust trust, Duration connect, Duration total) {
         this.baseUrl = Objects.requireNonNull(baoAddr, "baoAddr").replaceAll("/+$", "");
+        this.http = OutboundHttp.builder(AddressPolicy.builder().trusting(this.baseUrl).build())
+                .tls(trust)
+                .connectTimeout(connect)
+                .build();
+        this.total = total;
         this.token = Objects.requireNonNull(token, "token");
         this.keyName = Objects.requireNonNull(keyName, "keyName");
 
@@ -122,37 +141,32 @@ public final class OpenBaoTransitSigner implements JwsSigner {
     }
 
     private String get(String path) {
-        return this.send(HttpRequest.newBuilder(URI.create(this.baseUrl + path))
-                .timeout(TIMEOUT)
+        return this.send(OutboundRequest.builder(OutboundRequest.Method.GET, URI.create(this.baseUrl + path))
                 .header("X-Vault-Token", this.token)
-                .GET()
                 .build());
     }
 
     private String post(String path, String json) {
-        return this.send(HttpRequest.newBuilder(URI.create(this.baseUrl + path))
-                .timeout(TIMEOUT)
+        return this.send(OutboundRequest.builder(OutboundRequest.Method.POST, URI.create(this.baseUrl + path))
                 .header("X-Vault-Token", this.token)
-                .header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(json))
+                .body("application/json", json)
                 .build());
     }
 
-    private String send(HttpRequest request) {
-        HttpResponse<String> response;
+    private String send(OutboundRequest request) {
+        OutboundResponse response;
         try {
-            response = this.http.send(request, HttpResponse.BodyHandlers.ofString());
-        } catch (IOException e) {
-            throw new IllegalStateException("OpenBao unreachable at " + this.baseUrl, e);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IllegalStateException("Interrupted talking to OpenBao", e);
+            response = this.http.send(request, Deadline.after(this.total));
+        } catch (OutboundHttpException e) {
+            // An interrupted read keeps the thread's interrupt (platform.http), so the caller still sees it.
+            throw new IllegalStateException("OpenBao unreachable at " + this.baseUrl + ": " + e.reason() + ": "
+                    + e.getMessage(), e);
         }
-        if (response.statusCode() != 200) {
-            throw new IllegalStateException("OpenBao returned HTTP " + response.statusCode()
+        if (response.status() != 200) {
+            throw new IllegalStateException("OpenBao returned HTTP " + response.status()
                     + " for " + request.uri().getPath());
         }
-        return response.body();
+        return response.bodyText();
     }
 
     private static Map<String, Object> data(String responseJson) {

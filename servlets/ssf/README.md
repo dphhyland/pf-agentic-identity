@@ -134,17 +134,25 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   the hold asks) and `dueForPush`, use that one order in all three stores; ordered by `issuedAt` alone,
   Postgres returned a burst in whatever order its rows lay, the retry moved from SET to SET, and five SETs of
   one second took 130 s to dead-letter (`SsfStoresOnPostgresTest`, 2026-09-27).
-- **A POST ends at its deadline.** Connect 2 s; 10 s for the whole exchange, body included; at most 4 KiB
-  of a response body read (only a 400's body is used, for the log line). `HttpRequest.timeout` alone bounds
-  the wait for the headers and nothing after them, so the exchange is waited on as a whole and cancelled
-  when the deadline passes. These are constants (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`,
-  `RESPONSE_BODY_CAP`) until S-5 makes them settings. Before this, `HttpClient.newHttpClient()` had no
-  timeout at all: a receiver that accepted the connection and never answered held the thread, and every
-  stream's delivery, for as long as it kept the socket open. The cancel closes the connection too, so a
-  receiver that stalls every body keeps none of ours: `PushDeliveryHttpTest` has one send its status line
-  and part of a body and see the socket close at the deadline, and by hand on JDK 17, 20 and 21.0.12.1 (the
-  runtime of the PingFederate 13.1.3 image) the socket stayed open without the cancel and closed with it
-  (2026-09-27).
+- **A POST ends at its deadline.** From 0.6.0 (plan item S5d) the POST goes through libs/platform's
+  `OutboundHttp`: connecting, TLS included, within 2 s, and the whole exchange, body included, within 10 s - S-10's
+  values (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`), constants here until S-10 catalogues them in
+  Phase 4. Every read waits no longer than what is left of the deadline, so a receiver that sends its status line
+  and then a byte every 100 ms is given up on at 10 s like one that never answers, and the socket is closed when
+  the attempt ends. At most 64 KiB of an answer is read (`RESPONSE_BODY_CAP`): RFC 8935 §2.2 on the 202, "The body of
+  the response MUST be empty", and §2.3 has a 400 carry a JSON object of `err` and `description`, so a larger
+  answer is a failed attempt, retried, and never read past the cap; only a 400's body is used, the first 4096
+  characters of it in the log line. No redirect is followed. A failed attempt is a
+  retry, as before, and its WARN names the reason (`HEADER_TIMEOUT`, `DEADLINE`, `TLS`, `BODY_TOO_LARGE`,
+  `CONNECT_FAILED` and the rest). An interrupt - the loop stopping - ends the wait within platform's 250 ms read
+  slice and stays set, so the loop posts nothing after it (`PushDeliveryHttpTest`). The endpoint is held to the
+  federation fetch rules (`OutboundUrlPolicy`, [outbound-fetch](../../docs/configuration/outbound-fetch.md)): https,
+  and public addresses only, which `OIDF_FETCH_ALLOW_HTTP`, `OIDF_FETCH_HOST_ALLOWLIST` and
+  `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS` widen; the host is resolved once, every address checked, and the connection
+  goes to a checked address, so a name cannot resolve publicly for the check and privately for the connection. A
+  refused endpoint is dropped, not retried, as before. The JVM's trust store decides the receiver's certificate,
+  which must name the endpoint's host. Before 0.6.0 the POST used the JDK's `HttpClient`, whose request timeout
+  stops at the headers; the exchange was waited on as a whole and cancelled at the deadline (U-0077).
 - **The loop starts at boot.** `SsfSupport.start` - what the `SSF` part's start runs - starts it once
   the store is open, from `SsfConfigurationServlet`, `loadOnStartup=1`.
   Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
@@ -224,6 +232,29 @@ subject's PingFederate grants, `InstanceRegistryReceiverHandler` suspends or rev
   HTTP over TLS [RFC2818]"), unless the configuration URL is itself http, which only the development profile allows;
   production refuses an http `receiverTokenEndpoint`, `receiverTransmitterConfigurationUrl` or
   `receiverPushEndpointUrl`.
+
+- **Its outbound calls.** From 0.6.0 (plan item S5d) the poll, the stream management calls, the token request and
+  the JWKS fetch go through libs/platform's `OutboundHttp`, each within a deadline on the whole exchange, body
+  included, and a cap:
+
+  | Call | Connect | Whole exchange | Most read | Why |
+  |---|---|---|---|---|
+  | Poll (`PollReceiverClient`) | 1 s | 5 s | 4 MiB | The poll asks `returnImmediately`, so the transmitter has nothing to wait for; 4 MiB is the default `maxEvents` of 100 at 40 KiB a SET; an answer over it fails every tick until `OIDF_SSF_POLL_MAX_EVENTS` is lowered ([F-0406](../../docs/findings/F-0406.yaml)) |
+  | Stream management (`ReceiverStreamClient`) | 1 s | 5 s | 256 KiB | It runs in the receiver's start, which the supervisor retries; 256 KiB is platform's default, a list of streams |
+  | Token (`ClientCredentialsToken`) | 1 s | 5 s | 256 KiB | As the stream calls, which it comes before; before 0.6.0 it had 10 s to connect and 10 s for the headers, and no bound on the body |
+  | JWKS (`JwksHttpSource`) | 1 s | 2.5 s | 64 KiB | It runs while a pushed SET waits to be verified; a key set is small |
+
+  A poll that fails - its token request included - is logged at WARN with its reason first (`HEADER_TIMEOUT`,
+  `DEADLINE`, `TLS`, `BODY_TOO_LARGE` and the rest) and asked again next tick with the same acknowledgements; a
+  stream or token call that fails in the receiver's start leaves `SSF_RECEIVER` in `FAILED_DEPENDENCY`, retried; a JWKS fetch that fails is logged with its reason and the SET is
+  refused, as one with no key is. The transmitter is the one the operator named and may be internal by design, so
+  these calls may reach any address - still resolved once, every address checked for the URL rules, and the
+  connection pinned to one of them - and no setting is needed to reach one. That includes the URLs the transmitter's
+  own answers name, its `configuration_endpoint` and a poll stream's `endpoint_url`, which get the receiver's bearer
+  too ([F-0407](../../docs/findings/F-0407.yaml)); the scheme is the settings' to govern
+  (above). `receiverInsecureTls` (`OIDF_SSF_RECEIVER_INSECURE_TLS`, forbidden in production) trusts any certificate
+  chain through platform's `TlsTrust.insecureIf`; otherwise the JVM's trust store decides. Either way the certificate
+  must name the host the URL names.
 
 Where `SSF_RECEIVER` stands while it sets its stream up is under [Start-up](#start-up).
 

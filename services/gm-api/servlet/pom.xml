@@ -90,9 +90,9 @@
               cosmetic gap.
 
               Gated per METHOD, not per class, so the socket-bound and servlet-plumbing members
-              stay honestly out of scope: PdpClient.post/readAll open real connections, and the
-              McpServlet/GrantsServlet HTTP paths need a running PingFederate. Those are covered
-              by the deployed probes instead.
+              stay honestly out of scope: the McpServlet/GrantsServlet HTTP paths need a running
+              PingFederate, and are covered by the deployed probes instead. PdpClient's constructor
+              and post are gated since S5d: they run against real sockets in PdpTransportTest.
 
               Include patterns are jacoco's rendered METHOD names, not VM signatures: nested
               classes join with '.' (not '$'), a constructor repeats the simple class name, and
@@ -142,6 +142,9 @@
                                         <include>au.com.idpartners.gm.servlet.GrantsServlet.evaluateGrantIdFrom(*</include>
                                         <!-- The settings, strictly, and the PDP over https unless development (ST-5, PR-3). -->
                                         <include>au.com.idpartners.gm.servlet.McpServlet.ServletConfigs.from(*</include>
+                                        <!-- S5d: pdpTimeoutMs (zero and below the default) and every PDP failure mapped to an unavailable PDP. -->
+                                        <include>au.com.idpartners.gm.servlet.PdpClient.PdpClient(*</include>
+                                        <include>au.com.idpartners.gm.servlet.PdpClient.post(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
