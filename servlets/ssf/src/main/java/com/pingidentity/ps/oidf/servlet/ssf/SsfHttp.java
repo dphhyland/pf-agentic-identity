@@ -124,7 +124,8 @@ final class SsfHttp {
             return;
         }
         if (SsfSupport.configuration().receiverActionsEnabled()) {
-            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions()));
+            receiver.addHandler(new com.pingidentity.ps.oidf.ssf.ReceiverActionHandler(new PfReceiverActions(),
+                    SsfSupport.configuration().receiverLocalIssuers()));
         }
         SsfSupport.startReceiverPolling();
         receiverWired = true;

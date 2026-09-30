@@ -1,0 +1,19 @@
+id: F-0362
+title: The conformance rig's server certificate names only localhost, so a module in PingFederate cannot call PingFederate at its own issuer with the host name checked
+severity: low
+area: conformance
+source: design
+status: open
+plan_items: []
+prs: [87]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF1. PingFederate's runtime certificate on the rig is CN=localhost with no subject
+  alternative names; the rig's issuer is PF_BASE_URL (https://host.docker.internal:<port> for a suite in a
+  container). A receiver in PingFederate that manages its stream at PingFederate itself must reach it at that issuer
+  - SSF 1.0 §7.2.4 has the metadata's issuer be the URL used, and PingFederate accepts a private_key_jwt assertion
+  only with its own token endpoint, under its base URL, as aud (a localhost aud was answered invalid_client) - and
+  OIDF_SSF_RECEIVER_INSECURE_TLS still checks the host name. HSSF1's rig check ran with
+  -Djdk.internal.httpclient.disableHostnameVerification=true in JAVA_OPTS, which the production profile forbids.
+  gen-keys.sh could issue the runtime a certificate with the issuer's host name, as it does the suite's.

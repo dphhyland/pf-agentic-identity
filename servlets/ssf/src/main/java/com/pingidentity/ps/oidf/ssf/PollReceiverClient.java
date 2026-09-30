@@ -18,21 +18,25 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.Supplier;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
 
 /**
  * The receiver's poll loop for transmitters we poll rather than receive push from (RFC 8936): each tick
- * POSTs {@code {maxEvents, returnImmediately: true, ack: [...]}} to the remote poll endpoint with the
- * receiver's bearer, feeds every returned SET through {@link SsfReceiverService} (verify → dedupe →
- * dispatch), and acks the processed {@code jti}s on the next tick. A SET that fails verification is still
- * acked (redelivering it can never succeed — the RFC 8936 equivalent of a permanent failure). The HTTP call
- * is behind {@link PollTransport} so {@link #runOnce()} is unit-testable.
+ * POSTs {@code {maxEvents, returnImmediately: true, ack: [...], setErrs: {...}}} to the remote poll endpoint with
+ * the receiver's bearer, feeds every returned SET through {@link SsfReceiverService} (verify → dedupe →
+ * dispatch), and reports each on the next tick. A SET the receiver took (accepted, a duplicate, or discarded for a
+ * critical subject member) is acknowledged in {@code ack}; one it refused is reported in {@code setErrs} with its
+ * RFC 8935 error code and description, not acknowledged - RFC 8936 §2: "The SET Recipient SHALL NOT use the event
+ * acknowledgement mechanism to report event errors other than those relating to the parsing and validation of the
+ * SET", and §2.2 defines {@code setErrs} as "the "jti" values of invalid SETs received". Either way it is not
+ * delivered again. The HTTP call is behind {@link PollTransport} so {@link #runOnce()} is unit-testable.
  */
 public final class PollReceiverClient {
 
-    /** The poll POST: body JSON in, response JSON out. */
+    /** The poll POST: body JSON in, response JSON out; null when there is nowhere to poll yet. */
     public interface PollTransport {
         String poll(String bodyJson) throws Exception;
     }
@@ -43,6 +47,7 @@ public final class PollReceiverClient {
     private final PollTransport transport;
     private final int maxEvents;
     private final List<String> pendingAcks = new ArrayList<>();
+    private final Map<String, Object> pendingErrs = new LinkedHashMap<>();
     private volatile ManagedExecutor scheduler;
 
     public PollReceiverClient(SsfReceiverService receiver, PollTransport transport, int maxEvents) {
@@ -59,6 +64,9 @@ public final class PollReceiverClient {
         if (!this.pendingAcks.isEmpty()) {
             body.put("ack", new ArrayList<>(this.pendingAcks));
         }
+        if (!this.pendingErrs.isEmpty()) {
+            body.put("setErrs", new LinkedHashMap<>(this.pendingErrs));
+        }
         String response;
         try {
             response = this.transport.poll(JsonUtil.toJson(body));
@@ -66,7 +74,11 @@ public final class PollReceiverClient {
             LOGGER.warn((Object) ("SSF poll client: poll failed: " + e.getMessage()));
             return 0; // keep pendingAcks — retried next tick
         }
+        if (response == null) {
+            return 0; // nowhere to poll yet: the receiver's stream is not set up
+        }
         this.pendingAcks.clear();
+        this.pendingErrs.clear();
         Map<String, Object> parsed;
         try {
             parsed = JsonUtil.parseJson(response);
@@ -84,11 +96,15 @@ public final class PollReceiverClient {
             try {
                 this.receiver.receive(String.valueOf(entry.getValue()));
                 processed++;
+                this.pendingAcks.add(jti);
             } catch (SetVerifier.SetVerificationException e) {
                 LOGGER.warn((Object) ("SSF poll client: SET " + jti + " rejected (" + e.errorCode()
-                        + ") — acking anyway, redelivery cannot succeed"));
+                        + "); reported in setErrs, redelivery cannot succeed"));
+                LinkedHashMap<String, Object> err = new LinkedHashMap<>();
+                err.put("err", e.errorCode());
+                err.put("description", e.getMessage());
+                this.pendingErrs.put(jti, err);
             }
-            this.pendingAcks.add(jti); // ack processed AND permanently-failed SETs
         }
         return processed;
     }
@@ -139,24 +155,43 @@ public final class PollReceiverClient {
     static final String RECEIVER_INSECURE_TLS = "OIDF_SSF_RECEIVER_INSECURE_TLS";
 
     /**
-     * Runtime transport: POST JSON to the remote poll endpoint with a bearer token. {@code insecureTls} trusts any
+     * Runtime transport: POST JSON to the remote poll endpoint with the receiver's bearer - {@code bearer}'s token,
+     * asked again once after a 401 - or nothing when {@code pollUrl} has none yet. {@code insecureTls} trusts any
      * certificate chain through platform's {@link InsecureTls}; the host name is still checked.
      */
-    public static PollTransport httpTransport(String pollUrl, String bearerToken, boolean insecureTls) {
+    public static PollTransport httpTransport(Supplier<String> pollUrl, ReceiverBearer bearer, boolean insecureTls) {
         HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), RECEIVER_INSECURE_TLS, insecureTls).build();
         return bodyJson -> {
-            HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(pollUrl))
-                    .header("Content-Type", "application/json")
-                    .header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(bodyJson));
-            if (bearerToken != null && !bearerToken.isBlank()) {
-                b.header("Authorization", "Bearer " + bearerToken);
+            String url = pollUrl.get();
+            if (url == null) {
+                return null;
             }
-            HttpResponse<String> resp = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> resp = send(http, url, bodyJson, bearer.token());
+            if (resp.statusCode() == 401) {
+                bearer.rejected(bearerOf(resp));
+                resp = send(http, url, bodyJson, bearer.token());
+            }
             if (resp.statusCode() != 200) {
                 throw new IllegalStateException("poll endpoint returned HTTP " + resp.statusCode());
             }
             return resp.body();
         };
+    }
+
+    private static HttpResponse<String> send(HttpClient http, String url, String bodyJson, String token) throws Exception {
+        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(bodyJson));
+        if (token != null && !token.isBlank()) {
+            b.header("Authorization", "Bearer " + token);
+        }
+        return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+    }
+
+    /** The token a request carried, read back from the request its response answers. */
+    static String bearerOf(HttpResponse<?> resp) {
+        String header = resp.request().headers().firstValue("Authorization").orElse("");
+        return header.startsWith("Bearer ") ? header.substring(7) : null;
     }
 }

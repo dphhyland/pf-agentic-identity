@@ -566,4 +566,100 @@ class SsfComponentsTest {
         assertEquals("OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN", SsfComponents.settingOf("receiverEndpointAuthToken"));
         assertEquals("other", SsfComponents.settingOf("other"));
     }
+
+    // ---- the receiver's own stream (H-SSF-1) ----
+
+    /** A stub transmitter: its metadata, a stream list and a create, each answered with the status it is given. */
+    private com.sun.net.httpserver.HttpServer transmitter(int[] status, String issuer) throws IOException {
+        com.sun.net.httpserver.HttpServer server = com.sun.net.httpserver.HttpServer.create(
+                new java.net.InetSocketAddress(java.net.InetAddress.getLoopbackAddress(), 0), 0);
+        server.createContext("/", exchange -> {
+            String base = "http://127.0.0.1:" + server.getAddress().getPort();
+            String path = exchange.getRequestURI().getPath();
+            String body;
+            if (path.endsWith("/ssf-configuration")) {
+                body = "{\"issuer\":\"" + issuer + "\",\"configuration_endpoint\":\"" + base + "/streams\"}";
+            } else if ("GET".equals(exchange.getRequestMethod())) {
+                body = "[]";
+            } else {
+                body = "{\"stream_id\":\"s-1\",\"iss\":\"" + issuer + "\",\"aud\":\"https://op.example.com\","
+                        + "\"delivery\":{\"method\":\"urn:ietf:rfc:8936\",\"endpoint_url\":\"" + base + "/poll\"}}";
+            }
+            byte[] bytes = body.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+            exchange.sendResponseHeaders(status[0], bytes.length);
+            exchange.getResponseBody().write(bytes);
+            exchange.close();
+        });
+        server.start();
+        return server;
+    }
+
+    private Map<String, String> managed(com.sun.net.httpserver.HttpServer server) {
+        Map<String, String> env = new HashMap<>(RECEIVER);
+        env.put("OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL", "http://127.0.0.1:" + server.getAddress().getPort()
+                + "/.well-known/ssf-configuration");
+        env.put("OIDF_SSF_RECEIVER_POLL_TOKEN", "pt");
+        return env;
+    }
+
+    @Test
+    void aReceiverThatManagesItsStreamIsReadyOnceTheStreamIsSetUp() throws IOException {
+        com.sun.net.httpserver.HttpServer server = transmitter(new int[] {200}, "https://transmitter.example.com");
+        try {
+            transmitter(managed(server), development());
+            assertEquals(ComponentState.READY, receiver(ssf()).status().state());
+            assertEquals("s-1", SsfSupport.receiverStream().setup().streamId());
+            assertEquals("http://127.0.0.1:" + server.getAddress().getPort() + "/poll", SsfSupport.receiverStream().pollUrl());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    /** A transmitter that refuses leaves the receiver waiting on a dependency, retried until it answers. */
+    @Test
+    void aTransmitterThatRefusesLeavesTheReceiverFailedOnADependencyAndItIsRetried() throws IOException {
+        int[] status = {503};
+        com.sun.net.httpserver.HttpServer server = transmitter(status, "https://transmitter.example.com");
+        try {
+            transmitter(managed(server), development());
+            ComponentParts.Part rx = receiver(ssf());
+            assertEquals(ComponentState.FAILED_DEPENDENCY, rx.status().state());
+            assertTrue(rx.status().reason().startsWith("the receiver's stream could not be set up at the transmitter"),
+                    rx.status().reason());
+            assertEquals(null, SsfSupport.receiverStream().setup(), "no stream recorded");
+            status[0] = 200;
+            retry();
+            assertEquals(ComponentState.READY, rx.status().state());
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void aTransmitterOfAnotherIssuerIsAFailedConfiguration() throws IOException {
+        com.sun.net.httpserver.HttpServer server = transmitter(new int[] {200}, "https://evil.example.com");
+        try {
+            transmitter(managed(server), development());
+            ComponentParts.Part rx = receiver(ssf());
+            assertEquals(ComponentState.FAILED_CONFIG, rx.status().state());
+            assertTrue(rx.status().reason().contains("SSF 1.0 §7.2.4"), rx.status().reason());
+            assertTrue(this.retries.isEmpty(), "a setting to correct, not a dependency to wait for");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    void anInterruptedSetUpKeepsTheInterrupt() throws Exception {
+        ComponentParts.Part part = this.parts.begin(Startup.SSF_RECEIVER, "SsfReceiverServlet");
+        com.pingidentity.ps.oidf.ssf.ReceiverStream stream = new com.pingidentity.ps.oidf.ssf.ReceiverStream((m, u, b) -> {
+            throw new InterruptedException("stopping");
+        }, new com.pingidentity.ps.oidf.ssf.ReceiverStreamClient.Plan("https://tx/.well-known/ssf-configuration", "https://tx",
+                "aud", List.of(), null, null), new com.pingidentity.ps.oidf.ssf.SsfReceiverService(
+                        new com.pingidentity.ps.oidf.signals.SetVerifier("https://tx", null, refresh -> List.of())));
+        part.start(() -> SsfComponents.receiverStream(part, stream));
+        assertEquals(ComponentState.FAILED_DEPENDENCY, part.status().state());
+        assertTrue(Thread.interrupted(), "the interrupt is kept");
+        SsfComponents.receiverStream(part, null);
+    }
 }

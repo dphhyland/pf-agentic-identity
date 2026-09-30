@@ -51,7 +51,7 @@ public final class SsfSupport {
     private record State(SsfConfiguration configuration, SsfStore store, SetMinter minter, StreamManagementService streamService,
             SsfEventEmitter eventEmitter, ScimSubjectService scimSubjectService, SsfEmitService emitService,
             PushDeliveryService pushDeliveryService, SetPublisher setPublisher, SsfReceiverService receiverService,
-            PollReceiverClient pollReceiverClient, ReceiverAuthenticator receiverAuthenticator) {
+            PollReceiverClient pollReceiverClient, ReceiverAuthenticator receiverAuthenticator, ReceiverStream receiverStream) {
     }
 
     private static volatile State state;
@@ -80,12 +80,25 @@ public final class SsfSupport {
 
     /**
      * The receiver's verifier: the configured issuer and audience, and an inbound {@code sub_id} kept to
-     * {@link SsfSubjects#FORMATS} - shared-signals' default accepts every format it parses, the complex subject
-     * among them, and nothing on this receiver matches or acts on those until H-SSF-1.
+     * {@link SsfSubjects#RECEIVER_FORMATS} - the five, {@code did}, {@code uri}, {@code aliases} and the complex
+     * subject (H-SSF-1); SSF 1.0's {@code jwt_id}, {@code saml_assertion_id} and {@code ip-addresses} name no one the
+     * receiver acts on and stay refused at the top level.
      */
     static SetVerifier receiverVerifier(SsfConfiguration config, SetVerifier.JwksSource keys) {
         return new SetVerifier(config.receiverExpectedIssuer(), config.receiverAudience(), keys,
-                Clock.systemUTC(), SsfSubjects.FORMATS);
+                Clock.systemUTC(), SsfSubjects.RECEIVER_FORMATS);
+    }
+
+    /**
+     * The receiver's bearer for its poll and stream calls (H-SSF-1): a client-credentials token when it has a client,
+     * otherwise the static development token, which may be none.
+     */
+    static ReceiverBearer receiverBearer(SsfConfiguration config) {
+        if (config.receiverTokenEndpoint() != null) {
+            return ClientCredentialsToken.of(config, ClientCredentialsToken.httpTransport(config.receiverInsecureTls()),
+                    Clock.systemUTC());
+        }
+        return ReceiverBearer.fixed(config.receiverPollToken());
     }
 
     /** {@link #configure(SsfConfiguration, boolean)} with the receiver allowed to run. */
@@ -117,6 +130,7 @@ public final class SsfSupport {
             SsfEventEmitter theEmitter = new SsfEventEmitter(theStore, theMinter, config, thePublisher);
             SsfReceiverService theReceiver = null;
             PollReceiverClient thePollClient = null;
+            ReceiverStream theStream = null;
             if (receiverAllowed && receiverMayRun(config)) {
                 theReceiver = new SsfReceiverService(receiverVerifier(config,
                         JwksHttpSource.of(config.receiverJwksUrl(),
@@ -126,10 +140,17 @@ public final class SsfSupport {
                 if (config.receiverInstanceRegistry()) {
                     installInstanceRegistryHandler(theReceiver, theStore, config);
                 }
-                if (config.receiverPollUrl() != null) {
+                ReceiverBearer bearer = receiverBearer(config);
+                if (config.receiverTransmitterConfigurationUrl() != null) {
+                    theStream = new ReceiverStream(ReceiverStreamClient.httpTransport(bearer, config.receiverInsecureTls()),
+                            ReceiverStream.plan(config), theReceiver);
+                }
+                String pollUrl = config.receiverPollUrl();
+                ReceiverStream managed = theStream;
+                if (pollUrl != null || (managed != null && config.receiverPushEndpointUrl() == null)) {
                     thePollClient = new PollReceiverClient(theReceiver,
-                            PollReceiverClient.httpTransport(config.receiverPollUrl(),
-                                    config.receiverPollToken(), config.receiverInsecureTls()),
+                            PollReceiverClient.httpTransport(pollUrl != null ? () -> pollUrl : managed::pollUrl,
+                                    bearer, config.receiverInsecureTls()),
                             config.pollMaxEvents());
                 }
             } else if (!receiverAllowed && config.receiverConfigured()) {
@@ -138,7 +159,7 @@ public final class SsfSupport {
             state = new State(config, theStore, theMinter, new StreamManagementService(theStore, theMinter, config, thePublisher),
                     theEmitter, new ScimSubjectService(theStore, theEmitter, config), new SsfEmitService(theStore, theEmitter, config),
                     new PushDeliveryService(theStore, config, PushDeliveryService.httpClient()), thePublisher, theReceiver,
-                    thePollClient, buildIntrospectionAuthenticator(config));
+                    thePollClient, buildIntrospectionAuthenticator(config), theStream);
             return true;
         }
     }
@@ -254,6 +275,15 @@ public final class SsfSupport {
     }
 
     /**
+     * The receiver's own stream at its transmitter, when {@code OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL} is set
+     * and the receiver was built; null otherwise, and before the state is published.
+     */
+    public static ReceiverStream receiverStream() {
+        State local = state;
+        return local == null ? null : local.receiverStream();
+    }
+
+    /**
      * Install a receiver authenticator (tests inject a fake), which {@link #receiverAuthenticator()} answers instead
      * of the PF-introspection authenticator {@link #configure} built; null removes it.
      */
@@ -276,7 +306,7 @@ public final class SsfSupport {
             return;
         }
         receiver.addHandler(new InstanceRegistryReceiverHandler(
-                new CaepSignalApplier(new IomInstanceRegistry(ldmStore.dataSource()))));
+                new CaepSignalApplier(new IomInstanceRegistry(ldmStore.dataSource())), config.receiverLocalIssuers()));
         LOGGER.info((Object) "SSF receiver: instance registry CAEP handler installed (ldm store)");
     }
 

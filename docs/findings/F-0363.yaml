@@ -1,0 +1,21 @@
+id: F-0363
+title: A receiver-only settings combination refused at start-up takes the whole SSF component to FAILED_CONFIG, the transmitter with it
+severity: low
+area: ssf
+source: pr-review
+status: open
+plan_items: []
+prs: [87]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 in the review of package HSSF1. SsfConfiguration refuses the receiver's client and managed-stream
+  settings when they do not go together - a client id without OIDF_SSF_RECEIVER_TOKEN_ENDPOINT, a secret and a key
+  both set, the static poll token beside a client, OIDF_SSF_RECEIVER_POLL_URL beside
+  OIDF_SSF_RECEIVER_TRANSMITTER_CONFIGURATION_URL, OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL without it - by throwing from
+  its constructor, so SSF (the transmitter, its endpoints and its push loop) is FAILED_CONFIG and answers 503, not only
+  SSF_RECEIVER. That is how every receiver setting that fails to parse behaves already (OIDF_SSF_RECEIVER_JWKS_URL,
+  OIDF_SSF_RECEIVER_POLL_URL), and the refusal is at start-up with an ERROR naming the setting, so it is caught when
+  deployed; but a receiver-only mistake should cost the receiver only, as a missing OIDF_SSF_RECEIVER_AUDIENCE does
+  (receiverMissingRequirements). Moving the combinations there - a list the receiver's start checks - and doing the
+  same for the receiver settings' parse errors is one change, not made in HSSF1.

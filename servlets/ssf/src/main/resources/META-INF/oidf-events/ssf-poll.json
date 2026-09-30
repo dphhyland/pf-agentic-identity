@@ -1,0 +1,20 @@
+{
+  "component": "ssf-poll",
+  "module": "servlets/ssf",
+  "description": "The Shared Signals transmitter's poll endpoint (POST /ssf/poll, RFC 8936): a SET a receiver reported invalid in setErrs. The SET, its jti and the receiver's description are never event fields.",
+  "logger": "com.pingidentity.ps.oidf.ssf.poll.event",
+  "auditProtocol": "Shared Signals",
+  "fields": {},
+  "events": {
+    "ssf.poll.set_error": {
+      "description": "A receiver reported a SET invalid in a poll's setErrs, and the SET was released; the reason is its RFC 8935 error code (invalid_request, invalid_key, invalid_issuer, invalid_audience, authentication_failed, access_denied) or other.",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [],
+      "declaredOnly": false
+    }
+  }
+}

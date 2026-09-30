@@ -68,18 +68,52 @@ class PollReceiverClientTest {
         assertTrue(pollBodies.get(1).contains("jti-1"), "second poll acks the processed jti");
     }
 
+    /**
+     * RFC 8936 §2: the recipient "SHALL NOT use the event acknowledgement mechanism to report event errors other than
+     * those relating to the parsing and validation of the SET"; §2.2's setErrs carries them, with err and description.
+     */
     @Test
-    void unverifiableSetIsAckedNotRetried() throws Exception {
+    @Requirement("RFC8936 §2.2")
+    void anUnverifiableSetIsReportedInSetErrsNotAcknowledged() throws Exception {
+        String good = mint("jti-ok");
         PollReceiverClient client = new PollReceiverClient(receiver, body -> {
             pollBodies.add(body);
             return pollBodies.size() == 1
-                    ? JsonUtil.toJson(Map.of("sets", Map.of("bad-jti", "garbage-not-a-jws")))
+                    ? JsonUtil.toJson(Map.of("sets", Map.of("bad-jti", "garbage-not-a-jws", "jti-ok", good)))
                     : JsonUtil.toJson(Map.of("sets", Map.of()));
         }, 50);
-        assertEquals(0, client.runOnce(), "nothing processed");
+        assertEquals(1, client.runOnce(), "the good one processed");
         client.runOnce();
-        assertTrue(pollBodies.get(1).contains("bad-jti"), "permanently-bad SET still acked (no redelivery loop)");
-        assertTrue(handled.isEmpty());
+        Map<String, Object> second = JsonUtil.parseJson(pollBodies.get(1));
+        assertEquals(List.of("jti-ok"), second.get("ack"), "only the SET taken is acknowledged");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> errs = (Map<String, Object>) second.get("setErrs");
+        @SuppressWarnings("unchecked")
+        Map<String, Object> err = (Map<String, Object>) errs.get("bad-jti");
+        assertEquals("invalid_request", err.get("err"));
+        assertTrue(((String) err.get("description")).startsWith("not a compact JWS"), err.toString());
+        assertEquals(1, handled.size());
+        client.runOnce();
+        assertTrue(!pollBodies.get(2).contains("setErrs") && !pollBodies.get(2).contains("\"ack\""), "reported once");
+    }
+
+    /** No poll URL yet - the managed stream is not set up: nothing is sent, and what is owed is kept. */
+    @Test
+    void nowhereToPollYetKeepsWhatIsOwed() throws Exception {
+        String jws = mint("jti-3");
+        int[] calls = {0};
+        PollReceiverClient client = new PollReceiverClient(receiver, body -> {
+            calls[0]++;
+            pollBodies.add(body);
+            if (calls[0] == 1) {
+                return JsonUtil.toJson(Map.of("sets", Map.of("jti-3", jws)));
+            }
+            return calls[0] == 2 ? null : JsonUtil.toJson(Map.of("sets", Map.of()));
+        }, 50);
+        client.runOnce();
+        assertEquals(0, client.runOnce());
+        client.runOnce();
+        assertTrue(pollBodies.get(2).contains("jti-3"), "the ack survives a tick with nowhere to poll");
     }
 
     @Test
@@ -101,5 +135,15 @@ class PollReceiverClientTest {
         client.runOnce();               // ack attempt fails — acks must be retained
         client.runOnce();               // retried here
         assertTrue(pollBodies.get(2).contains("jti-2"), "ack retried after transport failure");
+    }
+
+    @Test
+    void anAnswerThatIsNotJsonOrHasNoSetsProcessesNothing() {
+        List<String> answers = List.of("not json", "{\"sets\":[]}", "{}");
+        int[] n = {0};
+        PollReceiverClient client = new PollReceiverClient(receiver, body -> answers.get(n[0]++), 0);
+        for (int i = 0; i < answers.size(); i++) {
+            assertEquals(0, client.runOnce(), answers.get(i));
+        }
     }
 }

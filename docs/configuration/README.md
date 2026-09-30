@@ -40,7 +40,7 @@ written by hand is this page, outside its generated list.
 | [evidence-policy](evidence-policy.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.issuer` | 2 |
 | [issuance-client-properties](issuance-client-properties.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 12 |
 | [ssf-logout-signal](ssf-logout-signal.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.servlet.ssf` | 1 |
-| [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 43 |
+| [ssf-transmitter](ssf-transmitter.md) | `servlets/ssf` | `com.pingidentity.ps.oidf.ssf` | 54 |
 | [rar-pdp-processor](rar-pdp-processor.md) | `plugins/rar-paz-plugin` | `com.pingidentity.ps.oidf.rar` | 24 |
 | [instance-registry](instance-registry.md) | `plugins/instance-registry-datasource` | `com.pingidentity.ps.oidf.registry` | 4 |
 | [ciba-simulator](ciba-simulator.md) | `plugins/ciba-sim` | `com.pingidentity.ps.oidf.cibasim` | 2 |
