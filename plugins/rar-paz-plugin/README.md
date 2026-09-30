@@ -36,7 +36,7 @@ have, so it does not link there. The last build for 13.0.x is v0.1.5.
 |---|---|
 | [`src/`](src) · [`pom.xml`](pom.xml) | the plugin (`com.pingidentity.ps.oidf.rar`) + tests; `PF-INF` marker; shaded jackson and [`libs/rar-model`](../../libs/rar-model/README.md) |
 | [`paz/`](paz) | reference PingAuthorize policies for the three built-in types (`paz/policies`), the script that authors them, their decision tests and a Policy Editor compose file; see its README |
-| [`probe-decision.sh`](probe-decision.sh) | POSTs the plugin's exact governance-engine request shape to a PDP; the secret from `PAZ_PDP_SECRET` or `PAZ_PDP_SECRET_FILE`, no default |
+| [`probe-decision.sh`](probe-decision.sh) | POSTs the plugin's exact governance-engine request shape to a PDP; the secret from `PAZ_PDP_SECRET` or `PAZ_PDP_SECRET_FILE`, no default; the PDP's certificate verified (its CA in `PAZ_CA_FILE`), unverified only on `localhost` |
 | [`../../conformance/verify-rar-principal.sh`](../../conformance/verify-rar-principal.sh) | boots the rig with this jar and drives every flow at a stub PDP; the evidence below |
 | [`.claude/skills/pf-rar-paz-plugin/`](.claude/skills/pf-rar-paz-plugin) | build/deploy/configure knowledge as a reusable skill |
 
@@ -500,12 +500,15 @@ credentials without details, discovery and PingFederate's other flows keep servi
 every member of an AuthZEN decision's `context` but `id`, `reason_admin` and `reason_user` became a statement merged
 into the detail. Now "AuthZEN context members merged into details" names, per type, the members that may be: `type:
 member, member` entries separated by `;` or new lines, `@model` for every member the type's model declares (the two
-markers left out), `-` for none. A type it does not name merges nothing. The default, `sales_agent: @model;
+markers left out), `-` for none. An entry splits at its last colon, so a URI type is named as it is (`urn:example:transfer:
+amount`). A type it does not name merges nothing. The default, `sales_agent: @model;
 account_information: @model`, merges nothing into a `payment_initiation` detail. A member it does not name is dropped,
 counted in `oidf_rar_context_dropped_total` and logged once by name (a name that is not a plain member name is logged
 as a placeholder), and never merged; the symmetric form, `context.statements: [{name, payload}]`, is held to the same
 list by the first dot-separated part of each name. A member it names that would widen the detail is still refused by
-the model's `within`, as before. The field does not touch the governance-engine dialect's `statements`, which a
+the model's `within`, as before. Dropping is not refusing: a PDP that permits on condition of a narrowing it writes
+through a member the field does not name gets the detail granted without that narrowing, so list every member such a
+policy narrows through. The field does not touch the governance-engine dialect's `statements`, which a
 PingAuthorize policy author writes. A field that cannot be read - an entry without `:`, a type named twice, a member
 with a dot, or `type`, `_principal_sub` or `_agent_id` listed - is refused on save and at configure.
 

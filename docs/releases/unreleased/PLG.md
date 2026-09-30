@@ -15,7 +15,8 @@
   `sales_agent: @model; account_information: @model`, lets those two types take the members their models declare and
   `payment_initiation` none. A member the field does not name is dropped, counted in
   `oidf_rar_context_dropped_total{form}` and logged by name, never merged; `context.statements` is held to the same
-  list by the first part of each name. A listed member that would widen the detail is still refused by the model.
+  list by the first part of each name. A listed member that would widen the detail is still refused by the model. An
+  entry splits at its last colon, so a URI type (`urn:example:transfer: amount`) can be named.
 - `enrich`'s decision step emits `rar.decision.permitted`, `rar.decision.denied` (reason class `pdp_deny`,
   `pdp_widened`, `pdp_unreachable` or `pdp_failed`) and `rar.decision.failopen`, with the type, the principal source,
   the principal hashed and the client id, catalogued in the plugin's new `rar` event catalogue. They go to
@@ -29,10 +30,12 @@
   platform's are appended into one. The plugin's README lists the jar's contents.
 - Reference PingAuthorize policies for `sales_agent`, `payment_initiation` and `account_information` are files in
   `plugins/rar-paz-plugin/paz/policies`, authored into a Policy Editor by `paz/author-policies.py`, with decision
-  tests (`paz/decision-tests.py`: a permit, a deny and a narrowing per type) and a Policy Editor compose file that
+  tests (`paz/decision-tests.py`: a permit, a deny and a narrowing per type, and the edges below) and a Policy
+  Editor compose file that
   needs nothing from outside this repo but Ping's evaluation licence. The three one-off scripts and the compose file
   that mounted a checkout beside this one are gone. No script in `paz/`, and not `probe-decision.sh`, has a default
-  secret any more.
+  secret any more, and the probe now verifies the PDP's certificate (its CA in `PAZ_CA_FILE`), skipping the check
+  only for a PDP on `localhost`, `127.0.0.1` or `[::1]`.
 
 ## Before you deploy
 
@@ -87,7 +90,14 @@
   the admin API refused a new instance with that switch on, or with "Fail open on engine error" and no accepted risk,
   with 422. This answers U-0068. No conformance plan was re-run: the rig's plans do not use the RAR plugin.
 - The decision tests ran on 2026-09-30 against `pingidentity/pingauthorizepap:11.1.0.0-latest` brought up by
-  `paz/paz-compose.yml`: ten cases, all passed. They ask the Policy Editor's own decision endpoint; a PingAuthorize
+  `paz/paz-compose.yml`. The first ten cases passed, but review found the `sales_agent` policy permitting `MEA`
+  against an attested `EMEA APAC` (its rule was `Contains` over the space-joined lists, a substring test), an empty
+  list and no principal, and `account_information` permitting any datatype but `transactions`. The policies now
+  compare whole values (`Equals`, and `RegularExpression`, which the 11.1.0.0 engine matches against the whole
+  value), `sales_agent` against a pattern the Policy Editor builds from the attested regions with each one quoted, and
+  deny an identity hint or no principal. On 2026-10-01 all 27 cases passed against the same image, among them `MEA`,
+  an empty list, an attested and an unattested region together, an attested region with pattern punctuation, and
+  words that contain `initiate` or `balances`. They ask the Policy Editor's own decision endpoint; a PingAuthorize
   Server in external mode in front of it, called by the plugin, was not run (U-0385).
 - "Per-type validate" (H-RAR-1) is S4D2's `validate`, which already holds each detail to its own type's model where
   it arrives; this package adds no rule to it.

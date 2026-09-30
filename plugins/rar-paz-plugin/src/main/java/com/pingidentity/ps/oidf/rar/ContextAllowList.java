@@ -34,7 +34,8 @@ import java.util.regex.Pattern;
  * is held to the same list: a statement's member is the first dot-separated part of its name, the detail member it
  * writes into.
  *
- * <p>The field is {@code type: member, member} entries separated by {@code ;} or new lines. {@value #MODEL} stands for
+ * <p>The field is {@code type: member, member} entries separated by {@code ;} or new lines; an entry splits at its last
+ * colon, so a URI type ({@code urn:example:transfer: amount}) is named as it is. {@value #MODEL} stands for
  * every member the type's model declares (the two markers excluded), {@code -} for none; a type the field does not name
  * merges nothing. Blank is the default, {@value #DEFAULT}: {@code payment_initiation} merges nothing, and the other two
  * built-in types what their models declare. A single {@code -} for the whole field merges nothing for any type.
@@ -54,6 +55,11 @@ final class ContextAllowList {
     static final String FORM_MEMBER = "member";
     static final String FORM_STATEMENT = "statement";
 
+    /**
+     * A detail type: a built-in or extra type's name, or a URI type such as {@code urn:example:transfer} (RFC 9396 allows
+     * either). An entry splits at its last colon, which a member name cannot hold, so a URI type keeps its own colons.
+     */
+    private static final Pattern TYPE = Pattern.compile("[A-Za-z_][^\\s,;]{0,254}");
     /** A member name: a top-level detail member, never a path. */
     private static final Pattern MEMBER = Pattern.compile("[A-Za-z_][A-Za-z0-9_-]{0,63}");
     /** The most distinct (type, member) pairs whose drop is logged; later ones are only counted. */
@@ -105,12 +111,12 @@ final class ContextAllowList {
             if (entry.isBlank()) {
                 continue;
             }
-            int colon = entry.indexOf(':');
+            int colon = entry.lastIndexOf(':');
             if (colon < 0) {
                 return FIELD + ": '" + entry.trim() + "' is not 'type: member, member'";
             }
             String type = entry.substring(0, colon).trim();
-            if (!MEMBER.matcher(type).matches()) {
+            if (!TYPE.matcher(type).matches()) {
                 return FIELD + ": '" + type + "' is not a detail type";
             }
             if (into.containsKey(type)) {

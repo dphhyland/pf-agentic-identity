@@ -62,9 +62,18 @@ class ContextAllowListTest {
     }
 
     @Test
+    void aUriTypeIsNamedWithItsOwnColons() {
+        ContextAllowList field = list("urn:example:transfer: amount, currency; https://rar.example/types/quote: limit");
+        assertEquals(Set.of("amount", "currency"), field.allowed("urn:example:transfer"));
+        assertEquals(Set.of("limit"), field.allowed("https://rar.example/types/quote"));
+        assertEquals(Set.of(), field.allowed("urn:example"));
+        assertNull(ContextAllowList.problem("urn:example:transfer: -"));
+    }
+
+    @Test
     void aFieldThatCannotBeReadIsRefusedOnSaveAndAtConfigure() throws ValidationException {
         for (String bad : List.of("sales_agent", "sales_agent: a; sales_agent: b", "sales_agent: access.limits",
-                "sales_agent: type", "sales_agent: _principal_sub", "sales_agent: _agent_id", ": a", "sales agent: a")) {
+                "sales_agent: type", "sales_agent: _principal_sub", "sales_agent: _agent_id", ": a", "sales agent: a", "1type: a")) {
             String problem = ContextAllowList.problem(bad);
             assertNotNull(problem, bad);
             assertTrue(problem.startsWith(ContextAllowList.FIELD), problem);

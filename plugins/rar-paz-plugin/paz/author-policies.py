@@ -3,14 +3,16 @@
 
     PAZ_PAP_URL=https://localhost:7443 python3 author-policies.py [--branch RAR-reference] [--replace]
 
-Reads policies/trust-framework.json (the domains and request attributes the policies use) and every
+Reads policies/trust-framework.json (the domains and request attributes the policies use, and any attribute derived
+from one of them by a SpEL expression) and every
 policies/<type>.json (one policy per authorization_details type), and creates, through the Policy Editor's REST API
 on a new branch: the Trust Framework entries, each policy's statements and rules, the policy, and one policy set,
 "RAR reference policies", that holds the three - the decision node the PDP, and decision-tests.py, evaluate. Then it
 commits the branch and prints the branch and the decision node's id.
 
 A policy file is data, not code: "when" is {"all": [...]} or {"any": [...]} over comparisons written
-[attribute, operator, value], where value is a constant or {"attribute": name}; a rule's "statements" are
+[attribute, operator, value], where value is a constant or {"attribute": name} and the operator is the Policy
+Editor's (Equals, NotEquals, RegularExpression - a whole-value match - LesserThanOrEqual, ...); a rule's "statements" are
 {name, payload} pairs, sent back with a permit so the processor applies each payload at the detail member the name
 gives (StatementApplier). Each policy applies to its own domain (<PDP Domain Prefix>.<type>) only.
 
@@ -67,20 +69,30 @@ def define_paths(pap, kind, entries, extra_of):
             if path in ids:
                 continue
             is_leaf = depth == len(parts)
-            body = definition(kind, parts[depth - 1], description if is_leaf else "", extra_of(leaf if is_leaf else None))
+            body = definition(kind, parts[depth - 1], description if is_leaf else "",
+                              extra_of(leaf if is_leaf else None, ids))
             parent = ids.get(".".join(parts[:depth - 1]))
             created = pap.call("POST", "/api/trust-framework/" + (parent if parent else "roots/" + kind), body)
             ids[path] = created["id"]
     return ids
 
 
-def attribute_extra(leaf):
-    value_type = (leaf or {}).get("type", "STRING")
+def attribute_extra(leaf, ids):
+    """An attribute read from the request by its name, or, when the file gives "from" and "spel", derived from an
+    attribute defined before it by a SpEL expression over its value (#this)."""
+    leaf = leaf or {}
+    value_type = leaf.get("type", "STRING")
+    resolver = {"attributeResolverType": "request", "condition": {"empty": {}}, "valueProcessor": None, "name": None}
+    if "from" in leaf:
+        if leaf["from"] not in ids:
+            sys.exit(f"attribute {leaf['name']} is derived from {leaf['from']}, which trust-framework.json must list first")
+        resolver = {"attributeResolverType": "attribute", "id": ids[leaf["from"]], "condition": {"empty": {}},
+                    "valueProcessor": {"type": "spel", "expression": leaf["spel"], "valueType": value_type,
+                                       "name": None},
+                    "name": None}
     return {"objectType": "AttributeDefinition", "valueType": value_type, "defaultValue": None, "repetitionSource": None,
             "cacheConfig": {"timeToLive": 0, "scopeAttributeId": None, "strategy": "NO_CACHING"}, "secret": False,
-            "resolvers": [{"attributeResolverType": "request", "condition": {"empty": {}}, "valueProcessor": None,
-                           "name": None}],
-            "querySettings": None, "valueProcessor": None}
+            "resolvers": [resolver], "querySettings": None, "valueProcessor": None}
 
 
 def condition(when, attributes):
@@ -133,7 +145,7 @@ def main():
     pap = Pap(branch=args.branch)
     branch_id = create_branch(pap, args.branch, args.replace)
     domains = define_paths(pap, "DOMAIN", [(name, "", None) for name in framework["domains"]],
-                           lambda leaf: {"objectType": "DomainDefinition"})
+                           lambda leaf, ids: {"objectType": "DomainDefinition"})
     attributes = define_paths(pap, "ATTRIBUTE", [(a["name"], a["description"], a) for a in framework["attributes"]],
                               attribute_extra)
     policy_ids = [author_policy(pap, load(t + ".json"), attributes, domains) for t in TYPES]

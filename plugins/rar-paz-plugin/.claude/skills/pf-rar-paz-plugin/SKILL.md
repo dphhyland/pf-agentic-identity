@@ -206,7 +206,9 @@ This repo deploys nothing; the recipe lives in `idp-agentic-demo/pingfederate/ra
   `idp-agentic-demo/pingfederate/rar-paz/config-as-code/{create-processor-instance,enable-on-client}.sh`.
 - Start from the reference policies in `paz/policies` (one per built-in type): `paz/author-policies.py`
   writes them into a Policy Editor and `paz/decision-tests.py` runs their permit, deny and narrowing
-  cases; `paz/paz-compose.yml` brings up a Policy Editor for both. Wire contract: top-level `README.md`.
+  cases; `paz/paz-compose.yml` brings up a Policy Editor for both. Never compare the space-joined
+  `req_`/`att_` mirrors with `Contains` - it is a substring test (`EMEA APAC` contains `MEA`); the
+  reference policies use `Equals` and whole-value `RegularExpression` (paz/README.md). Wire contract: top-level `README.md`.
 - Confirm the jar that runs is the one you built: compare its size or hash in
   `server/default/deploy/` with the fresh build - a platform can go on serving the last
   good image.

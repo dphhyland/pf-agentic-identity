@@ -15,6 +15,10 @@
 # https://localhost:8443/governance-engine and HEADER to the plugin's default, CLIENT-TOKEN; a PDP configured with
 # JSON_API_HEADER_NAME=CLIENT_TOKEN (underscore) wants that instead. The reference policies' own decision tests are
 # paz/decision-tests.py.
+#
+# The PDP's certificate is verified: give its CA in PAZ_CA_FILE when a public CA did not issue it. Only a PDP on this
+# machine (localhost, 127.0.0.1 or [::1]) is called without verification when PAZ_CA_FILE is unset, as the PingAuthorize
+# image's self-signed certificate needs; the secret never goes unverified to another host.
 set -euo pipefail
 
 PDP_URL="${1:-https://localhost:8443/governance-engine}"
@@ -30,6 +34,17 @@ fi
 if [[ -z "$SECRET" ]]; then
   echo "no PDP secret: set PAZ_PDP_SECRET, or PAZ_PDP_SECRET_FILE to a file holding it (the plugin's Shared Secret)" >&2
   exit 2
+fi
+
+TLS=()
+if [[ -n "${PAZ_CA_FILE:-}" ]]; then
+  TLS=(--cacert "$PAZ_CA_FILE")
+else
+  case "$PDP_URL" in
+    https://localhost[:/]*|https://127.0.0.1[:/]*|https://\[::1\][:/]*) TLS=(-k) ;;
+    https://*) ;;
+    *) echo "PDP_URL must be https:// (got ${PDP_URL})" >&2; exit 2 ;;
+  esac
 fi
 
 # A sales_agent request for EMEA/create_opportunity, within the attested entitlement.
@@ -62,7 +77,7 @@ echo "POST ${PDP_URL}   (${HEADER}: ****)"
 echo "--- request ---"; echo "${BODY}"
 echo "--- response ---"
 # The secret goes to curl on standard input as a header file, never on its command line.
-printf '%s: %s\n' "$HEADER" "$SECRET" | curl -sk -o "$OUT" -w "HTTP %{http_code}\n" -X POST "${PDP_URL}" \
+printf '%s: %s\n' "$HEADER" "$SECRET" | curl -s ${TLS[@]+"${TLS[@]}"} -o "$OUT" -w "HTTP %{http_code}\n" -X POST "${PDP_URL}" \
   -H "Content-Type: application/json" -H @- --data "${BODY}" || { echo "curl failed (is the PDP up on ${PDP_URL}?)"; exit 1; }
 cat "$OUT"; echo
 echo
