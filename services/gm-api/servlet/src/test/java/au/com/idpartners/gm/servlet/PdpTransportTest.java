@@ -65,6 +65,29 @@ class PdpTransportTest {
         }
     }
 
+    /**
+     * A pdpTimeoutMs above platform's 10 s head default holds: a PDP that answers after 10.5 s is still heard when the
+     * timeout is 12 s. (Before this was fixed, the head default cut every call off at 10 s.)
+     */
+    @Test
+    void aTimeoutAboveThePlatformHeadDefaultHolds() throws Exception {
+        try (OutboundPeer pdp = OutboundPeer.plain((n, request, out, socket) -> {
+            Thread.sleep(10_500);
+            OutboundPeer.write(out, 200, "", "{\"decision\":true}");
+        })) {
+            assertEquals(Map.of("decision", true), new PdpClient(pdp.url(""), null, 12_000).evaluate(Map.of()));
+        }
+    }
+
+    /** A blank pdpToken, like none, sends no Authorization header. */
+    @Test
+    void aBlankTokenSendsNoAuthorization() throws Exception {
+        try (OutboundPeer pdp = OutboundPeer.plain(OutboundPeer.answer(200, "{}"))) {
+            assertEquals(Map.of(), new PdpClient(pdp.url(""), " ", 2000).evaluate(Map.of()));
+            assertEquals(null, pdp.requests.poll(1, TimeUnit.SECONDS).header("Authorization"));
+        }
+    }
+
     @Test
     void anAnswerOverTheCapIsAnUnavailablePdp() throws Exception {
         try (OutboundPeer pdp = OutboundPeer.plain(OutboundPeer.oversize(200, 300 * 1024))) {

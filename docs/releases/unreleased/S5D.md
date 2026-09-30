@@ -30,7 +30,7 @@
    | SSF receiver: JWKS | 1 s | 2.5 s | 64 KiB | constants |
    | OpenBao transit (hosted entities, bridge and attestation signing) | 1 s | 2.5 s | 256 KiB | constants |
    | device-enrolment: the authority's API and token endpoint, PingOne's JWKS | 5 s | 10 s | 256 KiB | constants |
-   | gm-api: the PDP | 5 s | `pdpTimeoutMs` (10 s) | 256 KiB | `pdpTimeoutMs` |
+   | gm-api: the PDP | 5 s (was `pdpTimeoutMs`) | `pdpTimeoutMs` (10 s) | 256 KiB | `pdpTimeoutMs` |
 
    What a slow peer now sees: its connection closed at the deadline. What the caller does is what it did for any
    failure before: a push is retried on the stream's backoff and dead-letters after `pushRetryMaxAttempts`; a poll
@@ -39,7 +39,11 @@
    refuses the signature (the attestation or hosted-entity statement is not issued); an enrolment fails with
    `server_error` or `user_authentication_failed`; gm-api answers 503. A push receiver that answers 202 with a body
    over 64 KiB is now a failed attempt, retried - RFC 8935 §2.2: "The body of the response MUST be empty". A gm-api
-   `pdpTimeoutMs` of zero or below, which meant no timeout, now means the 10 s default. How to tell: the log line or
+   `pdpTimeoutMs` of zero or below, which meant no timeout, now means the 10 s default; a value above 10 s holds for the
+   whole call, but connecting to the PDP, TLS included, now has at most 5 s of it, where before it had the whole
+   `pdpTimeoutMs`. The SSF receiver's poll reads at most 4 MiB, sized for the default `maxEvents` of 100: an answer
+   over that fails every tick, since its acknowledgements never advance, until `OIDF_SSF_POLL_MAX_EVENTS` is lowered
+   ([F-0406](../../findings/F-0406.yaml)). How to tell: the log line or
    message names `HEADER_TIMEOUT` or `DEADLINE` (or `BODY_TOO_LARGE`) with the peer's origin. What to change: make the
    peer answer within its deadline - an OpenBao or PDP that takes longer than its deadline is too slow for the request
    a person is waiting on - and for gm-api, raise `pdpTimeoutMs` if the PDP needs longer. The other deadlines are not
@@ -68,7 +72,9 @@
    configured at (`OIDF_OPENBAO_URL` or `openBaoUrl`, `OIDF_BRIDGE_VAULT_ADDR`, `pdpUrl`, `PF_AUTHORITY_URL` and
    `PF_AUTHORITY_TOKEN_ENDPOINT`) is exempt from the scheme and address rules, pinned to its scheme, host, port and
    path, and nothing else is; the SSF receiver's transmitter may be at any address, since the operator names it, with
-   the scheme left to the settings that already govern it. How to tell: a call that went through a proxy fails with
+   the scheme left to the settings that already govern it - and so may the URLs the transmitter's own answers name,
+   its `configuration_endpoint` and a poll stream's `endpoint_url`, which get the receiver's bearer, as before 0.6.0
+   ([F-0407](../../findings/F-0407.yaml)). How to tell: a call that went through a proxy fails with
    `CONNECT_FAILED` or `CONNECT_TIMEOUT` where the host is reachable only through the proxy; a development PingOne
    issuer over http or on a private address fails enrolment with `REFUSED_URL` or `REFUSED_ADDRESS`. What to change:
    give PingFederate (or device-enrolment) a direct route to each peer, and for a development IdP set the
@@ -98,8 +104,12 @@ own store refusing the test CA; each failure's mapping (push: retry, drop on a p
 body clipped to 4096 characters; the receiver: a dependency, never `Misconfigured`; OpenBao and the enrolment calls:
 the reason in the message; gm-api: `PdpUnavailableException`); an interrupt ending a push attempt within platform's
 250 ms read slice with the interrupt kept; the configured OpenBao, PDP and authority URLs exempt and a `..` path
-under them not. The jacoco METHOD gates hold; ssf's gate now names `PushDeliveryService.deliver` in place of the
-removed `send` and `CappedBody.onNext`.
+under them not; a `pdpTimeoutMs` of 12 s against a PDP that answers after 10.5 s, past platform's 10 s head default.
+The jacoco METHOD gates hold; ssf's gate now names `PushDeliveryService.deliver` in place of the removed `send` and
+`CappedBody.onNext`, gm-api's names `PdpClient`'s constructor and `post`, and device-enrolment's names
+`PingOneIdTokenVerifier.HttpJwksSource.fetch`. `ClientCredentialsToken.httpTransport` (ssf) and
+`OpenBaoTransitSigner.send` (oidf-jose) are tested but not gated: HSSF3 and HJOSE change those two poms in the same
+wave.
 
 Tested on the pinned image's own java, OpenJDK 21.0.12.1 (`pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest`,
 JUnit's launcher, 2026-10-01): the TLS, deadline and cap tests of every site and the tests beside them - ssf 50,
@@ -114,5 +124,14 @@ U-0195 found can wait on a peer that does not read. OpenBao has no CA setting of
 trust store's, as before. Whether PingFederate 13.1.3 replaces `HttpsURLConnection`'s default hostname verifier,
 which decided gm-api's name check before, was not checked.
 
+For REL to reconcile once this merges: `docs/releases/unreleased/HSSF1.md` says the receiver's token and stream
+clients use `java.net.http` with a 10 s connect and request timeout "until S-5d moves them", and
+`libs/platform/README.md` says F-0010 is open "until S5d moves the call sites"; both are true of main before this
+package and stale after it, and both files belong to other packages. The test peer, `OutboundPeer`, is one file copied
+into the ssf, oidf-jose, device-enrolment and gm-api tests; a shared test jar is for a later package.
+
 Owner actions (Phase 3 decisions 1-20 are unconfirmed): this package builds what the plan recommends, including
-decision 17 (the SSF sites move in Phase 3 though S-10 rewrites push delivery in Phase 4).
+decision 17 (the SSF sites move in Phase 3 though S-10 rewrites push delivery in Phase 4). Also for the owner: the SSF
+receiver may reach any address, including the URLs its transmitter names (F-0407); PingOne's JWKS is now held to the
+outbound-fetch rules; the push cap of 64 KiB and the poll cap of 4 MiB (F-0406); and gm-api's connect now at most 5 s
+of `pdpTimeoutMs`.

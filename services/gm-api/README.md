@@ -62,9 +62,9 @@ The servlet is the enforcement point; the decision is an **AuthZEN 1.0 PDP** it 
 The servlet needs no PDP code of its own.
 
 From 0.6.0 (plan item S5d) the call goes through libs/platform's `OutboundHttp`, and `pdpTimeoutMs` (10 s by
-default) bounds the whole exchange, the answer's body included; before, it bounded the connect and each read apart, so
-a PDP sending a byte at a time held a grant request without end. Connecting, TLS included, takes at most platform's
-default 5 s within it, and at most platform's default 256 KiB of the answer is read. A `pdpTimeoutMs` of zero or below,
+default) bounds the whole exchange, the answer's body included, and a value above 10 s holds; before, it bounded the
+connect and each read apart, so a PDP sending a byte at a time held a grant request without end. Connecting, TLS
+included, takes at most platform's default 5 s within it (before, it could take the whole `pdpTimeoutMs`), and at most platform's default 256 KiB of the answer is read. A `pdpTimeoutMs` of zero or below,
 which meant no timeout, is now the 10 s default. The PDP is internal by design (the demo reaches PingAuthorize at
 `http://pingauthorize.railway.internal:1080`), so the URL `pdpUrl` names is exempt from the scheme and address rules -
 pinned to its scheme, host, port and path - and nothing else is; production already refuses an http `pdpUrl`. The JVM's

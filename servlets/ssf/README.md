@@ -238,7 +238,7 @@ subject's PingFederate grants, `InstanceRegistryReceiverHandler` suspends or rev
 
   | Call | Connect | Whole exchange | Most read | Why |
   |---|---|---|---|---|
-  | Poll (`PollReceiverClient`) | 1 s | 5 s | 4 MiB | The poll asks `returnImmediately`, so the transmitter has nothing to wait for; 4 MiB is the default `maxEvents` of 100 at 40 KiB a SET |
+  | Poll (`PollReceiverClient`) | 1 s | 5 s | 4 MiB | The poll asks `returnImmediately`, so the transmitter has nothing to wait for; 4 MiB is the default `maxEvents` of 100 at 40 KiB a SET; an answer over it fails every tick until `OIDF_SSF_POLL_MAX_EVENTS` is lowered ([F-0406](../../docs/findings/F-0406.yaml)) |
   | Stream management (`ReceiverStreamClient`) | 1 s | 5 s | 256 KiB | It runs in the receiver's start, which the supervisor retries; 256 KiB is platform's default, a list of streams |
   | Token (`ClientCredentialsToken`) | 1 s | 5 s | 256 KiB | As the stream calls, which it comes before; before 0.6.0 it had 10 s to connect and 10 s for the headers, and no bound on the body |
   | JWKS (`JwksHttpSource`) | 1 s | 2.5 s | 64 KiB | It runs while a pushed SET waits to be verified; a key set is small |
@@ -248,7 +248,9 @@ subject's PingFederate grants, `InstanceRegistryReceiverHandler` suspends or rev
   stream or token call that fails in the receiver's start leaves `SSF_RECEIVER` in `FAILED_DEPENDENCY`, retried; a JWKS fetch that fails is logged with its reason and the SET is
   refused, as one with no key is. The transmitter is the one the operator named and may be internal by design, so
   these calls may reach any address - still resolved once, every address checked for the URL rules, and the
-  connection pinned to one of them - and no setting is needed to reach one; the scheme is the settings' to govern
+  connection pinned to one of them - and no setting is needed to reach one. That includes the URLs the transmitter's
+  own answers name, its `configuration_endpoint` and a poll stream's `endpoint_url`, which get the receiver's bearer
+  too ([F-0407](../../docs/findings/F-0407.yaml)); the scheme is the settings' to govern
   (above). `receiverInsecureTls` (`OIDF_SSF_RECEIVER_INSECURE_TLS`, forbidden in production) trusts any certificate
   chain through platform's `TlsTrust.insecureIf`; otherwise the JVM's trust store decides. Either way the certificate
   must name the host the URL names.

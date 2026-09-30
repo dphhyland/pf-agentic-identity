@@ -166,13 +166,16 @@ public final class PollReceiverClient {
     static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(5);
     /**
      * The largest poll response read: the default {@code maxEvents} of 100 at 40 KiB a SET. A larger answer is a
-     * failed poll - logged, and asked again next tick with the same acknowledgements.
+     * failed poll - logged, and asked again next tick with the same acknowledgements, so the same answer comes back
+     * until {@code OIDF_SSF_POLL_MAX_EVENTS} is lowered (F-0406).
      */
     static final long MAX_BODY_BYTES = 4L * 1024L * 1024L;
 
     /**
      * The receiver's outbound rules, for its poll, stream management and JWKS calls: its peer is the transmitter the
-     * operator named, which may be internal by design, so any address is allowed, still resolved once and pinned. A
+     * operator named, which may be internal by design, so any address is allowed, still resolved once and pinned. That
+     * holds for the URLs the transmitter's own answers name too - its configuration_endpoint and a poll stream's
+     * endpoint_url - and the bearer goes to them (F-0407). A
      * scheme is the settings' to govern: the production profile refuses an http transmitter configuration URL, and
      * {@link ReceiverStreamClient#requireTls} refuses an http URL the transmitter names unless that URL was http.
      */

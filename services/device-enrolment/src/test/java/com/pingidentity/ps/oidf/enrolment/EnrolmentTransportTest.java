@@ -162,6 +162,16 @@ class EnrolmentTransportTest {
         }
     }
 
+    @Test
+    void aJwksThatIsNotAKeySetIsRefused() throws Exception {
+        try (OutboundPeer peer = OutboundPeer.plain(OutboundPeer.answer(200, "not a key set"))) {
+            EnrolmentException e = assertThrows(EnrolmentException.class,
+                    () -> jwks(peer.url("/jwks"), TlsTrust.jvmDefault(), SHORT).find("k"));
+            assertEquals(EnrolmentException.USER_AUTHENTICATION_FAILED, e.error());
+            assertEquals("PingOne JWKS is not a valid key set", e.getMessage());
+        }
+    }
+
     /** PingOne is public: the fetch rules refuse a plaintext or private JWKS unless OIDF_FETCH_* widen them. */
     @Test
     void pingOnesJwksIsHeldToTheFetchRules() throws Exception {

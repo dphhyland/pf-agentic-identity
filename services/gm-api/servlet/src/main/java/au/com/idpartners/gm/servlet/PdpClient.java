@@ -24,8 +24,10 @@ import java.util.Map;
  * <p>The call goes through platform's {@link OutboundHttp} (plan item S5d). The whole exchange, the
  * answer's body included, ends by {@code pdpTimeoutMs} (10 s unless set): before, that value bounded
  * the connect and each read apart, so a PDP answering a byte at a time held the request open without
- * end. Connecting, TLS included, takes at most platform's default 5 s within it, and the answer at
- * most platform's default cap, 256 KiB. The PDP is internal by design, so the URL it is configured at
+ * end. The wait for the answer's head is bounded by {@code pdpTimeoutMs} alone, so a value above
+ * platform's 10 s head default holds. Connecting, TLS included, takes at most platform's default 5 s
+ * within it (before, it could take the whole {@code pdpTimeoutMs}), and the answer at most platform's
+ * default cap, 256 KiB. The PDP is internal by design, so the URL it is configured at
  * is exempt from the scheme and address rules - pinned to that URL's scheme, host, port and path -
  * and nothing else is. The JVM's trust store decides its certificate, which must name its host.
  */
@@ -61,7 +63,10 @@ public final class PdpClient {
         this.bearerToken = bearerToken;
         // Zero once meant no timeout at all; there is no unbounded wait any more, so zero and below take the default.
         this.timeout = Duration.ofMillis(timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS);
+        // The wait for the answer's head is the whole timeout too: platform's 10 s head default would otherwise cut
+        // a pdpTimeoutMs above 10 s short.
         this.http = OutboundHttp.builder(AddressPolicy.builder().trusting(base).build())
+                .headerTimeout(this.timeout)
                 .tls(trust)
                 .build();
     }
