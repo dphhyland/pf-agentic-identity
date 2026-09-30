@@ -208,7 +208,7 @@ public final class PushHeaderCipher {
             c.init(Cipher.DECRYPT_MODE, key.spec(), new GCMParameterSpec(TAG_BITS, in, 0, NONCE_BYTES));
             c.updateAAD(aad(streamId));
             return new String(c.doFinal(in, NONCE_BYTES, in.length - NONCE_BYTES), StandardCharsets.UTF_8);
-        } catch (GeneralSecurityException | IllegalArgumentException e) {
+        } catch (GeneralSecurityException | RuntimeException e) {
             report(kid, "did not open (" + e.getClass().getSimpleName() + "): altered, or copied from another stream");
             return stored;
         }

@@ -86,7 +86,7 @@ public final class SsfAuditLogSource extends AbstractAppender {
     private static LoggerContext listenedTo;
     private static PropertyChangeListener listener;
     /** The configuration the source is hooked into: log4j also fires PROPERTY_CONFIG for updateLoggers on it. */
-    private static Configuration hookedInto;
+    private static volatile Configuration hookedInto;
     private static boolean lifecycleRegistered;
 
     private final AuditEventMapper mapper;

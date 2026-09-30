@@ -45,6 +45,8 @@ class PushHeaderCipherTest {
         assertEquals(tampered, c.open("stream-1", tampered));
         String garbage = "ssfenc:v1:" + c.kid() + ":***";
         assertEquals(garbage, c.open("stream-1", garbage));
+        String tooShort = "ssfenc:v1:" + c.kid() + ":AAAA";
+        assertEquals(tooShort, c.open("stream-1", tooShort), "shorter than a nonce: left as it is");
         assertEquals("ssfenc:v1:nokid", c.open("stream-1", "ssfenc:v1:nokid"));
     }
 
