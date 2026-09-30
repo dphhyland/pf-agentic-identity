@@ -1,0 +1,16 @@
+id: F-0361
+title: A SET a receiver reports in setErrs is released with no record kept of it
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [S10b]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF1. The poll endpoint records a setErrs entry as a WARN line (the receiver's
+  description made log-safe) and an ssf.poll.set_error event counted under its error code, and then deletes the SET
+  from the stream's queue like an acknowledged one: redelivering a SET its receiver cannot validate cannot succeed.
+  The stores have nowhere to keep it, so an operator cannot list the SETs a receiver refused, or send one again once
+  the cause (a rotated key, a changed audience) is fixed. S-10's dead-letter record (Phase 4) is where it belongs.

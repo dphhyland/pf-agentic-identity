@@ -1,0 +1,18 @@
+id: U-0370
+title: The receiver's managed push stream, and finding its stream again after a restart, have not been seen against a live transmitter
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-1]
+prs: []
+recorded_in: servlets/ssf/README.md, The receiver; ReceiverStreamClient.ensure
+verify_by: >
+  On the rig with a durable SSF store, set OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL to the receiver's public
+  /ssf/receiver/events URL, start it, raise an event and see it pushed and acted on; restart PingFederate and see the
+  receiver find its stream (a PATCH, the same stream id) instead of creating another.
+verification: ''
+notes: >
+  On the rig on 2026-09-30 (PingFederate 13.1.3, in-memory store) the receiver created a poll stream and polled it;
+  after a restart the store was empty, so it created a new one. The push path and the find-and-update path are
+  unit-tested only (ReceiverStreamSetupTest). Push to a receiver on the same PingFederate also needs the transmitter's
+  outbound URL policy to let it call itself.

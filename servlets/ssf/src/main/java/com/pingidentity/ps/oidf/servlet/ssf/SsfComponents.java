@@ -52,7 +52,9 @@ import org.apache.commons.logging.LogFactory;
  *       it - {@code FAILED_DEPENDENCY} while the transmitter is starting or failed on a dependency, retried by the
  *       supervisor - and takes its answer when the transmitter is off, failed on its configuration or refused. With
  *       the transmitter up, no {@code OIDF_SSF_RECEIVER_EXPECTED_ISSUER} is not configured, and a receiver without its
- *       audience or endpoint token is {@code FAILED_CONFIG}.</li>
+ *       audience or endpoint token is {@code FAILED_CONFIG}. A receiver that manages its own stream at the transmitter
+ *       (H-SSF-1) sets it up here: {@code FAILED_DEPENDENCY} while the transmitter cannot be reached or refuses,
+ *       retried by the supervisor, and {@code FAILED_CONFIG} when its metadata or stream is not the receiver's.</li>
  * </ul>
  *
  * <p>Nothing here throws but the production profile's {@link ProfileRefused}, which the part records as

@@ -3,10 +3,17 @@ title: The SSF receiver accepts a SET carrying exp or sub, which SSF 1.0 forbids
 severity: low
 area: ssf, shared-signals
 source: pr-review
-status: open
+status: closed
 plan_items: [H-SSF-1]
 prs: []
-verification: ''
+verification: >
+  Closed 2026-09-30 by package HSSF1. The decision is the receiver's, not SetVerifier's (other users of
+  libs/shared-signals keep RFC 8417's reading): SsfReceiverService refuses a SET whose payload carries exp or sub as
+  invalid_request with a description naming the claim, before the signature is checked, and counts it
+  (ssf.receiver.set_refused); a push is answered 400 with Content-Language: en-US (RFC 8935 §2.3), a polled SET is
+  reported in setErrs. ReceiverClaimsTest; on the rig on 2026-09-30 a pushed SET with exp was answered "HTTP/2 400",
+  "content-language: en-US", {"err":"invalid_request","description":"the SET carries the \"exp\" claim, which SSF
+  1.0 §4.1.7 forbids in SETs"}.
 target_release: 0.6.0
 notes: >
   SSF 1.0 (29 August 2025) §4.1.7: "The "exp" claim MUST NOT be used in SETs." §4.1.2: "The JWT "sub" claim MUST
