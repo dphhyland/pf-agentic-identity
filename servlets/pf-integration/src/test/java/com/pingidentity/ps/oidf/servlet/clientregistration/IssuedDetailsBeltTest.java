@@ -525,6 +525,62 @@ class IssuedDetailsBeltTest {
         this.belt().destroy();
     }
 
+    /** A belt whose models cannot load has failed: attestation traffic is 503, and the belt holds nothing. */
+    @Test
+    void aBeltThatFailedToStartAnswersAttestationTraffic503() throws Exception {
+        IssuedDetailsBelt belt = new IssuedDetailsBelt(() -> {
+            throw new IllegalStateException("the RAR containment models could not be loaded");
+        }, t -> true);
+        belt.init(null);
+        List<Object> seen = new ArrayList<>();
+        Real real = this.through(belt, request(attestation(CEILING), true), (req, resp) -> seen.add(resp));
+        assertEquals(503, real.status);
+        assertEquals(List.of(), seen);
+    }
+
+    @Test
+    void anHttpRequestWithAnotherResponseIsPassedOn() throws Exception {
+        jakarta.servlet.ServletResponse response = mock(jakarta.servlet.ServletResponse.class);
+        List<Object> seen = new ArrayList<>();
+        this.belt().doFilter(request(attestation(CEILING), true), response, (req, resp) -> seen.add(resp));
+        assertSame(response, seen.get(0));
+    }
+
+    @Test
+    void onlyA2xxIsASuccess() {
+        assertTrue(IssuedDetailsBelt.success(200) && IssuedDetailsBelt.success(299));
+        assertTrue(!IssuedDetailsBelt.success(199) && !IssuedDetailsBelt.success(300) && !IssuedDetailsBelt.success(101));
+    }
+
+    @Test
+    void aBodyThatIsNotAnObjectRevokesNothing() {
+        this.belt().revokeGrantOf("[\"rt-1\"]".getBytes(StandardCharsets.UTF_8), "client-1");
+        assertEquals(List.of(), this.revoked);
+    }
+
+    /** A response PingFederate writes nothing to, and gives no length, is left as it was. */
+    @Test
+    void aResponseWithNoBodyAndNoLengthIsLeftAlone() throws Exception {
+        Real real = this.through(this.belt(), request(attestation(CEILING), true),
+                (req, resp) -> ((HttpServletResponse) resp).setStatus(204));
+        assertEquals(204, real.status);
+        assertNull(real.contentLength);
+        assertEquals(0, real.sink.size());
+    }
+
+    @Test
+    void aLargeErrorWithNoLengthStreamsOutWhole() throws Exception {
+        byte[] body = new byte[IssuedDetailsBelt.LIMIT + 10];
+        java.util.Arrays.fill(body, (byte) 'e');
+        Real real = this.through(this.belt(), request(attestation(CEILING), true), (req, resp) -> {
+            ((HttpServletResponse) resp).setStatus(502);
+            resp.getOutputStream().write(body);
+        });
+        assertArrayEquals(body, real.sink.toByteArray());
+        assertNull(real.contentLength);
+        assertEquals(502, real.status);
+    }
+
     @Test
     void jsonIsJson() {
         assertTrue(IssuedDetailsBelt.isJson("Application/JSON; charset=UTF-8"));

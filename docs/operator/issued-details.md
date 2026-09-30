@@ -25,9 +25,11 @@ choosing:
 @com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion@withinCeiling(#this)
 ```
 
-The `@class@method` form is OGNL's static call. Written `IssuedDetailsCriterion.withinCeiling(#this)` it fails in
-PingFederate 13.1.3 with "source is null for getProperty(null, "pingidentity")" and the criterion refuses every token
-(seen on the rig, 2026-09-30). That usually means the `Default` mapping (code, CIBA, device and refresh grants) and the
+The `@class@method` form is OGNL's static call. Written as a dotted name,
+`com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.withinCeiling(#this)`, OGNL reads
+`com` as a property of the criteria map, finds nothing, and PingFederate 13.1.3 logs "source is null for
+getProperty(null, "pingidentity")" and counts the criterion as not met, so the mapping refuses the token (seen on the
+rig, 2026-09-30). That usually means the `Default` mapping (code, CIBA, device and refresh grants) and the
 `Client Credentials` mapping, and any mapping for a token-exchange processor. PingFederate expressions must be
 enabled, as they already are for `ClientAttestationUtils.validateClientAttestation`.
 

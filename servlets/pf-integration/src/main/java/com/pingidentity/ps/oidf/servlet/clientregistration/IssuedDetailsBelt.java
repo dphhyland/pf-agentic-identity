@@ -142,7 +142,7 @@ public final class IssuedDetailsBelt implements Filter {
             return;
         }
         int status = held.getStatus();
-        boolean success = status >= 200 && status < 300;
+        boolean success = IssuedDetailsBelt.success(status);
         String clientId = IssuedDetailsBelt.clientOf(request);
         if (success && held.overflowed()) {
             IssuedDetailsCriterion.refuse(IssuedDetailsCriterion.BELT, clientId, IssuedDetailsCriterion.TOO_LARGE, List.of(),
@@ -234,6 +234,11 @@ public final class IssuedDetailsBelt implements Filter {
     static String clientOf(HttpServletRequest request) {
         return request.getAttribute(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE) instanceof Map<?, ?> context
                 && context.get("client_id") instanceof String id ? id : null;
+    }
+
+    /** A 2xx status: a response the belt checks. */
+    static boolean success(int status) {
+        return status / 100 == 2;
     }
 
     static boolean isJson(String contentType) {
@@ -341,8 +346,7 @@ public final class IssuedDetailsBelt implements Filter {
                 this.bytes.write(b);
                 return;
             }
-            int status = this.getStatus();
-            if (status >= 200 && status < 300) {
+            if (IssuedDetailsBelt.success(this.getStatus())) {
                 // A success too large to check: counted, not kept; finish replaces it.
                 this.overflowed = true;
                 return;

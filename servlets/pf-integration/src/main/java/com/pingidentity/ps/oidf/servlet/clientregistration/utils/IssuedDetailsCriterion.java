@@ -34,7 +34,7 @@ import org.sourceid.saml20.adapter.attribute.AttributeValue;
 /**
  * An access-token mapping's issuance criterion over what PingFederate is about to issue (plan item S4d, F-0032):
  *
- * <pre>{@code com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.withinCeiling(#this)}</pre>
+ * <pre>{@code @com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion@withinCeiling(#this)}</pre>
  *
  * <p>PingFederate hands an access-token mapping's criteria {@code context.OAuthAuthorizationDetails}: an
  * {@code AttributeValue} whose object values are the details the token will carry, one map per detail - the request's on

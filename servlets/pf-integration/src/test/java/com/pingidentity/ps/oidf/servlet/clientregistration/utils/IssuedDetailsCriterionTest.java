@@ -395,6 +395,9 @@ class IssuedDetailsCriterionTest {
         assertEquals(List.of(), IssuedDetailsCriterion.issued("not an attribute"));
         AttributeValue none = mock(AttributeValue.class);
         assertEquals(List.of(), IssuedDetailsCriterion.issued(none));
+        AttributeValue nothing = mock(AttributeValue.class);
+        when(nothing.getAllObjectValues()).thenReturn(null);
+        assertEquals(List.of(), IssuedDetailsCriterion.issued(nothing));
         List<Object> withNull = new ArrayList<>();
         withNull.add(null);
         withNull.add(EMEA_100);
@@ -439,6 +442,21 @@ class IssuedDetailsCriterionTest {
         req.attributes.put(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE, Map.of("client_id", CLIENT));
         assertFalse(decide(req, List.of(EMEA_100)));
         assertEquals(null, IssuedDetailsCriterion.singleHeader(new Req().build(), "X"));
+    }
+
+    /** A container that will not enumerate a header's values (getHeaders is null) has no value for it. */
+    @Test
+    void aHeaderTheContainerWillNotEnumerateIsAbsent() {
+        HttpServletRequest request = mock(HttpServletRequest.class);
+        when(request.getHeaders(anyString())).thenReturn(null);
+        assertEquals(null, IssuedDetailsCriterion.singleHeader(request, "X"));
+        assertFalse(IssuedDetailsCriterion.hasHeader(request, "X"));
+    }
+
+    @Test
+    void aBareRefreshLooksPastADetailWithNoType() {
+        assertEquals("payment_initiation", IssuedDetailsCriterion.bareRefreshOf(new Req().grant("refresh_token").build(),
+                List.of(Map.of("x", 1), PAY_42), Set.of("payment_initiation")));
     }
 
     // --- The criterion's own route: no filter verified the request, so the criterion verifies it. ---
