@@ -1,0 +1,23 @@
+id: F-0410
+title: The Entity Configuration's openid_provider block replaces PingFederate's method and DPoP lists where its other documents extend them
+severity: low
+area: openid-federation
+source: design
+status: open
+plan_items: [S-4]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found on 2026-10-01 in S4M. Since S4M the authorization server's attestation members are one set in all four of its
+  metadata documents, but the documents still disagree on two lists that are not attestation's. The Entity
+  Configuration's openid_provider block sets token_endpoint_auth_methods_supported to tokenEndpointAuthMethodsSupported
+  (by default private_key_jwt and the two attestation methods) and dpop_signing_alg_values_supported to
+  dpopSigningAlgValuesSupported (ES256, RS256, PS256), replacing what PingFederate's own discovery says
+  (FederationService.selfMetadata). Its oauth_authorization_server block and PingFederate's two discovery documents
+  keep PingFederate's lists - on the rig (2026-10-01) client_secret_basic, client_secret_post, client_secret_jwt,
+  private_key_jwt, tls_client_auth and none, and nine DPoP algorithms - with the attestation methods appended. S4M left
+  openid_provider as it was because the spec asked for it unchanged and the narrow list may be deliberate: a
+  federation relying party registered automatically authenticates with private_key_jwt. Low: advertisement, not a
+  control; PingFederate enforces each client's own method. The fix is a decision - openid_provider narrows on purpose,
+  and says so, or it extends PingFederate's lists like the other three.
