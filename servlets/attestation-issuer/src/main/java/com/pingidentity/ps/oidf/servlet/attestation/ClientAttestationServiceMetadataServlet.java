@@ -53,8 +53,11 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     /** Request members every issuance request must carry ({@code svid} is the SPIFFE-era alias). */
     static final List<String> REQUEST_PARAMETERS_REQUIRED =
             List.of("client_id", "instance_key", "instance_attestation", "proof");
-    /** Proof claims the endpoint always enforces; {@code challenge} joins when the challenge is required. */
-    static final List<String> PROOF_CLAIMS_REQUIRED = List.of("aud", "jti");
+    /**
+     * Proof claims the endpoint always enforces; {@code challenge} joins when the challenge is required. {@code iat}
+     * and {@code exp} are required since S4c (CAS §4.3, which lists both as REQUIRED; InstanceKeyProofValidator).
+     */
+    static final List<String> PROOF_CLAIMS_REQUIRED = List.of("aud", "jti", "iat", "exp");
     /** Claims minted into every issued attestation. */
     static final List<String> ATTESTATION_CLAIMS_ISSUED =
             List.of("iss", "sub", "iat", "exp", "cnf", "workload");

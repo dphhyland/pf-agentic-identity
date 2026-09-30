@@ -2,8 +2,10 @@
 
 From 0.5.0, every war built from this repository logs one banner to server.log as it finishes starting (plan item
 F-2): `pf-runtime.war`, on PingFederate's runtime port, and `gm-api.war` or the demo-only `oidf.war` where they are
-deployed. It says what the war runs and how it is configured. Nothing needs configuring, and nothing starts, stops
-or is refused because of it: turning what it finds into refused components is PR-5 (0.6.0).
+deployed. It says what the war runs and how it is configured. Nothing needs configuring. From 0.6.0 it also lists
+what the production profile refused ([deployment-profile.md](deployment-profile.md)): the refusing itself happens
+earlier, before any filter or servlet starts, and is logged there once, at ERROR under production and at WARN under
+development, one line per violation.
 
 It is one INFO event on the logger `com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener`, logged after
 the war's filters and load-on-startup servlets have started, so the component states are the ones they reached.
@@ -19,6 +21,10 @@ INFO  [com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener] Start-u
   topology:       standalone
   accepted risks: none
   risk refusals:  none
+  violations:     none
+  code refusals:  none
+  profile notes:  none
+  legacy values:  none
   insecure TLS:   none
   JDK host names: checked
   components:     ATTESTATION_AUTH DISABLED
@@ -43,8 +49,12 @@ INFO  [com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener] Start-u
 | `topology` | `standalone` | always `standalone` until 0.7.0 tells a cluster from one node |
 | `accepted risks` | each risk `OIDF_ACCEPTED_RISKS` accepts, its expiry and what it lets happen | anything you did not mean to accept |
 | `risk refusals` | how many `OIDF_ACCEPTED_RISKS` entries were not accepted - unknown, expired, undated where a date is needed, with a date that is not a real YYYY-MM-DD date, empty, or named twice | anything but `none`: each is also logged at WARN on the same logger, naming the entry |
+| `violations` | each violation of the production profile the start-up sweep found, labelled `REFUSED:`, `not refused (development):`, `not refused (switched off):` when every component it names is switched off, `not refused (names no component):`, or `not refused (not switched on):` for a required setting of a component not switched on | anything `REFUSED`: that component answers 503 until the setting is fixed or its risk accepted |
+| `code refusals` | each component a package refused in code, for a condition that is not a setting (a store in memory without the `in-memory-state` risk) | anything at all in production |
+| `profile notes` | the sweep's warnings: an `OIDF_*` name under no catalogue's family, a refused `OIDF_ACCEPTED_RISKS` entry, a legacy spelling | a misspelt name |
+| `legacy values` | each setting read so far from a spelling only the reader before 0.6.0 took (development only), and what it was read as | the strict spelling to write instead |
 | `insecure TLS` | each setting that turned certificate or host-name checking off in this war, and since when | anything at all in production |
-| `JDK host names` | whether `jdk.internal.httpclient.disableHostnameVerification` switches host name checking off for every Java HTTP client in the JVM | `checked` in production |
+| `JDK host names` | whether `jdk.internal.httpclient.disableHostnameVerification` switches host name checking off for every Java HTTP client in the JVM | `checked` in production; from 0.6.0 production refuses every component while the property is set, with any value, even `false`, which the JDK reads as checked |
 | `components` | each feature's state and, when it is not serving, why | the same states `/agentic-identity/health` reports ([health.md](health.md)) |
 | `executors` | the background jobs this war runs | |
 | `metrics MXBean` | the JMX name of this war's metrics | |

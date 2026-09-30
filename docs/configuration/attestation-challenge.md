@@ -4,6 +4,8 @@
 
 The settings of the `attestation-challenge` component of `libs/client-attestation`, read by package `com.pingidentity.ps.oidf.clientattestation.servlet`: generated from its catalogue, [attestation-challenge.json](../../libs/client-attestation/src/main/resources/META-INF/oidf-settings/attestation-challenge.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `ATTESTATION_AUTH`, `ATTESTATION_ISSUER` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `challengeCacheMaxEntries` (init-param) | `8192`; a whole number, at least -1 | How many unredeemed challenges the endpoint keeps in memory, -1 for no limit; each challenge endpoint reads its own - the authorization server's ClientAttestationChallengeServlet and the attester's AttestationIssuanceChallengeServlet - and neither reaches the other's; with Redis it is not used | **First request**: Not a whole number: ignored with a warning, and the default used. In memory, 0 or below -1: the endpoint fails when it starts, at its first request, and its challenges keep the settings they had | Any | Yes |

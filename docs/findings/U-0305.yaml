@@ -1,0 +1,17 @@
+id: U-0305
+title: The engine copy's own profile sweep has not been seen on a running PingFederate
+area: platform
+source: design
+status: open
+plan_items: [PR-5, S9b]
+prs: [77]
+recorded_in: libs/platform/README.md, profile
+verify_by: 'On the rig in production with a violation set: an OGNL criterion that asks ProfileRefusals from the engine loader gets the answer the webapp copy published.'
+verification: ''
+notes: >
+  Found by PR5 (2026-09-30). ProfileRefusals in a copy nothing publishes to - the engine's, in server/default/deploy,
+  where the OGNL criteria run - evaluates the sweep on first use from the same process-wide sources and the
+  catalogues its own loader sees. LifecycleSweepTest shows two separate copies of platform giving one answer, but
+  nothing in the engine copy asks yet, so the answer has not been read there on a running PingFederate, and the
+  engine loader's catalogue set (the deploy directory's jars, without pf-runtime.war's) has not been compared with
+  the webapp's. Who and when: S9B (wave 4), whose criteria answer false for a refused component.

@@ -9,6 +9,7 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import jakarta.servlet.Servlet;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletContext;
@@ -33,9 +34,16 @@ import java.util.Optional;
 import java.util.Set;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 class LifecycleListenerTest {
+
+    /** contextInitialized publishes this process's sweep in this JVM's copy; the tests after this one start from none. */
+    @AfterEach
+    void forgetTheSweep() {
+        ProfileRefusals.resetForTests();
+    }
 
     /** What the fake context was asked to do. */
     static final class Container {

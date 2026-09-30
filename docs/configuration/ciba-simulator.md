@@ -6,7 +6,9 @@ The settings of the `ciba-simulator` component of `plugins/ciba-sim`, read by pa
 
 Families: `OIDF_CIBA_SIM_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `CIBA_SIMULATOR` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
-| `OIDF_CIBA_SIM_ENABLED` | `false` | Whether the conformance CIBA simulator runs: an approval oracle keyed by nothing but an auth_req_id, so it runs only with this true, OIDF_DEPLOYMENT_PROFILE=development and a safe OIDF_CIBA_SIM_DIR, checked by the decision servlet and the authenticator before every request | **Per request**: Anything but true, in any case, is off: the decision endpoint is 404 and every backchannel request through the authenticator fails | Not in production | Yes |
+| `OIDF_CIBA_SIM_ENABLED` | `false` | Whether the conformance CIBA simulator runs: an approval oracle keyed by nothing but an auth_req_id, so it runs only with this true, OIDF_DEPLOYMENT_PROFILE=development and a safe OIDF_CIBA_SIM_DIR, checked by the decision servlet and the authenticator before every request | **Per request**: Anything but true, in any case, is off: the decision endpoint is 404 and every backchannel request through the authenticator fails | Not in production: `true` | Yes |
 | `OIDF_CIBA_SIM_DIR` | Unset; a file path | The decision directory the servlet and the authenticator hand decisions over in: an absolute path to an existing directory, not a symbolic link, owned by the user PingFederate runs as, mode 0700, on a POSIX filesystem; never created by the plugin, and read only once the simulator is enabled | **Per request**: Unset, relative, missing, a file, a link, another user's, any mode but 0700, or not POSIX: the simulator refuses every request, naming the reason | Any | Yes |

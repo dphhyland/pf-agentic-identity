@@ -18,7 +18,6 @@ import com.pingidentity.ps.oidf.issuer.EvidencePolicy;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.issuer.AttesterSigningKey;
 import com.pingidentity.ps.oidf.clientattestation.AttesterKeyResolver;
-import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.issuer.EntraDirectoryAssertedContextResolver;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationWalletProviderKeyResolver;
@@ -93,7 +92,6 @@ import org.jose4j.jwk.JsonWebKeySet;
 public class AttestationIssuanceServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(AttestationIssuanceServlet.class);
-    private static final long PROOF_REPLAY_TTL_SECONDS = ClientAttestationConfig.DEFAULT_POP_MAX_AGE_SECONDS;
 
     private volatile IssuanceClientResolver clientResolver;
     private volatile AttesterSigningKey attesterSigningKey;
@@ -228,11 +226,18 @@ public class AttestationIssuanceServlet extends HttpServlet {
         } else if (this.challengeRequired) {
             throw IssuanceException.invalidInstanceProof("a server-issued challenge is required");
         }
-        switch (replayCache().record(clientId, proof.jti(), PROOF_REPLAY_TTL_SECONDS)) {
+        // The jti is remembered until the proof's own window ends (exp + skew, plan item S4c), not for a fixed time
+        // from now; a proof whose window closed while the steps above ran is stale, and the store is not asked.
+        if (proof.retainUntilEpochSeconds() < this.proofValidator.clock().millis() / 1000L) {
+            throw IssuanceException.invalidInstanceProof(InstanceKeyProofValidator.WINDOW_REFUSED);
+        }
+        switch (replayCache().recordUntil(clientId, proof.jti(), proof.retainUntilEpochSeconds())) {
             case FIRST_USE:
                 break;
             case STORE_UNAVAILABLE:
                 throw IssuanceException.temporarilyUnavailable("the attestation replay store is unavailable");
+            case STALE:
+                throw IssuanceException.invalidInstanceProof(InstanceKeyProofValidator.WINDOW_REFUSED);
             default:
                 throw IssuanceException.invalidInstanceProof("proof jti has already been used (replay)");
         }
@@ -403,6 +408,11 @@ public class AttestationIssuanceServlet extends HttpServlet {
 
     void setReplayCache(AttestationReplayCache cache) {
         this.replayCache = cache;
+    }
+
+    /** A test's proof validator, for a clock the test controls. */
+    void setProofValidator(InstanceKeyProofValidator validator) {
+        this.proofValidator = validator;
     }
 
     void setRarModels(RarModels models) {

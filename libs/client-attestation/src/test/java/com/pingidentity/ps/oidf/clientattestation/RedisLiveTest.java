@@ -94,6 +94,27 @@ class RedisLiveTest {
         }
     }
 
+    /**
+     * Retention from the window (plan item S4c): the key's PX runs to the end of the retention second, computed
+     * once, so one second before it the jti is a replay and one second after it Redis has let it go.
+     */
+    @Test
+    void aJtiIsRetainedUntilTheEndOfItsWindowAndNoLonger() throws Exception {
+        needPlain();
+        try (RedisClient client = plain(PLAIN);
+             RedisAttestationStore store = new RedisAttestationStore(client, true, StoreNamespace.CAS, 300L, java.time.Clock.systemUTC())) {
+            String client1 = unique("https://client.example/");
+            long retainUntil = now() + 1L;
+            assertEquals(Verdict.FIRST_USE, store.recordUntil(client1, "jti-w", retainUntil));
+            Object pttl = client.call("PTTL", "oidf:cas:jti:" + client1 + " jti-w");
+            assertTrue(pttl instanceof Long && (Long) pttl > 0L && (Long) pttl <= 2000L, String.valueOf(pttl));
+            assertEquals(Verdict.REPLAY, store.recordUntil(client1, "jti-w", retainUntil), "before the retention ends");
+            Thread.sleep(Math.max(0L, (retainUntil + 1L) * 1000L - System.currentTimeMillis()) + 1000L);
+            assertEquals(Verdict.STALE, store.recordUntil(client1, "jti-w", retainUntil), "a second after it, stale");
+            assertEquals(0L, client.call("EXISTS", "oidf:cas:jti:" + client1 + " jti-w"), "and Redis has let it go");
+        }
+    }
+
     @Test
     void theClientAuthenticatesOverTlsAfterVerifyingTheServer() throws Exception {
         needTls();

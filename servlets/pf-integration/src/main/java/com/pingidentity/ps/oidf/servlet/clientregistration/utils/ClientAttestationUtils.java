@@ -71,6 +71,24 @@ public final class ClientAttestationUtils {
     public static final String RAR_ATTESTATION_CONTEXT_ATTRIBUTE =
             "com.pingidentity.ps.oidf.rar.attestation_context";
 
+    /**
+     * The attestation context's member carrying {@link AttestationPolicyResolver#fingerprint} of the policy the
+     * attestation was verified under. The criterion, reusing the filter's verification, computes it again from the
+     * policy it resolves for the client and refuses a context whose member differs or is absent (plan item S4c).
+     */
+    public static final String POLICY_FINGERPRINT_KEY = "attestation_policy_fingerprint";
+
+    /**
+     * The attestation context's member carrying the {@code sub} of a token-exchange {@code subject_token} this
+     * PingFederate signed ({@link SubjectTokenVerifier}): the RAR plugin's {@code AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY},
+     * pinned equal by {@code RarContextKeyTest} (F-0074). Absent when the request is not a token exchange or its subject
+     * token does not verify.
+     */
+    public static final String VERIFIED_SUBJECT_TOKEN_KEY = "verified_subject_token_sub";
+
+    /** RFC 8693 §2.1's grant type. */
+    static final String TOKEN_EXCHANGE_GRANT = "urn:ietf:params:oauth:grant-type:token-exchange";
+
     private static final Log LOGGER = LogFactory.getLog(ClientAttestationUtils.class);
     private static final Object LOCK = new Object();
     private static volatile TrustControllerGateway gateway;
@@ -144,6 +162,19 @@ public final class ClientAttestationUtils {
     static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost,
             String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerOf,
             java.util.function.Supplier<String> tokenEndpointBaseUrl) {
+        return ClientAttestationUtils.validateClientAttestationInner(inObj, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl,
+                issuerOf, tokenEndpointBaseUrl, AttestationPolicyResolver.shared(), SubjectTokenVerifier.pingFederate());
+    }
+
+    /**
+     * Test seam: the criterion with the client policy resolver and the subject token verifier supplied as well, since
+     * both reach PingFederate's client manager and signing keys in production.
+     */
+    static boolean validateClientAttestationInner(Object inObj, Boolean ignoreSslErrors, String trustControllerHost,
+            String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerOf,
+            java.util.function.Supplier<String> tokenEndpointBaseUrl, AttestationPolicyResolver resolver,
+            SubjectTokenVerifier subjectTokens) {
+        String requestedClientId = null;
         try {
             if (!(inObj instanceof Map)) {
                 LOGGER.error((Object) ("In parameters not instance of Map. " + (inObj == null ? "null" : inObj.getClass().getName())));
@@ -151,7 +182,7 @@ public final class ClientAttestationUtils {
             }
             Map inParameters = (Map) inObj;
             HttpServletRequest request = (HttpServletRequest) ((AttributeValue) inParameters.get("context.HttpRequest")).getObjectValue();
-            String requestedClientId = ClientAttestationUtils.attributeValue(inParameters, "context.ClientId");
+            requestedClientId = ClientAttestationUtils.attributeValue(inParameters, "context.ClientId");
             // If the token-endpoint filter already verified this request, reuse its result rather than
             // verifying again. Both paths call ClientAttestationVerifier.verify(), and verify() CONSUMES
             // the challenge and burns the PoP jti - so two verifications of one request destroy each
@@ -167,19 +198,34 @@ public final class ClientAttestationUtils {
             if (alreadyVerified instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> verified = (Map<String, Object>) alreadyVerified;
+                // The filter verified under the policy it resolved for the client. This copy resolves the client's
+                // policy again and refuses a verification made under another one - a filter that ignored the client's
+                // properties, as every filter before 0.6.0 did (F-0009), or a context for another client.
+                ClientAttestationConfig policy = ClientAttestationUtils.effectivePolicy(resolver, requestedClientId,
+                        issuerOf.apply(request), tokenEndpointBaseUrl.get(), ClientAttestationUtils.endpointPath(request));
+                String mismatch = ClientAttestationUtils.reusedVerificationProblem(verified, requestedClientId,
+                        AttestationPolicyResolver.fingerprint(policy));
+                if (mismatch != null) {
+                    LOGGER.info((Object) ("Attestation-based client authentication refused: " + mismatch));
+                    AttestationEvents.refused(AttestationEvents.CRITERION, requestedClientId, ClientAttestationException.INVALID_CLIENT);
+                    return false;
+                }
                 request.setAttribute(RAR_ATTESTATION_CONTEXT_ATTRIBUTE, verified);
                 if (LOGGER.isInfoEnabled()) {
                     LOGGER.info((Object) ("Attestation-based client authentication satisfied by the "
                             + "token-endpoint filter's verification for client_id=" + verified.get("client_id")));
                 }
+                AttestationEvents.verified(AttestationEvents.CRITERION, requestedClientId, ClientAttestationUtils.string(verified.get("iss")));
                 return true;
             }
 
             ClientAttestationResult result = ClientAttestationUtils.verifyAtTheCriterion(inParameters, request, requestedClientId,
-                    issuerOf, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, tokenEndpointBaseUrl);
+                    issuerOf, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, tokenEndpointBaseUrl, resolver, subjectTokens);
             if (result == null) {
+                AttestationEvents.refused(AttestationEvents.CRITERION, requestedClientId, "server_error");
                 return false;
             }
+            AttestationEvents.verified(AttestationEvents.CRITERION, requestedClientId, result.attesterIssuer());
             if (LOGGER.isInfoEnabled()) {
                 LOGGER.info((Object) ("Attestation-based client authentication succeeded for client_id=" + result.clientId()
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
@@ -192,9 +238,20 @@ public final class ClientAttestationUtils {
             // endpoint filter, where it runs, answers first with the error itself.
             LOGGER.info((Object) ("Attestation-based client authentication failed [" + e.error() + "]: " + e.getMessage()
                     + ClientAttestationUtils.refusalDetail(e)));
+            AttestationEvents.refused(AttestationEvents.CRITERION, requestedClientId, e.error());
+            return false;
+        } catch (AttestationPolicyException e) {
+            LOGGER.warn((Object) ("Attestation-based client authentication refused: " + e.getMessage()));
+            AttestationEvents.policyInvalid(AttestationEvents.CRITERION, e);
+            AttestationEvents.refused(AttestationEvents.CRITERION, requestedClientId, ClientAttestationException.INVALID_CLIENT);
+            return false;
+        } catch (AttestationPolicyResolver.Unavailable e) {
+            LOGGER.warn((Object) ("Attestation-based client authentication refused: " + e.getMessage()));
+            AttestationEvents.refused(AttestationEvents.CRITERION, requestedClientId, ClientAttestationException.TEMPORARILY_UNAVAILABLE);
             return false;
         } catch (Exception e) {
             LOGGER.info((Object) "Attestation-based client authentication failed", (Throwable) e);
+            AttestationEvents.refused(AttestationEvents.CRITERION, requestedClientId, "server_error");
             return false;
         } catch (Throwable t) {
             // An Error escaping here surfaces as an opaque OGNL "Method failed" with no trace; this
@@ -214,7 +271,8 @@ public final class ClientAttestationUtils {
      */
     static ClientAttestationResult verifyAtTheCriterion(Map inParameters, HttpServletRequest request, String requestedClientId,
             java.util.function.Function<HttpServletRequest, String> issuerOf, Boolean ignoreSslErrors, String trustControllerHost,
-            String trustControllerBaseUrl, java.util.function.Supplier<String> tokenEndpointBaseUrl) throws Exception {
+            String trustControllerBaseUrl, java.util.function.Supplier<String> tokenEndpointBaseUrl, AttestationPolicyResolver resolver,
+            SubjectTokenVerifier subjectTokens) throws Exception {
         // The containment model the token gate asks. The engine classloader has no start-up hook, so this first
         // call is where it loads, once per classloader; a models document it cannot read refuses every attested
         // token here, and AttestationRarModels logs why once. Plan item S-9 (Phase 3) gives the component a
@@ -235,14 +293,17 @@ public final class ClientAttestationUtils {
         String dpop = ClientAttestationUtils.singleHeader(request, "DPoP");
         // The endpoint's URL as PingFederate advertises it, not the request URL: that is rebuilt from the
         // Host header, which is the caller's to write (see endpointUrl).
-        String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer,
-                tokenEndpointBaseUrl.get(), ClientAttestationUtils.endpointPath(request));
+        String tokenBase = tokenEndpointBaseUrl.get();
+        String path = ClientAttestationUtils.endpointPath(request);
+        String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, tokenBase, path);
 
-        AttesterKeyResolver resolver = ClientAttestationUtils.resolveAttesterTrust(
+        // The client's policy, from the same resolver the filter asks: the server's, tightened by the client's
+        // attestation_* properties (plan item S4c). context.ClientId is the client PingFederate authenticated.
+        ClientAttestationConfig config = ClientAttestationUtils.effectivePolicy(resolver, requestedClientId, opIssuer, tokenBase, path);
+        AttesterKeyResolver attesters = ClientAttestationUtils.resolveAttesterTrust(
                 ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, opIssuer,
                 ClientAttestationUtils.trustChainEntryMaxAge(inParameters));
-        ClientAttestationConfig config = ClientAttestationUtils.buildConfig(inParameters, opIssuer, endpointUrl);
-        ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(resolver, config,
+        ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(attesters, config,
                 AttestationSupport.replayCache(), AttestationSupport.challengeService(), rarModels);
 
         // Prefer the standard RFC 9396 parameter, but PingFederate's AS pre-validates
@@ -272,10 +333,65 @@ public final class ClientAttestationUtils {
         // Publish the verified attestation context for the RAR -> PingAuthorize AuthorizationDetailProcessor
         // (pf-rar-paz-plugin: AttestationSubject.REQUEST_ATTRIBUTE). Decoupled by a shared string key and a
         // plain Map, so neither module depends on the other.
-        Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
+        Map<String, Object> context = ClientAttestationUtils.attestationContext(result, config, request, opIssuer, subjectTokens);
         request.setAttribute(RAR_ATTESTATION_CONTEXT_ATTRIBUTE, context);
         request.setAttribute(VERIFIED_ATTESTATION_ATTRIBUTE, context);
         return result;
+    }
+
+    /**
+     * Why a context the filter published may not satisfy the criterion for {@code clientId}, or null when it may: it
+     * must name the client PingFederate authenticated, and carry the fingerprint of the policy this copy resolves for
+     * that client.
+     */
+    static String reusedVerificationProblem(Map<String, Object> verified, String clientId, String fingerprint) {
+        if (clientId == null || !clientId.equals(verified.get("client_id"))) {
+            return "the token-endpoint filter verified an attestation for another client than " + clientId;
+        }
+        if (!fingerprint.equals(verified.get(POLICY_FINGERPRINT_KEY))) {
+            return "the token-endpoint filter verified client " + clientId + "'s attestation under another policy than"
+                    + " its attestation_* properties give (a filter from before 0.6.0, or properties changed in between)";
+        }
+        return null;
+    }
+
+    /**
+     * The server's attestation policy for a request to {@code endpointUrl}: {@link #defaultConfig}, with the required
+     * claims every client's attestation must carry ({@link #requiredClaimsDefault}). Both routes start from it; a
+     * client's properties can only tighten it ({@link ClientAttestationPolicy}). Until 0.6.0 the filter used
+     * {@link #defaultConfig} alone, so {@code OIDF_ATTESTATION_REQUIRED_CLAIMS} applied only where the criterion
+     * verified.
+     */
+    public static ClientAttestationConfig globalPolicy(String opIssuer, String endpointUrl) {
+        ClientAttestationConfig base = ClientAttestationUtils.defaultConfig(opIssuer, endpointUrl);
+        Set<String> required = ClientAttestationUtils.requiredClaimsDefault(System::getProperty, System::getenv);
+        return required == null ? base : ClientAttestationConfig.builder()
+                .expectedAudience(base.expectedAudience())
+                .expectedHtu(base.expectedHtu())
+                .expectedHtm(base.expectedHtm())
+                .requiredDisclosedClaims(required)
+                .build();
+    }
+
+    /**
+     * {@code clientId}'s effective policy for a request to the endpoint at {@code endpointPath}: {@link #globalPolicy}
+     * tightened by the client's {@code attestation_*} properties, which {@code resolver} reads. The URLs an
+     * {@code attestation_expected_htu} may pin are the token endpoint's as PingFederate advertises it
+     * ({@link #endpointUrl}) and the issuer followed by its path; at another endpoint the pin does not apply.
+     *
+     * @throws AttestationPolicyException when the client's properties do not parse or would loosen the server's policy
+     * @throws AttestationPolicyResolver.Unavailable when PingFederate's client manager cannot answer
+     */
+    public static ClientAttestationConfig effectivePolicy(AttestationPolicyResolver resolver, String clientId, String opIssuer,
+            String tokenEndpointBaseUrl, String endpointPath) throws AttestationPolicyException, AttestationPolicyResolver.Unavailable {
+        String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, tokenEndpointBaseUrl, endpointPath);
+        Set<String> aliases = new LinkedHashSet<>();
+        if (TOKEN_ENDPOINT_PATH.equals(endpointPath)) {
+            aliases.add(endpointUrl);
+            aliases.add(ClientAttestationUtils.endpointUrl(opIssuer, null, endpointPath));
+            aliases.remove(null);
+        }
+        return resolver.policy(clientId).apply(ClientAttestationUtils.globalPolicy(opIssuer, endpointUrl), aliases);
     }
 
     /**
@@ -294,6 +410,38 @@ public final class ClientAttestationUtils {
      * {@code RarModels.fingerprint()} of the model set that checked the request's details, lower-case hex SHA-256,
      * which the plugin compares with its own (plan item S1c). Consumed via a request attribute so the RAR
      * decision can be bounded by what the attester actually vouched.
+     */
+    public static Map<String, Object> attestationContext(ClientAttestationResult result, ClientAttestationConfig policy,
+            HttpServletRequest request, String opIssuer, SubjectTokenVerifier subjectTokens) {
+        Map<String, Object> ctx = ClientAttestationUtils.attestationContext(result);
+        ctx.put(POLICY_FINGERPRINT_KEY, AttestationPolicyResolver.fingerprint(policy));
+        String subject = ClientAttestationUtils.verifiedSubjectTokenSubject(request, opIssuer, subjectTokens);
+        if (subject != null) {
+            ctx.put(VERIFIED_SUBJECT_TOKEN_KEY, subject);
+        }
+        return ctx;
+    }
+
+    /**
+     * The {@code sub} of a token exchange's {@code subject_token} when it verifies as a token this PingFederate signed
+     * ({@link SubjectTokenVerifier}); null for any other request, for a subject token sent more than once, and for one
+     * that does not verify (F-0074). The RAR plugin takes a token exchange's principal from this alone.
+     */
+    static String verifiedSubjectTokenSubject(HttpServletRequest request, String opIssuer, SubjectTokenVerifier subjectTokens) {
+        if (!TOKEN_EXCHANGE_GRANT.equals(request.getParameter("grant_type"))) {
+            return null;
+        }
+        String[] tokens = request.getParameterValues("subject_token");
+        if (tokens == null || tokens.length != 1) {
+            return null;
+        }
+        return SubjectTokenVerifier.subject(subjectTokens.verify(tokens[0], opIssuer));
+    }
+
+    /**
+     * The context without the policy fingerprint or a subject token: the attestation's own members. The filter and the
+     * criterion publish {@link #attestationContext(ClientAttestationResult, ClientAttestationConfig, HttpServletRequest,
+     * String, SubjectTokenVerifier)}.
      */
     public static Map<String, Object> attestationContext(ClientAttestationResult result) {
         Map<String, Object> ctx = new java.util.LinkedHashMap<>();
@@ -384,11 +532,10 @@ public final class ClientAttestationUtils {
     /**
      * Default verification policy for the token-endpoint auth filter: the PoP audience is the OP issuer and
      * nothing else (draft-ietf-oauth-attestation-based-client-auth-10 §5.1 and §7.2, item 7), a DPoP proof's
-     * {@code htu} is {@code endpointUrl} (see {@link #endpointUrl}), method POST. The filter has no
-     * issuance-criteria context, so the per-client {@code extproperties.*} tuning read by {@link #buildConfig}
-     * does not apply here — and because the OGNL issuance criterion reuses the verification this filter
-     * publishes rather than verifying again (verify-once), that tuning does not apply to a filter-authenticated
-     * request at all.
+     * {@code htu} is {@code endpointUrl} (see {@link #endpointUrl}), method POST. {@link #globalPolicy} adds the
+     * required claims, and a client's {@code attestation_*} properties tighten that on both routes
+     * ({@link #effectivePolicy}); until 0.6.0 the filter used this alone and the properties applied only where the
+     * criterion verified (F-0009).
      *
      * <p>Until 0.4.0 the request URL was accepted as a PoP audience as well, and was the {@code htu}. It is
      * rebuilt from the {@code Host} header, so a PoP or DPoP proof minted for another server - one whose token
@@ -565,66 +712,8 @@ public final class ClientAttestationUtils {
     }
 
     /**
-     * Builds the verification policy: the PoP audience is the OP issuer alone and a DPoP proof's {@code htu}
-     * is {@code endpointUrl}, as in {@link #defaultConfig}, with optional {@code extproperties.*} overrides:
-     * {@code attestation_pop_max_age}, {@code attestation_dpop_max_age}, {@code attestation_clock_skew},
-     * {@code attestation_challenge_required}, {@code attestation_expected_htu} (an administrator's pin of the
-     * {@code htu}, which replaces {@code endpointUrl}), {@code attestation_accepted_algs},
-     * {@code attestation_pop_algs}, {@code attestation_dpop_algs}.
-     */
-    private static ClientAttestationConfig buildConfig(Map inParameters, String opIssuer, String endpointUrl) {
-        ClientAttestationConfig.Builder b = ClientAttestationConfig.builder()
-                .expectedAudience(opIssuer)
-                .expectedHtu(endpointUrl)
-                .expectedHtm("POST");
-
-        Long popMaxAge = ClientAttestationUtils.longProp(inParameters, "extproperties.attestation_pop_max_age");
-        if (popMaxAge != null) {
-            b.popMaxAgeSeconds(popMaxAge);
-        }
-        Long dpopMaxAge = ClientAttestationUtils.longProp(inParameters, "extproperties.attestation_dpop_max_age");
-        if (dpopMaxAge != null) {
-            b.dpopMaxAgeSeconds(dpopMaxAge);
-        }
-        Long clockSkew = ClientAttestationUtils.longProp(inParameters, "extproperties.attestation_clock_skew");
-        if (clockSkew != null) {
-            b.allowedClockSkewSeconds(clockSkew.intValue());
-        }
-        Boolean challengeRequired = ClientAttestationUtils.boolProp(inParameters, "extproperties.attestation_challenge_required");
-        if (challengeRequired != null) {
-            b.challengeRequired(challengeRequired);
-        }
-        String expectedHtu = ClientAttestationUtils.stringProp(inParameters, "extproperties.attestation_expected_htu");
-        if (expectedHtu != null) {
-            b.expectedHtu(expectedHtu);
-        }
-        Set<String> attAlgs = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_accepted_algs");
-        if (attAlgs != null) {
-            b.attestationAlgorithms(attAlgs);
-        }
-        Set<String> popAlgs = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_pop_algs");
-        if (popAlgs != null) {
-            b.popAlgorithms(popAlgs);
-        }
-        Set<String> dpopAlgs = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_dpop_algs");
-        if (dpopAlgs != null) {
-            b.dpopAlgorithms(dpopAlgs);
-        }
-        // Required-claims policy (AS side): top-level claims this AS requires the attestation to carry.
-        // Per-client via extproperties.attestation_required_claims, else the global default (comma-separated;
-        // e.g. "workload") - see requiredClaimsDefault.
-        Set<String> requiredClaims = ClientAttestationUtils.setProp(inParameters, "extproperties.attestation_required_claims");
-        if (requiredClaims == null) {
-            requiredClaims = ClientAttestationUtils.requiredClaimsDefault(System::getProperty, System::getenv);
-        }
-        if (requiredClaims != null) {
-            b.requiredDisclosedClaims(requiredClaims);
-        }
-        return b.build();
-    }
-
-    /**
-     * The required claims for a client whose {@code attestation_required_claims} names none: the
+     * The required claims every client's attestation must carry, to which a client's {@code attestation_required_claims}
+     * adds: the
      * {@code oidf.attestation.required.claims} system property, else {@code OIDF_ATTESTATION_REQUIRED_CLAIMS} - the
      * first set to something not blank, as the catalogue entry records its sources - or null when neither names one.
      * The image used to set the property to {@code workload}; from 0.6.0 the deployment sets either (plan item R-I3).
@@ -737,13 +826,14 @@ public final class ClientAttestationUtils {
      * <p>Needed because PF's expression validator exposes ONLY context attributes
      * ({@code context.HttpRequest}, {@code context.ClientId}) to a mapping's OGNL — token-exchange
      * processor-policy contract attributes are not referable, so the prior chain cannot be nested
-     * from a policy attribute. Instead this reads the {@code subject_token} request parameter and
-     * decodes its {@code act} claim without verifying the signature. That is safe for the same
-     * reason as {@link #attestationClaim}: the subject token's validity is separately enforced by
-     * the token-exchange processor before any token is issued, so an unverified read can never
-     * produce a token for a subject token PF rejected. The {@code act} claim is emitted (and
-     * consumed) as a JSON string; a string-encoded prior chain is re-parsed so it nests as an
-     * object rather than double-escaped text.
+     * from a policy attribute. Instead this reads the {@code subject_token} request parameter, and nests its
+     * {@code act} only when the token verifies as one this PingFederate signed - its signature against
+     * PingFederate's signing keys, its issuer, its {@code exp} ({@link SubjectTokenVerifier}; plan item S4c,
+     * F-0074). A subject token that does not verify contributes nothing, and the chain names only the acting
+     * party. Until 0.6.0 the {@code act} was decoded without verifying, on the grounds that the token-exchange
+     * processor validates the subject token before any token is issued; that is a property of how a deployment
+     * configures the processor, not of this code. The {@code act} claim is emitted (and consumed) as a JSON
+     * string; a string-encoded prior chain is re-parsed so it nests as an object rather than double-escaped text.
      *
      * <p>Phase 2.8: the acting party's {@code sub} is the attester-minted {@code agent_id} when the
      * exchanging client's presented attestation carries one — naming the specific instance, not just its
@@ -754,16 +844,16 @@ public final class ClientAttestationUtils {
      * their issuing authority — the full identity of the acting party is the pair. Both reads go through
      * {@link #attestationClaim} and therefore come from the VERIFIED attestation context, not from
      * decoding the presented header.
-     *
-     * <p>The {@code act} chain below is the one unverified read left here, and it is a different claim
-     * with a different justification: it is the caller's own {@code subject_token}, which the
-     * token-exchange processor validates before any token is issued, so a rejected subject token cannot
-     * produce a token carrying its chain. That is a property of the grant type rather than of a
-     * configurable issuance criterion — which is what made the old reasoning for {@code attestationClaim}
-     * weaker than it looked.
      */
-    @SuppressWarnings("unchecked")
     public static String delegationActChain(Object inObj) {
+        return ClientAttestationUtils.delegationActChain(inObj, ClientAttestationUtils::pingFederateIssuer,
+                SubjectTokenVerifier.pingFederate());
+    }
+
+    /** Test seam: {@link #delegationActChain(Object)} with PingFederate's issuer and signing keys supplied. */
+    @SuppressWarnings("unchecked")
+    static String delegationActChain(Object inObj, java.util.function.Function<HttpServletRequest, String> issuerOf,
+            SubjectTokenVerifier subjectTokens) {
         try {
             if (!(inObj instanceof Map)) {
                 return "";
@@ -784,16 +874,11 @@ public final class ClientAttestationUtils {
             }
             HttpServletRequest request =
                     (HttpServletRequest) ((AttributeValue) map.get("context.HttpRequest")).getObjectValue();
-            String subjectToken = request.getParameter("subject_token");
-            String[] parts = subjectToken == null ? new String[0] : subjectToken.split("\\.");
-            if (parts.length >= 2) {
-                String json = new String(java.util.Base64.getUrlDecoder().decode(parts[1]),
-                        java.nio.charset.StandardCharsets.UTF_8);
-                Object priorAct = org.jose4j.json.JsonUtil.parseJson(json).get("act");
-                if (priorAct instanceof String && !((String) priorAct).isBlank()) {
-                    priorAct = org.jose4j.json.JsonUtil.parseJson((String) priorAct);
-                }
-                if (priorAct instanceof Map) {
+            String[] subjectTokenValues = request.getParameterValues("subject_token");
+            if (subjectTokenValues != null && subjectTokenValues.length == 1) {
+                Map<String, Object> priorAct = SubjectTokenVerifier.act(
+                        subjectTokens.verify(subjectTokenValues[0], issuerOf.apply(request)));
+                if (priorAct != null) {
                     chain.put("act", priorAct);
                 }
             }
@@ -845,6 +930,11 @@ public final class ClientAttestationUtils {
         }
     }
 
+    /** {@code value} when it is a string, else null. */
+    static String string(Object value) {
+        return value instanceof String ? (String) value : null;
+    }
+
     private static String attributeValue(Map inParameters, String key) {
         Object value = inParameters.get(key);
         if (value instanceof AttributeValue) {
@@ -884,23 +974,4 @@ public final class ClientAttestationUtils {
         }
     }
 
-    private static Boolean boolProp(Map inParameters, String key) {
-        String value = ClientAttestationUtils.stringProp(inParameters, key);
-        return value == null ? null : Boolean.valueOf(Boolean.parseBoolean(value));
-    }
-
-    private static Set<String> setProp(Map inParameters, String key) {
-        String value = ClientAttestationUtils.stringProp(inParameters, key);
-        if (value == null) {
-            return null;
-        }
-        LinkedHashSet<String> result = new LinkedHashSet<>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result.isEmpty() ? null : result;
-    }
 }

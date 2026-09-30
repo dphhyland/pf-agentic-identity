@@ -6,12 +6,18 @@ package com.pingidentity.ps.oidf.platform.settings;
 import java.net.URI;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
+import com.pingidentity.ps.oidf.platform.profile.AcceptedRisks;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 
 /**
  * One component's settings, read through its catalogue: each accessor finds the entry, refuses any of the
@@ -31,6 +37,16 @@ import com.pingidentity.ps.oidf.platform.log.PlatformLog;
  * name the catalogue does not have. A value that is wrong is a {@link SettingRefused}. Each call resolves
  * again, so a caller that reads a setting once keeps the value itself. A warning (a superseded name in use) is
  * logged once per loaded copy of this class, however often it is resolved.
+ *
+ * <p>The deployment profile is the sources' own ({@code OIDF_DEPLOYMENT_PROFILE} in their environment), and it acts on
+ * two things (plan item PR-5). A legacy spelling - a value only the reader before 0.6.0 took, such as {@code yes} for
+ * a switch - resolves under development to what that reader read it as, with a warning naming the strict spelling,
+ * and is refused under production like any value that does not parse ({@link Resolved#legacySpelling()};
+ * {@link #legacySpellings()} lists them for the start-up banner). And a read whose value came from an init-param, or
+ * of a {@code plugin-field} or {@code extended-property} entry, that finds the entry's governed value under
+ * production without its risk accepted throws {@link ProfileRefused}, which a part's {@code init} records as
+ * {@code REFUSED}: the start-up sweep ({@link ProfileAudit#evaluate}) sees only the environment and the system
+ * properties.
  */
 public final class Settings {
 
@@ -38,6 +54,9 @@ public final class Settings {
 
     /** Warnings already logged by this copy of the class. */
     private static final Set<String> WARNED = ConcurrentHashMap.newKeySet();
+
+    /** The settings this copy of the class has read from a legacy spelling, as the banner lists them. */
+    private static final Set<String> LEGACY = ConcurrentHashMap.newKeySet();
 
     private final Catalogue catalogue;
     private final Sources sources;
@@ -89,9 +108,40 @@ public final class Settings {
     public Resolved resolve(String name) {
         Setting setting = this.catalogue.setting(name);
         this.catalogue.refuseRemoved(this.sources);
-        Resolved resolved = setting.resolve(this.sources);
+        DeploymentProfile profile = this.profile();
+        Resolved resolved = setting.resolve(this.sources, profile);
         resolved.warnings().forEach(this.warnings);
+        if (resolved.legacy()) {
+            LEGACY.add(name + " = '" + resolved.legacySpelling() + "', read as " + resolved.value());
+        }
+        if (resolved.provenance().source() == Source.INIT_PARAM) {
+            this.refuseAtRead(setting, setting.resolveRaw(this.sources).value(), profile);
+        }
         return resolved;
+    }
+
+    /** The profile these settings are read under: the one their sources' environment names. */
+    DeploymentProfile profile() {
+        return DeploymentProfile.of(name -> this.sources.get(Source.ENV, name));
+    }
+
+    /** Throws {@link ProfileRefused} when {@link ProfileAudit#atRead} finds a violation. */
+    private void refuseAtRead(Setting setting, String raw, DeploymentProfile profile) {
+        if (profile.isDevelopment()) {
+            return;
+        }
+        AcceptedRisks risks = AcceptedRisks.of(name -> this.sources.get(Source.ENV, name), LocalDate.now(ZoneOffset.UTC));
+        ProfileAudit.Violation violation = ProfileAudit.atRead(setting, raw, this.catalogue.componentsOf(setting), profile, risks);
+        if (violation != null) {
+            throw new ProfileRefused(violation);
+        }
+    }
+
+    /** Every setting this copy has read from a legacy spelling, as {@code NAME = 'spelling', read as value}, sorted. */
+    public static List<String> legacySpellings() {
+        List<String> out = new ArrayList<>(LEGACY);
+        out.sort(null);
+        return out;
     }
 
     /** A {@code bool} entry's value; a switch always has a default. */
@@ -161,7 +211,12 @@ public final class Settings {
      * whose value PingFederate hands the caller, or any value a caller already holds.
      */
     public Object parse(String name, String raw) {
-        return this.catalogue.setting(name).parse(raw);
+        Setting setting = this.catalogue.setting(name);
+        Object value = setting.parse(raw);
+        if (value != null && (setting.kind() == EntryKind.PLUGIN_FIELD || setting.kind() == EntryKind.EXTENDED_PROPERTY)) {
+            this.refuseAtRead(setting, raw, this.profile());
+        }
+        return value;
     }
 
     private Object typed(String name, SettingType... expected) {

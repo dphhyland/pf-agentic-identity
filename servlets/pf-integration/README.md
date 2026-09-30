@@ -129,11 +129,66 @@ configuration, from 0.4.0:
   URL to be the URL clients use - which the issuer in tokens and discovery needs anyway. Under a runtime context
   path (`pf.runtime.context.path`), the base URL carries the path, so the path after the issuer is the servlet
   path alone and the context path appears once.
-- `extproperties.attestation_expected_htu` still pins one client's `htu` where the OGNL criterion verifies (a
-  deployment without the filter); it replaces the configured URL for that client.
+- A client's `attestation_expected_htu` can only pin the token endpoint's `htu` to one of the two URLs this server
+  answers at for it - the one above, or the issuer followed by `/as/token.oauth2` - on both routes, from 0.6.0 (see
+  [Each client's attestation policy](#each-clients-attestation-policy)). Any other URL refuses the client, since a
+  proof could never meet it.
 
 Until 0.4.0 the request URL was an accepted audience and the expected `htu`, so a proof minted for another
 server, whose token endpoint shares PF's path, passed with a `Host` header naming that server (F-0110, F-0111).
+
+### Each client's attestation policy
+
+From 0.6.0 the filter and the OGNL criterion hold a client to one policy, which `AttestationPolicyResolver` builds
+(plan item S4c, F-0009): the server's - the PoP audience and `htu` above, 300 s for a PoP or DPoP proof, 60 s of
+clock skew, the asymmetric algorithms, challenges optional, and the claims `OIDF_ATTESTATION_REQUIRED_CLAIMS` (or
+`oidf.attestation.required.claims`) names - tightened by the client's `attestation_*` extended properties. Until
+0.6.0 only the criterion read the properties, loosely, so a client authenticated by the filter was held to none of
+them, and a value such as `attestation_dpop_max_age=3600` or `0` loosened the policy for the criterion.
+
+- **Each property can only tighten.** `attestation_pop_max_age` and `attestation_dpop_max_age` are whole seconds
+  from 1 to the server's 300; `attestation_clock_skew` from 0 to the server's 60; `attestation_challenge_required`
+  `true` turns the challenge on; `attestation_accepted_algs`, `attestation_pop_algs` and `attestation_dpop_algs`
+  keep the algorithms the server also accepts; `attestation_required_claims` adds to the server's; and
+  `attestation_expected_htu` pins as above. The catalogue is
+  [client-properties](../../docs/configuration/client-properties.md).
+- **A property that does not parse, holds two values or would loosen the policy refuses the client**: 401
+  `invalid_client` with `the client's attestation policy is not valid`, never a default. The log line and an
+  `attestation.policy.invalid` event name the client and the property, never the value. A list (the algorithms,
+  the required claims) is one comma-separated value, not several. The development profile also reads `yes`, `no`,
+  `on`, `off`, `1`, `0` and `TRUE` or `False` for the two booleans, and any value with spaces around it, with a
+  warning naming the strict spelling; production refuses them.
+- **The client is the attestation's `sub`, read before it is verified**: draft-ietf-oauth-attestation-based-client-auth-10
+  §4, "sub: REQUIRED.  The sub (subject) claim MUST specify client_id value of the OAuth Client." The filter
+  verifies under that client's policy and refuses (401) a verified `sub` that is another client. The criterion
+  takes the client PingFederate authenticated (`context.ClientId`), and the verifier holds the `sub` to it.
+- **A policy is kept for 30 s per client**, for 10,000 clients, an unknown id included, so an administrator's change
+  is seen within 30 s. PingFederate's `ClientManager.getClient` is a SQL query per call on a JDBC client store and a
+  map lookup on the XML one (13.1.3, javap, 2026-09-30). A client manager that cannot answer is 503
+  `temporarily_unavailable` at the filter, `false` at the criterion - never "no policy".
+- **The criterion checks the filter's work.** The filter publishes the SHA-256 of the policy it verified under as
+  `attestation_policy_fingerprint`; the criterion, reusing that verification, resolves the client's policy again and
+  answers `false` to a fingerprint that differs or is absent (a filter from before 0.6.0, or properties changed in
+  between).
+- **`attestation_required=true`** (written on a federation client whose metadata asks for `attest_jwt_client_auth`)
+  is enforced: a token request naming the client - by `client_id`, HTTP Basic or a `client_assertion`'s `sub` -
+  without `OAuth-Client-Attestation` is refused by the filter with 401 `invalid_client`, where it used to go on to
+  PingFederate's own client authentication. It needs the filter running (`ATTESTATION_AUTH` on).
+- **A start-up scan** reads every client's properties once the filter has started, and every 10 minutes, on the web
+  app's managed executor, and records the clients it would refuse as a `DEGRADED` part of `ATTESTATION_AUTH`
+  (`AttestationPolicyScan`), by client id and property, in the health detail. Whether an `attestation_expected_htu`
+  names this server depends on the request's issuer, so the scan checks its form only.
+- **Events**: every decision of the filter and of the criterion is `attestation.client.verified` or
+  `attestation.client.refused` (subject the client, `endpoint` which route), and each refused property is
+  `attestation.policy.invalid`; all are counted in `oidf_events_total`.
+
+The token-exchange subject token: for `grant_type=urn:ietf:params:oauth:grant-type:token-exchange`, the filter and
+the criterion publish the `subject_token`'s `sub` as `verified_subject_token_sub` in the attestation context when it
+verifies as one PingFederate signed - its signature against PingFederate's signing keys
+(`JwksEndpointKeyAccessor.getSigningJsonWebKeySet`), its `iss` the issuer PingFederate resolves for the request, an
+`exp` not passed, and a `typ` that is absent, `JWT` or `at+jwt` (the same keys sign federation statements and
+attestations). `delegationActChain` nests the subject token's `act` only then. The RAR plugin takes a token exchange's
+principal from that member alone (F-0074).
 
 ## OGNL hooks (engine classloader)
 
@@ -144,8 +199,8 @@ doesn't validate the chain - `validateTrustChain` makes the same check once the 
 needs one or the other (see [Asking a policy engine](#asking-a-policy-engine-authzen)).
 `attestationClaim(#this, name)` and `delegationActChain(#this)` feed access-token attribute mappings.
 Both hooks read `context.HttpRequest` / `context.ClientId` from the criteria map. Attester trust:
-`oidf.mock.attesters` (static JWKS file, dev) first, federation trust chain otherwise; the AS-side
-required-claims policy comes from `oidf.attestation.required.claims` or `extproperties.attestation_required_claims`.
+`oidf.mock.attesters` (static JWKS file, dev) first, federation trust chain otherwise; the policy, the required
+claims included, is the one [Each client's attestation policy](#each-clients-attestation-policy) describes.
 
 The OGNL hooks run on PF's **engine** classloader, which does not see `pf-runtime.war`'s `WEB-INF/lib` -
 so the deploy also copies the jars into `server/default/deploy/`. The filter and the criterion therefore
@@ -288,7 +343,7 @@ the property winning); the federation servlet's own settings are its init-params
 | Client authentication at the federation endpoints (§8.8) | `OIDF_FEDERATION_ENDPOINT_AUTH` (unset: no endpoint takes it) - `{"federation_fetch_endpoint": "required", "federation_resolve_endpoint": "optional"}`, any of the §5.1.1 endpoint names, each `none`, `optional` or `required`; `OIDF_FEDERATION_ENDPOINT_AUTH_SIGNING_ALGS` (`RS256 PS256 ES256`); also as `oidf.federation.endpoint.auth` and `oidf.federation.endpoint.auth.signing.algs` | `private_key_jwt` as OpenID Connect Core §9 has it: `iss` and `sub` the client's Entity Identifier, `aud` PF's and nothing else, an `exp` no more than ten minutes off, a `jti` used once (remembered until the `exp`, where attestation keeps its replays - Redis when configured), signed with a key its Entity Configuration publishes once its chain validates to a pinned anchor. Eight clients' chains are looked up at once; the rest get a 503. `required` refuses a GET and an unauthenticated POST (401 `invalid_client`); `optional` takes a GET or an authenticated POST; `none` refuses an assertion. The entity configuration says which endpoints take it (§8.8.1). An authenticated resolve is addressed to the client (`aud`), and at the Trust Mark endpoint an authenticated client is given only its own marks. Needs pinned anchors: set without them, PF doesn't start |
 | Subordinate constraints (§6.2) | `OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS` / `oidf.federation.subordinate.constraints` (`{"max_path_length": 0, "naming_constraints": {...}, "allowed_entity_types": [...]}`) | Carried by every Subordinate Statement PF issues, hosted or configured. Checked for syntax at start-up; a bad value stops PF starting |
 | Bridge signing | `OIDF_BRIDGE_SIGNER_BACKING` (`vault`\|`config`) + `OIDF_BRIDGE_SIGNING_KEYS` (path to a JSON map of client id -> `{"key_ref": …, "attesters": […]}` or `{"jwk": {…}, "attesters": […]}`); `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault` | Per client. Exactly one key form each, and the declared backing is enforced - an inline JWK under `vault` is refused, so a demo key cannot ride into production in a config file. A client with no key cannot authenticate; every other client is unaffected. Nothing configured at all is a **boot failure**, not a silent degradation, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` |
-| Attestation audience and `htu` | None of their own: PF's issuer (Server Settings > Federation Info > Base URL, or a virtual host name or issuer PF has configured) and PF's token endpoint base URL (Authorization Server Settings); `extproperties.attestation_expected_htu` per client, on the OGNL criterion route only | See [Attestation audience and `htu`](#attestation-audience-and-htu). This code reads neither from the `Host` header, `X-Forwarded-*` or the request URL; PingFederate chooses among its configured virtual host names and issuers by the request's host, and takes their port from the request. |
+| Attestation audience and `htu` | None of their own: PF's issuer (Server Settings > Federation Info > Base URL, or a virtual host name or issuer PF has configured) and PF's token endpoint base URL (Authorization Server Settings); a client's `attestation_expected_htu` can only pin one of them, on both routes | See [Attestation audience and `htu`](#attestation-audience-and-htu). This code reads neither from the `Host` header, `X-Forwarded-*` or the request URL; PingFederate chooses among its configured virtual host names and issuers by the request's host, and takes their port from the request. |
 | Attester binding | `"attesters": ["https://attester.example"]` in each client's `OIDF_BRIDGE_SIGNING_KEYS` entry; `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING` (default `true`) | Federation trust says an attester is genuine; this says it is *this client's*. An attestation from a trusted attester the client is not bound to is a 401. A client entry with no `attesters` is a 401 too, by default - any trusted attester could otherwise vouch for it. `=false` lets unbound clients accept any trusted attester; an explicit binding is still enforced |
 | RAR containment models | `OIDF_RAR_MODELS_FILE` (a path) or `OIDF_RAR_MODELS` (the document inline); environment only, one of the two, unset for the built-in models alone; `OIDF_DEPLOYMENT_PROFILE=development` lets an unmodelled type fall back to the common fields | The types and fields the token gate compares ([libs/rar-model](../../libs/rar-model/README.md#a-models-document)); from plan item S1c the RAR plugin reads the same variables, and the two must agree. Read once per classloader, its fingerprint logged. A document that cannot be read, or both set: the attestation filter doesn't start, and the criterion refuses every attested token |
 | ~~`OIDF_BRIDGE_PRIVATE_JWK`~~, ~~`OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK`~~ | — | **Superseded; both refuse startup if set.** The first held one deployment-wide key; the second kept its outgoing public half in every client's JWKS during a rotation overlap. Neither has meaning once signing is per client, and a setting that looks configured while doing nothing is worse than one that is absent |

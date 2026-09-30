@@ -87,6 +87,7 @@ class EventsTest {
         EventCatalogues.install(installed);
         assertSame(installed, EventCatalogues.current());
         Events.reset();
-        assertTrue(EventCatalogues.current().components().isEmpty(), "platform's own test classpath has no catalogue");
+        assertEquals(List.of("platform"), List.copyOf(EventCatalogues.current().components().keySet()),
+                "platform's own test classpath has platform's own catalogue only (PR-5)");
     }
 }
