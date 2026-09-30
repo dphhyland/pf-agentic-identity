@@ -38,7 +38,7 @@ class FederationServiceEndpointsTest {
 
     private static FederationConfiguration configuration(List<String> subordinates, List<String> registrationTypes,
                                                          FederationConfiguration.ResolveDiscovery discovery, String organization) {
-        return new FederationConfiguration(List.of(PF), subordinates, null, false, false, null, null, null, 0, "RS256",
+        return new FederationConfiguration(List.of(PF), subordinates, false, false, null, null, null, 0, "RS256",
                 AttestationMetadataConfig.defaults(), null, organization, registrationTypes, discovery);
     }
 
@@ -370,7 +370,7 @@ class FederationServiceEndpointsTest {
         assertEquals(PF + "/oidf/federation/resolve", superior.get("federation_resolve_endpoint"));
         assertEquals("PF Ltd", superior.get("organization_name"));
 
-        FederationConfiguration leafOnly = new FederationConfiguration(List.of(OTHER_TA), List.of(), null, false, false, null, null, null, 0,
+        FederationConfiguration leafOnly = new FederationConfiguration(List.of(OTHER_TA), List.of(), false, false, null, null, null, 0,
                 "RS256", AttestationMetadataConfig.defaults(), null, null, List.of(), FederationConfiguration.ResolveDiscovery.KNOWN);
         Map<?, ?> leaf = federationEntity(FederationService.builder(leafOnly, Keys.signingKeys(PF_KEY)).build());
         assertNull(leaf.get("federation_fetch_endpoint"), "Leaf Entities MUST NOT publish a fetch endpoint");
@@ -399,7 +399,7 @@ class FederationServiceEndpointsTest {
     @Test
     void aSelfAnchoredEntityPublishesNoAuthorityHints() throws Exception {
         assertFalse(claims(pf(configuration(), new ServingMap()).build().createEntityConfigurationJwt(PF)).hasClaim("authority_hints"));
-        FederationConfiguration underAnother = new FederationConfiguration(List.of(OTHER_TA), List.of(), null, false, false, null, null,
+        FederationConfiguration underAnother = new FederationConfiguration(List.of(OTHER_TA), List.of(), false, false, null, null,
                 null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
         assertEquals(List.of(OTHER_TA), claims(FederationService.builder(underAnother, Keys.signingKeys(PF_KEY)).build()
                 .createEntityConfigurationJwt(PF)).getStringListClaimValue("authority_hints"));
@@ -474,7 +474,7 @@ class FederationServiceEndpointsTest {
     void theChallengeEndpointIsAdvertisedOnlyWhenEnabled() throws Exception {
         AttestationMetadataConfig noChallenge = new AttestationMetadataConfig(List.of("private_key_jwt"), List.of("ES256"), List.of("ES256"),
                 List.of("ES256"), List.of(), List.of(), false);
-        FederationConfiguration configuration = new FederationConfiguration(List.of(PF), List.of(), null, false, false, null, null, null,
+        FederationConfiguration configuration = new FederationConfiguration(List.of(PF), List.of(), false, false, null, null, null,
                 0, "RS256", noChallenge, null);
 
         assertFalse(openidProvider(FederationService.builder(configuration, Keys.signingKeys(PF_KEY)).build()).containsKey("challenge_endpoint"));
@@ -483,7 +483,7 @@ class FederationServiceEndpointsTest {
 
     @Test
     void anEntityThatOnlyHostsIsStillASuperior() throws Exception {
-        FederationConfiguration hostOnly = new FederationConfiguration(List.of(), List.of(), null, false, false, null, null, null, 0,
+        FederationConfiguration hostOnly = new FederationConfiguration(List.of(), List.of(), false, false, null, null, null, 0,
                 "RS256", AttestationMetadataConfig.defaults(), null);
         FederationService service = FederationService.builder(hostOnly, Keys.signingKeys(PF_KEY)).hosting(() -> true).build();
 

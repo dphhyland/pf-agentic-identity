@@ -357,7 +357,7 @@ class TokenEndpointAutoRegistrationFilterTest {
         when(config.getInitParameter("trustChainEntryMaxAgeSeconds")).thenReturn("0");
         assertDoesNotThrow(() -> new TokenEndpointAutoRegistrationFilter().init(config));
         String zero = GateTesting.part("TokenEndpointAutoRegistrationFilter").reason();
-        assertTrue(zero.contains("must be positive"), "it used to mean 60, quietly: " + zero);
+        assertTrue(zero.contains("trustChainEntryMaxAgeSeconds must be between 1"), "it used to mean 60, quietly: " + zero);
     }
 
     @Test

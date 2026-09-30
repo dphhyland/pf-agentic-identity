@@ -58,7 +58,7 @@ class FederationServiceMetadataTest {
                         "authorization_endpoint", ISSUER + "/custom/authorize", "client_registration_types_supported", List.of("stale"))
                 : Map.of("introspection_endpoint", ISSUER + "/as/introspect.oauth2");
         FederationConfiguration configuration = new FederationConfiguration(
-                List.of(ISSUER), List.of(), null, false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults());
+                List.of(ISSUER), List.of(), false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults());
         FederationService service = FederationService.builder(configuration, testSigningKeys()).providerMetadata(discovery).build();
 
         Map<String, Object> metadata = metadataOf(service.createEntityConfigurationJwt(ISSUER));
@@ -86,7 +86,7 @@ class FederationServiceMetadataTest {
     private static Map<String, Object> openidProviderMetadata(AttestationMetadataConfig attestationMetadata)
             throws Exception {
         FederationConfiguration configuration = new FederationConfiguration(
-                List.of(ISSUER), List.of(), null, false, false, null, null, null, 0, "RS256", attestationMetadata);
+                List.of(ISSUER), List.of(), false, false, null, null, null, 0, "RS256", attestationMetadata);
         FederationService service = new FederationService(configuration, testSigningKeys());
         String jwt = service.createEntityConfigurationJwt(ISSUER);
         String payload = new String(Base64.getUrlDecoder().decode(jwt.split("\\.")[1]), StandardCharsets.UTF_8);

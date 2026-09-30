@@ -58,6 +58,18 @@ public final class PfDataSources {
         return connection;
     }
 
+    /** The JDBC URL of a store {@link #direct} made, or null for any other (a PingFederate data store's pool). */
+    static String urlOf(DataSource store) {
+        return store instanceof DriverManagerDataSource direct ? direct.url : null;
+    }
+
+    /** The scheme of a JDBC URL - {@code jdbc:mysql:} - and nothing after it, which can carry a password. */
+    static String scheme(String url) {
+        int first = url.indexOf(':');
+        int second = first < 0 ? -1 : url.indexOf(':', first + 1);
+        return second < 0 ? "non-JDBC" : url.substring(0, second + 1);
+    }
+
     /** Connections from PF's own pool for a PF-configured JDBC data store id. */
     public static DataSource pfManaged(String dataStoreId) {
         return new PfManagedDataSource(dataStoreId);

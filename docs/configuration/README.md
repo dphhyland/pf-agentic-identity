@@ -25,7 +25,7 @@ written by hand is this page, outside its generated list.
 | [rar-models](rar-models.md) | `libs/rar-model` | `com.pingidentity.ps.oidf.rar.model` | 2 |
 | [outbound-fetch](outbound-fetch.md) | `libs/oidf-jose` | `com.pingidentity.ps.oidf.jose` | 4 |
 | [attestation-challenge](attestation-challenge.md) | `libs/client-attestation` | `com.pingidentity.ps.oidf.clientattestation.servlet` | 6 |
-| [federation-entity](federation-entity.md) | `libs/openid-federation` | `com.pingidentity.ps.oidf.federation` | 21 |
+| [federation-entity](federation-entity.md) | `libs/openid-federation` | `com.pingidentity.ps.oidf.federation` | 20 |
 | [federation-resolution](federation-resolution.md) | `libs/openid-federation` | `com.pingidentity.ps.oidf.federation` | 5 |
 | [hosted-entity-signing](hosted-entity-signing.md) | `libs/openid-federation` | `com.pingidentity.ps.oidf.authority` | 2 |
 | [operator-auth](operator-auth.md) | `libs/platform-pf` | `com.pingidentity.ps.oidf.platform.pf.auth` | 11 |
@@ -33,7 +33,7 @@ written by hand is this page, outside its generated list.
 | [attestation-token-endpoint](attestation-token-endpoint.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 4 |
 | [client-properties](client-properties.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 22 |
 | [fapi2-profile](fapi2-profile.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.fapi2` | 1 |
-| [federation-runtime](federation-runtime.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.pf` | 54 |
+| [federation-runtime](federation-runtime.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.pf` | 53 |
 | [hosted-entities](hosted-entities.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.trustanchor` | 8 |
 | [registration](registration.md) | `servlets/pf-integration` | `com.pingidentity.ps.oidf.servlet.clientregistration` | 9 |
 | [attestation-issuer](attestation-issuer.md) | `servlets/attestation-issuer` | `com.pingidentity.ps.oidf.servlet.attestation` | 16 |
