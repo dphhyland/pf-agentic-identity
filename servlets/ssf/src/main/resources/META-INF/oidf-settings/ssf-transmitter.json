@@ -607,7 +607,7 @@
       "kind": "env",
       "type": "url",
       "default": null,
-      "description": "Where receivers' bearer tokens are introspected; <issuer>/as/introspect.oauth2 when unset",
+      "description": "Where receivers' and provisioners' bearer tokens are introspected (RFC 7662), through platform's TokenIntrospector: 1 s to connect, 2.5 s in all, and no answer is a 503; <issuer>/as/introspect.oauth2 when unset. An active answer is also held to its exp and nbf, to aud containing OIDF_SSF_ISSUER when it carries an aud, and to carrying a client_id; a token bound to a key or certificate (cnf) is refused, because the SSF endpoints take bearer tokens only",
       "when_wrong": {
         "effect": "per-request",
         "detail": "Not an introspection endpoint: every authenticated call is a 503"

@@ -241,8 +241,9 @@ class FederationEventsTest {
             }
         }
         assertEquals(codes, new TreeSet<>(federation.codes().keySet()));
-        assertTrue(federation.code(FederationEvents.ATTESTATION_VERIFIED).orElseThrow().declaredOnly());
-        assertTrue(federation.code(FederationEvents.ATTESTATION_REFUSED).orElseThrow().declaredOnly());
+        // pf-integration's filter and criterion emit both from 0.6.0 (plan items S4c and O-2).
+        assertFalse(federation.code(FederationEvents.ATTESTATION_VERIFIED).orElseThrow().declaredOnly());
+        assertFalse(federation.code(FederationEvents.ATTESTATION_REFUSED).orElseThrow().declaredOnly());
         assertEquals("federation", FederationEvents.event(FederationEvents.ATTESTATION_VERIFIED).build().component());
     }
 }

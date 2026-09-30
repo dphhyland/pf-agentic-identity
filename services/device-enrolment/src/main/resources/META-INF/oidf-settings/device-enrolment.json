@@ -507,7 +507,7 @@
       "description": "Where to reach the authority from here; the entity id when unset",
       "when_wrong": {
         "effect": "per-request",
-        "detail": "Wrong: each enrolment's registration with the authority fails, and PF_AUTHORITY_ADMIN_TOKEN goes as a bearer token to whatever host it names"
+        "detail": "Wrong: each enrolment's registration with the authority fails, and its credentials - a DPoP-bound token and proof, or in development the static bearer - go to whatever host it names"
       },
       "profile": "any",
       "security": true,
@@ -525,12 +525,12 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The authority's hosted-entity admin bearer token (OIDF_AUTHORITY_ADMIN_TOKEN there); required with the entity id",
+      "description": "Development only: the authority's static bearer (OIDF_AUTHORITY_ADMIN_TOKEN there), sent when PF_AUTHORITY_CLIENT_ID is unset, with a WARN per enrolment. Production refuses to start with it set, as the authority refuses its static bearer there",
       "when_wrong": {
         "effect": "doesnt-start",
-        "detail": "Unset with the entity id: the service does not start, naming it"
+        "detail": "Set in production: the service does not start, naming it. Unset in development with the entity id and no PF_AUTHORITY_CLIENT_ID: the service does not start, naming the settings to set"
       },
-      "profile": "any",
+      "profile": "forbidden-in-production",
       "security": true,
       "sources": [
         {
@@ -662,6 +662,90 @@
         {
           "from": "env",
           "name": "AGENT_MISSION_PURPOSES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "device-enrolment's client at the authority's PingFederate: it gets an access token by client credentials with the scope oidf.admin.entities, each token request carrying a DPoP proof, and enrols agents with it under the DPoP scheme. Set it with exactly one of PF_AUTHORITY_CLIENT_JWK and PF_AUTHORITY_CLIENT_SECRET; in PingFederate the client needs the client credentials grant, the oidf.admin.entities scope and Require DPoP",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set without exactly one of the key and the secret: the service does not start, naming them. Unknown to PingFederate: each enrolment's registration fails with the token endpoint's answer"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_CLIENT_SECRET",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "PF_AUTHORITY_CLIENT_ID's secret, sent as client_secret_basic (RFC 6749 section 2.3.1); set this or PF_AUTHORITY_CLIENT_JWK, not both",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: each enrolment's registration fails with the token endpoint's 401"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_CLIENT_SECRET"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_CLIENT_JWK",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "PF_AUTHORITY_CLIENT_ID's private key as a JWK, for private_key_jwt: each token request carries an assertion it signs (ES256 for an EC key, PS256 for an RSA one, or the key's alg), with the token endpoint as its aud; set this or PF_AUTHORITY_CLIENT_SECRET, not both",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a JWK, or no private key: the service does not start, naming it. A key PingFederate does not hold for the client: each registration fails with the token endpoint's 401"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_CLIENT_JWK"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_TOKEN_ENDPOINT",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The authority's token endpoint, reached from here; <PF_AUTHORITY_URL>/as/token.oauth2 when unset",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: each enrolment's registration fails, and the client's credentials go to whatever host it names"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_TOKEN_ENDPOINT"
         }
       ],
       "aliases": [],

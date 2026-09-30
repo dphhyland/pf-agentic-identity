@@ -1,0 +1,21 @@
+id: U-0321
+title: Which TLS trust platform's TlsTrust.jvmDefault answers inside PingFederate 13.1.3
+area: platform, platform-pf
+source: design
+status: open
+plan_items: [S8b, S5d]
+prs: [75]
+recorded_in: docs/findings/U-0320.yaml
+verify_by: >
+  In a PingFederate 13.1.3 container, fetch an https URL whose certificate is signed by a private CA through
+  platform's OutboundHttp with TlsTrust.jvmDefault(), once with the CA only in -Djavax.net.ssl.trustStore, once with it
+  only as a PingFederate Trusted CA, and once in both; record which succeed.
+verification: ''
+notes: >
+  Found by S8B on the rig (2026-09-30): with the rig's certificate in a truststore named by
+  -Djavax.net.ssl.trustStore (visible on the java command line) and also imported as a Trusted CA through the admin
+  API, the operator authenticator's JWKS fetch from https://localhost:9031 still failed "PKIX path building failed".
+  TlsTrust.jvmDefault() is SSLSocketFactory.getDefault(), which a host can change with SSLContext.setDefault; whether
+  PingFederate does, and with what trust, decides how an operator gives the operator authenticator, the SSF
+  introspection call and every other platform.http caller a private CA in production, where the insecure switches are
+  forbidden. S5D (wave 6) moves the remaining outbound call sites onto platform.http.

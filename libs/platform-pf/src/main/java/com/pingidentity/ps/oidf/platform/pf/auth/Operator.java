@@ -13,7 +13,8 @@ import java.util.List;
  *                     this, never a header.
  * @param clientId     the token's {@code client_id}, or null when it carries none
  * @param scopes       the token's scopes
- * @param binding      {@code dpop}, {@code mtls}, or {@code none} (development only)
+ * @param binding      {@code dpop}, {@code mtls}, {@code none} (development only), or {@code static-bearer} (the
+ *                     development static bearer)
  * @param claimedLabel the caller's {@code X-Federation-Actor} header, cut to 128 characters and made safe for a log, or
  *                     null: a label the caller chose, which nothing checked
  * @param route        the route it was authorised for

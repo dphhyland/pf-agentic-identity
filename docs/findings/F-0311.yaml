@@ -1,0 +1,20 @@
+id: F-0311
+title: OIDF_AUTHORITY_ADMIN_TOKEN's catalogue entry does not yet name OPERATOR_API as the component its profile class refuses
+severity: low
+area: pf-integration, platform
+source: design
+status: open
+plan_items: [S8b, PR-5]
+prs: [75]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by package S8B (2026-09-30). Plan decision 20 has a production deployment that still sets the static bearer
+  refuse its operator API, through PR5's start-up sweep, with components [OPERATOR_API] on the entry. The per-entry
+  components member is PR5's format change (wave 2, beside S8B), and tools/settings-scan.py refuses an unknown member
+  until it lands, so S8B classes the entry forbidden-in-production only. The refusal itself does not wait: in
+  production FederationAdminServlet's init records OPERATOR_API REFUSED with a reason that says to remove the token,
+  and OperatorAuthenticator answers every operator route 503 with the same reason while it is set (hosted-entity
+  enrolment, the registered clients and the health detail too). What waits is PR5's sweep naming the component. Fix:
+  add "components": ["OPERATOR_API"] to the entry in servlets/pf-integration's hosted-entities.json once PR5 has
+  merged - whichever of S8B's and PR5's finalisers merges second, or ST5F, which converts that catalogue in wave 5.

@@ -4,6 +4,8 @@
 
 The settings of the `gm-api` component of `services/gm-api/servlet`, read by package `au.com.idpartners.gm.servlet`: generated from its catalogue, [gm-api.json](../../services/gm-api/servlet/src/main/resources/META-INF/oidf-settings/gm-api.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `GM_API` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `pdpUrl` (init-param `pdpUrl`, then env `AUTHZEN_BASE_URL`) | Unset; an http or https URL | The AuthZEN PDP's base URL for the grants and MCP servlets; /access/v1/evaluation is appended. Then AUTHZEN_BASE_URL; the shipped web.xml sets it, so AUTHZEN_BASE_URL is never read unless web.xml is edited (F-0238) | **Doesn't start**: Unset: the servlet does not start | Any | Yes |

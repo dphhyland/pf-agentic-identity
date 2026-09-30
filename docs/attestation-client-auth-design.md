@@ -164,7 +164,10 @@ differ only in that their JWKS arrived from an entity statement rather than an a
 
 The attestation still proves an attester vouched for the client. The PoP still proves the instance
 holds the `cnf`-bound key — the only key in the flow no service holds. Per-client PF policy still
-applies, because the minted assertion carries `iss = sub = client_id` and PF authenticates that client.
+applies, because the minted assertion carries `iss = sub = client_id` and PF authenticates that client. So
+does the client's attestation policy: from 0.6.0 the filter verifies under the server's policy tightened by
+the client's `attestation_*` properties, the same policy the criterion applies (`AttestationPolicyResolver`,
+plan item S4c), and publishes its fingerprint, which the criterion checks when it reuses the verification.
 
 ## Known adjacent issues, deliberately out of scope
 
@@ -178,7 +181,9 @@ applies, because the minted assertion carries `iss = sub = client_id` and PF aut
   An attestation is meant to be presentable to any AS; what binds a presentation to *this* AS is the
   proof. `ClientAttestationVerifierTest` pins both halves so the absence is not "fixed" into a check
   the draft does not define.
-- `attestation_required` is written at registration (`RegistrationService.java:329`) and read nowhere.
+- `attestation_required` is written at registration (`FederationClientBuilder`) and, from 0.6.0, enforced by the
+  filter: a request for such a client without an attestation is refused (plan item S4c; the pf-integration README's
+  "Each client's attestation policy").
 - Setting a bridge key today breaks any client registered with a secret: the filter drops
   `client_secret` and substitutes an assertion. Under the target shape this is unchanged and still
   needs a per-client answer.

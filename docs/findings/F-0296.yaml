@@ -1,0 +1,19 @@
+id: F-0296
+title: OIDF_ATTESTER_CIMD_URL set in production now refuses the attester, and its catalogue still says the source is only left out
+severity: low
+area: attestation-issuer, platform
+source: design
+status: open
+plan_items: [PR-5, PR-2]
+prs: [77]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by PR5 (2026-09-30) while checking every classed entry against the default governed rule. The entry is
+  forbidden-in-production with no default, so any value set is a violation, and from 0.6.0 that refuses
+  ATTESTATION_ISSUER at start-up. Before 0.6.0 the attester only left the cimd source out at its first request, with
+  an ERROR, and kept serving from the others; the entry's when_wrong detail in
+  servlets/attestation-issuer/src/main/resources/META-INF/oidf-settings/attestation-issuer.json still says that. The
+  release note lists the switch among the forbidden ones. Who and when: the package that owns that catalogue next
+  (S4CP this wave, ST5A in wave 3) corrects the detail, or classes the entry differently if leaving the source out
+  is the behaviour wanted.

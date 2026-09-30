@@ -7,10 +7,9 @@ import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
-import com.pingidentity.ps.oidf.federation.event.LogSafe;
-import com.pingidentity.ps.oidf.pf.AdminBearer;
 import com.pingidentity.ps.oidf.pf.AuthorityDataSource;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.pf.OperatorApi;
 import com.pingidentity.ps.oidf.keyhistory.HistoricalKey;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistory;
 import com.pingidentity.ps.oidf.keyhistory.KeyHistorySupport;
@@ -18,6 +17,8 @@ import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.auth.Operator;
+import com.pingidentity.ps.oidf.platform.pf.auth.OperatorAuthenticator;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkAuditEntry;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkGrant;
@@ -31,13 +32,9 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.PrintWriter;
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -47,9 +44,11 @@ import java.util.function.Predicate;
 import org.jose4j.json.JsonUtil;
 
 /**
- * The Trust Marks this entity issues (OpenID Federation 1.0 §7) and the keys it signed with before (§8.7), behind the
- * authority's admin bearer token ({@code OIDF_AUTHORITY_ADMIN_TOKEN}, compared in constant time; with none set every
- * request is a 401).
+ * The Trust Marks this entity issues (OpenID Federation 1.0 §7) and the keys it signed with before (§8.7), and the
+ * hosted entities' administration, behind platform-pf's operator authenticator (plan item S8b): each route in
+ * {@link OperatorApi#FEDERATION_ADMIN} needs a PingFederate-issued access token with its scope, DPoP-bound in
+ * production; in development the static bearer ({@code OIDF_AUTHORITY_ADMIN_TOKEN}) is accepted beside it, with a WARN.
+ * A path the table does not name is a 404 before any token is looked at.
  *
  * <ul>
  *   <li>{@code GET /federation/admin/trust-marks?sub=...} or {@code ?trust_mark_type=...}: the grants, whatever their status.</li>
@@ -70,17 +69,18 @@ import org.jose4j.json.JsonUtil;
  * </ul>
  *
  * <p>Only a type this entity is configured to issue can be granted ({@code OIDF_FEDERATION_TRUST_MARK_TYPES}), and one
- * issued to hosted entities only, only to an active one. Every change names its actor - {@code admin:} and the first
- * eight hex digits of the token's SHA-256, with the {@code X-Federation-Actor} header after it when one is sent (for
- * accountability; it grants nothing) - in the grant's history and in PingFederate's audit log.
+ * issued to hosted entities only, only to an active one. Every change names its actor - the access token's
+ * {@code sub}, for a client-credentials token the operator client's id - in the grant's history, the entity's history
+ * and PingFederate's audit log. A caller's {@code X-Federation-Actor} header grants and names nothing: the authenticator
+ * records it only as the {@code claimed_label} of its {@code admin.request.*} event (finding F-0165).
  */
 // loadOnStartup: OPERATOR_API's part registers at deploy, not on the first request (finding F-0193); its init never throws.
 @WebServlet(urlPatterns = {"/federation/admin/*"}, loadOnStartup = 1)
 public class FederationAdminServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
-    private static final int MAX_ACTOR_LENGTH = 128;
 
-    private transient String adminToken;
+    /** Who may call: this webapp's operator authenticator, from init; the test seam's when a test made the servlet. */
+    private transient OperatorAuthenticator authenticator;
     /** This servlet's part of OPERATOR_API, from init; null when a test's constructor made it and init never ran. */
     private transient volatile ComponentParts.Part part;
     private transient Map<String, TrustMarkType> types;
@@ -93,9 +93,9 @@ public class FederationAdminServlet extends RequestScopedServlet {
     }
 
     /** Test seam: everything the servlet otherwise resolves from the deployment at init. */
-    FederationAdminServlet(String adminToken, Map<String, TrustMarkType> types, TrustMarkRegistry registry, Predicate<String> activeHostedEntity,
-                           Clock clock, KeyHistory keyHistory) {
-        this.adminToken = adminToken;
+    FederationAdminServlet(OperatorAuthenticator authenticator, Map<String, TrustMarkType> types, TrustMarkRegistry registry,
+                           Predicate<String> activeHostedEntity, Clock clock, KeyHistory keyHistory) {
+        this.authenticator = authenticator;
         this.types = types;
         this.registry = registry;
         this.activeHostedEntity = activeHostedEntity;
@@ -121,10 +121,8 @@ public class FederationAdminServlet extends RequestScopedServlet {
         if (injected) {
             return;
         }
-        String adminToken = AdminBearer.resolveToken(config, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
-        if (adminToken == null) {
-            // No token, no caller: the API is off - or FAILED_CONFIG when OIDF_OPERATOR_API_ENABLED=true.
-            part.notConfigured("OIDF_AUTHORITY_ADMIN_TOKEN is unset");
+        OperatorAuthenticator authenticator = OperatorApi.authenticator(config);
+        if (!operatorConfigured(part, authenticator)) {
             return;
         }
         try {
@@ -149,12 +147,40 @@ public class FederationAdminServlet extends RequestScopedServlet {
             keyHistory = new KeyHistory(KeyHistorySupport.shared(), clock, Duration.ofSeconds(runtime.keyHistory().graceSeconds()));
         }
         // Published last, once everything above resolved; the gate keeps requests out until the part is ready.
-        this.adminToken = adminToken;
+        this.authenticator = authenticator;
         this.types = types;
         this.clock = clock;
         this.keyHistory = keyHistory;
         this.activeHostedEntity = AuthoritySupport::isActiveHostedEntity;
         this.registry = TrustMarkSupport.shared();
+    }
+
+    /**
+     * Whether {@code authenticator} can let anyone in, recording on {@code part} why not: {@code REFUSED} while a static
+     * bearer is set in production (Phase 3 decision 20; its reason says to remove it), off - or {@code FAILED_CONFIG}
+     * when {@code OIDF_OPERATOR_API_ENABLED=true} - when no operator authentication is configured at all, and
+     * {@code FAILED_CONFIG} when the PingFederate token settings are there but cannot authenticate anyone.
+     */
+    static boolean operatorConfigured(ComponentParts.Part part, OperatorAuthenticator authenticator) {
+        if (authenticator == null) {
+            part.failedConfig("the operator authenticator could not be built (server.log says why)");
+            return false;
+        }
+        String refusal = authenticator.productionRefusal();
+        if (refusal != null) {
+            part.refused(refusal);
+            return false;
+        }
+        if (!authenticator.configured()) {
+            part.notConfigured("no operator authentication is configured (OIDF_OPERATOR_AUDIENCE and the rest of"
+                    + " docs/operator/operator-authentication.md, or in development OIDF_AUTHORITY_ADMIN_TOKEN)");
+            return false;
+        }
+        if (!authenticator.usable()) {
+            part.failedConfig(authenticator.problem());
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -167,16 +193,23 @@ public class FederationAdminServlet extends RequestScopedServlet {
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!this.authorized(req, resp)) {
+        if (this.operator(req, resp) == null) {
             return;
         }
+        this.read(route(req), req, resp);
+    }
+
+    /** Answers the read at {@code route} for an operator already let through. */
+    void read(String route, HttpServletRequest req, HttpServletResponse resp) throws IOException {
         try {
-            switch (route(req)) {
+            switch (route) {
                 case "/trust-marks" -> this.list(req, resp);
                 case "/trust-marks/audit" -> this.audit(req, resp);
                 case "/keys" -> this.keys(resp);
                 case "/entities" -> write(resp, HostedEntityAdmin.list(parameter(req, "entity_id")));
                 case "/entities/audit" -> write(resp, HostedEntityAdmin.audit(parameter(req, "entity_id")));
+                // operator() has answered 404 for a path OperatorApi.FEDERATION_ADMIN does not name, and
+                // OperatorApiRoutesTest holds these cases and that table to each other; this is the belt.
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
@@ -186,7 +219,8 @@ public class FederationAdminServlet extends RequestScopedServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (!this.authorized(req, resp)) {
+        Operator operator = this.operator(req, resp);
+        if (operator == null) {
             return;
         }
         Map<String, Object> body;
@@ -196,17 +230,21 @@ public class FederationAdminServlet extends RequestScopedServlet {
             writeError(resp, 400, "invalid_request", "the body is not a JSON object");
             return;
         }
+        this.change(route(req), body, operator.actor(), resp);
+    }
+
+    /** Makes the change at {@code route} for {@code actor}, an operator already let through. */
+    void change(String route, Map<String, Object> body, String actor, HttpServletResponse resp) throws IOException {
         try {
-            String route = route(req);
             if (route.startsWith("/entities/")) {
-                write(resp, HostedEntityAdmin.change(route.substring("/entities/".length()), body,
-                        actor(this.adminToken, req.getHeader("X-Federation-Actor"))));
+                write(resp, HostedEntityAdmin.change(route.substring("/entities/".length()), body, actor));
                 return;
             }
             switch (route) {
-                case "/trust-marks" -> this.grant(req, resp, body);
-                case "/trust-marks/revoke" -> this.revoke(req, resp, body);
-                case "/keys/revoke" -> this.revokeKey(req, resp, body);
+                case "/trust-marks" -> this.grant(resp, body, actor);
+                case "/trust-marks/revoke" -> this.revoke(resp, body, actor);
+                case "/keys/revoke" -> this.revokeKey(resp, body, actor);
+                // The belt, as in read().
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
@@ -223,13 +261,13 @@ public class FederationAdminServlet extends RequestScopedServlet {
         return path.endsWith("/") ? path.substring(0, path.length() - 1) : path;
     }
 
-    private boolean authorized(HttpServletRequest req, HttpServletResponse resp) throws IOException {
-        if (AdminBearer.isAuthorized(this.adminToken, req.getHeader("Authorization"))) {
-            return true;
-        }
-        resp.setHeader("WWW-Authenticate", "Bearer");
-        writeError(resp, 401, "unauthorized", "missing or invalid admin bearer token");
-        return false;
+    /**
+     * The operator this request is from, by its route in {@link OperatorApi#FEDERATION_ADMIN}; null when the response is
+     * written - a 404 for a path or method no route names, or the authenticator's refusal.
+     */
+    private Operator operator(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        return OperatorApi.authorise(this.authenticator, OperatorApi.FEDERATION_ADMIN, route(req), req, resp,
+                r -> writeError(r, 404, "not_found", "no such endpoint")).orElse(null);
     }
 
     private void list(HttpServletRequest req, HttpServletResponse resp) throws IOException, AuthorityRegistryException {
@@ -253,7 +291,7 @@ public class FederationAdminServlet extends RequestScopedServlet {
         writeJson(resp, 200, this.registry.auditTrail(type, subject).stream().map(FederationAdminServlet::json).toList());
     }
 
-    private void grant(HttpServletRequest req, HttpServletResponse resp, Map<String, Object> body) throws IOException, AuthorityRegistryException {
+    private void grant(HttpServletResponse resp, Map<String, Object> body, String actor) throws IOException, AuthorityRegistryException {
         String type = text(body, "trust_mark_type");
         String subject = text(body, "sub");
         TrustMarkType configured = type == null ? null : this.types.get(type);
@@ -275,14 +313,13 @@ public class FederationAdminServlet extends RequestScopedServlet {
             return;
         }
         Instant notAfter = seconds == null ? null : this.clock.instant().plusSeconds((Long) seconds);
-        String actor = actor(this.adminToken, req.getHeader("X-Federation-Actor"));
         TrustMarkGrant granted = this.registry.grant(type, subject, notAfter, actor);
         FederationEvents.event(FederationEvents.TRUST_MARK_GRANTED).subject(subject).role("TMI").audit().field("trust_mark_type", type)
                 .field("actor", actor).field("not_after", notAfter == null ? null : notAfter.getEpochSecond()).emit();
         writeJson(resp, 201, json(granted));
     }
 
-    private void revoke(HttpServletRequest req, HttpServletResponse resp, Map<String, Object> body) throws IOException, AuthorityRegistryException {
+    private void revoke(HttpServletResponse resp, Map<String, Object> body, String actor) throws IOException, AuthorityRegistryException {
         String type = text(body, "trust_mark_type");
         String subject = text(body, "sub");
         if (type == null || subject == null) {
@@ -299,7 +336,6 @@ public class FederationAdminServlet extends RequestScopedServlet {
             return;
         }
         String reason = Optional.ofNullable(text(body, "reason")).orElse("revoked by the operator");
-        String actor = actor(this.adminToken, req.getHeader("X-Federation-Actor"));
         TrustMarkGrant revoked = this.registry.revoke(type, subject, reason, actor);
         FederationEvents.event(FederationEvents.TRUST_MARK_REVOKED).subject(subject).role("TMI").audit().field("trust_mark_type", type)
                 .field("actor", actor).description(reason).emit();
@@ -314,7 +350,7 @@ public class FederationAdminServlet extends RequestScopedServlet {
         writeJson(resp, 200, this.keyHistory.retired().stream().map(HistoricalKey::asJwk).toList());
     }
 
-    private void revokeKey(HttpServletRequest req, HttpServletResponse resp, Map<String, Object> body) throws IOException, AuthorityRegistryException {
+    private void revokeKey(HttpServletResponse resp, Map<String, Object> body, String actor) throws IOException, AuthorityRegistryException {
         if (this.keyHistory == null) {
             writeError(resp, 404, "not_found", "this entity keeps no key history (OIDF_FEDERATION_HISTORICAL_KEYS)");
             return;
@@ -330,30 +366,12 @@ public class FederationAdminServlet extends RequestScopedServlet {
             return;
         }
         try {
-            writeJson(resp, 200, this.keyHistory.revoke(kid, reason, actor(this.adminToken, req.getHeader("X-Federation-Actor"))).asJwk());
+            writeJson(resp, 200, this.keyHistory.revoke(kid, reason, actor).asJwk());
         } catch (AuthorityRegistryException e) {
             if (!AuthorityRegistryException.NOT_FOUND.equals(e.reason())) {
                 throw e;
             }
             writeError(resp, 404, "not_found", "no retired key has that kid; the key in use is revoked by rotating it first");
-        }
-    }
-
-    /** {@code admin:<first 8 hex of SHA-256(token)>}, and the caller's own name for itself after it when it gives one. */
-    static String actor(String token, String named) {
-        String id = "admin:" + HexFormat.of().formatHex(sha256(token), 0, 4);
-        if (named == null || named.isBlank()) {
-            return id;
-        }
-        String trimmed = LogSafe.value(named.trim());
-        return id + " (" + (trimmed.length() > MAX_ACTOR_LENGTH ? trimmed.substring(0, MAX_ACTOR_LENGTH) : trimmed) + ")";
-    }
-
-    private static byte[] sha256(String value) {
-        try {
-            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is always available", e);
         }
     }
 

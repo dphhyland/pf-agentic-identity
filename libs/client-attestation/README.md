@@ -54,7 +54,8 @@ The whole pipeline end to end — plus standards alignment, test coverage and th
   it. `InMemory*` per node; `RedisAttestationStore` for a cluster (one instance implements all three).
   `AttestationSupport` holds the process-wide singletons so the challenge endpoint, the token-endpoint hook
   and the attester share state even when loaded by different classloaders. Every verdict is three-valued:
-  `FIRST_USE | REPLAY | STORE_UNAVAILABLE`, `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`,
+  `FIRST_USE | REPLAY | STORE_UNAVAILABLE` (and `STALE` for a replay retention already past, which the store
+  answers without being asked), `CONSUMED | UNKNOWN | STORE_UNAVAILABLE`,
   `BOUND | CONFLICT | STORE_UNAVAILABLE`, where `bind` returns a `Result` that also names, on a conflict,
   the key and client that hold the binding. A store that cannot answer is `STORE_UNAVAILABLE`, never a
   replay, an unknown challenge or a conflict - those are findings about the client. The token-endpoint
@@ -204,8 +205,18 @@ the certificate does not carry.
   when present, must equal `sub`.
 - Both proof headers at once, or neither, is `invalid_client`. SD-JWT (`~`) presentations are refused —
   that encoding was retired; only plain attestation JWTs are accepted.
-- Replay is keyed on `(client_id, jti)` with TTL = max-age + skew. A required-but-missing or unknown
-  challenge is `use_attestation_challenge`; an expired attestation is `use_fresh_attestation`.
+- Replay is keyed on `(client_id, jti)`, and the `jti` is remembered until the proof can no longer be accepted
+  anywhere, not for a fixed time from first use (plan item S4c, F-0036): a PoP or DPoP proof is accepted while
+  `now - iat <= max-age + skew`, so its `jti` is kept until `iat + max-age + 2 x skew` (another node's clock may be
+  a skew behind), and never for less than max-age + skew from now, the retention before 0.6.0. The stores take
+  that absolute time (`AttestationReplayCache.recordUntil`): memory evicts by it, expired entries first when full;
+  Redis sets `PX` to the milliseconds left until the end of that second, computed once, because platform's
+  `RedisClient` has no `PXAT`. A retention already past answers `STALE` without asking the store, and the proof is
+  refused as stale. The relative `record(client, jti, ttlSeconds)` and `firstSeen` remain, deprecated, for the
+  callers whose windows are not these proofs' (a request object, a federation endpoint's client assertion, the
+  device-enrolment service). A PoP or DPoP max age of 0 or less is refused by the config builder: before 0.6.0 it
+  switched the age check off, and the `jti` was then forgotten after the skew alone. A required-but-missing or
+  unknown challenge is `use_attestation_challenge`; an expired attestation is `use_fresh_attestation`.
 - The attestation's `authorization_details` bound what a token request may ask for, field by field, with the
   model's strict `contains`; a request is never widened by filling it in, and the model never repeats a value in
   what it reports.

@@ -64,6 +64,10 @@
         <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>pingfederate</groupId><artifactId>pf-protocolengine</artifactId><scope>provided</scope></dependency>
         <dependency><groupId>com.pingidentity.pingfederate</groupId><artifactId>pingfederate-sdk</artifactId><scope>provided</scope></dependency>
+        <!-- S8b: the operator surfaces' tests build operator authenticators, tokens and proofs with platform-pf's
+             OperatorTestKit; rs-validation is platform-pf's optional dependency, so the tests name it. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId><type>test-jar</type><scope>test</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rs-validation</artifactId><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
@@ -223,12 +227,14 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doGet(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.doPost(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.route(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.authorized(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.operator(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.read(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.change(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.operatorConfigured(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.list(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.audit(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.grant(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.revoke(*</include>
-                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.actor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.doPost(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.serve(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.endpointAuth(*</include>
@@ -249,6 +255,16 @@
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.blankToNull(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doPost(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doGet(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.operator(*</include>
+                                        <!-- S8b: which operator route a request is, and the operator it authenticated as. -->
+                                        <include>com.pingidentity.ps.oidf.pf.OperatorApi.authorise(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.OperatorApi.readable(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.OperatorApi.staticBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.pf.OperatorApi.unavailable(*</include>
+                                        <!-- S8b: an authenticator that cannot be built is null, and its routes 503; the DELETE route and its actor. -->
+                                        <include>com.pingidentity.ps.oidf.pf.OperatorApi.authenticator(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.HostedEntityServlet.doDelete(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegisteredClientsServlet.configure(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.FederationAdminServlet.write(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.jsonObject(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.metadataPolicyByType(*</include>
@@ -359,6 +375,43 @@
                                              endpoint and the federation endpoints, and never a replay or a spent jti. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.statusFor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.assertionNotSpent(*</include>
+                                        <!-- S4c: each client's attestation policy, on the filter and the criterion alike - the
+                                             strict, tighten-only reading of its attestation_* properties, the 30 s cache
+                                             and the 503, the start-up scan, the verified subject token (F-0074), and the
+                                             filter's attestation_required refusal. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.unknown(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.notLonger(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.narrowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.pinned(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.normalise(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.single(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.bool(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.seconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.words(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.htu(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.policy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.invalidate(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.invalidateAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.properties(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.fingerprint(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyScan.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyScan.detail(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.subject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.act(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.effectivePolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.globalPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.reusedVerificationProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.verifiedSubjectTokenSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.requiredClaimsDefault(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.refusedWithoutAttestation(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.namedClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.subjectChanged(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
@@ -441,7 +494,7 @@
                                 <param>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter*</param>
                                 <param>com.pingidentity.ps.oidf.servlet.clientregistration.utils.TokenIssuancePolicy*</param>
                                 <param>com.pingidentity.ps.oidf.pf.FederationPolicySupport*</param>
-                                <param>com.pingidentity.ps.oidf.pf.AdminBearer*</param>
+                                <param>com.pingidentity.ps.oidf.pf.OperatorApi*</param>
                             </targetClasses>
                             <targetTests>
                                 <param>com.pingidentity.ps.oidf.*</param>

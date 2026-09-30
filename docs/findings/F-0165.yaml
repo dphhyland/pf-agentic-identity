@@ -3,10 +3,18 @@ title: A direct identifier - the name an administrator sends in X-Federation-Act
 severity: low
 area: platform, pf-integration
 source: design
-status: open
-plan_items: [O-1, D-6]
-prs: []
-verification: ''
+status: closed
+plan_items: [O-1, D-6, S8b]
+prs: [75]
+verification: >
+  2026-09-30, branch prod/p3-operator-surfaces (PR 75, plan item S8b): X-Federation-Actor no longer reaches any
+  federation event, Trust Mark grant or hosted-entity history: their actor is the operator token's sub (or, with the
+  development static bearer, admin: and eight hex of its SHA-256), and federation.json classes actor
+  PSEUDONYMOUS_ID. The header survives only as the operator events' claimed_label (DIRECT_ID, cut at 128 characters,
+  LogSafe). Inside PingFederate the server.log copy of every event passes through PfAuditSink.PROCESS_POLICY, which
+  digests a DIRECT_ID (sha256: and twelve hex) and keeps it in the audit log
+  (PfAuditSinkTest.theProcessPolicyDigestsADirectIdentifierInServerLogAndKeepsItInTheAuditLog). The unkeyed digest
+  and the free-text description (F-0166) remain D-6's to decide.
 target_release: 1.0.0
 notes: >
   Package O1 (2026-09-28) classified every event field. The one field classed DIRECT_ID is `actor`, which

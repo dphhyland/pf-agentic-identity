@@ -10,8 +10,8 @@
       "description": "What the policy decision point was asked about: the action of the decision point (registration, token issuance, hosted-entity enrolment)."
     },
     "actor": {
-      "pii": "DIRECT_ID",
-      "description": "Who made an administrative change: admin: and the first eight hex digits of the admin token's SHA-256, then the caller's own name for itself from X-Federation-Actor when it sent one - which can be a person's name or e-mail address."
+      "pii": "PSEUDONYMOUS_ID",
+      "description": "Who made an administrative change: the operator's access-token sub - for a client-credentials token, the operator client's id - or, with the development static bearer, admin: and the first eight hex digits of its SHA-256. Never a header: what a caller sends in X-Federation-Actor is only the operator events' claimed_label."
     },
     "changed": {
       "pii": "OPERATIONAL",
@@ -580,24 +580,28 @@
       "declaredOnly": false
     },
     "attestation.client.verified": {
-      "description": "A client's attestation was verified. Declared and never emitted: plan item O-2 (Phase 3) emits it, and moves it to the attestation catalogue.",
+      "description": "A client's attestation was verified: by the token-endpoint filter, or by the OGNL issuance criterion (its own verification, or the filter's reused under the same policy). The subject is the client, the partner its attester.",
       "audit": true,
       "outcomes": [
         "success"
       ],
       "level": "info",
-      "fields": [],
-      "declaredOnly": true
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
     },
     "attestation.client.refused": {
-      "description": "A client's attestation was refused. Declared and never emitted: plan item O-2 (Phase 3) emits it, and moves it to the attestation catalogue.",
+      "description": "A client's attestation was refused, or a client that authenticates only with one sent none, by the token-endpoint filter or the OGNL issuance criterion. The reason is the OAuth error the filter answers with (the criterion's refusal is PingFederate's configured Error Result).",
       "audit": true,
       "outcomes": [
         "failure"
       ],
       "level": "info",
-      "fields": [],
-      "declaredOnly": true
+      "fields": [
+        "endpoint"
+      ],
+      "declaredOnly": false
     }
   }
 }

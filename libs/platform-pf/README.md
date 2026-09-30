@@ -88,16 +88,17 @@ platform-pf's jar in `WEB-INF/lib` and answers from that war's own component reg
 |---|---|---|
 | `GET /agentic-identity/health/live` | anyone | 200 `{"status":"UP"}` while the webapp answers |
 | `GET /agentic-identity/health/ready` | anyone | 200 `{"status":"UP"}`, or 503 `{"status":"DOWN"}` when an enabled component is not ready |
-| `GET /agentic-identity/health` | the admin bearer | each component's state, reason and parts, the profile and the versions, with ready's code |
-| `GET /agentic-identity/info` | the admin bearer | `{"agentic-identity": ..., "commit": null, "pingfederate": ..., "java": ...}` |
+| `GET /agentic-identity/health` | an operator token with `oidf.health.read` | each component's state, reason and parts, the profile and the versions, with ready's code |
+| `GET /agentic-identity/info` | the same | `{"agentic-identity": ..., "commit": null, "pingfederate": ..., "java": ...}` |
 
-Live and ready say nothing but the status. The detail and info answer only a caller whose `Authorization` header
-is `Bearer <token>` for the static admin token the federation operator API uses (`OIDF_AUTHORITY_ADMIN_TOKEN`,
-system property `oidf.authority.admin_token` first) - Phase 2's decision 6 - and anyone else, including every caller
-of a deployment with no token set, gets the container's 404 for every method, as an unmapped path does.
-`HealthAccess` repeats pf-integration's `AdminBearer` rule, because platform-pf cannot depend on pf-integration
-(finding [F-0194](../../docs/findings/F-0194.yaml)); S8b (Phase 3) moves both to the operator scope
-`oidf.health.read`. Only GET and HEAD are served (405 otherwise, after the bearer check on the restricted two), and
+Live and ready say nothing but the status. The detail and info are operator routes (`HealthServlet.ROUTES`,
+`health.detail` and `health.info`), answered through this webapp's `OperatorAuthenticator` (plan item S8b): a
+PingFederate-issued access token with `oidf.health.read`, DPoP-bound in production, and in development the static
+bearer `OIDF_AUTHORITY_ADMIN_TOKEN` as well; a refusal is the authenticator's 401, 403, 429 or 503 with its
+challenge ([operator-authentication.md](../../docs/operator/operator-authentication.md)). The second copy of the
+static-bearer rule that lived here, `HealthAccess`, is gone (finding [F-0194](../../docs/findings/F-0194.yaml)). A
+war that bundles this jar without rs-validation (gm-api.war) cannot load the authenticator, so its detail and info
+answer 503. Only GET and HEAD are served (405 otherwise, before any token is looked at), and
 every answer is JSON with `Cache-Control: no-store`. `BuildInfo` reads the versions from the jars on each request:
 this repository's from platform-pf's `pom.properties`, PingFederate's from `pf-commons.jar`'s, the JVM's from the
 runtime; nothing records the commit yet (finding [F-0190](../../docs/findings/F-0190.yaml)).
@@ -148,7 +149,14 @@ surface's own rule.
 of platform its own war loaded, and on no other:
 
 - **`contextInitialized`** marks that copy as the webapp's (`Lifecycle.markWebapp()`), registers its metrics MXBean
-  (`Metrics.registerMXBean()`), and arranges the start-up audit. It adds a servlet, `oidf-startup-audit`, with no
+  (`Metrics.registerMXBean()`), runs the production profile's sweep, and arranges the start-up audit. The sweep
+  (plan item PR-5) is `ProfileAudit.evaluate` over the process's environment and system properties and every
+  catalogue the war's loader sees, published in platform's `ProfileRefusals` before any filter's or servlet's `init`,
+  so `Startup.begin` makes each part of a refused component `REFUSED` and its gate answers 503. It is logged once:
+  at ERROR when a violation refuses something (production), at WARN otherwise, every violation on its own line and
+  labelled `REFUSED:`, `not refused (development):` or, for a required setting of a component not switched on,
+  `not refused (not switched on):`. A sweep that fails - a fault in this code, never a setting - refuses every
+  component under production. The audit It adds a servlet, `oidf-startup-audit`, with no
   mapping and load-on-startup `Integer.MAX_VALUE`; the container initialises filters before servlets and
   load-on-startup servlets in ascending order, so that servlet's `init` runs after the war's filters and other
   load-on-startup servlets have registered their components, and it logs the banner, once, at INFO. A container
@@ -188,7 +196,11 @@ scans; a named entry is one registration the assembler checks, in the one war; a
 | `profile` | `development` or `production`, and how `OIDF_DEPLOYMENT_PROFILE` said so (`DeploymentProfile.describe`) |
 | `topology` | `standalone` until C-1 (Phase 4) can tell a cluster from one node |
 | `accepted risks` | each risk `OIDF_ACCEPTED_RISKS` accepts, with its expiry and what it lets happen |
-| `risk refusals` | how many entries did not parse, were unknown, expired or repeated; each is also logged at WARN, naming it, and its risk is not accepted. Nothing refuses a start for them until PR-5 (Phase 3; the Phase 2 plan's decision 7) |
+| `risk refusals` | how many entries did not parse, were unknown, expired or repeated; each is also logged at WARN, naming it, and its risk is not accepted, so a switch that needs it refuses its components |
+| `violations` | the sweep's violations, each labelled as the sweep's log labels it |
+| `code refusals` | each refusal made in code so far (`ProfileRefusals.refuse`: an in-memory store, say) |
+| `profile notes` | the sweep's warnings: an `OIDF_*` name under no catalogue's family, a refused `OIDF_ACCEPTED_RISKS` entry, a legacy spelling |
+| `legacy values` | each setting read so far from a legacy spelling (development only), and what it was read as |
 | `insecure TLS` | each setting that asked `InsecureTls` for a trust-all context in this war so far, and since when |
 | `JDK host names` | whether `jdk.internal.httpclient.disableHostnameVerification` turns the JDK HTTP client's host name check off for the whole JVM |
 | `components` | each registered component's state and reason, as health reads them |
@@ -197,8 +209,10 @@ scans; a named entry is one registration the assembler checks, in the one war; a
 | `platform` | where this copy of platform was loaded from: the war's `WEB-INF/lib` |
 
 Every value is one line of at most 256 characters, with control, format and separator characters replaced by `?`,
-because the profile and the risk refusals quote what an operator set. The audit refuses nothing and changes nothing;
-it is what PR-5 will turn into refused components.
+because the profile and the risk refusals quote what an operator set; the sweep's own log entry carries each
+violation whole. Under production the audit then emits one `platform.profile.refused` event per violation that
+refuses something, the sweep's and those made in code - audited, so they reach PingFederate's audit log once the
+war's `init`s have installed its sink.
 
 **gm-api.war** bundles platform-pf, and platform through it, in its own `WEB-INF/lib`, so it has its own copy: its
 own lifecycle, components, metrics MXBean and banner, and its own health under `/gm-api/agentic-identity/health/...`
@@ -206,7 +220,8 @@ own lifecycle, components, metrics MXBean and banner, and its own health under `
 `GM_API` (S-9 names none for gm-api), so a gm-api whose servlets failed to start reads `FAILED_CONFIG` in its
 banner and DOWN on its ready.
 
-**What it does not do.** It does not refuse a start: PR-5 does that. It does not make `ExecutorRegistry` refuse an
+**What it does not do.** It does not stop the war: a refused component answers 503 on its own surfaces while
+PingFederate's own endpoints keep serving. It does not make `ExecutorRegistry` refuse an
 unmarked copy (finding F-0200): that is one check in platform.exec, now that the webapp's copy is marked, and it is
 C-3's code to change; a standalone program using platform would then need to mark itself, which X-A01's service-kit
 is the place for. The engine's copy is never marked and never shut down: nothing runs a listener for

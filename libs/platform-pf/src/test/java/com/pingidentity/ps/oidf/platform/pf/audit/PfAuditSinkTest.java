@@ -85,7 +85,20 @@ class PfAuditSinkTest {
         assertEquals(Map.of("level", "gold"), this.audit.get(0).event().fields());
         assertNull(this.audit.get(0).address());
         assertEquals("Jane Citizen", this.serverLog.get(0).fields().get("member"),
-                "server.log's policy is its own sink's to apply");
+                "the audit log's policy does not reach server.log");
+    }
+
+    /** Finding F-0165: a direct identifier - an operator's X-Federation-Actor - never reaches server.log in clear. */
+    @Test
+    void theProcessPolicyDigestsADirectIdentifierInServerLogAndKeepsItInTheAuditLog() {
+        this.sink(true, null, PfAuditSink.PROCESS_POLICY).emit(joined());
+
+        String inServerLog = this.serverLog.get(0).fields().get("member");
+        assertTrue(inServerLog.startsWith("sha256:") && !inServerLog.contains("Jane"), inServerLog);
+        assertEquals("gold", this.serverLog.get(0).fields().get("level"));
+        assertEquals("Jane Citizen", this.audit.get(0).event().fields().get("member"));
+        assertEquals(PiiPolicy.Treatment.DIGEST, PfAuditSink.PROCESS_POLICY.treatment(PiiPolicy.Destination.SERVER_LOG,
+                PiiClass.DIRECT_ID));
     }
 
     @Test

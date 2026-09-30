@@ -1,6 +1,7 @@
 package com.pingidentity.ps.oidf.pf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
@@ -293,8 +294,9 @@ class EventsCataloguedTest {
             }
         }
         assertEquals(List.of(), wrong);
-        assertTrue(catalogued.get(FederationEvents.ATTESTATION_VERIFIED).declaredOnly());
-        assertTrue(catalogued.get(FederationEvents.ATTESTATION_REFUSED).declaredOnly());
+        // Emitted from 0.6.0 by the token-endpoint filter and the OGNL criterion (plan items S4c and O-2).
+        assertFalse(catalogued.get(FederationEvents.ATTESTATION_VERIFIED).declaredOnly());
+        assertFalse(catalogued.get(FederationEvents.ATTESTATION_REFUSED).declaredOnly());
     }
 
     @Test

@@ -47,7 +47,19 @@ import java.util.regex.Pattern;
 /**
  * Who may use an operator API (plan item S8a; decision 1): a caller presenting a PingFederate-issued OAuth access token,
  * bound to a key or a certificate in production, carrying the route's scope. The actor recorded is the token's
- * subject. Plan item S8b moves every operator surface onto this; until then nothing calls it.
+ * subject. Plan item S8b moves every operator surface onto it: the federation administration API, hosted-entity
+ * enrolment and revocation, the registered clients, the health detail and {@code /agentic-identity/info}, each with
+ * its own route table.
+ *
+ * <p><b>The static bearer</b> ({@code OIDF_AUTHORITY_ADMIN_TOKEN}, the {@code oidf.authority.admin_token} system
+ * property, or a servlet's {@code adminToken} init-param - {@link #withStaticBearer}) is the development profile's
+ * escape and nothing else. In development a request whose {@code Bearer} credential is exactly that token (compared in
+ * constant time) is let through for any route, beside the OAuth path, with a WARN that names the route; any other
+ * credential goes on to the checks below, and a wrong one counts against the failed-authentication limit like any
+ * other. In production the token is never accepted, and while one is set every operator request is a 503 whose reason
+ * says to remove it ({@link #productionRefusal()}, Phase 3 decision 20): an operator who upgrades with the old token in
+ * place finds out at once instead of believing it still protects something. This is the one copy of the rule - the
+ * admin API's {@code AdminBearer} and the health endpoints' {@code HealthAccess} are gone (finding F-0194).
  *
  * <p>Each request, in order:
  * <ol>
@@ -108,6 +120,12 @@ public final class OperatorAuthenticator {
     /** The longest {@code X-Federation-Actor} value kept as a claimed label. */
     public static final int CLAIMED_LABEL_LIMIT = 128;
     static final String CERTIFICATE_ATTRIBUTE = "jakarta.servlet.request.X509Certificate";
+    /** The static bearer's environment variable: development only. */
+    public static final String STATIC_BEARER_ENV = "OIDF_AUTHORITY_ADMIN_TOKEN";
+    /** The static bearer's system property, read before the environment variable: development only. */
+    public static final String STATIC_BEARER_PROPERTY = "oidf.authority.admin_token";
+    /** The {@code binding} an operator let through on the static bearer is recorded with. */
+    public static final String STATIC_BINDING = "static-bearer";
 
     private static final PlatformLog LOG = PlatformLog.get(OperatorAuthenticator.class);
     private static final Duration MINUTE = Duration.ofMinutes(1);
@@ -123,9 +141,14 @@ public final class OperatorAuthenticator {
     private final WindowCounter failures;
     private final WindowCounter mutations;
     private final Function<HttpServletRequest, String> issuer;
+    /** The development static bearer, or null. */
+    private final String staticBearer;
+
+    /** This loader's authenticator, built on first use by {@link #shared()}. */
+    private static OperatorAuthenticator shared;
 
     /**
-     * An authenticator over the given parts; {@link #fromProcess()} builds the process's own.
+     * An authenticator over the given parts, with no static bearer; {@link #fromProcess()} builds the process's own.
      *
      * @param keys         PingFederate's keys, in {@code jwt} mode; null in {@code introspection} mode
      * @param introspector the introspection client, in {@code introspection} mode; null in {@code jwt} mode
@@ -141,11 +164,67 @@ public final class OperatorAuthenticator {
         this.failures = Objects.requireNonNull(failures, "failures");
         this.mutations = Objects.requireNonNull(mutations, "mutations");
         this.issuer = Objects.requireNonNull(issuer, "issuer");
+        this.staticBearer = null;
+    }
+
+    private OperatorAuthenticator(OperatorAuthenticator parts, String staticBearer) {
+        this.config = parts.config;
+        this.keys = parts.keys;
+        this.introspector = parts.introspector;
+        this.replayStore = parts.replayStore;
+        this.failures = parts.failures;
+        this.mutations = parts.mutations;
+        this.issuer = parts.issuer;
+        this.staticBearer = staticBearer;
+    }
+
+    /**
+     * This authenticator with {@code token} as its static bearer - the same configuration, replay store and counters,
+     * so a guess at the static bearer counts against the same failed-authentication limit as any other. A null or blank
+     * {@code token} answers this authenticator unchanged.
+     */
+    public OperatorAuthenticator withStaticBearer(String token) {
+        if (token == null || token.isBlank()) {
+            return this;
+        }
+        return new OperatorAuthenticator(this, token.strip());
+    }
+
+    /**
+     * The static bearer {@code properties} and {@code environment} name - the system property
+     * {@value #STATIC_BEARER_PROPERTY}, else the environment variable {@value #STATIC_BEARER_ENV} - or null when neither
+     * is set to anything but blanks.
+     */
+    public static String staticBearer(Function<String, String> properties, Function<String, String> environment) {
+        String value = properties.apply(STATIC_BEARER_PROPERTY);
+        if (value == null || value.isBlank()) {
+            value = environment.apply(STATIC_BEARER_ENV);
+        }
+        return value == null || value.isBlank() ? null : value.strip();
+    }
+
+    /**
+     * This loader's authenticator: {@link #fromProcess()}, built once, so every operator surface in a webapp shares one
+     * replay store and one pair of limits.
+     */
+    public static synchronized OperatorAuthenticator shared() {
+        if (shared == null) {
+            shared = fromProcess();
+        }
+        return shared;
+    }
+
+    /** Tests: forget {@link #shared()}'s authenticator, so the next call builds it again. */
+    static void resetShared() {
+        synchronized (OperatorAuthenticator.class) {
+            shared = null;
+        }
     }
 
     /**
      * The process's authenticator: its settings from the {@code operator-auth} catalogue, its profile and accepted
-     * risks, Redis when {@code OIDF_REDIS_URL} names one, PingFederate's issuer through {@link PfInternals}. A
+     * risks, Redis when {@code OIDF_REDIS_URL} names one, PingFederate's issuer through {@link PfInternals}, and the
+     * static bearer from the system property or the environment ({@link #staticBearer}). A
      * configuration that cannot authenticate anyone still builds, and answers every request 503 with the reason
      * logged once here.
      */
@@ -154,7 +233,8 @@ public final class OperatorAuthenticator {
         boolean redis = RedisConfig.isConfigured();
         OperatorAuthConfig config = OperatorAuthConfig.from(Settings.of(OperatorAuthConfig.COMPONENT), profile,
                 AcceptedRisks.current(), redis);
-        return from(config, redis ? new RedisClient(RedisConfig.current()) : null, PfInternals::issuer, Clock.systemUTC());
+        return from(config, redis ? new RedisClient(RedisConfig.current()) : null, PfInternals::issuer, Clock.systemUTC())
+                .withStaticBearer(staticBearer(System::getProperty, System::getenv));
     }
 
     /** {@link #fromProcess()}'s assembly, given the configuration, the Redis client (or null) and the issuer. */
@@ -183,6 +263,51 @@ public final class OperatorAuthenticator {
         WindowCounter changed = redis != null ? new RedisWindowCounter(redis, MUTATIONS_NAMESPACE)
                 : new InMemoryWindowCounter(clock);
         return new OperatorAuthenticator(config, keys, introspector, replay, failed, changed, issuer);
+    }
+
+    // ---- what a surface's init asks -----------------------------------------------------------------------------------
+
+    /**
+     * Why production refuses the operator APIs while a static bearer is set (Phase 3 decision 20), or null: in
+     * development, or with no static bearer. A surface's init records this as its part's {@code REFUSED} reason, and
+     * {@link #authenticate} answers every request 503 with it.
+     */
+    public String productionRefusal() {
+        if (this.staticBearer == null || !this.config.profile().isProduction()) {
+            return null;
+        }
+        return STATIC_BEARER_ENV + " is set, and production never accepts the static bearer: remove it (and the "
+                + STATIC_BEARER_PROPERTY + " system property and any adminToken init-param) and give operators a"
+                + " PingFederate-issued access token (docs/operator/operator-authentication.md)";
+    }
+
+    /**
+     * Whether an operator API is configured at all: {@code OIDF_OPERATOR_AUDIENCE} is set, or a static bearer is. A
+     * surface that is not configured is off, as it was before S8b when no static bearer was set.
+     */
+    public boolean configured() {
+        return this.staticBearer != null || this.config.audience() != null;
+    }
+
+    /**
+     * Whether a request can be let through at all: the PingFederate token configuration is usable, or this is
+     * development with a static bearer. {@link #problem()} says why not.
+     */
+    public boolean usable() {
+        return this.productionRefusal() == null && (this.config.usable() || this.developmentStaticBearer());
+    }
+
+    /** Why {@link #usable()} is false, or null. */
+    public String problem() {
+        String refusal = this.productionRefusal();
+        if (refusal != null) {
+            return refusal;
+        }
+        return this.usable() ? null : this.config.problem();
+    }
+
+    boolean developmentStaticBearer() {
+        return this.staticBearer != null && this.config.profile().isDevelopment();
     }
 
     private static String str(Object value) {
@@ -273,7 +398,12 @@ public final class OperatorAuthenticator {
 
     private Operator decide(HttpServletRequest request, OperatorRoute route, String address, String label)
             throws Refusal {
-        if (!this.config.usable()) {
+        String refusal = this.productionRefusal();
+        if (refusal != null) {
+            throw unavailable("static_bearer_in_production", refusal);
+        }
+        boolean staticAllowed = this.developmentStaticBearer();
+        if (!this.config.usable() && !staticAllowed) {
             throw unavailable("not_configured", "the operator APIs are not configured: " + this.config.problem());
         }
         this.checkFailureLimit(address);
@@ -294,9 +424,19 @@ public final class OperatorAuthenticator {
             if (scheme == null) {
                 throw new DelegatedTokenValidator.RsException(null, 401, "unsupported authentication scheme");
             }
+            if (staticAllowed && scheme == DelegatedTokenValidator.Scheme.BEARER && parts.length == 2
+                    && sameSecret(parts[1], this.staticBearer)) {
+                return this.staticOperator(route, label);
+            }
             if (parts.length < 2 || !TOKEN68.matcher(parts[1]).matches()) {
                 throw new DelegatedTokenValidator.RsException(DelegatedTokenValidator.INVALID_REQUEST, 400,
                         "the credentials are not token68");
+            }
+            if (!this.config.usable()) {
+                // Development, a static bearer and no PingFederate token configuration: anything else is refused.
+                throw new DelegatedTokenValidator.RsException(DelegatedTokenValidator.INVALID_TOKEN, 401,
+                        "the credential is not the static bearer, and no PingFederate access token can be checked: "
+                                + this.config.problem());
             }
             X509Certificate[] certificates = (X509Certificate[]) request.getAttribute(CERTIFICATE_ATTRIBUTE);
             result = this.validator(request).validate(new DelegatedTokenValidator.Presentation(scheme, parts[1],
@@ -328,6 +468,37 @@ public final class OperatorAuthenticator {
         }
         Object clientId = result.claims().get("client_id");
         return new Operator(actor, clientId instanceof String c ? c : null, result.scopes(), binding, label, route);
+    }
+
+    /**
+     * The operator a development static bearer stands for: {@code admin:} and the first eight hex digits of the token's
+     * SHA-256 as the actor (the label the admin API recorded before S8b, which names the token without revealing it),
+     * every operator scope, and the binding {@value #STATIC_BINDING}. A route that changes something still counts
+     * against the change limit. Each request is logged at WARN with its route.
+     */
+    private Operator staticOperator(OperatorRoute route, String label) throws Refusal {
+        String actor = staticActor(this.staticBearer);
+        LOG.warn("An operator request for " + route.name() + " was let through on the static bearer " + STATIC_BEARER_ENV
+                + ": development only (OIDF_DEPLOYMENT_PROFILE); production refuses it");
+        if (route.mutation()) {
+            this.checkMutationLimit(actor);
+        }
+        return new Operator(actor, null, OperatorScopes.ALL, STATIC_BINDING, label, route);
+    }
+
+    /** {@code admin:} and the first eight hex digits of SHA-256({@code token}). */
+    static String staticActor(String token) {
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(token.getBytes(StandardCharsets.UTF_8));
+            return "admin:" + java.util.HexFormat.of().formatHex(digest, 0, 4);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+
+    /** Whether {@code presented} is {@code expected}, compared in constant time for equal lengths. */
+    static boolean sameSecret(String presented, String expected) {
+        return MessageDigest.isEqual(presented.getBytes(StandardCharsets.UTF_8), expected.getBytes(StandardCharsets.UTF_8));
     }
 
     /** The validator for this request's issuer: cheap to build, and PingFederate may give each virtual host its own. */

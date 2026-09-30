@@ -1,0 +1,19 @@
+id: F-0305
+title: Device-enrolment key proofs without iat can be replayed after the 300 s jti window
+severity: high
+area: device-enrolment
+source: design
+status: open
+plan_items: [X-A06]
+prs: [74]
+verification: ''
+target_release: 0.9.0
+notes: >
+  The shape of F-0036 in the device-enrolment service, found by S4CP on 2026-09-30 while listing the callers of
+  the relative replay API. EnclaveKeyProofValidator checks iat only when the proof carries one
+  (EnclaveKeyProofValidator.java:148 at ea2dbf4a) and never reads exp, and EnrolmentService records the proof's
+  jti for 300 s from first use (EnrolmentService.java:292 and 501, firstSeen(..., 300L)). A captured key proof
+  with no iat therefore enrols or re-proves again once the store forgets its jti. The iOS client sends iat and
+  exp (KeyProof.swift, lifetime 120 s), so the fix does not break it. X-A06 requires typ, iat, exp, jti and
+  challenge and a replay retention of at least the acceptance window; AttestationReplayCache.recordUntil, which
+  S4CP added, is the retention form to use.

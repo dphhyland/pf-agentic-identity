@@ -55,11 +55,12 @@ class AttestationReplayCacheTest {
     }
 
     @Test
-    void anExpiredEntryIsFirstUseAgain() throws Exception {
-        InMemoryAttestationReplayCache cache = new InMemoryAttestationReplayCache();
-        assertTrue(cache.record("c", "j", 1L) == AttestationReplayCache.Verdict.FIRST_USE);
-        Thread.sleep(1100L);
-        assertTrue(cache.record("c", "j", 1L) == AttestationReplayCache.Verdict.FIRST_USE,
-                "a jti whose record has expired is not a replay: the proof it came from is stale on its own iat");
+    void anExpiredEntryIsFirstUseAgain() {
+        ReplayRetentionTest.MutableClock clock = new ReplayRetentionTest.MutableClock(java.time.Instant.ofEpochSecond(1000L));
+        InMemoryAttestationReplayCache cache = new InMemoryAttestationReplayCache(16, clock);
+        assertTrue(cache.recordUntil("c", "j", 1001L) == AttestationReplayCache.Verdict.FIRST_USE);
+        clock.set(java.time.Instant.ofEpochSecond(1002L));
+        assertTrue(cache.recordUntil("c", "j", 1100L) == AttestationReplayCache.Verdict.FIRST_USE,
+                "a jti whose retention has passed is not a replay: the proof it came from can no longer be accepted");
     }
 }

@@ -231,6 +231,24 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_ATTESTER_MAX_ISSUED_TTL",
+      "kind": "env",
+      "type": "seconds",
+      "min": 60,
+      "max": 64800,
+      "default": 3600,
+      "description": "The longest lifetime, in seconds, the attester gives an attestation it issues: a client's attestation_issued_ttl above it is refused in production and clamped to it with a warning in development. 64800 (18 hours, the AI Agent Profile's ceiling) is the most it may be",
+      "when_wrong": {"effect": "first-request", "detail": "Not a whole number, or outside 60 to 64800: issuance answers 500 server_error naming the variable, from the first request, in either profile"},
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {"from": "system-property", "name": "oidf.attester.max.issued.ttl"},
+        {"from": "env", "name": "OIDF_ATTESTER_MAX_ISSUED_TTL"}
+      ],
+      "aliases": [],
+      "file": false
     }
   ],
   "removed": []

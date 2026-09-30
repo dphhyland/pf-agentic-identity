@@ -50,6 +50,20 @@ public enum EntryKind {
         }
     }
 
+    /** The kind named by {@code source}: {@link #ENV}, {@link #SYSTEM_PROPERTY} or {@link #INIT_PARAM}. */
+    static EntryKind of(Source source) {
+        switch (source) {
+            case ENV:
+                return ENV;
+            case SYSTEM_PROPERTY:
+                return SYSTEM_PROPERTY;
+            case INIT_PARAM:
+                return INIT_PARAM;
+            default:
+                throw new IllegalArgumentException(source.id() + " names no entry kind");
+        }
+    }
+
     /** The kind a catalogue spells {@code id}, or null. */
     static EntryKind byId(String id) {
         for (EntryKind kind : values()) {

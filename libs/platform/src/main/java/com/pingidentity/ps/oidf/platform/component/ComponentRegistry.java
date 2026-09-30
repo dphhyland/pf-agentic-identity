@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.platform.component;
 
+import com.pingidentity.ps.oidf.platform.events.Events;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -56,6 +57,10 @@ public final class ComponentRegistry {
     public ComponentRegistry() {
         this(Clock.systemUTC());
     }
+
+    /** platform's event catalogue, and the code of a state change in it. */
+    static final String EVENTS = "platform";
+    static final String CHANGED = "platform.component.changed";
 
     ComponentRegistry(Clock clock) {
         this.clock = Objects.requireNonNull(clock, "clock");
@@ -131,7 +136,17 @@ public final class ComponentRegistry {
         } else {
             LOG.info(line);
         }
+        changed(name, from, to);
         return true;
+    }
+
+    /** The one event of a state change (PR-5, O-2's platform family): counted, never audited; it never throws. */
+    static void changed(String name, ComponentState from, ComponentState to) {
+        try {
+            Events.event(EVENTS, CHANGED).field("component", name).field("from", from.name()).field("to", to.name()).emit();
+        } catch (RuntimeException | LinkageError e) {
+            // An event is a count: a catalogue that cannot be read never fails a component's move.
+        }
     }
 
     static void checkName(String name) {

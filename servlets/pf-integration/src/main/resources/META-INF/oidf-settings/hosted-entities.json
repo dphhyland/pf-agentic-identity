@@ -27,9 +27,9 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The bearer token for enrolment, /federation/admin/* and /federation/registered-clients, and (from the system property or the environment, never an init-param) for platform-pf's /agentic-identity/health and /agentic-identity/info, compared in constant time; unset, every admin request is a 401 and those two a 404",
-      "when_wrong": {"effect": "per-request", "detail": "Every admin request is a 401"},
-      "profile": "any",
+      "description": "The development static bearer: in the development profile, a request presenting exactly this token as Authorization: Bearer (compared in constant time) is let through any operator route - /federation/admin/*, hosted-entity enrolment and revocation, /federation/registered-clients, and (from the system property or the environment, never an init-param) /agentic-identity/health and /agentic-identity/info - beside PingFederate-issued access tokens, with a WARN per request that names the route. Production never accepts it, and while it is set every operator request is a 503 and the operator API component is REFUSED with a reason that says to remove it (Phase 3 decision 20); operators use PingFederate access tokens there (docs/operator/operator-authentication.md)",
+      "when_wrong": {"effect": "per-request", "detail": "Set in production: every operator request is a 503 until it is removed. Wrong in development: the request goes on to the access-token check, and counts against the failed-authentication limit when that refuses it"},
+      "profile": "forbidden-in-production",
       "security": true,
       "sources": [
         {"from": "init-param", "name": "adminToken"},

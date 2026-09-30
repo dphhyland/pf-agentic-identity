@@ -4,6 +4,8 @@
 
 The settings of the `evidence-policy` component of `servlets/attestation-issuer`, read by package `com.pingidentity.ps.oidf.issuer`: generated from its catalogue, [evidence-policy.json](../../servlets/attestation-issuer/src/main/resources/META-INF/oidf-settings/evidence-policy.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `ATTESTATION_ISSUER` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS` (system property `oidf.attester.max.evidence.lifetime.seconds`, then env `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS`) | `86400`; seconds, at least 1 | The longest lifetime the attester accepts of a piece of evidence: of the whole (exp - iat) when it has an iat, and of what is left (exp - now, with 60 s for a clock behind the issuer's) always; a binding lives as long as its evidence, so this bounds how long a stolen token stays presentable. Production may only shorten it | **First request**: Not a whole number, 0 or less, or above 86400 without OIDF_DEPLOYMENT_PROFILE=development: issuance answers 500 server_error naming the variable, from the first request | Any | Yes |

@@ -75,7 +75,7 @@ question goes to the model.
    `#this.get("username")`). Do not read `IN_PARAMETER_AUTH_DETAILS_USER_INFO` to guess a principal.
 2. **Client credentials is the client, and a payment for a client is refused before the PDP.** The
    default type list is `payment_initiation,account_information`; a single `-` empties it. Token
-   exchange is `none` until the token-endpoint filter publishes `verified_subject_token_sub`.
+   exchange is `none` unless the filter published `verified_subject_token_sub` (a PingFederate-signed subject token, 0.6.0).
 3. **Fail-open means unreachable, nothing else.** Connection refused/reset, unresolved name, the
    connect or total deadline, all 32 call places taken, the circuit breaker open, HTTP
    429/502/503/504. A 401 from a wrong secret, a non-JSON body, a 500, a response over 64 KiB, a

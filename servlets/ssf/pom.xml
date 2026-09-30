@@ -179,6 +179,9 @@
                                         <include>com.pingidentity.ps.oidf.ssf.StreamAccess.mayAddress(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.ScimSubjectService.requireProvisioner(*</include>
                                         <include>com.pingidentity.ps.oidf.ssf.StreamManagementService.resolveAudience(*</include>
+                                        <!-- S8b: the SSF token rule over TokenIntrospector (active, exp, nbf, client_id, aud, cnf). -->
+                                        <include>com.pingidentity.ps.oidf.ssf.PfIntrospectionReceiverAuthenticator.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.ssf.PfIntrospectionReceiverAuthenticator.authenticate(*</include>
 
                                         <!-- Raising an event: subscribes() is the one rule every emission path applies
                                              (membership, or default_subjects ALL); emit() is who may raise one (a provisioner);

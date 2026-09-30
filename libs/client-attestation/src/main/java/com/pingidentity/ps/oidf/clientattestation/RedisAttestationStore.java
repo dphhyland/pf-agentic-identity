@@ -25,7 +25,8 @@ import org.apache.commons.logging.LogFactory;
  * <ul>
  *   <li>challenge issue → {@code SET <ns>:challenge:<value> 1 PX <ttl>} (Redis expires it natively);</li>
  *   <li>challenge consume → {@code DEL} (returns 1 only if present and unexpired - strict single-use);</li>
- *   <li>replay record → {@code SET <ns>:jti:<client> <jti> 1 NX PX <ttl>} ({@code OK} only for the first writer);</li>
+ *   <li>replay record → {@code SET <ns>:jti:<client> <jti> 1 NX PX <ms to the end of the retention>} ({@code OK} only
+ *       for the first writer; the retention is the end of the proof's acceptance window, not a TTL from now);</li>
  *   <li>evidence bind → {@code SET <ns>:evidence:<sha256> "<jkt> <client>" NX PX <ms until the evidence expires>},
  *       and when that finds the key taken, {@code GET} and compare. {@code NX} makes the winner of a race stable:
  *       two nodes presenting the same evidence at once get one {@code OK} between them.</li>
@@ -113,15 +114,28 @@ public final class RedisAttestationStore implements AttestationChallengeService,
         return this.ttlSeconds;
     }
 
+    /**
+     * {@code SET <ns>:jti:<client>:<jti> 1 NX PX <ms>}, where {@code <ms>} runs to the end of the second
+     * {@code retainUntilEpochSeconds}, computed once from this store's clock. Platform's {@link RedisClient} has no
+     * {@code PXAT}, and one computation keeps the expiry absolute to within the time the command takes to arrive:
+     * a key set late expires late, never early. A retention already past answers {@link Verdict#STALE} and sends
+     * nothing.
+     */
     @Override
-    public Verdict record(String clientId, String jti, long ttlSeconds) {
+    public Verdict recordUntil(String clientId, String jti, long retainUntilEpochSeconds) {
         if (jti == null || jti.isBlank()) {
             throw new IllegalArgumentException("jti is required for replay protection");
         }
-        long ttl = ttlSeconds > 0L ? ttlSeconds : 1L;
+        long nowMillis = this.clock.millis();
+        if (retainUntilEpochSeconds < nowMillis / 1000L) {
+            return Verdict.STALE;
+        }
+        long endMillis = retainUntilEpochSeconds >= Long.MAX_VALUE / 1000L - 1L
+                ? Long.MAX_VALUE : (retainUntilEpochSeconds + 1L) * 1000L;
+        long ttlMillis = Math.max(1L, endMillis - nowMillis);
         String key = StoreNamespace.jti(clientId, jti);
         try {
-            if (this.keys.setIfAbsent(key, "1", Duration.ofSeconds(ttl))) {
+            if (this.keys.setIfAbsent(key, "1", Duration.ofMillis(ttlMillis))) {
                 return Verdict.FIRST_USE;
             }
             LOGGER.debug((Object) ("replay DETECTED for clientId=" + clientId + " jti=" + jti));
@@ -130,6 +144,13 @@ public final class RedisAttestationStore implements AttestationChallengeService,
             LOGGER.error((Object) "Redis replay check failed; the request is refused as unavailable", e);
             return Verdict.STORE_UNAVAILABLE;
         }
+    }
+
+    /** The relative form, timed by this store's clock rather than the system's. */
+    @Override
+    @Deprecated
+    public Verdict record(String clientId, String jti, long ttlSeconds) {
+        return this.recordUntil(clientId, jti, this.clock.millis() / 1000L + Math.max(1L, ttlSeconds));
     }
 
     @Override

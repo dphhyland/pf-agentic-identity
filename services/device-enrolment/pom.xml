@@ -103,6 +103,10 @@
                                         <include>com.pingidentity.ps.oidf.enrolment.CaepEventHandler.applyOne(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.EnrolmentHttpServer.route(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.UserAuthentication.meetsAssurance(*</include>
+                                        <!-- S8b: which credentials the hosted-entity API gets. -->
+                                        <include>com.pingidentity.ps.oidf.enrolment.AuthorityCredentials.from(*</include>
+                                        <!-- S8b: the token request, and production's refusal of a token bound to nothing. -->
+                                        <include>com.pingidentity.ps.oidf.enrolment.AuthorityCredentials.ClientCredentials.fetch(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
