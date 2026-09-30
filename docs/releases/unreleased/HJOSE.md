@@ -74,9 +74,10 @@
 ## Notes
 
 - PS256 bridge keys now work: a client whose token endpoint signing algorithm is PS256 can be given an RSA bridge key
-  declared `"alg": "PS256"` (RFC 7518 §3.5, one of the three algorithms FAPI 2.0 permits). This was checked by unit
-  tests (`LocalJwkSignerTest`, `BridgeSignersCheckTest`) on JDK 17 and 20, not on a booted PingFederate; the rig was not
-  re-run for this package.
+  declared `"alg": "PS256"` (RFC 7518 §3.5). Checked on 2026-10-01 by unit tests (`LocalJwkSignerTest`,
+  `BridgeSignersCheckTest`) on JDK 17 and 20, and with the PingFederate 13.1.3 image's own java (BellSoft 21.0.12.1),
+  which signed PS256, PS384 and PS512 that jose4j verified and refused a 1024-bit key; not on a booted PingFederate -
+  the rig was not re-run for this package.
 - The oidf-jose mutation profile's first run, on 2026-10-01 (JDK 20), killed 322 of 349 mutations (92%, test strength
   96%); the oidf-jose README has the breakdown. The weekly Mutation workflow does not run it yet (plan item R-CI8,
   Phase 7).
