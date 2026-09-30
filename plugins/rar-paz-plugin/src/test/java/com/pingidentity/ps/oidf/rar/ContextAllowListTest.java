@@ -112,6 +112,12 @@ class ContextAllowListTest {
     @Test
     void everyDropIsCountedAndTheLogIsBounded() {
         long before = ContextAllowList.dropped(ContextAllowList.FORM_MEMBER);
+        // The same member twice is logged once (nothing else here fills the log, so it has room for this first).
+        List<DecisionResponse.Statement> twice = List.of(new DecisionResponse.Statement("repeated", "x"),
+                new DecisionResponse.Statement("repeated", "y"));
+        assertEquals(List.of(), list("-").filter("sales_agent", twice, ContextAllowList.FORM_MEMBER));
+        assertEquals(before + 2, ContextAllowList.dropped(ContextAllowList.FORM_MEMBER), "each counted");
+        before = ContextAllowList.dropped(ContextAllowList.FORM_MEMBER);
         List<DecisionResponse.Statement> many = new java.util.ArrayList<>();
         for (int i = 0; i < ContextAllowList.MAX_WARNED + 6; i++) {
             many.add(new DecisionResponse.Statement("member_" + i, "x"));
