@@ -62,9 +62,21 @@ public final class LdmSsfStore implements SsfStore {
     private static final String OWNER_ATTR = "ownerClientId";
 
     private final DataSource dataSource;
+    private final PushHeaderCipher headers;
 
+    /** A store that keeps a push {@code authorization_header} in clear, as every version before 0.6.0 did. */
     public LdmSsfStore(DataSource dataSource) {
+        this(dataSource, PushHeaderCipher.CLEAR);
+    }
+
+    /**
+     * A store that seals a push stream's {@code authorization_header} with {@code headers} on write and opens it on read
+     * (plan item H-SSF-7): the entry's {@code pushAuthorizationHeader} attribute holds the sealed value, and an earlier
+     * version's clear value is read as it is and sealed on the stream's next write.
+     */
+    public LdmSsfStore(DataSource dataSource, PushHeaderCipher headers) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.headers = Objects.requireNonNull(headers, "headers");
     }
 
     /**
@@ -346,7 +358,7 @@ public final class LdmSsfStore implements SsfStore {
 
     // ─────────────────────────────── attrs mapping ───────────────────────────────
 
-    private static Map<String, Object> streamAttrs(Stream s) {
+    private Map<String, Object> streamAttrs(Stream s) {
         LinkedHashMap<String, Object> attrs = new LinkedHashMap<>();
         attrs.put("audience", s.audience());
         if (s.ownerClientId() != null) {
@@ -358,7 +370,7 @@ public final class LdmSsfStore implements SsfStore {
             attrs.put("pushEndpointUrl", s.pushEndpointUrl());
         }
         if (s.pushAuthorizationHeader() != null) {
-            attrs.put("pushAuthorizationHeader", s.pushAuthorizationHeader());
+            attrs.put("pushAuthorizationHeader", this.headers.seal(s.id(), s.pushAuthorizationHeader()));
         }
         attrs.put("eventsRequested", s.eventsRequested());
         attrs.put("eventsDelivered", s.eventsDelivered());
@@ -370,13 +382,14 @@ public final class LdmSsfStore implements SsfStore {
 
     private Stream mapStream(ResultSet rs) throws SQLException {
         Map<String, Object> attrs = parseJson(rs.getString("attrs"));
+        String id = rs.getString("id");
         return Stream.builder()
-                .id(rs.getString("id"))
+                .id(id)
                 .audience((String) attrs.get("audience"))
                 .ownerClientId(attrs.get(OWNER_ATTR) instanceof String owner ? owner : null)
                 .deliveryMethod(DeliveryMethod.fromUrn((String) attrs.get("deliveryMethod")))
                 .pushEndpointUrl((String) attrs.get("pushEndpointUrl"))
-                .pushAuthorizationHeader((String) attrs.get("pushAuthorizationHeader"))
+                .pushAuthorizationHeader(this.headers.open(id, (String) attrs.get("pushAuthorizationHeader")))
                 .eventsRequested(stringList(attrs.get("eventsRequested")))
                 .eventsDelivered(stringList(attrs.get("eventsDelivered")))
                 .status(StreamStatus.fromValue((String) attrs.get("streamStatus")))

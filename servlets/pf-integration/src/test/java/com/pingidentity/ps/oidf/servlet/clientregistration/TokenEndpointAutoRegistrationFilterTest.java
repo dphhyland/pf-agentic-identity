@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -60,6 +62,19 @@ import org.junit.jupiter.api.Test;
  * <p>Ported from pf-oidf-modules (2026-08-15) when that repo was reduced to the demo.
  */
 class TokenEndpointAutoRegistrationFilterTest {
+    /** The lines holding each refusal's detail: the caller is told only the code and a reference (H-FED-4). */
+    private RefusalLog refusals;
+
+    @BeforeEach
+    void openRefusalLog() {
+        this.refusals = RefusalLog.open();
+    }
+
+    @AfterEach
+    void closeRefusalLog() {
+        this.refusals.close();
+    }
+
 
     private static final String CLIENT_ID = "https://rp.example.com/e/agent-42";
     private static final String OP_ISSUER = "https://as.example.com";
@@ -324,7 +339,8 @@ class TokenEndpointAutoRegistrationFilterTest {
         verify(this.response).setContentType("application/json");
         verify(this.response).setHeader("Cache-Control", "no-store");
         assertEquals("invalid_client", this.answered().get("error"));
-        assertEquals("the client's federation registration has expired", this.answered().get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("the client's federation registration has expired");
         verify(this.chain, never()).doFilter(any(), any());
     }
 
@@ -360,6 +376,37 @@ class TokenEndpointAutoRegistrationFilterTest {
         assertTrue(zero.contains("trustChainEntryMaxAgeSeconds must be between 1"), "it used to mean 60, quietly: " + zero);
     }
 
+    /**
+     * H-FED-4 (F-0046): a trust chain's messages and the URL the request named are peer text. However the federation
+     * registration fails - refused, unreachable, or a fault of ours - the caller reads only the code's fixed description
+     * and a reference, and the server log holds the detail.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        String markedClient = "https://rp.example.com/" + marker;
+        List<Exception> failures = List.of(
+                new RegistrationRejectedException(401, "invalid_client", "no authority_hint leads from " + markedClient,
+                        RegistrationRejectedException.Kind.TRUST, null),
+                new RegistrationRejectedException(503, "temporarily_unavailable", "fetching " + markedClient + " failed",
+                        RegistrationRejectedException.Kind.TRANSPORT, null),
+                new IllegalStateException("statement from " + markedClient + " broke the parser"));
+        for (Exception failure : failures) {
+            this.body.getBuffer().setLength(0);
+            when(this.response.getWriter()).thenReturn(new PrintWriter(this.body));
+            when(this.request.getParameter("client_id")).thenReturn(markedClient);
+            when(this.service.admit(anyString(), anyList(), anyString())).thenThrow(failure);
+
+            this.filter(true).doFilter(this.request, this.response, this.chain);
+
+            assertFalse(this.body.toString().contains(marker), this.body.toString());
+            PublicErrorsAssert.assertGeneric((String) this.answered().get("error"), this.body.toString());
+            assertTrue(this.refusals.lines().stream().anyMatch(line -> line.contains(marker)) || failure instanceof IllegalStateException,
+                    "a refusal's detail is the server log's");
+            org.mockito.Mockito.reset(this.service);
+        }
+    }
+
     @Test
     @Requirement("OIDFED §10.5")
     void aFederationThatCannotBeReachedIsTemporarilyUnavailable() throws Exception {
@@ -386,7 +433,8 @@ class TokenEndpointAutoRegistrationFilterTest {
 
         verify(this.response).setStatus(401);
         assertEquals("invalid_client", this.answered().get("error"));
-        assertEquals("does not advertise automatic", this.answered().get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("does not advertise automatic");
     }
 
     @Test
@@ -550,8 +598,8 @@ class TokenEndpointAutoRegistrationFilterTest {
 
         verify(this.response).setStatus(401);
         assertEquals("invalid_client", this.answered().get("error"));
-        assertTrue(String.valueOf(this.answered().get("error_description")).contains("explicit registration has expired"),
-                this.body.toString());
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("explicit registration has expired");
         verify(this.chain, never()).doFilter(any(), any());
 
         // Current, the same request goes on to ClientAttestationAuth and PingFederate.
@@ -581,8 +629,8 @@ class TokenEndpointAutoRegistrationFilterTest {
         new TokenEndpointAutoRegistrationFilter(real, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
 
         verify(this.response).setStatus(401);
-        assertTrue(String.valueOf(this.answered().get("error_description")).contains("explicit registration has expired"),
-                this.body.toString());
+        PublicErrorsAssert.assertGenericDescription("invalid_client", this.answered().get("error_description"));
+        this.refusals.assertDetail("explicit registration has expired");
         verify(this.chain, never()).doFilter(any(), any());
     }
 

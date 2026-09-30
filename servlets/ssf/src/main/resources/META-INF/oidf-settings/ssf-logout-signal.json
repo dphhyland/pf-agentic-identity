@@ -29,6 +29,33 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "min": 60,
+      "max": 2592000,
+      "default": 86400,
+      "description": "The oldest id_token_hint, by its iat, for which the logout filter raises a session-revoked, in seconds (60 to 30 days, default 24 hours); a replay of the same session and iat raises nothing within it",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not a whole number, or outside 60-2592000: an ERROR at each logout naming the setting, and the default of 86400 applies. Too long: a hint captured long ago can still raise a signal once; too short: an RP whose user logs out a day after signing in raises none"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.logout.hint.max.age.seconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
     }
   ],
   "removed": []

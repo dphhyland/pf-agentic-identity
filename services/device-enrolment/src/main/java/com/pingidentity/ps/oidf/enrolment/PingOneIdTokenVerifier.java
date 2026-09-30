@@ -3,11 +3,12 @@
  */
 package com.pingidentity.ps.oidf.enrolment;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import com.pingidentity.ps.oidf.jose.OutboundUrlPolicy;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
@@ -235,18 +236,37 @@ public final class PingOneIdTokenVerifier implements UserAuthenticationVerifier 
      *
      * <p>Refetches on an unknown {@code kid} rather than only on expiry, so a key rotation does not
      * cause a window of rejected logins — the usual way JWKS caching goes wrong.
+     *
+     * <p>The fetch goes through platform's {@link OutboundHttp} (plan item S5d): connecting (TLS included) within
+     * platform's default 5 s, the whole fetch within {@link #TOTAL_TIMEOUT} - the 10 s the JDK client gave the headers
+     * alone before - and a body up to platform's default cap, 256 KiB. PingOne is a public service, so the federation
+     * fetch rules apply ({@link OutboundUrlPolicy}): https, and public addresses only, which
+     * {@code OIDF_FETCH_ALLOW_HTTP}, {@code OIDF_FETCH_HOST_ALLOWLIST} and {@code OIDF_FETCH_ALLOW_PRIVATE_NETWORKS}
+     * widen for a development IdP. The JVM's trust store decides the certificate, which must name the host. A fetch
+     * that fails refuses the user authentication, with the reason in its message.
      */
     public static final class HttpJwksSource implements JwksSource {
 
+        /** The whole of one JWKS fetch, the body included. */
+        static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(10);
+
         private final String jwksUri;
         private final long cacheSeconds;
-        private final HttpClient http = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(5)).build();
+        private final OutboundHttp http;
+        private final Duration total;
         private final AtomicReference<Cached> cache = new AtomicReference<>();
 
         public HttpJwksSource(String jwksUri, long cacheSeconds) {
+            this(jwksUri, cacheSeconds, OutboundHttp.builder(OutboundUrlPolicy.fromEnvironment().addressPolicy()).build(),
+                    TOTAL_TIMEOUT);
+        }
+
+        /** The source over {@code http}, each fetch within {@code total}: the test seam. */
+        HttpJwksSource(String jwksUri, long cacheSeconds, OutboundHttp http, Duration total) {
             this.jwksUri = Objects.requireNonNull(jwksUri, "jwksUri");
             this.cacheSeconds = cacheSeconds;
+            this.http = Objects.requireNonNull(http, "http");
+            this.total = Objects.requireNonNull(total, "total");
         }
 
         @Override
@@ -265,21 +285,19 @@ public final class PingOneIdTokenVerifier implements UserAuthenticationVerifier 
 
         private List<JsonWebKey> fetch() throws EnrolmentException {
             try {
-                HttpResponse<String> response = this.http.send(
-                        HttpRequest.newBuilder(URI.create(this.jwksUri))
-                                .timeout(Duration.ofSeconds(10)).GET().build(),
-                        HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() != 200) {
+                OutboundResponse response = this.http.send(OutboundRequest.get(this.jwksUri)
+                        .header("Accept", "application/json").build(), Deadline.after(this.total));
+                if (response.status() != 200) {
                     throw EnrolmentException.userAuthenticationFailed(
-                            "PingOne JWKS returned HTTP " + response.statusCode());
+                            "PingOne JWKS returned HTTP " + response.status());
                 }
-                return new JsonWebKeySet(response.body()).getJsonWebKeys();
+                return new JsonWebKeySet(response.bodyText()).getJsonWebKeys();
             } catch (EnrolmentException e) {
                 throw e;
-            } catch (IOException | InterruptedException e) {
-                Thread.currentThread().interrupt();
+            } catch (OutboundHttpException e) {
+                // An interrupted read keeps the thread's interrupt (platform.http); the reason says which failure it was.
                 throw EnrolmentException.userAuthenticationFailed(
-                        "PingOne JWKS could not be fetched: " + e.getMessage());
+                        "PingOne JWKS could not be fetched: " + e.reason() + ": " + e.getMessage());
             } catch (Exception e) {
                 throw EnrolmentException.userAuthenticationFailed("PingOne JWKS is not a valid key set");
             }

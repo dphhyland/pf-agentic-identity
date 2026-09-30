@@ -1,0 +1,21 @@
+id: F-0406
+title: 'An SSF poll answer over the receiver''s 4 MiB cap stops the poll until OIDF_SSF_POLL_MAX_EVENTS is lowered'
+severity: low
+area: ssf
+source: pr-review
+status: open
+plan_items: [S5d, S-10]
+prs: [94]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by S5D's adversarial review on 2026-10-01. From 0.6.0 PollReceiverClient reads at most 4 MiB of a poll
+  answer (MAX_BODY_BYTES), sized for the default maxEvents of 100 at 40 KiB a SET. But the receiver asks for
+  OIDF_SSF_POLL_MAX_EVENTS SETs, and ssf-transmitter.json does not bound that setting beyond the int range, and 40 KiB
+  a SET is not a limit anywhere in the code. An answer over the cap is BODY_TOO_LARGE, a failed poll logged at WARN;
+  the acknowledgements do not advance, so the transmitter sends the same oversized answer next tick and the poll makes
+  no progress until the operator lowers OIDF_SSF_POLL_MAX_EVENTS (or the transmitter's SETs shrink). Before 0.6.0 the
+  JDK client read any size. S5D kept the fixed cap because the setting's bound belongs to ssf-transmitter.json, which
+  HSSF3 owns in Phase 3 wave 6, and a cap scaled from an unbounded setting is no cap. The fix: bound
+  OIDF_SSF_POLL_MAX_EVENTS in the catalogue and derive the cap from it (S-10 catalogues SSF's deadlines in Phase 4),
+  or ask for fewer events after an oversized answer.

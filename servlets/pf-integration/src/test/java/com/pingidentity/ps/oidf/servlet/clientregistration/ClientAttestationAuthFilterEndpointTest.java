@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -210,8 +212,12 @@ class ClientAttestationAuthFilterEndpointTest {
 
     private void refused(ClientAttestationAuthFilter filter, HttpServletRequest req, String because) throws Exception {
         FilterChain chain = mock(FilterChain.class);
-        String body = filter(filter, req, chain);
-        assertTrue(body.contains("invalid_client") && body.contains(because), body);
+        try (RefusalLog log = RefusalLog.open()) {
+            String body = filter(filter, req, chain);
+            // The caller is told the code and a reference; why is on the log line that carries the reference (H-FED-4).
+            PublicErrorsAssert.assertGeneric("invalid_client", body);
+            log.assertDetail(because);
+        }
         verify(chain, never()).doFilter(any(), any());
     }
 

@@ -3,13 +3,14 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -306,44 +307,52 @@ public final class ReceiverStreamClient {
         this.http.call("DELETE", this.transmitterBase + "/ssf/streams?stream_id=" + streamId, null);
     }
 
-    /** How long one call may take, connect and answer: it runs in the receiver's start. S-5d moves it onto platform.http. */
-    static final Duration TIMEOUT = Duration.ofSeconds(10);
+    /**
+     * The deadlines of one stream management call, which runs in the receiver's start: connecting (TLS included)
+     * within 1 s, and the whole exchange within 5 s. Its body is platform's default cap, 256 KiB: a list of streams.
+     */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(1);
+    static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(5);
 
     /**
      * Runtime transport: JSON calls with the receiver's bearer - {@code bearer}'s token, asked again once after a
-     * 401. {@code insecureTls} is the receiver's switch and trusts any certificate chain through platform's
-     * {@link InsecureTls}; the host name is still checked.
+     * 401 - through platform's {@link OutboundHttp} under the receiver's rules ({@link PollReceiverClient#receiverPolicy}).
+     * {@code insecureTls} is the receiver's switch and trusts any certificate chain through platform's
+     * {@link InsecureTls}; the host name is still checked. A call that fails - no answer by its deadline, or one
+     * the transmitter refuses - throws, and the receiver's start is retried as {@code FAILED_DEPENDENCY}.
      */
     public static HttpJson httpTransport(ReceiverBearer bearer, boolean insecureTls) {
-        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder().connectTimeout(TIMEOUT),
-                PollReceiverClient.RECEIVER_INSECURE_TLS, insecureTls).build();
+        return httpTransport(bearer, PollReceiverClient.receiverHttp(PollReceiverClient.receiverPolicy(), insecureTls,
+                CONNECT_TIMEOUT, OutboundHttp.DEFAULT_MAX_BODY_BYTES), TOTAL_TIMEOUT);
+    }
+
+    /** The transport over {@code http}, each exchange within {@code total}: the test seam. */
+    static HttpJson httpTransport(ReceiverBearer bearer, OutboundHttp http, Duration total) {
         return (method, url, bodyJson) -> {
-            HttpResponse<String> resp = send(http, method, url, bodyJson, bearer.token());
-            if (resp.statusCode() == 401) {
-                bearer.rejected(PollReceiverClient.bearerOf(resp));
-                resp = send(http, method, url, bodyJson, bearer.token());
+            String token = bearer.token();
+            OutboundResponse resp = send(http, method, url, bodyJson, token, total);
+            if (resp.status() == 401) {
+                bearer.rejected(token);
+                resp = send(http, method, url, bodyJson, bearer.token(), total);
             }
-            if (resp.statusCode() >= 300) {
-                throw new IllegalStateException(method + " " + url + " returned HTTP " + resp.statusCode()
-                        + ": " + resp.body());
+            if (resp.status() >= 300) {
+                throw new IllegalStateException(method + " " + url + " returned HTTP " + resp.status()
+                        + ": " + resp.bodyText());
             }
-            return resp.body();
+            return resp.bodyText();
         };
     }
 
-    private static HttpResponse<String> send(HttpClient http, String method, String url, String bodyJson, String token)
-            throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url)).timeout(TIMEOUT)
+    private static OutboundResponse send(OutboundHttp http, String method, String url, String bodyJson, String token,
+            Duration total) throws OutboundHttpException {
+        OutboundRequest.Builder b = OutboundRequest.builder(OutboundRequest.Method.valueOf(method), URI.create(url))
                 .header("Accept", "application/json");
         if (token != null && !token.isBlank()) {
             b.header("Authorization", "Bearer " + token);
         }
         if (bodyJson != null) {
-            b.header("Content-Type", "application/json")
-                    .method(method, HttpRequest.BodyPublishers.ofString(bodyJson));
-        } else {
-            b.method(method, HttpRequest.BodyPublishers.noBody());
+            b.body("application/json", bodyJson);
         }
-        return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+        return PollReceiverClient.withReason(http, b.build(), total);
     }
 }

@@ -4,13 +4,13 @@
 package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.platform.auth.ClientAuthentication;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
 import java.time.Duration;
@@ -237,22 +237,39 @@ public final class ClientCredentialsToken implements ReceiverBearer {
         return AlgorithmIdentifiers.ECDSA_USING_P256_CURVE_AND_SHA256;
     }
 
-    /** How long the token request may take, connect and answer; S-5d moves this client onto platform.http. */
-    static final Duration TIMEOUT = Duration.ofSeconds(10);
+    /**
+     * The deadlines of one token request, made in the receiver's start and before a poll: connecting (TLS included)
+     * within 1 s, and the whole exchange within 5 s, as the receiver's stream calls. Its answer is at most platform's
+     * default cap, 256 KiB.
+     */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(1);
+    static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(5);
 
     /**
-     * Runtime transport: a form POST with the receiver's TLS switch ({@code OIDF_SSF_RECEIVER_INSECURE_TLS}, through
-     * platform's {@link InsecureTls}; the host name is still checked).
+     * Runtime transport: a form POST through platform's {@link OutboundHttp} under the receiver's rules
+     * ({@link PollReceiverClient#receiverPolicy}), with the receiver's TLS switch ({@code OIDF_SSF_RECEIVER_INSECURE_TLS},
+     * through platform's {@link InsecureTls}; the host name is still checked). A request that fails throws, its reason
+     * at the front of its message.
      */
     public static TokenTransport httpTransport(boolean insecureTls) {
-        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder().connectTimeout(TIMEOUT),
-                PollReceiverClient.RECEIVER_INSECURE_TLS, insecureTls).build();
+        return httpTransport(PollReceiverClient.receiverHttp(PollReceiverClient.receiverPolicy(), insecureTls,
+                CONNECT_TIMEOUT, OutboundHttp.DEFAULT_MAX_BODY_BYTES), TOTAL_TIMEOUT);
+    }
+
+    /** The transport over {@code http}, each request within {@code total}: the test seam. */
+    static TokenTransport httpTransport(OutboundHttp http, Duration total) {
         return (endpoint, formBody, headers) -> {
-            HttpRequest.Builder b = HttpRequest.newBuilder(endpoint).timeout(TIMEOUT)
-                    .POST(HttpRequest.BodyPublishers.ofString(formBody));
-            headers.forEach(b::header);
-            HttpResponse<String> resp = http.send(b.build(), HttpResponse.BodyHandlers.ofString());
-            return new Response(resp.statusCode(), resp.body());
+            OutboundRequest.Builder b = OutboundRequest.builder(OutboundRequest.Method.POST, endpoint);
+            String contentType = "application/x-www-form-urlencoded";
+            for (Map.Entry<String, String> header : headers.entrySet()) {
+                if (header.getKey().equalsIgnoreCase("Content-Type")) {
+                    contentType = header.getValue(); // the client writes it with the body
+                } else {
+                    b.header(header.getKey(), header.getValue());
+                }
+            }
+            OutboundResponse resp = PollReceiverClient.withReason(http, b.body(contentType, formBody).build(), total);
+            return new Response(resp.status(), resp.bodyText());
         };
     }
 }

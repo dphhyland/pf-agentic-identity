@@ -1,12 +1,16 @@
 package au.com.idpartners.gm.servlet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
 
 import java.io.IOException;
-import java.io.OutputStream;
-import java.net.HttpURLConnection;
-import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 
 /**
@@ -16,29 +20,55 @@ import java.util.Map;
  * here; the policy is not, and should not be -- a PDP the AS cannot second-guess is the
  * point of the split. So this stays an ordinary HTTP call, and the PDP stays swappable:
  * the bundled demo PDP, PingAuthorize behind its AuthZEN facade, Topaz, OPA.
+ *
+ * <p>The call goes through platform's {@link OutboundHttp} (plan item S5d). The whole exchange, the
+ * answer's body included, ends by {@code pdpTimeoutMs} (10 s unless set): before, that value bounded
+ * the connect and each read apart, so a PDP answering a byte at a time held the request open without
+ * end. The wait for the answer's head is bounded by {@code pdpTimeoutMs} alone, so a value above
+ * platform's 10 s head default holds. Connecting, TLS included, takes at most platform's default 5 s
+ * within it (before, it could take the whole {@code pdpTimeoutMs}), and the answer at most platform's
+ * default cap, 256 KiB. The PDP is internal by design, so the URL it is configured at
+ * is exempt from the scheme and address rules - pinned to that URL's scheme, host, port and path -
+ * and nothing else is. The JVM's trust store decides its certificate, which must name its host.
  */
 public final class PdpClient {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    /** The {@code pdpTimeoutMs} default (gm-api.json), which a value of zero or below also gets. */
+    static final int DEFAULT_TIMEOUT_MS = 10_000;
 
     private final String evaluationUrl;
     private final String resourceSearchUrl;
     private final String bearerToken;
-    private final int timeoutMs;
+    private final Duration timeout;
+    private final OutboundHttp http;
 
     /**
      * @param baseUrl     the PDP's base URL; the AuthZEN endpoint paths are appended
      * @param bearerToken credential for the PDP, or null/blank for an unprotected one
-     * @param timeoutMs   connect and read timeout
+     * @param timeoutMs   how long one call may take, connecting, the answer and its body included;
+     *                    {@value #DEFAULT_TIMEOUT_MS} when zero or below
      */
     public PdpClient(String baseUrl, String bearerToken, int timeoutMs) {
+        this(baseUrl, bearerToken, timeoutMs, TlsTrust.jvmDefault());
+    }
+
+    /** The client with its TLS trust given: the test seam. */
+    PdpClient(String baseUrl, String bearerToken, int timeoutMs, TlsTrust trust) {
         String base = baseUrl == null ? "" : baseUrl.replaceAll("/+$", "");
         this.evaluationUrl = base + "/access/v1/evaluation";
         // AuthZEN 1.0 spells resource search /access/v1/search/resource. (The draft-era Go
         // adapter used /access/v1/resourcesearch; PingAuthorize's native servlet is 1.0.)
         this.resourceSearchUrl = base + "/access/v1/search/resource";
         this.bearerToken = bearerToken;
-        this.timeoutMs = timeoutMs;
+        // Zero once meant no timeout at all; there is no unbounded wait any more, so zero and below take the default.
+        this.timeout = Duration.ofMillis(timeoutMs > 0 ? timeoutMs : DEFAULT_TIMEOUT_MS);
+        // The wait for the answer's head is the whole timeout too: platform's 10 s head default would otherwise cut
+        // a pdpTimeoutMs above 10 s short.
+        this.http = OutboundHttp.builder(AddressPolicy.builder().trusting(base).build())
+                .headerTimeout(this.timeout)
+                .tls(trust)
+                .build();
     }
 
     public String getEvaluationUrl() {
@@ -86,47 +116,24 @@ public final class PdpClient {
 
     private Map<String, Object> post(String url, Map<String, Object> request)
             throws PdpUnavailableException {
-        HttpURLConnection conn = null;
         try {
-            conn = (HttpURLConnection) new URL(url).openConnection();
-            conn.setRequestMethod("POST");
-            conn.setConnectTimeout(timeoutMs);
-            conn.setReadTimeout(timeoutMs);
-            conn.setDoOutput(true);
-            conn.setRequestProperty("Content-Type", "application/json");
-            conn.setRequestProperty("Accept", "application/json");
+            OutboundRequest.Builder b = OutboundRequest.post(url)
+                    .header("Accept", "application/json")
+                    .body("application/json", MAPPER.writeValueAsBytes(request));
             if (bearerToken != null && !bearerToken.isBlank()) {
-                conn.setRequestProperty("Authorization", "Bearer " + bearerToken);
+                b.header("Authorization", "Bearer " + bearerToken);
             }
-
-            byte[] body = MAPPER.writeValueAsBytes(request);
-            try (OutputStream out = conn.getOutputStream()) {
-                out.write(body);
-            }
-
-            int status = conn.getResponseCode();
-            if (status != 200) {
-                String err = readAll(conn, true);
+            OutboundResponse response = http.send(b.build(), Deadline.after(timeout));
+            if (response.status() != 200) {
                 throw new PdpUnavailableException(
-                        "PDP returned " + status + " from " + url + ": " + err);
+                        "PDP returned " + response.status() + " from " + url + ": " + response.bodyText());
             }
-            return MAPPER.readValue(readAll(conn, false), Map.class);
-        } catch (IOException e) {
+            return MAPPER.readValue(response.body(), Map.class);
+        } catch (OutboundHttpException e) {
+            throw new PdpUnavailableException("could not reach the PDP at " + url + ": " + e.reason()
+                    + ": " + e.getMessage(), e);
+        } catch (IOException | IllegalArgumentException e) {
             throw new PdpUnavailableException("could not reach the PDP at " + url, e);
-        } finally {
-            if (conn != null) {
-                conn.disconnect();
-            }
-        }
-    }
-
-    private static String readAll(HttpURLConnection conn, boolean error) throws IOException {
-        var stream = error ? conn.getErrorStream() : conn.getInputStream();
-        if (stream == null) {
-            return "";
-        }
-        try (stream) {
-            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
         }
     }
 }
