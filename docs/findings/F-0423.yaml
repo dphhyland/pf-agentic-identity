@@ -1,0 +1,17 @@
+id: F-0423
+title: The RAR plugin reads OIDF_RAR_EXTRA_TYPES by hand for its descriptor
+severity: low
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found on 2026-10-01 by ST6's direct-read scan on main e377dbae. AttestationAwareRarProcessor.getPluginDescriptor
+  passes System.getProperty("oidf.rar.extra.types") and System.getenv("OIDF_RAR_EXTRA_TYPES") to supportedTypes,
+  which takes the property when it is not blank, else the variable, and splits it itself. The rar-pdp-processor
+  catalogue declares the setting as `words` with the same two sources in the same order, so today the two readings
+  agree; the rest of the plugin reads through the catalogue (PLG). The fix is to read it with Settings over
+  rar-pdp-processor and delete the line of tools/direct-read-allow.txt that names this finding.
