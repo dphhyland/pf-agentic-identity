@@ -171,7 +171,7 @@ call; the image no longer configuring the deployment; reproducible jars and wars
 - Every `JwtCodec` verifier - the claim verifiers, `verifySignature` and `verifyAttestationPop` - refuses `none` and
   the MAC algorithms whatever the caller's algorithm set names, and tries only asymmetric keys not marked
   `"use": "enc"` (RFC 8725 §3.1, §3.2; RFC 7517 §4.2). The `verifyAgainstKeys` and `verifyAgainstInlineJwks` overloads
-  that take no `VerificationPolicy` are deprecated for removal; no code in this repository calls them.
+  that take no `VerificationPolicy`, deprecated here, are removed in the same release by the H-FED-10 bullet above (HFEDD).
 - A configured subordinate's keys are asserted in a Subordinate Statement only once its Entity Configuration verifies
   under one of them ([F-0415](docs/findings/F-0415.yaml)). This is the OpenID Federation §3.2 check, not pinning: a
   party that answers at the subordinate's URL still signs with the keys it lists, which stays open as
