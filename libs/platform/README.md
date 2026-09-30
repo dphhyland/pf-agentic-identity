@@ -1085,8 +1085,11 @@ TrustedProxies.Origin origin = proxies.origin(request.getRemoteAddr(), headers);
 - **Who is believed.** A request whose remote address is not listed is taken at its word: its client address is
   its remote address, and its scheme and host are its own. From a listed proxy the client address is the right-most
   hop of the forwarding chain that is not itself listed, and a hop that is not an IP address (`unknown`, an
-  obfuscated identifier, a host name) ends the walk at the hop to its right. RFC 7239 section 8.1: "the header field
-  value can be modified by any node along the path", so only what a trusted proxy appended is trusted.
+  obfuscated identifier, a host name) ends the walk at the hop to its right. RFC 7239 section 8.1: with trusted
+  proxies, "the chain of IP addresses listed before the request came to the proxy cannot be trusted". MDN's
+  `X-Forwarded-For` reference (read 2026-09-30) gives the rule for a trusted proxy list: "The `X-Forwarded-For` IP
+  list is searched from the rightmost, skipping all addresses that are on the trusted proxy list. The first
+  non-matching address is the target address."
 - **Which headers.** `OIDF_TRUSTED_PROXIES_HEADERS` is `x-forwarded` (the default: `X-Forwarded-For`, `-Proto`,
   `-Host`, `-Port`) or `forwarded` (RFC 7239's `Forwarded`, section 4). Only one family is read: a proxy that writes
   one passes the other through from the client unchanged. A scheme is believed only as `http` or `https`, a host

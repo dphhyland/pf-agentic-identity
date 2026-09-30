@@ -3,10 +3,22 @@ title: 'Issuance endpoint: no body cap or rate limit, every PingFederate client 
 severity: medium
 area: attestation-issuer
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-ATT-2]
 prs: []
-verification: ''
+verification: >
+  2026-09-30, branch prod/p3-issuance-endpoint (HATT2): POST /federation/attestation counts each client address
+  (OIDF_ATTESTER_ISSUANCE_REQUESTS_PER_MINUTE, 60; in Redis under oidf:cas:limit:issue when OIDF_REDIS_URL is set,
+  else per node) and answers 429 temporarily_unavailable with Retry-After past it; reads at most
+  OIDF_ATTESTER_MAX_BODY_BYTES (32768) and answers 413 invalid_request beyond it without reading on; matches evidence
+  against ClientBindingIndex, rebuilt every OIDF_ATTESTER_CLIENT_INDEX_REFRESH_SECONDS (30) and after a miss at most
+  once in 5 s, instead of enumerating PingFederate's clients per request; and answers every failure, an unexpected
+  exception included, with a CAS section 4.6 code, an X-Correlation-Id header, and for a 5xx or invalid_client a fixed
+  description, the detail logged at WARN under the id. IssuanceRequestPathTest (body cap, limit with a fake clock and
+  with the CI Redis, each failure's text), ClientBindingIndexTest (one read for a hundred requests, a thousand misses
+  in ten seconds rebuilding twice) and the attestation-issuer coverage gate hold it, on JDK 17 and 21. Not exercised
+  on the rig.
+
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

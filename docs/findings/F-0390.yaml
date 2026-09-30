@@ -1,0 +1,19 @@
+id: F-0390
+title: Three other discovery documents still send Access-Control-Allow-Origin * to every origin
+severity: low
+area: attestation-issuer, openid-federation, ssf
+source: design
+status: open
+plan_items: [H-ATT-3]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found while building HATT2 (2026-09-30). H-ATT-3 narrowed CORS on the attester's configuration documents
+  (OIDF_ATTESTER_CORS_ORIGINS, none by default). ClientAttestationServiceMetadataServlet
+  (/.well-known/client-attestation-service, servlets/attestation-issuer), OpenIdFederationServlet's Entity
+  Configuration and SsfConfigurationServlet's /.well-known/ssf-configuration still answer every origin with
+  Access-Control-Allow-Origin *. Each is public metadata, so the exposure is the one the attester's had: a web page
+  reading it through a visitor's browser where the browser can reach a server the page's author cannot. HATT2's spec
+  kept them out of its scope. The rule to reuse is AttesterConfigurationServlet.applyCors, with a setting per surface
+  or one shared.

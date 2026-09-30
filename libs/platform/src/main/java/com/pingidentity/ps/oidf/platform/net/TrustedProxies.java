@@ -22,12 +22,15 @@ import java.util.regex.Pattern;
  * listed proxy has as its client address the right-most hop of the forwarding chain that is not itself a listed proxy,
  * and as its scheme and host what the proxy that received it from that hop says.
  *
- * <p>Right-most, because each proxy appends the address it received the request from and a client can write anything
- * to the left of that. RFC 7239 section 5.2 describes the {@code for} parameter as identifying "the client that
- * initiated the request and subsequent proxies in a chain of proxies", and section 8.1 says that "the header field
- * value can be modified by any node along the path" and that the values are "not trustworthy" beyond a proxy the
- * receiver trusts; the right-most untrusted hop is the one a trusted proxy wrote. The same holds for the de-facto
- * {@code X-Forwarded-For}, whose convention is that each proxy appends the address it saw.
+ * <p>Right-most, because each proxy appends to the chain and a client can write anything to the left of what the first
+ * of ours appended. RFC 7239 section 4: "The first element in this list holds information added by the first proxy
+ * that implements and uses this header field, and each subsequent element holds information added by each subsequent
+ * proxy"; section 8.1: the header "cannot be relied upon to be correct, as it may be modified, whether mistakenly or
+ * for malicious reasons, by every node on the way to the server, including the client making the request", and with
+ * trusted proxies "the chain of IP addresses listed before the request came to the proxy cannot be trusted". For the
+ * de-facto {@code X-Forwarded-For}, MDN's reference (read 2026-09-30) gives the same rule for a trusted proxy list:
+ * "The {@code X-Forwarded-For} IP list is searched from the rightmost, skipping all addresses that are on the trusted
+ * proxy list. The first non-matching address is the target address."
  *
  * <p>Which header family is read is {@value #HEADERS_SETTING}: {@code x-forwarded} (the default) reads
  * {@code X-Forwarded-For}, {@code X-Forwarded-Proto}, {@code X-Forwarded-Host} and {@code X-Forwarded-Port};
