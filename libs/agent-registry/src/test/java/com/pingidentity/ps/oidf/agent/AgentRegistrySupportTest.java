@@ -44,6 +44,7 @@ class AgentRegistrySupportTest {
         assertDoesNotThrow(() -> AgentRegistrySupport.configureInMemoryRegistry(IN_MEMORY));
         ProfileRefusals.publish(ProfileAudit.Result.empty(DeploymentProfile.DEVELOPMENT));
         assertDoesNotThrow(() -> AgentRegistrySupport.configureInMemoryRegistry(AcceptedRisks.none()));
+        assertDoesNotThrow(() -> AgentRegistrySupport.configureInMemoryRegistry(), "this process's risks, under development");
         assertTrue(ProfileRefusals.codeRefusals().isEmpty(), "development refuses nothing");
     }
 

@@ -13,7 +13,7 @@
       "max": 9223372036854775807,
       "default": 86400,
       "description": "The longest lifetime the attester accepts of a piece of evidence: of the whole (exp - iat) when it has an iat, and of what is left (exp - now, with 60 s for a clock behind the issuer's) always; a binding lives as long as its evidence, so this bounds how long a stolen token stays presentable. Production may only shorten it",
-      "when_wrong": {"effect": "first-request", "detail": "Not a whole number, 0 or less, or above 86400 without OIDF_DEPLOYMENT_PROFILE=development: issuance answers 500 server_error naming the variable, from the first request"},
+      "when_wrong": {"effect": "doesnt-start", "detail": "Not a whole number of seconds from 1, or above 86400 without OIDF_DEPLOYMENT_PROFILE=development: the issuance servlet's part is FAILED_CONFIG at deploy, naming the variable (before 0.6.0 each issuance answered 500 server_error from the first request)"},
       "profile": "any",
       "security": true,
       "sources": [
@@ -29,7 +29,7 @@
       "type": "bool",
       "default": false,
       "description": "Whether evidence whose aud names more than one party is refused: such evidence is presentable to each of them, so the attester cannot know it was the intended one",
-      "when_wrong": {"effect": "first-request", "detail": "Neither true nor false, in any case: issuance answers 500 server_error naming the variable, from the first request"},
+      "when_wrong": {"effect": "doesnt-start", "detail": "Neither true nor false, in any case: the issuance servlet's part is FAILED_CONFIG at deploy, naming the variable (under development yes, no, 1, 0, on and off are read as false, with a warning naming the strict spelling); before 0.6.0 each issuance answered 500 server_error from the first request, in both profiles"},
       "profile": "any",
       "security": true,
       "sources": [

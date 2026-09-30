@@ -191,6 +191,11 @@ public class AttestationIssuanceServlet extends HttpServlet {
         return Settings.of(SETTINGS);
     }
 
+    /** {@code challengeRequired} from {@code config}'s init-params, strictly, for the attester's configuration servlet. */
+    static boolean challengeRequired(ServletConfig config) {
+        return Settings.of(SETTINGS).with(InitParams.sources(config)).bool("challengeRequired");
+    }
+
     /** A {@code words} setting as the claim list it is, in the order written; empty when unset. */
     static List<String> claims(Settings settings, String name) {
         Set<String> words = settings.words(name);

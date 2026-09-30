@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertSame;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 import static org.mockito.Mockito.mock;
@@ -277,6 +278,15 @@ class ChallengeEndpointSettingsTest {
         assertEquals(ComponentState.READY, part("ChallengeEndpointServlet").state(), "development: a WARN, not a refusal");
         assertTrue(ProfileRefusals.codeRefusals().isEmpty());
         assertEquals(200, status(cas, "GET", "10.0.3.2"));
+    }
+
+    @Test
+    void withNoRisksGivenTheProcessesAreRead() {
+        // A test run's environment accepts no risk and names no profile: production, so the rule refuses.
+        assumeTrue(AcceptedRisks.current().accepted().isEmpty(), "the environment accepts a risk");
+        AttestationSupport.acceptedRisksForTests(null);
+        assertThrows(com.pingidentity.ps.oidf.platform.settings.ProfileRefused.class,
+                () -> AttestationSupport.requireSharedState(StoreNamespace.FED_ENDPOINT));
     }
 
     @Test

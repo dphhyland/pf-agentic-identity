@@ -102,6 +102,8 @@
                                         <include>com.pingidentity.ps.oidf.agent.InMemoryAgentRegistry.NaturalKey.validated(*</include>
                                         <include>com.pingidentity.ps.oidf.agent.InMemoryAgentRegistry.NaturalKey.requireNonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.agent.JdbcAgentRegistry.requireNonBlank(*</include>
+                                        <!-- ST5A: the in-memory registry needs the in-memory-state risk in production (PR-2). -->
+                                        <include>com.pingidentity.ps.oidf.agent.AgentRegistrySupport.configureInMemoryRegistry(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -106,6 +106,8 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
         List<String> customClaimsRequired = AttestationIssuanceServlet.claims(settings, "OIDF_ATTESTATION_CUSTOM_CLAIMS_REQUIRED");
         List<String> customClaimsSupported = AttestationIssuanceServlet.claims(settings, "OIDF_ATTESTATION_CUSTOM_CLAIMS_SUPPORTED");
         settings.string("OIDF_CIMD_TRUST_BUNDLES");
+        // The wallet validator the document's formats come from is built at the first request, from this setting.
+        settings.jsonObject("OIDF_WALLET_PROVIDER_JWKS");
         this.challengeRequired = challengeRequired;
         this.challengeEndpointEnabled = challengeEndpointEnabled;
         this.attestationSigningAlgs = List.copyOf(algs);

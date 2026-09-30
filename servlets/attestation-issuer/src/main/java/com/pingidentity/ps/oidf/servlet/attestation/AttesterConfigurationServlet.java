@@ -18,8 +18,6 @@ import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
-import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
-import com.pingidentity.ps.oidf.platform.settings.Settings;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.util.ArrayList;
@@ -93,8 +91,7 @@ public class AttesterConfigurationServlet extends HttpServlet {
         super.init(config);
         ComponentParts.Part begun = Startup.begin(Startup.ATTESTATION_ISSUER, "AttesterConfigurationServlet");
         this.part = begun;
-        begun.start(() -> this.challengeRequired = Settings.of(AttestationIssuanceServlet.SETTINGS)
-                .with(InitParams.sources(config)).bool("challengeRequired"));
+        begun.start(() -> this.challengeRequired = AttestationIssuanceServlet.challengeRequired(config));
     }
 
     @Override
