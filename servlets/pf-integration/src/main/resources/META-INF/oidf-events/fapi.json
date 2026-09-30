@@ -20,7 +20,7 @@
   },
   "events": {
     "fapi.request.refused": {
-      "description": "A FAPI filter refused a request before PingFederate saw it, for a client its list (OIDF_FAPI2_CLIENTS) names, or for any client under *. The reason is the OAuth error the caller was answered with: invalid_client, invalid_dpop_proof or invalid_request.",
+      "description": "A FAPI filter refused a request before PingFederate saw it, for a client its list names - OIDF_FAPI2_CLIENTS for Fapi2ProfileFilter, OIDF_FAPI2_CLIENTS and OIDF_FAPI_RESOURCE_CLIENTS for FapiResourceServerFilter - or for any client under *. The reason is the OAuth error the caller was answered with: invalid_client, invalid_dpop_proof or invalid_request.",
       "audit": true,
       "outcomes": [
         "failure"

@@ -66,6 +66,7 @@ public final class PublicErrors {
             Map.entry("invalid_trust_anchor", "The trust anchor is not one this server accepts"),
             Map.entry("invalid_trust_chain", "No valid trust chain was found"),
             Map.entry("invalid_metadata", "The metadata is invalid"),
+            Map.entry("invalid_entity_configuration", "The entity configuration is invalid"),
             Map.entry("not_found", "The requested resource was not found"),
             Map.entry("unsupported_parameter", "A parameter is not supported"),
             Map.entry("server_error", "The server encountered an unexpected condition"),

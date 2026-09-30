@@ -12,10 +12,13 @@ verification: >
   code's fixed description (PublicErrors.generic) and a correlation id, and log the detail on a server.log line that
   carries the same id. ClientAttestationAuthFilter.reject, Fapi2ProfileFilter's and FapiResourceServerFilter's
   refusals, the registration filters, /federation/register, the federation endpoints and HostedEntityServlet's public
-  GET all use them; an operator's responses (FederationAdminServlet, through FederationErrors.writeToOperator) keep the
-  detail. Marker tests, each named aHostileMarkerNeverReachesTheResponse (ClientAttestationAuthFilterTest,
+  GET and its self-signed publication PUT (authorised only by the configuration's signature) all use them; an
+  operator's responses (FederationAdminServlet and HostedEntityServlet's enrolment and revocation, through
+  FederationErrors.writeToOperator) keep the detail, except for a server error's. Marker tests, each named aHostileMarkerNeverReachesTheResponse (ClientAttestationAuthFilterTest,
   TokenEndpointAutoRegistrationFilterTest, FrontChannelAutoRegistrationFilterTest, OpenIdRegistrationServletTest,
-  OpenIdFederationServletTest, Fapi2ProfileFilterTest, FapiResourceServerFilterTest) and
+  OpenIdFederationServletTest, Fapi2ProfileFilterTest, FapiResourceServerFilterTest),
+  HostedEntityServletSelfSignedTest.aHostileMarkerNeverReachesAPublicationsRefusal (a marker in a JWS header's alg
+  and kid, a malformed body, an authority hint, the path and a store's exception) and
   FederationErrorsTest.aHostileMarkerNeverReachesAnUnauthenticatedCaller, send a random marker in a client id, a proof's
   audience, a header, a content type, a query parameter and an exception message, and assert it is in no response body;
   OAuthErrorWriterTest and FederationErrorsTest hold the reference in the body equal to the one on the log line. On the

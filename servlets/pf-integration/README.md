@@ -112,8 +112,9 @@ has the gate), and forwards to PingFederate **the details it granted, never the 
 
 Plan item H-FED-4 (finding F-0046). Every refusal this module writes to a caller that has not authenticated - the
 token, PAR, CIBA, device, introspection and revocation endpoints before the client is verified (the attestation,
-registration and FAPI filters), the authorization endpoint's error page, `/federation/register`, and the federation
-endpoints - carries two things: the error code's fixed description (`PublicErrors`, one per code; `Client
+registration and FAPI filters), the authorization endpoint's error page, `/federation/register`, the federation
+endpoints, and a self-signed entity's publication (`PUT <collection>/<id>/entity-configuration`, authorised only by its
+signature) - carries two things: the error code's fixed description (`PublicErrors`, one per code; `Client
 authentication failed` for `invalid_client`, for example) and a correlation id, as
 `"error_description": "Client authentication failed (reference oidf-1a2b3c4d)"`, and `${trackingId}` on the error
 page. The detail - a trust chain's messages, a claim the attestation carried, the URL the request named, what to

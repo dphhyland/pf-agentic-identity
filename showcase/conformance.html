@@ -232,7 +232,7 @@ ALLOWED_ALGORITHMS =
   Set.of("PS256", "ES256", "EdDSA");</code></pre>
   </div>
   <p>Two smaller filters sit beside it: one meets FAPI 1.0 Baseline at the UserInfo endpoint for the same listed
-  clients, echoing an <code>x-fapi-interaction-id</code> and refusing an access token in the query string; the other
+  clients and the FAPI 1.0 clients <code>OIDF_FAPI_RESOURCE_CLIENTS</code> adds, echoing an <code>x-fapi-interaction-id</code> and refusing an access token in the query string; the other
   keeps an error's <code>error_description</code> inside the character set RFC 6749 allows, which PingFederate's own message breaks
   by quoting a Java date. None of the three is registered by an annotation: the image build maps them over
   PingFederate's endpoints when it assembles the runtime.</p>
