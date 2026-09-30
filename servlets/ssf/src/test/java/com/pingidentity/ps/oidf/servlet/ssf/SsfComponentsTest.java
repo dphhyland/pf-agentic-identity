@@ -128,7 +128,7 @@ class SsfComponentsTest {
     private static int gate(ComponentParts.Part part) throws IOException {
         HttpServletResponse resp = mock(HttpServletResponse.class);
         when(resp.getOutputStream()).thenReturn(mock(ServletOutputStream.class));
-        if (!ComponentGate.servlet(part, resp)) {
+        if (!ComponentGate.oauthEndpoint(part, resp)) {
             return 0;
         }
         verify(resp, never()).setStatus(200);

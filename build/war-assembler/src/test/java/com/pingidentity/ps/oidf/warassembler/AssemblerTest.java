@@ -53,10 +53,13 @@ class AssemblerTest {
         int end = stock.lastIndexOf("</web-app>");
         String shell = Fixtures.text("golden/shell-assembler-additions.txt");
         assertEquals(1, shell.split(java.util.regex.Pattern.quote(Fixtures.CLIENT_ATTESTATION_MAPPING_SHELL), -1).length - 1);
+        assertEquals(1, shell.split(java.util.regex.Pattern.quote(Fixtures.CLIENT_ATTESTATION_FILTER_START), -1).length - 1);
         assertEquals(stock.substring(0, end) + shell.replace(Fixtures.CLIENT_ATTESTATION_MAPPING_SHELL, Fixtures.CLIENT_ATTESTATION_MAPPING)
+                .replace(Fixtures.CLIENT_ATTESTATION_FILTER_START, Fixtures.ISSUED_DETAILS_BELT_BLOCK + Fixtures.CLIENT_ATTESTATION_FILTER_START)
                 + Fixtures.LIFECYCLE_LISTENER_BLOCK + stock.substring(end), merged,
                 "PingFederate's text untouched, and the block inserted before </web-app> is the shell script's with"
-                        + " ClientAttestationAuth's wider mapping (S4d), then F-2's listener");
+                        + " ClientAttestationAuth's wider mapping (S4d) and the response belt just before it (S4D3), then F-2's"
+                        + " listener");
         assertNotNull(Fixtures.entry(out, "WEB-INF/lib/oidf.jar"));
         assertNotNull(Fixtures.entry(out, "WEB-INF/lib/ssf-0.5.0-SNAPSHOT.jar"));
         assertNotNull(Fixtures.entry(out, "META-INF/MANIFEST.MF"));
@@ -64,8 +67,8 @@ class AssemblerTest {
         assertTrue(r.out().contains("namespace: jakarta.servlet (per the stock war); no staged jar references javax.servlet"));
         assertTrue(r.out().contains("web.xml: registered Fapi2Profile over /as/par.oauth2, /as/token.oauth2"));
         assertTrue(r.out().contains("chain /as/token.oauth2 (protocol): requestTracing > Fapi2Profile > OAuthErrorDescription"
-                + " > OidfAutoRegistration > ClientAttestationAuth > responseCaching"), r.out());
-        assertTrue(r.out().contains("6 order rules hold; 1 listeners registered"), r.out());
+                + " > OidfAutoRegistration > IssuedDetailsBelt > ClientAttestationAuth > responseCaching"), r.out());
+        assertTrue(r.out().contains("7 order rules hold; 1 listeners registered"), r.out());
         assertTrue(r.out().contains("web.xml: registered the listener " + Fixtures.LIFECYCLE_LISTENER), r.out());
         assertEquals("", r.err());
         assertEquals("rw-r-----", java.nio.file.attribute.PosixFilePermissions.toString(Files.getPosixFilePermissions(out)),
@@ -388,7 +391,7 @@ class AssemblerTest {
         Fixtures.Run r = run("--filters", p.toString(), stockLike("stock-like-web.xml").toString(), Fixtures.stage(dir).toString(), "-",
                 out.toString());
         assertEquals(0, r.exit(), r.err());
-        assertTrue(r.out().contains("6 order rules hold; no listener declared"), r.out());
+        assertTrue(r.out().contains("7 order rules hold; no listener declared"), r.out());
         assertFalse(Fixtures.webXml(out).contains("<listener>"));
     }
 
@@ -406,7 +409,7 @@ class AssemblerTest {
         assertEquals(0, r.exit(), r.err());
         for (String chain : List.of(
                 "chain /as/token.oauth2 (protocol): requestTracing > Fapi2Profile > OAuthErrorDescription > OidfAutoRegistration"
-                        + " > ClientAttestationAuth > responseCaching",
+                        + " > IssuedDetailsBelt > ClientAttestationAuth > responseCaching",
                 "chain /as/par.oauth2 (protocol): requestTracing > Fapi2Profile > OAuthErrorDescription"
                         + " > OidfFrontChannelAutoRegistration > ClientAttestationAuth > responseCaching",
                 "chain /as/bc-auth.ciba (protocol): requestTracing > Fapi2Profile > OAuthErrorDescription > ClientAttestationAuth"
@@ -420,11 +423,12 @@ class AssemblerTest {
         }
     }
 
-    /** Each of the two order rules S4d added is enforced: the assembler refuses a war that breaks it, and says why. */
+    /** Each of the three order rules S4d added is enforced: the assembler refuses a war that breaks it, and says why. */
     @Test
     void theOrderRulesS4dAddedAreEachEnforced() throws IOException {
         for (String[] rule : new String[][]{{"Fapi2Profile", "FAPI 2.0 judges the client's own assertion"},
-                {"OidfFrontChannelAutoRegistration", "front-channel registration is what puts a federation RP there"}}) {
+                {"OidfFrontChannelAutoRegistration", "front-channel registration is what puts a federation RP there"},
+                {"IssuedDetailsBelt", "the belt must hold every token response written for a request ClientAttestationAuth verified"}}) {
             // Moving the earlier filter's declaration after ClientAttestationAuth's appends its mapping after it.
             // Only the rule under test can fail: the others that name the moved filter as the earlier one are dropped.
             String declaration = Files.readString(Fixtures.shippedFilters()).replaceAll(

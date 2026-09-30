@@ -319,6 +319,12 @@
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.violationIn(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.init(*</include>
+                                        <!-- S9b: while FAPI's part is failed only a listed client's request is
+                                             refused, and while automatic registration is off or failed only a
+                                             stored federation client's is. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.fromAListedClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.fapi2.Fapi2ProfileFilter.listed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientLookup.registeredByFederation(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.interactionIdFor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter.carriesTokenInQuery(*</include>
@@ -439,6 +445,32 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.asksForUnpushedDetails(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.namedClients(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.add(*</include>
+                                        <!-- S4d3: the details actually issued, held to the attestation's ceiling - the belt's
+                                             buffer, its 64 KiB limit and its 400 or 500 in place of the token response, and
+                                             the grant it revokes; the issuance criterion's answer, a client with no
+                                             attestation, and the bare refresh of a listed type sent back to be decided
+                                             again. revokeInPingFederate needs a booted server and is left out. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.finish(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.issuedIn(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.revokeGrantOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.clientOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.success(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.Held.write(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.Held.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.Held.close(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.IssuedDetailsBelt.Held.heldHeader(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.withinCeiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.decide(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.withoutAttestation(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.bareRefreshOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.issued(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.held(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.ceilingOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.withoutMarkers(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.singleHeader(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.hasHeader(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.IssuedDetailsCriterion.Engine.of(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

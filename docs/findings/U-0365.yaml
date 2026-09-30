@@ -1,0 +1,28 @@
+id: U-0365
+title: The instance-registry data source's data store field has not been seen reaching a PingFederate JDBC data store on a running PingFederate
+area: instance-registry-datasource
+source: design
+status: open
+plan_items: [PR-3, X-A21]
+prs: [85]
+recorded_in: plugins/instance-registry-datasource/README.md, PF admin console
+verify_by: >
+  On the rig: a PingFederate JDBC data store on the Identity Object Model's PostgreSQL (the driver copied into
+  server/default/lib, F-0330), the plugin jar with device-instance beside it in server/default/deploy, and a Custom
+  data store "Agent Instance Registry" with "PingFederate data store" chosen from the list. Expect the list to offer
+  the JDBC data store by its description, testConnection to pass, a lookup to resolve an enrolled instance, and,
+  under the production profile with the list pointed at PingFederate's own HSQLDB data store, every lookup to fail
+  with one ERROR naming INSTANCE_REGISTRY; and with "JDBC URL" set under production, every lookup to fail naming the
+  data store field.
+verification: ''
+notes: >
+  Read, not run (package ST5S, 2026-09-30), from the pinned SDK with javap: the SDK's
+  org.sourceid.saml20.adapter.gui.JdbcDatastoreFieldDescriptor(String, String) is a SelectFieldDescriptor whose
+  getOptionValues() asks SelectFieldDescriptionService.getJdbcDataSourceOptionValues(); pf-protocolengine 13.1.3.0's
+  SelectFieldDescriptionServiceImpl builds each option from a JdbcDataSource as new OptionValue(getDescription(),
+  getJndiName()), and JdbcDataSource.getJndiName() returns getId(). com.pingidentity.access.DataSourceAccessor's
+  public java.sql.Connection getConnection(String jdbcJndiName) throws SQLException, NamingException is
+  new InitialContext().lookup(jdbcJndiName) cast to javax.sql.DataSource, then getConnection(). So the field's value
+  is the data store's id, and the accessor turns it into a pooled connection by a JNDI lookup - from a custom data
+  source driver's own classloader, which is what this package has not seen. The unit tests drive a stand-in for the
+  selector, whose constructor needs PingFederate's service registry, and a stand-in for the accessor.

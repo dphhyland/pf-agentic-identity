@@ -1,0 +1,18 @@
+id: U-0360
+title: What context.OAuthAuthorizationDetails holds on the token-exchange and JWT-bearer grants
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: [84]
+recorded_in: docs/operator/issued-details.md, The issuance criterion
+verify_by: >
+  On the rig, with an expression attribute on the token-exchange processor's access-token mapping and on the default
+  mapping for a JWT-bearer grant: a token exchange and a JWT-bearer request each carrying authorization_details, and
+  what the criterion sees for each, with and without the parameter.
+verification: ''
+notes: >
+  S4D3 drove the client-credentials, code, CIBA, device and refresh grants on 2026-09-30 (U-0018). The criterion is
+  written to hold whatever a mapping hands it, but on these two grants what PingFederate hands it was not seen: F-0325
+  records that a token exchange asking for an ID-JAG reaches neither validate nor enrich, and U-0017 that the JWT-bearer
+  grant never calls enrich.

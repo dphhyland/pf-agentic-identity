@@ -3,10 +3,16 @@ title: The gm-api Java example keeps its own trust-all behind --insecure, outsid
 severity: low
 area: gm-api
 source: design
-status: open
+status: closed
 plan_items: [PR-3]
-prs: []
-verification: ''
+prs: [85]
+verification: >
+  Fixed by package ST5S (2026-09-30). GrantManagementClient takes --cacert FILE: the PEM certificates in
+  the file become the only trust anchors of an SSLContext built with the JDK's TrustManagerFactory, and the chain and
+  the host name are checked as for any other server. --insecure and its trust-all X509TrustManager are gone, and so is
+  the example's exemption in tools/trust-scan.py (test_trust_scan holds it gone). Checked by hand on JDK 17 and 21
+  against a self-signed HTTPS server: 200 for localhost with --cacert naming its certificate, an
+  SSLHandshakeException for 127.0.0.1 (no matching subject alternative name), and one without --cacert.
 target_release: 0.6.0
 notes: >
   services/gm-api/examples/java/GrantManagementClient.java is a single-file, JDK-only client run as `java

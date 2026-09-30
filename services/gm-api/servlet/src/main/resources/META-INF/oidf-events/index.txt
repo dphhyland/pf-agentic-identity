@@ -1,0 +1,2 @@
+# The event catalogues of services/gm-api/servlet, one component per line (platform.events.EventCatalogue).
+gm

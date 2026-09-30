@@ -39,6 +39,8 @@
     </dependencyManagement>
 
     <dependencies>
+        <!-- platform.settings: the catalogue reads, the start-up audit and the deployment profile (ST-5, PR-5). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId></dependency>
@@ -101,6 +103,13 @@
                                     <element>METHOD</element>
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.enrolment.CaepEventHandler.applyOne(*</include>
+                                        <!-- The start-up decision and audit that stop the service in production, and
+                                             the one database URL it takes, refused naming only its scheme (ST-5,
+                                             PR-3, PR-5). -->
+                                        <include>com.pingidentity.ps.oidf.enrolment.Main.prepare(*</include>
+                                        <include>com.pingidentity.ps.oidf.enrolment.Main.audit(*</include>
+                                        <include>com.pingidentity.ps.oidf.enrolment.Main.toJdbcUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.enrolment.Main.scheme(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.EnrolmentHttpServer.route(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.UserAuthentication.meetsAssurance(*</include>
                                         <!-- S8b: which credentials the hosted-entity API gets. -->

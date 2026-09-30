@@ -133,12 +133,15 @@
                                         <include>au.com.idpartners.gm.servlet.GrantView.isExpired(*</include>
                                         <!-- How the PDP's answer is turned into a permit, a deny, or a retry. -->
                                         <include>au.com.idpartners.gm.servlet.GrantOperations.evaluate(*</include>
+                                        <include>au.com.idpartners.gm.servlet.GrantOperations.revoke(*</include>
                                         <include>au.com.idpartners.gm.servlet.GrantOperations.Decision.retryable(*</include>
                                         <!-- The subject the whole decision is about, parsed off the token. -->
                                         <include>au.com.idpartners.gm.servlet.TokenClaims.from(*</include>
                                         <include>au.com.idpartners.gm.servlet.PfTokenVerifier.PfTokenVerifier(com.pingidentity.access.JwksEndpointKeyAccessor*</include>
                                         <!-- The path parse that decides which grant a caller is acting on. -->
                                         <include>au.com.idpartners.gm.servlet.GrantsServlet.evaluateGrantIdFrom(*</include>
+                                        <!-- The settings, strictly, and the PDP over https unless development (ST-5, PR-3). -->
+                                        <include>au.com.idpartners.gm.servlet.McpServlet.ServletConfigs.from(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -74,4 +74,20 @@ class HealthTest {
                 + "\"reason\":\"\",\"since\":\"2026-09-28T01:02:03Z\",\"state\":\"DISABLED\"}],"
                 + "\"profile\":\"development\",\"status\":\"DOWN\",\"versions\":{\"agentic-identity\":\"0.5.0\",\"commit\":null}}", json);
     }
+    @Test
+    void aComponentInTheGraceOfABlipCountsAsDegradedAndTheDetailSaysSo() {
+        List<ComponentStatus> components = List.of(status("SSF", true, ComponentState.FAILED_DEPENDENCY, "the database dropped"),
+                status("FEDERATION", true, ComponentState.READY, ""), status("HOSTING", false, ComponentState.DISABLED, ""));
+        assertEquals(Health.Status.DOWN, Health.readiness(components));
+        assertEquals(Health.Status.UP, Health.readiness(components, "SSF"::equals));
+        assertEquals(Health.Status.DOWN, Health.readiness(components, "FEDERATION"::equals), "the grace is the blip's own");
+        Map<String, Object> detail = Health.detail(components, List.of(), "production", Map.of(), "SSF"::equals);
+        assertEquals("UP", detail.get("status"));
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> listed = (List<Map<String, Object>>) detail.get("components");
+        assertEquals(Boolean.TRUE, listed.get(0).get("graced"));
+        assertEquals("FAILED_DEPENDENCY", listed.get(0).get("state"));
+        assertFalse(listed.get(1).containsKey("graced"), "a serving component needs no grace");
+        assertEquals("DOWN", Health.detail(components, List.of(), "production", Map.of()).get("status"));
+    }
 }

@@ -12,6 +12,14 @@
     "property": {
       "pii": "OPERATIONAL",
       "description": "The name of the attestation_* extended property refused. Its value is never recorded."
+    },
+    "enforcer": {
+      "pii": "OPERATIONAL",
+      "description": "Which check refused the issued authorization_details: response_belt (the token endpoint's belt) or issuance_criterion (IssuedDetailsCriterion on an access-token mapping)."
+    },
+    "detail_types": {
+      "pii": "OPERATIONAL",
+      "description": "The types of the authorization_details refused, comma-separated, at most eight. A detail's values are never recorded."
     }
   },
   "events": {
@@ -25,6 +33,19 @@
       "fields": [
         "property",
         "endpoint"
+      ],
+      "declaredOnly": false
+    },
+    "attestation.issued.refused": {
+      "description": "A token was refused because what it would carry is not held by the client attestation (plan item S4d): its authorization_details not within the attestation's (exceeds_ceiling), a question the model cannot answer (uncheckable), a token response too large for the belt to check (too_large), a refresh that must repeat its authorization_details (redecide_on_refresh), or a client with attestation_required that presented none (attestation_required). The belt answers the client 400 invalid_authorization_details (500 server_error for too_large); the criterion makes PingFederate answer with its Error Result.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "enforcer",
+        "detail_types"
       ],
       "declaredOnly": false
     }

@@ -39,6 +39,7 @@ class SurfaceGateTest {
         System.clearProperty("oidf.federation.trust.controller.host");
         System.clearProperty("oidf.federation.trust.anchor.jwks");
         FederationRuntimeConfig.resetForTests();
+        FederationClientLookup.useForTests(null);
         java.lang.reflect.Method bridge = BridgeSigners.class.getDeclaredMethod("resetForTest");
         bridge.setAccessible(true);
         bridge.invoke(null);
@@ -51,6 +52,8 @@ class SurfaceGateTest {
 
     @Test
     void theFrontChannelFilterWithNoTrustControllerAnswersFederationClients503() throws Exception {
+        // PingFederate's store, as the gate asks it: no such client.
+        FederationClientLookup.useForTests(id -> null);
         FrontChannelAutoRegistrationFilter filter = new FrontChannelAutoRegistrationFilter();
         assertDoesNotThrow(() -> filter.init(mock(FilterConfig.class)));
         assertEquals(ComponentState.FAILED_CONFIG, GateTesting.part("FrontChannelAutoRegistrationFilter").state());
@@ -101,6 +104,24 @@ class SurfaceGateTest {
         ByteArrayOutputStream answer = GateTesting.body(this.response);
         servlet.service(this.request, this.response);
         this.assertUnavailable(answer);
+        verify(this.request, never()).getMethod();
+    }
+
+    @Test
+    void explicitRegistrationWithNoTrustAnchorKeysIsDegradedAndAnswers503() throws Exception {
+        // F-0192: a PingFederate that is its own trust anchor serves its Entity Configuration before its keys can be
+        // pinned, so explicit registration without them is DEGRADED (ready stays up) and refuses each registration 503.
+        OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet();
+        assertDoesNotThrow(() -> servlet.init(mock(ServletConfig.class)));
+        assertEquals(ComponentState.DEGRADED, GateTesting.part("OpenIdRegistrationServlet").state());
+        assertTrue(GateTesting.part("OpenIdRegistrationServlet").reason().contains(FederationRuntimeConfig.HOST_ENV),
+                GateTesting.part("OpenIdRegistrationServlet").reason());
+
+        java.io.StringWriter answer = new java.io.StringWriter();
+        when(this.response.getWriter()).thenReturn(new java.io.PrintWriter(answer));
+        servlet.service(this.request, this.response);
+        verify(this.response).setStatus(503);
+        assertTrue(answer.toString().contains("\"error\":\"temporarily_unavailable\""), answer.toString());
         verify(this.request, never()).getMethod();
     }
 

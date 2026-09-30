@@ -163,7 +163,7 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
 
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain) throws IOException, ServletException {
-        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::federationClientTraffic)) {
+        if (ComponentGate.autoRegistration(this.part, request, response, chain, FederationClientLookup.pingFederate())) {
             return;
         }
         // No service means init refused automatic registration (no pinned anchor keys); pass through.
