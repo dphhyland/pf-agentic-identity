@@ -153,11 +153,40 @@ How a setting is read (plan items ST-1 and ST-2). The catalogue format is in
   init-params (platform-pf's `InitParams` supplies those). Every read first refuses any of the catalogue's
   removed names that is set, whichever setting it is for. A warning is logged once per loaded copy.
 - `UnknownKeys.find(environment, catalogues)` lists the `OIDF_*` names set under a catalogue's family that no
-  catalogue declares. A mechanism only: nothing calls it at run time and nothing is refused for it until the
-  start-up audit (PR-5) and the reader conversion (ST-5) wire it in, in Phase 3.
+  catalogue declares. From 0.6.0 each is a violation of the production profile (below).
 
-Nothing reads through `Settings` yet. `FederationRuntimeConfig` calls `Parsers` and is otherwise unchanged;
-ST3A, ST3B and ST3C write the production catalogues, and ST-5 converts the readers.
+The production profile, from the catalogues (plan item PR-5; the operator's page is
+[docs/operator/deployment-profile.md](../../docs/operator/deployment-profile.md)):
+
+- **Governed values.** A classed entry's `Setting.governed()` is the values its class acts on (`Governed`): the
+  entry's `governed` member - values, or URL schemes - or the default rule (a switch's non-default value, the other
+  of two choices, any value of a type with no default); an entry the rule cannot read must say, and the loader
+  refuses it until it does. `Catalogue.components()` and `componentsOf(setting)` are what a violation refuses: the
+  entry's `components`, else the catalogue's, else its line in `DefaultComponents`, the table in the format page.
+  System-property names may carry upper-case letters, and a removed name may be a plugin field
+  (`refuseRemovedFields`).
+- **The sweep.** `ProfileAudit.evaluate(sources, catalogues, profile, risks)` reads every classed `env` and
+  `system-property` entry and gives a `Violation` - setting, reason, fix, components - for a governed value without
+  its risk (`FORBIDDEN`, `ACCEPTED_RISK`), a required value unset (`REQUIRED`), a governed value that does not parse
+  (`UNREADABLE`), an unknown name under a family (`UNKNOWN_KEY`) and a catalogue that would not load (`CATALOGUE`); a
+  name under no family and a refused `OIDF_ACCEPTED_RISKS` entry are warnings. It quotes a value only for a switch or
+  a choice. `Catalogues.onClassPath(loader)` finds the catalogues: listed in each jar and directory, and by the
+  table's names. `Sources` built from the process or from maps can list the environment's names; ones built from
+  lookups cannot, and find no unknown name.
+- **At read.** A `Settings` read of a value from an init-param, or `Settings.parse` of a plugin field or an extended
+  property, that finds a governed value under production without its risk throws `ProfileRefused`, a
+  `SettingRefused` carrying the violation, which a part's start records as `REFUSED`.
+- **Legacy spellings.** Under development a value only the old reader took - for a switch `yes`, `no`, `1`, `0`,
+  `on`, `off`, each read as `false`, as `Boolean.parseBoolean` read it (`Parsers.LEGACY_BOOLEAN`,
+  `legacyBoolean`) - resolves with a warning and `Resolved.legacySpelling()` set, and `Settings.legacySpellings()`
+  lists them for the banner; under production it is refused like any unparseable value. The escape goes at 1.0.
+- **Preflight.** `java -cp '<jars>/*' com.pingidentity.ps.oidf.platform.settings.Preflight --env-file FILE
+  [--profile production]` runs the sweep on an env file (and a `JAVA_OPTS` line's `-D` words) against the
+  catalogues on the class path: exit 0 when nothing would be refused, 1 when something would, 2 for a usage error or
+  a file it cannot read.
+
+`RedisConfig` and `ComponentSwitches` read through `Settings`; `FederationRuntimeConfig` calls `Parsers` and is
+otherwise unchanged, and ST-5 converts the other readers.
 
 ### Lenient reads: ST-5's worklist
 
@@ -221,17 +250,17 @@ entry, in `refusals()`. The ids are stable: one is never renamed or reused.
 |---|---|---|---|
 | `no-metadata-policy` | no | federation registration with no superior's metadata policy | `OIDF_REQUIRE_METADATA_POLICY=false` |
 | `attester-binding-off` | no | a client whose bridge-key entry names no attesters is served | `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING=false` |
-| `registration-fail-open` | no | a registration goes ahead unnarrowed when its policy decision cannot be had | PR-2 names it |
-| `expiry-log-mode` | yes | an expired registration is logged and still served | `OIDF_REGISTRATION_EXPIRY_ENFORCEMENT=log` |
+| `registration-fail-open` | no | a registration goes ahead unnarrowed when its policy decision cannot be had | `OIDF_AUTO_REGISTRATION_FAIL_CLOSED=false` |
+| `expiry-log-mode` | yes | an expired registration is logged and still served | `OIDF_REGISTRATION_EXPIRY_ENFORCEMENT=log` or `disable` |
 | `pdp-fail-open` | no | a request goes ahead without the PDP's narrowing when the PDP cannot be reached | `OIDF_PDP_FAIL_OPEN=true`, and the RAR plugin's own switch |
 | `pkce-off` | no | front-channel relying parties registered without requiring PKCE | `OIDF_AUTO_REGISTRATION_REQUIRE_PKCE=false` |
 | `resolve-any` | no | the resolve endpoint resolves any entity for anyone | `OIDF_FEDERATION_RESOLVE_DISCOVERY=any` |
 | `audit-off` | no | security events kept out of PingFederate's audit log | `OIDF_EVENTS_AUDIT=false` |
-| `in-memory-state` | no | a store keeps its state in one node's memory (standalone only; forbidden when clustered) | decision 4; PR-2 names the stores |
+| `in-memory-state` | no | a store keeps its state in one node's memory (standalone only; forbidden when clustered) | `REGISTRY=memory` in device-enrolment; the other stores refuse in code, through `ProfileRefusals.requireRisk` |
 
 The first eight are PR-2's list of accepted risks and the ninth is decision 4's in-memory state when
-standalone; `expiry-log-mode` is dated because the plan says so. The switch column is where each id is meant
-to go, from each module's documented settings on 2026-09-28; PR-2 wires them.
+standalone; `expiry-log-mode` is dated because the plan says so. The switch column is each catalogue's
+`accepted-risk:<id>` entry and its governed values on 2026-09-30.
 
 `ProfileGuard` asks the three questions a governed switch asks, each returning null when it is allowed and a
 `Refusal` - the setting, and a message naming it and the reason - when it is not:
@@ -240,10 +269,20 @@ to go, from each module's documented settings on 2026-09-28; PR-2 wires them.
 - `requireInProduction(setting, on, reason)`: refused when off under production.
 - `requireRisk(setting, on, risk, reason)`: refused when on under production and the risk is not accepted.
 
-Under development every answer is null. This is the mechanism only (PLAN.md decision 7): nothing asks these
-questions yet and nothing is refused at run time. PR-2 (Phase 3) wires each governed switch, PR-5 turns a
-refusal into a refused component, and until then the start-up audit (F-2) reports the profile, the accepted
-risks and `refusals()`.
+Under development every answer is null. `RedisClient` asks `forbidInProduction` of a `redis://` URL at connect.
+
+`ProfileRefusals` is what the production profile refuses in this loaded copy (plan item PR-5). platform-pf's
+lifecycle listener `publish`es the sweep (`settings.ProfileAudit`) in `contextInitialized`, before any `init`; a copy
+nothing publishes to - the engine's, where the OGNL criteria run - evaluates it itself on first use (`current()`),
+from the same process-wide sources, so both give one answer. `health.Startup.begin` asks `reason(component,
+switchedOn)` and makes a refused component's part `REFUSED` before its start runs; a component switched off stays
+disabled, and a `required-in-production` violation refuses only a component switched on (unswitched in production, a
+component is inferred only while none of its settings is set, and its start disables it). `refused(component,
+switchedOn)` is the same question for a caller with no part. A condition that is not a setting is refused in code:
+`refuse(component, reason)` records it, logs it once at ERROR and throws `ProfileRefused` under production, and logs a
+WARN and returns under development; `requireRisk(component, risk, what)` refuses unless the risk is accepted - an
+in-memory store's `in-memory-state` (Phase 3 plan, decisions 9 and 15). `codeRefusals()` lists them for the banner.
+Under development nothing is refused.
 
 <!-- tls (PR-1): add this package's section below this line -->
 
@@ -266,8 +305,9 @@ trust-alls.
 - `uses()` lists every setting that asked, with what for and when, for the start-up audit (F-2);
   `jdkHostnameVerificationDisabled()` reads the property as the JDK does, wherever it was set (F-0035).
 
-It refuses nothing under the production profile. PR-2 (Phase 3) forbids ignore-TLS in every form, and the JVM
-property, in production; until then the start-up audit reports each use.
+It refuses nothing itself. From 0.6.0 the production profile does, from the catalogues (`profile` above): each
+ignore-TLS switch is classed `forbidden-in-production`, and the JVM property is catalogued in `deployment-profile`,
+forbidden with any value, refusing every component (F-0035, F-0195).
 
 What "trust-all" means here, because it is not what the switch names say. The context is handed only to
 `java.net.http`, and the JDK's HTTP client sets the endpoint identification algorithm itself on every TLS

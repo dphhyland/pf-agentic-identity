@@ -216,13 +216,17 @@ public final class ComponentParts {
 
     /**
      * Moves a part. Nothing happens, and the answer is {@code false}, when the handle is from an earlier
-     * registration or the part is disabled.
+     * registration or the part is disabled, or when it is refused and the move is to anything but disabled or a
+     * failed configuration: a refusal by the production profile holds until the part registers again (PR-5), so a
+     * part whose {@code init} reports its own outcome outside {@link Part#start} - the SSF servlets until ST-5 - cannot
+     * report itself ready past it.
      */
     boolean move(String component, String part, long generation, ComponentState to, String reason, Probe probe) {
         synchronized (this) {
             // Never null: a handle exists only for a registered part, and nothing removes one.
             Entry e = this.components.get(component).get(part);
-            if (e.generation != generation || e.state == ComponentState.DISABLED) {
+            if (e.generation != generation || e.state == ComponentState.DISABLED || (e.state == ComponentState.REFUSED
+                    && to != ComponentState.DISABLED && to != ComponentState.FAILED_CONFIG)) {
                 return false;
             }
             String why = to.needsReason() ? clean(reason) : "";

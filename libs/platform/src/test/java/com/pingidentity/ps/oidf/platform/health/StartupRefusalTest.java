@@ -129,6 +129,21 @@ class StartupRefusalTest {
     }
 
     @Test
+    void aRefusedPartThatReportsItsOwnOutcomeCannotReportItselfPastTheRefusal() {
+        publish(DeploymentProfile.PRODUCTION, forbidden("OIDF_SSF_X", List.of("SSF")));
+        ComponentParts.Part ssf = begin("SSF", "SsfConfigurationServlet");
+        assertFalse(ssf.ready(), "the SSF servlets report outside start until ST-5");
+        assertFalse(ssf.finish());
+        assertFalse(ssf.degraded("slow"));
+        assertFalse(ssf.failedDependency("store down"));
+        assertFalse(ssf.refused("again"), "the reason it was refused for stands");
+        assertEquals(ComponentState.REFUSED, ssf.status().state());
+        assertTrue(ssf.failedConfig("its own settings are wrong"), "a failed configuration is worse, and shown");
+        ComponentParts.Part again = begin("SSF", "SsfReceiverServlet");
+        assertTrue(again.disabled(), "switched off, it is disabled");
+    }
+
+    @Test
     void startupsOwnBeginAsksTheProfile() {
         publish(DeploymentProfile.PRODUCTION, forbidden("OIDF_X", List.of("FAPI")));
         ComponentParts.Part part = Startup.begin(Startup.FAPI, "StartupRefusalTestPart");
