@@ -343,8 +343,8 @@ class CatalogueTest {
         assertEquals(at + "1]: 'oidf_example_timeout_ms' is not an environment variable's name",
                 entryRefusal(1, e -> e.put("sources", List.of(Map.of("from", "system-property", "name", "oidf.example.timeout.ms"),
                         Map.of("from", "env", "name", "oidf_example_timeout_ms")))));
-        assertEquals(at + "0]: 'OIDF.EXAMPLE' is not a system property's name",
-                entryRefusal(1, e -> e.put("sources", List.of(Map.of("from", "system-property", "name", "OIDF.EXAMPLE")))));
+        assertEquals(at + "0]: 'oidf..example' is not a system property's name",
+                entryRefusal(1, e -> e.put("sources", List.of(Map.of("from", "system-property", "name", "oidf..example")))));
         assertEquals(at + "0]: 'a b' is not an init-param's name",
                 entryRefusal(1, e -> e.put("sources", List.of(Map.of("from", "init-param", "name", "a b")))));
         assertEquals(at + "0]: a number is not an init-param's name",
@@ -438,9 +438,9 @@ class CatalogueTest {
         assertEquals(WHERE + ": the document: removed must be a list, not an object", refusal(d -> d.put("removed", Map.of())));
         assertEquals(WHERE + ": removed[0]: no member 'replacement'",
                 refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "env", "release", "0.4.0")))));
-        assertEquals(WHERE + ": removed[0]: from must be env, system-property or init-param, not 'plugin-field'",
-                refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "plugin-field", "replacement", "X", "release", "0.4.0")))));
-        assertEquals(WHERE + ": removed[0]: from must be env, system-property or init-param, not a number",
+        assertEquals(WHERE + ": removed[0]: from must be env, system-property, init-param or plugin-field, not 'extended-property'",
+                refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "extended-property", "replacement", "X", "release", "0.4.0")))));
+        assertEquals(WHERE + ": removed[0]: from must be env, system-property, init-param or plugin-field, not a number",
                 refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", BigDecimal.ONE, "replacement", "X", "release", "0.4.0")))));
         assertEquals(WHERE + ": removed[0]: replacement must be the name to set instead, or null, not ' '",
                 refusal(d -> d.put("removed", List.of(Map.of("name", "OIDF_EXAMPLE_GONE", "from", "env", "replacement", " ", "release", "0.4.0")))));

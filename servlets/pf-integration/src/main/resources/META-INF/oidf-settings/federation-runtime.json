@@ -183,9 +183,10 @@
       "type": "choice",
       "default": "refuse",
       "choices": ["refuse", "disable", "log"],
-      "description": "What an expired registration that cannot be renewed meets: refuse, the request is refused; disable, and the client disabled until a renewal; log, the expiry is logged and nothing enforced, the sweeper included",
+      "description": "What an expired registration that cannot be renewed meets: refuse, the request is refused; disable, and the client disabled until a renewal; log, the expiry is logged and nothing enforced, the sweeper included. Under the production profile disable and log each need the dated risk expiry-log-mode in OIDF_ACCEPTED_RISKS",
       "when_wrong": {"effect": "doesnt-start", "detail": "Anything but refuse, disable or log, in any case: PingFederate does not start"},
       "profile": "accepted-risk:expiry-log-mode",
+      "governed": ["disable", "log"],
       "security": true,
       "sources": [
         {"from": "system-property", "name": "oidf.registration.expiry.enforcement"},

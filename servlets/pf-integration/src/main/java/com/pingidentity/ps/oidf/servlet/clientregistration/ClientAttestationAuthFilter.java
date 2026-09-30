@@ -25,7 +25,16 @@ import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationResult;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier;
+import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.pf.ClientStore;
+import com.pingidentity.ps.oidf.pf.PfMgmtClientStore;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationEvents;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyException;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyScan;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
+import com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier;
 import java.io.IOException;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -72,7 +81,15 @@ import org.jose4j.jwt.JwtClaims;
  * <p><b>Fail closed:</b> an invalid attestation is rejected here with the draft's error codes and never
  * reaches PF. A request with <em>no</em> attestation header passes through untouched — PF then enforces
  * whatever authentication that client is configured for, so the filter can never widen access; it only
- * translates a verified attestation into a credential PF understands. The attestation is verified ONCE
+ * translates a verified attestation into a credential PF understands - unless the client it names has
+ * {@code attestation_required=true}, which is refused here (401 {@code invalid_client}).
+ *
+ * <p><b>Each client's policy:</b> the attestation is verified under the server's policy tightened by the client's
+ * {@code attestation_*} extended properties ({@link AttestationPolicyResolver}, the same resolver the OGNL criterion
+ * asks, plan item S4c). The client is found from the attestation's {@code sub} before it is verified -
+ * draft-ietf-oauth-attestation-based-client-auth-10 §4: "sub: REQUIRED.  The sub (subject) claim MUST specify
+ * client_id value of the OAuth Client." - and the verified {@code sub} must be that client. A client whose properties
+ * are refused is 401 {@code invalid_client}; a client manager that cannot answer is 503. The attestation is verified ONCE
  * per request: this filter publishes the verified context as a server-side request attribute, and the
  * OGNL issuance criterion on the engine classloader reuses it rather than calling {@code verify()} again
  * ({@code verify()} consumes the PoP {@code jti} and any challenge, so a second call would report a
@@ -116,9 +133,13 @@ public final class ClientAttestationAuthFilter implements Filter {
     private volatile RarModels rarModels;
     private final Function<HttpServletRequest, String> issuerResolver;
     private final Supplier<String> tokenEndpointBaseUrl;
+    private final ClientStore clientStore;
+    private final AttestationPolicyResolver policies;
+    private final SubjectTokenVerifier subjectTokens;
 
     public ClientAttestationAuthFilter() {
-        this(ClientAttestationAuthFilter::defaultIssuer, ClientAttestationUtils::configuredTokenEndpointBaseUrl);
+        this(ClientAttestationAuthFilter::defaultIssuer, ClientAttestationUtils::configuredTokenEndpointBaseUrl,
+                new PfMgmtClientStore(), AttestationPolicyResolver.shared(), SubjectTokenVerifier.pingFederate());
     }
 
     /**
@@ -131,11 +152,50 @@ public final class ClientAttestationAuthFilter implements Filter {
         this(issuerResolver, () -> null);
     }
 
-    /** Test seam: as above, with PingFederate's token endpoint base URL setting as well. */
+    /**
+     * Test seam: as above, with PingFederate's token endpoint base URL setting as well. Its clients are a store that
+     * has none, so every client has the server's policy, and no subject token verifies.
+     */
     ClientAttestationAuthFilter(Function<HttpServletRequest, String> issuerResolver, Supplier<String> tokenEndpointBaseUrl) {
+        this(issuerResolver, tokenEndpointBaseUrl, NO_CLIENTS,
+                AttestationPolicyResolver.over(AttestationPolicyResolver.from(NO_CLIENTS), java.time.Clock.systemUTC(), () -> false),
+                new SubjectTokenVerifier(() -> null));
+    }
+
+    /** Test seam: every collaborator supplied. */
+    ClientAttestationAuthFilter(Function<HttpServletRequest, String> issuerResolver, Supplier<String> tokenEndpointBaseUrl,
+            ClientStore clientStore, AttestationPolicyResolver policies, SubjectTokenVerifier subjectTokens) {
         this.issuerResolver = issuerResolver;
         this.tokenEndpointBaseUrl = tokenEndpointBaseUrl;
+        this.clientStore = clientStore;
+        this.policies = policies;
+        this.subjectTokens = subjectTokens;
     }
+
+    /** A client store with no clients, for the test seams. */
+    static final ClientStore NO_CLIENTS = new ClientStore() {
+        @Override
+        public void add(org.sourceid.oauth20.domain.Client client) {
+        }
+
+        @Override
+        public void update(org.sourceid.oauth20.domain.Client client) {
+        }
+
+        @Override
+        public org.sourceid.oauth20.domain.Client get(String clientId) {
+            return null;
+        }
+
+        @Override
+        public java.util.Collection<org.sourceid.oauth20.domain.Client> getAll() {
+            return List.of();
+        }
+
+        @Override
+        public void disable(org.sourceid.oauth20.domain.Client client) {
+        }
+    };
 
     private static String defaultIssuer(HttpServletRequest request) {
         return PfInternals.issuer(request);
@@ -221,6 +281,10 @@ public final class ClientAttestationAuthFilter implements Filter {
         this.requireHostedAgent = requireHostedAgent;
         this.rarModels = rarModels;
         this.bridgeConfigured = bridgeConfigured;
+        // Every client's attestation_* properties, read once now and every ten minutes on this copy's executor:
+        // a client they would refuse is named in the health detail before its first request is (plan item S4c).
+        // Started here, the webapp's start function, so the engine's copy never runs it; it never blocks or throws.
+        AttestationPolicyScan.start(this.clientStore, this.policies);
     }
 
     @Override
@@ -248,7 +312,11 @@ public final class ClientAttestationAuthFilter implements Filter {
             return;
         }
         if (attestation == null || attestation.isBlank()) {
-            chain.doFilter(request, response);
+            // No attestation: PingFederate authenticates the client as it is configured to - unless the client says it
+            // authenticates only with one (attestation_required), which is refused here rather than passed on.
+            if (!this.bridgeConfigured || !this.refusedWithoutAttestation(httpRequest, httpResponse)) {
+                chain.doFilter(request, response);
+            }
             return;
         }
 
@@ -260,16 +328,30 @@ public final class ClientAttestationAuthFilter implements Filter {
             return;
         }
 
+        // The client the attestation names, read before it is verified so that it is verified under that client's
+        // policy (ABCA-10 §4: sub is the client_id), and held to the verified sub afterwards.
+        String claimedClient = ClientAttestationAuthFilter.unverifiedSubject(attestation);
         try {
             String opIssuer = this.issuerResolver.apply(httpRequest);
             // What this server calls the endpoint, from its configuration: the issuer (the PoP audience) and the
             // URL PingFederate advertises for the endpoint under it (the DPoP htu). Never getRequestURL(), which
             // the container rebuilds from the Host header the client wrote.
-            String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, this.tokenEndpointBaseUrl.get(),
-                    ClientAttestationUtils.endpointPath(httpRequest));
+            String tokenBase = this.tokenEndpointBaseUrl.get();
+            String path = ClientAttestationUtils.endpointPath(httpRequest);
+            String endpointUrl = ClientAttestationUtils.endpointUrl(opIssuer, tokenBase, path);
+            ClientAttestationConfig policy;
+            try {
+                policy = ClientAttestationUtils.effectivePolicy(this.policies, claimedClient, opIssuer, tokenBase, path);
+            } catch (AttestationPolicyException e) {
+                this.refusePolicy(httpResponse, e);
+                return;
+            } catch (AttestationPolicyResolver.Unavailable e) {
+                this.refuseUnavailable(httpResponse, claimedClient, e);
+                return;
+            }
             ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(
                     ClientAttestationUtils.attesterResolver(opIssuer),
-                    ClientAttestationUtils.defaultConfig(opIssuer, endpointUrl),
+                    policy,
                     AttestationSupport.replayCache(),
                     AttestationSupport.challengeService(),
                     this.rarModels);
@@ -281,6 +363,11 @@ public final class ClientAttestationAuthFilter implements Filter {
                     endpointUrl, httpRequest.getParameter("client_id"), authorizationDetails);
 
             String clientId = result.clientId();
+            String changed = ClientAttestationAuthFilter.subjectChanged(claimedClient, clientId);
+            if (changed != null) {
+                this.refuse(httpResponse, claimedClient, 401, "invalid_client", changed);
+                return;
+            }
             // Trust in the attester is federation-wide - any issuer whose chain reaches the anchor
             // resolves keys - and says nothing about WHICH clients that attester may vouch for. Without
             // this, any trusted attester (any federation member with a resolvable leaf) could mint an
@@ -290,7 +377,7 @@ public final class ClientAttestationAuthFilter implements Filter {
             String unbound = ClientAttestationAuthFilter.attesterNotBoundTo(clientId, result.attesterIssuer());
             if (unbound != null) {
                 LOGGER.warn((Object) ("attest_jwt_client_auth: " + unbound));
-                ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client", unbound);
+                this.refuse(httpResponse, clientId, 401, "invalid_client", unbound);
                 return;
             }
             // Revoking an agent at the bank must stop it HERE, at the bank's own authorization server, and not
@@ -302,17 +389,20 @@ public final class ClientAttestationAuthFilter implements Filter {
                     this.requireHostedAgent, Instant.now());
             if (standing != null) {
                 LOGGER.warn((Object) ("attest_jwt_client_auth: " + standing));
-                ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client", standing);
+                this.refuse(httpResponse, clientId, 401, "invalid_client", standing);
                 return;
             }
             // Publish what we just verified, so the issuance criterion does not verify the same request a
             // second time. verify() consumes the challenge and burns the PoP jti; doing it twice destroys
             // the first result. BridgeAuthRequest wraps this request and HttpServletRequestWrapper
-            // delegates attributes, so the criterion sees it on the engine classloader.
-            Map<String, Object> context = ClientAttestationUtils.attestationContext(result);
+            // delegates attributes, so the criterion sees it on the engine classloader. The context carries the
+            // policy's fingerprint, which the criterion checks against the policy it resolves, and the subject of a
+            // token exchange's subject token when it verifies as PingFederate's (F-0074).
+            Map<String, Object> context = ClientAttestationUtils.attestationContext(result, policy, httpRequest, opIssuer,
+                    this.subjectTokens);
             httpRequest.setAttribute(ClientAttestationUtils.VERIFIED_ATTESTATION_ATTRIBUTE, context);
             // ...and under the RAR key as well, because the two are not the same deployment decision.
-            // The issuance criterion publishes both (ClientAttestationUtils:167-168); this filter used to
+            // The issuance criterion publishes both; this filter used to
             // publish only the first. A deployment that runs the filter WITHOUT putting the criterion on
             // the access-token mapping - which OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false explicitly
             // supports - therefore left AttestationSubject.fromAttribute(null) -> empty(), and the RAR
@@ -328,7 +418,7 @@ public final class ClientAttestationAuthFilter implements Filter {
                 LOGGER.warn((Object) ("attest_jwt_client_auth: attestation verified for client_id=" + clientId
                         + " but no bridge signing key is configured for it - refusing rather than passing "
                         + "an unauthenticated request through. Add it to " + BridgeSigners.KEYS_ENV + "."));
-                ClientAttestationAuthFilter.reject(httpResponse, 401, "invalid_client",
+                this.refuse(httpResponse, clientId, 401, "invalid_client",
                         "no bridge signing key is configured for this client");
                 return;
             }
@@ -338,18 +428,137 @@ public final class ClientAttestationAuthFilter implements Filter {
                         + " mode=" + result.mode() + " attester=" + result.attesterIssuer()
                         + "; authenticating to PF via bridge private_key_jwt"));
             }
+            AttestationEvents.verified(AttestationEvents.FILTER, clientId, result.attesterIssuer());
             chain.doFilter(new BridgeAuthRequest(httpRequest, clientId, bridgeAssertion, result.agentId()), response);
         } catch (ClientAttestationException e) {
             LOGGER.info((Object) ("attest_jwt_client_auth: rejected [" + e.error() + "]: " + e.getMessage()
                     + ClientAttestationUtils.refusalDetail(e)));
-            ClientAttestationAuthFilter.reject(httpResponse, ClientAttestationAuthFilter.statusFor(e), e.error(), e.getMessage());
+            this.refuse(httpResponse, claimedClient, ClientAttestationAuthFilter.statusFor(e), e.error(), e.getMessage());
         } catch (Throwable t) {
             // Fail closed: with attestation headers present, an internal error must never fall through to
             // PF with the original (credential-less) request.
             LOGGER.error((Object) "attest_jwt_client_auth: verification failed with an internal error", t);
-            ClientAttestationAuthFilter.reject(httpResponse, 500, "server_error",
-                    "client attestation could not be verified");
+            this.refuse(httpResponse, claimedClient, 500, "server_error", "client attestation could not be verified");
         }
+    }
+
+    /**
+     * Refuses a request that carries no attestation for a client that authenticates only with one
+     * ({@code attestation_required}), or whose {@code attestation_required} is refused, or when the client manager
+     * cannot answer. The client is each one the request names ({@link #namedClients}), none of them verified: PingFederate decides which of them the request
+     * authenticates as, and each is refused here if it may not authenticate without an attestation.
+     *
+     * @return whether the request was refused
+     */
+    boolean refusedWithoutAttestation(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        for (String clientId : ClientAttestationAuthFilter.namedClients(request)) {
+            ClientAttestationPolicy client;
+            try {
+                client = this.policies.policy(clientId);
+                // Only attestation_required decides a request without an attestation; the other properties apply to
+                // one with an attestation, and are refused there.
+                if (client.invalid() != null && ClientAttestationPolicy.REQUIRED.equals(client.invalid().property())) {
+                    throw client.invalid();
+                }
+            } catch (AttestationPolicyException e) {
+                this.refusePolicy(response, e);
+                return true;
+            } catch (AttestationPolicyResolver.Unavailable e) {
+                this.refuseUnavailable(response, clientId, e);
+                return true;
+            }
+            if (client.attestationRequired()) {
+                LOGGER.info((Object) ("attest_jwt_client_auth: client_id=" + com.pingidentity.ps.oidf.platform.events.LogSafe.value(clientId)
+                        + " has " + ClientAttestationPolicy.REQUIRED
+                        + "=true and sent no " + ATTESTATION_HEADER + "; refused"));
+                this.refuse(response, clientId, 401, "invalid_client", "this client authenticates with a client attestation");
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * The clients a request without an attestation names, unverified and in order, without repeats: its
+     * {@code client_id}, the user of HTTP Basic both as sent and form-decoded (RFC 6749 §2.3.1), and its
+     * {@code client_assertion}'s {@code sub} and {@code iss}. Whichever of them PingFederate authenticates the
+     * request as is among them; each extra name can only refuse, never admit. What cannot be read names nobody.
+     */
+    static java.util.Set<String> namedClients(HttpServletRequest request) {
+        java.util.Set<String> ids = new java.util.LinkedHashSet<>();
+        ClientAttestationAuthFilter.addNamed(ids, request.getParameter("client_id"));
+        String authorization = request.getHeader("Authorization");
+        if (authorization != null && authorization.regionMatches(true, 0, "Basic ", 0, 6)) {
+            try {
+                String decoded = new String(java.util.Base64.getDecoder().decode(authorization.substring(6).trim()),
+                        java.nio.charset.StandardCharsets.UTF_8);
+                int colon = decoded.indexOf(':');
+                String user = colon < 0 ? decoded : decoded.substring(0, colon);
+                ClientAttestationAuthFilter.addNamed(ids, user);
+                ClientAttestationAuthFilter.addNamed(ids, java.net.URLDecoder.decode(user, java.nio.charset.StandardCharsets.UTF_8));
+            } catch (IllegalArgumentException e) {
+                // Not Basic credentials, or a user that does not form-decode; what was read so far stays named.
+            }
+        }
+        String assertion = request.getParameter("client_assertion");
+        ClientAttestationAuthFilter.addNamed(ids, ClientAttestationAuthFilter.unverifiedClaim(assertion, "sub"));
+        ClientAttestationAuthFilter.addNamed(ids, ClientAttestationAuthFilter.unverifiedClaim(assertion, "iss"));
+        return ids;
+    }
+
+    private static void addNamed(java.util.Set<String> ids, String id) {
+        if (id != null && !id.isBlank()) {
+            ids.add(id);
+        }
+    }
+
+    /** A JWT's {@code sub}, not verified, or null when it has none or cannot be read. */
+    static String unverifiedSubject(String jwt) {
+        return ClientAttestationAuthFilter.unverifiedClaim(jwt, "sub");
+    }
+
+    /** A JWT's string claim {@code name}, not verified, or null when it has none or cannot be read. */
+    static String unverifiedClaim(String jwt, String name) {
+        if (jwt == null || jwt.isBlank()) {
+            return null;
+        }
+        try {
+            Object value = com.pingidentity.ps.oidf.jose.JwtCodec.parseUnverifiedClaims(jwt).getClaimValue(name);
+            return value instanceof String ? (String) value : null;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+    /**
+     * Why the verified attestation may not stand for the client the filter resolved its policy for, or null when it
+     * may: the verified {@code sub} must be the one read before verifying.
+     */
+    static String subjectChanged(String claimed, String verified) {
+        return verified != null && verified.equals(claimed) ? null
+                : "the verified attestation's sub is not the client its policy was resolved for";
+    }
+
+    /** 401 {@code invalid_client} for a client whose attestation properties are refused, with the two events. */
+    private void refusePolicy(HttpServletResponse response, AttestationPolicyException e) throws IOException {
+        LOGGER.warn((Object) ("attest_jwt_client_auth: " + e.getMessage() + "; refused"));
+        AttestationEvents.policyInvalid(AttestationEvents.FILTER, e);
+        this.refuse(response, e.clientId(), 401, "invalid_client", AttestationPolicyException.CLIENT_DESCRIPTION);
+    }
+
+    /** 503 {@code temporarily_unavailable}: the client's policy could not be read, which is never "no policy". */
+    private void refuseUnavailable(HttpServletResponse response, String clientId, AttestationPolicyResolver.Unavailable e)
+            throws IOException {
+        LOGGER.warn((Object) ("attest_jwt_client_auth: " + e.getMessage()), e.getCause());
+        this.refuse(response, clientId, 503, ClientAttestationException.TEMPORARILY_UNAVAILABLE,
+                "the client's attestation policy could not be read");
+    }
+
+    /** Answers {@code error} and records {@code attestation.client.refused} for {@code clientId}. */
+    private void refuse(HttpServletResponse response, String clientId, int status, String error, String description)
+            throws IOException {
+        AttestationEvents.refused(AttestationEvents.FILTER, clientId, error);
+        ClientAttestationAuthFilter.reject(response, status, error, description);
     }
 
     /** Each authorization_details entry's agent marker - the name the RAR processor reads (AGENT_DETAIL_KEY). */

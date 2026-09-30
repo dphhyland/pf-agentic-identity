@@ -172,8 +172,9 @@ class CriterionTokenGateTest {
     }
 
     private static boolean ask(Criterion c) {
-        return ClientAttestationUtils.validateClientAttestation(c.in(), false, "https://trust-controller.example.com",
-                "https://trust-controller.example.com", FIXED_ISSUER);
+        return ClientAttestationUtils.validateClientAttestationInner(c.in(), false, "https://trust-controller.example.com",
+                "https://trust-controller.example.com", FIXED_ISSUER, () -> null, CriterionTesting.NO_CLIENTS,
+                CriterionTesting.NO_SUBJECT_TOKENS);
     }
 
     private static Map<String, String[]> params(String name, String... values) {

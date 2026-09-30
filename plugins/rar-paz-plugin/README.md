@@ -207,7 +207,7 @@ PingFederate 13.1.3 passes, read with `javap` from `pf-protocolengine` (the call
 | refresh, with `authorization_details` in the request | the grant's unique user identifier (`RefreshTokenGrantProcessor`) | `authenticated` | user key = `suite-user`; the grant's attributes arrive under the SDK's `IN_PARAMETER_AUTH_DETAILS_USER_INFO` parameter |
 | refresh, without | - (the stored details are reissued; plan "Found" item 2) | - | the plugin is not called |
 | CIBA, at `/as/bc-auth.ciba` (the request URI read as the container maps it: path parameters, escapes and dot segments resolved; U-0094) | the request policy's `IDENTITY_HINT_SUBJECT` (`CibaAuthenticationRequestHandler`) | `identity_hint` | user key = `suite-user` from `login_hint`; then the ciba-sim approves, the poll issues a token and a refresh token |
-| token exchange | `null` (`TokenExchangeRequest`; and enrich is skipped when the requested token type is `id-jag`) | `subject_token` only when the token-endpoint filter published `verified_subject_token_sub` in the attestation context, else `none` | user key none; `principal_source: none`; `payment_initiation` refused before the PDP. The filter publishes no verified subject yet (`delegationActChain` decodes the subject token without verifying it), so this is always `none` today |
+| token exchange | `null` (`TokenExchangeRequest`; and enrich is skipped when the requested token type is `id-jag`) | `subject_token` only when the token-endpoint filter published `verified_subject_token_sub` in the attestation context, else `none` | user key none. From 0.6.0 the filter and the criterion publish `verified_subject_token_sub` when the subject token verifies as one PingFederate signed (its signing keys, its issuer, an `exp` not passed; F-0074), and the principal is that `sub`; any other subject token, or none, is `principal_source: none` and `payment_initiation` refused before the PDP. Not yet driven on the rig |
 | authorization code | the authentication result's `subject` attribute, once, at the resume after login (`OAuthResumableRequestHandlerBase`, path `/as/<id>/resume/as/authorization.ping`); PAR does not enrich, and there is no second pass at consent | `authenticated`, or `none` when the contract has no `subject` | as the rig ships (an HTML-form adapter with `username` and no `subject`): user key none, the payment refused after the user signed in; with `subject` mapped on the adapter by expression from `username`: user key = `suite-user`, decided about `suite-user`, token issued for `suite-user` |
 | device flow | the approving user, as far as `javap` shows: `UserAuthorizationRequestHandler` enriches at the user's approval with the mapped attributes | `authenticated` (assumed; U-0066) | not driven |
 | JWT bearer | `JwtGrantProcessor` has no call to enrich (`javap`) | - | not driven (U-0017) |
@@ -356,8 +356,9 @@ the other across classloaders:
   `authorization_details` ceiling), `workload` (SPIFFE id / attestor / selectors, plus flat `spiffe_id`
   and `attested_by`), `cnf_thumbprint`, `rar_models_fingerprint` (the filter's `RarModels.fingerprint()`,
   lower-case hex, published from S1b on and compared with the plugin's own: "The model set and its fingerprint"
-  above); and, once the filter verifies token-exchange subject tokens, `verified_subject_token_sub`
-  (`AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY`), the only thing the `subject_token` principal source reads.
+  above); and, for a token exchange whose subject token verifies as one PingFederate signed (from 0.6.0),
+  `verified_subject_token_sub` (`AttestationSubject.VERIFIED_SUBJECT_TOKEN_KEY`), the only thing the `subject_token`
+  principal source reads.
 
 Absent context (a non-attestation client) falls back to `context.getClientId()` and sends no
 entitlement — policy decides on the request alone, and the model's checks still apply.

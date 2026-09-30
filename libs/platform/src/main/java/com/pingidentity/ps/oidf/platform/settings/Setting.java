@@ -14,6 +14,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import com.pingidentity.ps.oidf.platform.json.Json;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 
 /**
  * One entry of a settings catalogue ({@link Catalogue}): its name, kind and type, its default and range or
@@ -43,10 +44,19 @@ public final class Setting {
     private final List<SourceName> sources;
     private final List<Alias> aliases;
     private final boolean file;
+    private final Governed governed;
+    private final List<String> components;
 
     Setting(String name, EntryKind kind, SettingType type, String defaultValue, Long min, Long max, List<String> choices,
             String description, WhenWrong whenWrong, ProfileClass profile, boolean security, List<SourceName> sources,
             List<Alias> aliases, boolean file) {
+        this(name, kind, type, defaultValue, min, max, choices, description, whenWrong, profile, security, sources, aliases,
+                file, null, List.of());
+    }
+
+    Setting(String name, EntryKind kind, SettingType type, String defaultValue, Long min, Long max, List<String> choices,
+            String description, WhenWrong whenWrong, ProfileClass profile, boolean security, List<SourceName> sources,
+            List<Alias> aliases, boolean file, Governed governed, List<String> components) {
         this.name = Objects.requireNonNull(name, "name");
         this.kind = Objects.requireNonNull(kind, "kind");
         this.type = Objects.requireNonNull(type, "type");
@@ -61,6 +71,8 @@ public final class Setting {
         this.sources = List.copyOf(sources);
         this.aliases = List.copyOf(aliases);
         this.file = file;
+        this.governed = governed;
+        this.components = List.copyOf(components);
     }
 
     /** The name, as the operator sets it and every message gives it. */
@@ -127,6 +139,20 @@ public final class Setting {
         return this.file;
     }
 
+    /**
+     * The values its profile class applies to ({@link Governed}): for a {@code forbidden-in-production} or
+     * {@code accepted-risk} entry, what the catalogue says or the default rule gives; null for {@code any} and
+     * {@code required-in-production}.
+     */
+    public Governed governed() {
+        return this.governed;
+    }
+
+    /** The components this entry names itself; empty when it belongs to its catalogue's ({@link Catalogue#componentsOf}). */
+    public List<String> components() {
+        return this.components;
+    }
+
     /** The {@code _FILE} variants, in the sources' order; empty unless {@link #file()}. */
     public List<SourceName> fileVariants() {
         List<SourceName> variants = new ArrayList<>();
@@ -152,14 +178,58 @@ public final class Setting {
      *   <li>otherwise the default, which may be none.</li>
      * </ol>
      *
-     * <p>The value is then parsed by {@link #parse}. {@link Settings} is the way in; this is its rule. Removed
+     * <p>The value is then parsed by {@link #parse}, under {@code profile}: in development a value only a legacy
+     * spelling makes readable ({@link #legacy}) resolves to what the reader before 0.6.0 read it as, with a warning that
+     * names the strict spelling, and the result records the spelling ({@link Resolved#legacySpelling()}); in production
+     * it is refused as any value that does not parse is. The escape goes at 1.0 with the deprecated aliases (Phase 3
+     * plan, decision 11). {@link Settings} is the way in; this is its rule. Removed
      * names are the catalogue's rule, not one setting's: {@link Settings} refuses every one that is set, with
      * {@link Catalogue#refuseRemoved}, before it resolves anything.
      *
      * @throws SettingRefused        for a refusal above or a value its type refuses
      * @throws IllegalArgumentException for a PingFederate-supplied kind, which has nothing to resolve
      */
-    Resolved resolve(Sources from) {
+    Resolved resolve(Sources from, DeploymentProfile profile) {
+        Raw raw = resolveRaw(from);
+        if (raw.provenance().source() == Source.DEFAULT) {
+            return new Resolved(this, parse(this.defaultValue), raw.provenance(), raw.warnings());
+        }
+        try {
+            return new Resolved(this, parse(raw.value()), raw.provenance(), raw.warnings());
+        } catch (SettingRefused refused) {
+            Object old = profile.isDevelopment() ? legacy(raw.value()) : null;
+            if (old == null) {
+                throw refused;
+            }
+            List<String> warnings = new ArrayList<>(raw.warnings());
+            warnings.add(this.name + " is '" + raw.value() + "', a spelling only the reader before 0.6.0 took; it is read as "
+                    + old + " (docs/development/settings-catalogue.md, \"Legacy spellings\", names what each reader before 0.6.0"
+                    + " made of it). Write " + old + " (or the value you meant): the production profile"
+                    + " refuses this spelling, and development stops taking it at 1.0");
+            return new Resolved(this, old, raw.provenance(), warnings, raw.value());
+        }
+    }
+
+    /**
+     * What a value the strict parser refuses meant to the reader before 0.6.0, when it is a legacy spelling of this
+     * setting's type ({@link Parsers#legacyBoolean}); null when it is not one.
+     */
+    Object legacy(String value) {
+        return this.type == SettingType.BOOL ? Parsers.legacyBoolean(value) : null;
+    }
+
+    /** A value found by {@link #resolveRaw}, before it is parsed: trimmed text, or the default's, and where it came from. */
+    record Raw(String value, Provenance provenance, List<String> warnings) {
+    }
+
+    /**
+     * The rule of {@link #resolve(Sources, DeploymentProfile)} up to the value, not parsed: the first source set, a {@code _FILE}
+     * variant's file, the aliases, or the default (whose provenance is {@link Source#DEFAULT}).
+     *
+     * @throws SettingRefused for a refusal of the rule: a name and its {@code _FILE} variant both set, a file that
+     *                        cannot be read, an alias holding another value
+     */
+    Raw resolveRaw(Sources from) {
         if (!this.kind.resolved()) {
             throw new IllegalArgumentException(this.name + " is a " + this.kind.id() + ", which PingFederate supplies;"
                     + " parse the value it gives instead of resolving one");
@@ -192,9 +262,9 @@ public final class Setting {
             }
         }
         if (provenance == null) {
-            return new Resolved(this, parse(this.defaultValue), new Provenance(Source.DEFAULT, this.name, null), warnings);
+            return new Raw(this.defaultValue, new Provenance(Source.DEFAULT, this.name, null), warnings);
         }
-        return new Resolved(this, parse(value), provenance, warnings);
+        return new Raw(value, provenance, warnings);
     }
 
     /** The first of {@code names} whose value is set and not blank, or null. */

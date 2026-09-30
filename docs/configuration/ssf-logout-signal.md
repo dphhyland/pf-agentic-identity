@@ -4,6 +4,8 @@
 
 The settings of the `ssf-logout-signal` component of `servlets/ssf`, read by package `com.pingidentity.ps.oidf.servlet.ssf`: generated from its catalogue, [ssf-logout-signal.json](../../servlets/ssf/src/main/resources/META-INF/oidf-settings/ssf-logout-signal.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `SSF` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
-| `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` (system property `oidf.ssf.logout.allow.sub.param`, then env `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM`) | `false` | Whether the logout filter takes the subject from an unverified sub parameter when no token verifies, for a development rig; any caller can then aim a session-revoked signal at any subject | **Not checked**: Read leniently: anything but true, in any case, means false | Not in production | Yes |
+| `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` (system property `oidf.ssf.logout.allow.sub.param`, then env `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM`) | `false` | Whether the logout filter takes the subject from an unverified sub parameter when no token verifies, for a development rig; any caller can then aim a session-revoked signal at any subject | **Not checked**: Read leniently: anything but true, in any case, means false | Not in production: `true` | Yes |

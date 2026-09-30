@@ -1,0 +1,63 @@
+{
+  "component": "platform",
+  "module": "libs/platform",
+  "description": "The platform's own events: a component refused by the production profile at start-up, and every change of a component's state.",
+  "logger": "com.pingidentity.ps.oidf.platform.event",
+  "auditProtocol": "Agentic Identity Platform",
+  "fields": {
+    "setting": {
+      "pii": "OPERATIONAL",
+      "description": "What the production profile refused: a setting's name, an unknown OIDF_ name, a catalogue, or the component a refusal in code names. Never a value."
+    },
+    "violation": {
+      "pii": "OPERATIONAL",
+      "description": "The kind of violation: FORBIDDEN, ACCEPTED_RISK, REQUIRED, UNREADABLE, UNKNOWN_KEY, CATALOGUE or CODE."
+    },
+    "components": {
+      "pii": "OPERATIONAL",
+      "description": "The components the violation refuses, by S-9's names, comma-separated."
+    },
+    "component": {
+      "pii": "OPERATIONAL",
+      "description": "The component whose state changed, by S-9's name (SSF_RECEIVER)."
+    },
+    "from": {
+      "pii": "OPERATIONAL",
+      "description": "The state it left: DISABLED, STARTING, READY, DEGRADED, FAILED_CONFIG, FAILED_DEPENDENCY or REFUSED."
+    },
+    "to": {
+      "pii": "OPERATIONAL",
+      "description": "The state it entered, one of the same seven."
+    }
+  },
+  "events": {
+    "platform.profile.refused": {
+      "description": "The production profile refused one violation at start-up - a forbidden switch, a risk not accepted, a required setting unset, an unreadable governed value, an unknown OIDF_ name, an unreadable catalogue, or a refusal in code - and the components it names answer 503. One event per violation, from the start-up audit; the reason says what to change.",
+      "audit": true,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "setting",
+        "violation",
+        "components"
+      ],
+      "declaredOnly": false
+    },
+    "platform.component.changed": {
+      "description": "A component's state changed in this copy's registry. Counted in oidf_events_total by its code; not audited.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "debug",
+      "fields": [
+        "component",
+        "from",
+        "to"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

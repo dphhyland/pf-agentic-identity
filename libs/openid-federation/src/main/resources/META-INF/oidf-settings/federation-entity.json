@@ -95,6 +95,7 @@
       "description": "Who the resolve endpoint answers for: known, only this entity, its subordinates and the entities it hosts (18.1); any, anyone",
       "when_wrong": {"effect": "doesnt-start", "detail": "Anything but known or any, in any case: the federation servlet does not start"},
       "profile": "accepted-risk:resolve-any",
+      "governed": ["any"],
       "security": true,
       "sources": [
         {"from": "init-param", "name": "resolveDiscovery"},

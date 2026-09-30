@@ -1,0 +1,20 @@
+id: U-0310
+title: Whether a token signed by an access token manager's own key verifies as a subject token
+area: pf-integration
+source: design
+status: open
+plan_items: [S4c]
+prs: [76]
+recorded_in: servlets/pf-integration/README.md, Each client's attestation policy; docs/releases/unreleased/S4C.md, Notes
+verify_by: >
+  On the rig: add a second JWT access token manager with "Use Centralized Signing Key" false and its own signing
+  certificate, issue an access token from it, and send it as a token exchange's subject_token with an attestation.
+  Expect no verified_subject_token_sub in the attestation context (the filter's log says the subject token did not
+  verify), unless JwksEndpointKeyAccessor.getSigningJsonWebKeySet() includes that manager's key.
+verification: ''
+notes: >
+  SubjectTokenVerifier verifies a subject token against JwksEndpointKeyAccessor.getSigningJsonWebKeySet() (the
+  pingfederate-sdk accessor, javap on 13.1.3, 2026-09-30), which the SSF logout filter and gm-api already trust for
+  PingFederate's own tokens. The rig's only JWT manager uses the centralised signing key. A manager with a key of its
+  own is assumed not to be in that set; if it is not, its tokens are never a verified subject, which fails closed
+  (the exchange is decided about nobody, as before 0.6.0).

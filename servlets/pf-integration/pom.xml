@@ -348,6 +348,43 @@
                                              endpoint and the federation endpoints, and never a replay or a spent jti. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.statusFor(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.assertionNotSpent(*</include>
+                                        <!-- S4c: each client's attestation policy, on the filter and the criterion alike - the
+                                             strict, tighten-only reading of its attestation_* properties, the 30 s cache
+                                             and the 503, the start-up scan, the verified subject token (F-0074), and the
+                                             filter's attestation_required refusal. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.unknown(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.notLonger(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.narrowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.pinned(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.normalise(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.single(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.bool(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.seconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.words(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationPolicy.htu(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.policy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.invalidate(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.invalidateAll(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.properties(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.fingerprint(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyScan.runOnce(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyScan.detail(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.verify(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.subject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.act(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.effectivePolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.globalPolicy(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.reusedVerificationProblem(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.verifiedSubjectTokenSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.requiredClaimsDefault(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.refusedWithoutAttestation(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.namedClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.subjectChanged(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

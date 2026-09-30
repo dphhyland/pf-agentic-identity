@@ -1,0 +1,2 @@
+# The event catalogues of libs/platform, one component per line (platform.events.EventCatalogue).
+platform

@@ -187,10 +187,17 @@ class TokenEndpointChallengeSurfaceTest {
     private static boolean criterionWithIssuer(Map<String, Object> in, Boolean ignoreSslErrors, String trustControllerHost,
             String trustControllerBaseUrl, java.util.function.Function<HttpServletRequest, String> issuerOf) {
         try {
-            java.lang.reflect.Method criterion = ClientAttestationUtils.class.getDeclaredMethod("validateClientAttestation",
-                    Object.class, Boolean.class, String.class, String.class, java.util.function.Function.class);
+            java.lang.reflect.Method criterion = ClientAttestationUtils.class.getDeclaredMethod("validateClientAttestationInner",
+                    Object.class, Boolean.class, String.class, String.class, java.util.function.Function.class,
+                    java.util.function.Supplier.class,
+                    com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.class,
+                    com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier.class);
             criterion.setAccessible(true);
-            return (Boolean) criterion.invoke(null, in, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, issuerOf);
+            java.util.function.Supplier<String> noBase = () -> null;
+            return (Boolean) criterion.invoke(null, in, ignoreSslErrors, trustControllerHost, trustControllerBaseUrl, issuerOf,
+                    noBase, com.pingidentity.ps.oidf.servlet.clientregistration.utils.AttestationPolicyResolver.over(
+                            id -> null, java.time.Clock.systemUTC(), () -> false),
+                    new com.pingidentity.ps.oidf.servlet.clientregistration.utils.SubjectTokenVerifier(() -> null));
         } catch (ReflectiveOperationException e) {
             throw new IllegalStateException(e);
         }

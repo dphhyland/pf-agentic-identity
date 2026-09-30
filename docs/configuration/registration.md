@@ -4,6 +4,8 @@
 
 The settings of the `registration` component of `servlets/pf-integration`, read by package `com.pingidentity.ps.oidf.servlet.clientregistration`: generated from its catalogue, [registration.json](../../servlets/pf-integration/src/main/resources/META-INF/oidf-settings/registration.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `FEDERATION`, `AUTO_REGISTRATION` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `signingAlgorithm` (init-param) | `RS256`; one of `RS256`, `PS256` | How /federation/register signs its registration response | **First request**: Anything but RS256 or PS256, exactly: the registration servlet fails on its first request | Any | Yes |

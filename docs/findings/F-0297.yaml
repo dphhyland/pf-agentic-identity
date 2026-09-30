@@ -1,0 +1,19 @@
+id: F-0297
+title: A violation refuses every component its catalogue belongs to, so one switch can refuse components it does not touch
+severity: low
+area: platform, pf-integration
+source: design
+status: open
+plan_items: [PR-5, ST-5, S9b]
+prs: [77]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by PR5 (2026-09-30). PR5 gives each of the 27 catalogues its components from a table
+  (docs/development/settings-catalogue.md, Components) because it may add only governed members to the catalogues
+  it does not own. The table is per catalogue: any switch in federation-runtime refuses FEDERATION,
+  AUTO_REGISTRATION and ATTESTATION_AUTH together (OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING=false without its risk
+  refuses federation too), and a violation in deployment-profile or pf-audit refuses every component, FAPI included,
+  which until S9B closes every token request (F-0270). Who and when: each catalogue's owner writes per-entry
+  components when it converts its readers (ST5F for federation-runtime and federation-entity, ST5C for SSF), and
+  S9B narrows the FAPI floor.
