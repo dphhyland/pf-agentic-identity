@@ -5,7 +5,7 @@ area: ssf
 source: reviewer-report
 status: closed
 plan_items: [H-SSF-2]
-prs: []
+prs: [87]
 verification: >
   Closed 2026-09-30 by package HSSF1 (plan item H-SSF-2). maxEvents is capped at OIDF_SSF_POLL_MAX_EVENTS_CAP
   (default 100, 1-1000); setErrs is parsed, each entry logged, counted as ssf.poll.set_error under its error code and

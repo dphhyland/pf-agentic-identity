@@ -5,7 +5,7 @@ area: ssf, shared-signals
 source: pr-review
 status: closed
 plan_items: [H-SSF-1]
-prs: []
+prs: [87]
 verification: >
   Closed 2026-09-30 by package HSSF1. The decision is the receiver's, not SetVerifier's (other users of
   libs/shared-signals keep RFC 8417's reading): SsfReceiverService refuses a SET whose payload carries exp or sub as

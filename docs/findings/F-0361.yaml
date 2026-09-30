@@ -5,7 +5,7 @@ area: ssf
 source: design
 status: open
 plan_items: [S10b]
-prs: []
+prs: [87]
 verification: ''
 target_release: 0.7.0
 notes: >

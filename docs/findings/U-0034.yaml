@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: closed
 plan_items: [S10b, H-SSF-2]
-prs: []
+prs: [87]
 recorded_in: >
   the plan, To verify before relying on it, verbatim from the primary source, SSF, CAEP and SET transport
 verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.

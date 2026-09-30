@@ -5,7 +5,7 @@ area: ssf
 source: reviewer-report
 status: closed
 plan_items: [H-SSF-1]
-prs: []
+prs: [87]
 verification: >
   Closed 2026-09-30 by package HSSF1 (plan item H-SSF-1). Subjects: the receiver's verifier takes RFC 9493's did,
   uri and aliases and SSF 1.0's complex subject (SsfSubjects.RECEIVER_FORMATS); SsfSubjects.userKey and deviceId map

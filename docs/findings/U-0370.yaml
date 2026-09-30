@@ -4,7 +4,7 @@ area: ssf
 source: design
 status: open
 plan_items: [H-SSF-1]
-prs: []
+prs: [87]
 recorded_in: servlets/ssf/README.md, The receiver; ReceiverStreamClient.ensure
 verify_by: >
   On the rig with a durable SSF store, set OIDF_SSF_RECEIVER_PUSH_ENDPOINT_URL to the receiver's public
