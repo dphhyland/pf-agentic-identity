@@ -8,9 +8,10 @@ package com.pingidentity.ps.oidf.platform.settings;
  *
  * <p>An {@link IllegalStateException}, as every refusal of {@code FederationRuntimeConfig} was before these
  * parsers moved here, so a caller that caught that still catches this. {@link #setting()} names the setting,
- * so a start-up audit can collect refusals and name each one's setting without parsing the message.
+ * so a start-up audit can collect refusals and name each one's setting without parsing the message. A refusal
+ * by the production profile is the subclass {@link ProfileRefused}.
  */
-public final class SettingRefused extends IllegalStateException {
+public class SettingRefused extends IllegalStateException {
 
     private static final long serialVersionUID = 1L;
 

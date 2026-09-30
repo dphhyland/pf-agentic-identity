@@ -15,9 +15,9 @@ import java.util.TreeSet;
  * The {@code OIDF_*} environment variables set under a family prefix that no loaded catalogue declares - a
  * misspelt name, or one read by nothing, which today is silently ignored.
  *
- * <p>A mechanism only, in Phase 2 (plan item ST-2; Phase 2 plan decision 7): nothing calls it at run time and
- * nothing is refused for it. Refusing before every module is catalogued (ST-3) would stop working
- * deployments; the start-up audit (PR-5) and the reader conversion (ST-5) wire it in, in Phase 3.
+ * <p>Built in Phase 2 (plan item ST-2) and refused from 0.6.0: the start-up sweep ({@link ProfileAudit}) makes each
+ * name a violation that refuses the components of the catalogues whose family it falls under (Phase 3 plan,
+ * decision 5).
  */
 public final class UnknownKeys {
 
@@ -35,6 +35,11 @@ public final class UnknownKeys {
      * @param catalogues  every catalogue loaded
      */
     public static List<String> find(Map<String, String> environment, Collection<Catalogue> catalogues) {
+        return find(environment.keySet(), catalogues);
+    }
+
+    /** As {@link #find(Map, Collection)}, for the environment's names. */
+    public static List<String> find(Set<String> names, Collection<Catalogue> catalogues) {
         Set<String> families = new HashSet<>();
         Set<String> declared = new HashSet<>();
         for (Catalogue catalogue : catalogues) {
@@ -42,7 +47,7 @@ public final class UnknownKeys {
             declared.addAll(catalogue.declaredEnvironmentNames());
         }
         Set<String> unknown = new TreeSet<>();
-        for (String name : environment.keySet()) {
+        for (String name : names) {
             if (!declared.contains(name) && underAFamily(name, families)) {
                 unknown.add(name);
             }

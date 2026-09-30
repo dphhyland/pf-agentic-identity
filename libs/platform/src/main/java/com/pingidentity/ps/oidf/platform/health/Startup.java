@@ -6,6 +6,7 @@ package com.pingidentity.ps.oidf.platform.health;
 import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
 import com.pingidentity.ps.oidf.platform.component.Components;
 import com.pingidentity.ps.oidf.platform.component.Supervisor;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
 import java.time.Clock;
 
 /**
@@ -55,9 +56,26 @@ public final class Startup {
     private Startup() {
     }
 
-    /** See {@link ComponentParts#begin(String, String)}. */
+    /**
+     * See {@link ComponentParts#begin(String, String)}; and a part of a component the production profile refuses
+     * ({@link ProfileRefusals#reason}) is {@code REFUSED} at once, with the refusal as its reason, so its
+     * {@link ComponentParts.Part#start start} runs nothing and its gate answers 503 (plan item PR-5). A component
+     * switched off stays disabled: disabling one is never a violation.
+     */
     public static ComponentParts.Part begin(String component, String part) {
-        return PARTS.begin(component, part);
+        ComponentParts.Part begun = PARTS.begin(component, part);
+        refuseIfRefused(PARTS, begun);
+        return begun;
+    }
+
+    /** Marks {@code begun} {@code REFUSED} when the profile refuses its component; answers whether it did. */
+    static boolean refuseIfRefused(ComponentParts parts, ComponentParts.Part begun) {
+        ComponentSwitches.Verdict verdict = parts.verdict(begun.component());
+        if (verdict.kind() == ComponentSwitches.Kind.DISABLED) {
+            return false;
+        }
+        String reason = ProfileRefusals.reason(begun.component(), verdict.kind() == ComponentSwitches.Kind.ENABLED);
+        return reason != null && begun.refused(reason);
     }
 
     /**

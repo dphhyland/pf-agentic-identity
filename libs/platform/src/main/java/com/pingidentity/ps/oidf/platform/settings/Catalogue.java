@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
 import java.util.regex.Pattern;
 import com.pingidentity.ps.oidf.platform.json.Json;
 
@@ -45,10 +46,21 @@ public final class Catalogue {
     private static final Pattern FAMILY = Pattern.compile("OIDF_([A-Z0-9]+_)+");
     private static final Pattern RELEASE = Pattern.compile("(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)");
     private static final Pattern ENV_NAME = Pattern.compile("[A-Z][A-Z0-9_]*");
-    private static final Pattern PROPERTY_NAME = Pattern.compile("[a-z][a-z0-9_-]*(\\.[a-z0-9_-]+)*");
+    /**
+     * A system property's name. Upper-case letters are allowed (PR-5): the JDK's
+     * {@code jdk.internal.httpclient.disableHostnameVerification} (F-0195) and SSF's {@code oidf.ssf.<camelCase>}
+     * properties (F-0235) are named so.
+     */
+    private static final Pattern PROPERTY_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_-]*(\\.[A-Za-z0-9_-]+)*");
+    /** A component's name, as S-9 spells one: {@code SSF_RECEIVER}. */
+    private static final Pattern COMPONENT_NAME = Pattern.compile("[A-Z][A-Z0-9_]{0,63}");
     private static final Pattern INIT_PARAM_NAME = Pattern.compile("[A-Za-z][A-Za-z0-9_.-]*");
 
     private static final Set<String> TOP = Set.of("format", "component", "module", "package", "families", "settings", "removed");
+    /** Optional in format 1 (PR-5), so every catalogue written before it still loads. */
+    private static final Set<String> TOP_OPTIONAL = Set.of("components");
+    private static final Set<String> ENTRY_OPTIONAL = Set.of("governed", "components");
+    private static final Set<String> SCHEMES = Set.of("schemes");
     private static final Set<String> ENTRY = Set.of("name", "kind", "type", "default", "description", "when_wrong", "profile",
             "security", "sources", "aliases", "file");
     private static final Set<String> RANGE = Set.of("min", "max");
@@ -64,15 +76,19 @@ public final class Catalogue {
     private final List<String> families;
     private final Map<String, Setting> settings;
     private final List<Removed> removed;
+    private final List<String> components;
+    private final boolean componentsDeclared;
 
     private Catalogue(String component, String module, String owningPackage, List<String> families,
-            Map<String, Setting> settings, List<Removed> removed) {
+            Map<String, Setting> settings, List<Removed> removed, List<String> components) {
         this.component = component;
         this.module = module;
         this.owningPackage = owningPackage;
         this.families = List.copyOf(families);
         this.settings = Collections.unmodifiableMap(settings);
         this.removed = List.copyOf(removed);
+        this.componentsDeclared = components != null;
+        this.components = components != null ? List.copyOf(components) : DefaultComponents.of(component);
     }
 
     /** The component, which is also the file's name. */
@@ -109,6 +125,25 @@ public final class Catalogue {
         return setting;
     }
 
+    /**
+     * The components this catalogue's settings belong to: its {@code components} member, or, when it has none, its
+     * line in the table of docs/development/settings-catalogue.md (empty for a catalogue the table does not list). A
+     * profile violation by one of its settings, and an unknown name under one of its families, refuse them (PR-5).
+     */
+    public List<String> components() {
+        return this.components;
+    }
+
+    /** Whether {@link #components()} is the catalogue's own member rather than the table's line. */
+    public boolean componentsDeclared() {
+        return this.componentsDeclared;
+    }
+
+    /** The components {@code setting} belongs to: its own {@code components}, or else the catalogue's. */
+    public List<String> componentsOf(Setting setting) {
+        return setting.components().isEmpty() ? this.components : setting.components();
+    }
+
     /** The names this component no longer reads. */
     public List<Removed> removed() {
         return this.removed;
@@ -133,7 +168,7 @@ public final class Catalogue {
             }
         }
         for (Removed gone : this.removed) {
-            if (gone.source() == Source.ENV) {
+            if (gone.kind() == EntryKind.ENV) {
                 names.add(gone.name());
             }
         }
@@ -201,7 +236,22 @@ public final class Catalogue {
      */
     public void refuseRemoved(Sources from) {
         for (Removed gone : this.removed) {
-            if (Parsers.blankToNull(from.get(gone.source(), gone.name())) != null) {
+            if (gone.source() != null && Parsers.blankToNull(from.get(gone.source(), gone.name())) != null) {
+                throw gone.refusal();
+            }
+        }
+    }
+
+    /**
+     * Refuses the first of this catalogue's removed plugin fields that a plugin's configuration still sets to something
+     * not blank, as {@link #refuseRemoved} does for the other kinds (F-0231: a plugin's saved configuration keeps a field
+     * its descriptor no longer declares). {@code fields} answers a field's value by its name, or null.
+     *
+     * @throws SettingRefused naming the removed field
+     */
+    public void refuseRemovedFields(Function<String, String> fields) {
+        for (Removed gone : this.removed) {
+            if (gone.kind() == EntryKind.PLUGIN_FIELD && Parsers.blankToNull(fields.apply(gone.name())) != null) {
                 throw gone.refusal();
             }
         }
@@ -223,7 +273,7 @@ public final class Catalogue {
             throw new IllegalArgumentException(where + ": " + e.getMessage());
         }
         Reader r = new Reader(where);
-        Map<String, Object> top = r.object(root, "the document", TOP, Set.of());
+        Map<String, Object> top = r.object(root, "the document", TOP, TOP_OPTIONAL);
         BigDecimal format = r.number(top, "format", "the document");
         if (format.compareTo(BigDecimal.valueOf(FORMAT)) != 0) {
             throw r.refuse("the document", "format is " + format.toPlainString() + "; this reader reads format " + FORMAT);
@@ -255,7 +305,8 @@ public final class Catalogue {
         for (int i = 0; i < gone.size(); i++) {
             removed.add(r.removed(gone.get(i), "removed[" + i + "]", seen, settings));
         }
-        return new Catalogue(component, module, owningPackage, families, settings, removed);
+        List<String> components = top.containsKey("components") ? r.components(top.get("components"), "the document") : null;
+        return new Catalogue(component, module, owningPackage, families, settings, removed, components);
     }
 
     /** A JSON value as a refusal names it: a string quoted, anything else by its JSON kind. */
@@ -346,6 +397,102 @@ public final class Catalogue {
             return new ArrayList<>(l);
         }
 
+        /** A list of component names, none twice; {@code at} names where it is. */
+        List<String> components(Object value, String at) {
+            if (!(value instanceof List<?> items)) {
+                throw refuse(at, "components must be a list, not " + describe(value));
+            }
+            List<String> out = new ArrayList<>();
+            for (Object item : items) {
+                if (!(item instanceof String c) || !COMPONENT_NAME.matcher(c).matches()) {
+                    throw refuse(at, "each component is named as S-9 names one (SSF_RECEIVER), not " + describe(item));
+                }
+                if (out.contains(c)) {
+                    throw refuse(at, "component " + c + " is listed twice");
+                }
+                out.add(c);
+            }
+            return out;
+        }
+
+        /**
+         * An entry's {@code governed} member, or the default rule when it has none (see {@link Governed}); null for an
+         * entry classed {@code any} or {@code required-in-production}, which may not have one.
+         */
+        Governed governed(Map<String, Object> entry, String at, ProfileClass profile, SettingType type, String defaultValue,
+                List<String> choices, Setting setting) {
+            boolean acts = profile.kind() == ProfileClass.Kind.FORBIDDEN_IN_PRODUCTION
+                    || profile.kind() == ProfileClass.Kind.ACCEPTED_RISK;
+            if (!entry.containsKey("governed")) {
+                if (!acts) {
+                    return null;
+                }
+                if (defaultValue == null) {
+                    return Governed.anyValue(false);
+                }
+                if (type == SettingType.BOOL) {
+                    return Governed.values(List.of(String.valueOf(!Boolean.parseBoolean(defaultValue))), false);
+                }
+                if (type == SettingType.CHOICE && choices.size() == 2) {
+                    Object spelt = setting.parse(defaultValue);
+                    return Governed.values(List.of(choices.get(0).equals(spelt) ? choices.get(1) : choices.get(0)), false);
+                }
+                throw refuse(at, "a " + type.id() + (type == SettingType.CHOICE ? " of " + choices.size() + " choices" : "")
+                        + " with a default classed " + profile + " says which values the profile governs, in governed");
+            }
+            if (!acts) {
+                throw refuse(at, "governed goes with forbidden-in-production or accepted-risk:<id>, not " + profile);
+            }
+            Object value = entry.get("governed");
+            if (value instanceof Map<?, ?>) {
+                Map<String, Object> form = object(value, at + ".governed", SCHEMES, Set.of());
+                if (type != SettingType.STRING && type != SettingType.SECRET && type != SettingType.URL
+                        && type != SettingType.HTTPS_URL) {
+                    throw refuse(at, "governed schemes go with a string, secret, url or https-url, not a " + type.id());
+                }
+                List<String> schemes = new ArrayList<>();
+                for (Object scheme : list(form, "schemes", at + ".governed")) {
+                    if (!(scheme instanceof String sc) || !Governed.isScheme(sc) || schemes.contains(sc)) {
+                        throw refuse(at, "each governed scheme is a lower-case scheme name, listed once, not " + describe(scheme));
+                    }
+                    schemes.add(sc);
+                }
+                if (schemes.isEmpty()) {
+                    throw refuse(at, "governed schemes lists at least one scheme");
+                }
+                return Governed.schemes(schemes);
+            }
+            if (!(value instanceof List<?> items) || items.isEmpty()) {
+                throw refuse(at, "governed is a list of values or {\"schemes\": [...]}, not " + describe(value));
+            }
+            if (type != SettingType.BOOL && type != SettingType.CHOICE) {
+                throw refuse(at, "governed values go with a bool or a choice, not a " + type.id());
+            }
+            List<String> values = new ArrayList<>();
+            for (Object item : items) {
+                String text = item instanceof Boolean ? Json.write(item) : item instanceof String t ? t : null;
+                Object parsed;
+                try {
+                    parsed = text == null ? null : setting.parse(text);
+                } catch (SettingRefused e) {
+                    parsed = null;
+                }
+                if (parsed == null) {
+                    throw refuse(at, "governed value " + describe(item) + " is not a value of this " + type.id());
+                }
+                String spelt = String.valueOf(parsed);
+                if (values.contains(spelt)) {
+                    throw refuse(at, "governed value " + spelt + " is listed twice");
+                }
+                if (defaultValue != null && parsed.equals(setting.parse(defaultValue))) {
+                    throw refuse(at, "governed value " + spelt + " is the default, so unset would be the case the profile"
+                            + " governs and nothing could see it");
+                }
+                values.add(spelt);
+            }
+            return Governed.values(values, true);
+        }
+
         /** A name as {@code source} spells one, not claimed yet by another entry of this catalogue. */
         String name(Source source, Object value, String at, Set<String> seen) {
             Pattern pattern = source == Source.ENV ? ENV_NAME : source == Source.SYSTEM_PROPERTY ? PROPERTY_NAME : INIT_PARAM_NAME;
@@ -381,7 +528,7 @@ public final class Catalogue {
         }
 
         Setting setting(Object value, String at, Set<String> seen) {
-            Map<String, Object> entry = object(value, at, ENTRY, union(RANGE, CHOICES));
+            Map<String, Object> entry = object(value, at, ENTRY, union(union(RANGE, CHOICES), ENTRY_OPTIONAL));
             String name = text(entry, "name", at);
             String here = at + " (" + name + ")";
             EntryKind kind = EntryKind.byId(entry.get("kind") instanceof String k ? k : "");
@@ -483,8 +630,13 @@ public final class Catalogue {
             } catch (SettingRefused e) {
                 throw refuse(here, "the default is refused: " + e.getMessage());
             }
+            Governed governed = governed(entry, here, profile, type, defaultValue, choices, setting);
+            List<String> components = entry.containsKey("components") ? components(entry.get("components"), here) : List.of();
+            if (entry.containsKey("components") && components.isEmpty()) {
+                throw refuse(here, "an entry's components names at least one; leave it out to take the catalogue's");
+            }
             return new Setting(name, kind, type, defaultValue, min, max, choices, description, whenWrong, profile, security,
-                    sources, aliases, file);
+                    sources, aliases, file, governed, components);
         }
 
         /** {@code members} are all present when {@code wanted}, and none of them otherwise. */
@@ -523,10 +675,19 @@ public final class Catalogue {
         Removed removed(Object value, String at, Set<String> seen, Map<String, Setting> settings) {
             Map<String, Object> entry = object(value, at, REMOVED, Set.of());
             Source source = entry.get("from") instanceof String from ? Source.byId(from) : null;
-            if (source == null) {
-                throw refuse(at, "from must be env, system-property or init-param, not " + describe(entry.get("from")));
+            boolean field = EntryKind.PLUGIN_FIELD.id().equals(entry.get("from"));
+            if (source == null && !field) {
+                throw refuse(at, "from must be env, system-property, init-param or plugin-field, not " + describe(entry.get("from")));
             }
-            String name = name(source, entry.get("name"), at, seen);
+            String name;
+            if (field) {
+                name = text(entry, "name", at);
+                if (!seen.add(EntryKind.PLUGIN_FIELD.id() + " " + name) || settings.containsKey(name)) {
+                    throw refuse(at, "plugin-field " + name + " is declared twice in this catalogue");
+                }
+            } else {
+                name = name(source, entry.get("name"), at, seen);
+            }
             Object replacement = entry.get("replacement");
             if (replacement != null && !(replacement instanceof String r && !r.isBlank())) {
                 throw refuse(at, "replacement must be the name to set instead, or null, not " + describe(replacement));
@@ -535,7 +696,7 @@ public final class Catalogue {
             if (replacement != null && !settings.containsKey(replacement)) {
                 throw refuse(at, "replacement " + replacement + " is not a setting of this catalogue");
             }
-            return new Removed(name, source, (String) replacement, release);
+            return new Removed(name, field ? EntryKind.PLUGIN_FIELD : EntryKind.of(source), (String) replacement, release);
         }
 
         private static Set<String> union(Set<String> a, Set<String> b) {

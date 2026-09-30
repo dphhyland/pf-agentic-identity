@@ -134,7 +134,8 @@ class EventCataloguesTest {
     void theCurrentCataloguesAreThisLoadersUntilATestInstallsOthers() {
         EventCatalogues first = EventCatalogues.current();
         assertSame(first, EventCatalogues.current());
-        assertTrue(first.components().isEmpty(), "platform's test classpath carries no catalogue");
+        assertEquals(List.of("platform"), List.copyOf(first.components().keySet()),
+                "platform's test classpath carries platform's own catalogue only (PR-5)");
         EventCatalogues installed = TestCatalogues.shopAndBank();
         EventCatalogues.install(installed);
         assertSame(installed, EventCatalogues.current());

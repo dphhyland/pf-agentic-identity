@@ -55,6 +55,24 @@ public final class Parsers {
         throw new SettingRefused(name, name + " must be true or false, not " + value);
     }
 
+    /**
+     * The spellings of a switch that {@link #strictBoolean} refuses and the development profile still reads, with a
+     * warning, until 1.0 (Phase 3 plan, decision 11): every one is read as {@code false}, because that is what the
+     * readers before 0.6.0 made of it - {@code Boolean.parseBoolean}, which answers true for {@code true} in any case
+     * and false for anything else, and {@code "true".equalsIgnoreCase(value.trim())} (docs/development/
+     * settings-catalogue.md, "Legacy spellings", lists each reader). None of them ever read {@code yes}, {@code 1} or
+     * {@code on} as true.
+     */
+    public static final List<String> LEGACY_BOOLEAN = List.of("yes", "no", "1", "0", "on", "off");
+
+    /**
+     * What a legacy spelling of a switch meant ({@link #LEGACY_BOOLEAN}, any case, trimmed): {@code false}; null for
+     * anything else, a strict spelling included. The caller decides whether the profile takes it.
+     */
+    public static Boolean legacyBoolean(String value) {
+        return value != null && LEGACY_BOOLEAN.contains(value.trim().toLowerCase(Locale.ROOT)) ? Boolean.FALSE : null;
+    }
+
     /** {@link #strictBoolean}, with {@code fallback} for an unset or blank value. */
     public static boolean bool(String name, String value, boolean fallback) {
         String set = blankToNull(value);
