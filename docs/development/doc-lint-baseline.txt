@@ -1,0 +1,50 @@
+# tools/doc-lint.py's baseline: the hits each tracked document already carried when the check arrived,
+# per rule, as counts. A document may not go above its count; fixing a hit lets the count come down.
+# Regenerate with `python3 tools/doc-lint.py --update-baseline` after fixing some, and never to admit new
+# ones. Written 2026-09-27.
+README.md em-dash 27
+README.md spelling 6
+build/pingfederate/README.md em-dash 4
+build/pingfederate/README.md spelling 3
+docs/DEMOS.md em-dash 3
+docs/DEMOS.md spelling 1
+docs/PROVENANCE.md em-dash 44
+docs/PROVENANCE.md spelling 6
+docs/ai-agent-attestation-profile-1_0.md em-dash 79
+docs/ai-agent-attestation-profile-1_0.md spelling 5
+docs/attestation-client-auth-design.md em-dash 20
+docs/claim-dictionary.md em-dash 36
+docs/client-attestation-architecture.md em-dash 141
+docs/client-attestation-architecture.md spelling 1
+docs/openid-client-attestation-service-1_0.md em-dash 75
+docs/openid-client-attestation-service-1_0.md spelling 6
+docs/pf-13_1-jakarta-migration-plan.md spelling 11
+libs/agent-registry/README.md em-dash 15
+libs/app-attest/README.md em-dash 18
+libs/client-attestation/README.md em-dash 16
+libs/device-instance/README.md em-dash 18
+libs/device-instance/src/test/resources/idm/README.md em-dash 2
+libs/oidf-jose/README.md em-dash 9
+libs/openid-federation/README.md em-dash 35
+plugins/instance-registry-datasource/README.md em-dash 17
+plugins/rar-paz-plugin/README.md em-dash 14
+plugins/rar-paz-plugin/paz/README.md em-dash 5
+services/demo-rs/README.md em-dash 10
+services/device-enrolment/README.md em-dash 19
+services/gm-api/README.md em-dash 13
+services/gm-api/README.md spelling 2
+services/gm-api/docs/GMAPI-Extension.md spelling 1
+services/gm-api/docs/INTEGRATING.md em-dash 25
+services/gm-api/docs/MCP.md em-dash 12
+services/gm-api/docs/authzen-oauth-profile.md em-dash 3
+services/gm-api/docs/authzen-oauth-profile.md spelling 4
+services/gm-api/docs/pingfederate-gm-api-gaps.md em-dash 10
+services/gm-api/examples/README.md em-dash 1
+services/gm-api/servlet/README.md em-dash 24
+services/gm-api/servlet/README.md spelling 3
+services/harness/README.md em-dash 5
+servlets/attestation-issuer/README.md em-dash 1
+servlets/oidf-war/README.md em-dash 1
+servlets/oidf-war/README.md spelling 2
+servlets/pf-integration/README.md em-dash 3
+servlets/ssf/README.md em-dash 1

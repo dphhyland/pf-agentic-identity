@@ -1,0 +1,21 @@
+id: F-0017
+title: SSF dead-letter drops events
+severity: high
+area: ssf
+source: review-2026-09-26
+status: open
+plan_items: [S-10, S10c, S10d]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  A push stream whose SET fails `pushRetryMaxAttempts` times is dead-lettered: paused, about 75 s after the
+  first failure at the defaults. The SETs already queued are kept until `setTtlSeconds` evicts them, and
+  deliver if a receiver enables the stream again. What is lost is everything after: nothing is queued for a
+  stream that is not enabled (`SsfEventEmitter.subscribes`), so every event raised while it is paused is
+  dropped rather than held. The same holds while the store is down at boot, which from 0.4.0 PingFederate
+  serves through: `SsfEventBridge` skips each emission with a WARN. Corrected 2026-09-27 by the S10-0
+  package; this note said the SET that failed was lost, and it is the events after it that are. S-10: a
+  paused stream's events are held (bounded by the TTL and 10,000 per stream), a stream-updated SET goes
+  first on resumption, streams pause after 24 h of failure and not 75 s, and the operator can retry dead
+  SETs.

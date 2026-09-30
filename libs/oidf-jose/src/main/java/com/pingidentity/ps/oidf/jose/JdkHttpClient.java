@@ -1,42 +1,63 @@
 package com.pingidentity.ps.oidf.jose;
 
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.io.InputStream;
+import com.pingidentity.ps.oidf.platform.http.Bulkhead;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.HostBulkhead;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.security.SecureRandom;
-import java.security.cert.X509Certificate;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.SSLParameters;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
 
 /**
- * GET and POST over the JDK {@link HttpClient}, every request screened by an {@link OutboundUrlPolicy}
- * first and every response body read through the policy's size cap.
+ * GET and POST through platform's {@link OutboundHttp} (plan item S5a), every request screened by an
+ * {@link OutboundUrlPolicy} and every response body read through the policy's size cap.
  *
- * <p>This is {@link JdkHttpGetClient}'s transport generalised: the same fail-fast timeouts (a remote
- * that stalls costs the caller's thread a few seconds, not an unbounded wait), HTTP/1.1 so concurrent
- * requests to one host do not serialise over one HTTP/2 connection, no redirects (so one policy check
- * per request is sufficient), and a capped body read rather than {@code BodyHandlers.ofString}. POST
- * reports the status to the caller instead of throwing on it (see {@link HttpPostClient}).
+ * <p>The name keeps the class's history; the JDK's {@code java.net.http} client is no longer under it, because that
+ * client resolves the host again when it connects. Here the policy resolves the host once, checks every address,
+ * and the connection goes to a checked address and nowhere else, with TLS still checking the certificate against
+ * the URL's host. What it keeps: the fail-fast timeouts (a remote that stalls costs the caller's thread a few
+ * seconds, not an unbounded wait), HTTP/1.1 with a connection per request, so concurrent requests to one host never
+ * queue behind one another on a shared connection, no redirects (so one policy check per request is sufficient), and
+ * a capped body read. POST reports the status to the caller instead of throwing on it (see {@link HttpPostClient}).
  *
- * <p>When constructed with {@code ignoreSslErrors} it trusts all TLS certificates and disables hostname
- * verification - for a development peer over self-signed TLS, never for production.
+ * <p>The timeouts: the connect timeout bounds connecting and the TLS handshake; the request timeout is the whole
+ * exchange's deadline, the body included (the JDK client's stopped at the headers, finding F-0010), and the
+ * headers must arrive within it. A caller with a deadline of its own - a trust chain resolution's budget (plan item
+ * S5b) - passes it, and the exchange ends by the sooner of the two. Every request to one origin also takes a place in a {@link HostBulkhead} shared by
+ * every client in this copy of oidf-jose ({@link HostBulkhead#DEFAULT_MAX_PER_ORIGIN} places an origin), waiting for
+ * one no longer than the request's deadline.
+ *
+ * <p>What a caller sees, as before: a policy refusal, a body over the cap and (from {@link #get}) a non-2xx status
+ * are an {@link IllegalArgumentException}; a failed exchange - no address accepted, a timeout, a TLS failure, a
+ * malformed response, or no place in the bulkhead before the deadline - is an {@link OutboundHttpException}, an
+ * {@link java.io.IOException} whose {@code reason()} says which.
+ *
+ * <p>When constructed with {@code ignoreSslErrors} it trusts any certificate chain - for a development peer over
+ * self-signed TLS, never for production. The trust-all is platform's {@link InsecureTls} (plan item PR-1), which
+ * warns once and records the use; the certificate must still name the host the URL names, and here nothing turns
+ * that off (the JVM-wide {@code jdk.internal.httpclient.disableHostnameVerification} of finding F-0035 governs the JDK
+ * client alone).
  */
 public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
 
     public static final Duration DEFAULT_CONNECT_TIMEOUT = Duration.ofSeconds(8);
     public static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(15);
+    /** The setting every {@code ignoreSslErrors} here comes from, and the name InsecureTls records the use under. */
+    static final String IGNORE_SSL_SETTING = "OIDF_FEDERATION_IGNORE_SSL_ERRORS";
+    /** The bulkhead every client in this copy of oidf-jose shares, so a client made per request is still counted. */
+    static final HostBulkhead BULKHEAD = HostBulkhead.withDefaults();
 
-    private final HttpClient httpClient;
+    private final OutboundHttp http;
     private final OutboundUrlPolicy policy;
     private final Duration requestTimeout;
 
@@ -45,17 +66,20 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
     }
 
     public JdkHttpClient(boolean ignoreSslErrors, OutboundUrlPolicy policy, Duration connectTimeout, Duration requestTimeout) {
-        Objects.requireNonNull(connectTimeout, "connectTimeout");
-        this.httpClient = ignoreSslErrors ? buildTrustAllClient(connectTimeout) : baseBuilder(connectTimeout).build();
-        this.policy = Objects.requireNonNull(policy, "policy");
-        this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+        this(TlsTrust.insecureIf(IGNORE_SSL_SETTING, ignoreSslErrors), BULKHEAD, policy, connectTimeout, requestTimeout);
     }
 
-    /** Test seam: a supplied {@link HttpClient}. */
-    JdkHttpClient(HttpClient httpClient, OutboundUrlPolicy policy, Duration requestTimeout) {
-        this.httpClient = Objects.requireNonNull(httpClient, "httpClient");
+    /** Test seam: a supplied trust and bulkhead. */
+    JdkHttpClient(TlsTrust tls, Bulkhead bulkhead, OutboundUrlPolicy policy, Duration connectTimeout, Duration requestTimeout) {
         this.policy = Objects.requireNonNull(policy, "policy");
         this.requestTimeout = Objects.requireNonNull(requestTimeout, "requestTimeout");
+        this.http = OutboundHttp.builder(policy.addressPolicy())
+                .tls(Objects.requireNonNull(tls, "tls"))
+                .bulkhead(Objects.requireNonNull(bulkhead, "bulkhead"))
+                .connectTimeout(Objects.requireNonNull(connectTimeout, "connectTimeout"))
+                .headerTimeout(requestTimeout)
+                .maxBodyBytes(policy.maxBodyBytes())
+                .build();
     }
 
     public OutboundUrlPolicy policy() {
@@ -64,102 +88,89 @@ public final class JdkHttpClient implements HttpGetClient, HttpPostClient {
 
     @Override
     public String get(String url, String acceptHeader) throws Exception {
-        URI uri = this.policy.check(url);
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(uri)
-                .header("Accept", acceptHeader)
-                .timeout(this.requestTimeout)
-                .GET()
-                .build();
-        HttpResponse<InputStream> response = this.httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
-        try (InputStream body = response.body()) {
-            if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new IllegalArgumentException("GET failed: " + url + " status=" + response.statusCode());
-            }
-            return readBody(response, body, url, "GET");
+        return get(url, acceptHeader, null);
+    }
+
+    /**
+     * The GET, ending by the sooner of {@code deadline} and this client's request timeout: a resolution's slow peer
+     * spends the resolution's time, never more than one request's.
+     */
+    @Override
+    public String get(String url, String acceptHeader, Deadline deadline) throws Exception {
+        URI uri = OutboundUrlPolicy.parse(url);
+        OutboundResponse response = send(OutboundRequest.builder(OutboundRequest.Method.GET, uri)
+                .header("Accept", acceptHeader), uri, url, "GET", deadline);
+        if (!response.successful()) {
+            throw new IllegalArgumentException("GET failed: " + url + " status=" + response.status());
         }
+        return response.bodyText();
     }
 
     @Override
     public Response post(String url, String contentType, String body, Map<String, String> headers, String accept) throws Exception {
-        URI uri = this.policy.check(url);
-        HttpRequest.Builder builder = HttpRequest.newBuilder()
-                .uri(uri)
-                .timeout(this.requestTimeout)
-                .header("Content-Type", Objects.requireNonNull(contentType, "contentType"))
-                .POST(HttpRequest.BodyPublishers.ofString(body == null ? "" : body, StandardCharsets.UTF_8));
+        return post(url, contentType, body, headers, accept, null);
+    }
+
+    /** The POST, ending by the sooner of {@code deadline} and this client's request timeout. */
+    @Override
+    public Response post(String url, String contentType, String body, Map<String, String> headers, String accept,
+            Deadline deadline) throws Exception {
+        URI uri = OutboundUrlPolicy.parse(url);
+        OutboundRequest.Builder request = OutboundRequest.builder(OutboundRequest.Method.POST, uri)
+                .body(Objects.requireNonNull(contentType, "contentType"), body == null ? "" : body);
         if (accept != null) {
-            builder.header("Accept", accept);
+            request.header("Accept", accept);
         }
         if (headers != null) {
             for (Map.Entry<String, String> header : headers.entrySet()) {
                 if (header.getKey() != null && header.getValue() != null) {
-                    builder.header(header.getKey(), header.getValue());
+                    request.header(header.getKey(), header.getValue());
                 }
             }
         }
-        HttpResponse<InputStream> response = this.httpClient.send(builder.build(), HttpResponse.BodyHandlers.ofInputStream());
-        try (InputStream in = response.body()) {
-            String responseBody = readBody(response, in, url, "POST");
-            return new Response(response.statusCode(), responseBody, response.headers().map());
-        }
+        OutboundResponse response = send(request, uri, url, "POST", deadline);
+        return new Response(response.status(), response.bodyText(), headerMap(response));
     }
 
-    private String readBody(HttpResponse<InputStream> response, InputStream body, String url, String method) throws IOException {
-        // A declared over-cap length is refused without reading; an undeclared or lying one is
-        // caught by the read itself, so a chunked response cannot stream past the cap either.
-        long declared = response.headers().firstValueAsLong("Content-Length").orElse(-1L);
-        if (declared > this.policy.maxBodyBytes()) {
-            throw new IllegalArgumentException(method + " refused: " + url + " declares " + declared
-                    + " bytes, over the " + this.policy.maxBodyBytes() + "-byte cap");
-        }
-        return readCapped(body, this.policy.maxBodyBytes(), url, method);
-    }
-
-    private static String readCapped(InputStream in, long cap, String url, String method) throws IOException {
-        ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-        byte[] chunk = new byte[8192];
-        long total = 0;
-        int read;
-        while ((read = in.read(chunk)) != -1) {
-            total += read;
-            if (total > cap) {
-                throw new IllegalArgumentException(method + " refused: " + url + " body exceeds the " + cap + "-byte cap");
-            }
-            buffer.write(chunk, 0, read);
-        }
-        return buffer.toString(StandardCharsets.UTF_8);
-    }
-
-    private static HttpClient.Builder baseBuilder(Duration connectTimeout) {
-        return HttpClient.newBuilder()
-                .connectTimeout(connectTimeout)
-                .version(HttpClient.Version.HTTP_1_1);
-    }
-
-    private static HttpClient buildTrustAllClient(Duration connectTimeout) {
+    /**
+     * Sends through the transport within the request timeout, and by {@code deadline} when there is one; a failure
+     * comes back as {@link #failure} says.
+     */
+    private OutboundResponse send(OutboundRequest.Builder request, URI uri, String url, String method, Deadline deadline)
+            throws Exception {
+        Deadline own = Deadline.after(this.requestTimeout);
         try {
-            TrustManager[] trustAll = {new X509TrustManager() {
-                @Override
-                public void checkClientTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public void checkServerTrusted(X509Certificate[] chain, String authType) {
-                }
-
-                @Override
-                public X509Certificate[] getAcceptedIssuers() {
-                    return new X509Certificate[0];
-                }
-            }};
-            SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustAll, new SecureRandom());
-            SSLParameters sslParameters = new SSLParameters();
-            sslParameters.setEndpointIdentificationAlgorithm(null);
-            return baseBuilder(connectTimeout).sslContext(sslContext).sslParameters(sslParameters).build();
-        } catch (Exception e) {
-            throw new IllegalStateException("Unable to build trust-all HttpClient", e);
+            return this.http.send(request.build(), deadline == null ? own : own.min(deadline));
+        } catch (OutboundHttpException e) {
+            throw failure(e, uri, url, method);
         }
+    }
+
+    /**
+     * What a caller sees for a failed request: the refusals it always saw as an {@link IllegalArgumentException} (the
+     * policy's, and a body over the cap), and anything else as the transport's own exception, an {@link java.io.IOException}.
+     */
+    Exception failure(OutboundHttpException e, URI uri, String url, String method) {
+        if (e.reason() == OutboundHttpException.Reason.BODY_TOO_LARGE) {
+            return new IllegalArgumentException(method + " refused: " + url + ": " + e.getMessage(), e);
+        }
+        IllegalArgumentException refused = this.policy.refusal(e, uri);
+        return refused != null ? refused : e;
+    }
+
+    /** The response headers by name, each name's values in the order received; names as the peer spelled them first. */
+    static Map<String, List<String>> headerMap(OutboundResponse response) {
+        Map<String, List<String>> byLowerName = new LinkedHashMap<>();
+        Map<String, List<String>> byName = new LinkedHashMap<>();
+        for (OutboundResponse.Header header : response.headers()) {
+            List<String> values = byLowerName.get(header.name().toLowerCase(Locale.ROOT));
+            if (values == null) {
+                values = new ArrayList<>();
+                byLowerName.put(header.name().toLowerCase(Locale.ROOT), values);
+                byName.put(header.name(), values);
+            }
+            values.add(header.value());
+        }
+        return byName;
     }
 }

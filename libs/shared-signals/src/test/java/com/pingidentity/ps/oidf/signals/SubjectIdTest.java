@@ -1,0 +1,75 @@
+/*
+ * Subject identifier (RFC 9493) factories, parsing, and canonical keys.
+ */
+package com.pingidentity.ps.oidf.signals;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.pingidentity.ps.oidf.conformance.Requirement;
+import java.util.Map;
+import org.junit.jupiter.api.Test;
+
+class SubjectIdTest {
+
+    @Test
+    @Requirement("RFC9493 §3.2.3")
+    void issSubRoundTripsThroughMap() {
+        SubjectId subject = SubjectId.issSub("https://op.example.com", "user-1");
+        Map<String, Object> map = subject.toMap();
+        assertEquals("iss_sub", map.get("format"));
+        assertEquals("https://op.example.com", map.get("iss"));
+        assertEquals("user-1", map.get("sub"));
+        assertEquals(subject, SubjectId.fromMap(map));
+    }
+
+    @Test
+    @Requirement("RFC9493 §3.2")
+    void parsesEachSupportedFormat() {
+        assertEquals(SubjectId.email("a@b.com"),
+                SubjectId.fromMap(Map.of("format", "email", "email", "a@b.com")));
+        assertEquals(SubjectId.phoneNumber("+15551234567"),
+                SubjectId.fromMap(Map.of("format", "phone_number", "phone_number", "+15551234567")));
+        assertEquals(SubjectId.opaque("abc"),
+                SubjectId.fromMap(Map.of("format", "opaque", "id", "abc")));
+        assertEquals(SubjectId.account("acct:user@example.com"),
+                SubjectId.fromMap(Map.of("format", "account", "uri", "acct:user@example.com")));
+    }
+
+    @Test
+    @Requirement("RFC9493 §3")
+    void rejectsMissingOrUnknownFormat() {
+        assertThrows(IllegalArgumentException.class, () -> SubjectId.fromMap(Map.of("iss", "x", "sub", "y")));
+        assertThrows(IllegalArgumentException.class,
+                () -> SubjectId.fromMap(Map.of("format", "made_up", "x", "y")));
+    }
+
+    @Test
+    @Requirement("RFC9493 §3.2")
+    void rejectsMissingRequiredMember() {
+        assertThrows(IllegalArgumentException.class,
+                () -> SubjectId.fromMap(Map.of("format", "iss_sub", "iss", "only-iss")));
+        assertThrows(IllegalArgumentException.class,
+                () -> SubjectId.fromMap(Map.of("format", "email")));
+    }
+
+    @Test
+    void canonicalKeyDistinguishesSubjectsAndFormats() {
+        assertEquals(SubjectId.email("a@b.com").canonicalKey(), SubjectId.email("a@b.com").canonicalKey());
+        assertNotEquals(SubjectId.email("a@b.com").canonicalKey(), SubjectId.email("c@d.com").canonicalKey());
+        assertNotEquals(SubjectId.opaque("a@b.com").canonicalKey(), SubjectId.email("a@b.com").canonicalKey());
+    }
+
+    @Test
+    void canonicalKeyRoundTrips() {
+        for (SubjectId s : new SubjectId[]{
+                SubjectId.issSub("https://op.example.com", "user-1"),
+                SubjectId.email("a@b.com"),
+                SubjectId.phoneNumber("+15551234567"),
+                SubjectId.opaque("abc"),
+                SubjectId.account("acct:user@example.com")}) {
+            assertEquals(s, SubjectId.fromCanonicalKey(s.canonicalKey()));
+        }
+    }
+}

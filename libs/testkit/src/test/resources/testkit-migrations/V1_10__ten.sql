@@ -1,0 +1,1 @@
+ALTER TABLE t_one ADD COLUMN note TEXT;

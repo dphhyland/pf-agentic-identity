@@ -1,0 +1,20 @@
+id: U-0016
+title: getUserKey() per flow on a booted 13.1.3
+area: rar-paz-plugin
+source: design
+status: closed
+plan_items: [S2b]
+prs: [29]
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 1
+verify_by: >
+  S2b's verify-rar-principal.sh on the rig, covering code, refresh, CIBA, client credentials, token exchange
+  and JWT-bearer, and recording the user key each flow hands enrich.
+verification: >
+  2026-09-27, PingFederate 13.1.3.0, conformance/verify-rar-principal.sh at b497275 (run finished 03:40Z): the
+  plugin logged the user key's hash per flow and the script matched it. Client credentials: the client id.
+  CIBA (/as/bc-auth.ciba): suite-user, the login_hint. Refresh restating authorization_details: suite-user,
+  with IN_PARAMETER_AUTH_DETAILS_USER_INFO among the parameters; a refresh without them never reached the
+  plugin. Token exchange: none. Code flow: one call, at /as/<id>/resume/as/authorization.ping, with none when
+  the adapter's contract has no subject and suite-user when it maps one. JWT-bearer was not driven and stays
+  with U-0017; the device flow was not driven and is U-0066.
+notes: Characterised from javap only (F-0030).

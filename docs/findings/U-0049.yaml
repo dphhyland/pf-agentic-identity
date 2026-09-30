@@ -1,0 +1,12 @@
+id: U-0049
+title: grpc-java over a Unix domain socket with Netty epoll
+area: spire-reader
+source: design
+status: open
+plan_items: [X-B07]
+prs: []
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Libraries
+verify_by: >
+  Read grpc-java's documentation for domain-socket channels and epoll, and build the reader against it.
+verification: ''
+notes: ''

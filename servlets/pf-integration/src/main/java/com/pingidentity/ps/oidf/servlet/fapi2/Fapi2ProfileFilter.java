@@ -3,6 +3,10 @@
  */
 package com.pingidentity.ps.oidf.servlet.fapi2;
 
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.Violation;
 import java.io.IOException;
 import java.util.Collections;
@@ -22,7 +26,6 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * A FAPI 2.0 authorization server does two things PingFederate cannot be configured to do for its FAPI
@@ -70,6 +73,8 @@ public final class Fapi2ProfileFilter implements Filter {
     private final Function<HttpServletRequest, String> issuerResolver;
     private final Function<String, String> environment;
     private volatile Set<String> clients = Set.of();
+    /** This filter's part of FAPI, from init; null when a test's constructor made it and init never ran. */
+    private volatile ComponentParts.Part part;
 
     public Fapi2ProfileFilter() {
         this(Fapi2ProfileFilter::defaultIssuer, System::getenv);
@@ -85,11 +90,21 @@ public final class Fapi2ProfileFilter implements Filter {
     }
 
     private static String defaultIssuer(HttpServletRequest request) {
-        return OAuthIssuerUtils.getInstance().getIssuerValue(request);
+        return PfInternals.issuer(request);
     }
 
     @Override
     public void init(FilterConfig config) {
+        ComponentParts.Part part = Startup.begin(Startup.FAPI, "Fapi2ProfileFilter");
+        this.part = part;
+        part.start(() -> this.init(config, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(FilterConfig config, ComponentParts.Part part) throws ServletException {
         String setting = config == null ? null : config.getInitParameter("clients");
         if (setting == null || setting.isBlank()) {
             setting = System.getProperty(CLIENTS_PROPERTY);
@@ -104,6 +119,9 @@ public final class Fapi2ProfileFilter implements Filter {
             }
         }
         this.clients = Set.copyOf(listed);
+        if (this.clients.isEmpty()) {
+            part.notConfigured(CLIENTS_ENV + " names no client");
+        }
         LOGGER.info((Object) (this.clients.isEmpty()
                 ? "FAPI 2.0 enforcement off (" + CLIENTS_ENV + " names no client): requests pass through unchanged"
                 : "FAPI 2.0 enforcement ON for " + (this.clients.contains(EVERY_CLIENT) ? "every client" : this.clients)
@@ -114,6 +132,10 @@ public final class Fapi2ProfileFilter implements Filter {
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
+        // FAPI's own trigger is its client list, which a failed start did not read: every request is its traffic then.
+        if (ComponentGate.filter(this.part, request, response, chain, ComponentGate::everyRequest)) {
+            return;
+        }
         if (!this.clients.isEmpty() && request instanceof HttpServletRequest && response instanceof HttpServletResponse) {
             HttpServletRequest http = (HttpServletRequest) request;
             Violation violation = violationIn(http);

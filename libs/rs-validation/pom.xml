@@ -1,0 +1,174 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.pingidentity.ps.oidf</groupId>
+    <artifactId>rs-validation</artifactId>
+    <version>0.6.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <name>rs-validation</name>
+    <description>Resource-server validation of sender-constrained, delegated access tokens: the JWT access token, a
+        DPoP proof (RFC 9449) or an mTLS certificate binding (RFC 8705), the RFC 8693 act chain, a required replay
+        store, DPoP nonces, cached JWKS, and a servlet filter that answers with the RFC 6750 and RFC 9449 challenges.
+        Formerly demo-rs.</description>
+
+    <licenses>
+        <license>
+            <name>Apache License, Version 2.0</name>
+            <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+            <distribution>repo</distribution>
+        </license>
+    </licenses>
+
+    <properties>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
+    </properties>
+
+    <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
+         otherwise: no parent, plugin config kept local. -->
+    <dependencyManagement>
+        <dependencies>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <dependencies>
+        <!-- oidf-jose, for the JOSE helpers and, since S8a, DpopProofValidator: RFC 9449's proof checks, moved there from
+             client-attestation (finding F-0225) so that this library, and platform-pf's operator authenticator through
+             it, no longer take client-attestation and rar-model with them. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <!-- platform.redis for RedisReplayStore, platform.http for RemoteJwks, platform.profile for the legacy act
+             switch. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
+        <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
+        <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
+        <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
+        <!-- ResourceServerFilter; the container that runs it provides the API. -->
+        <dependency><groupId>jakarta.servlet</groupId><artifactId>jakarta.servlet-api</artifactId><scope>provided</scope></dependency>
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <!-- The filter's tests stand in for the container's request and response. -->
+        <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><scope>test</scope></dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
+            <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+
+            <!--
+              Coverage gate on the decisions a resource server makes: whether the token is the
+              authorisation server's, whether the sender proved the binding, whether the proof is fresh
+              and unused, who is acting, and what the challenge says. 100% line + branch, enforced - a
+              missed branch here is a token accepted that should not be, not a cosmetic gap.
+
+              Gated per METHOD, not per class, so a method outside the list is visibly outside it rather
+              than averaged in. Left out: getters, the builder's plain setters, the constructors (whose argument checks are gated as named methods), and
+              RedisReplayStore.firstUse (one line; RedisReplayStoreLiveTest runs it against a real Redis,
+              which a local build without OIDF_TEST_REDIS_URL skips).
+
+              Note on the include syntax: jacoco renders a nested class with a DOT, not a '$'
+              (ActChain.Parsed, not ActChain$Parsed). A '$' pattern matches nothing and the rule then
+              passes vacuously, which is worse than no gate. tools/coverage-report.py - -gate refuses an
+              include that names no method.
+            -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals><goal>prepare-agent</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals><goal>report</goal></goals>
+                    </execution>
+                    <execution>
+                        <id>coverage-gate</id>
+                        <phase>verify</phase>
+                        <goals><goal>check</goal></goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>METHOD</element>
+                                    <includes>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.flatten(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.currentActor(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.priorActors(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.verifyAccessToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.introspected(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.acceptsBearer(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.selectKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkClaims(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkAct(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.confirmation(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.member(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkProof(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkNonce(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkCertificate(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkReplay(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.replayKey(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.replayWindow(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.accessTokenHash(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Presentation.requireMethodAndUri(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.build(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowLegacyStringAct(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowUnbound(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.clockSkew(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.proofMaxAge(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.asymmetric(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.isDelegated(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.actingInstance(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Result.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.AccessTokenType.accepts(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DpopNonces.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DpopNonces.checkArguments(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.InMemoryReplayStore.firstUse(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.RemoteJwks.keys(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.RemoteJwks.refreshIfAllowed(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.RemoteJwks.body(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.StaticJwks.index(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.doFilter(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.challenges(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.description(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.scheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.ResourceServerFilter.checkedBaseUrl(*</include>
+                                    </includes>
+                                    <limits>
+                                        <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                        <limit><counter>BRANCH</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <!-- Published to the monorepo's own package registry. These used to point at the abandoned
+         standalone repos (dphhyland/oidf-jose, /client-attestation, /pf-integration) that this repo
+         absorbed - so `mvn deploy` would have pushed artifacts to three repositories that are
+         backport-only, and skipped every module that had no block at all. -->
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub Packages</name>
+            <url>https://maven.pkg.github.com/dphhyland/pf-agentic-identity</url>
+        </repository>
+    </distributionManagement>
+
+</project>

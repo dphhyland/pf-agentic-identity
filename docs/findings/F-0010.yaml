@@ -1,0 +1,23 @@
+id: F-0010
+title: 'No fetch deadline; registration starvation'
+severity: high
+area: openid-federation, oidf-jose
+source: review-2026-09-26
+status: open
+plan_items: [S-5, S5a, S5b, S5c, S5d]
+prs: [55, 60]
+verification: ''
+target_release: 0.6.0
+notes: >
+  The JDK's HttpRequest.timeout() stops at the response headers, so oidf-jose's readCapped has no deadline on
+  the body and a slow federation peer holds a registration open. S5a's OutboundHttp has connect, header and
+  total deadlines and a body cap; S5b threads a resolution budget through the validator and gateway; S5c
+  hardens explicit registration; S5d migrates every bypassing call site.
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package): S5A (PR #55) built platform.http's OutboundHttp, with
+  connect, header and total deadlines, a body cap however the length is framed, and connect-time address pinning; S5AR
+  (PR #60) moved oidf-jose's JdkHttpClient and JdkHttpGetClient onto it, so every federation fetch, entity statement,
+  JWKS, trust mark status and AuthZEN PDP request made through them has its 15 s bound on the whole exchange, the body
+  included, and a per-origin bulkhead of 32 (closing F-0070 and F-0205). Still open: the call sites that bypass
+  oidf-jose - the SSF push delivery and the SSF receiver's JWKS fetch (JwksHttpSource) among them - move in S5d, and
+  the resolution budget through the validator and gateway is S5b, both Phase 3.

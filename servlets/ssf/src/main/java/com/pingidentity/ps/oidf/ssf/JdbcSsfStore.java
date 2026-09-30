@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.signals.SubjectId;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -27,8 +28,8 @@ import org.jose4j.json.JsonUtil;
  * and adds {@code owner_client_id} to an {@code ssf_streams} created before streams had owners.
  *
  * <p>Event lists are stored newline-joined (event-type URIs contain no newlines); subjects are stored as their
- * RFC 9493 JSON plus a canonical key. SQL is kept to a portable subset ({@code CREATE TABLE IF NOT EXISTS},
- * {@code LIMIT}) that HSQLDB (PF's bundled DB) and common engines accept; see docs/ssf-transmitter.md for the DDL.
+ * RFC 9493 JSON plus a canonical key. The SQL is PostgreSQL's, the one database since 0.5.0: a second's SETs are ordered
+ * by {@code jti COLLATE "C"}, bytewise whatever the database's collation; the DDL is the DDL_* constants below.
  */
 public final class JdbcSsfStore implements SsfStore {
 
@@ -242,9 +243,12 @@ public final class JdbcSsfStore implements SsfStore {
                 });
     }
 
+    /** SsfStore#peek's order: oldest first, then {@code jti} bytewise (C), whatever the database's collation - as {@link #SELECT_DUE_FOR_PUSH}. */
+    static final String SELECT_PEEK = "SELECT * FROM ssf_pending_sets WHERE stream_id=? ORDER BY issued_at, jti COLLATE \"C\" LIMIT ?";
+
     @Override
     public List<PendingSet> peek(String streamId, int max) {
-        return query("SELECT * FROM ssf_pending_sets WHERE stream_id=? ORDER BY issued_at LIMIT ?", ps -> {
+        return query(SELECT_PEEK, ps -> {
             ps.setString(1, streamId);
             ps.setInt(2, Math.max(0, max));
         }, this::mapPending);
@@ -265,11 +269,23 @@ public final class JdbcSsfStore implements SsfStore {
         return removed;
     }
 
+    /**
+     * The stream's state is in the query (SsfStore#dueForPush): a JOIN, so the batch is only ever deliverable
+     * SETs. Ordered as {@link #SELECT_PEEK} is, {@code jti} in C order breaking a second's ties, so the push executor's
+     * hold and its batch agree on which SET of a stream is first.
+     */
+    static final String SELECT_DUE_FOR_PUSH =
+            "SELECT p.* FROM ssf_pending_sets p JOIN ssf_streams s ON s.stream_id = p.stream_id "
+                    + "WHERE s.delivery_method = ? AND s.status = ? AND p.next_attempt_at <= ? "
+                    + "ORDER BY p.issued_at, p.jti COLLATE \"C\" LIMIT ?";
+
     @Override
     public List<PendingSet> dueForPush(long now, int max) {
-        return query("SELECT * FROM ssf_pending_sets WHERE next_attempt_at <= ? ORDER BY issued_at LIMIT ?", ps -> {
-            ps.setLong(1, now);
-            ps.setInt(2, Math.max(0, max));
+        return query(SELECT_DUE_FOR_PUSH, ps -> {
+            ps.setString(1, DeliveryMethod.PUSH.name());
+            ps.setString(2, StreamStatus.ENABLED.value());
+            ps.setLong(3, now);
+            ps.setInt(4, Math.max(0, max));
         }, this::mapPending);
     }
 

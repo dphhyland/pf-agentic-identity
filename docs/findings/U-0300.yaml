@@ -1,0 +1,22 @@
+id: U-0300
+title: The pingfederate-trusted-cas trust mode has not been seen on a running PingFederate, with a CA added in the console
+area: rar-paz-plugin
+source: design
+status: open
+plan_items: [S2c]
+prs: [70]
+recorded_in: plugins/rar-paz-plugin/README.md, TLS to the PDP; PdpTls.java
+verify_by: >
+  On the rig, configure the processor with PDP TLS trust pingfederate-trusted-cas and a PDP whose certificate chains
+  to a CA that is not in the JVM's cacerts: a decision fails with a TLS refusal; import the CA under Security,
+  Trusted CAs and ask again without saving the instance: the decision is made. Then point the PDP URL at a host with
+  a certificate from a public CA and see it accepted in the same mode.
+verification: ''
+notes: >
+  Read, not run (package S2C, 2026-09-29/30): com.pingidentity.access.TrustedCAAccessor is public in
+  pingfederate-sdk 13.1.3.0 with public java.util.Set<java.security.cert.TrustAnchor> getAllTrustAnchors() (javap);
+  TrustedCAsManagerImpl.loadConfig in pf-protocolengine 13.1.3.0 adds getTrustedCaX509s() and then the JVM's trusted
+  CAs (javap). PdpTls reads the anchors on every call and rebuilds its client only when the set is not equal to the
+  one it was built from; TrustAnchor does not override equals, so an unchanged set of the same objects is reused
+  and a reload that builds new objects rebuilds the client. The unit tests (PdpTlsTest) drive a supplier, not
+  PingFederate's service.

@@ -1,0 +1,13 @@
+id: U-0003
+title: Whether a pre-authenticated LAContext ever expires
+area: ios-client
+source: design
+status: open
+plan_items: [X-I01b]
+prs: []
+recorded_in: docs/unverified.md item 3
+verify_by: >
+  Apple documenting an expiry, or a device test holding a context across the interval. The server-side UV
+  recency check at issuance is the control either way; the client window is UX.
+verification: ''
+notes: 'Assumed: it does not expire on its own; the app owns the window and calls invalidate().'

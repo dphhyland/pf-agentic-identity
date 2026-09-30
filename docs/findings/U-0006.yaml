@@ -1,0 +1,14 @@
+id: U-0006
+title: 'No PingFederate 13.x javadoc or SDK developer''s guide on this machine; method semantics are inferred'
+area: plugins
+source: design
+status: open
+plan_items: [X-A21, R-CI7]
+prs: []
+recorded_in: docs/unverified.md item 5
+verify_by: >
+  Running the interfaces whose semantics matter (CustomDataSourceDriver.retrieveValues,
+  DynamicClientRegistrationPlugin.processPlugin) in a booted 13.1.3 - X-A21's rig tests and the licensed
+  boot-smoke job - or obtaining the 13.x SDK documentation.
+verification: ''
+notes: 'Interface shapes are read from the compiled jar and are right; what a method does is inferred.'

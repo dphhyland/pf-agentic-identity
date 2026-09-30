@@ -1,0 +1,31 @@
+id: F-0068
+title: A vulnerability reporter has no private channel until private vulnerability reporting is enabled
+severity: medium
+area: docs, ci
+source: pr-review
+status: open
+plan_items: [R-CI10]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  SECURITY.md sends a reporter to GitHub's private vulnerability reporting, which the repository does not have
+  on (`gh api repos/dphhyland/pf-agentic-identity/private-vulnerability-reporting` answers `enabled: false`,
+  2026-09-27), and the dphhyland profile carries no email, blog, company or other contact (`gh api
+  users/dphhyland`, 2026-09-27), so a reporter who follows the policy has nowhere private to write and the
+  public issue tracker is what is left. Found by the adversarial review of the D-1/D-2 pull request on
+  2026-09-27; SECURITY.md now says so, and asks a reporter who cannot wait to open an issue with no details in
+  it and be answered with a channel. Only the repository's owner can turn the feature on - GitHub's docs, read
+  2026-09-27: "Owners and administrators of public repositories can allow security researchers to report
+  vulnerabilities securely in the repository by enabling private vulnerability reporting", under Settings,
+  Advanced Security, Enable beside "Private vulnerability reporting". The plan schedules it under R-CI10 in
+  Phase 7, which is late for a public repository whose policy asks for private reports, so it is targeted at
+  0.4.0. Medium: no code is exposed, but a report that has to arrive in public is a disclosure. Closes when
+  the feature is on and SECURITY.md's interim paragraph is gone.
+
+  Retargeted from 0.4.0 to 0.5.0 on 2026-09-27, still open: turning the feature on is an owner action, and `gh api
+  repos/dphhyland/pf-agentic-identity/private-vulnerability-reporting` still answered `enabled: false` that day.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: turning the feature on is an owner action, and `gh api
+  repos/dphhyland/pf-agentic-identity/private-vulnerability-reporting` still answered `{"enabled":false}` that day
+  (00:16Z), so SECURITY.md's interim paragraph stays.

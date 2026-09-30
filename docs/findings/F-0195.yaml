@@ -1,0 +1,19 @@
+id: F-0195
+title: The JVM-wide hostname-verification flag cannot be catalogued
+severity: low
+area: platform
+source: design
+status: open
+plan_items: [PR-2, ST-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST3A (2026-09-28) while cataloguing libs/platform. InsecureTls reads the JDK's
+  jdk.internal.httpclient.disableHostnameVerification system property to report it (F-0035), and PR-2 lists "the
+  JVM hostname-verification flag" among the switches forbidden in production. A catalogue entry is how a switch
+  gets its profile class, but the catalogue format refuses the name: Catalogue.PROPERTY_NAME is
+  [a-z][a-z0-9_-]*(\.[a-z0-9_-]+)*, and the flag has capitals. The settings scan therefore excuses it by name
+  (tools/settings-scan.py, NOT_SETTINGS), and nothing records its class as data. PR-2 either widens the format's
+  system-property names for JDK-owned flags or gives the start-up audit a list of foreign switches beside the
+  catalogues.

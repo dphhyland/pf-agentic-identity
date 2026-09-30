@@ -23,7 +23,11 @@ ever lands in git: everything `up.sh` generates is under `.gitignore` here.
 
 When it finishes, PF answers on `https://localhost:9031` (self-signed) with discovery at
 `/.well-known/openid-configuration`, the SSF transmitter at `/.well-known/ssf-configuration`, an HTTP
-listener on 9080 and the admin console on 9999 (`administrator`, password in `.author.env`).
+listener on 9080 and the admin console on 9999 (`administrator`, password in `.author.env`). The image
+configures none of that for you: `vars.env` accepts Ping Identity's licence agreement
+(`PING_IDENTITY_ACCEPT_EULA=YES`), turns the plain listener on (`PF_RUN_PF_HTTP_PORT=9080`, which the
+image's entrypoint allows only because the rig's profile is `development`), and the container's health is
+the image's own healthcheck ([build/pingfederate/README.md](../build/pingfederate/README.md#the-healthcheck)).
 `docker compose down` stops it; `./up.sh` again rebuilds the image from the archive you already have;
 `SKIP_AUTHOR=1 ./up.sh` skips re-authoring when only the modules changed.
 
@@ -35,9 +39,9 @@ listener on 9080 and the admin console on 9999 (`administrator`, password in `.a
 | 2 | `author.sh` | a **stock** PF 13.1.3 container with its admin API on `localhost:29999`, the cipher-list overlay and the CIBA plugin staged |
 | 3 | `apply.sh apply` | `terraform/` applied to it: OAuth server settings, a JWT access token manager and mappings, an OIDC policy, a login form and test user, the clients (below) |
 | 4 | `export.sh` | `data.zip` - PF's config archive, its whole saved state; refused if it would fail the suite |
-| 5 | `mvn package` + `stage-modules.sh` | the module jars, from this repo |
+| 5 | `mvn package` + `stage-modules.sh --profile conformance` | the conformance profile's module jars from this repo, the CIBA simulator among them, and their v2 `MANIFEST`, which names each one |
 | 6 | `compose-context.sh` | `.context/` - `build/pingfederate/`'s image build plus that archive |
-| 7 | `docker compose up --build` | the image, running, with `vars.env` and your licence details |
+| 7 | `docker compose up --build` | the image, built with `STAGING_PROFILE=conformance`, running with `vars.env` and your licence details |
 
 Steps 2-4 are how PF is configured **as code**: `terraform/` is the source, `data.zip` the built
 artefact the image imports at boot. There is no volume; a change made in the console is gone at the
@@ -95,9 +99,15 @@ PF_BASE_URL=https://your.host:port ./up.sh     # substitutes it into the archive
 The suite opens its own TLS handshakes against the token, authorization and userinfo endpoints and fails
 anything it does not like about the listener, so the listener has to be PF's own 9031, reached through
 a TLS-passthrough TCP proxy and not an HTTP edge that terminates TLS. `.context/` is the build context
-a deploy tool wants (`docker build .context`, or your platform's equivalent); the deployed service needs
-`.context/vars.env`'s values plus your DevOps credentials as its variables. The demo repo
-`pf-oidf-modules` deploys one such PF (project `pf-conformance`) and keeps the platform-specific pieces.
+a deploy tool wants - `docker build --build-arg STAGING_PROFILE=conformance .context`, or your platform's
+equivalent, and the build arg is not optional: `up.sh` stages `modules/` for the conformance profile,
+`compose-context.sh` accepts nothing else, and the assembler refuses to build that stage into an image for
+the default profile, production (`modules/ was staged for the conformance profile, and this image is being
+built for production`; verified 2026-09-27). What comes out is a conformance image: it carries the CIBA
+simulator, which runs only where the three settings `.context/vars.env` carries say so
+([plugins/ciba-sim](../plugins/ciba-sim/README.md)). The deployed service needs `.context/vars.env`'s
+values plus your DevOps credentials as its variables. The demo repo `pf-oidf-modules` deploys one such PF
+(project `pf-conformance`) and keeps the platform-specific pieces.
 
 ## Why it is shaped like this
 
@@ -142,9 +152,13 @@ the stand-in: an `OOBAuthPlugin` that answers `IN_PROGRESS` until an operator ha
 by time: the suite polls the token endpoint expecting `authorization_pending` before it decides, and two
 modules never decide. The plugin and the servlet are two classloaders in PF, so the handoff is a file
 named by the SHA-256 of the `auth_req_id` (`OIDF_CIBA_SIM_DIR`). The endpoint is an approval oracle
-keyed by that id alone, so it answers 404 unless `OIDF_CIBA_SIM_ENABLED=true`; `vars.env` turns it on
-because this is a rig. `author.sh` stages the jar into the authoring PF, which is why `up.sh` builds
-before it authors: `terraform/ciba.tf` can only instantiate a plugin PF can see.
+keyed by that id alone, so it answers 404 - and the plugin refuses every transaction - unless
+`OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and `OIDF_CIBA_SIM_DIR` is a private
+directory both halves check before every request ([plugins/ciba-sim](../plugins/ciba-sim/README.md));
+`vars.env` sets all three because this is a rig, and the jar is only in an image built for the conformance
+profile, which `docker-compose.yml` asks for and `up.sh` stages. `author.sh` stages the jar into the
+authoring PF, which is why `up.sh` builds before it authors: `terraform/ciba.tf` can only instantiate a
+plugin PF can see.
 
 **Three more small filters close what the FAPI-CIBA plan measures and PF does not do.** The signed
 request object's `exp`/`nbf` window is 720 minutes in 13.0.3 and 13.1.3 alike - compiled in, with no file
@@ -170,12 +184,25 @@ Against a PF built this way, driven by a suite run locally at release-v5.3.1:
 
 | Plan | Variant | Result |
 |---|---|---|
-| `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED (again 2026-09-25, on an archive authored fresh on 13.1.3 - 1 of 19 before the audience overlay below) |
-| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet, `SsfEventEmitServlet`, on `main` as `d4a4219`) |
-| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3; the same on 2026-09-25 on an archive authored fresh on 13.1.3) |
-| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike) - all three on one PingFederate 13.x product gap, below |
-| `openid-federation-deployed-entity-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation`, PF its own trust anchor | 5 modules: 5 WARNING, 0 FAILED (2026-09-25, 13.1.3) - the warning is PF's vendor metadata, below |
-| `openid-federation-entity-joined-to-test-federation-op-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation-op`, the suite from `suite/suite-compose.yml` | 20 modules: 20 WARNING, 0 FAILED (2026-09-25, 13.1.3) - the same warning; the 13 negative modules attach PF's refusal page |
+| `openid-ssf-transmitter-test-plan` | discovery, `private_key_jwt` client credentials, poll | 19 of 19 PASSED (again 2026-09-25, on an archive authored fresh on 13.1.3 - 1 of 19 before the audience overlay below; again 2026-09-27, 0.4.0, plan `TVdQER0yiGTQv`; again 2026-09-29, 0.5.0, plan `B1C32vlq6eNRb`) |
+| `openid-ssf-transmitter-caep-test-plan` | the same, under the CAEP Interop Profile - the plan the Foundation certifies SSF against | 13 of 13 PASSED (2026-09-23 local replica, 2026-09-24 the public rig; needs the `/ssf/events:emit` servlet, `SsfEventEmitServlet`, on `main` as `d4a4219`; on 13.1.3 first on 2026-09-27, 0.4.0, plan `3qTCDGKygzp7l`; again 2026-09-29, 0.5.0, plan `af5vHGFKhJWPs`) |
+| `fapi2-security-profile-final-test-plan` | `private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect | 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED (2026-09-24, on 13.1.3; 49/4 on 13.0.3; the same on 2026-09-25 on an archive authored fresh on 13.1.3, on 2026-09-27, 0.4.0, plan `yYAIcz8TxHXIS`, and on 2026-09-29, 0.5.0, plan `FTWRpvoSNQpNQ`) |
+| `fapi-ciba-id1-test-plan` | static clients, `private_key_jwt`, poll, `plain_fapi` | 35 modules: 32 PASSED, 3 FAILED (2026-09-24, on 13.0.3 and 13.1.3 alike; the same three on 2026-09-27, 0.4.0, plan `LJh9GLh6lZxGk`, and on 2026-09-29, 0.5.0, plan `Elp3NOJhYaiLs`) - all three on one PingFederate 13.x product gap, below |
+| `openid-federation-deployed-entity-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation`, PF its own trust anchor | 5 modules: 5 WARNING, 0 FAILED (2026-09-25, 13.1.3; again 2026-09-27, 0.4.0, plan `rOAmA0sPt7hqd`; again 2026-09-29, 0.5.0, plan `ZM7mLEPCPKzIN`) - the warning is PF's vendor metadata, below |
+| `openid-federation-entity-joined-to-test-federation-op-test-plan` (alpha) | discovery, automatic; `PF_PROFILE=federation-op`, the suite from `suite/suite-compose.yml` | 20 modules: 20 WARNING, 0 FAILED (2026-09-25, 13.1.3; again 2026-09-27, 0.4.0, plan `vy3fs94kYLVp3`; again 2026-09-29, 0.5.0, plan `rAaWZBJDj5VW0`) - the same warning; the 13 negative modules attach PF's refusal page |
+
+The 2026-09-27 runs are 0.4.0's: a rig built from the release branch (`PF_RIG_NAME=pfai-rel`, its modules built at
+`714e7ce`, PingFederate 13.1.3.0 by its admin API) against this directory's own suite, `suite/suite-compose.yml`, on
+port 51643. A suite whose origin is not one of `terraform/variables.tf`'s `suite_base_urls` needs it added before
+authoring, or most FAPI 2.0 modules fail at their first step, PAR (`CheckPAREndpointResponse201WithNoError`, "Invalid
+pushed authorization request endpoint response http status code" - most likely PingFederate refusing the suite's
+redirect URI, which that run did not read from its answer): `TF_VAR_suite_base_urls='["https://www.certification.openid.net","https://host.docker.internal:51643"]'`
+did it here, and the first FAPI 2.0 run, made without it, failed 37 modules that way (plan `NUqXtDeHzKzcl`).
+
+The 2026-09-29 runs are 0.5.0's: a rig built from its release branch (`PF_RIG_NAME=pfai-rel5`, 13 module jars staged
+for the conformance profile at `40fabb8`, whose code is `main` at `4b1fd97`; PingFederate 13.1.3.0 by its admin API)
+against the same suite on port 51643, authored with that origin in `suite_base_urls` from the start. Every result is
+0.4.0's.
 
 Expect, and do not be alarmed by, in the FAPI 2.0 plan:
 
@@ -296,10 +323,22 @@ are already registered (`suite_base_urls`). The suite drives PF's login and cons
 `browser` block's selectors are the ids in PF's stock `html.form.login.template.html` and
 `oauth.approval.page.template.html`, and restyling those pages means changing the block.
 
+## The RAR plugin on this rig
+
+The image carries no RAR plugin. `verify-rar-principal.sh` lends the rig one for a run: it starts `up.sh` on
+its own slot (`PF_RIG_NAME=pfai-rar` by default) with `docker-compose.rar-plugin.yml` mounting the jar, runs
+`rar-principal/stub-pdp.py` on the host as an AuthZEN PDP that permits and records every request, configures a
+processor instance, the three built-in types, a token-exchange policy and a client through the admin API,
+drives client credentials, CIBA, refresh, token exchange and the code flow, prints per flow the user key
+PingFederate passed and the `principal_source` the plugin chose, and takes the rig down, image included.
+`OLD_PLUGIN_JAR=<an older release's jar>` first rehearses the upgrade from it. The evidence lands in
+`.rar-principal/` (git-ignored); the plugin's [README](../plugins/rar-paz-plugin/README.md) records what the
+runs showed.
+
 ## What is not in git, and must not be
 
 `.author.env`, `keys/`, `secrets.env`, `data*.zip`, `overlay/`, `suite/*.json`, `.context/`,
-terraform state. A config archive is a plain zip that contains `pf.jwk`, the master key that decrypts
+`.rar-principal/`, terraform state. A config archive is a plain zip that contains `pf.jwk`, the master key that decrypts
 every secret in it, beside the admin password hash. This directory ships it in plaintext into the
 image, which the build warns about loudly and correctly; `export.sh` says why that is tolerable for a
 PF whose key was generated minutes ago and protects three public JWKS and two generated secrets, and

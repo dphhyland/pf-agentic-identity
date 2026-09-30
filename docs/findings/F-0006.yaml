@@ -1,0 +1,35 @@
+id: F-0006
+title: B6 No 13.1 release, image never built in CI, release skips verify, no secrets, main unprotected
+severity: blocker
+area: ci, release
+source: review-2026-09-26
+status: open
+plan_items: [P0-3, P0-5, P0-6, P0-8, R-CI1, R-CI2, R-CI3, R-CI4, R-CI5, R-CI6, R-CI7, R-CI10]
+prs: [10, 11, 14, 33, 40, 58]
+verification: >
+  In progress, checked 2026-09-27: release.yml runs `mvn -B verify` and requires a green Build on the tagged
+  commit (PR #10, merged as 11e9780 on 2026-09-26), and its 0.3.0 dry run was green (run 36234516459 on
+  eba9640, 2026-09-26). PR #11 merged as 97e5650 (2026-09-26T23:12Z) and v0.3.0 is tagged at it, but the
+  tag's Release run 36278709651 failed at "a green Build on this commit": Build run 36278704385 on the same
+  commit had been created seven seconds earlier and was still in progress (it succeeded at 23:16Z), so
+  `gh release view v0.3.0` answers "release not found" and no 13.1 release is published until the run is
+  re-run on the tag (F-0069). PR #14 (0.4.0-SNAPSHOT) is open. `gh secret list` is empty; the API answers
+  'Branch not protected' for main and lists no rulesets; private vulnerability reporting is off (F-0068);
+  Build does not build or boot the image. PR #33 (2026-09-27) gives Build's java job a Redis service and a TLS
+  Redis beside the Postgres one, so RedisLiveTest runs both halves in CI (part of R-CI5), and records why
+  CodeQL does not analyse the iOS client's Swift yet (U-0130). Stays open until every part is done.
+target_release: 0.7.0
+notes: >
+  Five parts: a release on the 13.1 line (P0-8), the release built from what was verified (P0-6, done), the
+  image built and scanned in CI (R-CI6) and booted under licence (R-CI7), the licence secrets and branch rules
+  that only David can set (R-CI10), and the action, dependency and secret hygiene of R-CI1 to R-CI4.
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package): RCI5 (PR #40) gates the coverage dashboard
+  (`tools/coverage-report.py --gate`) and ratchets it against the newest successful push Build on main (`--baseline`,
+  tools/ci/coverage-baseline.sh), both in Build's java job; RCI6 (PR #58) gives Build an image job that builds the
+  capability image for both staging profiles, runs the entrypoint tests and the war assembler's stock-war test inside
+  them, builds the default target, publishes a syft SBOM and scans with grype, and .github/required-checks.txt names
+  it, so a release needs it green. The 13.1 line has releases (v0.3.0 and v0.4.0, `gh release list`). Still open on
+  2026-09-29: booting the image under a licence in CI (R-CI7, Phase 4); `gh secret list` is empty, so the licensed
+  conformance workflow has never run; main answers "Branch not protected"; private vulnerability reporting is off
+  (F-0068) (R-CI10).

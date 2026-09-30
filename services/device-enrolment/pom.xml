@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>device-enrolment</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>device-enrolment</name>
@@ -25,13 +25,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -49,7 +52,6 @@
 
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><scope>test</scope></dependency>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
-        <dependency><groupId>com.h2database</groupId><artifactId>h2</artifactId><scope>test</scope></dependency>
         <!-- The synthetic Apple-shaped chain builder, reused rather than reimplemented. It mints
              certificates, so BouncyCastle comes with it — test scope, never at runtime. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><type>test-jar</type><scope>test</scope></dependency>
@@ -78,10 +80,10 @@
                     <!--
                       Coverage gate on the enrolment decision points that are fully exercised today:
                       which CAEP event type a SET is dispatched to, which paths the HTTP server binds
-                      a handler on, how a compliance signal is admitted, and whether an authentication
-                      meets a required assurance level. 100% line + branch, enforced - a missed branch
-                      here is an event applied to the wrong subject, an unrouted endpoint, or a device
-                      accepted at an assurance it never reached.
+                      a handler on, and whether an authentication meets a required assurance level.
+                      100% line + branch, enforced - a missed branch here is an event applied to the
+                      wrong subject, an unrouted endpoint, or a device accepted at an assurance it never
+                      reached. (EnrolmentHttpServer.compliance was gated here until M-2 removed it.)
 
                       Gated per METHOD, not per class, so the parts still short of full coverage stay
                       honestly out of scope rather than being gated at a ratio that means nothing:
@@ -100,7 +102,6 @@
                                     <includes>
                                         <include>com.pingidentity.ps.oidf.enrolment.CaepEventHandler.applyOne(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.EnrolmentHttpServer.route(*</include>
-                                        <include>com.pingidentity.ps.oidf.enrolment.EnrolmentHttpServer.compliance(*</include>
                                         <include>com.pingidentity.ps.oidf.enrolment.UserAuthentication.meetsAssurance(*</include>
                                     </includes>
                                     <limits>

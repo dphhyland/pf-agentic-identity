@@ -1,0 +1,24 @@
+id: F-0066
+title: 'The showcase''s packaging statements describe the 13.0.3 build'
+severity: low
+area: docs
+source: phase-0-review
+status: closed
+plan_items: [P0-7]
+prs: [13, 33]
+verification: >
+  PR #13 (merged 2026-09-27 as 915f682) rewrote the 13.0.3 statements. On 2026-09-27 no DATA statement
+  describes the 13.0.3 build except the history PR #13 kept on purpose: the eight screen captions captured on
+  the demo's 13.0.3 instance, the upgrade guide's and the ABCA report's index entries, and two dated
+  unverified items. The build moved again after PR #13 - PR #19's staging profiles and entrypoint, PR #30's
+  release gate, PR #33's CI - and the packaging section described the build before them: nine jars in every
+  image, a plaintext archive that boots with a warning, the inline age identity in a temporary file, four
+  workflows, fourteen gated poms. PR #33 re-pointed the 56 statements whose cited lines had only moved, through
+  a line diff from 915f682, read the other statements citing the image build and the workflows beside the code,
+  rewrote the false ones and added the image's missing settings rows; check-showcase-links.py resolves all
+  1082 references. What it found outside the packaging section is F-0121.
+target_release: 0.4.0
+notes: >
+  PR #11's adversarial review (2026-09-26) found about a dozen DATA statements in showcase/index.html still
+  saying eight jars, three filter mappings, the 13.0.3 Dockerfile and SDK 13.0.0.3, each with a file:line
+  citation that check-showcase-links.py checks for existence only. PR #13 rewrote them for the 13.1.3 build.

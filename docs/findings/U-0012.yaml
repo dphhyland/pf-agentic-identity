@@ -1,0 +1,14 @@
+id: U-0012
+title: The OpenID Federation metadata_policy merge rules
+area: openid-federation
+source: design
+status: closed
+plan_items: []
+prs: []
+recorded_in: docs/unverified.md item 11
+verify_by: Nothing further is needed.
+verification: >
+  Resolved 2026-09-24: the Final text (17 February 2026) was read in full, and MetadataPolicy follows each
+  operator's own merge and order-of-application rules, pinned by MetadataPolicyTest, including the section
+  6.1.5 worked example byte for byte.
+notes: ''

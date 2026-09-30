@@ -68,15 +68,15 @@ sequenceDiagram
     participant R as AgentRegistry
     participant V as OpenBao transit
 
-    W->>A: POST /federation/attestation-challenge (optional)
+    W->>A: GET /federation/attestation/challenge (optional)
     A-->>W: {attestation_challenge, expires_in}
     W->>W: generate instance key; sign instance-key proof
     W->>A: POST /federation/attestation<br/>{instance_key, instance_attestation, proof, [authorization_details], [asserted_context]}
     A->>A: resolve client FROM EVIDENCE (try each client's trust config)
     A->>A: validate instance-key proof: sig under presented JWK, typ, aud,<br/>challenge consume, jti replay
     A->>A: custom proof claims; WIA cnf must equal instance_key
-    A->>A: workload introspection; asserted-context narrowing (intersect only)
-    A->>A: RAR ceiling — RarEntitlement.authorize(requested, ceiling)
+    A->>A: workload introspection; asserted-context narrowing (the model's meet)
+    A->>A: RAR ceiling - rar-model authorize(requested, ceiling, INHERIT); empty = the full ceiling
     A->>R: resolveOrMint(iss, client_id, format, subject)
     R-->>A: agent_id
     A->>V: sign (or inline JWK, dev)
@@ -89,7 +89,7 @@ It presents only its evidence; the attester tries every attestation client's tru
 client whose bundle cryptographically verifies the evidence *and* whose bindings contain the resulting
 identity is the match. A `client_id` in the body is accepted and ignored. Two clients matching the same
 identity is a configuration fault and is rejected rather than resolved arbitrarily
-([`AttestationIssuanceServlet:569-641`](../servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttestationIssuanceServlet.java#L569)).
+([`AttestationIssuanceServlet:578-650`](../servlets/attestation-issuer/src/main/java/com/pingidentity/ps/oidf/servlet/attestation/AttestationIssuanceServlet.java#L578)).
 
 An `agent_id` anywhere in the request — top level or smuggled inside an `authorization_details` entry —
 is rejected outright, not ignored (`:699`, `:756`). It is the attester's to mint.
@@ -122,9 +122,10 @@ sequenceDiagram
 
 **Why a servlet Filter and not an SDK plugin.** PingFederate has no native support for
 `attest_jwt_client_auth` and no SDK extension point for client authentication. The filter is
-registered by web.xml surgery in the deploy image, and the assemble script asserts the mapping is
-present or fails the build
-([`assemble-pf-runtime-war.sh:136-140`](../build/pingfederate/assemble-pf-runtime-war.sh#L136)).
+registered in the deploy image's web.xml, as [`filters.xml`](../build/pingfederate/filters.xml) declares it, and
+the war assembler fails the build unless the mapping is present exactly once, over exactly its declared paths and
+after `OidfAutoRegistration`
+([`build/war-assembler`](../build/war-assembler/README.md#what-it-refuses)).
 
 **Why it is verified once.** The filter runs on the webapp classloader and the OGNL criterion on the
 engine classloader, and either can verify an attestation. Verifying spends the PoP `jti` and any
@@ -132,7 +133,7 @@ challenge, so a second verification of the same request would report a replay as
 classloaders share a Redis store. The filter therefore publishes what it verified as a server-side
 request attribute and the criterion reuses it; only a deployment without the filter has the criterion
 verify for itself
-([`ClientAttestationAuthFilter:58-63`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/ClientAttestationAuthFilter.java#L58),
+([`ClientAttestationAuthFilter:59-64`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/ClientAttestationAuthFilter.java#L59),
 [`ClientAttestationUtils:128-138`](../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/utils/ClientAttestationUtils.java#L128)).
 
 **Fail-closed, and the one way it is not.** An invalid attestation is rejected at the filter with the
@@ -212,7 +213,8 @@ Three things to know about the chain, all of which shape §6:
 | Method + path | Class | Notes |
 |---|---|---|
 | `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. `200 {"attestation","expires_in"}`, `Cache-Control: no-store` |
-| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` | Ships in the `client-attestation` jar, not the issuer. `{"attestation_challenge","expires_in"}` |
+| `GET /federation/attestation/challenge` | `AttestationIssuanceChallengeServlet` | The attester's challenge endpoint (CAS §4.1), for the instance-key proof. `{"attestation_challenge","expires_in"}`, issued into `oidf:cas:challenge:*` |
+| `POST /federation/attestation-challenge` | `ClientAttestationChallengeServlet` | The authorization server's (ABCA-10 §6.1), for the PoP at the token endpoint. Ships in the `client-attestation` jar, not the issuer. `{"attestation_challenge","expires_in"}`, issued into `oidf:as:challenge:*`. Neither surface accepts the other's challenges, and each endpoint answers any method but its own with 405 |
 | `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | Deployment discovery: endpoints, evidence types read off the validator registry, `evidence_audience`, `pop_audience`, active resolver plugins |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config deliberately withheld |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The CAS 1.0 §5 document. Reads the same config the issuance servlet enforces, so advertisement cannot drift from enforcement |
@@ -239,7 +241,9 @@ completes before any authorisation happens:
      `jti` replay-checked.
    - **DPoP combined mode** — full RFC 9449 validation, then `Jwks.assertSameKey(cnf, proof.jwk)`;
      the challenge comes from `nonce`; `jti` replay-checked.
-7. *Then* authorisation: `RarEntitlement.authorize(requested, entitled)`.
+7. *Then* the token gate (`AuthorizationDetailsGate`, plan item S1b): the request's `authorization_details`
+   strictly within the attestation's, by `libs/rar-model`'s `contains`, after the `_principal_sub` and
+   `_agent_id` markers come off; 400 `invalid_authorization_details` when not.
 
 `DpopProofValidator` explicitly does not do replay or challenge binding — those are the caller's, and
 the verifier supplies them.
@@ -249,15 +253,23 @@ the verifier supplies them.
 From `AttestationIssuanceServlet.issue`: require `instance_key` / `svid` (alias
 `instance_attestation`) / `proof` → resolve the client from evidence → validate the instance-key proof
 (signature under the *presented* JWK, `typ`, `aud` = attester issuer, challenge consume, `jti` replay
-at 300s) → deployment-required custom proof claims (evidence for policy only, never copied into the
-minted JWT) → if the evidence binds a key (a WIA `cnf`) it must equal `instance_key` → workload
-introspection merged over binding metadata → optional asserted-context resolution, **intersected**
-into the ceiling and never unioned → RAR ceiling (`authorize`, or the full ceiling when nothing was
-requested) → `agent_id` → mint and sign.
+at 300s; a store that cannot answer is 503 `temporarily_unavailable`) → deployment-required custom proof
+claims (evidence for policy only, never copied into the minted JWT) → if the evidence binds a key (a WIA
+`cnf`) it must equal `instance_key` → workload introspection merged over binding metadata → optional
+asserted-context resolution, **intersected** into the ceiling and never unioned → RAR ceiling
+(`authorize`, or the full ceiling when nothing was requested) → `agent_id` → the evidence policy (lifetime,
+whole and remaining, at most `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS`, one audience when
+`OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE`) → bind the evidence's digest, the SHA-256 of its JWS
+Signing Input, to the instance key's thumbprint and the client for as long as the evidence lives, last so a
+request refused by any check never takes the binding (first presenter wins, the same presenter may return,
+anyone else is 401 `instance_attestation_bound` and an `attestation.evidence.conflict` audit event naming
+both keys) → mint and sign, `exp` never past the evidence's. The minted `workload` carries
+`instance_attestation_sha256`, `_type` and `_exp` and never the evidence itself (0.3.0's `workload.svid`
+and `workload.instance_attestation` are gone; see §6).
 
 One thing the code comments promise and the code does not deliver: step 6 reads "resolve the granted
 entitlement against the effective ceiling, then apply any selector-conditioned downscoping the policy
-requires" (`AttestationIssuanceServlet:217-218`). Only the first clause exists. The introspected
+requires" (`AttestationIssuanceServlet:226-227`). Only the first clause exists. The introspected
 selectors and the binding's metadata (`version`, region, whatever the operator declared) are merged
 into `workloadAttributes` and passed to the minter as `workload.attributes` — they are **never read by
 any ceiling computation**. The only narrowing that happens is the asserted-context intersection, and
@@ -297,14 +309,18 @@ Issuance (`IssuanceException`) and verification (`ClientAttestationException`):
 | `invalid_client` | 400 | | `use_attestation_challenge` |
 | `invalid_svid` | 401 | | `use_fresh_attestation` |
 | `invalid_instance_attestation` | 401 | | `invalid_authorization_details` |
-| `invalid_instance_proof` | 401 | | `access_denied` |
-| `spiffe_id_not_authorized` | 403 | | `insufficient_disclosure` |
+| `invalid_instance_proof` | 401 | | `insufficient_disclosure` |
+| `spiffe_id_not_authorized` | 403 | | |
 | `instance_not_authorized` | 403 | | |
 | `access_denied` | 403 | | |
-| `server_error` | 500 | | |
+| `instance_attestation_bound` | 401 | | |
+| `server_error` | 500 | | `temporarily_unavailable` |
+| `temporarily_unavailable` | 503 | | |
 
-At the filter, `use_attestation_challenge` returns 400 and everything else 401; an internal error is
-500 `server_error`.
+At the filter, `use_attestation_challenge` returns 400, `temporarily_unavailable` 503 (the challenge or
+replay store could not answer; the code is RFC 6749 §4.1.2.1's, which RFC 6749 defines for the
+authorization endpoint only, so its use here is plan item S3a's decision) and everything else 401; an
+internal error is 500 `server_error`.
 
 ### 3.6 Configuration
 
@@ -328,7 +344,8 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 
 | Setting | Effect | Set in the checked-in deploy config? |
 |---|---|---|
-| `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` | Cluster-wide challenge + replay store. Unset = per-node in-memory | No — a resource of whichever environment deploys this, so set outside this repo |
+| `oidf.redis.url` → `OIDF_REDIS_URL` → `REDIS_URL` (+ `OIDF_REDIS_CA_FILE`) | Cluster-wide challenge, replay and evidence-binding store; `rediss://` only under the production profile. Unset = per-node in-memory | No — a resource of whichever environment deploys this, so set outside this repo |
+| `OIDF_ATTESTER_MAX_EVIDENCE_LIFETIME_SECONDS`, `OIDF_ATTESTER_REQUIRE_SINGLE_AUDIENCE_EVIDENCE` | The evidence policy: the lifetime the attester accepts, whole and remaining (86400; production may only shorten it) and whether evidence must name one audience (`false`) | No - the defaults are the safe ones |
 | `OIDF_BRIDGE_SIGNER_BACKING` + `OIDF_BRIDGE_SIGNING_KEYS` (+ `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault`) | Per-client bridge signing. Unconfigured = the filter refuses to start unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`. Each client entry also names its `"attesters"` | No — deployment secrets, set per environment |
 | `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING` / `oidf.attestation.require.attester.binding` | **Default true.** A client whose bridge entry names no `attesters` is refused at the token endpoint: federation trust says an attester is genuine, the binding says it is this client's, and without one any trusted attester can mint an attestation naming any client and be bridged as it. `=false` lets unbound clients accept any trusted attester; an explicit binding is still enforced | No — the default is the safe one |
 | ~~`OIDF_BRIDGE_PRIVATE_JWK`~~ | **Superseded and refused.** Setting it now fails startup with a message naming where the key should move to, because a security setting that silently does nothing is worse than one that is absent | Must be unset |
@@ -346,16 +363,25 @@ At the filter, `use_attestation_challenge` returns 400 and everything else 401; 
 
 **Servlet init-params**: `challengeRequired`, `customClaimsRequired` / `customClaimsSupported`,
 `challengeEndpointEnabled`, `attestationSigningAlgValuesSupported`, `openBaoUrl` / `openBaoToken`,
-`challengeCacheMaxEntries`, `challengeTtlSeconds`, `replayCacheMaxEntries`.
+`replayCacheMaxEntries`; and on each challenge endpoint, for its own challenges only, `challengeCacheMaxEntries`,
+`challengeTtlSeconds`, `challengeRateLimitPerWindow`, `challengeRateLimitWindowSeconds` and
+`challengeRateLimitMaxCallers`.
 
 ### 3.7 Storage
 
-`AttestationSupport` holds process-wide singletons so the challenge endpoint and the token-endpoint
-hook share state across classloaders. With no Redis URL it is per-node LRU+TTL
-(`InMemoryAttestationChallengeService` / `InMemoryAttestationReplayCache`, defaults 8192 entries /
-300 s). With one, `RedisAttestationStore` implements both interfaces over `MiniRedisClient`, a
-dependency-free RESP client: issue is `SET … EX`, consume is `DEL`, first-seen is `SET … NX EX`.
-**Unreachable Redis fails closed** — availability is never traded for a replayable credential.
+`AttestationSupport` holds process-wide singletons so each challenge endpoint shares state with what
+consumes its challenges - the authorization server's with the token-endpoint hook, the attester's with the
+attester - across classloaders. With no Redis URL it is per-node LRU+TTL
+(`InMemoryAttestationChallengeService` / `InMemoryAttestationReplayCache` /
+`InMemoryEvidenceBindingStore`, defaults 8192 entries / 300 s). With one, `RedisAttestationStore`
+implements the three interfaces over `MiniRedisClient`, a dependency-free RESP client: issue is
+`SET … EX`, consume is `DEL`, first-seen is `SET … NX EX`, bind is `SET … NX PX` then `GET` and compare.
+One view per namespace - `oidf:as:*`, `oidf:cas:*`, `oidf:fed:endpoint:*`, `oidf:admin:dpop:*` - over one
+shared client. `rediss://` verifies the server's certificate and name (the HTTPS algorithm, SNI) and
+completes the handshake before `AUTH`; the production profile refuses `redis://`. Every verdict is
+three-valued, and **an unreachable Redis is `STORE_UNAVAILABLE`, answered 503 `temporarily_unavailable`**,
+never a replay - availability is never traded for a replayable credential, and an outage is never
+recorded as a finding about the client.
 
 ---
 
@@ -383,11 +409,11 @@ it is left visible rather than filled with a plausible guess.
 | — | `exp` REQUIRED; expiry ⇒ `use_fresh_attestation` | `verifyAttestation` | Implemented |
 | `CLAIM-DICT divergence 1` | `iss` removed in -08 | Retained | Divergence 1 |
 | `ABCA-10 §5.1` | PoP JWT `typ=oauth-client-attestation-pop+jwt`, `aud`, `jti`, `iat` | `verifyPopMode` | Implemented |
-| `ABCA-10 §7.2` | PoP signed by the `cnf` key, allowlisted algorithm, audience is this server | `verifyPopMode`, `JwtCodec` | Implemented |
+| `ABCA-10 §7.2` | PoP signed by the `cnf` key, allowlisted algorithm, audience is this server's issuer and nothing else (item 7; §5.1's single audience, as a string or a one-member array) | `verifyPopMode`, `requireSoleAudience`, `JwtCodec` | Implemented - the token endpoint URL and a second audience are refused since 0.4.0 (S4a, F-0110) |
 | — | `attest_jwt_client_auth` at the token endpoint | `ClientAttestationAuthFilter` | Implemented |
 | `ABCA-10 §7.3` | `attest_jwt_client_auth_dpop` / `dpop_combined`, DPoP key = `cnf` key | `verifyDpopMode`, `Jwks.assertSameKey` | Implemented |
 | — | Both proof headers, or neither, is an error | `verify:91-98` | Implemented |
-| — | Challenge endpoint (§6.1) and `use_attestation_challenge` | `ClientAttestationChallengeServlet`, `enforceChallenge` | Implemented, off by default |
+| `ABCA-10 §6.1` | Challenge endpoint: a `POST`, answered with `attestation_challenge` and `Cache-Control: no-store`; `use_attestation_challenge` | `ClientAttestationChallengeServlet`, `enforceChallenge` | Implemented, off by default. Its challenges are the authorization server's alone (`oidf:as:challenge:*`); the attester has its own endpoint (CAS §4.1). The endpoint is named in the Entity Configuration's `openid_provider` metadata, not in PingFederate's own discovery documents (F-0115) |
 | — | Error codes `invalid_client` / `use_attestation_challenge` / `use_fresh_attestation` | `ClientAttestationException` | Implemented |
 | — | SD-JWT presentation encoding (retired) | Actively refused | Implemented |
 | — | Attester trust establishment (§9.8, out of scope in the draft) | `FederationAttesterKeyResolver` | Extension |
@@ -400,11 +426,11 @@ it is left visible rather than filled with a plausible guess.
 | Id | Requirement | Where | Status |
 |---|---|---|---|
 | `RFC9449 §4.2` | DPoP proof: `typ=dpop+jwt`, self-signature under the `jwk` header, no private key, alg allowlist | `DpopProofValidator` | Implemented |
-| `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness | `DpopProofValidator`, `services/demo-rs` | Implemented |
+| `RFC9449 §4.3` | DPoP proof checking: `htm`, `htu`, `ath`, freshness; `htu` compared after RFC 3986 syntax- and scheme-based normalisation | `DpopProofValidator`, `services/demo-rs`; at the token endpoint the expected `htu` is `ClientAttestationUtils.endpointUrl` | Implemented - the expected `htu` is the URL PingFederate advertises for the endpoint, never one rebuilt from the `Host` header, since 0.4.0 (S4a, F-0111) |
 | `RFC9449 §6.1` | `cnf.jkt` equals the presented proof key's thumbprint | `DelegatedTokenValidator` | Implemented |
 | — | RFC 9449 replay of the DPoP proof | Caller's job; supplied by the verifier, **not** by `services/demo-rs` | Partial — `unverified.md` item 10 |
-| `RFC9396 §7.1` | `authorization_details` containment (`type` match, subset on `actions`/`locations`/`datatypes`/`privileges`/`sales_regions`) | `RarEntitlement`, `RarContainment` | Implemented |
-| `RFC9396 §6.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
+| `RFC9396 §6.1` | `authorization_details` containment, every field by its type's rule | `libs/rar-model`, asked by the token gate and the issuer (S1b) and by the RAR plugin for a PDP's answer and on refresh (S1c) | Implemented |
+| `RFC9396 §7.1` | Processing at issuance (`AuthorizationDetailProcessor`) | `plugins/rar-paz-plugin` | Implemented |
 | `RFC8693 §4.1` | `act` as a JSON object; outermost actor only is authorisable | `services/demo-rs` `ActChain`, `services/gm-api` `TokenClaims` | Implemented on the reading side |
 | `UNVERIFIED item 8` | `act` minted as a JSON string, not an object | `delegationActChain` | Divergence being corrected — whether PF can emit the object form is unresolved |
 | `RFC8693 §1.1` | Principal is the subject, agent is the actor | `plugins/rar-paz-plugin` | Implemented |
@@ -442,9 +468,10 @@ Does the implementation match the text it published?
 | `CAS §3` | §3 instance authentication requirements | Implemented |
 | `CAS §4` | §4 issuance API — challenge endpoint, attestation endpoint, instance-key proof, processing rules, errors | Implemented |
 | `CAS §5` | §5 discovery metadata | Implemented — and `ClientAttestationServiceMetadataServlet` reads the same config the issuance servlet enforces, so the document cannot drift from behaviour |
-| `CAS §6` | §6 associating instance identity with a client id | **Partial** — resolution is by evidence rather than by a supplied `client_id` (good), and all three metadata sources exist. §6.2 rule 1 (federation → CIMD → registration order) and rule 2 (federation MUST chain-validate to the anchor, and revocation lands within one cache lifetime) are met since 2026-09-25 (`AttesterResolversTest`, `OpenIdFederationClientResolverTest`). Rule 3 (CIMD MUST NOT supply instance trust roots) is still **violated** — see the next row |
-| `CAS §6.2` | §6.2 rule 3 — CIMD trust roots | **Not implemented.** `CimdMapping.toConfig:29-30` copies `bundle` and `bundle_url` straight out of the unsigned document. `OIDF_CIMD_TRUST_BUNDLES` exists but is read only to *advertise* `cimd` in the CAS metadata; nothing enforces it. Whoever controls the CIMD URL can publish a bundle they hold the keys to and mint attestations for arbitrary subjects |
+| `CAS §6` | §6 associating instance identity with a client id | **Partial** — resolution is by evidence rather than by a supplied `client_id` (good), and all three metadata sources exist. §6.2 rule 1 (federation → CIMD → registration order) and rule 2 (federation MUST chain-validate to the anchor, and revocation lands within one cache lifetime) are met since 2026-09-25 (`AttesterResolversTest`, `OpenIdFederationClientResolverTest`). Rule 3 (CIMD MUST NOT supply instance trust roots) is still **violated** under the development profile, and the CIMD source is refused under any other since 0.4.0 (M-1) - see the next row |
+| `CAS §6.2` | §6.2 rule 3 — CIMD trust roots | **Not implemented; mitigated outside development** (M-1, F-0067): unless `OIDF_DEPLOYMENT_PROFILE=development` the attester leaves the CIMD source out, with an ERROR naming `OIDF_ATTESTER_CIMD_URL` (`AttesterResolversTest`). Under development `CimdMapping.toConfig:29-30` still copies `bundle` and `bundle_url` straight out of the unsigned document. `OIDF_CIMD_TRUST_BUNDLES` exists but is read only to *advertise* `cimd` in the CAS metadata; nothing enforces it. Whoever controls the CIMD URL can publish a bundle they hold the keys to and mint attestations for arbitrary subjects |
 | `CAS §7` | §7 down-scoping at issuance | **Partial** — rules 1–3 (subset semantics, empty request = full ceiling, `narrowing_behavior: reject`) are met. Rule 4 (a PDP or context-dependent narrowing) is not; the selector-conditioned downscoping the code comments describe is comment-only (§3.3); and the registration-time `instances[i].entitlement ⊆ entitlement` check is inert for CIMD/federation-sourced clients because they never carry a client ceiling |
+| `CAS §9` | §9.1 evidence reuse - the Instance Attestation never embedded, bound to its first presenter | Implemented since 0.4.0 (S3b, F-0002): `workload` carries `instance_attestation_sha256`, `_type` and `_exp`; `EvidenceBindingStore` binds last, after every other check, keyed on the SHA-256 of the evidence's JWS Signing Input so a re-encoded token meets the same binding; a second key or client is `instance_attestation_bound` and an `attestation.evidence.conflict` audit event naming both keys (`AttestationIssuanceServletTest`). Detectable, not preventable: a thief who presents first wins |
 | `CAS §8` | §8 lifetime / rotation / revocation | Partial — lifetime and rotation yes; revocation depends on the CAEP loop, which is not closed (`unverified.md` items 7 and 12); and a federation client's revocation at the anchor does not revoke issuance because no chain is walked |
 
 ### 4.5 Everything else
@@ -500,9 +527,9 @@ which is why they survive a module count changing and the paragraph above them d
 | ABCA challenge endpoint | `AttestationChallengeServiceTest` (4) | Consumable once; unknown rejected; unique; expired rejected |
 | ABCA replay | `AttestationReplayCacheTest` (4), `RedisAttestationStoreTest` (11) | First-use/replay; `(jti, client)` pairs independent; blank `jti` rejected; bounded cache evicts but stays usable. Redis: same contract cross-instance, **wrong password fails closed**, **Redis down fails closed**, survives stale connections |
 | ABCA `agent_id` extension | `ClientAttestationTest` (3), `AttestationMinterTest` (5) | Null when absent, parsed when present, doesn't perturb other fields; omitted rather than emitted blank |
-| RFC 9449 DPoP | `DpopProofValidatorTest` (9) | Valid accepted; `htu` ignores query/fragment; wrong method/URI/`typ` rejected; missing `jti` rejected; stale rejected; tampered signature rejected; disallowed alg rejected |
-| RFC 9396 containment | `RarEntitlementTest` (8) | Grants within entitlement; denies region/action outside; denies when nothing attested but something requested; grants nothing when nothing requested; missing `type` invalid; array parsing |
-| RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (4), `AttestationSubjectTest` (5) | Fail-open strips the internal `_principal_sub` marker; PERMIT merges and strips; DENY throws when configured; engine error throws with cause. Subject parses the PF hook attribute shape, `agent_id` when published |
+| RFC 9449 DPoP | `DpopProofValidatorTest` (11, in oidf-jose since 0.6.0) | Valid accepted; `htu` ignores query/fragment; wrong method/URI/`typ` rejected; `htm` compared exactly (F-0226); missing `jti` rejected; stale rejected; tampered signature rejected; disallowed alg rejected |
+| RFC 9396 containment | `AuthorizationDetailsGateTest` (20), `AsVectorRunnerTest` and `CasVectorRunnerTest` (the shared vectors through the token gate, the mint, the configuration and the asserted context), `RarModelVectorsTest` in `libs/rar-model`; `RarEntitlementTest` (8) for the unused old check | Grants within entitlement; denies region/action outside; denies when nothing attested but something requested; grants nothing when nothing requested; missing `type` invalid; array parsing |
+| RFC 9396 at issuance | `AttestationAwareRarProcessorTest` (21), `PrincipalPerFlowTest` (8), `ClientAssertedPrincipalTest` (9), `AttestationSubjectTest` (7), `ModelContainmentTest` (16), `ModelGateTest` (9), `RefreshVectorsTest` (149), `ShadedJarCheck` (2) | A non-PERMIT always throws; fail-open only for an unreachable PDP, and it strips the internal `_principal_sub` and `_agent_id` markers; PERMIT merges and strips; a PDP that answered badly throws with its text, the principal hashed and no cause; the principal per OAuth flow, and payments refused before the PDP without an authenticated one. Subject parses the PF hook attribute shape, `agent_id`, `iss` and `rar_models_fingerprint` when published. The containment model: a detail it cannot read is refused before the PDP, a PDP answer it does not find within the request is refused, a refresh must be strictly within its grant, an attestation context with no fingerprint or another one is refused, and the library's `contains` vectors run through PingFederate's parse and refresh loop; the shaded jar carries the model only under its relocated package |
 | RFC 8693 `act` | `ClientAttestationUtilsTest` (3) | Prefers `agent_id` as the acting party; falls back to `client_id` when null or blank |
 | OIDF attester trust | `FederationAttesterKeyResolverTest` (3) | Resolves chain-validated keys; prefers dedicated attester metadata keys; rejects an unreachable attester |
 | OIDF trust anchor keys | `TrustAnchorTest`, `TrustChainValidatorAnchorKeyTest`, `TrustChainValidatorIntermediateTest`, `HttpTrustControllerGatewayAnchorTest`, `FederationRuntimeConfigTrustAnchorTest`, `ConfiguredAnchorAgreementTest`, filter init tests | Only pinned keys verify the anchor's statements, whatever its host serves; an intermediate's keys must be the ones the anchor's statement asserts; a superior without `jwks` cannot vouch; the anchor's entity configuration verifies before its fetch endpoint is used and is retrieved once more on a mismatch; unusable key sets (private, symmetric, no or duplicate `kid`) refused; a host without keys refuses every chain and names the variable; mock attesters still resolve |
@@ -551,7 +578,22 @@ Each item: what is missing, why it matters, what closes it.
 
 ### Blocking for production
 
-**CIMD hands the attester its own trust roots.** `CimdMapping.toConfig:29-30` accepts `bundle` and
+**~~Attestations carry raw platform evidence.~~ CLOSED 2026-09-27 (S3b, F-0002).** Every SPIFFE-shaped
+evidence type embedded the raw token as `workload.svid`, and the wallet path embedded the WIA as
+`workload.instance_attestation`; the plugin and the token mappings forward `workload` whole, so the
+token reached the PDP and the access token, and since its audience is the attester anyone who read an
+attestation could present it for a key of their own until it expired. The attestation now carries
+`instance_attestation_sha256`, `_type` and `_exp` and nothing that can be presented; the evidence binds
+to the first instance key and client that present it, for as long as it lives (`EvidenceBindingStore`,
+Redis `SET NX`), keyed on the digest of what its signature covers so a re-encoded token meets the same
+binding; a second presenter is 401 `instance_attestation_bound` and an `attestation.evidence.conflict`
+audit event naming both keys. What remains is stated in the attester's README: a thief who
+presents first wins, detectably but not preventably, until evidence is itself key-bound.
+
+**CIMD hands the attester its own trust roots - MITIGATED 2026-09-27 (M-1, F-0067).** Outside
+`OIDF_DEPLOYMENT_PROFILE=development` the attester leaves the `cimd` source out with an ERROR naming
+`OIDF_ATTESTER_CIMD_URL`; the federation and PingFederate sources keep serving. The full fix is X-B02.
+The original finding: `CimdMapping.toConfig:29-30` accepts `bundle` and
 `bundle_url` from the Client ID Metadata Document — an unsigned JSON file at an HTTPS URL. The CAS spec
 this repo published says (§6.2 rule 3) a CAS MUST NOT do this, and explains why: whoever controls the
 URL can publish a trust bundle they hold the keys to and mint valid instance attestations for arbitrary
@@ -624,7 +666,7 @@ the live list as the header instructs.
 ### Production hardening
 
 **Selector-conditioned downscoping does not exist.** The code comment at
-`AttestationIssuanceServlet:217-218` describes it, the `SpireSelectorIntrospector` javadoc gives an
+`AttestationIssuanceServlet:226-227` describes it, the `SpireSelectorIntrospector` javadoc gives an
 example of it ("only grant EMEA when `k8s:ns:demo` is among the selectors"), and the CAS spec §7 rule 4
 allows for it — but nothing implements it. Introspected selectors and binding metadata such as
 `version` are carried into `workload.attributes` and never touch the ceiling. This is the stage that
@@ -650,10 +692,12 @@ pinned anchor keys follow the same split (`OIDF_TRUST_ANCHOR_JWKS` beside
 *Closes when:* the names are unified and the value is set.
 
 **No Redis in the checked-in config means per-node replay state.** With two verification points on two
-classloaders and a clustered PF, in-memory caches mean a PoP `jti` can be spent once per node.
-`DEMO-MINT-DEPLOY.md` says staging has `OIDF_REDIS_URL` set outside the repo; production is unstated.
-*Closes when:* Redis is a documented requirement for any clustered deployment rather than an optional
-upgrade.
+classloaders and a clustered PF, in-memory caches mean a PoP `jti` can be spent once per node, and an
+evidence binding won on one node is unknown to the next. `DEMO-MINT-DEPLOY.md` says staging has
+`OIDF_REDIS_URL` set outside the repo; production is unstated. Since 0.4.0 the store over `rediss://`
+verifies its peer and the production profile refuses `redis://` (S3a, F-0023 closed); making Redis a
+requirement when clustered is C-1 (Phase 4). *Closes when:* Redis is a documented requirement for any
+clustered deployment rather than an optional upgrade.
 
 **The divergence-5 `sub` flip is unfinished.** `OIDF_ATTESTATION_SUB=client_id` is default-off, so on
 the device path `sub` still carries the instance identity — the thing the draft says is the client id.
@@ -690,9 +734,10 @@ rather than unverified claims. `delegationActChain` still reads the `act` claim 
 token-exchange processor validates that token before any token issues. *Closes when:* that remaining
 coupling is enforced in code, or accepted in writing.
 
-**`RarContainment` duplicates `RarEntitlement`.** The PAZ plugin shades its own copy; the file carries
-the repo's one literal `TODO: consolidate the two into a shared library`. Two implementations of a
-containment rule will drift, and the drift is a privilege-escalation shape.
+**~~`RarContainment` duplicates `RarEntitlement`.~~ Closed, 2026-09-27 (PRs #37 and #36).** The token gate and
+the issuer (S1b) and the RAR plugin (S1c) all ask `libs/rar-model`; the plugin shades and relocates it,
+`RarContainment` and its contract test are gone, `RarEntitlement` is unused until its deletion (F-0100), and
+the attestation context's `rar_models_fingerprint` shows the two classloaders hold one model.
 
 ### Nice to have
 

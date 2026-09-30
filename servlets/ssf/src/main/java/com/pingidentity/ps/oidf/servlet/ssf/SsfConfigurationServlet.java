@@ -3,6 +3,7 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.ssf.DeliveryMethod;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfEventTypes;
@@ -36,10 +37,18 @@ public class SsfConfigurationServlet extends HttpServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        // loadOnStartup: configure the transmitter at boot so the logout filter can emit immediately.
-        // Fail-soft — an unconfigured SSF disables its endpoints; it must not break the runtime web app.
-        SsfHttp.bootstrap(config);
+        var part = Startup.begin(Startup.SSF, "SsfConfigurationServlet");
+        try {
+            super.init(config);
+            // loadOnStartup: configure the transmitter at boot so the logout filter can emit immediately.
+            // Fail-soft — an unconfigured SSF disables its endpoints; it must not break the runtime web app.
+            SsfComponents.transmitter(part, SsfHttp.bootstrap(config), config);
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
+        }
     }
 
     @Override

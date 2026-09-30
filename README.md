@@ -15,6 +15,23 @@ One `mvn package` at the root builds every PF-side artifact, including the gm-ap
 Evaluation API lives in its own repo, **grant-evaluation-api** (private, so named rather than linked;
 checked out as a sibling) - it is not tied to PingFederate, so it does not live here.
 
+## Status
+
+**Beta, at 0.5.0** ([release notes](docs/releases/0.5.0.md)). The production-readiness review of 2026-09-26 found
+seven blockers: 0.4.0 closed B1 to B3 and mitigated B4 and B5; 0.5.0 lays the foundations the rest is built on
+(every module on the shared platform libraries, the configuration reference generated from the code, PostgreSQL
+only, the image built, tested and scanned in CI) and leaves B6 (the image booted in CI) and B7 (clustering) for
+0.7.0. The [findings register](docs/findings/README.md) is the record of what is still open,
+and the release notes' "Known gaps" say what a deployment should plan around.
+
+**One PingFederate node only, until 0.7.0.** Attestation challenges and replay state (without Redis), the
+challenge endpoints' caps, SSF streams (without a data store), the SSF push loop and the SSF receiver's dedupe
+are per node, and nothing leases the push loop: on two nodes a challenge from one is refused at the other, a
+spent proof or registration request object can be presented again at the other, a push receiver can get a SET
+twice, and an inbound SET can be acted on once per node. The cluster story - Redis-backed state, leases,
+JDBC client storage - is Phase 4 of the production programme. What goes wrong on two nodes, item by item:
+[docs/operator/deployment-limits.md](docs/operator/deployment-limits.md).
+
 ## Layout — organized by *how it loads into PingFederate*
 
 PF has two very different extension mechanisms, and the tree mirrors them. **Servlets** are plain
@@ -22,7 +39,7 @@ PF has two very different extension mechanisms, and the tree mirrors them. **Ser
 on the webapp classloader. **Plugins** implement a PF SDK SPI: discovered via a `PF-INF/` descriptor,
 must be named `pf.plugins.*.jar`, and load on a per-plugin *isolated* classloader (which is why the
 RAR plugin shades its jackson). Pure **libs** know nothing about PF at all; **services** are
-standalone processes PF trusts or calls. Nineteen reactor modules, `bom/` included — the one place a
+standalone processes PF trusts or calls. Twenty reactor modules, `bom/` included - the one place a
 shared dependency version is written down, imported by every module pom except the vendored
 `services/gm-api`. `libs/conformance` is the odd one out: a single annotation, test-scoped everywhere
 and deliberately absent from `stage-modules.sh`, so nothing it carries reaches the PF image. Artefact
@@ -32,10 +49,16 @@ names below carry the project version, written `<version>`.
 
 | Path | What it is | Artifact |
 |---|---|---|
+| `libs/platform` | What every module shares: the resources a loaded copy closes at shutdown, the state of each component (S-9's seven states), a JDK-only JSON reader and writer, and - as Phase 2 lands them - settings, the deployment profile, events, metrics, health, Redis, outbound HTTP and executors. JDK only; `oidf-jose` depends on it, and a plugin shades and relocates it ([README](libs/platform/README.md), [classloader rules](docs/development/classloaders.md)) | `platform-<version>.jar` |
+| `libs/platform-pf` | platform's PingFederate side, and the one library here that needs PingFederate (its jars provided): the guard an OGNL criterion runs behind, and later the audit sink, health servlets, lifecycle listener and internals facade. `pf-integration` depends on it ([README](libs/platform-pf/README.md)) | `platform-pf-<version>.jar` |
 | `libs/oidf-jose` | Foundation JOSE SDK — JWT codec, JWKS, claims, HTTP | `oidf-jose-<version>.jar` |
+| `libs/rar-model` | The **RFC 9396 containment model**: per-type field rules (sets, limits with a unit, `instructedAmount`, instants, equality, strings, nested objects, forbidden fields), one spelling for a thing a type can say two ways, three built-in types, more from a models document, and `contains` / `authorize` / `intersect` over lists held to fixed limits, with a fingerprint of the effective model. JDK only. The token gate, the attester and the RAR plugin all ask it (blocker B1, closed in 0.4.0) | `rar-model-<version>.jar` |
 | `libs/client-attestation` | **Client Attestation authenticator** (AS side): verifier, DPoP, challenge/replay (Redis-backed), RAR containment — draft-ietf-oauth-attestation-based-client-auth | `client-attestation-<version>.jar` |
+| `libs/rs-validation` | **Resource-server validation** that closes the loop: the AS's JWT access token (`typ`, exact `kid`, `iss`, `aud`, `exp`, `nbf`), the sender binding - a DPoP proof whose key is `cnf.jkt` (the check people skip), whose `ath` is this token's and whose `jti` a required replay store has not seen, or the TLS client certificate against `cnf.x5t#S256` - then the RFC 8693 `act` chain, strictly. DPoP nonces, cached JWKS, and a servlet filter that answers with the RFC 6750 and RFC 9449 challenges. Formerly `services/demo-rs` | `rs-validation-<version>.jar` |
 | `libs/openid-federation` | **OpenID Federation 1.0** (Final): trust-chain validation against pinned anchors, metadata policy, constraints, Trust Marks (verify and issue), the federation endpoints' logic, hosted entities and their key history, the AuthZEN policy decision client, and the event API - no PingFederate code | `openid-federation-<version>.jar` |
+| `libs/shared-signals` | **Security Event Tokens without PingFederate**: the RFC 8417 SET model, minting behind `oidf-jose`'s signers, verification against a supplied key set (`typ`, `alg`, `iss`, `aud`, `iat`, `jti`, `exp`, `events`), the RFC 9493 subject identifiers and SSF 1.0's complex subject with its matching rule, and the CAEP and RISC event types. No HTTP. `servlets/ssf` is built on it ([README](libs/shared-signals/README.md)) | `shared-signals-<version>.jar` |
 | `libs/app-attest` | **Apple App Attest** verification to Apple's root — attests the app and device, never the user; binding the app's own Secure Enclave key is the caller's job via `clientDataHash` | `app-attest-<version>.jar` |
+| `libs/testkit` | **Test support, never shipped**: a JUnit 5 extension that gives each test class its own PostgreSQL database (`OIDF_TEST_JDBC_URL`, else Testcontainers), and a helper that applies a module's `db/migration` scripts in version order | none - test scope only, not published |
 | `libs/device-instance` | The **agent instance registry** — the only place an opaque instance id resolves to a human — and the **device Client Attestation minter** (subject = that id, never the user). Owns the Postgres schema | `device-instance-<version>.jar` |
 | `libs/agent-registry` | Mints/resolves **`agent_id`**: a random, never-derived per-running-instance identifier, for runtimes with no enrolment step of their own (a SPIFFE workload) | `agent-registry-<version>.jar` |
 | `libs/conformance` | The `@Requirement` annotation that ties a test to the specification clause it pins. Test scope everywhere | `conformance-<version>.jar` |
@@ -44,7 +67,7 @@ names below carry the project version, written `<version>`.
 
 | Path | What it is | Artifact |
 |---|---|---|
-| `servlets/pf-integration` | The PF glue: **federation servlets** (entity configuration, fetch, list, resolve, Trust Mark and historical keys endpoints, hosted-entity admin) + §12.1 automatic registration at the token, authorization and PAR endpoints and §12.2 explicit **registration**, OGNL hooks, client store, and the filters over PF's own endpoints — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential), **`TokenEndpointAutoRegistrationFilter`**, and **`Fapi2ProfileFilter`** (two FAPI 2.0 rules PF can't apply per client - issuer-only `aud` on client assertions, which 13.1 can switch on only for the whole server, and PS256/ES256/EdDSA-only DPoP proofs, which it has no setting for; applied only to the clients `OIDF_FAPI2_CLIENTS` lists) — registered by the image build's `web.xml` surgery (`build/pingfederate/assemble-pf-runtime-war.sh`) | `oidf.jar` |
+| `servlets/pf-integration` | The PF glue: **federation servlets** (entity configuration, fetch, list, resolve, Trust Mark and historical keys endpoints, hosted-entity admin) + §12.1 automatic registration at the token, authorization and PAR endpoints and §12.2 explicit **registration**, OGNL hooks, client store, and the filters over PF's own endpoints — **`ClientAttestationAuthFilter`** (implements `attest_jwt_client_auth`: the attestation becomes the client's only credential), **`TokenEndpointAutoRegistrationFilter`**, and **`Fapi2ProfileFilter`** (two FAPI 2.0 rules PF can't apply per client - issuer-only `aud` on client assertions, which 13.1 can switch on only for the whole server, and PS256/ES256/EdDSA-only DPoP proofs, which it has no setting for; applied only to the clients `OIDF_FAPI2_CLIENTS` lists) — registered in `pf-runtime.war`'s `web.xml` at image build, as `build/pingfederate/filters.xml` declares them, by the war assembler (`build/war-assembler`, run by `build/pingfederate/assemble-pf-runtime-war.sh`), which checks their paths and order | `oidf.jar` |
 | `servlets/attestation-issuer` | **Client Attestation issuer**: `/federation/attestation` (platform evidence — SPIFFE SVID, GKE/EKS/AKS, AWS, Azure — → minted attestation), per-client attester keys (OpenBao transit or inline JWK), challenge servlet | `attestation-issuer-<version>.jar` |
 | `servlets/oidf-war` | The **`oidf.war` assembly**: pf-integration + attestation-issuer with their libraries in `WEB-INF/lib` (jose4j excluded — PF ships it; a second copy is a `LinkageError`). Its own module so it can depend on every servlet module without a reactor cycle | `oidf.war` |
 | `servlets/ssf` | Shared Signals Framework 1.0 transmitter + receiver (CAEP/RISC, SET mint/verify, PF audit-log source, grant-revocation action) | `ssf-<version>.jar` |
@@ -55,7 +78,7 @@ names below carry the project version, written `<version>`.
 |---|---|---|
 | `plugins/rar-paz-plugin` | **RAR plugin**: RFC 9396 `AuthorizationDetailProcessor` → PingAuthorize governance engine (principal as `UserID`, agent as `actor` — RFC 8693 delegation) | `pf.plugins.pf-rar-paz-plugin.jar` |
 | `plugins/instance-registry-datasource` | **`CustomDataSourceDriver`** over the instance registry: an access-token mapping resolves an instance id to owner, status, compliance and user-verification recency at issuance — where revocation and the time-box bite | `pf.plugins.instance-registry-datasource.jar` |
-| `plugins/ciba-sim` | **CIBA authentication device for the conformance rig**: an `OOBAuthPlugin` that waits for an allow or deny recorded at `POST /ciba-sim/decision`, plus that servlet, in one jar. Answers 404 unless `OIDF_CIBA_SIM_ENABLED=true` | `pf.plugins.ciba-sim.jar` |
+| `plugins/ciba-sim` | **CIBA authentication device for the conformance rig**: an `OOBAuthPlugin` that waits for an allow or deny recorded at `POST /ciba-sim/decision`, plus that servlet, in one jar. Staged only by the conformance profile, and refuses every request unless `OIDF_CIBA_SIM_ENABLED=true`, `OIDF_DEPLOYMENT_PROFILE=development` and `OIDF_CIBA_SIM_DIR` passes its checks ([README](plugins/ciba-sim/README.md)) | `pf.plugins.ciba-sim.jar` |
 
 ### `services/` — standalone services
 
@@ -63,8 +86,10 @@ names below carry the project version, written `<version>`.
 |---|---|---|
 | `services/gm-api` | **Grant Management / AuthZEN Grant Evaluation API** as a PingFederate servlet + `/mcp` agent add-on: is this grant, intersected with what the subject holds, still enough — right now? Reads grants in-process via the PF SDK. (AS-agnostic Go reference: **grant-evaluation-api**, sibling checkout.) | `gm-api.war` |
 | `services/device-enrolment` | The **agent platform backend** — Client Attester for device-resident agents: enrolment ceremony (App Attest + PingOne passkey + Secure Enclave key), owns the instance registry, mints Client Attestations, enforces the user-verification time-box server-side. Not a PF extension | `device-enrolment-<version>.jar` |
-| `services/demo-rs` | **Resource-server validation** that closes the loop: AS signature, DPoP proof, `cnf.jkt` equals the proof key's thumbprint (the check people skip), then the RFC 8693 `act` chain. A library, no HTTP surface | `demo-rs-<version>.jar` |
+| `services/demo-rs` | **Relocation POM** only: `com.pingidentity.ps.oidf:demo-rs` resolves to `rs-validation` from 0.5.0 ([`libs/rs-validation`](libs/rs-validation)), the package unchanged | `demo-rs-<version>.pom` |
 | `services/harness` | **Verification CLIs run by hand** over the real classes - attestation issuance and verification, a CAEP SET - with each self-verify walk also run as a smoke test under `mvn test`. Not shipped | `harness-<version>.jar` |
+
+[`clients/ios/`](clients/ios/README.md) is the **reference iOS client** of `services/device-enrolment`: a Swift package and a sample app, built and tested on macOS by their own workflow, a skeleton until X-I01b; the protocol it speaks is [docs/device/ios-client-contract.md](docs/device/ios-client-contract.md).
 
 `build/pingfederate/` builds the AS image from the reactor's **modular jars**
 (`stage-modules.sh` → `modules/`, merged into `pf-runtime.war` at root context and onto the engine
@@ -103,6 +128,23 @@ Open [showcase/index.html](showcase/index.html) in a browser for the servlet and
 ecosystem architecture and interactive policy simulation. No build step is required. See
 [showcase/README.md](showcase/README.md) for the local preview command and simulation boundaries.
 
+## Documentation
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) - building, the PingFederate jars, the Postgres-backed tests, worktrees,
+  generated files and what a pull request carries; [docs/development/style-guide.md](docs/development/style-guide.md)
+  is the house style.
+- [SECURITY.md](SECURITY.md) - supported versions, how to report a vulnerability, and the rule about config
+  archives and key material.
+- [docs/findings](docs/findings/README.md) - the findings register: every known defect (`F-`) and unverified
+  assumption (`U-`), one file each, with the plan item that closes it; `docs/unverified.md` keeps the long
+  form of the assumptions.
+- [docs/releases](docs/releases/README.md) - the release notes, each with a "Before you deploy" list, and
+  [CHANGELOG.md](CHANGELOG.md) for the one-paragraph history; [docs/operator](docs/operator/README.md) has the
+  upgrade guides.
+- [docs/configuration](docs/configuration/README.md), [docs/reference](docs/reference/README.md) and
+  [docs/security](docs/security/README.md) are where the generated settings reference, the endpoint and event
+  inventories and the threat model land in later phases; each README says what belongs there.
+
 ## Building
 
 ```
@@ -110,9 +152,13 @@ mvn package                      # all Java modules (incl. gm-api.war), tests on
 ```
 
 The two `provided` PF jars (`pf-protocolengine`, `pingfederate-sdk` 13.1.3.0) are extracted from the
-public `pingidentity/pingfederate` image, and so are the jars gm-api and the plugin poms name under
-`local.pingfederate` - see `.github/actions/pf-provided-jars/action.yml` for the exact steps, or run its
-`install:install-file` lines once locally. Nothing licensed or secret is committed.
+public `pingidentity/pingfederate` image - see `.github/actions/pf-provided-jars/action.yml` for the exact
+steps, or run its two `install:install-file` lines once locally. They are the only jars installed by hand:
+every other library a module borrows from PingFederate comes from Maven Central. jose4j, jackson,
+commons-lang3 and commons-logging are at the versions the BOM holds to the image; the jakarta servlet API
+is `jakarta.servlet-api` 5.0.0, the API line PingFederate 13.1's Jetty ships as 5.0.2, and
+`tools/pf-linkcheck.py` checks the servlet members each artefact uses. Nothing licensed or secret is
+committed.
 
 The PingFederate version is pinned in one place, `build/pf-version.env`: the image tag and its digest,
 the SDK version the reactor compiles against, and the product version the Terraform provider is told.

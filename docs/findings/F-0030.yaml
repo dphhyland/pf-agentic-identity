@@ -1,0 +1,24 @@
+id: F-0030
+title: The user key PingFederate hands enrich differs per flow, and is the client id under client credentials
+severity: medium
+area: rar-paz-plugin
+source: design
+status: closed
+plan_items: [S2b]
+prs: [29]
+verification: >
+  2026-09-27: javap of pf-protocolengine-13.1.3.0.jar finds seven callers of AuthorizationDetailsUtil.enrich,
+  and the user key each passes matches the notes (client credentials getClientId(), refresh
+  getUniqueUserIdentifer(), token exchange null, CIBA the hint, the resume after authentication and the device
+  flow's approval the authenticated subject; JwtGrantProcessor has no call). On the rig the same day
+  (verify-rar-principal.sh, prod/p1-rar-plugin-principal at b497275) client credentials, CIBA, refresh, token
+  exchange and the code flow passed exactly those keys, and S2b's PrincipalResolver labels each: client,
+  identity_hint, authenticated, none, authenticated. The device flow and JWT-bearer stay unverified on a booted
+  PingFederate (U-0066, U-0017).
+target_release: 0.4.0
+notes: >
+  Found while designing, item 1; characterised with javap on 13.1.3 (2026-09-26): code and PAR resume the
+  authentication subject; refresh the grant's user key; CIBA the identity hint; client credentials the client
+  id; token exchange null; JWT-bearer never calls enrich. A naive getUserKey() would treat a client id as a
+  user. Medium: a design constraint S2b's per-flow `principal_source` honours, and one that would be high if
+  it were mishandled. Confirming it on a booted PingFederate is U-0016 and U-0017.

@@ -1,58 +1,41 @@
 package com.pingidentity.ps.oidf.authority;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
+import com.pingidentity.ps.oidf.testkit.Migrations;
+import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.atomic.AtomicInteger;
 import javax.sql.DataSource;
-import org.h2.jdbcx.JdbcDataSource;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.RegisterExtension;
 
 /**
- * The JDBC registry, held to the same contract as the in-memory one. Runs against H2 in PostgreSQL
- * compatibility mode, executing the <em>real</em> migration from
- * {@code db/migration/V100__hosted_entity.sql} rather than a hand-written test schema — the point is
- * verifying the shipped DDL parses and the queries work against it. (The instance registry made the
- * opposite call — it moved into the Identity Object Model, whose invariants are Postgres-only, so
- * {@code IomInstanceRegistryTest} needs a real Postgres rather than H2.)
+ * The JDBC registry, held to the same contract as the in-memory one, on PostgreSQL - a database of this class's
+ * own (libs/testkit) - running the federation family's <em>real</em> migrations ({@code V100__hosted_entity.sql}
+ * to {@code V103}) rather than a hand-written test schema: the point is that the shipped DDL runs and the queries
+ * work against it. Each test starts from an empty schema with the family applied.
  */
 class JdbcHostedEntityRegistryTest extends HostedEntityRegistryContract {
 
-    private static final AtomicInteger DB_COUNTER = new AtomicInteger();
+    @RegisterExtension
+    static final PostgresDatabase POSTGRES = new PostgresDatabase();
 
     private DataSource dataSource;
 
     @Override
     protected HostedEntityRegistry newRegistry() throws Exception {
-        JdbcDataSource h2 = new JdbcDataSource();
-        h2.setURL("jdbc:h2:mem:authority" + DB_COUNTER.incrementAndGet()
-                + ";MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1");
-        h2.setUser("sa");
-        this.dataSource = h2;
-        applyMigration(h2);
-        return new JdbcHostedEntityRegistry(h2);
-    }
-
-    private static void applyMigration(DataSource dataSource) throws Exception {
-        for (String migration : new String[]{"/db/migration/V100__hosted_entity.sql", "/db/migration/V101__hosted_entity_actor.sql"}) {
-            String ddl;
-            try (InputStream in = JdbcHostedEntityRegistryTest.class.getResourceAsStream(migration)) {
-                assertNotNull(in, "the migration must ship on the classpath: " + migration);
-                ddl = new String(in.readAllBytes(), StandardCharsets.UTF_8);
-            }
-            try (Connection c = dataSource.getConnection(); Statement s = c.createStatement()) {
-                s.execute(ddl);
-            }
-        }
+        this.dataSource = POSTGRES.dataSource();
+        POSTGRES.resetPublicSchema();
+        assertEquals(List.of("V100__hosted_entity.sql", "V101__hosted_entity_actor.sql", "V102__trust_mark.sql",
+                "V103__federation_key_history.sql"), Migrations.apply(this.dataSource, 100, 199));
+        return new JdbcHostedEntityRegistry(this.dataSource);
     }
 
     @Test

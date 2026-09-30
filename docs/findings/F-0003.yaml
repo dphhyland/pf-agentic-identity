@@ -1,0 +1,26 @@
+id: F-0003
+title: B3 RAR plugin has no trustworthy principal
+severity: blocker
+area: rar-paz-plugin
+source: review-2026-09-26
+status: closed
+plan_items: [S-2, S2a, S2b]
+prs: [29]
+verification: >
+  2026-09-27, prod/p1-rar-plugin-principal at b497275 (plugin 0.4.0-SNAPSHOT) on PingFederate 13.1.3.0:
+  conformance/verify-rar-principal.sh drove client credentials, CIBA, refresh, token exchange and the code flow
+  at a stub AuthZEN PDP (run finished 03:40Z). The user key PingFederate passed and the principal_source the PDP
+  received: client credentials the client id, client (and payment_initiation refused before the PDP, 400
+  invalid_authorization_details); CIBA at /as/bc-auth.ciba the hint, identity_hint; refresh with
+  authorization_details the grant's user, authenticated; token exchange none, none (payment refused before the
+  PDP); code flow at the resume after authentication none with the rig's adapter (payment refused after sign-in)
+  and suite-user, authenticated, with subject mapped on it. The resource_owner_sub attribute is no longer read;
+  _principal_sub and login_hint are honoured only in development (ClientAssertedPrincipalTest,
+  PrincipalPerFlowTest). Every decision method is in the plugin's 100% METHOD gate.
+target_release: 0.4.0
+notes: >
+  `...rar.resource_owner_sub` is never set, so the PDP decides without a principal. PingFederate 13.1.3's
+  AuthorizationDetailContext.getUserKey() (javap-verified; absent from 13.0.0.3) is the way to one, but what
+  it carries differs per flow (F-0030): the client id under client credentials, null under token exchange. S2b
+  resolves the principal per flow with a `principal_source`, denies payment_initiation and account_information
+  without an authenticated principal, and makes `_principal_sub` and `login_hint` development-only.

@@ -6,14 +6,12 @@ package com.pingidentity.ps.oidf.enrolment;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
-import com.pingidentity.ps.oidf.device.ComplianceState;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.time.Instant;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,7 +24,7 @@ import org.apache.commons.logging.LogFactory;
 /**
  * A small HTTP front end over {@link EnrolmentService}, on the JDK's own server.
  *
- * <p>No framework, matching the rest of this repo: the surface is five endpoints, all of the logic
+ * <p>No framework, matching the rest of this repo: the surface is six endpoints, all of the logic
  * lives in the service, and a framework would add dependencies to a component that sits on the token
  * path without earning any of them.
  *
@@ -35,10 +33,15 @@ import org.apache.commons.logging.LogFactory;
  *   POST /enrol               → run the ceremony, return the first attestation
  *   POST /attestation         → re-mint (the hot path; enforces the time-box)
  *   POST /user-verification   → refresh the time-box from a fresh IdP authentication
- *   POST /compliance          → apply a device compliance signal
  *   GET  /.well-known/jwks.json → the attester's public keys, so PingFederate can verify us
  *   GET  /health
  * </pre>
+ *
+ * <p>There is no compliance endpoint. Until 0.4.0 {@code POST /compliance} took a device id and a
+ * status from anyone who could reach the port and suspended every instance on the device (B4, M-2).
+ * Compliance reaches the registry through a verified CAEP SET at PingFederate's SSF receiver
+ * ({@code servlets/ssf}, {@code InstanceRegistryReceiverHandler}) and nowhere else; the source that
+ * will feed it is Phase 6's (X-A15, X-A16).
  *
  * <p>Errors are the OAuth shape — {@code {"error", "error_description"}} — with the service's stable
  * code, so a client can branch on {@code user_verification_required} rather than parsing prose.
@@ -66,7 +69,6 @@ public final class EnrolmentHttpServer {
         route("/enrol", this::enrol);
         route("/attestation", this::attestation);
         route("/user-verification", this::userVerification);
-        route("/compliance", this::compliance);
         route("/.well-known/jwks.json", this::jwks);
         route("/health", exchange -> Map.of("status", "ok"));
     }
@@ -153,13 +155,6 @@ public final class EnrolmentHttpServer {
     private Map<String, Object> userVerification(HttpExchange exchange) throws Exception {
         JsonNode body = readJson(exchange);
         this.service.refreshUserVerification(text(body, "instance_id"), text(body, "user_authentication"));
-        return Map.of("status", "ok");
-    }
-
-    private Map<String, Object> compliance(HttpExchange exchange) throws Exception {
-        JsonNode body = readJson(exchange);
-        this.service.applyComplianceChange(text(body, "device_id"),
-                ComplianceState.fromCaepValue(text(body, "current_status")), Instant.now());
         return Map.of("status", "ok");
     }
 

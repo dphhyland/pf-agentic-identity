@@ -1,0 +1,23 @@
+id: F-0038
+title: Ceiling refusals answer 401 access_denied instead of invalid_authorization_details
+severity: low
+area: pf-integration
+source: design
+status: closed
+plan_items: [S4a, S1b]
+prs: [37]
+verification: >
+  2026-09-27, branch prod/p1-rar-wire-cas-as (PR #37), on JDK 20 and JDK 17. The token gate refuses a request
+  outside the attestation's authorization_details with invalid_authorization_details, and the filter answers it
+  with 400 (ClientAttestationAuthFilter.statusFor). ClientAttestationAuthFilterTest
+  #aRequestOutsideTheAttestationsDetailsIs400InvalidAuthorizationDetails drives doFilter with an EMEA attestation
+  and an AMER request and reads 400 and the error body; #aRequestTheModelRefusesIs400WithAFixedDescription does the
+  same for an undeclared field; #anInvalidAuthorizationDetailsRefusalIs400 pins the mapping. CAS §7.1 and RFC 9396
+  §5 and §6 are quoted in the tests.
+target_release: 0.4.0
+notes: >
+  Found while designing, item 9. CAS section 7.1 requires `invalid_authorization_details`. Low: conformance and
+  client diagnostics, not exposure. The plan put it in S4a; the Phase 1 wave-2 split moved the refusal code to S1b,
+  which owns the ceiling check. On the OGNL criterion path (a deployment without the filter) PingFederate answers a
+  refusal with the Error Result configured on the criterion (400 invalid_grant): a criterion refuses the token but
+  cannot choose the code.

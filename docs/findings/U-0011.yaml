@@ -1,0 +1,22 @@
+id: U-0011
+title: demo-rs has no HTTP surface or replay cache
+area: demo-rs
+source: design
+status: closed
+plan_items: [X-D01]
+prs: [59]
+recorded_in: docs/unverified.md item 10
+verify_by: >
+  X-D01: libs/rs-validation with a required replay store and a servlet filter, and a test that a replayed DPoP
+  proof is refused.
+verification: >
+  Seen 2026-09-28 on prod/p2-rs-validation: DelegatedTokenValidator.Builder.build() refuses to build without a
+  ReplayStore, and ResourceServerFilter applies the validator to HTTP requests. DpopRefusalTest.aReplayedProofIsRefused
+  validates a proof once and gets invalid_dpop_proof (401) for the same proof the second time;
+  aProofReplayedAtAnotherNodeSharingTheStoreIsRefused does the same across two validators sharing one store; and
+  RedisReplayStoreLiveTest.aProofAcceptedByOneNodeIsRefusedByAnother does it through RedisReplayStore against
+  redis:7-alpine, on JDK 17.0.11 and 20.0.2. CI's java job sets OIDF_TEST_REDIS_URL, so the live test runs there.
+notes: >
+  DelegatedTokenValidator reported the proof's jti so a caller could replay-cache it, and no caller existed. From
+  0.5.0 the replay store is required and asked last, a store that cannot answer is a 503, and docs/unverified.md
+  item 10 is left to F-0229 to mark resolved.

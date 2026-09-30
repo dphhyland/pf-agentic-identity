@@ -3,7 +3,8 @@
  */
 package com.pingidentity.ps.oidf.servlet.ssf;
 
-import com.pingidentity.ps.oidf.ssf.SetVerifier;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
 import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfReceiverService;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
@@ -42,8 +43,17 @@ public class SsfReceiverServlet extends HttpServlet {
 
     @Override
     public void init(ServletConfig config) throws ServletException {
-        super.init(config);
-        SsfHttp.bootstrap(config); // fail-soft: unconfigured SSF disables the endpoints
+        var part = Startup.begin(Startup.SSF_RECEIVER, "SsfReceiverServlet");
+        try {
+            super.init(config);
+            // fail-soft: unconfigured SSF disables the endpoints
+            SsfComponents.receiver(part, SsfHttp.bootstrap(config), config);
+        } catch (ServletException | RuntimeException | Error e) {
+            part.failed(e);
+            throw e;
+        } finally {
+            part.finish();
+        }
     }
 
     @Override

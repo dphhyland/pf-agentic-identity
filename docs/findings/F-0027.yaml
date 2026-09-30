@@ -1,0 +1,24 @@
+id: F-0027
+title: 'Observability: no metrics or health endpoints, audit gaps, DEBUG by default'
+severity: medium
+area: platform
+source: review-2026-09-26
+status: open
+plan_items: [O-1, O-2, O-3, O-4, O-5, O-6]
+prs: [43, 46, 49, 53]
+verification: ''
+target_release: 0.7.0
+notes: >
+  No health or metrics endpoint, attestation event codes that exist and are never emitted, no correlation ids,
+  and DEBUG as the image's default log level. O-1 to O-4 (Phase 2): events in `platform` with a PII policy,
+  metrics, health endpoints. O-2, O-5, O-6 (Phases 3 and 4): the new event families, a Prometheus endpoint,
+  INFO by default with `trackingid` and `traceparent` correlation.
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package) delivered O-1, O-3 and O-4 on F1's libraries (PR #43):
+  O1 (PR #49) events in platform.events, every code and field catalogued with a PII class and held to the emitters by
+  EventsCataloguedTest, PfAuditSink with the protocol column per component; O3 (PR #46) bounded counters, timers and
+  gauges with one MXBean per loaded copy; O4 (PR #53) /agentic-identity/health/live and ready open, the detail and
+  /info behind the static admin bearer, components registering at init, and every event counted. Still open: the
+  attestation event codes are catalogued declaredOnly and not emitted (O-2), no Prometheus endpoint (O-5), DEBUG is
+  still the image's default and there is no correlation id (O-6), and the PII classes are recorded but not applied
+  (D-6).

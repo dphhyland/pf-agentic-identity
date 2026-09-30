@@ -1,0 +1,18 @@
+id: U-0065
+title: MSAL for iOS as a SwiftPM dependency of AgentIdentityKit
+area: ios-client
+source: design
+status: open
+plan_items: [X-I01a, X-I01b]
+prs: []
+recorded_in: docs/device/ios-client-contract.md, The Entra device token
+verify_by: >
+  Add microsoft-authentication-library-for-objc at a pinned release to clients/ios/AgentIdentityKit/Package.swift,
+  run swift package resolve and swift build on a Mac and in the ios.yml job, and record whether what it ships
+  builds for macOS as well as iOS, because the package's unit tests run on macOS. If it does not, the broker code
+  goes in a second product that the sample app takes and the tests do not.
+verification: ''
+notes: >
+  Not declared at X-I01a. The package brief made an offline resolution the condition, and the SwiftPM cache on
+  the machine this was built on held no clone of MSAL (2026-09-27), so the seam is a documented stub. Nothing
+  in the protocol needs the token until X-A17 defines where it goes.

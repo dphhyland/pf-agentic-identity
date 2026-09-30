@@ -1,0 +1,27 @@
+id: U-0063
+title: The iOS client's App Attest shapes against a physical iPhone, and three vectors per environment
+area: ios-client, app-attest
+source: design
+status: open
+plan_items: [X-I01a, X-A07]
+prs: []
+recorded_in: docs/device/ios-client-contract.md, What is not yet known, item 3
+verify_by: >
+  On a physical iPhone whose App ID has the App Attest capability, run clients/ios/SampleApp against a rig of
+  services/device-enrolment (APPLE_TEAM_ID, APPLE_BUNDLE_ID, APPLE_ALLOW_DEVELOPMENT=true for a development
+  build, REQUIRE_COMPLIANT_DEVICE=false): an enrolment answers 200 and a re-mint carrying an assertion answers
+  200. Capture at least three attestation objects and three assertions per environment (development and
+  production) with the sample app's capture action, which records the clientDataHash inputs, the key identifier
+  exactly as generateKey returned it and the bundle id (the App ID is the team id, a dot and the bundle id), into
+  libs/app-attest/src/test/resources/fixtures in the shape of the macOS 27.2 files, and pin them in tests as
+  MacOsAttestationTest and MacOsAssertionTest do (X-A07). Record how the key identifier decoded.
+verification: ''
+notes: >
+  What the kit does with App Attest was checked on 2026-09-27 against synthetic objects in the server's shapes
+  (clients/ios/tools/interop, the real AppAttestVerifier) and against the real macOS 27.2 objects: the kit's
+  attestation commitment reproduces the nonce in that attestation's credential certificate, and its assertion
+  commitment verifies both assertions (VectorTests). The kit decodes Apple's key identifier as standard base64
+  first because the macOS helper did and the server's SHA-256 check passed; Apple's documentation does not say
+  (read 2026-09-27). Whether an iOS credential certificate carries the OS and key-policy extensions macOS 27
+  writes, and the length of an iPhone assertion's authenticator data, are open too. The sample app's "Capture App
+  Attest vectors" action writes the JSON. Only David has the device and the team.

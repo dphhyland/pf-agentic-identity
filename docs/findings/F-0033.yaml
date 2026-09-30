@@ -1,0 +1,14 @@
+id: F-0033
+title: Access-token mapping criteria can see context.OAuthAuthorizationDetails
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [S4d]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while designing, item 4. Design input rather than a defect: it makes an issuance-time check of the
+  details actually issued possible, which S4d relies on. Low. Confirming it on a booted PingFederate is
+  U-0018.

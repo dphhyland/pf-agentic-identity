@@ -3,18 +3,21 @@
  */
 package com.pingidentity.ps.oidf.ssf;
 
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
+import com.pingidentity.ps.oidf.signals.SetVerifier;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.Optional;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.jose4j.json.JsonUtil;
@@ -40,7 +43,7 @@ public final class PollReceiverClient {
     private final PollTransport transport;
     private final int maxEvents;
     private final List<String> pendingAcks = new ArrayList<>();
-    private volatile ScheduledExecutorService scheduler;
+    private volatile ManagedExecutor scheduler;
 
     public PollReceiverClient(SsfReceiverService receiver, PollTransport transport, int maxEvents) {
         this.receiver = Objects.requireNonNull(receiver, "receiver");
@@ -90,37 +93,57 @@ public final class PollReceiverClient {
         return processed;
     }
 
-    /** Start the background poll loop (idempotent). */
+    /** The poll loop's managed executor; its thread is {@code oidf-ssf-poll-receiver-1}. */
+    static final String EXECUTOR_NAME = "ssf-poll-receiver";
+
+    /**
+     * Start the background poll loop (idempotent): a tick every {@code intervalSeconds} (at least 1), the first one
+     * interval from now, each starting one interval after the last ended. It runs once in the JVM; a start that finds
+     * it running elsewhere starts nothing.
+     */
     public synchronized void start(long intervalSeconds) {
         if (this.scheduler != null) {
             return;
         }
         long tick = Math.max(1, intervalSeconds);
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ssf-poll-receiver");
-            t.setDaemon(true);
-            return t;
-        });
-        this.scheduler.scheduleWithFixedDelay(() -> {
+        Optional<ManagedExecutor> started = ManagedExecutors.every(EXECUTOR_NAME, Duration.ofSeconds(tick), () -> {
             try {
                 runOnce();
             } catch (Exception e) {
                 LOGGER.warn((Object) ("SSF poll client tick failed: " + e.getMessage()));
             }
-        }, tick, tick, TimeUnit.SECONDS);
+        });
+        if (started.isEmpty()) {
+            return;
+        }
+        this.scheduler = started.get();
         LOGGER.info((Object) ("SSF poll receiver started (tick " + tick + "s)"));
     }
 
-    public synchronized void stop() {
-        if (this.scheduler != null) {
-            this.scheduler.shutdownNow();
+    /** Stops the loop: a tick in progress is interrupted and waited for, briefly, outside this client's lock. */
+    public void stop() {
+        ManagedExecutor running;
+        synchronized (this) {
+            running = this.scheduler;
             this.scheduler = null;
+        }
+        if (running != null) {
+            running.close();
         }
     }
 
-    /** Runtime transport: POST JSON to the remote poll endpoint with a bearer token. */
+    /**
+     * The receiver's switch that trusts any certificate on its outbound calls (init-param {@code receiverInsecureTls}),
+     * as InsecureTls names it.
+     */
+    static final String RECEIVER_INSECURE_TLS = "OIDF_SSF_RECEIVER_INSECURE_TLS";
+
+    /**
+     * Runtime transport: POST JSON to the remote poll endpoint with a bearer token. {@code insecureTls} trusts any
+     * certificate chain through platform's {@link InsecureTls}; the host name is still checked.
+     */
     public static PollTransport httpTransport(String pollUrl, String bearerToken, boolean insecureTls) {
-        HttpClient http = insecureTls ? TrustAll.client() : HttpClient.newHttpClient();
+        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), RECEIVER_INSECURE_TLS, insecureTls).build();
         return bodyJson -> {
             HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(pollUrl))
                     .header("Content-Type", "application/json")
@@ -135,34 +158,5 @@ public final class PollReceiverClient {
             }
             return resp.body();
         };
-    }
-
-    /** Shared dev trust-all HTTP client builder. */
-    static final class TrustAll {
-        private TrustAll() {
-        }
-
-        static HttpClient client() {
-            try {
-                javax.net.ssl.TrustManager[] trustAll = {new javax.net.ssl.X509TrustManager() {
-                    public void checkClientTrusted(java.security.cert.X509Certificate[] c, String a) {
-                        // dev trust-all
-                    }
-
-                    public void checkServerTrusted(java.security.cert.X509Certificate[] c, String a) {
-                        // dev trust-all
-                    }
-
-                    public java.security.cert.X509Certificate[] getAcceptedIssuers() {
-                        return new java.security.cert.X509Certificate[0];
-                    }
-                }};
-                javax.net.ssl.SSLContext ssl = javax.net.ssl.SSLContext.getInstance("TLS");
-                ssl.init(null, trustAll, new java.security.SecureRandom());
-                return HttpClient.newBuilder().sslContext(ssl).build();
-            } catch (Exception e) {
-                throw new IllegalStateException("failed to build trust-all HTTP client", e);
-            }
-        }
     }
 }

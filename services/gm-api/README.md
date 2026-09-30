@@ -29,18 +29,20 @@ what a token introspection cannot see.
 - [`docs/pingfederate-gm-api-gaps.md`](docs/pingfederate-gm-api-gaps.md) — the implementer's report, written against PF 13.0.3 and not re-run on 13.1.3: §6 and §7.1 can be added from outside the product, §5 cannot; what PF supports natively (nothing, verified then).
 - [`docs/MCP.md`](docs/MCP.md) — the MCP server: tools (`evaluate_grant`, `list_entitlements`, `describe_grant`), transport, why it holds no credential of its own.
 
-## Build — this module is different
+## Build
 
-`services/gm-api/servlet` is a **vendored tree** and deliberately not a consumer of the repo BOM: groupId
-`au.com.idpartners`, artifact `gm-api` on the reactor's version (`tools/set-version.py` keeps it in step),
-and every dependency `provided` under the `local.pingfederate:*` coordinate convention (`pingfederate-sdk`
-13.1.3, `jakarta-servlet-api` 5.0.2, `jose4j` 1.x, `jackson-*` 2.x, `commons-lang3` 3.x,
-`commons-logging` 1.x). Those coordinates exist in `~/.m2` only after the `install:install-file` lines in
-`.github/actions/pf-provided-jars/action.yml` have run — CI extracts the jars from the public
-`pingidentity/pingfederate` image; locally, run those lines once (or copy the jars out of a running PF as
-[`servlet/README.md`](servlet/README.md) shows). Without them the root
-`mvn package` fails on this module. Bundling any of them into the war would break linkage: PF isolates
-each deploy-dir artifact on its own classloader.
+`services/gm-api/servlet` builds like every other module in the reactor: it imports the repo BOM, and
+its dependencies carry no versions of their own. Only its groupId differs - it keeps the coordinates
+`au.com.idpartners:gm-api`, on the reactor's version (`tools/set-version.py` keeps it in step). Every
+PingFederate dependency is `provided` and comes from PingFederate at run time; from 0.5.0 the war bundles only
+this repository's own `platform-pf` and `platform`, for its lifecycle listener, health and start-up audit
+([libs/platform-pf](../../libs/platform-pf/README.md#lifecycle)). At build time
+`pingfederate-sdk` is one of the two jars `.github/actions/pf-provided-jars/action.yml` installs from the
+public `pingidentity/pingfederate` image, and the rest come from Maven Central: `jose4j`,
+`jackson-databind` and `jackson-core` at the versions the BOM holds to the image, and `jakarta.servlet-api`
+5.0.0, the API line the image's Jetty ships as 5.0.2 (`tools/pf-linkcheck.py` checks the servlet members
+the war uses). Bundling any of them into the war would break linkage: PF isolates each deploy-dir
+artifact on its own classloader.
 
 ## Related
 

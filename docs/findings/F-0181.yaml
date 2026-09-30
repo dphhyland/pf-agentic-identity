@@ -1,0 +1,19 @@
+id: F-0181
+title: A Redis command's bytes are written with no deadline
+severity: low
+area: platform
+source: pr-review
+status: open
+plan_items: [C-2]
+prs: [54]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by C2's review (2026-09-28). RedisConnection.roundTrip writes a command with OutputStream.write and flush,
+  which Socket.setSoTimeout does not bound: only reads wait at most what is left of the command's deadline. A
+  command is a few hundred bytes and fits a socket's send buffer, so the write returns at once unless the buffer is
+  already full - a peer that stopped reading while the connection stays open. Then the calling thread blocks until
+  TCP gives up, past OIDF_REDIS_COMMAND_TIMEOUT_MS, holding a pool permit. The fix is to close the socket when the
+  deadline passes (a timer, or a platform.exec scheduler once C-3 lands), which ends the write with an exception.
+  The other half the review named - threads waiting on the Sentinel lookup past their own deadline - C2 fixed
+  before merge: the locator's lock is taken with tryLock under each command's deadline (RedisSentinelTest).

@@ -1,0 +1,15 @@
+id: F-0012
+title: Subordinate keys are re-learnt over HTTPS
+severity: high
+area: openid-federation
+source: review-2026-09-26
+status: open
+plan_items: [S-7, S7a, S7b]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Subordinate Statements carry keys fetched from the subordinate's live entity configuration, so whoever
+  answers at its URL controls them; verifying the self-signature would not help, because a host owner can
+  self-sign. S7a pins the keys at enrolment; S7b puts a rollover under a 24 h hold and any other change under
+  operator approval, and never lets divergence change a pin.

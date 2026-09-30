@@ -1,10 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!-- metadata-complete=false so the container scans the module jars in WEB-INF/lib for the @WebServlet
-     endpoints: the federation entity servlet + §12 registration (pf-integration), the attestation
-     challenge servlet + the /federation/attestation issuance servlet (attestation-issuer). -->
+     endpoints: the federation entity servlet + §12 registration (pf-integration), the AS challenge servlet
+     (client-attestation), the /federation/attestation issuance and challenge servlets (attestation-issuer). -->
 <web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd"
          version="5.0" metadata-complete="false">
     <display-name>oidf</display-name>
+    <!-- The lifecycle listener (plan item F-2), by name: never an annotation, so one registration whatever the
+         container scans. It marks this war's copy of platform, logs the start-up audit once, and closes the copy's
+         executors, MXBean and Redis pools at undeploy. -->
+    <listener>
+        <listener-class>com.pingidentity.ps.oidf.platform.pf.lifecycle.LifecycleListener</listener-class>
+    </listener>
 </web-app>

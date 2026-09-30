@@ -1,0 +1,36 @@
+# Reductions the coverage ratchet allows (tools/coverage-report.py --baseline; CONTRIBUTING.md "Generated files").
+#
+# The ratchet fails a build that has lost ground against the last successful Build on main: a jacoco check gone
+# or including fewer methods, or fewer pinned conformance-matrix rows. When that loss is the point of the change -
+# dead code deleted with its <include>, a check's execution id renamed, a module moved, a matrix row retired -
+# add a line here in the same pull request, so the review sees it and the push to main that follows reads it too.
+# Copy the names from the ratchet's failure line. One per line:
+#
+#   check <module> <execution id>     the check may be gone
+#   method <module> <method>          the method may leave the module's checks
+#   row <matrix row>                  the row may no longer be pinned
+#
+# for example `method libs/decide com.example.Gate.decide(java.lang.String)`. An allowance only takes its item
+# out of the baseline: nothing here lets a gated method fall below 100%. Once the baseline no longer has the item,
+# the line allows nothing, the ratchet says so in the step summary, and the next change can delete it.
+# C2 (C-2): MiniRedisClient and client-attestation's DeploymentProfile moved to libs/platform's redis and profile
+# packages, where the same decisions are gated (RedisTls, RedisUrl, RedisClient.transportRefusal).
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DeploymentProfile.isProduction(java.util.function.Function)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.caFileFromEnvironment(java.util.function.Function,java.util.function.Function)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.isIpLiteral(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.redact(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslContextFor(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.sslParametersFor(javax.net.ssl.SSLParameters,java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.MiniRedisClient.transportRefusal(boolean,boolean)
+# XD01 (X-D01): demo-rs moved to libs/rs-validation, where the same decisions are gated with more beside them;
+# services/demo-rs is a relocation POM with no sources.
+check services/demo-rs coverage-gate
+# XA14 (X-A14): SetMinter moved to libs/shared-signals (package com.pingidentity.ps.oidf.signals), where sign is gated.
+method servlets/ssf com.pingidentity.ps.oidf.ssf.SetMinter.sign(com.pingidentity.ps.oidf.ssf.SecurityEventToken)
+# S8A (S8a, F-0225): DpopProofValidator moved to libs/oidf-jose (package com.pingidentity.ps.oidf.jose.dpop), where
+# these methods and validate are gated.
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(java.lang.String,java.lang.String)
+method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(java.lang.String)

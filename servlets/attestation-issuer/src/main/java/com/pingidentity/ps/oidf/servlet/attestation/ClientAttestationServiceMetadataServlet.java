@@ -4,6 +4,8 @@
 package com.pingidentity.ps.oidf.servlet.attestation;
 
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidator;
 import com.pingidentity.ps.oidf.issuer.InstanceAttestationValidators;
 import java.io.IOException;
@@ -12,6 +14,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import jakarta.servlet.ServletConfig;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
@@ -19,7 +22,6 @@ import jakarta.servlet.http.HttpServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.jose4j.json.JsonUtil;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 
 /**
  * Serves the {@code openid-client-attestation-service-1_0} discovery document at
@@ -45,7 +47,8 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     private static final long serialVersionUID = 1L;
 
     static final String ATTESTATION_PATH = "/federation/attestation";
-    static final String CHALLENGE_PATH = "/federation/attestation-challenge";
+    /** The client attestation service's own challenge endpoint - never the authorization server's (CAS §4.1). */
+    static final String CHALLENGE_PATH = AttestationIssuanceChallengeServlet.PATH;
 
     /** Request members every issuance request must carry ({@code svid} is the SPIFFE-era alias). */
     static final List<String> REQUEST_PARAMETERS_REQUIRED =
@@ -85,7 +88,7 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         applyCors(resp);
-        String issuer = OAuthIssuerUtils.getInstance().getIssuerValue(req);
+        String issuer = PfInternals.issuer(req);
         resp.setStatus(200);
         resp.setContentType("application/json");
         resp.setHeader("Cache-Control", "public, max-age=3600");
@@ -134,8 +137,22 @@ public class ClientAttestationServiceMetadataServlet extends HttpServlet {
 
     /** Client metadata sources in assurance order, mirroring the issuance servlet's composite resolver. */
     private static List<String> metadataSources() {
+        return metadataSources(System::getProperty, System::getenv);
+    }
+
+    /**
+     * As above, over the given property and environment reads. {@code cimd} is advertised only when
+     * {@code OIDF_CIMD_TRUST_BUNDLES} is set and {@code OIDF_DEPLOYMENT_PROFILE=development}: under any other profile
+     * the attester refuses the CIMD source (plan item M-1), and a document that still listed it would promise
+     * clients a source they cannot be issued from.
+     */
+    static List<String> metadataSources(Function<String, String> props, Function<String, String> env) {
         List<String> sources = new ArrayList<>();
-        if (AttestationIssuanceServlet.env("oidf.cimd.trust.bundles", "OIDF_CIMD_TRUST_BUNDLES") != null) {
+        String bundles = props.apply("oidf.cimd.trust.bundles");
+        if (bundles == null || bundles.isBlank()) {
+            bundles = env.apply("OIDF_CIMD_TRUST_BUNDLES");
+        }
+        if (bundles != null && !bundles.isBlank() && DeploymentProfile.of(env).isDevelopment()) {
             sources.add("cimd");
         }
         sources.add("registration");

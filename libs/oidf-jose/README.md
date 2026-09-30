@@ -3,9 +3,9 @@
 > **Part of the [pf-agentic-identity](https://github.com/dphhyland/pf-agentic-identity) monorepo** — build from the repo root with `mvn package`. Absorbed with history from [`dphhyland/oidf-jose`](https://github.com/dphhyland/oidf-jose) on 2026-07-21; that repo is backports-only and its copy still uses the pre-split `.common` package. See [docs/PROVENANCE.md](../../docs/PROVENANCE.md).
 
 The shared **JOSE/JWT + SD-JWT foundation** the rest of the reactor signs and verifies through.
-Package `com.pingidentity.ps.oidf.jose`. Depends on `jose4j`, `jackson-databind` and `commons-logging`
-only — no PingFederate, servlet, federation or attestation types — which is what lets it sit at the
-bottom of the dependency graph and on every classpath (PF's shared classpath, `oidf.war`, the
+Package `com.pingidentity.ps.oidf.jose`. Depends on `platform` (JDK only), `jose4j`, `jackson-databind` and
+`commons-logging` only — no PingFederate, servlet, federation or attestation types — which is what lets it sit
+near the bottom of the dependency graph and on every classpath (PF's shared classpath, `oidf.war`, the
 standalone services).
 
 ## What's here
@@ -20,8 +20,9 @@ standalone services).
 | `CompactJws` | Assembles `BASE64URL(header).BASE64URL(payload).BASE64URL(signature)` over a `JwsSigner`. Header carries `alg`, `typ`, `kid` — keys are referenced by id, never embedded, so a verifier resolves them through a trust path |
 | `SigningKeyProvider` | RSA key pair + `kid` SPI that `FederationService` signs entity statements with; the host (PF) implements it |
 | `SdJwt` (+ `SdJwtException`) | SD-JWT split, digest and reconstruction (`_sd` object properties, `{"...": digest}` array elements) plus disclosure builders. Kept as a library primitive; the AS-side verifier in `client-attestation` no longer accepts SD-JWT presentations |
+| `dpop.DpopProofValidator` / `dpop.DpopProof` | RFC 9449 §4.3 proof checks every receiver shares - the token endpoint's attestation combined mode, rs-validation and platform-pf's operator authenticator: `typ` `dpop+jwt`, a public `jwk` and the signature under it, the algorithm allowlist, `htm` compared exactly (RFC 9110 §9.1: "The method token is case-sensitive"), `htu` after RFC 3986 syntax- and scheme-based normalisation with the query and fragment ignored, `jti` required and `iat` inside the window. Replay, `ath`, the key binding and nonces are the caller's. Moved here from client-attestation in 0.6.0 (F-0225, F-0226) |
 | `Claims` | Null-safe accessors over `JwtClaims` and nested maps — empty map instead of `null` |
-| `HttpGetClient` / `JdkHttpGetClient` | Minimal GET seam for fetching federation artefacts. Every fetch is screened by `OutboundUrlPolicy` first, then subject to 8 s connect / 15 s request timeouts and forced HTTP/1.1, so a stalled remote entity fails fast on the caller's thread instead of outliving the client's own timeout. Response bodies are read through the policy's byte cap rather than buffered whole. The `ignoreSslErrors` constructor is trust-all — a dev trust controller only |
+| `HttpGetClient` / `JdkHttpGetClient` | Minimal GET seam for fetching federation artefacts. Every fetch is screened by `OutboundUrlPolicy` first, then subject to 8 s connect / 15 s request timeouts and forced HTTP/1.1, so a stalled remote entity fails fast on the caller's thread instead of outliving the client's own timeout. Response bodies are read through the policy's byte cap rather than buffered whole. The `ignoreSslErrors` constructor (`OIDF_FEDERATION_IGNORE_SSL_ERRORS`) trusts any certificate chain through libs/platform's `InsecureTls` - a dev trust controller only. The JDK client still checks that the certificate names the host dialled unless the JVM-wide `jdk.internal.httpclient.disableHostnameVerification` is set (`JdkHttpClientInsecureTlsTest`) |
 | `OutboundUrlPolicy` | What the process is willing to fetch, applied before every outbound request: HTTPS only (`OIDF_FETCH_ALLOW_HTTP` opts into plaintext), no credentials in the URL, and no address that resolves to a private/link-local/loopback/CGN/IETF-reserved range unless the host is named in `OIDF_FETCH_HOST_ALLOWLIST` or `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS=true`. `trusting(...)` exempts specific operator-configured origin+path-prefix endpoints (a trust controller, a SPIRE agent) from the scheme/address rules without opening the exemption to other ports or paths on the same host. Body size capped at `OIDF_FETCH_MAX_BODY_BYTES` (default 256 KiB). Exists because a client-supplied `trust_chain`'s `authority_hints` are attacker-controlled URLs this process fetches |
 
 ## Configuration

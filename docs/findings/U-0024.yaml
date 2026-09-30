@@ -1,0 +1,25 @@
+id: U-0024
+title: '@WebListener scanning in merged jars'
+area: pf-integration
+source: design
+status: closed
+plan_items: [F-2]
+prs: [57]
+recorded_in: the plan, To verify before relying on it, booted PingFederate item 10
+verify_by: 'On the rig: a @WebListener in a staged jar, and whether it runs without a web.xml entry.'
+verification: >
+  Closed 2026-09-28 by package F2 (PR #57), on the conformance rig: PingFederate 13.1.3.0 (Jetty 12.0.36.1, ee9), the
+  pinned image's java 21.0.12.1, server.log times 2026-09-27 21:48-21:56 UTC. A probe jar holding one @WebListener
+  class, with no web.xml entry, was added to the assembled pf-runtime.war's WEB-INF/lib and, the same jar, to
+  server/default/deploy. In each of three boots the probe's contextInitialized ran exactly once, for the root context,
+  on WebAppClassLoader{ROOT}, from WEB-INF/lib/u0024-probe.jar; it ran for no other context (pf-scim, pf-ws, the
+  admin console's) and never from server/default/deploy. So yes: pf-runtime.war scans its WEB-INF/lib jars for
+  @WebListener, and the engine's loader runs no annotated listener. The lifecycle listener is registered by name all
+  the same (build/pingfederate/filters.xml, and the web.xml of oidf.war and gm-api.war), and carries no annotation:
+  the registration should not depend on which jars a container scans when the same jars sit on the engine's loader,
+  the assembler checks a named entry is there exactly once, and a war with metadata-complete="true" would silently
+  drop an annotated listener. A probe listener also showed that PingFederate calls contextDestroyed on a graceful
+  stop (F-0210).
+notes: >
+  The plan's booted-PingFederate item 10. The answer bears on anything annotated in a staged jar: a @WebListener or
+  @WebFilter placed in a module jar runs in pf-runtime.war without being declared.

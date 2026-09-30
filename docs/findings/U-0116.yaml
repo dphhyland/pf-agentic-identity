@@ -1,0 +1,23 @@
+id: U-0116
+title: The RAR plugin's fingerprint comparison with the attestation filter's, on a booted PingFederate
+area: rar-paz-plugin
+source: pr-review
+status: open
+plan_items: [S1b, S1c]
+prs: [36]
+recorded_in: 'plugins/rar-paz-plugin/README.md, The containment model, The model set and its fingerprint'
+verify_by: >
+  Once S1b has merged: on the rig, drive an attest_jwt_client_auth client with authorization_details through the
+  token endpoint three times - with one OIDF_RAR_MODELS_FILE for the whole process (decided), with the plugin's
+  jar from a build whose RarModels.SEMANTICS differs or with the filter's jar from 0.3.0 (refused before any PDP
+  call, the WARNING naming the mismatch or the missing member), and with a secret-authenticated client (no
+  context, decided without the comparison). Record the plugin's lines and the token endpoint's answers.
+verification: ''
+notes: >
+  Unit-tested on 2026-09-27 (ModelGateTest, ModelContainmentTest: a matching fingerprint is decided, a missing
+  or different one is refused before the PDP in enrich and answered false in isEqualOrSubset, no context is
+  decided as before, a context that is not a map is refused). Not driven on a booted PingFederate: the filter
+  publishes rar_models_fingerprint only from S1b on, and the rig's probe client is secret-authenticated, so the
+  S1c rig run (pfai-s1c, 2026-09-27T09:33Z) had no attestation context. Also unverified there: that
+  PingFederate's filter and the plugin, in one process, read the same OIDF_RAR_MODELS_FILE and so compute the
+  same fingerprint (the plugin logged bbedb1a7... for the built-ins with the development fallback on).

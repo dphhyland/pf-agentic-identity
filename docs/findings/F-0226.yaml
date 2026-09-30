@@ -1,0 +1,22 @@
+id: F-0226
+title: DpopProofValidator compares htm without regard to case
+severity: low
+area: client-attestation, rs-validation
+source: pr-review
+status: closed
+plan_items: [S8a]
+prs: [59, 71]
+verification: >
+  2026-09-30, branch prod/p3-operator-authenticator (PR 71): DpopProofValidator (now in oidf-jose) compares htm
+  with equals. DpopProofValidatorTest refuses a proof whose htm is "get" for a GET request, and
+  OperatorAuthenticatorTest aProofForAnotherMethodIsRefused does the same through the operator authenticator
+  (invalid_dpop_proof). RFC 9110 section 9.1: "The method token is case-sensitive".
+target_release: 0.6.0
+notes: >
+  Found while building XD01 (2026-09-28). DpopProofValidator.validate refuses a proof when
+  `!expectedMethod.equalsIgnoreCase(htm)`, so a proof whose htm is "get" passes a GET request. RFC 9449 section 4.3,
+  item 8: "The htm claim matches the HTTP method of the current request", and RFC 9110 section 9.1 says the method
+  token is case-sensitive, so "get" is not the method GET. The exposure is small - the proof is still signed by the
+  bound key and every other check applies - but it is a conformance gap in the one DPoP checker the token endpoint,
+  rs-validation and (by plan) S8a share. The fix is an exact comparison, in the same change that moves the class
+  (F-0225).

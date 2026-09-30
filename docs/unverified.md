@@ -11,24 +11,26 @@ Last reviewed: 2026-09-26, against the PingFederate 13.1.3 jars - items 4, 5 and
 PingFederate version. First written 2026-07-31 against 13.0.3; item 13 added 2026-08-24, against
 draft-ietf-oauth-spiffe-client-auth-02; item 11 resolved 2026-09-24; items 14 and 15 added 2026-09-26 -
 14 is U-0004, the client model pinned from `javap`, and 15 a question the migration plan left open, answered
-on the rig. The findings register planned for v0.4.0 (`docs/findings/`) is to take these over as `U-` entries.
+on the rig. From 0.4.0 the findings register ([docs/findings](findings/README.md)) carries each of these as the
+`U-` entry named in its heading, with its status and what would verify it; this file keeps the long form, and
+the two are kept in step - an item resolved here is closed there, with the evidence.
 
 ---
 
-## 1. `LATouchIDAuthenticationMaximumAllowableReuseDuration` has no published value
+## 1. `LATouchIDAuthenticationMaximumAllowableReuseDuration` has no published value - U-0001
 
 **Assumed:** nothing. The code must read the constant at runtime.
 
 Apple declares it as `let LATouchIDAuthenticationMaximumAllowableReuseDuration: TimeInterval` with
 the abstract "The maximum allowable reuse duration" and **publishes no number**. Microsoft's .NET
-binding docs — often a back-channel for header values — only restate the type. A web search summary
+binding docs - often a back-channel for header values - only restate the type. A web search summary
 asserted 300 seconds; none of the underlying pages say it.
 
 **Treat "5 minutes" as folklore.** Never hardcode 300. Read the constant.
 
 - https://developer.apple.com/documentation/localauthentication/latouchidauthenticationmaximumallowablereuseduration
 
-## 2. Whether the reuse window covers Face ID
+## 2. Whether the reuse window covers Face ID - U-0002
 
 **Assumed:** it does not, and the design does not rely on it either way (see item 3).
 
@@ -38,27 +40,27 @@ authentication for the receiver succeeds automatically."* There is no Apple stat
 to Face ID. Community forum posts claim it does; that is not documentation.
 
 Note also that the documented trigger is **device unlock**, not a prior `evaluatePolicy` call in your
-app — narrower than it is usually assumed to be.
+app - narrower than it is usually assumed to be.
 
 - https://developer.apple.com/documentation/localauthentication/lacontext/touchidauthenticationallowablereuseduration
 
-## 3. Whether a pre-authenticated `LAContext` ever expires
+## 3. Whether a pre-authenticated `LAContext` ever expires - U-0003
 
 **Assumed:** it does not expire on its own. The app owns the window and must call `invalidate()`.
 
-`kSecUseAuthenticationContext` documents the reuse behaviour — *"If this key is specified with a
+`kSecUseAuthenticationContext` documents the reuse behaviour - *"If this key is specified with a
 context that has been previously authenticated, the operation will succeed without asking user for
-authentication"* — but states **no expiry**.
+authentication"* - but states **no expiry**.
 
 This is load-bearing and it is why the plan treats the client-side time-box as **app-enforced, not
 platform-enforced**. A compromised app could retain the context indefinitely. The real control is
 server-side UV recency checked at token issuance; the client window is UX and blast-radius reduction.
-If Apple later documents an expiry, the client-side claim gets stronger — the server-side control
+If Apple later documents an expiry, the client-side claim gets stronger - the server-side control
 does not change.
 
 - https://developer.apple.com/documentation/security/ksecuseauthenticationcontext
 
-## 4. The complete set of `PF-INF/*` plugin-type names
+## 4. The complete set of `PF-INF/*` plugin-type names - U-0005
 
 **Assumed:** the names this repo already uses successfully are correct; no complete list is relied on.
 
@@ -77,7 +79,7 @@ three this repo uses are there in 13.1.3: `authorization-detail-processors`
 
 **Still assumed:** nothing beyond those three. A complete list was not compiled, and nothing here needs one.
 
-## 5. No PingFederate 13.x javadoc or SDK developer's guide on this machine
+## 5. No PingFederate 13.x javadoc or SDK developer's guide on this machine - U-0006
 
 **Assumed:** interface shapes read directly from the compiled jar are correct.
 
@@ -85,22 +87,22 @@ Re-checked 2026-09-26. The 13.x SDK artefacts present are two jars under
 `~/.m2/repository/com/pingidentity/pingfederate/pingfederate-sdk/`, both extracted from the public image:
 `13.0.0.3` (396,035 bytes, 455 classes) and `13.1.3.0` (433,677 bytes, 485 classes, the one the reactor
 compiles against). Neither has `PF-INF` or resources. There is still no `*-javadoc.jar` for any PF
-artifact anywhere, no PF 13.x install directory, and no `/opt/server/sdk` in the 13.1.3 image.
+artefact anywhere, no PF 13.x install directory, and no `/opt/server/sdk` in the 13.1.3 image.
 
-Full SDK trees — with `doc/` javadoc HTML and 18 `plugin-src/` examples — exist only for **12.x**, at
+Full SDK trees - with `doc/` javadoc HTML and 18 `plugin-src/` examples - exist only for **12.x**, at
 `~/Source/pingfederate-12.1.3/pingfederate/sdk` and several sibling checkouts. Those were used for
 orientation only; every interface named in the plan was confirmed against the 13.0.3 jar at the time, and
 the code now compiles against 13.1.3.0.
 
-**Consequence:** method *semantics* (as opposed to signatures) are inferred. Where behaviour matters —
+**Consequence:** method *semantics* (as opposed to signatures) are inferred. Where behaviour matters -
 notably `CustomDataSourceDriver.retrieveValues` and the `DynamicClientRegistrationPlugin.processPlugin`
-lifecycle — it must be confirmed empirically against a running instance before being relied on.
+lifecycle - it must be confirmed empirically against a running instance before being relied on.
 
-## 6. CAEP Interoperability Profile is a draft, not Final
+## 6. CAEP Interoperability Profile is a draft, not Final - U-0007
 
 **Assumed:** it is guidance, not a requirement. The plan does not cite it as normative.
 
-SSF 1.0 and CAEP 1.0 **are** Final (approved by OIDF membership vote, 2 September 2025 — 85 approve /
+SSF 1.0 and CAEP 1.0 **are** Final (approved by OIDF membership vote, 2 September 2025 - 85 approve /
 1 object / 25 abstain). The *Interoperability Profile* is a different document: currently **draft 01**,
 published 21 July 2026, in public review to 25 September 2026, with voting 26 September to
 10 October 2026. Its last approved status is Implementer's Draft ID1 (August 2024).
@@ -113,7 +115,7 @@ No OIDF certification programme for the profile was found.
 
 - https://openid.net/three-shared-signals-final-specifications-approved/
 
-## 7. Which PingOne capability emits device-compliance CAEP events
+## 7. Which PingOne capability emits device-compliance CAEP events - U-0008
 
 **Assumed:** nothing yet. Milestone 6 begins by determining this.
 
@@ -124,7 +126,7 @@ third-party MDM. No PingOne reference exists anywhere in this repository today.
 Whether PingOne transmits SSF/CAEP natively, or whether a polling shim must translate into CAEP, is a
 meaningful difference in effort and must be settled before milestone 6 is estimated.
 
-## 8. Whether PingFederate can emit `act` as a JSON object
+## 8. Whether PingFederate can emit `act` as a JSON object - U-0009
 
 **Assumed:** nothing. The resource server accepts both forms and reports which one arrived.
 
@@ -133,21 +135,21 @@ RFC 8693 §4.1 defines `act` as a claim whose value is a **JSON object**.
 decode, with a comment noting PF 13.x rejects OGNL referencing an attribute literally named `act`
 (`ognl_expression_invalid_attribute`, worked around with a second contract name `prior_act`).
 
-Whether PF's JWT access token manager can emit a genuinely nested JSON claim — rather than a string
-holding JSON — was **not determined**. It needs a running PF to settle, and guessing would mean
+Whether PF's JWT access token manager can emit a genuinely nested JSON claim - rather than a string
+holding JSON - was **not determined**. It needs a running PF to settle, and guessing would mean
 either shipping a spec deviation or breaking the existing mapping.
 
 Until then `ActChain` parses both: the object form is the spec shape, and the legacy string form is
 parsed so older tokens keep working but reported via `legacyStringForm()` so the deviation is visible
 rather than permanent.
 
-## 9. The PingFederate access token mapping for the instance registry
+## 9. The PingFederate access token mapping for the instance registry - U-0010
 
 **Assumed:** the `CustomDataSourceDriver` contract as compiled, nothing about how PF drives it.
 
 `InstanceRegistryDataSource` implements the interface as it appears in the 13.1.3.0 SDK jar, which it
 compiles against; `javap` shows `CustomDataSourceDriver`, its descriptor and `SourceDescriptor`
-unchanged from 13.0.0.3 (2026-09-26). `InstanceLookup` — all the actual logic — is unit tested with no PF
+unchanged from 13.0.0.3 (2026-09-26). `InstanceLookup` - all the actual logic - is unit tested with no PF
 on the classpath. The descriptor name is settled: `PF-INF/custom-drivers` is the constant PF reads (item
 4). What is **unverified** is the rest of the surrounding configuration: that a filter field reaches
 `retrieveValues` the way the GUI descriptor implies, and that an issuance criterion can gate on the
@@ -155,17 +157,17 @@ returned booleans. Neither has been run in a PingFederate.
 
 Symptom to expect if PF does not pick the plugin up: it ignores the jar silently, with no error.
 
-## 10. demo-rs has no HTTP surface or replay cache yet
+## 10. demo-rs has no HTTP surface or replay cache yet - U-0011
 
 **Assumed:** nothing, but the gap is load-bearing enough to name.
 
 `DelegatedTokenValidator` reports the DPoP proof's `jti` precisely so a caller can replay-cache it,
-and a test asserts it is reported — but no caller exists yet. A resource server that skips that cache
+and a test asserts it is reported - but no caller exists yet. A resource server that skips that cache
 accepts a captured proof for as long as it stays fresh, so the HTTP layer must wire
 `AttestationReplayCache` (which already exists in `libs/client-attestation`) before it is used for
 anything real.
 
-## 11. The OpenID Federation metadata_policy merge table - resolved 2026-09-24
+## 11. The OpenID Federation metadata_policy merge table - resolved 2026-09-24 - U-0012
 
 **Resolved.** The Final text (17 February 2026) was read in full and `MetadataPolicy` now follows it. Two
 things this entry used to say were wrong:
@@ -192,24 +194,24 @@ What the code does now, each rule pinned by a tagged test in `MetadataPolicyTest
 - The §6.1.5 worked example merges and resolves to the specification's own results, byte for byte after
   sorting keys (`theWorkedExample*` in `MetadataPolicyTest`, fixtures extracted from the Final text).
 
-## 12. Whether PingOne emits CAEP device-compliance-change at all
+## 12. Whether PingOne emits CAEP device-compliance-change at all - U-0013
 
 **Assumed:** the event shape from CAEP 1.0 Final, nothing about PingOne's transmitter.
 
 `CaepEventHandler` implements `device-compliance-change`, `session-revoked` and `credential-change`
 against the claim definitions verified in CAEP 1.0 Final. What remains unknown is item 7: whether
 PingOne transmits these natively, and with which subject identifier format. The handler accepts
-`opaque`/`id`, a bare `sub`, and a plain string subject, which covers the likely shapes — but the
+`opaque`/`id`, a bare `sub`, and a plain string subject, which covers the likely shapes - but the
 mapping from PingOne's device identifier to this registry's `device.id` is **not** established, and
 without it the loop does not close on real signals.
 
-## 13. Whether SPIFFE-native client authentication is worth implementing
+## 13. Whether SPIFFE-native client authentication is worth implementing - U-0014
 
 **Assumed:** no, for now. The attestation-issuance API is treated as the decoupling layer instead, and
 `draft-ietf-oauth-spiffe-client-auth` §3.3 (WIT-SVID client authentication) is not implemented.
 
 Assessed 2026-08-24 against draft -02. The verification result: neither this repo nor
-`client-attestation-sdk-polyglot` implements it, though the transport already matches — §3.3 reuses
+`client-attestation-sdk-polyglot` implements it, though the transport already matches - §3.3 reuses
 ABCA's two headers and PoP `typ` exactly, so only the attestation half would change
 (`ClientAttestationVerifier` pins a single `typ`; a WIT's `sub` is a SPIFFE ID rather than a client id;
 and keys would come from the trust domain's bundle endpoint rather than from the attester resolved by
@@ -221,8 +223,8 @@ discovery: it says implementations "SHOULD use the mechanisms defined in this sp
 available" and "MAY use `iss`-based discovery ... as a compatibility mechanism, subject to local policy,
 appropriate trust configuration and risk mitigations described in Section 8.1". The only `MUST NOT`
 in that section concerns the system trust store, and only for X509-SVIDs. So the existing
-`FederationAttesterKeyResolver` — which resolves by `iss` but validates a trust chain to a *configured*
-anchor rather than trusting the token's `iss` on its own — is nearer that allowance than a first reading
+`FederationAttesterKeyResolver` - which resolves by `iss` but validates a trust chain to a *configured*
+anchor rather than trusting the token's `iss` on its own - is nearer that allowance than a first reading
 suggests. The decision below therefore rests on findings 1 and 2; there is no hard trust-model barrier.
 
 Three findings decided it, and any of them changing is grounds to revisit:
@@ -235,7 +237,7 @@ Three findings decided it, and any of them changing is grounds to revisit:
    ignore the claims the authorization model runs on.
 3. **Nothing can mint a WIT.** A SPIRE Agent holds no trust-domain signing key, and `FetchJWTSVID`
    returns a bearer JWT-SVID with no `cnf`, which a WIT requires.
-   [spiffe/spire#6326](https://github.com/spiffe/spire/issues/6326) — "WIT-SVID support in SPIRE" —
+   [spiffe/spire#6326](https://github.com/spiffe/spire/issues/6326) - "WIT-SVID support in SPIRE" -
    was opened 2025-09-18 to gauge appetite and carries no design, no implementation and no timeline.
    The SPIFFE spec side is further along: WIT-SVID landed as an Incubating sub-profile (2026-01-21),
    staying experimental until the IETF document is an RFC.
@@ -243,7 +245,7 @@ Three findings decided it, and any of them changing is grounds to revisit:
 **Revisit if:** a requirement appears to authenticate to an authorization server this project does not
 control; or to accept SPIFFE workloads from an organisation whose attester will not be trusted; or a
 conformance claim is required externally; or SPIRE ships WIT issuance, at which point the cheap move is
-a `WitInstanceAttestationValidator` accepting a WIT as *evidence* into the existing validator registry —
+a `WitInstanceAttestationValidator` accepting a WIT as *evidence* into the existing validator registry -
 which is not §3.3 conformance and must not be described as such.
 
 The reasoning is recorded in [openid-client-attestation-service-1_0.md](openid-client-attestation-service-1_0.md)
@@ -262,7 +264,7 @@ on 13.1.3 and read back what its admin API or console shows for the new model's 
 register. Revisit on the rig: register a relying party under `PF_PROFILE=federation-op` and read the client
 back over `/pf-admin-api/v1/oauth/clients`.
 
-## 15. Whether a throwing OGNL issuance criterion denies or permits - verified 2026-09-26
+## 15. Whether a throwing OGNL issuance criterion denies or permits - verified 2026-09-26 - U-0015
 
 **Verified: it denies.** The migration plan asked because the un-migrated v0.1.5 `ClientAttestationUtils`
 throws `ClassCastException` on its first line on 13.1.3, and `idp-agentic-demo` runs that criterion as its
@@ -298,7 +300,7 @@ criteria, and PingFederate 13.0.3.
 
 ## Related deliberate divergences
 
-These are *decisions*, not gaps — they are recorded in [claim-dictionary.md](claim-dictionary.md)
+These are *decisions*, not gaps - they are recorded in [claim-dictionary.md](claim-dictionary.md)
 rather than here:
 
 - retaining `iss` on the attestation, which draft -08 removed;

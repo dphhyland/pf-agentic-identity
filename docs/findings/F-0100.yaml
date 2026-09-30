@@ -1,0 +1,30 @@
+id: F-0100
+title: RarEntitlement is unused and stays only until the plugin's contract test that reads it is deleted
+severity: low
+area: client-attestation
+source: pr-review
+status: open
+plan_items: [S-1, S1c]
+prs: [37]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while implementing S1b (PR #37), 2026-09-27. The token gate and the attester ask libs/rar-model, so nothing
+  in main code calls RarEntitlement. plugins/rar-paz-plugin's RarContainmentContractTest reads
+  libs/client-attestation/.../RarEntitlement.java from disk, compares its SET_FIELDS with RarContainment's, and
+  fails when the file is missing, so deleting it in S1b would break the plugin's build until S1c merges. It is
+  @Deprecated(forRemoval = true), with its tests kept. Once S1c has deleted RarContainment and its contract test,
+  delete RarEntitlement, RarEntitlementTest, ClientAttestationException.accessDenied and ACCESS_DENIED (their only
+  callers are RarEntitlement, its test and one assertion in ClientAttestationAuthFilterTest). Low: dead code that
+  no request reaches.
+
+  Retargeted from 0.4.0 to 0.5.0 on 2026-09-27: S1c has deleted RarContainment and its contract test (PR #36), so
+  the deletion is unblocked. It was tried on the release branch and not made: it removes RarEntitlementTest and a
+  pf-integration assertion, and the session making the release was not permitted to remove tests. It removes
+  public members of libs/client-attestation too, so it goes in a code pull request of its own, with David's say-so
+  on the test removal; nothing calls the class.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: no Phase 2 package owned the deletion, and the release
+  package changes no code. RarEntitlement.java, RarEntitlementTest.java and ClientAttestationException's accessDenied
+  and ACCESS_DENIED are all still in libs/client-attestation on origin/main 4b1fd979. The deletion removes a test
+  class and public members, so it waits for David's say-so in a code pull request of its own.

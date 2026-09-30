@@ -1,0 +1,25 @@
+id: U-0057
+title: idp-agentic-demo's payment_initiation fields beyond what this repository sends
+area: rar-model, rar-paz-plugin
+source: design
+status: open
+plan_items: [S1b, S1c]
+prs: [26]
+recorded_in: libs/rar-model/README.md, The built-in models; docs/releases/0.4.0.md, Before you deploy item 17
+verify_by: >
+  Read idp-agentic-demo's request builders (its client, its rar-paz fragment) for every field its
+  payment_initiation, account_information and sales_agent details carry, and run its payment flow against
+  a rig with S1b wired. A field outside libs/rar-model's built-in tables is refused there as
+  UNDECLARED_FIELD; the fix is a models document that extends the type, never a wider built-in.
+verification: ''
+notes: >
+  The built-in payment_initiation model carries RFC 9396 Figure 2 (instructedAmount, creditorName,
+  creditorAccount, remittanceInformationUnstructured), debtorAccount, and the flat amount, currency and
+  purpose that the RAR plugin's consent text and tests in this repository read and send (read at 6ebc186,
+  2026-09-27). instructedAmount and the flat amount with currency are alternatives: a detail that carries
+  both is refused, and a request must use the spelling of the ceiling that constrains it. creditorName,
+  remittanceInformationUnstructured, currency, identifier and purpose must be strings. account_information
+  carries accounts, validUntil and recurringIndicator, and not RFC 9396 §7.1's access object.
+  idp-agentic-demo is a sibling repository this package could not read; the plan's S-1 says its payment
+  fields pass, which is true of the fields visible here and unverified for any others, and for the value
+  types it sends.

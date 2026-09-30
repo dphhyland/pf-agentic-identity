@@ -1,0 +1,23 @@
+id: U-0050
+title: Testcontainers 1.21.4 on Docker Desktop 29
+area: build
+source: design
+status: closed
+plan_items: [DB-1]
+prs: [44]
+recorded_in: the plan, To verify before relying on it, verbatim from the primary source, Libraries
+verify_by: >
+  Run the Postgres-backed tests with Testcontainers 1.21.4 on this machine's Docker Desktop 29 and record
+  whether the container starts.
+verification: >
+  2026-09-28, on the maintainer's Mac with Docker Desktop 29.4.1 (Engine API 1.54, minimum 1.40), no
+  OIDF_TEST_JDBC_URL set: with Testcontainers 1.21.4, libs/testkit's PostgresDatabaseTest ran 6 of 6, and
+  `docker events` showed testcontainers/ryuk:0.12.0 and postgres:16-alpine created and started, and the
+  Postgres container killed and destroyed when the test JVM ended. The same test with
+  `-Dversion.testcontainers=1.19.8` found no Docker (DockerClientFactory.isDockerAvailable() false) and skipped
+  all 6. The container starts; 1.21.4 is what the bom pins from DB-1.
+notes: >
+  Testcontainers as pinned before DB-1 (1.19.8) missed Docker Desktop 29 here, so the device-instance tests
+  needed IDM_TEST_JDBC_URL. From DB-1 every store suite goes through libs/testkit, which takes
+  OIDF_TEST_JDBC_URL first and Testcontainers second, so a machine where Docker is not reachable still runs the
+  suites against a named server (CONTRIBUTING.md, "Tests that need Postgres").

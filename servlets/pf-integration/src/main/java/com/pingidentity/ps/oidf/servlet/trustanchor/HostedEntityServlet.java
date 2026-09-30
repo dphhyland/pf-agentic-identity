@@ -4,6 +4,9 @@
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
 import com.pingidentity.ps.oidf.pf.AdminBearer;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.trustmark.TrustMarkSupport;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
@@ -12,6 +15,7 @@ import com.pingidentity.ps.oidf.authority.HostedEntity;
 import com.pingidentity.ps.oidf.authority.HostedEntityConfigurationBuilder;
 import com.pingidentity.ps.oidf.authority.SelfSignedEntityConfigurations;
 import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
+import com.pingidentity.ps.oidf.authority.HostedEntitySigner;
 import com.pingidentity.ps.oidf.authority.HostingMode;
 import com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
@@ -65,7 +69,8 @@ import org.jose4j.json.JsonUtil;
  * registry row, and deriving it per-request would mean a reverse-proxy hostname change silently orphans
  * every statement this authority ever issued about it.
  */
-@WebServlet(urlPatterns = {"/federation/agents/*", "/federation/resources/*"})
+// loadOnStartup: HOSTING's part registers at deploy, not on the first request (finding F-0193); its init never throws.
+@WebServlet(urlPatterns = {"/federation/agents/*", "/federation/resources/*"}, loadOnStartup = 1)
 public class HostedEntityServlet extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private static final Log LOGGER = LogFactory.getLog(HostedEntityServlet.class);
@@ -75,6 +80,8 @@ public class HostedEntityServlet extends RequestScopedServlet {
     private static final Pattern SLUG = Pattern.compile("^[a-z0-9][a-z0-9-]{0,63}$");
 
     private String adminToken;
+    /** This servlet's part of HOSTING, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
 
     public HostedEntityServlet() {
     }
@@ -87,16 +94,29 @@ public class HostedEntityServlet extends RequestScopedServlet {
     @Override
     public void init(ServletConfig config) throws ServletException {
         super.init(config);
+        ComponentParts.Part part = Startup.begin(Startup.HOSTING, "HostedEntityServlet");
+        this.part = part;
+        part.start(() -> this.init(config, part));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part) throws ServletException {
         PfAuditEventSink.install();
         try {
             // Optional at init, not required: enrolment (doPost) needs it, but resolution (doGet) does
             // not, and a servlet that refuses to boot just because enrolment isn't configured would take
             // the read path down with it too — the same fail-soft principle SsfHttp.bootstrap follows.
-            this.adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
+            String adminToken = setting(config::getInitParameter, "adminToken", "oidf.authority.admin_token", "OIDF_AUTHORITY_ADMIN_TOKEN");
             if (!configureAuthority(config::getInitParameter)) {
-                throw new IllegalStateException("HostedEntityServlet requires 'authorityEntityId' (init-param, oidf.authority.entity_id,"
-                        + " or OIDF_AUTHORITY_ENTITY_ID)");
+                // No authority: this deployment hosts nothing - disabled, or FAILED_CONFIG when OIDF_HOSTING_ENABLED=true.
+                part.notConfigured("no authority entity id is set (OIDF_AUTHORITY_ENTITY_ID, oidf.authority.entity_id or the"
+                        + " init-param authorityEntityId)");
+                return;
             }
+            this.adminToken = adminToken;
         } catch (RuntimeException e) {
             throw new ServletException("Failed to initialize HostedEntityServlet", e);
         }
@@ -118,6 +138,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         if (authorityEntityId == null) {
             return false;
         }
+        // Everything that can fail is resolved before the registry or the signing is published: the store, the policy
+        // and the signer. A policy that is not one then leaves no registry behind - the authority is configured whole
+        // or not at all - and a later attempt (the supervisor's, or another servlet's) starts from nothing. The policy
+        // alone is harmless: nothing reads it until signing is published, and the next attempt sets it again.
+        // SurfaceGateTest.aStoreIsNotPublishedWhenALaterStepOfTheAuthorityFails pins this order.
         javax.sql.DataSource store = null;
         String jdbcUrl = setting(initParams, "jdbcUrl", "oidf.authority.jdbc.url", "OIDF_AUTHORITY_JDBC_URL");
         if (jdbcUrl != null) {
@@ -129,6 +154,13 @@ public class HostedEntityServlet extends RequestScopedServlet {
                 store = PfDataSources.pfManaged(dataStoreId);
             }
         }
+        AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
+        String baoUrl = setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
+        String baoToken = setting(initParams, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
+        HostedEntitySigner signer = baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken)
+                : RegistryHostedEntitySigner.fromEnvironment();
+        // The stores come before the signing: hosted lookups begin once signing is published, and one that found no store
+        // would fall back to memory for good.
         if (store != null) {
             AuthoritySupport.configureJdbcRegistry(store);
             // Trust Mark grants live beside the hosted entities they are mostly given to.
@@ -138,11 +170,7 @@ public class HostedEntityServlet extends RequestScopedServlet {
         }
         // Neither set: AuthoritySupport.registry() falls back to an in-memory registry with its own loud warning the first
         // time it is actually used.
-        AuthoritySupport.configureDomainDefaultMetadataPolicy(FederationRuntimeConfig.get().authorityMetadataPolicy());
-        String baoUrl = setting(initParams, "openBaoUrl", "oidf.openbao.url", "OIDF_OPENBAO_URL");
-        String baoToken = setting(initParams, "openBaoToken", "oidf.openbao.token", "OIDF_OPENBAO_TOKEN");
-        AuthoritySupport.configureSigning(baoUrl != null && baoToken != null ? new RegistryHostedEntitySigner(baoUrl, baoToken)
-                : RegistryHostedEntitySigner.fromEnvironment(), authorityEntityId);
+        AuthoritySupport.configureSigning(signer, authorityEntityId);
         return true;
     }
 
@@ -160,6 +188,14 @@ public class HostedEntityServlet extends RequestScopedServlet {
 
     private static String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     @Override

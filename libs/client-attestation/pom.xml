@@ -6,13 +6,13 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>client-attestation</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>client-attestation</name>
     <description>AS-side OAuth Attestation-Based Client Authentication (draft-ietf-oauth-attestation-based-client-auth):
-        verifier, models, DPoP proof validation, challenge/replay, RAR containment, SD-JWT attestation. Depends only on
-        the oidf-jose SDK + the servlet API — no PingFederate.</description>
+        verifier, models, DPoP proof validation, challenge/replay, and the token endpoint's RAR ceiling check over
+        libs/rar-model. Depends only on the oidf-jose SDK, rar-model and the servlet API - no PingFederate.</description>
     <url>https://github.com/dphhyland/client-attestation</url>
 
     <licenses>
@@ -26,18 +26,27 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
+        <!-- The containment model the token gate asks (plan item S1b). JDK only, so it adds no library to
+             PingFederate's classpath; build/pingfederate/stage-modules.sh stages its jar beside this one,
+             in pf-runtime.war and in server/default/deploy, the two classloaders that load this module. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
+        <!-- The shared vector file and its reader: the authorization server's runner (AsVectorRunnerTest). -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
@@ -78,9 +87,8 @@
 
                         Gated per METHOD, not per class, so the members whose remaining branches are
                         genuinely untested stay honestly out of scope rather than being hidden behind
-                        a class-level average. MiniRedisClient's socket paths, StaticAttesterKeyResolver's
-                        file and trust-chain paths, and DpopProofValidator.normalizeHtu's URL edge cases
-                        are the next work queue; adding a method here is how that work gets banked.
+                        a class-level average. StaticAttesterKeyResolver's file and trust-chain paths are the next work queue
+                        (DpopProofValidator moved to oidf-jose, with its gate); adding a method here is how that work gets banked.
                     -->
                     <execution>
                         <id>coverage-gate</id>
@@ -95,10 +103,62 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceLifetimeCeiling(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceNoReplay(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestation.workload(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.RarEntitlement.within(*</include>
+                                        <!-- S1b: the token gate - the request's authorization_details against the
+                                             attestation's, strictly (CAS §7.1); the two markers taken off before the
+                                             model is asked; the ceiling read from the verified payload by the model's
+                                             own reader; the error each refusal answers; and the model set this
+                                             classloader loads once. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.withoutMarkers(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.ceilingOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AuthorizationDetailsGate.whyNotWithin(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.require(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.load(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.issue(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.consume(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ChallengeRateLimiter.allow(*</include>
+                                        <!-- S3a/S3b: the store verdicts are tri-state, and an outage must reach the caller as
+                                             STORE_UNAVAILABLE (503), never as a replay, an unknown challenge or a conflict;
+                                             and the binding of evidence to its first presenter. The TLS parameters that
+                                             keep the store's password off the wire until the peer is verified moved with
+                                             the client to libs/platform (C-2), and are gated there. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.consumeChallenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.bind(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache.record(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationChallengeService.consumeChallenge(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryEvidenceBindingStore.bind(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationReplayCache.firstSeen(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.consume(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.enforceChallenge(*</include>
+                                        <!-- S4a: what binds a presentation to this server. The PoP's audience is the issuer
+                                             alone; a combined-mode DPoP proof's htu is the configured endpoint, compared
+                                             after RFC 3986 normalisation, and with none configured the proof is refused. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyPopMode(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.requireSoleAudience(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyDpopMode(*</include>
+                                        <!-- S3a: which store each surface gets and the remembered refusal of plaintext or of
+                                             a Redis setting, the holder a conflict names, and the challenge endpoint's 503.
+                                             Which CA a rediss:// connection trusts, the transport rule and the redaction
+                                             that keeps a Redis password out of log messages are platform.redis's (C-2). -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.challengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.replayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.evidenceBindingStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.configureChallengeService(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.configureReplayCache(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.redisStore(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.redisClient(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.conflictWith(*</include>
+                                        <!-- S4b: which method a challenge endpoint answers, which namespace it issues into and
+                                             which settings reach it - each endpoint its own, never the other's. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.service(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.issue(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseInt(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseLong(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.init(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

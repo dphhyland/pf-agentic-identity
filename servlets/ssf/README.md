@@ -8,6 +8,14 @@
 active JWKS key; `jwks_uri` is `<issuer>/pf/JWKS`) and on the `provided` PF SDK for grant revocation
 and PF-managed data sources. `com.pingidentity.ps.oidf.ssf` is the core; `…servlet.ssf` the PF-facing edge.
 
+Since 0.5.0 the PingFederate-free parts live in [`libs/shared-signals`](../../libs/shared-signals) (package
+`com.pingidentity.ps.oidf.signals`): `SecurityEventToken`, `SetMinter`, `SetVerifier`, `ReceivedSet`, `SubjectId`,
+`CaepRiscEvents` and the event URIs. This module adds what needs PingFederate or the network: `PfSetSigningKeys`
+(PingFederate's key, resolved on first use), `JwksHttpSource` (the receiver's JWKS fetch) and `SsfSubjects`, which
+keeps the subjects accepted from outside - stream subjects, the emit API, SCIM ids, an inbound `sub_id` - to the five
+formats it has always handled (`iss_sub`, `email`, `phone_number`, `opaque`, `account`) until plan item H-SSF-1
+(Phase 3) stores, matches and acts on the others.
+
 - **Transmitter** - `SetMinter`, stream management (`StreamManagementService`), poll (`SsfPollServlet`,
   RFC 8936) + push (`PushDeliveryService`, RFC 8935, background retry loop), event sourcing from PF's
   native security-audit log (`SsfAuditLogSource`, a log4j2 appender attached programmatically to PF's
@@ -39,8 +47,8 @@ account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Inte
 
 | Path | Class | What |
 |---|---|---|
-| `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that bootstraps `SsfSupport` at boot so the logout filter can emit immediately. |
-| `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API; starts the push-delivery loop. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
+| `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that bootstraps `SsfSupport` at boot, so the logout filter can emit immediately and the [push loop](#push-delivery) runs before any request arrives. |
+| `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
 | `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only), `returnImmediately`, `ack`. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. |
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err` on failure). Active only when `receiverExpectedIssuer` is set. |
 | `POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`); `active:false`/`DELETE` emits RISC account-disabled. Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
@@ -54,7 +62,8 @@ parameter is accepted only when a deployment opts in (`OIDF_SSF_LOGOUT_ALLOW_SUB
 with no real id tokens to hand); it is refused by default, closing the earlier unauthenticated-subject finding.
 
 Every servlet calls `SsfHttp.bootstrap` in `init()`: fail-soft. No issuer means the SSF endpoints stay
-disabled and PF boots regardless - SSF must never take the runtime web application down.
+disabled and PF boots regardless - SSF must never take the runtime web application down. A store that
+cannot be opened at boot is the same promise kept ([Boot](#boot)).
 
 ## Configuration
 
@@ -67,10 +76,112 @@ external base receivers use).
 |---|---|
 | Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
 | Store | `dataStoreId` (PF JDBC data store id) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory |
-| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` |
-| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls`, `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
+| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked) |
+| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked), `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
+
+## Push delivery
+
+`PushDeliveryService` is one loop on one thread for every push stream, ticking every
+`pushRetryBackoffSeconds`. What one stream can cost the others is bounded there, since 0.4.0 (S10-0, the
+Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is S-10, Phase 4):
+
+- **The store hands over only enabled push streams' SETs.** `SsfStore.dueForPush` is a join on the
+  stream's state in all three stores, not a filter the loop applies afterwards. The batch is 500 SETs
+  across every stream, oldest first, so before this the held SETs of a paused stream - or a poll stream's
+  queue, or a disabled stream's - were the whole batch every tick once there were 500 of them older than
+  anyone else's, and the enabled stream behind them was never read. SSF 1.0 §8.1.2.1: enabled, "The
+  Transmitter MUST transmit events over the stream, according to the stream's configured delivery method";
+  paused, "The Transmitter MUST NOT transmit events over the stream. The Transmitter SHOULD hold any events
+  it would have transmitted while paused"; disabled, "The Transmitter MUST NOT transmit events over the
+  stream". The loop reads the stream again before it posts, so a stream paused between selection and
+  delivery is still held.
+- **A stream that fails waits, whole.** After a retryable failure nothing more of that stream is tried in
+  the tick, and in later ticks nothing of it is tried while its oldest SET is waiting out the backoff that
+  failure set: its later SETs are due, but posting them would put them in front of the one that failed. So a
+  receiver that is down costs one attempt per backoff step (5, 10, 20, 40 s at the defaults), not one per
+  queued SET or one per tick, and when it is back the SET that failed goes first and the rest follow in the
+  store's order: by `issuedAt`, and SETs issued in the same second by `jti`. `issuedAt` is in seconds and the
+  `jti` is random, so within a second that is not the order the SETs were generated in (F-0095). The
+  attempts are counted on the stream's first SET, and the stream dead-letters (`paused`, with the reason
+  recorded) when it has failed `pushRetryMaxAttempts` times: about 75 s after the first failure at the
+  defaults when the receiver refuses at once, as before, and about 100 s when every attempt runs to the 10 s
+  deadline - for a burst of SETs issued in one second as for one SET. Both reads of the queue, `peek` (which
+  the hold asks) and `dueForPush`, use that one order in all three stores; ordered by `issuedAt` alone,
+  Postgres returned a burst in whatever order its rows lay, the retry moved from SET to SET, and five SETs of
+  one second took 130 s to dead-letter (`SsfStoresOnPostgresTest`, 2026-09-27).
+- **A POST ends at its deadline.** Connect 2 s; 10 s for the whole exchange, body included; at most 4 KiB
+  of a response body read (only a 400's body is used, for the log line). `HttpRequest.timeout` alone bounds
+  the wait for the headers and nothing after them, so the exchange is waited on as a whole and cancelled
+  when the deadline passes. These are constants (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`,
+  `RESPONSE_BODY_CAP`) until S-5 makes them settings. Before this, `HttpClient.newHttpClient()` had no
+  timeout at all: a receiver that accepted the connection and never answered held the thread, and every
+  stream's delivery, for as long as it kept the socket open. The cancel closes the connection too, so a
+  receiver that stalls every body keeps none of ours: `PushDeliveryHttpTest` has one send its status line
+  and part of a body and see the socket close at the deadline, and by hand on JDK 17, 20 and 21.0.12.1 (the
+  runtime of the PingFederate 13.1.3 image) the socket stayed open without the cancel and closed with it
+  (2026-09-27).
+- **The loop starts at boot.** `SsfSupport.start` - what every servlet's `bootstrap` runs - starts it once
+  the store is open, and the first servlet to run it is `SsfConfigurationServlet`, `loadOnStartup=1`.
+  Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
+  until a receiver's first management request, and nothing at all on a node no receiver managed streams on.
+  Verified 2026-09-27 on the rig (PingFederate 13.1.3, this branch's jars at `e858f9e`): `SSF push delivery
+  executor started` is logged at 03:41:43,415 UTC, the runtime listener on 9031 starts at 03:41:45,160 and
+  `PingFederate started` at 03:41:45,742, with nothing in `audit.log` - the loop ran before any request could
+  arrive, and the annotation's `loadOnStartup` is honoured in the merged `pf-runtime.war`.
+
+The selection and the loop are tested against the stores as they run. `SsfStoresOnPostgresTest` runs the
+`tables` and `ldm` stores' `dueForPush`, three ticks of the loop over each, and a burst of one second's SETs,
+against Postgres - the `ldm` store on the model repo's `0000` and `0001` migrations, vendored under
+`src/test/resources/idm` - and CI's `java` job runs it against its Postgres service. Since 0.5.0 the rest of
+the `SsfStore` contract runs there too: `SsfStoreContract` holds the in-memory store and, in
+`JdbcSsfStoreOnPostgresTest` and `LdmSsfStoreOnPostgresTest`, both durable stores to the same streams,
+owners, subjects and queue tests, each class in a database of its own (`libs/testkit`). The `ldm` store
+reads a stream's `updatedAt` back as the database's time of its last write (F-0150). The `tables` store's
+selection and the same three ticks were also run once on the HSQLDB 2.7.1 the PingFederate 13.1.3 image ships
+(2026-09-27); from 0.5.0 a `jdbc:hsqldb:` or `jdbc:h2:` `OIDF_SSF_JDBC_URL` is refused at start-up, an
+`OIDF_SSF_DATA_STORE_ID` naming an HSQLDB or H2 data store (PingFederate's bundled one included) is refused on
+its first connection, and PostgreSQL is the one database the stores are tested on.
+
+**What this does not fix** (S-10): fairness between enabled streams - a stream with more than 500 due SETs
+older than another's still fills the batch, and a receiver that answers slowly but successfully holds the
+loop for as long as its SETs take, up to 10 s each; one thread; no leases, so every node in a cluster runs
+the loop against the shared store (F-0007, single node until v0.7.0); the order of SETs issued in the same
+second (F-0095). Dead-letter keeps the SETs already queued and pauses the stream, but nothing is queued for
+a stream that is not enabled, so every event raised while it is paused is lost, not held (F-0017; S10c,
+S10d). Push delivery has still not been run against the conformance suite: it needs a suite PingFederate
+can call back ([conformance/README.md](../../conformance/README.md)).
+
+## Boot
+
+`SsfSupport.start` never throws. It configures the transmitter (which, for the `tables` store, applies the
+DDL), runs the servlet layer's wiring (the receiver's PingFederate actions and polling, the audit source),
+and starts the push loop. A store that cannot be opened - the data store down at boot, the DDL refused - is
+one ERROR line naming the cause, SSF endpoints that fail, and another try every 30 s
+(`SsfSupport.bootRetrySeconds`, a constant until S-5) until the store opens; the loops start on the try that
+succeeds. While it is down the SSF endpoints throw `IllegalStateException` on use (the container's 500, with
+`SsfSupport.NOT_CONFIGURED` in the log), the same as a transmitter with no issuer, and PingFederate's own
+endpoints are untouched. The events PingFederate raises in that window are lost, not queued: a logout's SET
+is skipped with a WARN (`SSF session-revoked emission skipped`), the audit source is attached only once the
+store opens, and a SCIM change answers 500 (F-0017; S10d). The ERROR line names the cause chain, with the
+`jdbcUrl` replaced by `<jdbcUrl>` - a JDBC URL can carry a password, and the driver's messages repeat it.
+The stack trace goes with the first failure only, and never for a `jdbcUrl` store. A failure no retry can
+cure, such as a missing JDBC driver, is still retried: the line says what it is.
+
+Seen on the rig on 2026-09-27 (PingFederate 13.1.3, the branch's jars at `e858f9e`), with a `tables` store on a
+`jdbcUrl` whose database was started about two seconds after PingFederate: the ERROR at 03:42:28,675 UTC,
+`PingFederate started` at 03:42:31,105, the SSF endpoints answering 500 while discovery, the heartbeat and the
+federation endpoints answered 200, and at 03:42:58,677 - the try 30 s after the ERROR - the store opened, the
+audit source attached and the push loop started; `/.well-known/ssf-configuration` answered 200 from then on.
+
+Until 0.4.0 the exception escaped `SsfConfigurationServlet.init`, which loads at start-up ("Found while
+designing" 11), and Jetty fails the whole merged `pf-runtime.war` on a load-on-startup servlet whose init
+throws. On the same rig, with `OpenIdFederationServlet`'s init made to throw (no trust anchor named), Jetty
+logged `Failed startup of context` for `pf-runtime.war` and every runtime endpoint on 9031 answered 503 -
+discovery, the token endpoint, the heartbeat, SSF - while the admin console answered (U-0076). And a
+`configure` that failed had already assigned its configuration, so every later servlet found it "configured"
+with no store behind it.
 
 ## SET expiry
 
@@ -191,11 +302,30 @@ push endpoint itself no longer has an open state: no configured token, no delive
   (and give the transmitter the same token in the stream's `authorization_header`). No known deployment
   enables the receiver today, so nothing live is affected; one that enables it without both will not start.
 
+### Upgrading to 0.4.0
+
+Nothing to configure. What changes on the first boot after the upgrade:
+
+- The push loop starts with PingFederate rather than with the first management request, so a node that
+  no receiver has ever managed a stream on starts delivering, and expiring, at boot.
+- Held SETs on a paused or disabled stream are no longer read for push. They were never delivered before
+  either; they still expire after `setTtlSeconds`, and deliver when the stream is enabled.
+- A receiver that takes longer than 10 s to answer a POST, or 2 s to accept the connection, is a retryable
+  failure now, and its stream dead-letters when its oldest SET has failed `pushRetryMaxAttempts` times
+  (about 100 s at the defaults). Before, the loop waited for it, and for nothing else.
+- A stream whose delivery fails sends nothing more until the SET that failed is due again, and then sends
+  that SET first. Until 0.4.0 the SETs behind it were tried in the meantime, and could arrive first. SETs
+  issued in the same second go in `jti` order, not the order they were generated in (F-0095).
+- A data store that is down when PingFederate boots no longer stops `pf-runtime.war` starting - until 0.4.0
+  every runtime endpoint answered 503 ([Boot](#boot)). Watch for `SSF transmitter NOT started` in the server
+  log: the SSF endpoints answer 500 until a retry opens the store, and the logouts and audit events
+  PingFederate serves in the meantime send no SET.
+
 ### Upgrading
 
 | Store | What changes |
 |---|---|
-| `tables` | `owner_client_id` is added to an existing `ssf_streams` at boot - one nullable column, checked for first, so it is safe on every boot and on two nodes booting together. If it cannot be added the store does not come up. |
+| `tables` | `owner_client_id` is added to an existing `ssf_streams` at boot - one nullable column, checked for first, so it is safe on every boot and on two nodes booting together. If it cannot be added the store does not come up, and since 0.4.0 that is a logged retry rather than a failed boot ([Boot](#boot)). |
 | `ldm` | Nothing to apply. The owner is the `ownerClientId` attribute in `attrs`, and the entry trigger enforces MUST attributes only. The model repo should declare it a MAY attribute of `ssfStream` so `validate_entry` stops reporting it undeclared - **never a MUST**: the trigger runs on UPDATE, and the streams already there have none. It is deliberately not `clientId`, which `idm.entry` turns into its indexed `client_id` column. |
 | in-memory | Nothing. Streams do not survive a restart. |
 
@@ -270,6 +400,6 @@ mvn -pl servlets/ssf -am package     # → target/ssf-<version>.jar (tests on)
 
 Versions from `bom/pom.xml`. **Not part of `oidf.war`** - `oidf-war` does not depend on this module.
 It reaches production only through the `pf-runtime.war` merge: `build/pingfederate/stage-modules.sh`
-stages `ssf-<version>.jar` with the other eight jars, the Dockerfile injects them into the stock war (root
+stages `ssf-<version>.jar` with the other jars of its profile (its `MANIFEST` names them all), the Dockerfile injects them into the stock war (root
 context, single classloader - the only place a filter can sit over PF's own `/idp/init_logout.openid`) and
 copies them to the engine deploy dir. `OIDF_SSF_ISSUER` is set in the environment the PF runs with - locally, [conformance/vars.env](../../conformance/vars.env).

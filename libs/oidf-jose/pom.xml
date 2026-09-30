@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>oidf-jose</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>oidf-jose</name>
@@ -25,17 +25,23 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <!-- platform (plan item F-1): what every module shares. oidf-jose is the root the other libraries build on,
+             so they reach it through here. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
@@ -51,15 +57,15 @@
             <!--
               Coverage gate on the JOSE decisions a caller cannot re-check for itself: what a JWT's
               header says it is, which claims are allowed to be missing, which SD-JWT digests get
-              reconstructed into a payload, and which hosts escape the outbound address rule. 100%
-              line + branch, enforced - a missed branch here is a typ confusion, a required claim
-              silently absent, an undisclosed digest reconstructed anyway, or a private endpoint
-              waved through, not a cosmetic gap.
+              reconstructed into a payload, which URLs and hosts escape the outbound rules, and what
+              a failed fetch reaches its caller as. 100% line + branch, enforced - a missed branch
+              here is a typ confusion, a required claim silently absent, an undisclosed digest
+              reconstructed anyway, or a private endpoint waved through, not a cosmetic gap.
 
               Gated per METHOD, not per class, so the members that need a socket or a real key stay
-              honestly out of scope: JdkHttpGetClient.get and OpenBaoTransitSigner.sign talk to a
-              server, and the verifyAgainstKeys/verifyAttestationPop consumers still have
-              null-argument branches no test reaches. Those are the queue, not the gate - widen the
+              honestly out of scope: OpenBaoTransitSigner.sign talks to a server, and the
+              verifyAgainstKeys/verifyAttestationPop consumers still have null-argument branches no
+              test reaches. Those are the queue, not the gate - widen the
               includes as tests land, never lower the limits.
             -->
             <plugin>
@@ -97,7 +103,30 @@
                                         <include>com.pingidentity.ps.oidf.jose.Claims.requireNonBlank(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.Claims.stringList(*</include>
                                         <include>com.pingidentity.ps.oidf.jose.SdJwt.reconstruct(*</include>
-                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressExempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.from(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.trusting(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.check(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.refusal(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.addressRuleApplies(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.csv(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.OutboundUrlPolicy.parseLong(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.send(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.failure(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpClient.headerMap(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.JdkHttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpGetClient.get(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.post(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.HttpPostClient.postForm(*</include>
+                                        <!-- The DPoP proof checks, moved here from client-attestation with their gate (F-0225). -->
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.validate(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.requireHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizeHtu(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.normalizePercentEncoding(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.removeDotSegments(*</include>
+                                        <include>com.pingidentity.ps.oidf.jose.dpop.DpopProofValidator.shown(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

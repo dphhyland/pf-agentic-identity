@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import java.io.IOException;
 import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
@@ -10,10 +11,12 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.annotation.WebServlet;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import org.sourceid.oauth20.issuer.OAuthIssuerUtils;
 import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.pf.PfAuditEventSink;
 import com.pingidentity.ps.oidf.pf.RequestScopedServlet;
+import com.pingidentity.ps.oidf.platform.health.ComponentParts;
+import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
 
 /**
@@ -22,15 +25,19 @@ import com.pingidentity.ps.oidf.servlet.trustanchor.FederationErrors;
  * JSON body ({@code application/trust-chain+json}) at {@code /federation/register}
  * and returns a signed explicit-registration response.
  */
-@WebServlet(urlPatterns = {"/federation/register"})
+// loadOnStartup: its part of FEDERATION registers at deploy, not on the first request (finding F-0193); its init
+// never throws, so starting it at deploy cannot stop the war.
+@WebServlet(urlPatterns = {"/federation/register"}, loadOnStartup = 1)
 public class OpenIdRegistrationServlet
 extends RequestScopedServlet {
     private static final long serialVersionUID = 1L;
     private RegistrationService RegistrationService;
+    /** This servlet's part of FEDERATION, from init; null when a test's constructor made it and init never ran. */
+    private transient volatile ComponentParts.Part part;
     private final Function<HttpServletRequest, String> issuerResolver;
 
     public OpenIdRegistrationServlet() {
-        this(null, req -> OAuthIssuerUtils.getInstance().getIssuerValue(req));
+        this(null, req -> PfInternals.issuer(req));
     }
 
     /** Test seam: a pre-built service and an issuer resolver, so the servlet runs without PF's runtime. */
@@ -40,9 +47,20 @@ extends RequestScopedServlet {
     }
 
     public void init(ServletConfig config) throws ServletException {
-        PfAuditEventSink.install();
         super.init(config);
-        if (this.RegistrationService != null) {
+        boolean injected = this.RegistrationService != null;
+        ComponentParts.Part part = Startup.begin(Startup.FEDERATION, "OpenIdRegistrationServlet");
+        this.part = part;
+        part.start(() -> this.init(config, part, injected));
+    }
+
+    /**
+     * The start function: what {@code init} did before S-9, run by {@link ComponentParts.Part#start} at deploy and again
+     * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
+     */
+    private void init(ServletConfig config, ComponentParts.Part part, boolean injected) throws ServletException {
+        PfAuditEventSink.install();
+        if (injected) {
             return;
         }
         try {
@@ -52,6 +70,14 @@ extends RequestScopedServlet {
         catch (Exception e) {
             throw new ServletException("Failed to initialize OpenID Registration servlet", e);
         }
+    }
+
+    @Override
+    protected void service(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        if (ComponentGate.servlet(this.part, resp)) {
+            return;
+        }
+        super.service(req, resp);
     }
 
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {

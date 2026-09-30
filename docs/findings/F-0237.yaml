@@ -1,0 +1,23 @@
+id: F-0237
+title: A wrong SSF setting turns the transmitter off at INFO, often without naming the setting, and blames the issuer
+severity: medium
+area: ssf
+source: design
+status: open
+plan_items: [ST-5]
+prs: [63]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST3C (2026-09-28) while recording what a wrong value does. SsfHttp.bootstrap catches every
+  IllegalArgumentException from SsfConfiguration.fromServletConfig and logs, at INFO, "SSF transmitter not
+  configured (<message>); endpoints disabled until an issuer is set (init-param 'issuer', system property
+  'oidf.ssf.issuer', or env OIDF_SSF_ISSUER)". So OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS=five, with an issuer set, turns
+  every SSF endpoint off with an INFO line that says "Invalid integer value: five" - no setting named - and
+  points at the issuer. The six int and long settings (pushRetryMaxAttempts, pushRetryBackoffSeconds,
+  pollMaxEvents, setTtlSeconds, receiverJwksCacheSeconds, receiverPollIntervalSeconds) name the value only; the
+  choices, the audiences and the scope check name theirs. The seven booleans go the other way: Boolean.parseBoolean
+  reads anything but true as false, so a typo in introspectionInsecureTls is harmless and one in
+  receiverActionsEnabled or auditEventsEnabled switches the feature off without a word (F-0025's lenient class).
+  ST-5 reads these through platform.settings, whose messages name the setting and refuse a boolean that is not
+  true or false, and should log a configured-but-wrong transmitter at ERROR rather than as "not configured".

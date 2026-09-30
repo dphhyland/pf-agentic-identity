@@ -7,8 +7,10 @@ import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.SigningKeyProvider;
+import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import java.security.interfaces.RSAPublicKey;
 import java.time.Clock;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
@@ -64,6 +66,8 @@ public final class FederationService {
     // Refresher period — under the lifetime a verifier would accept a stale key for, so entries are
     // re-fetched while still fresh and request threads never see an empty cache after boot.
     private static final long REFRESH_INTERVAL_SECONDS = 240L;
+    /** The refresher's managed executor; its thread is {@code oidf-subordinate-refresh-1}. */
+    static final String SUBORDINATE_REFRESH = "subordinate-refresh";
     private static final int MINTED_MEMORY = 4096;
     private final FederationConfiguration configuration;
     private final SigningKeyProvider signingKeyProvider;
@@ -323,6 +327,9 @@ public final class FederationService {
             openidProvider.put("client_attestation_pop_methods_supported", popMethods);
         }
         if (attestationMetadata.challengeEndpointEnabled()) {
+            // The authorization server's challenge endpoint (ABCA-10 §6.1; client-attestation's
+            // ClientAttestationChallengeServlet). Never the attester's /federation/attestation/challenge: a challenge
+            // from there is refused at the token endpoint (CAS §4.1).
             openidProvider.put("challenge_endpoint", fedBase + "/federation/attestation-challenge");
         }
         metadata.put("openid_provider", openidProvider);
@@ -804,32 +811,29 @@ public final class FederationService {
      * stalled 15s+, which pushed the whole exchange past the calling agent platform's hard 30s tool timeout.
      * The refresher re-fetches every {@code REFRESH_INTERVAL_SECONDS} so {@link #fetchSubordinateJwks}
      * always finds a usable entry, and its serve-stale behaviour covers any window where refreshes fail.
+     * It runs on a managed executor ({@code oidf-subordinate-refresh-1}): the first round at once, each later one
+     * {@code REFRESH_INTERVAL_SECONDS} after the last ended. One runs in the JVM, so a second call - a servlet
+     * initialised twice, or another loader's copy - starts nothing; the lifecycle's shutdown stops it, and a round
+     * interrupted by that stops at the next subordinate.
      */
     public void prewarmSubordinatesAsync() {
         List<String> subs = this.configuration.subordinates();
         if (this.subordinateFetcher == null || subs.isEmpty()) {
             return;
         }
-        Thread warmer = new Thread(() -> {
-            while (true) {
-                for (String subject : subs) {
-                    try {
-                        this.refreshSubordinateJwks(subject);
-                        LOGGER.info("subordinate-refresh: cached entity configuration of " + subject);
-                    } catch (Exception e) {
-                        LOGGER.info("subordinate-refresh: " + subject + " not reachable (will retry; serving stale if cached): " + e.getMessage());
-                    }
+        ManagedExecutors.every(SUBORDINATE_REFRESH, Duration.ZERO, Duration.ofSeconds(REFRESH_INTERVAL_SECONDS), () -> {
+            for (String subject : subs) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return; // shutting down: the rest of this round is not worth a line each
                 }
                 try {
-                    Thread.sleep(REFRESH_INTERVAL_SECONDS * 1000L);
-                } catch (InterruptedException ie) {
-                    Thread.currentThread().interrupt();
-                    return;
+                    this.refreshSubordinateJwks(subject);
+                    LOGGER.info("subordinate-refresh: cached entity configuration of " + subject);
+                } catch (Exception e) {
+                    LOGGER.info("subordinate-refresh: " + subject + " not reachable (will retry; serving stale if cached): " + e.getMessage());
                 }
             }
-        }, "oidf-subordinate-refresh");
-        warmer.setDaemon(true);
-        warmer.start();
+        });
     }
 
     private Map<String, Object> fetchSubordinateJwks(String subject) {
@@ -883,6 +887,11 @@ public final class FederationService {
             throw e;
         }
         catch (Exception e) {
+            if (e instanceof InterruptedException) {
+                // HttpClient.send clears the flag when it throws this; set it again so the refresher's loop sees
+                // its shutdown and a request thread keeps its interrupt.
+                Thread.currentThread().interrupt();
+            }
             throw new IllegalStateException("Failed to fetch entity configuration of subordinate " + subject, e);
         }
     }

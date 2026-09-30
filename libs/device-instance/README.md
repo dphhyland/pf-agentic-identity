@@ -5,9 +5,10 @@ place an opaque instance identifier resolves to a device and to a human; the min
 whose subject is that opaque identifier and never the user. Package `com.pingidentity.ps.oidf.device`.
 No HTTP, no servlet, no PingFederate types; depends on `oidf-jose`, `jose4j`, `jackson-databind`,
 `commons-logging`, with the JDBC driver provided by the deployment. Consumed by
-`services/device-enrolment` (the enrolment API that populates it) and `plugins/instance-registry-datasource`
+`services/device-enrolment` (the enrolment API that populates it), `plugins/instance-registry-datasource`
 (a PingFederate `CustomDataSourceDriver` that reads it at token issuance, where revocation and the
-user-verification time-box actually bite).
+user-verification time-box actually bite), and `servlets/ssf`'s SSF receiver, which applies verified CAEP
+signals to it.
 
 ## What's here
 
@@ -47,11 +48,14 @@ user-verification time-box actually bite).
 - **`InstanceIdentifiers`** — 256 bits of `SecureRandom`, base64url, for instance, device and owner ids.
   Random, not derived: an HMAC over user and device would become retroactively linkable the day its key
   leaked.
-- **`CaepSignalApplier`** — the CAEP 1.0 event → registry mapping (`device-compliance-change`,
-  `session-revoked`, `credential-change`), shared by the two receivers that verify their own transport
-  and resolve a subject their own way before calling in: `services/device-enrolment`'s direct
-  `/compliance` endpoint, and `servlets/ssf`'s SSF receiver (`InstanceRegistryReceiverHandler`). One
-  mapping, so both apply an inbound signal identically.
+- **`CaepSignalApplier`** - the CAEP 1.0 event → registry mapping (`device-compliance-change`,
+  `session-revoked`, `credential-change`). Its one live caller is `servlets/ssf`'s SSF receiver:
+  `SsfReceiverService` verifies the SET and drops a repeated `jti`, and `InstanceRegistryReceiverHandler`
+  resolves the subject and calls in. A verified SET at PingFederate is the only way an inbound signal
+  reaches the registry.
+  `services/device-enrolment`'s `POST /compliance` fed it too until 0.4.0 removed the route (PR #28, plan
+  item M-2). That service's `CaepEventHandler` still wraps the applier, but nothing calls it any more; plan
+  item X-A18 retires it.
 - **`DeviceAttestationMinter`** — mints the Client Attestation
   (`typ: oauth-client-attestation+jwt`, draft-ietf-oauth-attestation-based-client-auth) a device-resident
   agent presents at the token endpoint: `iss` = the platform's federation entity id, `agent_id` = the
@@ -86,22 +90,17 @@ mvn -pl libs/device-instance -am package     # or `mvn package` at the repo root
 `IomInstanceRegistryTest` runs the full `InstanceRegistryContract` against a **real Postgres**, plus the
 cases only a real one can prove: an 8-thread race where exactly one App Attest assertion may advance the
 counter, the trigger refusing a revoked→active update and a ledger DELETE, and the `v_agent_instance`
-resolution. It takes its database from `IDM_TEST_JDBC_URL` (+ `IDM_TEST_JDBC_USER` / `_PASSWORD`) when
-set — any throwaway Postgres, for environments where the Docker API is not reachable from the build —
-and otherwise starts one with Testcontainers. Skipped, not failed, when neither is available. **It drops
-and rebuilds the `idm` schema**, so never point it at a database you care about.
-
-```sh
-# against a throwaway you already have
-docker run -d --rm --name idm-test -e POSTGRES_PASSWORD=t -e POSTGRES_DB=idm -p 55432:5432 postgres:16-alpine
-IDM_TEST_JDBC_URL=jdbc:postgresql://localhost:55432/idm IDM_TEST_JDBC_USER=postgres IDM_TEST_JDBC_PASSWORD=t \
-  mvn -pl libs/device-instance test
-```
+resolution. It runs in a database of its own that `libs/testkit` creates on the server
+`OIDF_TEST_JDBC_URL` names (else in a Testcontainers container) and drops afterwards, so it touches no
+other database on that server; [CONTRIBUTING.md](../../CONTRIBUTING.md#tests-that-need-postgres) has the
+recipe. Skipped when there is neither, and failed instead under `CI=true`. `IDM_TEST_JDBC_*` still work
+in 0.5.x, with a warning.
 
 The three migrations under `src/test/resources/idm/` are **copies** from
 `~/Source/idp-scim-service/migrations` — refresh them when the model changes; each carries an
 `ldm-checksum` header that must match its source. Versions come from `bom/pom.xml`.
-Not staged into PingFederate by `build/pingfederate/stage-modules.sh` — the enrolment service and
-the data-source plugin are its consumers. A sibling of, and deliberately not coupled to,
+Staged into PingFederate by `build/pingfederate/stage-modules.sh` in both profiles, because
+`servlets/ssf`'s `InstanceRegistryReceiverHandler` imports it: without it the SSF servlets fail at first
+use with `NoClassDefFoundError`, even with `receiverInstanceRegistry` off. A sibling of, and deliberately not coupled to,
 `openid-federation`'s hosted-entity registry (a publishing concern) and `agent-registry` (lazy minting
 for runtimes with no enrolment step).

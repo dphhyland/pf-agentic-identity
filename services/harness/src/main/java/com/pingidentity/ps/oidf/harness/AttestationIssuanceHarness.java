@@ -139,7 +139,7 @@ public final class AttestationIssuanceHarness {
         JsonWebKey attesterPub = JsonWebKey.Factory.newJwk(publicParams(attesterKey));
         AttesterKeyResolver resolver = new StaticAttesterKeyResolver(Map.of(ISSUER, List.of(attesterPub)));
         ClientAttestationConfig cfg = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .build();
         ClientAttestationVerifier verifier = new ClientAttestationVerifier(

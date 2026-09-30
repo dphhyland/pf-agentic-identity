@@ -1,0 +1,13 @@
+id: F-0055
+title: 'SSF stream management: optional members, 429 on verify, a cap on streams per client, standard metadata, an https issuer, basePath'
+severity: medium
+area: ssf
+source: reviewer-report
+status: open
+plan_items: [H-SSF-3]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
+  register's rule for these items.

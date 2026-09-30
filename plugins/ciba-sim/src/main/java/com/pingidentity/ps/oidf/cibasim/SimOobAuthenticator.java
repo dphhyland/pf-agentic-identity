@@ -11,9 +11,11 @@ import com.pingidentity.sdk.oobauth.OOBAuthRequestContext;
 import com.pingidentity.sdk.oobauth.OOBAuthResultContext;
 import com.pingidentity.sdk.oobauth.OOBAuthTransactionContext;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Function;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.sourceid.saml20.adapter.conf.Configuration;
@@ -34,20 +36,36 @@ import org.sourceid.saml20.adapter.conf.Configuration;
  * <p>The transaction id is {@link DecisionStore#txIdFor} of the {@code auth_req_id} PingFederate passes
  * to {@code initiate} as {@code ciba.auth_req_id}. {@code check} gets the transaction id and, in ping
  * mode, nothing else - so the id carries everything the lookup needs.
+ *
+ * <p>Each of the three asks {@link SimulatorGate} first and refuses with an {@link OOBAuthGeneralException}
+ * when the simulator may not run here - which PingFederate turns into a failed backchannel request, so a
+ * production PingFederate that somehow has this plugin configured approves nothing.
  */
 public class SimOobAuthenticator implements OOBAuthPlugin {
 
     static final String AUTH_REQ_ID_PARAM = "ciba.auth_req_id";
     private static final Log LOGGER = LogFactory.getLog(SimOobAuthenticator.class);
 
-    private final DecisionStore store;
+    private final Function<String, String> env;
+    private final Function<Path, DecisionStore> stores;
 
     public SimOobAuthenticator() {
-        this(DecisionStore.fromEnvironment(System::getenv));
+        this(System::getenv, DecisionStore::at);
     }
 
-    SimOobAuthenticator(DecisionStore store) {
-        this.store = store;
+    SimOobAuthenticator(Function<String, String> env, Function<Path, DecisionStore> stores) {
+        this.env = env;
+        this.stores = stores;
+    }
+
+    /** The store, once the gate has passed; otherwise the refusal PingFederate hears about. */
+    private DecisionStore store() throws OOBAuthGeneralException {
+        String refusal = SimulatorGate.refusal(this.env);
+        if (refusal != null) {
+            LOGGER.warn((Object) ("CIBA simulator: authenticator refused - " + refusal));
+            throw new OOBAuthGeneralException("the CIBA simulator may not run here: " + refusal);
+        }
+        return this.stores.apply(SimulatorGate.directory(this.env));
     }
 
     @Override
@@ -68,6 +86,7 @@ public class SimOobAuthenticator implements OOBAuthPlugin {
     @Override
     public OOBAuthTransactionContext initiate(OOBAuthRequestContext context, Map<String, Object> inParameters)
             throws OOBAuthGeneralException {
+        store();
         Object authReqId = inParameters == null ? null : inParameters.get(AUTH_REQ_ID_PARAM);
         if (!(authReqId instanceof String) || ((String) authReqId).isBlank()) {
             throw new OOBAuthGeneralException("no " + AUTH_REQ_ID_PARAM + " in the initiate parameters; this "
@@ -86,9 +105,10 @@ public class SimOobAuthenticator implements OOBAuthPlugin {
     @Override
     public OOBAuthResultContext check(String transactionId, Map<String, Object> inParameters)
             throws OOBAuthGeneralException {
+        DecisionStore store = store();
         Optional<DecisionStore.Decision> decision;
         try {
-            decision = this.store.lookup(transactionId);
+            decision = store.lookup(transactionId);
         } catch (IOException e) {
             throw new OOBAuthGeneralException("could not read the decision for " + transactionId, e);
         }
@@ -107,7 +127,7 @@ public class SimOobAuthenticator implements OOBAuthPlugin {
     @Override
     public void finished(String transactionId) throws OOBAuthGeneralException {
         try {
-            this.store.forget(transactionId);
+            store().forget(transactionId);
         } catch (IOException e) {
             throw new OOBAuthGeneralException("could not forget the decision for " + transactionId, e);
         }

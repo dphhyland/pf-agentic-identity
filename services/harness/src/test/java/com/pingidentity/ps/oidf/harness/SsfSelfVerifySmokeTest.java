@@ -2,6 +2,7 @@ package com.pingidentity.ps.oidf.harness;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
+import com.pingidentity.ps.oidf.signals.SetMinter;
 import org.junit.jupiter.api.Test;
 
 /**

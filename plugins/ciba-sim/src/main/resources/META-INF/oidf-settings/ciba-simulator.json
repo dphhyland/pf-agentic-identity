@@ -1,0 +1,36 @@
+{
+  "format": 1,
+  "component": "ciba-simulator",
+  "module": "plugins/ciba-sim",
+  "package": "com.pingidentity.ps.oidf.cibasim",
+  "families": ["OIDF_CIBA_SIM_"],
+  "settings": [
+    {
+      "name": "OIDF_CIBA_SIM_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether the conformance CIBA simulator runs: an approval oracle keyed by nothing but an auth_req_id, so it runs only with this true, OIDF_DEPLOYMENT_PROFILE=development and a safe OIDF_CIBA_SIM_DIR, checked by the decision servlet and the authenticator before every request",
+      "when_wrong": {"effect": "per-request", "detail": "Anything but true, in any case, is off: the decision endpoint is 404 and every backchannel request through the authenticator fails"},
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_CIBA_SIM_ENABLED"}],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_CIBA_SIM_DIR",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "The decision directory the servlet and the authenticator hand decisions over in: an absolute path to an existing directory, not a symbolic link, owned by the user PingFederate runs as, mode 0700, on a POSIX filesystem; never created by the plugin, and read only once the simulator is enabled",
+      "when_wrong": {"effect": "per-request", "detail": "Unset, relative, missing, a file, a link, another user's, any mode but 0700, or not POSIX: the simulator refuses every request, naming the reason"},
+      "profile": "any",
+      "security": true,
+      "sources": [{"from": "env", "name": "OIDF_CIBA_SIM_DIR"}],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

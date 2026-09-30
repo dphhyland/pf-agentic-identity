@@ -44,7 +44,6 @@ POST /enrol/challenge        → { challenge, expires_in }        one-time, ≥1
 POST /enrol                  → { instance_id, attestation, expires_in, appattest_key_id }
 POST /attestation            → { attestation, expires_in }      the hot path; enforces the time-box
 POST /user-verification      → refreshes the time-box from a fresh IdP authentication
-POST /compliance             → { device_id, current_status }   applies a device-compliance change
 GET  /.well-known/jwks.json  → the attester's public keys, for PingFederate to verify us
 GET  /health
 ```
@@ -52,21 +51,54 @@ GET  /health
 Errors are the OAuth shape (`error`, `error_description`) with stable codes, so a client can branch on
 `user_verification_required` — the one it can actually recover from.
 
-**CAEP.** `/compliance` above is the only CAEP-shaped path actually wired to this service, and it is
-narrow: plain JSON (no SET, no signature, no `jti` replay check), device-compliance-change only, handled
-inline by `EnrolmentService.applyComplianceChange` — suspends every `ACTIVE` instance on the device when
-the new state is not `compliant`. `CaepEventHandler` — which decodes a verified CAEP SET, checks `jti`
-replay (SSF redelivers by design), and dispatches `device-compliance-change`, `session-revoked` and
-`credential-change` to [`CaepSignalApplier`](../../libs/device-instance) — exists in this module and is
-exercised by its own test, but **is not wired to any route**: nothing in `Main` or
-`EnrolmentHttpServer` constructs it. The one live, verified path that reaches `CaepSignalApplier` today
-is PF's SSF receiver (`servlets/ssf`'s `InstanceRegistryReceiverHandler`), gated behind
-`receiverInstanceRegistry=true` + `storeDialect=ldm` on the `ssf` module (see
-[servlets/ssf](../../servlets/ssf)), which shares the `ldm` store's own `DataSource` rather than opening
-a second connection to the IOM. Note also that `CaepEventHandler`'s `session-revoked` handling only
-resolves a device-scoped subject (`sessionRevokedForDevice`) — unlike the SSF receiver, it never falls
-back to `CaepSignalApplier.sessionRevokedForOwner` for a human-scoped subject, so wiring it up as-is
-would silently no-op on a `session-revoked` naming the user rather than the device.
+**There is no compliance endpoint.** Until 0.4.0 `POST /compliance` took `{device_id, current_status}`
+as plain JSON from anyone who could reach the port - no SET, no signature, no caller authentication - and
+suspended every `ACTIVE` instance on the device (the 2026-09-26 review's B4; removed by M-2, PR pending,
+2026-09-27). The one path by which a compliance change reaches the registry is
+[`CaepSignalApplier`](../../libs/device-instance), called from PingFederate's SSF receiver
+(`servlets/ssf`'s `InstanceRegistryReceiverHandler`, behind `receiverInstanceRegistry=true` and
+`storeDialect=ldm`, sharing the `ldm` store's `DataSource`). What that means for running this service is
+the next section.
+
+`CaepEventHandler` - which decodes a verified CAEP SET, checks `jti` replay (SSF redelivers by design),
+and dispatches `device-compliance-change`, `session-revoked` and `credential-change` to
+`CaepSignalApplier` - is still in this module and exercised by its own test, but **is not wired to any
+route**: nothing in `Main` or `EnrolmentHttpServer` constructs it, and X-A18 retires it. Its
+`session-revoked` handling resolves only a device-scoped subject (`sessionRevokedForDevice`); unlike the
+SSF receiver it never falls back to `CaepSignalApplier.sessionRevokedForOwner` for a human-scoped
+subject, so wiring it up as-is would silently no-op on a `session-revoked` naming the user.
+
+## Not production-usable until Phase 6
+
+Read this before deploying the service anywhere that matters. Three facts, each true of the code as it is
+(verified 2026-09-27 on `main` at 711ff11):
+
+1. **A device is registered `UNKNOWN`.** `EnrolmentService.enrol` writes the device with
+   `ComplianceState.UNKNOWN` - never assessed is not the same as compliant - and mints the first
+   attestation without a compliance check.
+2. **Re-minting needs `COMPLIANT`.** `POST /attestation` refuses `device_not_compliant` unless the device
+   is `COMPLIANT` (`REQUIRE_COMPLIANT_DEVICE`, default `true`). `UNKNOWN` fails closed, on purpose.
+3. **Nothing in this repository can make a device `COMPLIANT`.** The only writer of the posture is
+   `InstanceRegistry.updateCompliance`, reached from `CaepSignalApplier.deviceComplianceChange`, whose only
+   live caller is the SSF receiver above (the unwired `CaepEventHandler` is the other). That receiver needs a
+   transmitter that emits
+   `device-compliance-change` with an `opaque` subject equal to this registry's device id, and no such
+   transmitter exists: PingOne is no longer the assumed source (U-0008, David's decision of 2026-09-26),
+   and the Intune adapter that will be the source is Phase 6 (X-A16).
+
+So an enrolled device mints once and is then stuck: its instance is `ACTIVE`, its device `UNKNOWN`, every
+re-mint refused. Until 0.4.0 the unauthenticated `/compliance` route was what broke the deadlock, for anyone
+on the network. The only remaining way through is `REQUIRE_COMPLIANT_DEVICE=false`, which lets an
+unassessed device mint for as long as it likes - a development setting that removes the compliance control
+rather than satisfying it, and not one to run with.
+
+What closes it, all Phase 6 (v0.9.0): X-A15 makes the SSF receiver a real compliance sink (per-transmitter
+configuration, `iss_sub` device subjects resolved through MDM ids, durable processing, auto-resume of an
+instance suspended for compliance); X-A16 is the Intune adapter that emits the signals; X-A17 correlates the
+MDM record at enrolment and writes the device only if it is compliant, so no device is `UNKNOWN` to begin
+with; X-A18 retires `CaepEventHandler`. The schema those need is proposed in
+[docs/device/iom-schema-v2-proposal.md](../../docs/device/iom-schema-v2-proposal.md). The register carries
+this as F-0004, mitigated by M-2 and open until X-A17.
 
 ## The time-box, and why it lives here
 
@@ -99,7 +131,8 @@ and the agent stops until the human is back in front of the phone.
 |---|---|
 | `PORT` | default 8080 |
 | `ENROLMENT_ISSUER` | this service's entity id — the attestation `iss` and the key-proof `aud` |
-| `DATABASE_URL` | Postgres JDBC URL (secret; absent → refuses to start) |
+| `IDM_DATABASE_URL` | the Identity Object Model directory (Postgres) the registry lives in, the one the SCIM users live in; a JDBC URL or a `postgresql://` DSN (secret). Absent, the service refuses to start, and a `DATABASE_URL` left from before the move to the model is refused with a message naming the rename. Not read with `REGISTRY=memory` |
+| `REGISTRY` | `iom` (default), or `memory` for a registry that lives in the process and is lost on restart - development only, with a warning at start |
 | `ENROLMENT_SIGNING_JWK` | the attester's private JWK (secret). Production should use a vault-backed `JwsSigner`; the seam exists |
 | `APPLE_TEAM_ID` / `APPLE_BUNDLE_ID` | the App ID an attestation must be bound to |
 | `APPLE_ALLOW_DEVELOPMENT` | default `false` |
@@ -111,6 +144,17 @@ and the agent stops until the human is back in front of the phone.
 | `PINGONE_ISSUER` / `PINGONE_CLIENT_ID` | the IdP; both required or user authentication is refused |
 | `PINGONE_ACR_AAL2` | comma-separated sign-on policy names whose `acr` genuinely means AAL2; anything else is AAL1 and refused for binding |
 | `OIDF_ATTESTATION_SUB` / `OIDF_AGENT_CLIENT_ID` | the staged Phase 2.5 `sub` flip: `client_id` mints `sub` = the registered client; `agent_id` carries the instance id either way. See [docs/claim-dictionary.md](../../docs/claim-dictionary.md) |
+
+The connector-agent path (the Mac connector) reads the rest, and each is off until set:
+
+| Variable | Notes |
+|---|---|
+| `YUBICO_PIV_ROOTS` | path to a PEM bundle of pinned Yubico PIV roots; set, `yubikey-piv` evidence is accepted |
+| `ALLOW_SELF_ASSERTED_KEYS` | default `false`; `true` accepts `secure-enclave-self-asserted` evidence, a key whose storage nobody can verify, and attests it without a `key_storage` claim (with a warning at start) |
+| `AGENT_AUTHORIZATION_DETAILS` | a JSON array: the RFC 9396 ceiling every connector attestation carries |
+| `PF_AUTHORITY_ENTITY_ID` / `PF_AUTHORITY_URL` / `PF_AUTHORITY_ADMIN_TOKEN` / `PF_AUTHORITY_INSECURE_TLS` | the federation authority (PingFederate's issuer) that hosts agent entities. Unset, no agent entity is registered. The URL defaults to the entity id; the admin token (`OIDF_AUTHORITY_ADMIN_TOKEN` over there) is then required; `PF_AUTHORITY_INSECURE_TLS=true` trusts a self-signed listener, for development, through libs/platform's `InsecureTls`: one WARN naming the variable, and the certificate must still name the host dialled |
+| `AGENT_DISPLAY_NAME` / `AGENT_DESCRIPTION` / `AGENT_KEYWORDS` | what the authority vouches for about every agent, in its own words; the keywords as a JSON array |
+| `AGENT_MISSION_TYPES` / `AGENT_MISSION_PURPOSES` | JSON arrays: the RAR types and the DPV purposes an agent may claim. Each one set becomes an essential `subset_of` policy in the authority's statement, so an agent that declares none does not resolve |
 
 ## Deploy
 
@@ -161,8 +205,8 @@ the enclave and the `app-attest` test-jar's synthetic Apple chain.
 
 - **A real device.** The harness cannot prove Apple's real attestation objects parse; only hardware can.
 - **A wired notification channel.** `BindingNotifier` is a seam; its default logs on every binding.
-- **This service deployed anywhere.** It has never been provisioned in any Railway project, so
-  `/compliance` here is not reachable in any environment, even though the verified path (PF's SSF
-  receiver, see above) already is. The stale config-as-code that claimed otherwise was deleted on
-  2026-08-21.
+- **This service deployed anywhere.** It has never been provisioned in any Railway project. The stale
+  config-as-code that claimed otherwise was deleted on 2026-08-21.
+- **A compliance source.** See [Not production-usable until Phase 6](#not-production-usable-until-phase-6):
+  the receiver path exists, nothing feeds it.
 - **The compose stack**, until `Dockerfile.demo` is repointed at the domain-authority checkout.

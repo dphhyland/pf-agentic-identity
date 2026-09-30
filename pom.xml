@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>pf-agentic-identity</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>pf-agentic-identity</name>
@@ -28,17 +28,27 @@
              distributionManagement. Without this, `mvn deploy` publishes every module successfully and
              then fails on the root, which is exactly how the v0.1.0 release died at its last step. -->
         <maven.deploy.skip>true</maven.deploy.skip>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <modules>
         <module>bom</module>
         <module>libs/conformance</module>
+        <module>libs/platform</module>
+        <module>libs/rar-model</module>
         <module>libs/oidf-jose</module>
         <module>libs/app-attest</module>
+        <module>libs/testkit</module>
         <module>libs/device-instance</module>
         <module>libs/client-attestation</module>
+        <module>libs/rs-validation</module>
         <module>libs/openid-federation</module>
+        <module>libs/shared-signals</module>
         <module>libs/agent-registry</module>
+        <module>libs/platform-pf</module>
+        <module>build/war-assembler</module>
         <module>servlets/pf-integration</module>
         <module>servlets/attestation-issuer</module>
         <module>servlets/oidf-war</module>

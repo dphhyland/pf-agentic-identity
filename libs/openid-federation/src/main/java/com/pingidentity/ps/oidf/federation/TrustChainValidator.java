@@ -6,6 +6,7 @@ import com.pingidentity.ps.oidf.jose.Jwks;
 import com.pingidentity.ps.oidf.jose.JwtCodec;
 import com.pingidentity.ps.oidf.jose.JwtVerificationException;
 import com.pingidentity.ps.oidf.jose.VerificationPolicy;
+import com.pingidentity.ps.oidf.platform.events.LogSafe;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -43,8 +44,9 @@ import org.jose4j.jwt.MalformedClaimException;
  * revisited ("If a loop is detected, the authority hint that led to it MUST NOT be used"). Every candidate
  * route that reaches an anchor is validated in full; a route that fails does not stop the search, so a
  * subject in two federations resolves through whichever of them validates (§10.3), and the first one that
- * validates is used - anchors-first ordering makes that the shortest. One budget of
- * {@link ValidatorOptions#maxFetches()} bounds the network work of the whole validation.
+ * validates is used - anchors-first ordering makes that the shortest. One {@link ResolutionBudget} - a wall
+ * clock and {@link ValidatorOptions#maxFetches()} requests - bounds the network work of the whole validation,
+ * the gateway's own requests and any peer chain included (plan item S5b).
  *
  * <h2>What comes back</h2>
  * {@link TrustChainValidationResult#trustChain()} is the chain in §4 shape - the subject's Entity
@@ -161,12 +163,33 @@ public final class TrustChainValidator {
         Claims.requireNonBlank(request.subject(), "subject");
         SubordinateStatementCache.PendingWrites pendingWrites = this.gateway.newPendingWrites();
         int maxFetches = request.maxFetches() < 0 ? this.options.maxFetches() : Math.min(request.maxFetches(), this.options.maxFetches());
-        FetchBudget budget = new FetchBudget(maxFetches);
-        TrustChainValidationResult result = new Run(request, budget, pendingWrites).execute();
+        ResolutionBudget base = request.budget() != null ? request.budget() : ResolutionBudget.of(this.options);
+        ResolutionBudget budget = base.child(maxFetches);
+        long started = System.nanoTime();
+        TrustChainValidationResult result;
+        try {
+            result = new Run(request, budget, pendingWrites).execute();
+        } catch (TrustChainValidationException e) {
+            if (e.kind() == Kind.BUDGET) {
+                // The refusal's own text says what ran out - time, the requests of whichever budget has none left, or
+                // the search steps - and names nothing a peer chose.
+                LOGGER.warn("Trust chain resolution for " + LogSafe.value(request.subject()) + " refused after "
+                        + elapsedMillis(started) + " ms and " + budget.used() + " requests: " + e.getMessage() + " ("
+                        + ValidatorOptions.WALL_CLOCK_SETTING + " and " + ValidatorOptions.MAX_REQUESTS_SETTING
+                        + " set the budget)");
+            }
+            throw e;
+        }
+        LOGGER.debug("Trust chain for " + LogSafe.value(request.subject()) + " resolved in " + elapsedMillis(started) + " ms, "
+                + budget.used() + " requests");
         // Statements fetched on the way are cached only once the chain they belong to validated, so a
         // refused chain leaves nothing behind for the next caller.
         pendingWrites.commit();
         return result;
+    }
+
+    private static long elapsedMillis(long startedNanos) {
+        return (System.nanoTime() - startedNanos) / 1_000_000L;
     }
 
     /**
@@ -210,7 +233,7 @@ public final class TrustChainValidator {
     /** The state of one validation: what was presented, what has been fetched, the budget, the failures. */
     private final class Run {
         private final ValidationRequest request;
-        private final FetchBudget budget;
+        private final ResolutionBudget budget;
         private final SubordinateStatementCache.PendingWrites pending;
         private final List<Statement> presented = new ArrayList<>();
         private final List<TrustAnchor> candidates;
@@ -219,7 +242,7 @@ public final class TrustChainValidator {
         private int steps;
         private int attempts;
 
-        Run(ValidationRequest request, FetchBudget budget, SubordinateStatementCache.PendingWrites pending) {
+        Run(ValidationRequest request, ResolutionBudget budget, SubordinateStatementCache.PendingWrites pending) {
             this.request = request;
             this.budget = budget;
             this.pending = pending;
@@ -451,8 +474,9 @@ public final class TrustChainValidator {
             this.budget.spend("entity configuration of " + entityId);
             String jwt;
             try {
-                jwt = TrustChainValidator.this.gateway.fetchEntityStatement(entityId, this.maxAgeFor(entityId), this.pending);
+                jwt = TrustChainValidator.this.gateway.fetchEntityStatement(entityId, this.maxAgeFor(entityId), this.pending, this.budget);
             } catch (Exception e) {
+                this.refuseIfExhausted(e);
                 this.noteFetchFailure("entity configuration of " + entityId, e);
                 return null;
             }
@@ -471,8 +495,10 @@ public final class TrustChainValidator {
             this.budget.spend("subordinate statement " + issuer + " -> " + subject);
             String jwt;
             try {
-                jwt = TrustChainValidator.this.gateway.fetchSubordinateStatement(issuer, subject, this.maxAgeFor(subject), this.pending);
+                jwt = TrustChainValidator.this.gateway.fetchSubordinateStatement(issuer, subject, this.maxAgeFor(subject), this.pending,
+                        this.budget);
             } catch (Exception e) {
+                this.refuseIfExhausted(e);
                 this.noteFetchFailure("subordinate statement " + issuer + " -> " + subject, e);
                 return null;
             }
@@ -498,6 +524,20 @@ public final class TrustChainValidator {
             }
         }
 
+        /**
+         * A fetch that failed because the budget ran out - the gateway could not pay for a further request, or the
+         * deadline passed while a peer answered - ends the validation, saying what ran out; any other failure is
+         * the route's alone.
+         */
+        private void refuseIfExhausted(Exception e) {
+            if (e instanceof TrustChainValidationException refused && refused.kind() == Kind.BUDGET) {
+                throw refused;
+            }
+            if (this.budget.expired()) {
+                throw this.budget.exhausted();
+            }
+        }
+
         private void noteFetchFailure(String what, Exception e) {
             if (e instanceof IOException || e.getCause() instanceof IOException) {
                 this.transportFailure = true;
@@ -517,15 +557,16 @@ public final class TrustChainValidator {
             if (!expiring && !tooOld) {
                 return statement;
             }
-            if (!this.budget.trySpend()) {
-                return statement;
-            }
             String what = (statement.isConfiguration() ? "entity configuration of " : "subordinate statement "
                     + statement.issuer + " -> ") + statement.subject;
+            if (!this.budget.trySpend(what)) {
+                return statement;
+            }
             try {
                 String jwt = statement.isConfiguration()
-                        ? TrustChainValidator.this.gateway.fetchEntityStatement(statement.subject, maxAge, this.pending)
-                        : TrustChainValidator.this.gateway.fetchSubordinateStatement(statement.issuer, statement.subject, maxAge, this.pending);
+                        ? TrustChainValidator.this.gateway.fetchEntityStatement(statement.subject, maxAge, this.pending, this.budget)
+                        : TrustChainValidator.this.gateway.fetchSubordinateStatement(statement.issuer, statement.subject, maxAge,
+                                this.pending, this.budget);
                 Statement refreshed = this.parseFetched(jwt, what);
                 if (refreshed != null && EntityId.same(refreshed.issuer, statement.issuer)
                         && EntityId.same(refreshed.subject, statement.subject)) {
@@ -699,10 +740,11 @@ public final class TrustChainValidator {
         private Statement anchorConfiguration() {
             Statement presentedOne = this.run.presentedConfiguration(this.anchor.entityId(), false);
             Statement configuration = presentedOne != null ? this.run.fresh(presentedOne) : null;
-            if (configuration == null && this.run.request.includeAnchorConfiguration() && this.run.budget.trySpend()) {
+            if (configuration == null && this.run.request.includeAnchorConfiguration()
+                    && this.run.budget.trySpend("entity configuration of " + this.anchor.entityId())) {
                 try {
                     String jwt = TrustChainValidator.this.gateway.anchorConfiguration(this.anchor,
-                            TrustChainValidator.this.acceptedSigningAlgorithms, this.run.pending);
+                            TrustChainValidator.this.acceptedSigningAlgorithms, this.run.pending, this.run.budget);
                     configuration = this.run.parseFetched(jwt, "entity configuration of " + this.anchor.entityId());
                 } catch (Exception e) {
                     this.run.noteFetchFailure("entity configuration of " + this.anchor.entityId(), e);
@@ -822,7 +864,8 @@ public final class TrustChainValidator {
                             ? List.of(this.anchor.entityId()) : this.run.request.requestedAnchors())
                     .build();
             try {
-                return new Run(peerRequest, this.run.budget, this.run.pending).execute();
+                // A child of the same budget: the peer chain spends the validation's requests and time.
+                return new Run(peerRequest, this.run.budget.child(), this.run.pending).execute();
             } catch (TrustChainValidationException e) {
                 if (e.kind() == Kind.BUDGET) {
                     // The budget is the whole validation's; spending it on the peer chain ends everything.
@@ -930,41 +973,6 @@ public final class TrustChainValidator {
 
         Map<String, Object> jwks() {
             return Claims.optionalMap(this.claims, "jwks");
-        }
-    }
-
-    /**
-     * How many live fetches one validation may make. A chain is caller-supplied: its leaf names hints, each
-     * hint can name more, and every hint is tried - a branching search over attacker-chosen URLs. Without a
-     * ceiling one unauthenticated request could become dozens of outbound GETs, each holding a request thread
-     * for up to the fetch timeout. Cached statements cost budget too: the point is to bound the work.
-     */
-    static final class FetchBudget {
-        private final int max;
-        private int used;
-
-        FetchBudget(int max) {
-            this.max = max;
-        }
-
-        void spend(String what) {
-            if (++this.used > this.max) {
-                throw new TrustChainValidationException(Kind.BUDGET, null, null, "trust chain resolution exceeded its fetch"
-                        + " budget of " + this.max + " (last: " + what + "); refusing to keep resolving");
-            }
-        }
-
-        /** Spends one fetch if any is left; refreshing a statement is never worth failing a validation over. */
-        boolean trySpend() {
-            if (this.used >= this.max) {
-                return false;
-            }
-            this.used++;
-            return true;
-        }
-
-        int used() {
-            return this.used;
         }
     }
 }

@@ -1,0 +1,672 @@
+{
+  "format": 1,
+  "component": "device-enrolment",
+  "module": "services/device-enrolment",
+  "package": "com.pingidentity.ps.oidf.enrolment",
+  "families": [],
+  "settings": [
+    {
+      "name": "ENROLMENT_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "This service's entity id: the attestations' iss and the key proofs' aud",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset: the service does not start, naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "ENROLMENT_ISSUER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PORT",
+      "kind": "env",
+      "type": "int",
+      "default": 8080,
+      "min": 0,
+      "max": 65535,
+      "description": "The port the service listens on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number, or not a port: the service does not start"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PORT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "REGISTRY",
+      "kind": "env",
+      "type": "choice",
+      "default": "iom",
+      "choices": [
+        "iom",
+        "memory"
+      ],
+      "description": "Where enrolments live: iom, the Identity Object Model directory, or memory, this process only, lost on restart, with a warning",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Anything but memory, in any case, means iom"
+      },
+      "profile": "accepted-risk:in-memory-state",
+      "security": false,
+      "sources": [
+        {
+          "from": "env",
+          "name": "REGISTRY"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "IDM_DATABASE_URL",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The Identity Object Model directory (Postgres) the registry lives in, as a JDBC URL or a postgresql:// DSN; not read with REGISTRY=memory. It wins over DATABASE_URL, which is never used",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset: the service does not start, naming it; a URL that is neither jdbc: nor postgres: is refused"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "IDM_DATABASE_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "DATABASE_URL",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "Read only to refuse it: the registry's database before it moved to the Identity Object Model. Set while IDM_DATABASE_URL is unset, the service does not start and names the rename; with IDM_DATABASE_URL set it is ignored",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set without IDM_DATABASE_URL: the service does not start, naming IDM_DATABASE_URL"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "DATABASE_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "ENROLMENT_SIGNING_JWK",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The attester's private JWK, as JSON",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset or not a JSON JWK: the service does not start, naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "ENROLMENT_SIGNING_JWK"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "APPLE_TEAM_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The Apple team of the App ID an App Attest attestation must be bound to; with the bundle id, App Attest is on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set without APPLE_BUNDLE_ID: the service does not start, naming both"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "APPLE_TEAM_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "APPLE_BUNDLE_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The bundle of the App ID an App Attest attestation must be bound to",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Set without APPLE_TEAM_ID: the service does not start, naming both"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "APPLE_BUNDLE_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "APPLE_ALLOW_DEVELOPMENT",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether development App Attest objects are accepted, each flagged in the registry, with a warning",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "APPLE_ALLOW_DEVELOPMENT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "APPLE_MACOS_REQUIRE_KEY_POLICY",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a Mac's App Attest key must show Full Security and SIP",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "APPLE_MACOS_REQUIRE_KEY_POLICY"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "APPLE_REQUIRE_RENEWAL_ASSERTION",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether an App Attest enrolment renews with an app_attest_assertion",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "APPLE_REQUIRE_RENEWAL_ASSERTION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "CONNECTOR_BUILDS",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The connector builds accepted, as base64url SHA-256 hashes, comma-separated; unset accepts any build and records it",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Taken as written: a wrong hash refuses that build"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "CONNECTOR_BUILDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "UV_MAX_AGE_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 300,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "The oldest a user verification may be at binding; must match the instance-registry-datasource's field",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the service does not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "UV_MAX_AGE_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "REQUIRE_COMPLIANT_DEVICE",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a device whose compliance is unknown is refused an attestation",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false, so a typo turns it off (PR-3)"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "REQUIRE_COMPLIANT_DEVICE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PINGONE_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The PingOne environment that authenticates the user; with the client id, user authentication is on",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset: every user authentication is refused, with a warning at start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PINGONE_ISSUER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PINGONE_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The PingOne client whose ID tokens are accepted",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset: every user authentication is refused, with a warning at start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PINGONE_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PINGONE_ACR_AAL2",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The sign-on policy names, comma-separated, whose acr means AAL2; anything else is AAL1 and refused for binding",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Empty: every authentication is AAL1 and refused for binding, with a warning at start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PINGONE_ACR_AAL2"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_ATTESTATION_SUB",
+      "kind": "env",
+      "type": "choice",
+      "default": null,
+      "choices": [
+        "client_id"
+      ],
+      "description": "client_id mints the attestation's sub as the registered client, with the instance id as agent_id; unset keeps the instance id as sub",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but client_id, exactly: the service does not start, naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_ATTESTATION_SUB"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_AGENT_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The registered client minted as sub when OIDF_ATTESTATION_SUB=client_id",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with OIDF_ATTESTATION_SUB=client_id: the service does not start, naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_AGENT_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "YUBICO_PIV_ROOTS",
+      "kind": "env",
+      "type": "path",
+      "default": null,
+      "description": "A PEM bundle of pinned Yubico PIV roots; set, yubikey-piv evidence is accepted",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "A file that cannot be read as PEM certificates: the service does not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "YUBICO_PIV_ROOTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "ALLOW_SELF_ASSERTED_KEYS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether secure-enclave-self-asserted evidence, a key whose storage nobody can verify, is attested (without a key_storage claim), with a warning",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "ALLOW_SELF_ASSERTED_KEYS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "AGENT_AUTHORIZATION_DETAILS",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A JSON array: the RFC 9396 ceiling every connector attestation carries",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a JSON array of objects: the service does not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "AGENT_AUTHORIZATION_DETAILS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_ENTITY_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The federation authority (PingFederate's issuer) that hosts agent entities; unset, none is registered",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: each enrolment's registration with the authority fails"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_ENTITY_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "Where to reach the authority from here; the entity id when unset",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: each enrolment's registration with the authority fails, and PF_AUTHORITY_ADMIN_TOKEN goes as a bearer token to whatever host it names"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_ADMIN_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The authority's hosted-entity admin bearer token (OIDF_AUTHORITY_ADMIN_TOKEN there); required with the entity id",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with the entity id: the service does not start, naming it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_ADMIN_TOKEN"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "PF_AUTHORITY_INSECURE_TLS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Trusts any certificate on the authority's listener, for development, through platform's InsecureTls; the host name is still checked",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "PF_AUTHORITY_INSECURE_TLS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "AGENT_DISPLAY_NAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The display name the authority vouches for about every agent",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Taken as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "env",
+          "name": "AGENT_DISPLAY_NAME"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "AGENT_DESCRIPTION",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The description the authority vouches for about every agent",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Taken as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "env",
+          "name": "AGENT_DESCRIPTION"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "AGENT_KEYWORDS",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A JSON array of strings: the keywords the authority vouches for about every agent",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a JSON array of strings: the service does not start"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "env",
+          "name": "AGENT_KEYWORDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "AGENT_MISSION_TYPES",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A JSON array: the RAR types an agent may claim, an essential subset_of in the authority's statement",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a JSON array of strings: the service does not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "AGENT_MISSION_TYPES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "AGENT_MISSION_PURPOSES",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A JSON array: the DPV purposes an agent may pursue, an essential subset_of in the authority's statement",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a JSON array of strings: the service does not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "AGENT_MISSION_PURPOSES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

@@ -62,7 +62,7 @@ audiences and one meant for a different API must not be accepted here.
 
 `GrantView` exists because PF's `AccessGrant` is **not** a value object: constructing one reaches into the
 server's service locator and throws `No Impl found for AccessGrantService` outside a running PF.
-Isolating it keeps the decision logic ordinary and testable (83 tests on 2026-09-26; jacoco gates ten
+Isolating it keeps the decision logic ordinary and testable (88 tests on 2026-09-28; jacoco gates ten
 decision methods, `GrantEvaluator.build*` and `authorise` among them, at 100% line + branch). `PdpClient`, `GrantOperations.evaluate`/
 `.search` (against a real loopback `HttpServer` standing in for the PDP), and the audience guard on
 `PfTokenVerifier`'s constructor are also unit tested. What still needs a live PF and is not —
@@ -71,29 +71,29 @@ calls (`lookup`/`describe`/`revoke`) — is for the same reason `GrantView` exis
 
 ## Build
 
-Not a BOM consumer: every dependency is `provided` under `local.pingfederate:*` coordinates
-(`pingfederate-sdk` 13.1.3, `jakarta-servlet-api` 5.0.2, `jose4j`, `jackson-*`, `commons-lang3`,
-`commons-logging`). The PF SDK is Ping-licensed and not on Maven Central, so those coordinates must be
-installed into `~/.m2` first — the `install:install-file` lines in
-`.github/actions/pf-provided-jars/action.yml` do it from the public `pingidentity/pingfederate` image; or
-copy the jars out of a running PingFederate 13.1.3, which names them without versions:
+A BOM consumer like the rest of the reactor; only its groupId (`au.com.idpartners`) differs. Apart from this
+repository's own `platform-pf` (and `platform` through it), every runtime dependency is `provided`, version-less, on
+its real coordinates: `com.pingidentity.pingfederate:pingfederate-sdk`,
+`jakarta.servlet:jakarta.servlet-api`, `org.bitbucket.b_c:jose4j` and `com.fasterxml.jackson.core:jackson-databind`
+and `jackson-core`. The PF SDK is Ping-licensed and not on Maven Central, so it must be installed into
+`~/.m2` first - the two `install:install-file` lines in `.github/actions/pf-provided-jars/action.yml` do it
+from the public `pingidentity/pingfederate` image (see CONTRIBUTING.md, Building). The rest come from Maven
+Central: jose4j and jackson at the `version.pf.*` versions the BOM holds to the image
+(`tools/pf-provided-versions.py`), and `jakarta.servlet-api` 5.0.0, the API line PingFederate 13.1's Jetty
+ships as `jetty-jakarta-servlet-api-5.0.2.jar`. No version tool holds the servlet API to the image;
+`tools/pf-linkcheck.py --lib pf-lib --lib pf-jetty-lib` checks every servlet member the war references.
 
 ```bash
-PF=gm-pingfederate
-for j in pingfederate-sdk jose4j commons-logging commons-lang3 jackson-core jackson-databind jackson-annotations; do
-  docker cp "$PF:/opt/out/instance/server/default/lib/$j.jar" lib/
-done
-docker cp $PF:/opt/out/instance/lib/jetty-jakarta-servlet-api-5.0.2.jar lib/
-mvn install:install-file -Dfile=lib/pingfederate-sdk.jar -DgroupId=local.pingfederate \
-  -DartifactId=pingfederate-sdk -Dversion=13.1.3 -Dpackaging=jar -DgeneratePom=true
-# likewise jakarta-servlet-api (5.0.2), jose4j (1.x), commons-logging (1.x), commons-lang3 (3.x), jackson-{core,databind,annotations} (2.x)
-
-mvn -pl services/gm-api/servlet package     # from the repo root → target/gm-api.war
+mvn -pl services/gm-api/servlet -am verify     # from the repo root → target/gm-api.war
 ```
 
-`lib/*.jar` is gitignored. **Bundle nothing**: PF isolates each deploy-dir artifact on its own
-classloader, so a second copy of a PF class would not be the same class (`rar-paz-plugin` shades jackson
-for the same reason — it needs jackson but must not collide with PF's).
+**Bundle nothing of PingFederate's**: PF isolates each deploy-dir artifact on its own classloader, so a second
+copy of a PF class would not be the same class (`rar-paz-plugin` shades jackson for the same reason - it needs
+jackson but must not collide with PF's). The war's `WEB-INF/lib` holds only `platform-pf` and `platform` (from
+0.5.0): this war's own copy, with its own lifecycle listener, `GM_API` component, health at
+`/gm-api/agentic-identity/health/{live,ready}` and start-up audit banner
+([libs/platform-pf](../../../libs/platform-pf/README.md#lifecycle)). On the rig (PingFederate 13.1.3.0, 2026-09-28)
+gm-api's webapp loader loaded them from its own `WEB-INF/lib`, not the engine's copies in `server/default/deploy`.
 
 ## Deploy and configure
 

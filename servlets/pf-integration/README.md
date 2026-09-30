@@ -27,7 +27,7 @@ a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp
 - `com.pingidentity.ps.oidf.servlet.clientregistration` (+ `.utils`) and
   `com.pingidentity.ps.oidf.servlet.trustanchor` - **unchanged FQCNs**: they are config-facing (OGNL
   criteria in the deploying repo's Terraform ([pf-oidf-modules](https://github.com/dphhyland/pf-oidf-modules/blob/main/deploy/pingfederate/terraform)), filter
-  classes in `build/pingfederate/assemble-pf-runtime-war.sh`).
+  classes in `build/pingfederate/filters.xml`).
 
 ## Endpoints
 
@@ -40,17 +40,47 @@ a war's `WEB-INF/lib`, PF's Jetty annotation-scans it, and it runs on the webapp
 | `GET /federation/registered-clients` | `RegisteredClientsServlet` | Clients this module put into PF (`status=registered` / `auto_registered`). Unauthenticated - a demo/operator surface. |
 
 Filters - not annotated (an annotation would bind them to the module's own context, not PF's), so
-`build/pingfederate/assemble-pf-runtime-war.sh` writes them into `pf-runtime.war`'s `web.xml`:
+[`build/pingfederate/filters.xml`](../../build/pingfederate/filters.xml) declares them and the war assembler
+([`build/war-assembler`](../../build/war-assembler/README.md), run by `assemble-pf-runtime-war.sh`) writes them into
+`pf-runtime.war`'s `web.xml`, refusing the war unless each is mapped once over exactly these paths and the order
+rules `filters.xml` declares hold (the table's order is not the mapping order):
 
 | Filter name | Class | Over | Does |
 |---|---|---|---|
 | `Fapi2Profile` | `…servlet.fapi2.Fapi2ProfileFilter` | `/as/par.oauth2`, `/as/token.oauth2`, `/as/introspect.oauth2`, `/as/revoke_token.oauth2`, `/as/bc-auth.ciba`, `/idp/userinfo.openid` | FAPI 2.0 for the clients `OIDF_FAPI2_CLIENTS` names (`*` for every client; unset, none): a client assertion's `aud` is this server's issuer as one string (§5.3.2.1), and a DPoP proof is signed with PS256, ES256 or EdDSA (§5.4.1). It can only refuse. Mapped first of this module's filters, so an assertion it refuses registers nobody, and it judges the client's own assertion before `ClientAttestationAuth` replaces it. See [the PingFederate audience switch](#the-pingfederate-audience-switch) below. |
 | `FapiResourceServer` | `…servlet.fapi1.FapiResourceServerFilter` | `/idp/userinfo.openid` | FAPI 1.0 Baseline §6.2.1 at UserInfo, the one resource PF serves itself: echoes a UUID `x-fapi-interaction-id` or mints one, and refuses an access token in the query. |
 | `OAuthErrorDescription` | `…servlet.oauth.OAuthErrorDescriptionFilter` | `/as/bc-auth.ciba`, `/as/token.oauth2`, `/as/par.oauth2` | Keeps a 4xx JSON `error_description` inside RFC 6749 §5.2's character set. It sees only what runs after it - PF's servlets and the filters mapped below it - so it is mapped before those and after `Fapi2Profile`, whose refusals are inside the set already. |
-| `ClientAttestationAuth` | `ClientAttestationAuthFilter` | `/as/token.oauth2`, `/as/par.oauth2` | `attest_jwt_client_auth`: verifies `OAuth-Client-Attestation` (+`-PoP` or `DPoP`), publishes the verified context for the issuance criterion and the token attribute mapping, then forwards a wrapped request that authenticates to PF as native `private_key_jwt` - a `client_assertion` signed with **that client's own key**, whose public half is already in the client's registered JWKS, typed `client-authentication+jwt` and addressed to the issuer alone, as a string. Fail-closed on a bad attestation; **no attestation header = pass-through untouched**, so it can never widen access. Keys from `OIDF_BRIDGE_SIGNING_KEYS` + `OIDF_BRIDGE_SIGNER_BACKING`; **nothing configured = the filter refuses to start**, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`. |
-| `OidfAutoRegistration` | `TokenEndpointAutoRegistrationFilter` | `/as/token.oauth2` | §12.1 and §12.3, before PF authenticates the request. The client is the `client_assertion`'s `sub`, else `client_id`. One PF doesn't know is registered from the chain in the assertion's `trust_chain` header (leaf must advertise `client_registration_types` ⊇ `automatic`), checked as it stands - nothing is fetched on a presented chain's say-so - and otherwise by discovery from the client's own configuration. A client that publishes keys under the type it registers from (`jwks`, `signed_jwks_uri` or `jwks_uri` of its `oauth_client` or `openid_relying_party` metadata) is registered with them (§12.1.2); one that publishes none is registered with its Federation Entity Keys. An `auto_registered` one is renewed in its last `OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS`, or at once when the request presents a newer entity configuration with other keys or metadata (§12.5 - how key rotation works); an older one is never used. Past its expiry it is renewed from the presented chain or by discovery, or refused: **401 `invalid_client`**, or **503 `temporarily_unavailable`** (with `Retry-After`) when the federation can't be reached or too many registrations are under way. An explicit registration is only ever renewed by its RP registering again. Clients this module didn't register are never touched. **Fail-closed** from 0.3.0 (`OIDF_AUTO_REGISTRATION_FAIL_CLOSED=false` restores 0.2.0's pass-through). Starts the expiry sweeper. |
-| `OidfFrontChannelAutoRegistration` | `FrontChannelAutoRegistrationFilter` | `/as/authorization.oauth2`, `/as/par.oauth2` | §12.1.1: an RP PF doesn't know sends its request with its Entity Identifier as `client_id` and proves it holds its keys - a signed request object, or at PAR a `private_key_jwt` assertion. The request object is held to §12.1.1.1 before anything is fetched (`aud` this OP alone, `iss` and `client_id` the RP, no `sub`, `jti`, `exp`); the RP's chain is resolved (its `trust_chain` header tried as it stands, else discovery); it is registered from its `openid_relying_party` metadata with the keys it publishes for that type (`jwks`, `signed_jwks_uri` or `jwks_uri`), once the proof verifies against them, and its `jti` is spent. Registered with signed requests required (or PAR-only, if it proved itself at PAR), PKCE, its redirect URIs, and `code` / `openid` unless it declared otherwise. Every later request from it is held to the same: §12.1.1 says *every* authentication request demonstrates control of the RP's keys, so its proof is checked against §12.1.1.1 again, verified with the keys it is registered with (a `jwks_uri` is fetched at most once a minute) and its `jti` spent. A `request_uri` is never dereferenced here. Refusals: JSON at PAR, an error page - never a redirect - at the authorization endpoint (§12.1.3). Mapped after `Fapi2Profile` and `OAuthErrorDescription` (checked by the assemble script). |
+| `ClientAttestationAuth` | `ClientAttestationAuthFilter` | `/as/token.oauth2`, `/as/par.oauth2` | `attest_jwt_client_auth`: verifies `OAuth-Client-Attestation` (+`-PoP` addressed to the issuer alone, or a `DPoP` proof naming the URL PF advertises for the endpoint - see [Attestation audience and `htu`](#attestation-audience-and-htu)), checks the request's `authorization_details` against the attestation's ([below](#the-attestations-authorization_details)), publishes the verified context for the issuance criterion and the token attribute mapping, then forwards a wrapped request that authenticates to PF as native `private_key_jwt` - a `client_assertion` signed with **that client's own key**, whose public half is already in the client's registered JWKS, typed `client-authentication+jwt` and addressed to the issuer alone, as a string. Fail-closed on a bad attestation; **no attestation header = pass-through untouched**, so it can never widen access. Keys from `OIDF_BRIDGE_SIGNING_KEYS` + `OIDF_BRIDGE_SIGNER_BACKING`; **nothing configured = the filter refuses to start**, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`. |
+| `OidfAutoRegistration` | `TokenEndpointAutoRegistrationFilter` | `/as/token.oauth2` | §12.1 and §12.3, before PF authenticates the request. The client is the `client_assertion`'s `sub`, else `client_id`. One PF doesn't know is registered from the chain in the assertion's `trust_chain` header (leaf must advertise `client_registration_types` ⊇ `automatic`), checked as it stands - nothing is fetched on a presented chain's say-so - and otherwise by discovery from the client's own configuration. An RP that publishes keys for `openid_relying_party` is registered with them. An `auto_registered` one is renewed in its last `OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS`, or at once when the request presents a newer entity configuration with other keys or metadata (§12.5 - how key rotation works); an older one is never used. Past its expiry it is renewed from the presented chain or by discovery, or refused: **401 `invalid_client`**, or **503 `temporarily_unavailable`** (with `Retry-After`) when the federation can't be reached or too many registrations are under way. An explicit registration is only ever renewed by its RP registering again. Clients this module didn't register are never touched. **Fail-closed** from 0.3.0 (`OIDF_AUTO_REGISTRATION_FAIL_CLOSED=false` restores 0.2.0's pass-through). Starts the expiry sweeper. |
+| `OidfFrontChannelAutoRegistration` | `FrontChannelAutoRegistrationFilter` | `/as/authorization.oauth2`, `/as/par.oauth2` | §12.1.1: an RP PF doesn't know sends its request with its Entity Identifier as `client_id` and proves it holds its keys - a signed request object, or at PAR a `private_key_jwt` assertion. The request object is held to §12.1.1.1 before anything is fetched (`aud` this OP alone, `iss` and `client_id` the RP, no `sub`, `jti`, `exp`); the RP's chain is resolved (its `trust_chain` header tried as it stands, else discovery); it is registered from its `openid_relying_party` metadata with the keys it publishes for that type (`jwks`, `signed_jwks_uri` or `jwks_uri`), once the proof verifies against them, and its `jti` is spent. Registered with signed requests required (or PAR-only, if it proved itself at PAR), PKCE, its redirect URIs, and `code` / `openid` unless it declared otherwise. Every later request from it is held to the same: §12.1.1 says *every* authentication request demonstrates control of the RP's keys, so its proof is checked against §12.1.1.1 again, verified with the keys it is registered with (a `jwks_uri` is fetched at most once a minute) and its `jti` spent. A `request_uri` is never dereferenced here. Refusals: JSON at PAR, an error page - never a redirect - at the authorization endpoint (§12.1.3). Mapped after `Fapi2Profile` and `OAuthErrorDescription` (checked by the war assembler). |
 | `SsfLogoutSignal` | `…servlet.ssf.LogoutEventFilter` | `/idp/init_logout.openid` | Lives in [`ssf`](../ssf); listed here because the same script registers it. |
+
+### The attestation's authorization_details
+
+CAS §7.1 asks an authorization server to "ensure that any authority granted in issued tokens is a subset of the
+attestation's `authorization_details` (same subset semantics as Section 7 rule 1), and MUST reject requests
+exceeding it with `invalid_authorization_details`". The filter, and the criterion where the filter does not run,
+check a token or PAR request's `authorization_details` (or `oidf_requested_access`) against the verified
+attestation's with the containment model in [libs/rar-model](../../libs/rar-model/README.md), strictly
+([libs/client-attestation](../../libs/client-attestation/README.md#the-token-gate) has the detail):
+
+- Every field of every detail is compared by its type's rule. A field the attestation's details constrain and the
+  request leaves out is not within them, and is not filled in: the filter forwards the request's own details, so
+  PingFederate issues what was asked for, and a client restates every field its attestation constrains.
+- `_principal_sub` and `_agent_id` are taken off before the model is asked. PingFederate still receives the first
+  for the RAR plugin; the filter writes the verified agent over the second in what it forwards.
+- A request without `authorization_details` is not checked here. What PingFederate issues from details stored at
+  PAR or at the authorization endpoint is plan item S4d (Phase 3).
+- A refusal is 400 `invalid_authorization_details` (0.3.0 answered 401 `access_denied`), with a fixed description:
+  `authorization_details is malformed`, `... exceeds a size limit`, `... carries a field its type does not define`,
+  `... names a type this server does not support`, or `authorization_details exceeds what the client attestation
+  allows`. Attestation details the model cannot evaluate - a type this server has no model for, say - are 401
+  `invalid_client`, `the client attestation's authorization_details cannot be evaluated by this server`. The log
+  line names the detail and the field; neither response carries a value.
+- The model set is loaded once per classloader from `OIDF_RAR_MODELS_FILE` or `OIDF_RAR_MODELS`, and its
+  fingerprint (lower-case hex SHA-256) is logged once and published in the attestation context as
+  `rar_models_fingerprint`, which the RAR plugin compares with its own from plan item S1c. A document that cannot be read stops the
+  filter starting; the criterion then refuses every attested token.
 
 ### The PingFederate audience switch
 
@@ -73,6 +103,38 @@ and its `pf-protocolengine` jar (`ClientJwtValidator`, `Rfc7523bisCompliantAudie
   checks the size of the list jose4j's `getAudience()` returns, which is the same for `"issuer"` and
   `["issuer"]`), so a one-element array passes, where FAPI 2.0 §5.3.2.1 asks for a string.
 
+### Attestation audience and `htu`
+
+What binds a presented attestation to this server is its proof, because the attestation itself names no audience
+(draft-ietf-oauth-attestation-based-client-auth-10 §4). The filter and the OGNL criterion take both values from
+configuration, from 0.4.0:
+
+- **The PoP's `aud` is PF's issuer, and nothing else.** §5.1: "When the JWT is presented to an Authorization
+  Server, the [RFC8414] issuer identifier URL of the Authorization Server MUST be used. [...] A Client
+  Attestation PoP JWT is intended for a single audience". The issuer as a string or as the one member of an
+  array is accepted; the token endpoint URL, another server, or an array with a second member is 401
+  `invalid_client`: "Client Attestation PoP 'aud' must be this server's issuer identifier and nothing else". The
+  issuer is what `OAuthIssuerUtils.getIssuerValue` returns: the base URL, or a virtual host name or issuer PF has
+  configured when the request names one (a `Host` PF does not know gets the base URL). The attester advertises
+  it as `pop_audience` in `/.well-known/client-attester`.
+- **A combined-mode `DPoP` proof's `htu` is the URL PF advertises for the endpoint**: `token_endpoint` (the token
+  endpoint base URL when one is set, otherwise the issuer, then `/as/token.oauth2`) or
+  `pushed_authorization_request_endpoint` (the issuer, then `/as/par.oauth2`), as 13.1.3's discovery handler
+  builds them. RFC 9449 §4.3 compares `htu` with "the HTTP URI value for the HTTP request in which the JWT was
+  received"; a servlet container rebuilds that from the `Host` header, which the client writes, so this server
+  compares with its configured URL instead, after the RFC 3986 normalisation §4.3 asks for. RFC 9110 §7.4 has the
+  server decide "whether the server has been configured to process requests for that target URI", and says a `Host`
+  that differs from the connection's "might indicate an attempt to bypass security filters". A mismatch is 401
+  `invalid_client`: "DPoP 'htu' mismatch: got '...', expected '...'". A deployment behind a proxy needs PF's base
+  URL to be the URL clients use - which the issuer in tokens and discovery needs anyway. Under a runtime context
+  path (`pf.runtime.context.path`), the base URL carries the path, so the path after the issuer is the servlet
+  path alone and the context path appears once.
+- `extproperties.attestation_expected_htu` still pins one client's `htu` where the OGNL criterion verifies (a
+  deployment without the filter); it replaces the configured URL for that client.
+
+Until 0.4.0 the request URL was an accepted audience and the expected `htu`, so a proof minted for another
+server, whose token endpoint shares PF's path, passed with a `Host` header naming that server (F-0110, F-0111).
+
 ## OGNL hooks (engine classloader)
 
 `ClientAttestationUtils.validateClientAttestation(#this)` and `OIDFederationUtils.validateTrustChain(#this, …)`
@@ -89,6 +151,14 @@ The OGNL hooks run on PF's **engine** classloader, which does not see `pf-runtim
 so the deploy also copies the jars into `server/default/deploy/`. The filter and the criterion therefore
 verify the same request on two classloaders with two replay caches; each sees a PoP `jti` once, genuine
 replays fail in both. Webapp and engine talk only through string-keyed request attributes.
+
+On the criterion path the request's `authorization_details` are checked as the filter checks them (above), and a
+refusal is `false`: PingFederate answers it with the Error Result configured on the criterion (400
+`invalid_grant`), not with `invalid_authorization_details` - a criterion refuses the token but cannot choose the
+refusal's code. The log line says which of the refusals it was. The criterion also refuses a request carrying
+`authorization_details` or `oidf_requested_access` more than once (RFC 6749 §3.2: "Request and response parameters
+MUST NOT be included more than once."): it checks the first value, and with no filter in front nothing decides which
+one PingFederate reads. `CriterionTokenGateTest` drives this path end to end through an OP-issuer seam.
 
 **A criterion that throws denies.** Verified 2026-09-26 on the rig (PingFederate 13.1.3.0): an issuance
 criterion whose expression throws, or whose method call throws, is treated as `false (Exception)` -
@@ -178,8 +248,8 @@ permit narrowed, context it ignored, and `reason_admin`.
 
 ## Configuration
 
-Every setting, its default and what happens when it's wrong is in
-[docs/federation/configuration.md](../../docs/federation/configuration.md), which a test keeps complete. This table is
+Every setting, its default and what happens when it's wrong is in the generated pages
+[docs/federation/configuration.md](../../docs/federation/configuration.md) points to. This table is
 the short version. Most settings are environment variables, each also a system property (lower case, `.` for `_`,
 the property winning); the federation servlet's own settings are its init-params first, then the environment.
 
@@ -202,7 +272,9 @@ the property winning); the federation servlet's own settings are its init-params
 | Client authentication at the federation endpoints (§8.8) | `OIDF_FEDERATION_ENDPOINT_AUTH` (unset: no endpoint takes it) - `{"federation_fetch_endpoint": "required", "federation_resolve_endpoint": "optional"}`, any of the §5.1.1 endpoint names, each `none`, `optional` or `required`; `OIDF_FEDERATION_ENDPOINT_AUTH_SIGNING_ALGS` (`RS256 PS256 ES256`); also as `oidf.federation.endpoint.auth` and `oidf.federation.endpoint.auth.signing.algs` | `private_key_jwt` as OpenID Connect Core §9 has it: `iss` and `sub` the client's Entity Identifier, `aud` PF's and nothing else, an `exp` no more than ten minutes off, a `jti` used once (remembered until the `exp`, where attestation keeps its replays - Redis when configured), signed with a key its Entity Configuration publishes once its chain validates to a pinned anchor. Eight clients' chains are looked up at once; the rest get a 503. `required` refuses a GET and an unauthenticated POST (401 `invalid_client`); `optional` takes a GET or an authenticated POST; `none` refuses an assertion. The entity configuration says which endpoints take it (§8.8.1). An authenticated resolve is addressed to the client (`aud`), and at the Trust Mark endpoint an authenticated client is given only its own marks. Needs pinned anchors: set without them, PF doesn't start |
 | Subordinate constraints (§6.2) | `OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS` / `oidf.federation.subordinate.constraints` (`{"max_path_length": 0, "naming_constraints": {...}, "allowed_entity_types": [...]}`) | Carried by every Subordinate Statement PF issues, hosted or configured. Checked for syntax at start-up; a bad value stops PF starting |
 | Bridge signing | `OIDF_BRIDGE_SIGNER_BACKING` (`vault`\|`config`) + `OIDF_BRIDGE_SIGNING_KEYS` (path to a JSON map of client id -> `{"key_ref": …, "attesters": […]}` or `{"jwk": {…}, "attesters": […]}`); `OIDF_BRIDGE_VAULT_ADDR`/`_TOKEN` when `vault` | Per client. Exactly one key form each, and the declared backing is enforced - an inline JWK under `vault` is refused, so a demo key cannot ride into production in a config file. A client with no key cannot authenticate; every other client is unaffected. Nothing configured at all is a **boot failure**, not a silent degradation, unless `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false` |
+| Attestation audience and `htu` | None of their own: PF's issuer (Server Settings > Federation Info > Base URL, or a virtual host name or issuer PF has configured) and PF's token endpoint base URL (Authorization Server Settings); `extproperties.attestation_expected_htu` per client, on the OGNL criterion route only | See [Attestation audience and `htu`](#attestation-audience-and-htu). This code reads neither from the `Host` header, `X-Forwarded-*` or the request URL; PingFederate chooses among its configured virtual host names and issuers by the request's host, and takes their port from the request. |
 | Attester binding | `"attesters": ["https://attester.example"]` in each client's `OIDF_BRIDGE_SIGNING_KEYS` entry; `OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING` (default `true`) | Federation trust says an attester is genuine; this says it is *this client's*. An attestation from a trusted attester the client is not bound to is a 401. A client entry with no `attesters` is a 401 too, by default - any trusted attester could otherwise vouch for it. `=false` lets unbound clients accept any trusted attester; an explicit binding is still enforced |
+| RAR containment models | `OIDF_RAR_MODELS_FILE` (a path) or `OIDF_RAR_MODELS` (the document inline); environment only, one of the two, unset for the built-in models alone; `OIDF_DEPLOYMENT_PROFILE=development` lets an unmodelled type fall back to the common fields | The types and fields the token gate compares ([libs/rar-model](../../libs/rar-model/README.md#a-models-document)); from plan item S1c the RAR plugin reads the same variables, and the two must agree. Read once per classloader, its fingerprint logged. A document that cannot be read, or both set: the attestation filter doesn't start, and the criterion refuses every attested token |
 | ~~`OIDF_BRIDGE_PRIVATE_JWK`~~, ~~`OIDF_BRIDGE_PREVIOUS_PUBLIC_JWK`~~ | — | **Superseded; both refuse startup if set.** The first held one deployment-wide key; the second kept its outgoing public half in every client's JWKS during a rotation overlap. Neither has meaning once signing is per client, and a setting that looks configured while doing nothing is worse than one that is absent |
 
 ## Upgrading from 0.2.0
@@ -246,12 +318,9 @@ beside the ones that arrived in v0.1.4 and v0.1.5.
 - **RPs can now register at the authorization and PAR endpoints** (`OIDF_AUTO_REGISTRATION_FRONT_CHANNEL=false`
   turns it off). The assemble script maps the new filter; a war assembled by an older script has no
   front-channel registration.
-- **A client that publishes keys for the type it registers from is registered with them**, at every endpoint -
-  not with its Federation Entity Keys, as before. That is `openid_relying_party` for an RP and `oauth_client` for
-  an agent (§12.1.2; §3.1.1 keeps the Federation Entity Keys out of other protocols). An agent that publishes
-  `jwks` for `oauth_client` and has been signing its `private_key_jwt` assertions with a Federation Entity Key
-  must sign with the published key instead. A client that publishes none keeps the old behaviour at the token
-  endpoint; at the authorization and PAR endpoints an RP that publishes none cannot register.
+- **An RP that publishes keys for `openid_relying_party` is registered with them**, at every endpoint - not
+  with its Federation Entity Keys, as before. An RP that publishes none keeps the old behaviour at the token
+  endpoint; at the authorization and PAR endpoints it cannot register.
 - **A chain presented in a request is checked as it stands**, and nothing is fetched on its say-so. A
   client whose presented chain is incomplete is found by discovery instead, which costs a few fetches.
 - **Resolve responses carry the subject's verified Trust Marks**, and expire when the first of them does if

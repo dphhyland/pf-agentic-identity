@@ -51,7 +51,8 @@ class AttesterConfigurationServletTest {
         Map<String, Object> m = AttesterConfigurationServlet.metadata("https://pf.example.com", true, false);
 
         assertEquals("https://pf.example.com/federation/attestation", m.get("attestation_endpoint"));
-        assertEquals("https://pf.example.com/federation/attestation-challenge", m.get("challenge_endpoint"));
+        assertEquals("https://pf.example.com/federation/attestation/challenge", m.get("challenge_endpoint"),
+                "the attester's own challenge endpoint, not the authorization server's");
         assertEquals("https://pf.example.com/as/token.oauth2", m.get("token_endpoint"));
         assertEquals(List.of("attest_jwt_client_auth"), m.get("token_endpoint_auth_methods_supported"));
         assertEquals(Boolean.TRUE, m.get("challenge_required"));

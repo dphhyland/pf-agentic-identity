@@ -10,8 +10,9 @@ on:
   push:
     branches: [main]
   pull_request:
-  # By hand on any branch: release.yml requires a green Build on the commit it releases, and a release
-  # dry run on a branch with no pull request has no other way to get one.
+  # By hand on any branch: release.yml requires a green Build from a push or a dispatch on the commit it
+  # releases, and a pull request's Build does not count, so a release dry run on a branch has no other way to
+  # get one.
   workflow_dispatch:
 
 permissions:
@@ -113,7 +114,7 @@ jobs:
         run: zizmor --no-progress --config .github/zizmor.yml .
       - name: shellcheck over every tracked script
         run: tools/ci/lint-shell.sh
-      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
         with:
           terraform_version: 1.15.8
           terraform_wrapper: false
@@ -125,16 +126,48 @@ jobs:
         run: python3 tools/set-version.py --check
       - name: one PingFederate version across the repo
         run: python3 tools/pf-version-check.py
+      - name: no trust-all TLS outside platform's InsecureTls
+        # Plan item PR-1 (F-0042): a trust manager that trusts anything, an always-true hostname verifier, an
+        # endpoint identification algorithm set to null and the JVM-wide hostname flag are built only in
+        # libs/platform's InsecureTls, which names the setting that asked and records each use; the scan names
+        # its exempt files and why. tools/tests/test_trust_scan.py holds it to its fixtures.
+        run: python3 tools/trust-scan.py
+      - name: every setting read is catalogued, and every catalogued setting is read
+        # Plan item ST-3: each name a module's main code reads - an OIDF_ literal, a System.getenv or getProperty,
+        # an init-param, a plugin field, a client's extended property, directly or through a helper - is declared
+        # in a META-INF/oidf-settings catalogue, and each declared name is read. Only modules that are never
+        # shipped may be exempt, each with its reason, in tools/settings-scan-exemptions.txt (plan item ST-4 set its
+        # refuse-shipped-exemptions flag). tools/tests/test_settings_scan.py holds the scan to its fixtures.
+        run: python3 tools/settings-scan.py
+      - name: the configuration reference and docs/extended-properties.json are what the catalogues generate
+        # Plan item ST-4: docs/configuration/<component>.md, the README's list of components and the extended-
+        # property contract a consumer's Terraform is diffed against are generated from the same catalogues, and
+        # committed; this fails, naming the file, when one is not current. The scan above holds the catalogues to
+        # the code, so the two together hold the reference to the code both ways. Run python3
+        # tools/config-reference.py and commit what it writes.
+        run: python3 tools/config-reference.py --check
 
   java:
     runs-on: ubuntu-latest
-    # device-instance's IOM registry suite runs against a real Postgres: its invariants are JSONB operators,
-    # partial unique indexes and plpgsql triggers, which no in-memory database has. Before this it found one
-    # through Testcontainers when the runner's Docker allowed it, and would be skipped, not failed, when it
-    # did not - so whether the suite ran was the runner's decision. A service container makes it run every
-    # time. The job runs on the runner itself, so the service is reached at localhost on the mapped port, and
-    # the health check holds the job until Postgres answers. The credentials are throwaway: the suite drops
-    # and rebuilds the schema, and nothing outlives the job.
+    # actions: read is for the coverage ratchet, which reads the dashboard the last successful Build on main
+    # published; nothing in the job writes to the repository.
+    permissions:
+      contents: read
+      actions: read
+    # Every store suite runs on PostgreSQL (H2 and HSQLDB were dropped in 0.5.0), through libs/testkit's
+    # extension: OIDF_TEST_JDBC_URL names this service, and each test class creates a database of its own on it
+    # and drops it afterwards, so the service's user must be allowed CREATE DATABASE - POSTGRES_USER is the
+    # image's superuser. CI=true, which the runner sets, turns a class that finds no Postgres into a failure
+    # rather than a skip, so a renamed variable cannot quietly skip the store suites. The job runs on the runner
+    # itself, so the service is reached at localhost on the mapped port, and the health check holds the job
+    # until Postgres answers. The credentials are throwaway, and nothing outlives the job.
+    #
+    # client-attestation's RedisLiveTest runs the attestation stores against a real Redis, which its fake
+    # server cannot stand in for, and skips each half whose server the environment does not name. The plain
+    # half gets the redis service. The TLS half gets a second Redis, TLS only, that a step starts, because its
+    # CA and localhost certificate are made in the job and services start before the first step. Only the
+    # OIDF_TEST_REDIS_* variables are set: OIDF_REDIS_URL or REDIS_URL would configure the stores themselves,
+    # and AttestationSupportTest skips itself when it sees either.
     services:
       postgres:
         image: postgres:16-alpine
@@ -149,14 +182,37 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
+      - name: the Redis service asks for a password, as a deployed Redis does
+        # GitHub documents `command` for a service container (workflow syntax, read 2026-09-27), but the
+        # actionlint tools/ci/install-lint-tools.sh pins (1.7.12) rejects the key, so redis:7-alpine starts on
+        # its image's own command, open, and is given its password here, before anything connects. Move the
+        # password to `command:` once the pinned actionlint accepts it. It is as throwaway as Postgres's.
+        env:
+          REDIS_SERVICE: ${{ job.services.redis.id }}
+        run: docker exec "$REDIS_SERVICE" redis-cli CONFIG SET requirepass redis-live-test
+      - name: a TLS Redis beside it, with a CA and a localhost certificate made for this run
+        # tools/ci/start-tls-redis.sh makes the certificates (no key is tracked, and the CA's key is deleted
+        # once the certificate is signed), starts redis:7-alpine serving TLS only on 127.0.0.1:6380, waits
+        # until it answers over TLS, and prints OIDF_TEST_REDIS_TLS_URL and OIDF_TEST_REDIS_CA_FILE for the
+        # reactor build below.
+        run: tools/ci/start-tls-redis.sh "$RUNNER_TEMP/redis-tls" 6380 >> "$GITHUB_ENV"
       - name: the PingFederate version, from build/pf-version.env
         # The one place the version is written down; the composite action reads the same file itself.
         run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
-      - uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961 # v5.7.0
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with: { distribution: temurin, java-version: '17', cache: maven }
       - name: extract provided PF jars from the image
         uses: ./.github/actions/pf-provided-jars
@@ -165,29 +221,91 @@ jobs:
         # BOM's version.pf.* properties. A module compiled against a different jackson or commons-logging
         # than the one on PF's classpath links at build and may not at run time.
         run: python3 tools/pf-provided-versions.py --lib pf-lib --bom bom/pom.xml
-      - name: reactor build (tests on, coverage gates enforced, the IOM registry suite on the Postgres service)
+      - name: reactor build (tests on, coverage gates enforced, the store suites on Postgres, RedisLiveTest on both Redis servers)
         # verify, not package: the jacoco critical-method gates are bound to the verify phase, so
-        # stopping at package builds the artifacts and silently skips every gate.
+        # stopping at package builds the artifacts and silently skips every gate. The TLS Redis's two
+        # variables come from $GITHUB_ENV, written by that Redis's step.
         env:
-          IDM_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
-          IDM_TEST_JDBC_USER: dashboard
-          IDM_TEST_JDBC_PASSWORD: dashboard
+          OIDF_TEST_JDBC_URL: jdbc:postgresql://localhost:5432/idm
+          OIDF_TEST_JDBC_USER: dashboard
+          OIDF_TEST_JDBC_PASSWORD: dashboard
+          OIDF_TEST_REDIS_URL: redis://:redis-live-test@localhost:6379
         run: mvn verify
-      - name: coverage dashboard, generated from this build
-        # Generated from the jacoco and surefire reports the step above just produced, and published rather
+      - name: RedisLiveTest ran, and skipped nothing
+        # Each half of RedisLiveTest skips itself when its variables are unset, so a variable renamed here, in
+        # start-tls-redis.sh or in the test would turn the suite back into skips and leave the job green. This
+        # reads the surefire report the build wrote and fails the job instead, and fails it when the report is
+        # missing, so a pull request that renames or moves the test updates the path here.
+        env:
+          REPORT: libs/client-attestation/target/surefire-reports/TEST-com.pingidentity.ps.oidf.clientattestation.RedisLiveTest.xml
+        run: |
+          python3 - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          report = os.environ["REPORT"]
+          if not os.path.isfile(report):
+              sys.exit(f"no surefire report at {report}")
+          suite = ET.parse(report).getroot()
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"RedisLiveTest: {ran} run, {skipped} skipped")
+          if ran == 0 or skipped:
+              sys.exit("RedisLiveTest skipped tests or ran none: check the OIDF_TEST_REDIS_* variables")
+          PY
+      - name: the SSF store suites again, on a glibc-collated Postgres
+        # The postgres service is the alpine image, whose musl collation is bytewise even under en_US.utf8. The
+        # Debian image's is glibc's en_US.utf8, which folds case and skips punctuation, and there the SSF stores
+        # returned a second's SETs out of jti order until they ordered by jti COLLATE "C" (F-0236). So the SSF
+        # store suites run once more against a Debian postgres:16 started here, reached on 5433 once it answers
+        # over TCP (the image's first start answers on its socket before the server that stays up); -am takes the
+        # modules ssf builds on from this build, and runs none of their tests. The credentials are as throwaway as
+        # the service's.
+        run: |
+          docker run -d --name glibc-postgres -e POSTGRES_USER=dashboard -e POSTGRES_PASSWORD=dashboard \
+            -e POSTGRES_DB=idm -p 127.0.0.1:5433:5432 postgres:16
+          for _ in $(seq 60); do
+            if docker exec glibc-postgres pg_isready -h 127.0.0.1 -U dashboard -d idm; then break; fi
+            sleep 2
+          done
+          OIDF_TEST_JDBC_URL=jdbc:postgresql://localhost:5433/idm OIDF_TEST_JDBC_USER=dashboard \
+            OIDF_TEST_JDBC_PASSWORD=dashboard mvn -pl servlets/ssf -am test -Djacoco.skip=true \
+            -Dtest='*OnPostgresTest' -Dsurefire.failIfNoSpecifiedTests=false
+      - name: the coverage baseline, from a successful Build on main that this commit descends from
+        # The ratchet below compares this build with the coverage-dashboard.json that a successful push Build on
+        # main published: the newest one this commit descends from (a pull request's merge commit, a push, or a
+        # dispatched branch that may be behind main). No baseline - the first run on main, an artefact past its
+        # 90 days, one from before the JSON existed - passes, with a notice in the step summary. A failed fetch
+        # fails the step instead of passing as no baseline.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.sha }}
+        run: tools/ci/coverage-baseline.sh "$RUNNER_TEMP/coverage-baseline.json" "$HEAD_SHA"
+      - name: coverage dashboard, generated from this build, gated and ratcheted
+        # Generated from the jacoco and surefire reports the reactor build just produced, and published rather
         # than committed: a reactor-wide file that every test change regenerated conflicted in Phase 0's
-        # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module that has
-        # tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate
+        # parallel merges (plan decision 18). --strict, the generator's default, fails this step when a module
+        # that has tests left no surefire report, a module that configures jacoco left no jacoco.xml, or a gate
         # includes no method - so a build that quietly skipped tests cannot produce a clean-looking page.
-        run: python3 tools/coverage-report.py --strict
+        # --gate adds what jacoco passes: an <include> pattern that names no method in the report, and an
+        # @Requirement prefix Requirement.java does not declare; it counts, without failing, the ids no matrix
+        # row declares. --baseline fails a jacoco check the baseline had that is gone or includes fewer methods,
+        # a gated method below 100% line or branch, and fewer pinned matrix rows, less the deliberate reductions
+        # tools/coverage-ratchet-allow.txt names. The verdict goes to the step summary; CONTRIBUTING.md
+        # "Generated files" says how to read a failure, allow a reduction and run the same locally.
+        run: |
+          baseline=()
+          if [ -s "$RUNNER_TEMP/coverage-baseline.json" ]; then
+            baseline=(--baseline "$RUNNER_TEMP/coverage-baseline.json")
+          fi
+          python3 tools/coverage-report.py --strict --gate "${baseline[@]}" --summary "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        # Uploaded even when --strict fails, so the page that names the gap can be read.
+        # Uploaded even when the step above fails, so the page that names the gap can be read. The JSON is the
+        # next run's baseline.
         if: ${{ !cancelled() }}
         with:
           name: coverage-dashboard
           path: |
             docs/coverage-dashboard.md
             docs/coverage-dashboard.html
+            docs/coverage-dashboard.json
       - name: the showcase's documents are built, and its source links resolve
         # The showcase renders every tracked document, and the dashboard the step above wrote, into
         # showcase/docs.js (generated, not tracked - the same decision as the dashboard), and cites a file and
@@ -218,3 +336,218 @@ jobs:
             servlets/attestation-issuer/target/attestation-issuer-*.jar
             servlets/ssf/target/ssf-*.jar
             services/gm-api/servlet/target/gm-api.war
+
+  # The PingFederate image (plan item R-CI6, part of F-0006): the Dockerfile's capability target - the image with no
+  # configuration archive, which R-I3 (Phase 3) makes the image this repository ships - built for both staging profiles, its entrypoint
+  # tested inside it, scanned, and described by an SBOM. The deployment target needs an archive, so it is built
+  # here from a placeholder only to show it is still the default and still refuses a context with none. Booting
+  # PingFederate needs a licence and waits for R-CI7 (Phase 4). The service images R-CI6 also names - device-
+  # enrolment, the adapter, the SPIRE reader - do not exist until R-I8 (Phases 5 and 6); they join this job then.
+  #
+  # The scanner is grype and the SBOM syft's, both from tools/ci/install-lint-tools.sh at pinned versions and
+  # checksums. grype rather than Trivy because it scans the syft SBOM this job publishes, so the package list
+  # published and the one scanned are the same document. Not because of Trivy's compromise (a malicious v0.69.4
+  # release and force-pushed trivy-action tags on 2026-03-19, GHSA-69fq-xp46-6x23): a version pinned by checksum, as
+  # both tools are here, would not have fetched it. tools/ci/image-scan-gate.py fails on HIGH or CRITICAL findings
+  # in the layers this repository adds - its jars, the assembled war, the Alpine packages the Dockerfile installs -
+  # and reports the base image's own without failing: a PingFederate bump fixes those (build/pingfederate/README.md,
+  # "Scanning the image"). .github/grype.yaml names the findings of ours that are accepted, each with its reason.
+  image:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    timeout-minutes: 45
+    env:
+      GRYPE_CHECK_FOR_APP_UPDATE: 'false'
+      SYFT_CHECK_FOR_APP_UPDATE: 'false'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: the PingFederate version, from build/pf-version.env
+        run: grep -v '^#' build/pf-version.env >> "$GITHUB_ENV"
+      - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
+        with: { distribution: temurin, java-version: '17', cache: maven }
+      - name: extract provided PF jars from the image
+        uses: ./.github/actions/pf-provided-jars
+      - name: the reactor's jars (the java job runs the tests)
+        # The commit goes into platform-pf's manifest, where /agentic-identity/info and the start-up banner read it
+        # (F-0190); the image carries it again as its org.opencontainers.image.revision label.
+        run: mvn -B -DskipTests -Doidf.build.commit="$GITHUB_SHA" package
+      - name: the war assembler against PingFederate's own war
+        # StockWarGoldenTest runs only when it is given the stock pf-runtime.war, which is PingFederate's and not in
+        # this repository: it holds the war's web.xml to 13.1.3's digest and the assembled one to the shell
+        # assembler's, byte for byte (U-0185). After a PingFederate bump the first fails by design, and the golden
+        # result is taken again as the test's comment says. The surefire report shows it ran and skipped nothing.
+        env:
+          REPORT: build/war-assembler/target/surefire-reports/TEST-com.pingidentity.ps.oidf.warassembler.StockWarGoldenTest.xml
+        run: |
+          docker create --name stock-war "$PF_IMAGE@$PF_IMAGE_DIGEST"
+          docker cp stock-war:/opt/server/server/default/deploy/pf-runtime.war "$RUNNER_TEMP/stock-pf-runtime.war"
+          docker rm stock-war
+          mvn -B verify -pl build/war-assembler -am -DwarAssembler.stockWar="$RUNNER_TEMP/stock-pf-runtime.war"
+          python3 - <<'PY'
+          import os, sys, xml.etree.ElementTree as ET
+          report = os.environ["REPORT"]
+          if not os.path.isfile(report):
+              sys.exit(f"no surefire report at {report}")
+          suite = ET.parse(report).getroot()
+          ran, skipped = int(suite.get("tests")), int(suite.get("skipped"))
+          print(f"StockWarGoldenTest: {ran} run, {skipped} skipped")
+          if ran == 0 or skipped:
+              sys.exit("StockWarGoldenTest skipped or ran nothing: check -DwarAssembler.stockWar")
+          PY
+      - name: the capability image, for each staging profile
+        # stage-modules.sh rewrites modules/ for the profile it is given, so each profile is staged and built in
+        # turn. The assembler runs again inside the build, on the image's own Java 21. The OCI labels get the
+        # release version from the root pom, the commit and the build time.
+        run: |
+          version="$(python3 -c 'import xml.etree.ElementTree as E; print(E.parse("pom.xml").getroot().find("{http://maven.apache.org/POM/4.0.0}version").text)')"
+          created="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          echo "OCI_VERSION=$version" >> "$GITHUB_ENV"
+          for profile in production conformance; do
+            build/pingfederate/stage-modules.sh --profile "$profile"
+            cp build/pingfederate/modules/MANIFEST "$RUNNER_TEMP/MANIFEST-$profile"
+            docker build --target capability --build-arg STAGING_PROFILE="$profile" \
+              --build-arg OCI_VERSION="$version" --build-arg OCI_REVISION="$GITHUB_SHA" --build-arg OCI_CREATED="$created" \
+              -t "pf-agentic-identity:capability-$profile" build/pingfederate
+            label="$(docker inspect --format '{{index .Config.Labels "io.github.dphhyland.pf-agentic-identity.staging-profile"}}' \
+              "pf-agentic-identity:capability-$profile")"
+            [ "$label" = "$profile" ] || { echo "::error::capability-$profile is labelled '$label'"; exit 1; }
+          done
+      - name: each image's labels, ports, healthcheck and environment carry no configuration of their own
+        # Plan item R-I3: the OCI labels name this build; 9031 and 9999 are declared and the plain listener is not;
+        # the healthcheck is pf-healthcheck.sh (live, not ready); the EULA is left at the base image's NO and the
+        # plain listener at -1 (off); and no DEBUG logger, required claims or mock attesters are written into
+        # PingFederate's configuration. platform-pf's manifest in the war carries the commit (F-0190).
+        run: |
+          for profile in production conformance; do
+            image="pf-agentic-identity:capability-$profile"
+            docker inspect "$image" --format '{{json .Config}}' > "$RUNNER_TEMP/config-$profile.json"
+            PROFILE="$profile" CONFIG="$RUNNER_TEMP/config-$profile.json" python3 - <<'PY'
+          import datetime, json, os, sys
+          config = json.load(open(os.environ["CONFIG"]))
+          labels, env = config.get("Labels") or {}, dict(e.split("=", 1) for e in config.get("Env") or [])
+          want = {
+              "org.opencontainers.image.title": "pf-agentic-identity PingFederate",
+              "org.opencontainers.image.source": "https://github.com/dphhyland/pf-agentic-identity",
+              "org.opencontainers.image.version": os.environ["OCI_VERSION"],
+              "org.opencontainers.image.revision": os.environ["GITHUB_SHA"],
+              "org.opencontainers.image.licenses": "Apache-2.0 AND BSD-3-Clause AND LicenseRef-PingIdentity-Proprietary",
+          }
+          problems = [f"label {k} is {labels.get(k)!r}, not {v!r}" for k, v in want.items() if labels.get(k) != v]
+          if not labels.get("org.opencontainers.image.description"):
+              problems.append("no org.opencontainers.image.description label")
+          try:
+              datetime.datetime.strptime(labels.get("org.opencontainers.image.created", ""), "%Y-%m-%dT%H:%M:%SZ")
+          except ValueError:
+              problems.append(f"org.opencontainers.image.created is {labels.get('org.opencontainers.image.created')!r}, not an RFC 3339 UTC time")
+          if sorted(config.get("ExposedPorts") or {}) != ["9031/tcp", "9999/tcp"]:
+              problems.append(f"exposed ports are {sorted(config.get('ExposedPorts') or {})}, not 9031 and 9999 alone")
+          if (config.get("Healthcheck") or {}).get("Test") != ["CMD", "/opt/pf-healthcheck.sh"]:
+              problems.append(f"the healthcheck is {config.get('Healthcheck')}, not /opt/pf-healthcheck.sh")
+          if env.get("PING_IDENTITY_ACCEPT_EULA") != "NO":
+              problems.append(f"PING_IDENTITY_ACCEPT_EULA is {env.get('PING_IDENTITY_ACCEPT_EULA')!r}: the image accepts the EULA for its users")
+          if env.get("PF_RUN_PF_HTTP_PORT") != "-1":
+              problems.append(f"PF_RUN_PF_HTTP_PORT is {env.get('PF_RUN_PF_HTTP_PORT')!r}, not -1 (off)")
+          for p in problems:
+              print(f"::error::capability-{os.environ['PROFILE']}: {p}")
+          sys.exit(1 if problems else 0)
+          PY
+            docker run --rm --entrypoint sh "$image" -c '
+              set -e
+              F=/opt/staging/instance/bin/run.properties.subst.default
+              grep -q "^pf\.http\.port=\${PF_RUN_PF_HTTP_PORT}" "$F" || { echo "pf.http.port does not read PF_RUN_PF_HTTP_PORT"; exit 1; }
+              if grep -n "^oidf\." "$F"; then echo "run.properties sets oidf.* system properties"; exit 1; fi
+              if grep -rn "com.pingidentity.ps.oidf" /opt/server/server/default/conf/log4j2.xml; then echo "log4j2.xml names this repository'"'"'s loggers"; exit 1; fi
+              if [ -e /opt/in/instance/server/default/conf/oidf-mock-attesters.json ]; then echo "the image carries mock attesters"; exit 1; fi
+              if command -v bash; then echo "the image has bash"; exit 1; fi
+              unzip -p /opt/in/instance/server/default/deploy/platform-pf-*.jar META-INF/MANIFEST.MF | tr -d "\r" | grep -x "Build-Commit: $0"
+            ' "$GITHUB_SHA" || { echo "::error::capability-$profile carries configuration of its own, or no commit"; exit 1; }
+          done
+      - name: each image's system files are the base image's, apart from age
+        # F-0220: the base image has no apk database, so an `apk add` reinstalled its whole Alpine userland at the
+        # day's versions. The Dockerfile now installs age from its release; this holds every file, link and
+        # directory under /bin, /sbin, /lib, /usr, /etc and /var to the base image's, byte for byte, apart from age,
+        # age-keygen and age's licence. (Docker bind-mounts /etc/hostname, /etc/hosts and /etc/resolv.conf.)
+        run: |
+          list() {
+            docker run --rm --user 0 --entrypoint sh "$1" -c '
+              set -e
+              skip="! -path /etc/hostname ! -path /etc/hosts ! -path /etc/resolv.conf ! -path /etc/mtab"
+              # shellcheck disable=SC2086
+              find /bin /sbin /lib /usr /etc /var -xdev -type f $skip -exec sha256sum {} + | sed "s/^\([0-9a-f]*\)  /file \1 /"
+              # shellcheck disable=SC2086
+              find /bin /sbin /lib /usr /etc /var -xdev -type l $skip | while IFS= read -r l; do echo "link $l -> $(readlink "$l")"; done
+              find /bin /sbin /lib /usr /etc /var -xdev -type d | sed "s/^/dir /"' | LC_ALL=C sort
+          }
+          list "$PF_IMAGE@$PF_IMAGE_DIGEST" > "$RUNNER_TEMP/base.files"
+          for profile in production conformance; do
+            list "pf-agentic-identity:capability-$profile" > "$RUNNER_TEMP/capability-$profile.files"
+            added="$(diff "$RUNNER_TEMP/base.files" "$RUNNER_TEMP/capability-$profile.files" | grep '^[<>]' || true)"
+            expected="$(printf '%s\n' '> dir /usr/local/share/licenses' '> dir /usr/local/share/licenses/age' \
+              '> file /usr/local/bin/age' '> file /usr/local/bin/age-keygen' '> file /usr/local/share/licenses/age/LICENSE')"
+            got="$(printf '%s\n' "$added" | sed -E 's/^(> file) [0-9a-f]{64} /\1 /' | LC_ALL=C sort)"
+            if [ "$got" != "$(printf '%s\n' "$expected" | LC_ALL=C sort)" ]; then
+              printf '%s\n' "$added"
+              echo "::error::capability-$profile's system files differ from the base image's by more than age"; exit 1
+            fi
+            echo "capability-$profile: the base image's system files, and age"
+          done
+      - name: the entrypoint's and the healthcheck's decisions, inside each image
+        run: |
+          for profile in production conformance; do
+            build/pingfederate/test-entrypoint.sh --image "pf-agentic-identity:capability-$profile"
+          done
+      - name: the default target is still deployment, and still refuses a context with no archive
+        # modules/ is the conformance stage the step above left. The placeholder is not a configuration archive;
+        # the image it makes is never run.
+        run: |
+          ctx="$RUNNER_TEMP/deployment-context"
+          cp -R build/pingfederate "$ctx"
+          if docker build --build-arg STAGING_PROFILE=conformance "$ctx" > "$RUNNER_TEMP/no-archive.log" 2>&1; then
+            echo "::error::the default target built from a context with no configuration archive"; exit 1
+          fi
+          grep -q 'ERROR: no config archive staged' "$RUNNER_TEMP/no-archive.log" \
+            || { cat "$RUNNER_TEMP/no-archive.log"; echo "::error::the default target failed, but not at the archive check"; exit 1; }
+          python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1], "w").writestr("placeholder", "not an archive\n")' "$ctx/data.zip"
+          docker build --build-arg STAGING_PROFILE=conformance -t pf-agentic-identity:deployment-placeholder "$ctx"
+          docker run --rm --entrypoint ls pf-agentic-identity:deployment-placeholder \
+            /opt/in/instance/server/default/data/drop-in-deployer/data.zip /opt/in/instance/server/default/deploy/pf-runtime.war
+      - name: the scanner and the SBOM generator
+        run: |
+          tools/ci/install-lint-tools.sh "$RUNNER_TEMP/scan-tools" grype syft
+          echo "$RUNNER_TEMP/scan-tools" >> "$GITHUB_PATH"
+      - name: an SBOM of each image, and each scanned beside the base image
+        # syft's own JSON is what grype scans; the SPDX document is the one published. The base image is scanned
+        # the same way, so the gate can tell PingFederate's findings from ours; a finding in a jar the profile's
+        # MANIFEST names is ours whatever the base has. The database is fetched once and not updated between the
+        # scans, so a database published mid-step cannot class a PingFederate finding as ours. The gate runs for
+        # both profiles before the step fails, so both reports reach the summary.
+        run: |
+          out="$RUNNER_TEMP/image-scan"; mkdir -p "$out"
+          grype db update
+          export GRYPE_DB_AUTO_UPDATE=false
+          syft scan "docker:$PF_IMAGE@$PF_IMAGE_DIGEST" -q -o syft-json="$out/base.syft.json"
+          grype "sbom:$out/base.syft.json" -q -c .github/grype.yaml -o json --file "$out/base.grype.json"
+          failed=0
+          for profile in production conformance; do
+            syft scan "docker:pf-agentic-identity:capability-$profile" -q \
+              -o syft-json="$out/capability-$profile.syft.json" -o spdx-json="$out/capability-$profile.spdx.json"
+            grype "sbom:$out/capability-$profile.syft.json" -q -c .github/grype.yaml -o json --file "$out/capability-$profile.grype.json"
+            python3 tools/ci/image-scan-gate.py --image "$out/capability-$profile.grype.json" --base "$out/base.grype.json" \
+              --ours-manifest "$RUNNER_TEMP/MANIFEST-$profile" --label "capability ($profile)" --summary "$GITHUB_STEP_SUMMARY" || failed=1
+          done
+          exit "$failed"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: image-sbom
+          path: ${{ runner.temp }}/image-scan/capability-*.spdx.json
+          if-no-files-found: error
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: ${{ !cancelled() }}
+        with:
+          name: image-scan
+          path: ${{ runner.temp }}/image-scan/*.grype.json
+          if-no-files-found: error

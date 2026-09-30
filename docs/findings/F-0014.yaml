@@ -1,0 +1,32 @@
+id: F-0014
+title: ciba-sim ships in the production image
+severity: high
+area: image
+source: review-2026-09-26
+status: closed
+plan_items: [X-D02, R-I1]
+prs: [19, 33]
+verification: >
+  Closed by PR #19 (merged 2026-09-27 as 1d4bd93); PR #33 checked the fix and records it. Checked on 2026-09-27 on
+  PR #33's branch (main at 6f71f04 with documentation and CI changes and no Java change), after
+  `mvn -o -B clean verify`: stage-modules.sh with no argument stages the production profile, eight jars under
+  `MANIFEST/2 profile=production`, none of them holding a cibasim class or PF-INF/oob-auth-plugins;
+  `--profile conformance` adds pf.plugins.ciba-sim.jar under [plugins]; `--profile staging` exits 2.
+  assemble-pf-runtime-war.sh refused a conformance stage for a production image, with the profile argument and
+  without it, and a production stage for a conformance image, each with exit 1 and no war left behind. The
+  Dockerfile's STAGING_PROFILE defaults to production and reaches the assembler; conformance/up.sh stages
+  conformance, docker-compose.yml builds with STAGING_PROFILE=conformance and compose-context.sh refuses any other
+  MANIFEST; release.yml stages the production profile (line 281), so the release assets from 0.4.0 carry the
+  production profile's jars (eight at 6f71f04, nine since PR #37 staged rar-model). SimOobAuthenticator's initiate, check and finished and the decision servlet ask SimulatorGate first, and
+  it refuses unless OIDF_CIBA_SIM_ENABLED=true, OIDF_DEPLOYMENT_PROFILE=development and OIDF_CIBA_SIM_DIR is an
+  absolute, non-symlink directory owned by the process user with mode 0700; SimulatorGateTest (8),
+  DecisionStoreTest (8), CibaSimDecisionServletTest (6) and SimOobAuthenticatorTest (5) passed. Left over, both
+  outside the image: v0.1.5's and v0.3.0's release assets carry the simulator with its old single switch (fixed
+  from 0.4.0; no earlier release carries it, `gh release view` 2026-09-27), and every release still publishes it
+  to GitHub Packages (F-0120).
+target_release: 0.4.0
+notes: >
+  The CIBA simulator built for the conformance rig is staged into every image, gated only by
+  `OIDF_CIBA_SIM_ENABLED`. X-D02 makes it a conformance-only staging profile: initiate, check and finished
+  refuse unless the flag is set and the profile is not production, with a required private
+  `OIDF_CIBA_SIM_DIR`; R-I1's MANIFEST records the profile and the assembler refuses a mismatch.

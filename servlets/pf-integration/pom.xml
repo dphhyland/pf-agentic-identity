@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>pf-integration</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>pf-integration</name>
@@ -27,18 +27,27 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.4.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <!-- platform-pf (plan item F-1): platform's PingFederate side, and platform through it. Staged beside this
+             module's jar by build/pingfederate/stage-modules.sh, as platform is. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
+        <!-- The containment model: the filter loads it at init and the criterion on first use. Staged beside
+             this module's jar by build/pingfederate/stage-modules.sh. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><type>test-jar</type><scope>test</scope></dependency>
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
@@ -244,6 +253,22 @@
                                              subject the delegated act chain names. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.defaultConfig(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.actingPartySub(*</include>
+                                        <!-- S4a: the endpoint URL a DPoP proof must name, from configuration and never from the
+                                             Host header. configuredTokenEndpointBaseUrl is not here: the line that reads the
+                                             setting runs only in a booted PingFederate, so a unit test cannot cover it
+                                             (EndpointUrlTest covers the unreadable case). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.endpointUrl(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.endpointPath(*</include>
+                                        <!-- S1b: what the RAR plugin is told - the attested ceiling and the fingerprint of the
+                                             model set that checked the request, which it compares with its own - and the
+                                             model's reason a refusal's log line carries (never the client's description). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.attestationContext(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.refusalDetail(*</include>
+                                        <!-- S1b: the issuance criterion's own token gate - idp-agentic-demo's only gate - where
+                                             no filter verified first: load the models or refuse, check the request strictly
+                                             within the attestation, refuse a repeated parameter, and stash what was granted. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.verifyAtTheCriterion(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils.requireAtMostOnce(*</include>
                                         <!-- FAPI 2.0 enforcement over PingFederate's own endpoints. checkClientAssertion
                                              and checkDpopProof are the rules. subjectOf, clientOfAccessToken and
                                              appliesTo decide WHOSE request it is and so whether the rules apply at
@@ -319,6 +344,10 @@
                                         <include>com.pingidentity.ps.oidf.pf.PfRequestScope.exit(*</include>
                                         <include>com.pingidentity.ps.oidf.pf.RequestScopedServlet.service(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.utils.OIDFederationUtils.requestOf(*</include>
+                                        <!-- S3a: a store that cannot answer is a 503 temporarily_unavailable at the token
+                                             endpoint and the federation endpoints, and never a replay or a spent jti. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.statusFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.trustanchor.OpenIdFederationServlet.assertionNotSpent(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -1,0 +1,251 @@
+{
+  "format": 1,
+  "component": "operator-auth",
+  "module": "libs/platform-pf",
+  "package": "com.pingidentity.ps.oidf.platform.pf.auth",
+  "families": [
+    "OIDF_OPERATOR_"
+  ],
+  "settings": [
+    {
+      "name": "OIDF_OPERATOR_AUTH_MODE",
+      "kind": "env",
+      "type": "choice",
+      "default": "jwt",
+      "choices": [
+        "jwt",
+        "introspection"
+      ],
+      "description": "How the operator APIs verify a PingFederate access token: jwt, against PingFederate's keys, or introspection, by asking its introspection endpoint (RFC 7662)",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Neither jwt nor introspection: every operator request is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_AUTH_MODE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_AUDIENCE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The audience an operator access token must carry in aud: the value of the access token manager's audience (a JWT manager's Audience Claim Value, or an aud attribute on a reference manager)",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset: every operator request is a 503, in either profile, because no token can be checked for its audience"
+      },
+      "profile": "required-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_AUDIENCE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_BASE_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The origin operators address the operator APIs at, with no path (https://pf.example.com): a DPoP proof's htu must be this followed by the request's path, never a URL built from the Host header",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset, not an origin, or http under the production profile: every operator request is a 503"
+      },
+      "profile": "required-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_BASE_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_JWKS_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "PingFederate's JWKS for the access token manager's signing keys (https://pf.example.com/pf/JWKS for the central signing key), in jwt mode",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset in jwt mode: every operator request is a 503; unreachable: a 503 once the keys held are 20 minutes old"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_JWKS_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_ACCESS_TOKEN_TYP",
+      "kind": "env",
+      "type": "string",
+      "default": "at+jwt",
+      "description": "The typ header PingFederate's JWT access token manager puts on its tokens (its Type Header Value), in jwt mode: at+jwt or application/at+jwt as RFC 9068 asks, the default; none for a manager whose field is blank, which then requires the header to be missing; or another value, compared exactly",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not the manager's value: every operator request in jwt mode is a 401 invalid_token"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_ACCESS_TOKEN_TYP"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_INTROSPECTION_ENDPOINT",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "PingFederate's introspection endpoint (https://pf.example.com/as/introspect.oauth2), in introspection mode",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset in introspection mode: every operator request is a 503; unreachable: a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_INTROSPECTION_ENDPOINT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_INTROSPECTION_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The client the operator APIs introspect tokens as (client_secret_basic); it needs the Access Token Validation grant",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset in introspection mode: every operator request is a 503; wrong: PingFederate answers 401 and every operator request is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_INTROSPECTION_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_INTROSPECTION_CLIENT_SECRET",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The introspecting client's secret",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Unset in introspection mode: every operator request is a 503; wrong: every operator request is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_INTROSPECTION_CLIENT_SECRET"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_INSECURE_TLS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Trusts any certificate on the JWKS and introspection calls, through platform's InsecureTls; the host name is still checked",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read strictly: true or false"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_INSECURE_TLS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE",
+      "kind": "env",
+      "type": "int",
+      "default": 10,
+      "min": 1,
+      "max": 10000,
+      "description": "How many failed authentications one client address may make in a minute before every operator request from it is a 429 until the minute ends",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not a whole number from 1 up: every operator request is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_AUTH_FAILURES_PER_MINUTE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_OPERATOR_MUTATIONS_PER_MINUTE",
+      "kind": "env",
+      "type": "int",
+      "default": 60,
+      "min": 1,
+      "max": 100000,
+      "description": "How many changes one operator (the token's subject) may make in a minute before the next is a 429 until the minute ends",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not a whole number from 1 up: every operator request is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "env",
+          "name": "OIDF_OPERATOR_MUTATIONS_PER_MINUTE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

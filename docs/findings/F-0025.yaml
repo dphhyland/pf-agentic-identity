@@ -1,0 +1,28 @@
+id: F-0025
+title: 'Configurability: undocumented keys, lenient parsing, unreachable init-params, restart-only settings'
+severity: medium
+area: platform
+source: review-2026-09-26
+status: open
+plan_items: [ST-1, ST-2, ST-3, ST-4, ST-5, ST-6, ST-7, PR-1, PR-2, PR-3, PR-5]
+prs: [43, 47, 50, 52, 54, 62, 63, 64]
+verification: ''
+target_release: 0.6.0
+notes: >
+  The review's configurability class, as one finding: settings read by name in ~114 places and ~70 system
+  properties with no single catalogue; booleans read leniently outside the federation code; init-params
+  nothing can set; settings that need a restart. ST-1 to ST-4 give every module a strict, catalogued,
+  generated reference (Phase 2); ST-5 to ST-7 convert every reader, ratchet direct reads out and add
+  `oidf-preflight.jar` (Phase 3); PR-1 to PR-5 add the deployment profile that refuses insecure switches
+  (Phases 2 and 3).
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package) delivered ST-1 to ST-4 and PR-1 on the libraries F1 (PR
+  #43) created: ST12 (PR #47) the strict parsers and the catalogue format in platform.settings; PR1 (PR #50) one
+  reading of OIDF_DEPLOYMENT_PROFILE and the accepted-risks registry; ST3A (PR #52), ST3B (PR #62) and ST3C (PR #63) a
+  catalogue for every shipped module and tools/settings-scan.py in the lint job, which on origin/main 4b1fd979 reports
+  "670 read(s) in 16 module(s), 24 catalogue(s), 444 declared name(s)" and every shipped module held to its
+  catalogues; ST4 (PR #64) the configuration reference and docs/extended-properties.json generated from them and
+  checked in CI; C2 (PR #54) made platform's Redis client (RedisConfig) the one reader that resolves through
+  platform.settings, reading the platform-redis catalogue. Still open: every other reader still reads for itself,
+  lenient readers remain (listed in libs/platform's README as ST-5's worklist), unknown keys and unaccepted risks are
+  listed and never refused (ST-5 to ST-7, PR-2, PR-3, PR-5, Phase 3).

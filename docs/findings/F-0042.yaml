@@ -1,0 +1,24 @@
+id: F-0042
+title: Five separate trust-all TLS implementations in main code
+severity: medium
+area: platform
+source: design
+status: closed
+plan_items: [PR-1]
+prs: [50]
+verification: >
+  CodeQL 2.27.1 on PR #50's merge commit 164903d, 2026-09-28 (java-kotlin analysis 1847734799, which ran
+  codeql/java-queries' java/insecure-trustmanager): no result anywhere, InsecureTls.java included, and the
+  check reads "No new alerts in code changed by this pull request". Alerts 4 to 9 have no instance on
+  refs/pull/50/merge; on refs/heads/main they read `open` at 276bcd6 (read 2026-09-28), as they must until
+  main's first analysis after the merge marks them fixed. tools/trust-scan.py over main's copies of the six
+  sites and the harness reported ten hits in seven files, and over this tree none.
+target_release: 0.5.0
+notes: >
+  Found while designing, item 13. CodeQL's first run on main (2026-09-27, after PR #18) lists six sites as
+  java/insecure-trustmanager, alerts 4 to 9: JdkHttpClient (oidf-jose), JdkHttpTransport (rar-paz-plugin),
+  HostedEntityRegistrar (device-enrolment), PfIntrospectionReceiverAuthenticator, PollReceiverClient and
+  SetVerifier (ssf) - one more than the design pass counted. Each was its own switch to forget. PR-1 (PR #50) makes InsecureTls the only trust-all
+  constructor and adds a source scan that fails on any other X509TrustManager; CodeQL leaves InsecureTls
+  unreported by the query's own guard rule (U-0170), so no alert needs dismissing. PR-2 then forbids ignore-TLS
+  in every form in production.

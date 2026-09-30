@@ -1,0 +1,19 @@
+id: F-0072
+title: 'The showcase page wrote the URL fragment into the breadcrumb as markup (CodeQL js/xss)'
+severity: medium
+area: showcase
+source: pr-review
+status: closed
+plan_items: [R-I1]
+prs: [19]
+verification: >
+  CodeQL alert 1 on showcase/index.html (2026-09-27): route() derived the section and page name from
+  location.hash and wrote them into #crumb through innerHTML, escaped through esc() but with the section in an
+  href attribute. PR #19 builds the crumb from text nodes and an href assignment instead; CodeQL's check on
+  the pull request went green with that commit (2026-09-27).
+target_release: 0.4.0
+notes: >
+  Found by CodeQL's first pull-request run, on the wave-1 image PR, whose merge touched the page's DATA line.
+  Not a defect of the image work; fixed there because the check blocked the merge. The page validates the
+  fragment against the known page and module ids first, so the reachable injection was limited to what esc()
+  and the attribute quoting left, but a text node is the right tool either way.

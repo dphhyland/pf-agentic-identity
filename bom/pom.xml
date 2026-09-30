@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>pf-agentic-identity-bom</artifactId>
-    <version>0.4.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>pom</packaging>
 
     <name>pf-agentic-identity BOM</name>
@@ -14,9 +14,8 @@
         The one place a shared dependency version is written down. Every module pom imports this BOM
         (scope=import) and declares its dependencies version-less; the poms stay standalone otherwise —
         no parent inheritance, keeping the absorbed modules' provenance property intact. Bump a version
-        here and the whole reactor moves together. services/gm-api is deliberately not a consumer: it is
-        a vendored tree with its own coordinate convention (au.com.idpartners + local.pingfederate:*),
-        though its version moves with the reactor's (tools/set-version.py).
+        here and the whole reactor moves together. services/gm-api is a consumer like the others; it
+        keeps only its own groupId (au.com.idpartners).
     </description>
 
     <licenses>
@@ -28,7 +27,7 @@
 
     <properties>
         <!-- internal reactor artifacts -->
-        <version.internal>0.4.0-SNAPSHOT</version.internal>
+        <version.internal>0.6.0-SNAPSHOT</version.internal>
         <!-- the two provided PingFederate jars, extracted from the public image (see .github/workflows/build.yml);
              PF_SDK_MAVEN_VERSION in build/pf-version.env, which tools/pf-version-check.py holds this to -->
         <version.pingfederate>13.1.3.0</version.pingfederate>
@@ -51,26 +50,40 @@
         <version.jackson>${version.pf.jackson}</version.jackson>
         <version.jakarta-servlet-api>5.0.0</version.jakarta-servlet-api>
         <version.postgresql>42.7.3</version.postgresql>
+        <!-- H2 is no longer a test database here (0.5.0): its last user is an unused test line in
+             plugins/instance-registry-datasource/pom.xml, which is being deleted in 0.5.0. This property and the
+             h2 entry below go with that line. -->
         <version.h2>2.2.224</version.h2>
         <version.bouncycastle>1.78.1</version.bouncycastle>
-        <version.junit.jupiter>5.10.2</version.junit.jupiter>
+        <version.junit.jupiter>6.1.3</version.junit.jupiter>
         <version.mockito>5.12.0</version.mockito>
-        <!-- A real Postgres for the tests whose subject IS Postgres behaviour (JSONB, partial unique
-             indexes on expressions, plpgsql triggers, compare-and-set under READ COMMITTED). -->
-        <version.testcontainers>1.19.8</version.testcontainers>
+        <!-- The tests run on PostgreSQL only (H2 and HSQLDB were dropped in 0.5.0). libs/testkit starts one
+             container per test JVM when OIDF_TEST_JDBC_URL names no server. 1.21.4, not 1.19.8: 1.19.8 did not
+             find Docker Desktop 29 on the maintainer's Mac, and 1.21.4 does (U-0050, verified 2026-09-28). -->
+        <version.testcontainers>1.21.4</version.testcontainers>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <dependencyManagement>
         <dependencies>
             <!-- internal modules that other modules depend on -->
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>conformance</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>app-attest</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>testkit</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>device-instance</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId><version>${version.internal}</version></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rs-validation</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>openid-federation</artifactId><version>${version.internal}</version><type>test-jar</type></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>shared-signals</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>agent-registry</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-integration</artifactId><version>${version.internal}</version></dependency>
             <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>attestation-issuer</artifactId><version>${version.internal}</version></dependency>
@@ -84,6 +97,8 @@
             <!-- third-party -->
             <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId><version>${version.pf.jose4j}</version></dependency>
             <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId><version>${version.pf.jackson}</version></dependency>
+            <!-- gm-api imports jackson-core's TypeReference directly, from PingFederate's copy. -->
+            <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-core</artifactId><version>${version.pf.jackson}</version></dependency>
             <dependency><groupId>com.fasterxml.jackson.dataformat</groupId><artifactId>jackson-dataformat-cbor</artifactId><version>${version.jackson}</version></dependency>
             <!-- PingFederate 13.1 is jakarta.servlet (Jetty ee9). Every servlet, filter and war here compiles
                  against it, and so does the RAR plugin, which reads the request through the SDK's
@@ -100,7 +115,6 @@
             <dependency><groupId>org.mockito</groupId><artifactId>mockito-core</artifactId><version>${version.mockito}</version></dependency>
             <dependency><groupId>org.mockito</groupId><artifactId>mockito-junit-jupiter</artifactId><version>${version.mockito}</version></dependency>
             <dependency><groupId>org.testcontainers</groupId><artifactId>postgresql</artifactId><version>${version.testcontainers}</version></dependency>
-            <dependency><groupId>org.testcontainers</groupId><artifactId>junit-jupiter</artifactId><version>${version.testcontainers}</version></dependency>
         </dependencies>
     </dependencyManagement>
 

@@ -1,0 +1,18 @@
+id: U-0122
+title: The expected htu with a token endpoint base URL configured on a booted PingFederate
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [S4a]
+prs: [34]
+recorded_in: 'docs/releases/unreleased/S4A.md, Notes, Residual risk'
+verify_by: >
+  On the rig, set Authorization Server Settings > Token Endpoint Base URL, read token_endpoint from
+  /.well-known/openid-configuration, and send combined-mode proofs naming it and naming the issuer's token
+  endpoint; the first must be issued a token and the second refused, with no base-URL warning in server.log.
+verification: ''
+notes: >
+  ClientAttestationUtils.configuredTokenEndpointBaseUrl reads MgmtFactory.getAuthzServerManager()
+  .getTokenEndpointBaseUrl(), a PingFederate internal. On the 2026-09-27 rig it was unset and read without the
+  warning; a set value is unit-tested only (EndpointUrlTest, ClientAttestationAuthFilterEndpointTest,
+  CriterionEndpointTest).

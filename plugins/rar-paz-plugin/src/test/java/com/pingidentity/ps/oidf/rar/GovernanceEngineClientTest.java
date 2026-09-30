@@ -62,10 +62,34 @@ class GovernanceEngineClientTest {
         assertFalse(client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "client-1", "none").isPermit());
     }
 
+    private DecisionResponse decide(StubTransport t) throws IOException {
+        return client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "client-1", "none");
+    }
+
+    /** A 401 from a wrong secret is the case that used to fail open; it, and every other refusal, fail closed. */
     @Test
-    void nonSuccessStatusThrows() {
-        StubTransport t = new StubTransport(new HttpTransport.Response(500, "boom"));
-        assertThrows(IOException.class,
-                () -> client(t).decide("sales_agent", Map.of("type", "sales_agent"), AttestationSubject.empty(), null, "client-1", "none"));
+    void nonSuccessStatusThrowsAndOnlyUnavailableStatusesFailOpen() {
+        for (int status : new int[] {400, 401, 403, 404, 500}) {
+            IOException e = assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(status, "boom"))));
+            assertFalse(e instanceof PdpUnavailableException, "HTTP " + status);
+        }
+        for (int status : new int[] {429, 502, 503, 504}) {
+            assertThrows(PdpUnavailableException.class, () -> decide(new StubTransport(new HttpTransport.Response(status, "later"))));
+        }
+    }
+
+    @Test
+    void aNonJsonOrMalformedAnswerIsRefused() {
+        assertFalse(assertThrows(IOException.class, () -> decide(new StubTransport(
+                new HttpTransport.Response(200, "<html/>", "text/html; charset=utf-8")))) instanceof PdpUnavailableException);
+        assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(200, "{\"decision\":"))));
+        assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(200, "[1,2]"))));
+        assertThrows(IOException.class, () -> decide(new StubTransport(new HttpTransport.Response(200, "\"PERMIT\""))));
+    }
+
+    @Test
+    void anEmptyBodyIsNoDecision() throws Exception {
+        assertFalse(decide(new StubTransport(new HttpTransport.Response(200, ""))).isPermit());
+        assertFalse(decide(new StubTransport(new HttpTransport.Response(200, null))).isPermit());
     }
 }

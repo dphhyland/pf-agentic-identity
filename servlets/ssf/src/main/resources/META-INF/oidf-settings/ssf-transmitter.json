@@ -1,0 +1,1115 @@
+{
+  "format": 1,
+  "component": "ssf-transmitter",
+  "module": "servlets/ssf",
+  "package": "com.pingidentity.ps.oidf.ssf",
+  "families": [
+    "OIDF_SSF_"
+  ],
+  "settings": [
+    {
+      "name": "OIDF_SSF_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The transmitter's issuer: the SETs' iss and the base of every endpoint it advertises, so the external base receivers use; unset, the SSF endpoints stay off and PingFederate starts regardless",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset: the SSF endpoints stay off, logged at INFO"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "issuer"
+        },
+        {
+          "from": "system-property",
+          "name": "oidf.ssf.issuer"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_ISSUER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_SIGNING_ALGORITHM",
+      "kind": "env",
+      "type": "choice",
+      "default": "RS256",
+      "choices": [
+        "RS256",
+        "PS256"
+      ],
+      "description": "How the transmitter signs its SETs",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but RS256 or PS256, exactly: the SSF transmitter stays off, logged at INFO, naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "signingAlgorithm"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SIGNING_ALGORITHM"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_BASE_PATH",
+      "kind": "env",
+      "type": "string",
+      "default": "/ssf",
+      "description": "The path after the issuer in the endpoints the transmitter advertises; the servlets serve /ssf whatever it says",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Anything but /ssf advertises endpoints nothing serves"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "basePath"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_BASE_PATH"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_DATA_STORE_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A PingFederate JDBC data store whose pool the SSF store uses; with neither this nor a JDBC URL the store is in memory, lost at a restart and seen by one node only",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "An unknown id: the SSF endpoints fail until the store opens, retried every 30 seconds with an ERROR naming the cause"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "dataStoreId"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_DATA_STORE_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_STORE_DIALECT",
+      "kind": "env",
+      "type": "choice",
+      "default": "tables",
+      "choices": [
+        "tables",
+        "ldm"
+      ],
+      "description": "The SSF store's layout: tables, its own three ssf_ tables, or ldm, the Identity Object Model's entry store; only read with a data store or a JDBC URL",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but tables or ldm, exactly: the SSF transmitter stays off, logged at INFO, naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "storeDialect"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_STORE_DIALECT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_JDBC_URL",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "A direct database for the SSF store, for development; wins over the data store. jdbc:h2: and jdbc:hsqldb: are refused",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "A database that cannot be opened: the SSF endpoints fail until it opens, retried every 30 seconds with an ERROR that shows <jdbcUrl> for the URL"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "jdbcUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_JDBC_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_JDBC_USERNAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The user for the direct database",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "As the JDBC URL: the store does not open, and the retry says why"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "jdbcUsername"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_JDBC_USERNAME"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_JDBC_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The password for the direct database",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "As the JDBC URL: the store does not open, and the retry says why"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "jdbcPassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_JDBC_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether every SET is also published to Kafka; off, no Kafka class is loaded",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false; true without the bootstrap servers keeps the transmitter off"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The Kafka brokers, host:port comma-separated; required with Kafka on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with Kafka on: the SSF transmitter stays off, logged at INFO, naming the setting"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaBootstrapServers"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_BOOTSTRAP_SERVERS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_TOPIC",
+      "kind": "env",
+      "type": "string",
+      "default": "sse-events",
+      "description": "The Kafka topic SETs are published to",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaTopic"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_TOPIC"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SECURITY_PROTOCOL",
+      "kind": "env",
+      "type": "string",
+      "default": "PLAINTEXT",
+      "description": "Kafka's security.protocol; PLAINTEXT, the default, is the value PR-2 forbids in production",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSecurityProtocol"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SECURITY_PROTOCOL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SASL_MECHANISM",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "Kafka's sasl.mechanism when the protocol is a SASL one; PLAIN when unset",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSaslMechanism"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SASL_MECHANISM"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SASL_USERNAME",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The SASL user for Kafka",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSaslUsername"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SASL_USERNAME"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_KAFKA_SASL_PASSWORD",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The SASL password for Kafka",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Passed to Kafka as it is"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "kafkaSaslPassword"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_KAFKA_SASL_PASSWORD"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS",
+      "kind": "env",
+      "type": "int",
+      "default": 5,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "How many failed pushes of one SET a push stream takes before it is paused as dead-lettered; 1 or less pauses it on the first failed push",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pushRetryMaxAttempts"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_PUSH_RETRY_BACKOFF_SECONDS",
+      "kind": "env",
+      "type": "int",
+      "default": 5,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "The background loop's tick, and the base of the push retry's doubling backoff; below 1 means 1",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pushRetryBackoffSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_PUSH_RETRY_BACKOFF_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_POLL_MAX_EVENTS",
+      "kind": "env",
+      "type": "int",
+      "default": 100,
+      "min": -2147483648,
+      "max": 2147483647,
+      "description": "The most SETs a poll answers when the receiver asks for no number, and the most the receiver's own poll asks for (100 when this is 0 or less)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "pollMaxEvents"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_POLL_MAX_EVENTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_SET_TTL_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 604800,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "How long an undelivered SET is kept before it is deleted; 0 or less keeps it for ever",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "setTtlSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_SET_TTL_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_SCOPE",
+      "kind": "env",
+      "type": "string",
+      "default": "ssf.manage",
+      "description": "The scope a bearer token needs for the stream management API and the poll",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "A scope no client holds: every call is a 403"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverScope"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_SCOPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_UNOWNED_STREAM_OWNER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The one client admitted to streams that record no owner; unset, nobody is",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "An id that names no client admits nobody"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "unownedStreamOwner"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_UNOWNED_STREAM_OWNER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_PROVISIONER_SCOPE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The scope that admits a client to the SCIM endpoint and events:emit; unset, nobody is. Never the receiver scope",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "The receiver scope: the SSF transmitter stays off, logged at INFO, naming both"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "provisionerScope"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_PROVISIONER_SCOPE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_ALLOWED_AUDIENCES",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The aud values a client may name when it creates a stream besides its own id, as clientA=aud1,aud2;clientB=aud3",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "An entry that is not clientId=aud[,aud]: the SSF transmitter stays off, logged at INFO, naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "allowedAudiences"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_ALLOWED_AUDIENCES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_ENDPOINT",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "Where receivers' bearer tokens are introspected; <issuer>/as/introspect.oauth2 when unset",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Not an introspection endpoint: every authenticated call is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionEndpoint"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_ENDPOINT"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_CLIENT_ID",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The client that introspects receivers' tokens; unset, no receiver can authenticate",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every authenticated call is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionClientId"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_CLIENT_ID"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_CLIENT_SECRET",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The introspecting client's secret",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every authenticated call is a 503"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionClientSecret"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_CLIENT_SECRET"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_INTROSPECTION_INSECURE_TLS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Trusts any certificate on the introspection call, through platform's InsecureTls; the host name is still checked",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "introspectionInsecureTls"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_INTROSPECTION_INSECURE_TLS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_DEFAULT_EVENT_TYPES",
+      "kind": "env",
+      "type": "words",
+      "default": null,
+      "description": "The event types the transmitter advertises as events_supported, comma-separated; the five CAEP and RISC types it emits when unset",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Taken as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "defaultEventTypes"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_DEFAULT_EVENT_TYPES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_DEFAULT_SUBJECTS",
+      "kind": "env",
+      "type": "choice",
+      "default": "NONE",
+      "choices": [
+        "NONE",
+        "ALL"
+      ],
+      "description": "What a stream hears before any subject is added to it: NONE, or ALL, every subject (SSF 1.0 7.1.1)",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Anything but ALL or NONE, exactly: the SSF transmitter stays off, logged at INFO, naming the setting"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "defaultSubjects"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_DEFAULT_SUBJECTS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_VERIFICATION_EVENT_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether a receiver may ask for a verification event",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "verificationEventEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_VERIFICATION_EVENT_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_EXPECTED_ISSUER",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The transmitter whose SETs this PingFederate accepts; set, the receiver is on",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every SET is refused"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverExpectedIssuer"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_EXPECTED_ISSUER"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_JWKS_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "The JWKS inbound SETs are verified against; <receiverExpectedIssuer>/pf/JWKS when unset",
+      "when_wrong": {
+        "effect": "per-request",
+        "detail": "Wrong: every SET is refused"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverJwksUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_JWKS_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_AUDIENCE",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "The aud an inbound SET must carry; required with the receiver on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with the receiver on: the receiver does not start, and an ERROR names it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverAudience"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_AUDIENCE"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token a transmitter must present to push to this receiver; required with the receiver on",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Unset with the receiver on: the receiver does not start, and an ERROR names it"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverEndpointAuthToken"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_ENDPOINT_AUTH_TOKEN"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_JWKS_CACHE_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 300,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "How long the receiver keeps the transmitter's JWKS; 0 or less fetches it for each SET",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverJwksCacheSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_JWKS_CACHE_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_INSECURE_TLS",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Trusts any certificate on the receiver's JWKS fetch, poll and stream calls, through platform's InsecureTls; the host name is still checked",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "forbidden-in-production",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverInsecureTls"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_INSECURE_TLS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_POLL_URL",
+      "kind": "env",
+      "type": "url",
+      "default": null,
+      "description": "A transmitter's poll endpoint to pull SETs from; unset, the receiver takes pushes only",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Wrong: each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPollUrl"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_POLL_URL"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_POLL_TOKEN",
+      "kind": "env",
+      "type": "secret",
+      "default": null,
+      "description": "The bearer token the receiver's poll presents",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Wrong: each poll fails and is logged"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPollToken"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_POLL_TOKEN"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_POLL_INTERVAL_SECONDS",
+      "kind": "env",
+      "type": "long",
+      "default": 10,
+      "min": -9223372036854775808,
+      "max": 9223372036854775807,
+      "description": "How often the receiver polls; below 1 means 1",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number: the SSF transmitter stays off, logged at INFO without the setting's name (F-0237)"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverPollIntervalSeconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_POLL_INTERVAL_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_ACTIONS_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether an inbound revocation signal acts on PingFederate, revoking the subject's grants",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverActionsEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_ACTIONS_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_RECEIVER_INSTANCE_REGISTRY",
+      "kind": "env",
+      "type": "bool",
+      "default": false,
+      "description": "Whether inbound CAEP signals act on the agent instance registry; needs the ldm store, and is refused with a warning on any other",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "receiverInstanceRegistry"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_RECEIVER_INSTANCE_REGISTRY"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_AUDIT_EVENTS_ENABLED",
+      "kind": "env",
+      "type": "bool",
+      "default": true,
+      "description": "Whether PingFederate's security audit events are turned into SETs",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Read leniently: anything but true, in any case, means false"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "auditEventsEnabled"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_AUDIT_EVENTS_ENABLED"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_SSF_AUDIT_EVENT_MAP",
+      "kind": "env",
+      "type": "string",
+      "default": null,
+      "description": "EVENT=action pairs, comma-separated, that extend or override which audit events become which SETs",
+      "when_wrong": {
+        "effect": "not-checked",
+        "detail": "Taken as written"
+      },
+      "profile": "any",
+      "security": false,
+      "sources": [
+        {
+          "from": "init-param",
+          "name": "auditEventMap"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_SSF_AUDIT_EVENT_MAP"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    }
+  ],
+  "removed": []
+}

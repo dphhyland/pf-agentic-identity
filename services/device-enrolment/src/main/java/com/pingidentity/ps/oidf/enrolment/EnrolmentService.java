@@ -602,24 +602,6 @@ public final class EnrolmentService {
         }
     }
 
-    /** Applies a compliance signal, and suspends every instance on a device that fell out of compliance. */
-    public void applyComplianceChange(String deviceId, ComplianceState state, Instant checkedAt)
-            throws EnrolmentException {
-        try {
-            this.registry.updateCompliance(deviceId, state, checkedAt);
-            if (state != ComplianceState.COMPLIANT) {
-                for (AgentInstance instance : this.registry.instancesOnDevice(deviceId)) {
-                    if (instance.status() == InstanceStatus.ACTIVE) {
-                        this.registry.setStatus(instance.id(), InstanceStatus.SUSPENDED,
-                                "device compliance became " + state);
-                    }
-                }
-            }
-        } catch (RegistryException e) {
-            throw EnrolmentException.serverError("could not apply the compliance change", e);
-        }
-    }
-
     /**
      * Revokes an instance. The next issuance fails; nothing has to reach the device.
      *

@@ -1,0 +1,29 @@
+id: F-0023
+title: 'Redis over rediss:// without endpoint identification; redis:// allowed in production'
+severity: medium
+area: client-attestation
+source: review-2026-09-26
+status: closed
+plan_items: [S3a]
+prs: [31]
+verification: >
+  Closed by S3a on 2026-09-27 (commit a7911f1 on prod/p1-evidence-binding). MiniRedisClient.sslParametersFor sets the HTTPS endpoint
+  identification algorithm and the SNI name (MiniRedisClientTest), connect() calls startHandshake() before
+  AUTH, sslContextFor trusts OIDF_REDIS_CA_FILE, and transportRefusal refuses redis:// when
+  DeploymentProfile.isProduction. MiniRedisClientTlsTest (2026-09-27, runs in CI with no Redis) drives the
+  same socket code against an in-JVM TLS server whose keytool-made certificate names localhost only: by name
+  the client verifies, sends SNI and authenticates; by 127.0.0.1 the handshake fails and the server reads
+  no command. Deleting setSSLParameters from connect() fails both of its tests. Against redis:7-alpine with a self-signed certificate for localhost
+  (RedisLiveTest, 2026-09-27): the handshake completes with the CA file; rediss://127.0.0.1 fails endpoint
+  identification before AUTH; without the CA file the JVM's CAs refuse the certificate; redis:// is refused
+  under the production flag. On a booted PingFederate 13.1.3 (conformance/up.sh as PF_RIG_NAME=pfai-p1ev,
+  2026-09-27, the deployed jars byte-identical to the build of 0c9f7a9): with OIDF_REDIS_URL rediss:// to a
+  redis:7-alpine by a name its certificate carries and OIDF_REDIS_CA_FILE naming the CA, the challenge endpoint
+  issued a challenge stored as oidf:as:challenge:<value> with a TTL of 300 s; by an address the certificate
+  does not name (192.168.65.254), it answered 503 temporarily_unavailable, server.log gave the cause as "No
+  subject alternative names matching IP address 192.168.65.254 found", and no key was written.
+target_release: 0.4.0
+notes: >
+  The review rated MiniRedisClient's TLS handling medium; S3a lists what it lacks: endpoint identification
+  (the HTTPS algorithm), SNI, the handshake completed before AUTH, an optional CA file, and `redis://` refused
+  in production. Closed with S3a.

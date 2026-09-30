@@ -69,6 +69,18 @@ class AuthZenRequestBuilderTest {
         assertEquals(Map.of("type", "agent", "id", "agent-123"), context.get("actor"));
     }
 
+    /** Seen on the rig, 2026-09-27: a client-credentials principal is the client id, and must not be typed "user". */
+    @Test
+    void aClientPrincipalIsTypedClient() {
+        Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
+                AttestationSubject.empty(), "rar-principal-probe", "rar-principal-probe", "client");
+        assertEquals(Map.of("type", "client", "id", "rar-principal-probe"), node(req, "subject"));
+        assertEquals("client", node(req, "context").get("principal_source"));
+        Map<String, Object> hint = builder.build("sales_agent", Map.of("type", "sales_agent"),
+                AttestationSubject.empty(), "suite-user", "rar-principal-probe", "identity_hint");
+        assertEquals(Map.of("type", "user", "id", "suite-user"), node(hint, "subject"));
+    }
+
     @Test
     void fallsBackToClientSubjectWhenAttestationEmpty() {
         Map<String, Object> req = builder.build("sales_agent", Map.of("type", "sales_agent"),
@@ -95,6 +107,17 @@ class AuthZenRequestBuilderTest {
         assertEquals("50.00", props.get("amount"));
         assertEquals(List.of("initiate"), props.get("actions"));   // structured JSON, not stringified
         assertEquals(Map.of("name", "authorize"), node(req, "action"));
+    }
+
+    @Test
+    void theAttesterIssuerRidesWithTheActorAndTheAttestation() {
+        AttestationSubject agent = new AttestationSubject("https://rp.example.com", "https://rp.example.com",
+                List.of(), Map.of(), null, "payments-agent", "https://attester.example", null);
+        Map<String, Object> context = node(builder.build("payment_initiation", Map.of("type", "payment_initiation"),
+                agent, "alice", "northwind-webapp", "authenticated"), "context");
+        assertEquals(Map.of("type", "agent", "id", "payments-agent", "iss", "https://attester.example"), context.get("actor"));
+        assertEquals(Map.of("iss", "https://attester.example"), context.get("attestation"));
+        assertEquals("authenticated", context.get("principal_source"));
     }
 
     @Test

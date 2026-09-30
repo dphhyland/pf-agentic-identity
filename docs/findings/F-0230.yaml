@@ -1,0 +1,22 @@
+id: F-0230
+title: 'attestation_asserted_context_resolver is never read off a PingFederate client, so asserted context cannot be turned on there'
+severity: medium
+area: attestation-issuer
+source: design
+status: open
+plan_items: [X-B10]
+prs: [62]
+verification: ''
+target_release: 0.9.0
+notes: >
+  Found by ST3B (2026-09-28) cataloguing attestation-issuer's extended properties. AttestationIssuanceConfig reads
+  attestation_asserted_context_resolver from the property map it is given, and the issuance servlet runs the named
+  resolver only when it is set; but PfIssuanceClientResolver builds that map from its PROPERTY_KEYS, the other
+  eleven attestation_* names, and CimdMapping (the CIMD and federation sources) never sets it either. So no source
+  a deployment runs can supply it: on a PingFederate client it has no effect, a request's asserted_context is
+  ignored, and the evidenced ceiling applies unnarrowed - an operator who opted a client into the Entra directory
+  resolver to narrow agents that share one workload gets the workload's whole ceiling for each. Only tests set it
+  (they call fromProperties directly). docs/client-attestation-architecture.md lists it as a per-client extended
+  property. Related to F-0028 (asserted context built but unwired), which X-B10 closes; the one-line part (adding
+  the name to PROPERTY_KEYS, with a test through PfIssuanceClientResolver) can come sooner. The issuance-client-
+  properties catalogue declares the name and says it has no effect on a PingFederate client.

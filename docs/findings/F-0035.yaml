@@ -1,0 +1,15 @@
+id: F-0035
+title: 'idp-agentic-demo''s image turns off TLS hostname verification for the whole JVM'
+severity: high
+area: consumers
+source: design
+status: open
+plan_items: [PR-2]
+prs: []
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found while designing, item 6: `-Djdk.internal.httpclient.disableHostnameVerification=true` in that
+  repository's pingfederate/Dockerfile:73 and rar-paz/Dockerfile.fragment:27. High: every outbound HTTPS call
+  from that JVM accepts any certificate. The consumer removes the flag (only David can ask its session); PR-2
+  makes production here refuse the property, so the image cannot be run that way.

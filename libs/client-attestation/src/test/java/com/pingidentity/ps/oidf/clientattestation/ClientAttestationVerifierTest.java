@@ -4,6 +4,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.pingidentity.ps.oidf.clientattestation.AttestationChallengeService.Consumption;
+
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -12,6 +14,7 @@ import org.jose4j.jwk.PublicJsonWebKey;
 import org.jose4j.jwt.JwtClaims;
 import org.jose4j.jwt.NumericDate;
 import com.pingidentity.ps.oidf.conformance.Requirement;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -29,11 +32,19 @@ class ClientAttestationVerifierTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        // The verifiers built below with the public constructor take this classloader's model set: read it from
+        // an empty environment, so whatever the machine running the tests has set cannot change the answers.
+        AttestationRarModels.resetForTest(Map.of());
         attesterKey = TestJwts.ec("attester-1");
         instanceKey = TestJwts.ec("instance-1");
         resolver = (iss, chain) -> List.of(JsonWebKey.Factory.newJwk(TestJwts.publicParams(attesterKey)));
         challengeService = new InMemoryAttestationChallengeService();
         verifier = newVerifier(false);
+    }
+
+    @AfterEach
+    void readTheProcessEnvironmentAgain() {
+        AttestationRarModels.resetForTest(null);
     }
 
     private ClientAttestationVerifier newVerifier(boolean challengeRequired) {
@@ -42,8 +53,7 @@ class ClientAttestationVerifierTest {
 
     private ClientAttestationVerifier newVerifier(boolean challengeRequired, Set<String> requiredDisclosedClaims) {
         ClientAttestationConfig config = ClientAttestationConfig.builder()
-                .addAcceptedAudience(OP_ISSUER)
-                .addAcceptedAudience(TOKEN_ENDPOINT)
+                .expectedAudience(OP_ISSUER)
                 .expectedHtu(TOKEN_ENDPOINT)
                 .challengeRequired(challengeRequired)
                 .requiredDisclosedClaims(requiredDisclosedClaims)
@@ -278,8 +288,12 @@ class ClientAttestationVerifierTest {
     }
 
     // ---- RFC 9396 authorization_details containment, through the full verify() overload -----------------
+    //
+    // The token gate is AuthorizationDetailsGate, with its own tests; these pin that verify() asks it, after
+    // authentication, with the model set the verifier was built with, and says which set that was.
 
     @Test
+    @Requirement("CAS §7.1")
     void rarContainmentGrantsRequestWithinAttestedEntitlement() throws Exception {
         List<Map<String, Object>> entitlement = List.of(Map.of(
                 "type", "sales_agent",
@@ -294,9 +308,13 @@ class ClientAttestationVerifierTest {
 
         assertEquals(1, result.grantedAuthorizationDetails().size());
         assertEquals(entitlement, result.entitledAuthorizationDetails());
+        assertEquals(com.pingidentity.ps.oidf.rar.model.RarModels.builtIn().fingerprint(), result.rarModelsFingerprint(),
+                "the result names the model set that checked it; with no models document that is the built-ins");
     }
 
+    /** CAS §7.1: "MUST reject requests exceeding it with invalid_authorization_details". 0.3.0 said access_denied. */
     @Test
+    @Requirement("CAS §7.1")
     void rarContainmentDeniesRequestExceedingAttestedEntitlement() throws Exception {
         List<Map<String, Object>> entitlement = List.of(Map.of(
                 "type", "sales_agent",
@@ -308,16 +326,59 @@ class ClientAttestationVerifierTest {
         ClientAttestationException ex = assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(att, pop(OP_ISSUER, "p1", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
-        assertEquals(ClientAttestationException.ACCESS_DENIED, ex.error());
+        assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, ex.error());
+        assertEquals(AuthorizationDetailsGate.EXCEEDS, ex.getMessage());
     }
 
     @Test
+    @Requirement("CAS §7.1")
     void rarContainmentDeniesWhenAttestationAssertsNoEntitlementAtAll() throws Exception {
         String requested = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"]}]";
         ClientAttestationException ex = assertThrows(ClientAttestationException.class,
                 () -> verifier.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
-        assertEquals(ClientAttestationException.ACCESS_DENIED, ex.error());
+        assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, ex.error());
+    }
+
+    /**
+     * A BFF's request carries {@code _principal_sub}; a client may have written {@code _agent_id}. Both come off
+     * before the model is asked, and neither is in the grant.
+     */
+    @Test
+    void theMarkersInABffsRequestDoNotMakeItMalformed() throws Exception {
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L, Map.of("authorization_details",
+                List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA")))));
+        String requested = "[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"_principal_sub\":\"alice\","
+                + "\"_agent_id\":\"self-written\"}]";
+
+        ClientAttestationResult result = verifier.verify(att, pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID, requested);
+
+        assertEquals(List.of(Map.of("type", "sales_agent", "sales_regions", List.of("EMEA"))),
+                result.grantedAuthorizationDetails());
+    }
+
+    /** The model set is the one the verifier was given, not the classloader's: a type only it models passes. */
+    @Test
+    void aVerifierBuiltWithAModelSetChecksWithThatSet() throws Exception {
+        com.pingidentity.ps.oidf.rar.model.RarModels files = com.pingidentity.ps.oidf.rar.model.RarModels.load(
+                "{\"types\":{\"https://scheme.example.org/files\":{\"fields\":{\"locations\":\"set\"}}}}");
+        ClientAttestationVerifier withFiles = ClientAttestationVerifier.withRarModels(resolver,
+                ClientAttestationConfig.builder().expectedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
+                new InMemoryAttestationReplayCache(), challengeService, files);
+        String att = attestationWithClaims(TestJwts.publicParams(instanceKey), 600L, Map.of("authorization_details",
+                List.of(Map.of("type", "https://scheme.example.org/files", "locations", List.of("/a", "/b")))));
+        String requested = "[{\"type\":\"https://scheme.example.org/files\",\"locations\":[\"/a\"]}]";
+
+        ClientAttestationResult result = withFiles.verify(att, pop(OP_ISSUER, "p1", null), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID, requested);
+
+        assertEquals(1, result.grantedAuthorizationDetails().size());
+        assertEquals(files.fingerprint(), result.rarModelsFingerprint());
+        ClientAttestationException builtIns = assertThrows(ClientAttestationException.class,
+                () -> verifier.verify(att, pop(OP_ISSUER, "p2", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID, requested));
+        assertEquals(ClientAttestationException.INVALID_CLIENT, builtIns.error(),
+                "the built-ins have no model for the type, so the attestation's own details cannot be evaluated");
     }
 
     // ---- required-disclosed-claims policy ------------------------------------------------------------
@@ -496,5 +557,85 @@ class ClientAttestationVerifierTest {
                 () -> verifier.verify(att, pop("https://another-as.example.com", "p-aud-2", null), null,
                         "POST", TOKEN_ENDPOINT, CLIENT_ID),
                 "the PoP audience, not the attestation's, is what must name this AS");
+    }
+
+    // ---- S3a: a store that cannot answer is an outage of ours, never a finding about the client ----------
+
+    /** A challenge store whose every answer is the outage. */
+    private static AttestationChallengeService unavailableChallenges() {
+        return new AttestationChallengeService() {
+            @Override
+            public String issue() {
+                throw new StoreUnavailableException("down");
+            }
+
+            @Override
+            public Consumption consumeChallenge(String challenge) {
+                return Consumption.STORE_UNAVAILABLE;
+            }
+
+            @Override
+            public long ttlSeconds() {
+                return 300L;
+            }
+        };
+    }
+
+    private ClientAttestationVerifier verifierWith(AttestationReplayCache replay, AttestationChallengeService challenges,
+                                                   boolean challengeRequired) {
+        ClientAttestationConfig config = ClientAttestationConfig.builder()
+                .expectedAudience(OP_ISSUER)
+                .expectedHtu(TOKEN_ENDPOINT)
+                .challengeRequired(challengeRequired)
+                .build();
+        return new ClientAttestationVerifier(resolver, config, replay, challenges);
+    }
+
+    /**
+     * A replay store that cannot answer is an outage of ours, so the verifier says {@code temporarily_unavailable}
+     * - and does not say "replay", which is a finding about the client.
+     *
+     * RFC 6749 defines the code in §4.1.2.1 for the authorization endpoint's redirect: "The authorization server
+     * is currently unable to handle the request due to a temporary overloading or maintenance of the server. (This
+     * error code is needed because a 503 Service Unavailable HTTP status code cannot be returned to the client via
+     * an HTTP redirect.)" §5.2, the token endpoint's list, does not include it. Using it here, with the 503 as well,
+     * is this project's decision (plan item S3a), not a requirement of either section, so the test carries no
+     * {@code @Requirement}.
+     */
+    @Test
+    void aReplayStoreThatCannotAnswerIsTemporarilyUnavailableNotAReplay() throws Exception {
+        ClientAttestationVerifier v = verifierWith((c, j, t) -> AttestationReplayCache.Verdict.STORE_UNAVAILABLE, challengeService, false);
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), pop(OP_ISSUER, "p1", null), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.TEMPORARILY_UNAVAILABLE, e.error());
+        ClientAttestationException combined = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), null, dpop(instanceKey, "d1", null), "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.TEMPORARILY_UNAVAILABLE, combined.error(), "the combined DPoP mode too");
+    }
+
+    /** The same for the challenge store: an outage, not an unknown challenge; untagged for the reason above. */
+    @Test
+    void aChallengeStoreThatCannotAnswerIsTemporarilyUnavailableNotAnUnknownChallenge() throws Exception {
+        ClientAttestationVerifier v = verifierWith(new InMemoryAttestationReplayCache(), unavailableChallenges(), true);
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), pop(OP_ISSUER, "p1", "some-challenge"), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.TEMPORARILY_UNAVAILABLE, e.error());
+    }
+
+    @Test
+    void aPresentedChallengeWithNoChallengeStoreAtAllIsRefusedAsUnknown() throws Exception {
+        ClientAttestationVerifier v = verifierWith(new InMemoryAttestationReplayCache(), null, false);
+        ClientAttestationException e = assertThrows(ClientAttestationException.class,
+                () -> v.verify(validAttestation(), pop(OP_ISSUER, "p1", "some-challenge"), null, "POST", TOKEN_ENDPOINT, CLIENT_ID));
+        assertEquals(ClientAttestationException.USE_ATTESTATION_CHALLENGE, e.error());
+    }
+
+    @Test
+    void aBlankChallengeClaimIsAnAbsentChallenge() throws Exception {
+        assertEquals(CLIENT_ID, verifier.verify(validAttestation(), pop(OP_ISSUER, "p-blank", ""), null,
+                "POST", TOKEN_ENDPOINT, CLIENT_ID).clientId());
+        ClientAttestationVerifier required = newVerifier(true);
+        assertEquals(ClientAttestationException.USE_ATTESTATION_CHALLENGE, assertThrows(ClientAttestationException.class,
+                () -> required.verify(validAttestation(), pop(OP_ISSUER, "p-blank-2", ""), null, "POST", TOKEN_ENDPOINT, CLIENT_ID)).error());
     }
 }

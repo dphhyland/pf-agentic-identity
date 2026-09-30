@@ -1,0 +1,18 @@
+id: U-0071
+title: 'What pf-oidf-modules, domain-authority and the connector read of workload.svid and InstanceIdentity'
+area: attestation-issuer
+source: pr-review
+status: open
+plan_items: [S3b]
+prs: []
+recorded_in: 'docs/releases/0.4.0.md, Before you deploy, item 12'
+verify_by: >
+  Read each repository for workload.svid, workload.instance_attestation and a copy of InstanceIdentity:
+  pf-oidf-modules' harness text, explainers, Terraform access-token mappings and PAZ policies; domain-authority's
+  traces; the connector's InstanceIdentity and whatever puts the token into workloadClaims. Confirm the item 12
+  notes match what each actually does, and correct them where they do not.
+verification: ''
+notes: >
+  S3b removed the raw evidence from the minted attestation on 2026-09-27. The plan names these three consumers
+  as reading workload.svid; none of them could be opened from this repository, so the upgrade notes say what
+  each would have to change if the plan's description is right, and say that it was not checked.
