@@ -2,12 +2,23 @@ id: U-0054
 title: ClientAttestationAuth over /as/par.oauth2 is not characterised as an upgrade hazard
 area: pf-integration
 source: phase-0-review
-status: open
+status: closed
 plan_items: [S4d]
 prs: []
 recorded_in: 'PR #11, Unverified; docs/operator/upgrading/0.1.5-to-0.3.0.md step 2'
 verify_by: >
   Trace what the filter does with an attested client's PAR request, which v0.1.5 let through unfiltered, and
   say so in the upgrade guide.
-verification: ''
+verification: >
+  Traced by S4D1 on 2026-09-30, in code and on the rig (pfai-p3-s4d1, PingFederate 13.1.3). ClientAttestationAuth has
+  been mapped over /as/par.oauth2 since 0.3.0. A PAR request with no attestation headers passes through untouched,
+  as v0.1.5 let it, unless its client has attestation_required=true (401 invalid_client from 0.6.0). An attested PAR
+  request is verified once, the client's policy applied (S4c), its authorization_details granted against the
+  attestation's (INHERIT) and forwarded in place of the client's, a signed request object held to the attestation's
+  details strictly, a request_uri refused (RFC 9126 §2.1), the attestation context published for the RAR plugin, and
+  the request bridged with the client's private_key_jwt. On the rig an attested PAR asking for sales_agent [EMEA] under
+  a ceiling of [EMEA, AMER] up to 500 was issued [EMEA] up to 500 at the token endpoint with no parameter there; one
+  asking for [APAC] was refused 400 invalid_authorization_details. The upgrade hazard is written for the 0.6.0 upgrade
+  in docs/releases/unreleased/S4D1.md, Before you deploy, "Details at PAR and CIBA are held to the attestation ceiling
+  where they arrive".
 notes: ''

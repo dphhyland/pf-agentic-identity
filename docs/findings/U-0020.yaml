@@ -2,11 +2,20 @@ id: U-0020
 title: PAR and bc-auth accept the bridge assertion
 area: pf-integration
 source: design
-status: open
+status: closed
 plan_items: [S4d]
 prs: []
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 5
 verify_by: >
   On the rig: a PAR request and a CIBA bc-auth request authenticated with the bridge's client assertion.
-verification: ''
+verification: >
+  Verified by S4D1 on the rig on 2026-09-30 (pfai-p3-s4d1, PingFederate 13.1.3, origin/main 6606b141): a client
+  registered with private_key_jwt (ES256) whose JWKS is the bridge key's public half, authenticated with an assertion
+  built exactly as ClientAttestationAuthFilter builds the bridge (typ client-authentication+jwt, aud the issuer as a
+  string, iss = sub = the client, 60 s), was accepted at the token endpoint (client_credentials, 200), PAR (201,
+  request_uri), /as/bc-auth.ciba (200, auth_req_id), /as/device_authz.oauth2 (200, device_code), introspection (200,
+  active:true, once the client had the ACCESS_TOKEN_VALIDATION grant; without it 401 unauthorized_client, an
+  authenticated client that may not introspect) and revocation (200). The same assertion signed with another key was
+  refused 400 invalid_client "Invalid JWT token" at revocation and at the device endpoint. With the filter mapped over
+  all six (commit f687b25c), attestation-authenticated requests were served at each.
 notes: ''

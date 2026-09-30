@@ -1,0 +1,18 @@
+id: F-0320
+title: Fapi2Profile is not mapped over the device authorization endpoint, which authenticates clients by assertion
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [H-FED-6]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  build/pingfederate/filters.xml maps Fapi2Profile over "every PF endpoint that authenticates a client by assertion
+  or takes a DPoP proof" and lists PAR, token, introspection, revocation, CIBA and UserInfo. PingFederate 13.1.3 also
+  authenticates clients by assertion at /as/device_authz.oauth2 (the rig, 2026-09-30: a private_key_jwt assertion
+  accepted, one signed with another key refused 400 invalid_client), so a client OIDF_FAPI2_CLIENTS names is not held
+  to FAPI 2.0's assertion audience or DPoP algorithms there. S4D1 mapped ClientAttestationAuth over it and may not
+  edit Fapi2Profile's element; the fix is one url-pattern and a chain test. Low: FAPI 2.0 profiles the code flow and
+  a FAPI client using the device grant is unusual. Found while building S4D1, 2026-09-30.

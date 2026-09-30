@@ -72,8 +72,8 @@ import org.jose4j.jwt.JwtClaims;
  * mapping and its order). It is also mapped over the authorization endpoint, where it verifies nothing and only
  * refuses details an attestation-required client did not push ({@link PushedDetailsRule}).
  *
- * <p><b>The details PingFederate stores are the ones granted.</b> PingFederate issues what was stored at PAR, CIBA
- * and the device authorization endpoint whatever a token request then says (U-0019, the rig, 2026-09-30), so a
+ * <p><b>The details PingFederate stores are the ones granted.</b> PingFederate issues what was stored at PAR and CIBA
+ * whatever a token request then says (U-0019, the rig, 2026-09-30), and the device grant is taken to do the same, so a
  * request's {@code authorization_details} are held to the attestation's where they arrive: the filter grants
  * {@code authorize(requested, ceiling, INHERIT)} and forwards the granted details, marked with the verified agent, in
  * place of the client's ({@link GrantedDetails}). A request that asks for none forwards none. A signed request object

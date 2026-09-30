@@ -18,9 +18,9 @@ import java.util.Map;
 /**
  * What an attested request's {@code authorization_details} become on the way to PingFederate (plan item S4d, F-0032).
  *
- * <p>PingFederate issues the details stored at PAR, at CIBA's backchannel endpoint and at the device authorization
- * endpoint, and ignores a token request's {@code authorization_details} on those grants in both directions: on the rig
- * (2026-09-30, 13.1.3, U-0019) a code pushed with {@code sales_agent} [EMEA, AMER] up to 500 and redeemed with [EMEA] up
+ * <p>PingFederate issues the details stored at PAR and at CIBA's backchannel endpoint, and ignores a token request's
+ * {@code authorization_details} on the code and CIBA grants in both directions (the device grant is taken to do the same
+ * with what its endpoint stored; not driven, U-0330): on the rig (2026-09-30, 13.1.3, U-0019) a code pushed with {@code sales_agent} [EMEA, AMER] up to 500 and redeemed with [EMEA] up
  * to 100 was issued [EMEA, AMER] up to 500, one pushed with the narrower set and redeemed with the wider was issued the
  * narrower, and CIBA did the same. So the details are held where they arrive: the filter grants
  * {@code authorize(requested, ceiling, INHERIT)} - a constrained field the request leaves out takes the attestation's
