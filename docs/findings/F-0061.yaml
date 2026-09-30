@@ -5,7 +5,7 @@ area: attestation-issuer
 source: reviewer-report
 status: closed
 plan_items: [H-ATT-3]
-prs: []
+prs: [89]
 verification: >
   2026-09-30, branch prod/p3-issuance-endpoint (HATT2): platform.net.TrustedProxies believes X-Forwarded-* (or RFC
   7239 Forwarded, OIDF_TRUSTED_PROXIES_HEADERS) only from a remote address OIDF_TRUSTED_PROXIES lists, empty by

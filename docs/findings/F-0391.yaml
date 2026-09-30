@@ -5,7 +5,7 @@ area: platform, attestation-issuer, client-attestation, platform-pf
 source: design
 status: open
 plan_items: [H-ATT-3]
-prs: []
+prs: [89]
 verification: ''
 target_release: 0.7.0
 notes: >

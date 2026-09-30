@@ -5,7 +5,7 @@ area: client-attestation, attestation-issuer
 source: pr-review
 status: closed
 plan_items: [H-ATT-3]
-prs: []
+prs: [89]
 verification: >
   2026-09-30, branch prod/p3-issuance-endpoint (HATT2): both challenge endpoints count callers by
   TrustedProxies.clientAddress - the remote address, or behind a proxy OIDF_TRUSTED_PROXIES lists the right-most
