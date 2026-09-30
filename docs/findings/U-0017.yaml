@@ -2,12 +2,21 @@ id: U-0017
 title: JWT-bearer never calls enrich
 area: rar-paz-plugin
 source: design
-status: open
+status: closed
 plan_items: [S2b]
-prs: []
+prs: [79]
 recorded_in: the plan, To verify before relying on it, booted PingFederate item 2
 verify_by: A JWT-bearer grant on the rig with the plugin logging its entry points.
-verification: ''
+verification: >
+  Verified 2026-09-30 on the conformance rig (slot 2, PF_RIG_NAME=pfai-p3-s4d2, PingFederate 13.1.3.0), with the
+  RAR plugin configured by ONLY_CONFIGURE=1 conformance/verify-rar-principal.sh, the probe client given the EXTENSION
+  grant and an IdP connection added for a test JWT issuer, and a plugin jar that logged each validate call. A signed
+  plain JWT-bearer request carrying a payment_initiation detail as a parameter, and a signed ID-JAG assertion (typ
+  oauth-id-jag+jwt) carrying it as a claim, each logged "RAR VERIFY validate: type=payment_initiation
+  path=/as/token.oauth2 grant_type=urn:ietf:params:oauth:grant-type:jwt-bearer fields=[type, amount, currency,
+  creditorName]" and no "RAR governance: type=" line, the line enrich writes first: validate is called, enrich
+  never. The plain request's token carried "authorization_details": []; the ID-JAG request's carried the detail.
+  S4D2's validate now refuses the plugin's types on this grant unless the instance lists them (F-0108).
 notes: >
   javap on pf-protocolengine-13.1.3.0.jar (2026-09-27): JwtGrantProcessor has no call to
   AuthorizationDetailsUtil.enrich, and the seven classes that do call it are the other grants' handlers. The rig

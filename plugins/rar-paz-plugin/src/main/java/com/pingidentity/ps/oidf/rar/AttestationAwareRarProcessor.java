@@ -145,6 +145,8 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     private HttpTransport transport;
     private PdpDecisions decisions;
     private CircuitBreaker breaker;
+    /** The types {@link #validate} lets through on the JWT-bearer grant ({@link JwtBearerTypes}): none until configured. */
+    private volatile Set<String> jwtBearerTypes = Set.of();
     /** Numbers the instances in this classloader, for {@link #memoAttribute}. */
     private static final AtomicLong INSTANCES = new AtomicLong();
     /**
@@ -194,6 +196,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     /** {@link #configure(Configuration)} under a named profile, so a test can be production or development at will. */
     void configure(Configuration configuration, String profile) {
         GovernanceEngineConfig settings = settings(configuration, profile);
+        Set<String> jwtBearer = JwtBearerTypes.of(configuration, settings.getAuthenticatedPrincipalTypes());
         String dialect = configuration.getFieldValue(PDP_DIALECT);
         boolean authzen = DIALECT_AUTHZEN.equalsIgnoreCase(dialect == null ? "" : dialect.trim());
         PdpResilience resilience = PdpResilience.of(configuration, profile, authzen, settings.getAuthenticatedPrincipalTypes());
@@ -206,6 +209,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         DecisionCache cache = resilience.cacheTypes().isEmpty() ? null
                 : new DecisionCache(resilience.cacheTypes(), resilience.cacheTtlSeconds());
         this.config = settings;
+        this.jwtBearerTypes = jwtBearer;
         this.transport = newTransport;
         PdpMetrics.untrack(this.breaker);
         this.breaker = newBreaker;
@@ -227,6 +231,7 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         log.info("Configured AttestationAwareRarProcessor (" + (this.client instanceof AuthZenPdpClient
                 ? DIALECT_AUTHZEN : DIALECT_GOVERNANCE) + ") -> " + config.getPdpUrl() + " profile=" + config.getDeploymentProfile()
                 + " authenticatedPrincipalTypes=" + config.getAuthenticatedPrincipalTypes()
+                + " jwtBearerTypes=" + jwtBearer
                 + " failOpenOnUnavailable=" + config.isFailOpenOnError()
                 + " rarModels=" + (gate.loaded() ? gate.fingerprint() : "not loaded")
                 + " tlsTrust=" + pdpTransport().tls().mode()
@@ -280,6 +285,16 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
     /** The PDP step {@link #configure} built. */
     PdpDecisions decisions() {
         return decisions;
+    }
+
+    /** The types {@link #configure} allowed on the JWT-bearer grant. */
+    Set<String> jwtBearerTypes() {
+        return jwtBearerTypes;
+    }
+
+    /** Test seam: the types allowed on the JWT-bearer grant, as {@link #configure} would set them from the field. */
+    void jwtBearerTypes(Set<String> types) {
+        this.jwtBearerTypes = Set.copyOf(types);
     }
 
     /** The transport {@link #configure} built, or {@code null} before it ran: for a test of what it trusts. */
@@ -408,6 +423,10 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         addText(gui, PdpResilience.BREAKER_OPEN, "Seconds the circuit breaker stays open before one trial call",
                 String.valueOf(CircuitBreaker.DEFAULT_OPEN_SECONDS), false);
         gui.addValidator(new PdpResilience.Validator(deploymentProfile()));
+        addText(gui, JwtBearerTypes.FIELD, "Detail types a JWT-bearer token request may carry (comma-separated; blank means"
+                + " none). PingFederate never calls enrich on that grant, so a listed type passes validate's model check and is"
+                + " issued without a PDP decision. Never a type requiring an authenticated principal", "", false);
+        gui.addValidator(new JwtBearerTypes.Validator());
 
         AuthorizationDetailProcessorDescriptor descriptor =
                 new AuthorizationDetailProcessorDescriptor(TYPE_NAME, this, gui, VERSION);
@@ -430,14 +449,69 @@ public class AttestationAwareRarProcessor implements AuthorizationDetailProcesso
         return new HashSet<>(types);
     }
 
+    /**
+     * Refuses a detail where it arrives, before anything is decided: PingFederate 13.1.3 calls this at PAR and the
+     * authorization endpoint, CIBA's backchannel request, the device authorization endpoint, token exchange, the token
+     * endpoint, and on the JWT-bearer grant (F-0108), each with a copy of the detail and an empty parameter map, and
+     * answers an invalid result with {@code invalid_authorization_details} and its reason. A token exchange that
+     * requests an ID-JAG calls neither this nor {@link #enrich} (F-0325). RFC 9396 section 5: "The AS
+     * MUST refuse to process any unknown authorization details type or authorization details not conforming to the
+     * respective type definition."
+     *
+     * <p>A shape check, in this order: a type is there; the instance is configured; the model set loaded (fail closed,
+     * as {@link #enrich} is); on the JWT-bearer grant, the type is one "{@value JwtBearerTypes#FIELD}" lists; and the
+     * detail, the two markers stripped, conforms to its type's model and the size limits - an unmodelled type (unless
+     * the development profile's common-fields model stands in), an undeclared field, a value of the wrong JSON type or
+     * too large is refused with the model's reason. No PDP call and no principal: {@link #enrich} decides later, where
+     * PingFederate calls it. The reason names the type and, where the model refused, the field - never a value - and
+     * this never throws: an exception here would reach the client as a server error, not a refusal.
+     */
     @Override
     public AuthorizationDetailValidationResult validate(AuthorizationDetail authDetail,
                                                         AuthorizationDetailContext context,
                                                         Map<String, Object> parameters) {
-        if (authDetail.getType() == null || authDetail.getType().isBlank()) {
+        String type = authDetail.getType();
+        if (type == null || type.isBlank()) {
             return AuthorizationDetailValidationResult.createInvalidResult("authorization_details entry is missing 'type'");
         }
-        return AuthorizationDetailValidationResult.createValidResult();
+        PrincipalResolver.Flow flow = flowOf(requestOf(context));
+        String refusal;
+        try {
+            refusal = validationRefusal(type, authDetail.getDetail(), flow);
+        } catch (RuntimeException e) {
+            // Nothing above should throw; if it does, the detail is refused, not let through.
+            log.warning("RAR validate: could not check type '" + type + "': " + e.getClass().getName());
+            refusal = "authorization_details of type '" + type + "' could not be checked";
+        }
+        if (refusal == null) {
+            return AuthorizationDetailValidationResult.createValidResult();
+        }
+        if (log.isLoggable(Level.INFO)) {
+            log.info("RAR validate: refusing type=" + type + " flow=" + describe(flow) + " path=" + flow.requestPath()
+                    + ": " + refusal);
+        }
+        return AuthorizationDetailValidationResult.createInvalidResult(refusal);
+    }
+
+    /** Why {@link #validate} refuses a detail of this type on this flow, or {@code null} when it does not. */
+    String validationRefusal(String type, Map<String, Object> raw, PrincipalResolver.Flow flow) {
+        if (config == null) {
+            return "authorization_details of type '" + type + "' cannot be checked: the processor bound to it is not "
+                    + "configured; see its configure error in the server log";
+        }
+        if (!gate.loaded()) {
+            // The load failure itself is the operator's to read, in the SEVERE line; the client is told only that.
+            return "authorization_details of type '" + type + "' cannot be checked: this server's RAR model did not load";
+        }
+        if (JwtBearerTypes.isJwtBearer(flow.grantType()) && !jwtBearerTypes.contains(type)) {
+            return JwtBearerTypes.REFUSAL;
+        }
+        ModelGate.Verdict conformance = gate.conformance(ModelGate.strip(raw));
+        if (conformance != null) {
+            return "authorization_details of type '" + type + "' does not conform to its type's model ("
+                    + conformance.reason() + "): " + conformance.refusal();
+        }
+        return null;
     }
 
     @Override
