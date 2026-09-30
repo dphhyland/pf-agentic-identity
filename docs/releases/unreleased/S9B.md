@@ -108,6 +108,12 @@ classloader (400 `invalid_grant`, and "OGNL criterion ... answers false: ATTESTA
 there: nothing moves a serving part to `FAILED_DEPENDENCY` at run time today but the SSF transmitter's store probe, and
 the matrix did not drop a database under a serving node (U-0355). Unit tests hold it with a hand-moved clock.
 
+**Conformance plans re-run with the rig switched off this way** (2026-09-30, the branch at a0a45090, slot 1,
+PingFederate 13.1.3.0, this directory's own suite at release-v5.3.1, the current `fapi2.json`):
+`fapi2-security-profile-final-test-plan` (`private_key_jwt`, DPoP, `plain_fapi`, OpenID Connect), plan
+`Tea3gqDxwpHdQ` - 56 modules: 50 PASSED, 3 REVIEW, 2 WARNING, 1 SKIPPED, 0 FAILED, as on 0.5.0; and
+`openid-ssf-transmitter-test-plan`, plan `xrZXEMKdL2fei` - 19 of 19 PASSED. The CIBA and CAEP plans were not re-run.
+
 **The engine's copy cannot see the webapp's parts.** `CriterionGate` answers from the switch and the profile; a part
 that failed on a dependency, or on a configuration only its start reads, is invisible to it (F-0345). The criterion's
 own state then decides, as before.
