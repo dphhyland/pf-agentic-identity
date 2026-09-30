@@ -114,3 +114,12 @@ resolution and are not part of its budget, so a registration can outlast its dea
 **Tests.** The pf-integration suite ran on JDK 20.0.2 and 17.0.11 (727 tests, the method coverage gate included), and
 the registration test classes (199 tests, among them RegistrationBudgetTest's slow peers over loopback HTTP for the
 explicit, token and front-channel paths) on Temurin 21.0.12 in maven:3-eclipse-temurin-21, on 2026-09-30.
+
+**The rig** (2026-09-30, slot 5, `PF_PROFILE=federation`, PingFederate 13.1.3, the image built from this branch at
+6dcdf420 and again at 3f97372d). A 300 KB `trust-chain+json` body to `/federation/register` was answered 413 in 25 ms,
+with a `Content-Length` and again chunked; a 300 KB form to `/as/token.oauth2` and `/as/par.oauth2` was answered 400
+"Unable to parse form content" by PingFederate's own limit, and a 150 KB one reached this module's filters (U-0326).
+The same unresolvable chain posted three times was resolved once: one `federation.registration.refused` event, the
+repeats answered 503 with `Retry-After: 15` in about 10 ms. A body `["a.b.c"]` was a 500 at 6dcdf420 (F-0317) and a
+400 at 3f97372d. No conformance plan was re-run: the suite's federation plans register automatically, which this
+package changes only in its failure memory's key and its budget.
