@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
@@ -369,7 +370,7 @@ class AttestationPolicyRoutesTest {
         String body = run(filter(store), request(headers(attestation(CLIENT), null, dpop(TOKEN_ENDPOINT, 0)), Map.of()),
                 mock(FilterChain.class), status);
         assertEquals(401, status[0]);
-        assertTrue(body.contains("\"error\":\"invalid_client\"") && body.contains("the client's attestation policy is not valid"), body);
+        PublicErrorsAssert.assertGeneric("invalid_client", body);
         assertFalse(body.contains("3600") || body.contains("attestation_dpop_max_age"), body);
         Event invalid = this.events.stream().filter(e -> e.code().equals(AttestationEvents.POLICY_INVALID)).findFirst().orElseThrow();
         assertEquals(ClientAttestationPolicy.DPOP_MAX_AGE, invalid.fields().get("property"));
@@ -486,7 +487,7 @@ class AttestationPolicyRoutesTest {
             int[] status = new int[1];
             String body = run(filter, named, chain, status);
             assertEquals(401, status[0]);
-            assertTrue(body.contains("invalid_client") && body.contains("authenticates with a client attestation"), body);
+            PublicErrorsAssert.assertGeneric("invalid_client", body);
             verify(chain, never()).doFilter(any(), any());
         }
         assertTrue(this.events.stream().filter(e -> e.code().equals(AttestationEvents.REFUSED)).count() >= 3);
@@ -529,7 +530,7 @@ class AttestationPolicyRoutesTest {
             int[] status = new int[1];
             String body = run(filter, request(Map.of(), Map.of("client_id", new String[]{CLIENT})), chain, status);
             assertEquals(401, status[0], disabled ? "disabled" : "failed");
-            assertTrue(body.contains("invalid_client") && body.contains("authenticates with a client attestation"), body);
+            PublicErrorsAssert.assertGeneric("invalid_client", body);
             verify(chain, never()).doFilter(any(), any());
 
             HttpServletRequest ordinary = request(Map.of(), Map.of("client_id", new String[]{"ordinary"}));
@@ -578,7 +579,7 @@ class AttestationPolicyRoutesTest {
         int[] status = new int[1];
         String body = run(filter(store), request(Map.of(), Map.of("client_id", new String[]{CLIENT})), mock(FilterChain.class), status);
         assertEquals(401, status[0]);
-        assertTrue(body.contains("the client's attestation policy is not valid"), body);
+        PublicErrorsAssert.assertGeneric("invalid_client", body);
         assertTrue(this.events.stream().anyMatch(e -> e.code().equals(AttestationEvents.POLICY_INVALID)
                 && ClientAttestationPolicy.REQUIRED.equals(e.fields().get("property"))));
     }

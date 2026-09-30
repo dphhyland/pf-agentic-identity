@@ -5,12 +5,15 @@ package com.pingidentity.ps.oidf.ssf;
 
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutor;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
+import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
+import com.pingidentity.ps.oidf.platform.http.TlsTrust;
 import com.pingidentity.ps.oidf.platform.tls.InsecureTls;
 import com.pingidentity.ps.oidf.signals.SetVerifier;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -155,43 +158,94 @@ public final class PollReceiverClient {
     static final String RECEIVER_INSECURE_TLS = "OIDF_SSF_RECEIVER_INSECURE_TLS";
 
     /**
+     * The deadlines of one poll: connecting (TLS included) within 1 s, and the whole exchange within 5 s. The poll
+     * asks {@code returnImmediately}, so the transmitter has nothing to wait for; a long poll would add its wait to the
+     * total.
+     */
+    static final Duration CONNECT_TIMEOUT = Duration.ofSeconds(1);
+    static final Duration TOTAL_TIMEOUT = Duration.ofSeconds(5);
+    /**
+     * The largest poll response read: the default {@code maxEvents} of 100 at 40 KiB a SET. A larger answer is a
+     * failed poll - logged, and asked again next tick with the same acknowledgements, so the same answer comes back
+     * until {@code OIDF_SSF_POLL_MAX_EVENTS} is lowered (F-0406).
+     */
+    static final long MAX_BODY_BYTES = 4L * 1024L * 1024L;
+
+    /**
+     * The receiver's outbound rules, for its poll, stream management and JWKS calls: its peer is the transmitter the
+     * operator named, which may be internal by design, so any address is allowed, still resolved once and pinned. That
+     * holds for the URLs the transmitter's own answers name too - its configuration_endpoint and a poll stream's
+     * endpoint_url - and the bearer goes to them (F-0407). A
+     * scheme is the settings' to govern: the production profile refuses an http transmitter configuration URL, and
+     * {@link ReceiverStreamClient#requireTls} refuses an http URL the transmitter names unless that URL was http.
+     */
+    static AddressPolicy receiverPolicy() {
+        return AddressPolicy.builder().allowHttp(true).allowPrivateNetworks(true).build();
+    }
+
+    /** The receiver's transport: {@code insecureTls} trusts any chain through platform's InsecureTls; the name is still checked. */
+    static OutboundHttp receiverHttp(AddressPolicy policy, boolean insecureTls, Duration connect, long maxBody) {
+        return OutboundHttp.builder(policy)
+                .tls(TlsTrust.insecureIf(RECEIVER_INSECURE_TLS, insecureTls))
+                .connectTimeout(connect)
+                .maxBodyBytes(maxBody)
+                .build();
+    }
+
+    /**
      * Runtime transport: POST JSON to the remote poll endpoint with the receiver's bearer - {@code bearer}'s token,
-     * asked again once after a 401 - or nothing when {@code pollUrl} has none yet. {@code insecureTls} trusts any
-     * certificate chain through platform's {@link InsecureTls}; the host name is still checked.
+     * asked again once after a 401 - or nothing when {@code pollUrl} has none yet, through platform's
+     * {@link OutboundHttp} ({@link #CONNECT_TIMEOUT}, {@link #TOTAL_TIMEOUT}, {@link #MAX_BODY_BYTES}).
+     * {@code insecureTls} trusts any certificate chain through platform's {@link InsecureTls}; the host name is still
+     * checked.
      */
     public static PollTransport httpTransport(Supplier<String> pollUrl, ReceiverBearer bearer, boolean insecureTls) {
-        HttpClient http = InsecureTls.trustAnyCertificate(HttpClient.newBuilder(), RECEIVER_INSECURE_TLS, insecureTls).build();
+        return httpTransport(pollUrl, bearer, receiverHttp(receiverPolicy(), insecureTls, CONNECT_TIMEOUT, MAX_BODY_BYTES),
+                TOTAL_TIMEOUT);
+    }
+
+    /** The transport over {@code http}, each exchange within {@code total}: the test seam. */
+    static PollTransport httpTransport(Supplier<String> pollUrl, ReceiverBearer bearer, OutboundHttp http, Duration total) {
         return bodyJson -> {
             String url = pollUrl.get();
             if (url == null) {
                 return null;
             }
-            HttpResponse<String> resp = send(http, url, bodyJson, bearer.token());
-            if (resp.statusCode() == 401) {
-                bearer.rejected(bearerOf(resp));
-                resp = send(http, url, bodyJson, bearer.token());
+            String token = bearer.token();
+            OutboundResponse resp = send(http, url, bodyJson, token, total);
+            if (resp.status() == 401) {
+                bearer.rejected(token);
+                resp = send(http, url, bodyJson, bearer.token(), total);
             }
-            if (resp.statusCode() != 200) {
-                throw new IllegalStateException("poll endpoint returned HTTP " + resp.statusCode());
+            if (resp.status() != 200) {
+                throw new IllegalStateException("poll endpoint returned HTTP " + resp.status());
             }
-            return resp.body();
+            return resp.bodyText();
         };
     }
 
-    private static HttpResponse<String> send(HttpClient http, String url, String bodyJson, String token) throws Exception {
-        HttpRequest.Builder b = HttpRequest.newBuilder(URI.create(url))
-                .header("Content-Type", "application/json")
+    private static OutboundResponse send(OutboundHttp http, String url, String bodyJson, String token, Duration total)
+            throws OutboundHttpException {
+        OutboundRequest.Builder b = OutboundRequest.post(url)
                 .header("Accept", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(bodyJson));
+                .body("application/json", bodyJson);
         if (token != null && !token.isBlank()) {
             b.header("Authorization", "Bearer " + token);
         }
-        return http.send(b.build(), HttpResponse.BodyHandlers.ofString());
+        return withReason(http, b.build(), total);
     }
 
-    /** The token a request carried, read back from the request its response answers. */
-    static String bearerOf(HttpResponse<?> resp) {
-        String header = resp.request().headers().firstValue("Authorization").orElse("");
-        return header.startsWith("Bearer ") ? header.substring(7) : null;
+    /**
+     * Sends {@code request} by {@code total}; a failure keeps its type and gains its reason ({@code HEADER_TIMEOUT},
+     * {@code DEADLINE}, {@code TLS} and the rest) at the front of its message, which is what the receiver's log shows.
+     */
+    static OutboundResponse withReason(OutboundHttp http, OutboundRequest request, Duration total)
+            throws OutboundHttpException {
+        try {
+            return http.send(request, Deadline.after(total));
+        } catch (OutboundHttpException e) {
+            throw new OutboundHttpException(e.reason(), e.reason() + ": " + request.method() + " " + request.uri() + ": "
+                    + e.getMessage(), e);
+        }
     }
 }

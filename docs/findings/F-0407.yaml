@@ -1,0 +1,23 @@
+id: F-0407
+title: 'The SSF receiver may send its bearer to any address a transmitter names, not only the ones the operator configured'
+severity: low
+area: ssf
+source: pr-review
+status: open
+plan_items: [S5d, S-10]
+prs: [94]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by S5D's adversarial review on 2026-10-01. From 0.6.0 every SSF receiver call sends through OutboundHttp
+  under PollReceiverClient.receiverPolicy(), which allows http and every address, loopback and link-local
+  (169.254.169.254) included, still resolved once and pinned. The operator names the transmitter's configuration URL,
+  token endpoint and JWKS URL, but the configuration_endpoint and a poll stream's endpoint_url come from the
+  transmitter's own answers, and the receiver sends its bearer token to them. This is not a regression: the JDK
+  client it replaced had no address rule at all, and ReceiverStreamClient.requireTls still refuses an http URL the
+  transmitter names unless the configured URL was http. S5D kept any-address because its package specification names the SSF
+  receiver's own transmitter as a peer internal by design, and holding the transmitter-named URLs to
+  the outbound-fetch rules would refuse development transmitters on private addresses unless OIDF_FETCH_* were set,
+  a behaviour change for the owner to decide. The alternative: exempt only the configured URLs with
+  AddressPolicy.trusting and hold every URL the transmitter names to the outbound-fetch rules, or to the
+  configured transmitter's origin.

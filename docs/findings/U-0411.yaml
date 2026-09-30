@@ -1,0 +1,18 @@
+id: U-0411
+title: The audit records the default vocabulary maps have not been seen with their subject on a booted PingFederate
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-5]
+prs: [97]
+recorded_in: servlets/ssf/README.md, The audit source; AuditEventMapper.DEFAULTS
+verify_by: >
+  On a PingFederate with local identity profiles, authentication session tracking and the session revocation API on,
+  change and delete a local identity, sign in, and revoke a session, and read each record's event and subject in
+  audit.log beside the SET it raised.
+verification: ''
+notes: >
+  The event names were read from PingFederate 13.1.3's classes on 2026-10-01 (IdpAuditLogger, its AuthnSessionEvent,
+  LocalIdentityAuditLogger, AuditLogger). The rig uses none of those features: its audit.log had only PAR, AUTHN_ATTEMPT,
+  OAuth and SLO records, and an OIDC SLO record had no subject. Whether PWD_CHANGE, ACCOUNT_DELETE,
+  AUTHN_SESSION_CREATED, SRI_REVOKED and AUTHN_SESSIONS_DELETED records carry the subject is assumed from the classes.

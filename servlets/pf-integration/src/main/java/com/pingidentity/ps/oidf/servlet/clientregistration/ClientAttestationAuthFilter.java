@@ -809,16 +809,14 @@ public final class ClientAttestationAuthFilter implements Filter {
         return 401;
     }
 
-    private static void reject(HttpServletResponse response, int status, String error, String description)
+    /**
+     * The client has not been authenticated: it is told the error code's fixed description and a correlation id, and
+     * {@code detail} - which can name the attester, the client or a claim the attestation carried - is logged under
+     * that id (plan item H-FED-4, {@link com.pingidentity.ps.oidf.servlet.oauth.PublicErrors}).
+     */
+    private static void reject(HttpServletResponse response, int status, String error, String detail)
             throws IOException {
-        response.setStatus(status);
-        response.setContentType("application/json");
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("error", error);
-        if (description != null && !description.isBlank()) {
-            body.put("error_description", description);
-        }
-        response.getWriter().write(org.jose4j.json.JsonUtil.toJson(body));
+        com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(response, status, error, detail);
     }
 
     private static String singleHeader(HttpServletRequest request, String name) {

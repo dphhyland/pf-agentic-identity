@@ -1,0 +1,17 @@
+id: F-0396
+title: The attestation challenge endpoint names the request's method in its error_description
+severity: low
+area: client-attestation
+source: reviewer-report
+status: open
+plan_items: [H-FED-4]
+prs: [96]
+verification: ''
+target_release: 0.7.0
+notes: >
+  ChallengeEndpointServlet (libs/client-attestation, ChallengeEndpointServlet.java:221 at 6141e792) answers a request
+  with the wrong method with "this challenge endpoint takes POST, not <method>", the method as the caller sent it, to
+  a caller that has not authenticated. H-FED-4 asks for a fixed description per error code there. The harm is small:
+  a method is an HTTP token, so the text cannot carry spaces, quotes or markup. HFEDE's review found it on
+  2026-10-01; it is outside that package's files (libs/client-attestation has no PublicErrors, which is in
+  pf-integration), so the fix - a fixed text for the code, the method on a log line - is left to a later package.

@@ -5,12 +5,14 @@ package com.pingidentity.ps.oidf.enrolment;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttp;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.http.OutboundRequest;
+import com.pingidentity.ps.oidf.platform.http.OutboundResponse;
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.net.URI;
 import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -74,7 +76,7 @@ interface AuthorityCredentials {
      *
      * @throws IllegalStateException naming the settings to change, when they do not describe usable credentials
      */
-    static AuthorityCredentials from(Settings settings, DeploymentProfile profile, HttpClient http, Clock clock) {
+    static AuthorityCredentials from(Settings settings, DeploymentProfile profile, OutboundHttp http, Clock clock) {
         if (settings.adminToken() != null && profile.isProduction()) {
             throw new IllegalStateException("PF_AUTHORITY_ADMIN_TOKEN is set, and production never sends the static bearer:"
                     + " remove it and give device-enrolment a PingFederate client (PF_AUTHORITY_CLIENT_ID with"
@@ -90,7 +92,7 @@ interface AuthorityCredentials {
             ClientAuth auth = settings.clientJwk() != null
                     ? ClientAuth.privateKeyJwt(settings.clientId(), settings.clientJwk(), clock)
                     : ClientAuth.clientSecretBasic(settings.clientId(), settings.clientSecret());
-            return new ClientCredentials(endpoint, auth, profile, http, clock);
+            return new ClientCredentials(endpoint, auth, profile, http, HostedEntityRegistrar.PingFederate.TOTAL_TIMEOUT, clock);
         }
         if (settings.adminToken() != null) {
             return new StaticBearer(settings.adminToken());
@@ -222,18 +224,22 @@ interface AuthorityCredentials {
         private final URI endpoint;
         private final ClientAuth auth;
         private final DeploymentProfile profile;
-        private final HttpClient http;
+        private final OutboundHttp http;
+        private final Duration total;
         private final Clock clock;
         private final EllipticCurveJsonWebKey proofKey;
         private String token;
         private boolean bound;
         private long expiresAt;
 
-        ClientCredentials(URI endpoint, ClientAuth auth, DeploymentProfile profile, HttpClient http, Clock clock) {
+        /** {@code total} bounds each token request, the answer's body included. */
+        ClientCredentials(URI endpoint, ClientAuth auth, DeploymentProfile profile, OutboundHttp http, Duration total,
+                          Clock clock) {
             this.endpoint = endpoint;
             this.auth = auth;
             this.profile = profile;
             this.http = http;
+            this.total = total;
             this.clock = clock;
             try {
                 this.proofKey = EcJwkGenerator.generateJwk(EllipticCurves.P256);
@@ -268,23 +274,23 @@ interface AuthorityCredentials {
         }
 
         private void fetch() throws EnrolmentException {
-            HttpResponse<String> response = this.request(null);
-            String nonce = response.headers().firstValue("DPoP-Nonce").orElse(null);
-            if (response.statusCode() == 400 && nonce != null && response.body().contains("use_dpop_nonce")) {
+            OutboundResponse response = this.request(null);
+            String nonce = response.header("DPoP-Nonce").orElse(null);
+            if (response.status() == 400 && nonce != null && response.bodyText().contains("use_dpop_nonce")) {
                 response = this.request(nonce);
             }
-            if (response.statusCode() != 200) {
+            if (response.status() != 200) {
                 // The answer stays in this log: the exception's message reaches the enrolling device.
-                String body = response.body();
+                String body = response.bodyText();
                 LOGGER.warn((Object) ("The authority's token endpoint refused device-enrolment's client " + this.auth.clientId()
-                        + " (HTTP " + response.statusCode() + "): "
+                        + " (HTTP " + response.status() + "): "
                         + body.substring(0, Math.min(body.length(), 512))));
                 throw EnrolmentException.serverError("the authority's token endpoint refused device-enrolment's client (HTTP "
-                        + response.statusCode() + "); device-enrolment's log has its answer", null);
+                        + response.status() + "); device-enrolment's log has its answer", null);
             }
             JsonNode answer;
             try {
-                answer = JSON.readTree(response.body());
+                answer = JSON.readTree(response.bodyText());
             } catch (java.io.IOException e) {
                 throw EnrolmentException.serverError("the authority's token endpoint answered no JSON", e);
             }
@@ -308,7 +314,7 @@ interface AuthorityCredentials {
             this.expiresAt = this.clock.millis() + Math.max(0L, lifetime * 1000L - EARLY.toMillis());
         }
 
-        private HttpResponse<String> request(String nonce) throws EnrolmentException {
+        private OutboundResponse request(String nonce) throws EnrolmentException {
             Map<String, String> form = new LinkedHashMap<>();
             form.put("grant_type", "client_credentials");
             form.put("scope", SCOPE);
@@ -322,17 +328,16 @@ interface AuthorityCredentials {
             StringBuilder body = new StringBuilder();
             form.forEach((k, v) -> body.append(body.length() == 0 ? "" : "&").append(URLEncoder.encode(k, StandardCharsets.UTF_8))
                     .append('=').append(URLEncoder.encode(v, StandardCharsets.UTF_8)));
-            HttpRequest.Builder request = HttpRequest.newBuilder(this.endpoint).timeout(Duration.ofSeconds(10))
-                    .header("Content-Type", "application/x-www-form-urlencoded").header("Accept", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body.toString()));
+            OutboundRequest.Builder request = OutboundRequest.builder(OutboundRequest.Method.POST, this.endpoint)
+                    .header("Accept", "application/json")
+                    .body("application/x-www-form-urlencoded", body.toString());
             headers.forEach(request::header);
             try {
-                return this.http.send(request.build(), HttpResponse.BodyHandlers.ofString());
-            } catch (java.io.IOException e) {
-                throw EnrolmentException.serverError("could not reach the authority's token endpoint: " + e.getMessage(), e);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw EnrolmentException.serverError("interrupted asking the authority's token endpoint", e);
+                return this.http.send(request.build(), Deadline.after(this.total));
+            } catch (OutboundHttpException e) {
+                // An interrupted read keeps the thread's interrupt (platform.http); the reason says which failure it was.
+                throw EnrolmentException.serverError("could not reach the authority's token endpoint: " + e.reason() + ": "
+                        + e.getMessage(), e);
             }
         }
 

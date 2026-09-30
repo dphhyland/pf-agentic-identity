@@ -209,7 +209,8 @@ public class HostedEntityServlet extends RequestScopedServlet {
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Optional<String> idSegment = parseIdSegment(req.getPathInfo());
         if (idSegment.isEmpty()) {
-            writeError(resp, 404, "not_found", "no such endpoint");
+            // A caller that has not authenticated: the fixed description and a correlation id (H-FED-4).
+            FederationErrors.write(resp, 404, "not_found", "no such endpoint", null);
             return;
         }
 
@@ -220,13 +221,13 @@ public class HostedEntityServlet extends RequestScopedServlet {
             found = registry.find(entityId);
         } catch (Exception e) {
             LOGGER.error("hosted entity lookup failed for " + entityId, e);
-            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
+            FederationErrors.write(resp, 500, "server_error", "the entity configuration could not be produced", null);
             return;
         }
         // A revoked or expired entity is refused identically to one that was never hosted — its status
         // is not something an unauthenticated resolver is entitled to learn.
         if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
-            writeError(resp, 404, "not_found", "unknown entity");
+            FederationErrors.write(resp, 404, "not_found", "unknown entity", null);
             return;
         }
 
@@ -234,11 +235,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         try {
             jwt = AuthoritySupport.configurationBuilder().buildEntityConfiguration(found.get());
         } catch (HostedEntityConfigurationBuilder.NotPublishedException e) {
-            writeError(resp, 404, "not_found", "entity configuration not published");
+            FederationErrors.write(resp, 404, "not_found", "entity configuration not published", null);
             return;
         } catch (RuntimeException e) {
             LOGGER.error("failed to sign entity configuration for " + entityId, e);
-            writeError(resp, 500, "server_error", "the entity configuration could not be produced");
+            FederationErrors.write(resp, 500, "server_error", "the entity configuration could not be produced", null);
             return;
         }
         resp.setStatus(200);
@@ -399,13 +400,17 @@ public class HostedEntityServlet extends RequestScopedServlet {
     /**
      * {@code PUT <collection>/<id>/entity-configuration}: a SELF_SIGNED entity publishes the Entity
      * Configuration it signed. No bearer token - the signature, by the federation key the authority
-     * registered for this entity, is the authorisation; see {@link SelfSignedEntityConfigurations}.
+     * registered for this entity, is the authorisation; see {@link SelfSignedEntityConfigurations}. The caller has
+     * not authenticated when it is refused, and the refusal's detail can be its own text - a JWS header's
+     * {@code alg} or {@code kid}, a parser's message about its body - so every refusal here goes through
+     * {@link FederationErrors#write}: the code's fixed description and a reference, the detail on the log line
+     * (plan item H-FED-4).
      */
     @Override
     protected void doPut(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         Optional<String> idSegment = parsePublishSegment(req.getPathInfo());
         if (idSegment.isEmpty()) {
-            writeError(resp, 404, "not_found", "PUT <collection>/<id>/entity-configuration");
+            FederationErrors.write(resp, 404, "not_found", "PUT <collection>/<id>/entity-configuration", null);
             return;
         }
         String entityId = AuthoritySupport.authorityEntityId() + req.getServletPath() + "/" + idSegment.get();
@@ -414,11 +419,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         try {
             found = registry.find(entityId);
         } catch (Exception e) {
-            writeError(resp, 500, "server_error", e.getMessage());
+            FederationErrors.write(resp, 500, "server_error", "the hosted-entity registry could not be read", e);
             return;
         }
         if (found.isEmpty() || !found.get().resolvable(Instant.now())) {
-            writeError(resp, 404, "not_found", "unknown entity");
+            FederationErrors.write(resp, 404, "not_found", "unknown entity " + entityId, null);
             return;
         }
         String validated;
@@ -426,13 +431,13 @@ public class HostedEntityServlet extends RequestScopedServlet {
             validated = SelfSignedEntityConfigurations.validate(readBody(req), found.get(),
                     AuthoritySupport.authorityEntityId(), Instant.now());
         } catch (SelfSignedEntityConfigurations.InvalidConfigurationException e) {
-            writeError(resp, 400, "invalid_entity_configuration", e.getMessage());
+            FederationErrors.write(resp, 400, "invalid_entity_configuration", e.getMessage(), null);
             return;
         }
         try {
             registry.publishEntityConfiguration(entityId, validated);
         } catch (AuthorityRegistryException e) {
-            writeError(resp, 500, e.reason(), e.getMessage());
+            FederationErrors.write(resp, 500, "server_error", e.reason() + ": " + e.getMessage(), e);
             return;
         }
         LOGGER.info("self-signed entity configuration published for " + entityId);
@@ -628,14 +633,11 @@ public class HostedEntityServlet extends RequestScopedServlet {
         return Optional.of(idSegment);
     }
 
+    /**
+     * An operator route's refusal - enrolment and revocation, after the operator authenticated, or a 404 naming the
+     * route's shape - with its detail, except for a server error's ({@link FederationErrors#writeToOperator}).
+     */
     private static void writeError(HttpServletResponse resp, int status, String error, String description) throws IOException {
-        resp.setStatus(status);
-        resp.setContentType("application/json");
-        LinkedHashMap<String, Object> body = new LinkedHashMap<>();
-        body.put("error", error);
-        body.put("error_description", description);
-        try (PrintWriter out = resp.getWriter()) {
-            out.write(JsonUtil.toJson(body));
-        }
+        FederationErrors.writeToOperator(resp, status, error, description, null);
     }
 }

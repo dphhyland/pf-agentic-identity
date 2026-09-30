@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -19,6 +21,7 @@ import java.nio.file.Path;
 import java.util.HashMap;
 import com.pingidentity.ps.oidf.servlet.clientregistration.utils.ClientAttestationUtils;
 import java.util.Map;
+import java.util.List;
 import java.util.UUID;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -522,6 +525,50 @@ class ClientAttestationAuthFilterTest {
         assertTrue(body.toString().contains("invalid_client"), body.toString());
     }
 
+    /**
+     * H-FED-4 (F-0046): what the request chose - the client an attestation names, the audience of its proof, a
+     * header's value - never reaches the response of a caller that has not authenticated. Each refusal is the code's
+     * fixed description and a reference; the detail is on the server's log line.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse(@TempDir Path dir) throws Exception {
+        String marker = "hfede-marker-" + UUID.randomUUID();
+        String markedClient = "https://rp.example/" + marker;
+        configureKeysFor(dir, DOFILTER_CLIENT_ID);
+        PublicJsonWebKey attesterKey = ecKey("attester-1");
+        PublicJsonWebKey imposterKey = ecKey("imposter-1");
+        PublicJsonWebKey instanceKey = ecKey("instance-1");
+        trustAttester(dir, attesterKey);
+        ClientAttestationAuthFilter filter = new ClientAttestationAuthFilter(FIXED_ISSUER);
+        filter.init(null);
+        List<HttpServletRequest> hostile = List.of(
+                // a trusted attester vouching for a client with no bridge key, the client named by the marker
+                attestedRequest(attestationJwt(attesterKey, instanceKey, markedClient), popJwt(instanceKey, markedClient, OP_ISSUER), null),
+                // a forged attestation naming the marker
+                attestedRequest(attestationJwt(imposterKey, instanceKey, markedClient), popJwt(instanceKey, markedClient, OP_ISSUER), null),
+                // a proof addressed to the marker
+                attestedRequest(attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                        popJwt(instanceKey, DOFILTER_CLIENT_ID, markedClient), null),
+                // an attestation that is the marker
+                attestedRequest(marker, marker, null),
+                // a repeated details parameter carrying it
+                attestedRequest(attestationJwt(attesterKey, instanceKey, DOFILTER_CLIENT_ID),
+                        popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER),
+                        Map.of("authorization_details", new String[] {marker, marker})));
+        boolean logged = false;
+        for (HttpServletRequest req : hostile) {
+            try (com.pingidentity.ps.oidf.servlet.oauth.RefusalLog log = com.pingidentity.ps.oidf.servlet.oauth.RefusalLog.open()) {
+                java.io.StringWriter body = new java.io.StringWriter();
+                filter.doFilter(req, responseCapturingBody(body), mock(FilterChain.class));
+                org.junit.jupiter.api.Assertions.assertFalse(body.toString().contains(marker), body.toString());
+                Map<String, Object> json = org.jose4j.json.JsonUtil.parseJson(body.toString());
+                com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert.assertGeneric((String) json.get("error"), body.toString());
+                logged |= log.lines().stream().anyMatch(line -> line.contains(marker));
+            }
+        }
+        assertTrue(logged, "the detail, marker and all, is the server log's");
+    }
+
     @Test
     void multipleAttestationHeadersAreRejectedWith400(@TempDir Path dir) throws Exception {
         configureKeysFor(dir, DOFILTER_CLIENT_ID);
@@ -725,10 +772,13 @@ class ClientAttestationAuthFilterTest {
                 popJwt(instanceKey, DOFILTER_CLIENT_ID, OP_ISSUER), new HashMap<>());
         FilterChain chain = mock(FilterChain.class);
 
-        String body = rejectedWith(req, filter, chain);
+        try (RefusalLog log = RefusalLog.open()) {
+            String body = rejectedWith(req, filter, chain);
 
-        assertTrue(body.contains("invalid_client"), body);
-        assertTrue(body.contains("attesters"), "the refusal must say what to configure: " + body);
+            PublicErrorsAssert.assertGeneric("invalid_client", body);
+            org.junit.jupiter.api.Assertions.assertFalse(body.contains("attesters"), "what to configure is the operator's, not the caller's: " + body);
+            log.assertDetail("attesters");
+        }
         verify(chain, org.mockito.Mockito.never()).doFilter(any(), any());
     }
 
@@ -1051,8 +1101,7 @@ class ClientAttestationAuthFilterTest {
         verify(f.response()).setStatus(400);
         org.mockito.Mockito.verifyNoInteractions(f.chain());
         assertEquals("invalid_authorization_details", errorBody(f.body()).get("error"));
-        assertEquals("authorization_details exceeds what the client attestation allows",
-                errorBody(f.body()).get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", errorBody(f.body()).get("error_description"));
     }
 
     /**
@@ -1068,8 +1117,7 @@ class ClientAttestationAuthFilterTest {
         verify(f.response()).setStatus(400);
         org.mockito.Mockito.verifyNoInteractions(f.chain());
         assertEquals("invalid_authorization_details", errorBody(f.body()).get("error"));
-        assertEquals("authorization_details carries a field its type does not define",
-                errorBody(f.body()).get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", errorBody(f.body()).get("error_description"));
         assertTrue(!f.body().contains("STAFF-50") && !f.body().contains("discount_code"), f.body());
     }
 
@@ -1082,8 +1130,7 @@ class ClientAttestationAuthFilterTest {
         verify(f.response()).setStatus(401);
         org.mockito.Mockito.verifyNoInteractions(f.chain());
         assertEquals("invalid_client", errorBody(f.body()).get("error"));
-        assertEquals("the client attestation's authorization_details cannot be evaluated by this server",
-                errorBody(f.body()).get("error_description"));
+        PublicErrorsAssert.assertGenericDescription("invalid_client", errorBody(f.body()).get("error_description"));
     }
 
     /**

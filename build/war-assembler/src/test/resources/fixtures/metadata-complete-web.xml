@@ -3,7 +3,7 @@
 <!-- Variant: metadata-complete="true".
      Written for these tests, in the shape of a PingFederate 13.1 pf-runtime.war descriptor: the jakartaee 5.0
      namespace, metadata-complete="true", request-wide filters mapped over /*, one mapped by servlet name, and
-     the protocol servlet mapped by extension. Every name and class below is made up. -->
+     the protocol servlet mapped by extension, the discovery documents by exact path. Every name and class below is made up. -->
 <web-app xmlns="https://jakarta.ee/xml/ns/jakartaee"
          xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
          xsi:schemaLocation="https://jakarta.ee/xml/ns/jakartaee https://jakarta.ee/xml/ns/jakartaee/web-app_5_0.xsd"
@@ -70,5 +70,17 @@
     <servlet-mapping>
         <servlet-name>static</servlet-name>
         <url-pattern>/</url-pattern>
+    </servlet-mapping>
+    <servlet>
+        <servlet-name>discovery</servlet-name>
+        <servlet-class>example.runtime.DiscoveryServlet</servlet-class>
+    </servlet>
+    <servlet-mapping>
+        <servlet-name>discovery</servlet-name>
+        <url-pattern>/.well-known/openid-configuration</url-pattern>
+    </servlet-mapping>
+    <servlet-mapping>
+        <servlet-name>discovery</servlet-name>
+        <url-pattern>/.well-known/oauth-authorization-server</url-pattern>
     </servlet-mapping>
 </web-app>

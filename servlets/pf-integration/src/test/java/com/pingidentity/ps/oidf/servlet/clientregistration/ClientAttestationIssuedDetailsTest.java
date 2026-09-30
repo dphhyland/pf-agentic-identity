@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrors;
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
@@ -287,7 +289,7 @@ class ClientAttestationIssuedDetailsTest {
             assertNull(over.forwarded(), endpoint.toString());
             assertEquals(400, over.status());
             assertEquals("invalid_authorization_details", over.error().get("error"));
-            assertEquals("authorization_details exceeds what the client attestation allows", over.error().get("error_description"));
+            PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", over.error().get("error_description"));
             Outcome undeclared = attested(endpoint.path(), CEILING, params("authorization_details", "[{\"type\":\"sales_agent\",\"discount\":5}]"));
             assertEquals(400, undeclared.status(), endpoint + ": RFC 9396 §5, a field its type does not define");
             Outcome noCeiling = attested(endpoint.path(), null, params("authorization_details", "[{\"type\":\"sales_agent\"}]"));
@@ -334,7 +336,7 @@ class ClientAttestationIssuedDetailsTest {
             Outcome o = attested(AttestedEndpoint.PAR.path(), CEILING, params);
             assertEquals(400, o.status(), name);
             assertEquals("invalid_request", o.error().get("error"));
-            assertEquals(name + " must not be sent more than once", o.error().get("error_description"));
+            PublicErrorsAssert.assertGenericDescription("invalid_request", o.error().get("error_description"));
             assertNull(o.forwarded());
         }
     }
@@ -411,15 +413,15 @@ class ClientAttestationIssuedDetailsTest {
                 assertNull(o.forwarded(), endpoint + " " + details);
                 assertEquals(400, o.status());
                 assertEquals("invalid_authorization_details", o.error().get("error"));
-                assertEquals(GrantedDetails.EXCEEDS, o.error().get("error_description"));
+                PublicErrorsAssert.assertGenericDescription("invalid_authorization_details", o.error().get("error_description"));
             }
             // A marker it cannot overwrite is refused, not trusted.
             Outcome marked = attested(endpoint.path(), CEILING,
                     params("request", requestObject("[{\"type\":\"sales_agent\",\"sales_regions\":[\"EMEA\"],\"max_txn_eur\":1,\"_agent_id\":\"forged\"}]")));
             assertEquals(400, marked.status());
-            assertEquals(GrantedDetails.MALFORMED, marked.error().get("error_description"));
+            PublicErrorsAssert.assertGenericDescription(String.valueOf(marked.error().get("error")), marked.error().get("error_description"));
             Outcome notDetails = attested(endpoint.path(), CEILING, params("request", requestObject("{\"type\":\"sales_agent\"}")));
-            assertEquals(GrantedDetails.MALFORMED, notDetails.error().get("error_description"));
+            PublicErrorsAssert.assertGenericDescription(String.valueOf(notDetails.error().get("error")), notDetails.error().get("error_description"));
         }
     }
 
@@ -431,7 +433,7 @@ class ClientAttestationIssuedDetailsTest {
             Outcome o = attested(AttestedEndpoint.PAR.path(), CEILING, params("request", object));
             assertEquals(400, o.status(), object);
             assertEquals(GrantedDetails.INVALID_REQUEST_OBJECT, o.error().get("error"));
-            assertEquals(GrantedDetails.UNREADABLE, o.error().get("error_description"));
+            PublicErrorsAssert.assertGenericDescription(GrantedDetails.INVALID_REQUEST_OBJECT, o.error().get("error_description"));
         }
     }
 
@@ -484,7 +486,7 @@ class ClientAttestationIssuedDetailsTest {
             Outcome o = authorize(params);
             assertNull(o.forwarded(), params.keySet().toString());
             assertEquals(400, o.status());
-            assertTrue(o.body().contains(PushedDetailsRule.ERROR) && o.body().contains("pushed authorization request (PAR)"), o.body());
+            assertTrue(o.body().contains(PushedDetailsRule.ERROR) && o.body().contains(PublicErrors.generic(PushedDetailsRule.ERROR)), o.body());
             assertTrue(o.body().contains("<html") || o.body().contains("<!DOCTYPE") || o.body().contains("<!doctype"), "a page: " + o.body());
         }
     }
@@ -557,7 +559,7 @@ class ClientAttestationIssuedDetailsTest {
         Outcome requiredAndBad = run(filterOver(Map.of("attestation_required", List.of("true"), "attestation_pop_max_age", List.of("soon"))),
                 request(AttestedEndpoint.AUTHORIZATION.path(), null, null, asks));
         assertEquals(400, requiredAndBad.status());
-        assertTrue(requiredAndBad.body().contains("pushed authorization request (PAR)"), requiredAndBad.body());
+        assertTrue(requiredAndBad.body().contains(PublicErrors.generic(PushedDetailsRule.ERROR)), requiredAndBad.body());
         assertNull(requiredAndBad.forwarded());
         Outcome onlyBad = run(filterOver(Map.of("attestation_pop_max_age", List.of("soon"))),
                 request(AttestedEndpoint.AUTHORIZATION.path(), null, null, asks));

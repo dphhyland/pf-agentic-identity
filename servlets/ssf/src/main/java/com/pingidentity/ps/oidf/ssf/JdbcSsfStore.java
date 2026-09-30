@@ -83,9 +83,21 @@ public final class JdbcSsfStore implements SsfStore {
                     + "created_at BIGINT, updated_at BIGINT)";
 
     private final DataSource dataSource;
+    private final PushHeaderCipher headers;
 
+    /** A store that keeps a push {@code authorization_header} in clear, as every version before 0.6.0 did. */
     public JdbcSsfStore(DataSource dataSource) {
+        this(dataSource, PushHeaderCipher.CLEAR);
+    }
+
+    /**
+     * A store that seals a push stream's {@code authorization_header} with {@code headers} on write and opens it on read
+     * (plan item H-SSF-7): {@code push_auth_header} holds the sealed value, and an earlier version's clear value is read
+     * as it is and sealed on the stream's next write.
+     */
+    public JdbcSsfStore(DataSource dataSource, PushHeaderCipher headers) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource");
+        this.headers = Objects.requireNonNull(headers, "headers");
     }
 
     /** Create the three tables if they don't exist, and bring an older {@code ssf_streams} up to date. Call once on boot. */
@@ -152,7 +164,7 @@ public final class JdbcSsfStore implements SsfStore {
                     ps.setString(2, s.audience());
                     ps.setString(3, s.deliveryMethod().name());
                     ps.setString(4, s.pushEndpointUrl());
-                    ps.setString(5, s.pushAuthorizationHeader());
+                    ps.setString(5, this.headers.seal(s.id(), s.pushAuthorizationHeader()));
                     ps.setString(6, joinEvents(s.eventsRequested()));
                     ps.setString(7, joinEvents(s.eventsDelivered()));
                     ps.setString(8, s.status().value());
@@ -191,7 +203,7 @@ public final class JdbcSsfStore implements SsfStore {
                     ps.setString(1, s.audience());
                     ps.setString(2, s.deliveryMethod().name());
                     ps.setString(3, s.pushEndpointUrl());
-                    ps.setString(4, s.pushAuthorizationHeader());
+                    ps.setString(4, this.headers.seal(s.id(), s.pushAuthorizationHeader()));
                     ps.setString(5, joinEvents(s.eventsRequested()));
                     ps.setString(6, joinEvents(s.eventsDelivered()));
                     ps.setString(7, s.status().value());
@@ -396,13 +408,14 @@ public final class JdbcSsfStore implements SsfStore {
     // ─────────────────────────────── mapping + JDBC plumbing ───────────────────────────────
 
     private Stream mapStream(ResultSet rs) throws SQLException {
+        String id = rs.getString("stream_id");
         return Stream.builder()
-                .id(rs.getString("stream_id"))
+                .id(id)
                 .audience(rs.getString("audience"))
                 .ownerClientId(rs.getString("owner_client_id"))
                 .deliveryMethod(DeliveryMethod.valueOf(rs.getString("delivery_method")))
                 .pushEndpointUrl(rs.getString("push_endpoint_url"))
-                .pushAuthorizationHeader(rs.getString("push_auth_header"))
+                .pushAuthorizationHeader(this.headers.open(id, rs.getString("push_auth_header")))
                 .eventsRequested(splitEvents(rs.getString("events_requested")))
                 .eventsDelivered(splitEvents(rs.getString("events_delivered")))
                 .status(StreamStatus.fromValue(rs.getString("status")))

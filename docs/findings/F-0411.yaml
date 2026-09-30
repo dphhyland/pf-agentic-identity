@@ -1,0 +1,18 @@
+id: F-0411
+title: The attester's discovery document names only attest_jwt_client_auth as the token endpoint's method
+severity: low
+area: attestation-issuer
+source: design
+status: open
+plan_items: [S-4]
+prs: [95]
+verification: ''
+target_release: 1.0.0
+notes: >
+  Found on 2026-10-01 in S4M. /.well-known/client-attester's token_endpoint_auth_methods_supported is the constant
+  ["attest_jwt_client_auth"] (AttesterConfigurationServlet.TOKEN_ENDPOINT_AUTH_METHODS), while the authorization
+  server it names also accepts attest_jwt_client_auth_dpop (ClientAttestationAuthFilter's combined DPoP mode) and, from
+  S4M, advertises both in its own metadata. The constant is also blind to the switch: with OIDF_ATTESTATION_AUTH_ENABLED
+  false the attester's document still offers a method the token endpoint then refuses. Low: a client that follows
+  authorization_server_metadata, which S4M added, reads the authorization server's own list. The fix is to drop the
+  member in favour of that pointer, or to read it from the same member set the authorization server publishes.

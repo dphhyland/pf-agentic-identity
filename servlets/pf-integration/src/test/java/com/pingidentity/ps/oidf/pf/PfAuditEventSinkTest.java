@@ -136,8 +136,10 @@ class PfAuditEventSinkTest {
             sdk.verify(() -> LoggingUtil.setPartnerId("https://ta.example"));
             sdk.verify(() -> LoggingUtil.setRole("OP"));
             sdk.verify(() -> LoggingUtil.setRequestJti("j-1"));
-            sdk.verify(LoggingUtil::cleanup);
+            // H-FED-7 (F-0049): the thread's context is put back as it was, never emptied by the SDK's cleanup.
+            sdk.verify(LoggingUtil::cleanup, never());
             assertEquals(PfAuditEventSink.PROTOCOL, atLog.get("protocol"));
+            assertNull(ThreadContext.get("protocol"), "the protocol the record set is gone again");
 
             sdk.clearInvocations();
             new PfAuditEventSink.LoggingUtilAuditWriter().write(bare, null);
@@ -150,8 +152,7 @@ class PfAuditEventSinkTest {
             sdk.verify(() -> LoggingUtil.setRole(anyString()), never());
             sdk.verify(() -> LoggingUtil.setRequestJti(anyString()), never());
         } finally {
-            // The SDK's cleanup, which empties the protocol column in PingFederate, was mocked.
-            ThreadContext.remove("protocol");
+            ThreadContext.clearMap();
         }
     }
 

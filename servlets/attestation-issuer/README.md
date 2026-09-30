@@ -21,7 +21,7 @@ Plain `@WebServlet` classes on the webapp classloader (not a PF-INF plugin): the
 | Path | Class | What |
 |---|---|---|
 | `POST /federation/attestation` | `AttestationIssuanceServlet` | Issuance. JSON body: `instance_key` (JWK), `instance_attestation` (alias `svid`), `proof`, optional `authorization_details` / `asserted_context`; a `client_id` is accepted but ignored and an `agent_id` is rejected. The client is resolved **from the evidence**: it is validated against every attestation client's config and the one whose trust bundle verifies it *and* whose bindings contain the resulting identity is the match. Then: instance-key proof (its window, challenge + `jti` replay - [below](#the-instance-key-proof)), deployment-required custom proof claims, the binding's ceiling narrowed by the asserted context's when there is one (the containment model's meet), the grant (`authorize(requested, ceiling, INHERIT)`, or the full ceiling for an empty request - [below](#the-ceiling-and-the-grant)), `agent_id`, mint. `200 {"attestation","expires_in"}`, `Cache-Control: no-store`. Before any of that, the per-address limit and the body cap ([below](#the-request-path)); every failure is an error answer with no internal text, its code CAS §4.6's but for three ([below](#the-request-path)). |
-| `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins. Cacheable, parameterless. URLs from the request, or a trusted proxy's forwarding headers; CORS only for listed origins ([below](#the-configuration-documents-urls-and-cors)). |
+| `GET /.well-known/client-attester`, `/federation/.well-known/client-attester` | `AttesterConfigurationServlet` | This deployment's discovery document: endpoints, evidence types (read off the validator registry), `evidence_audience`, `pop_audience` (PF's OP issuer - the "aud trap"), active resolver plugins, and the authorization server's metadata location ([below](#which-challenge-is-which)). Cacheable, parameterless. URLs from the request, or a trusted proxy's forwarding headers; CORS only for listed origins ([below](#the-configuration-documents-urls-and-cors)). |
 | `GET /federation/attester-configuration?client_id=` | same | Per-client view: issuer, evidence audience, trust domain, RAR type names. Ceiling, bindings and signing config are deliberately not exposed. |
 | `GET /.well-known/client-attestation-service` | `ClientAttestationServiceMetadataServlet` | The fixed CAS 1.0 §5 document: required request members, required proof claims (`aud`, `jti`, `iat`, `exp`, `challenge` when required, plus custom), claims minted. Reads the same config the issuance servlet enforces, so advertisement and enforcement cannot drift. |
 | `GET /federation/attestation/challenge` | `AttestationIssuanceChallengeServlet` | The attester's challenge endpoint (CAS §4.1), for the instance-key proof: `200 {"attestation_challenge","expires_in"}`, `Cache-Control: no-store`; 429 `slow_down` over its per-caller cap (60 a minute by default); 503 `temporarily_unavailable` when the store cannot record the challenge. Issues into `oidf:cas:challenge:*`, which `/federation/attestation` consumes, once. Any other method, `POST` and `HEAD` included, is 405 with `Allow: GET`. Advertised as `challenge_endpoint` by both discovery documents above. |
@@ -84,6 +84,32 @@ than issue for clients that may since have been disabled or deleted.
   more than the reads.
 
 The OpenID Federation and CIMD sources keep caches of their own (their TTLs), as before.
+
+## Which challenge is which
+
+Two challenge endpoints serve two proofs, and a challenge from one is refused at the other (CAS §4.1):
+
+| Challenge endpoint | For | Named by |
+|---|---|---|
+| `GET /federation/attestation/challenge` (this module, the attester's) | The instance-key proof sent to `/federation/attestation` | `/.well-known/client-attester` and `/.well-known/client-attestation-service`, as `challenge_endpoint` |
+| `POST /federation/attestation-challenge` (client-attestation, the authorization server's) | The Client Attestation PoP JWT's `challenge`, or a combined-mode DPoP proof's `nonce`, at the token endpoint | The authorization server's metadata, as `challenge_endpoint`: PingFederate's `/.well-known/oauth-authorization-server` and `/.well-known/openid-configuration`, and the Entity Configuration's `openid_provider` and `oauth_authorization_server` ([pf-integration](../pf-integration/README.md#attestation-in-the-discovery-documents)) |
+
+So that a client that starts from `/.well-known/client-attester` finds the second (plan item S-4,
+[F-0118](../../docs/findings/F-0118.yaml)), the document names the authorization server, when PingFederate gives its
+issuer:
+
+- `authorization_servers`: `[<issuer>]`, RFC 9728 §2's member ("JSON array containing a list of OAuth authorization
+  server issuer identifiers, as defined in [RFC8414]"). The client compares it with the `issuer` in the metadata it
+  fetches: RFC 8414 §3.3, "If these values are not identical, the data contained in the response MUST NOT be used."
+- `authorization_server_metadata`: that issuer's RFC 8414 §3 metadata URL,
+  `<scheme>://<host>/.well-known/oauth-authorization-server<path>`, named as RFC 9728 §5.1 names a protected resource's
+  (`resource_metadata`, "The URL of the protected resource metadata"). No attestation specification defines a member
+  for this; the attester's document is this repository's own. For a root issuer this is the URL PingFederate answers
+  and the filter extends (the rig, 2026-10-01); for an issuer with a path, such as one under a runtime context path,
+  whether PingFederate serves the path-inserted form was not checked ([U-0420](../../docs/findings/U-0420.yaml)).
+
+The document's own `challenge_endpoint` stays the attester's. Neither member is published when PingFederate cannot give
+its issuer, or the issuer is not an absolute URL without a query or fragment.
 
 ## The configuration documents' URLs and CORS
 

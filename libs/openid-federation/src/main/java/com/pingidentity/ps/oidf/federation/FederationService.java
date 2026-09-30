@@ -346,23 +346,37 @@ public final class FederationService {
             // §5.1.3: REQUIRED when Explicit Registration is supported, and only then.
             openidProvider.put("federation_registration_endpoint", fedBase + "/federation/register");
         }
-        openidProvider.put("token_endpoint_auth_methods_supported", attestationMetadata.tokenEndpointAuthMethodsSupported());
-        openidProvider.put("client_attestation_signing_alg_values_supported", attestationMetadata.clientAttestationSigningAlgValuesSupported());
-        openidProvider.put("client_attestation_pop_signing_alg_values_supported", attestationMetadata.clientAttestationPopSigningAlgValuesSupported());
+        List<String> authMethods = attestationMetadata.tokenEndpointAuthMethodsSupported();
+        if (!authMethods.isEmpty()) {
+            openidProvider.put("token_endpoint_auth_methods_supported", authMethods);
+        }
+        String challengeEndpoint = fedBase + AttestationMetadataConfig.CHALLENGE_PATH;
+        // The attestation members only while ATTESTATION_AUTH may verify an attestation (S9b: a disabled component
+        // advertises nothing), the same set extend() adds to oauth_authorization_server below (plan item S-4, F-0115).
+        boolean attestation = attestationMetadata.advertised();
+        if (attestation) {
+            openidProvider.put("client_attestation_signing_alg_values_supported", attestationMetadata.clientAttestationSigningAlgValuesSupported());
+            openidProvider.put("client_attestation_pop_signing_alg_values_supported", attestationMetadata.clientAttestationPopSigningAlgValuesSupported());
+        }
         openidProvider.put("dpop_signing_alg_values_supported", attestationMetadata.dpopSigningAlgValuesSupported());
         List<String> popMethods = attestationMetadata.clientAttestationPopMethodsSupported();
-        if (!popMethods.isEmpty()) {
+        if (attestation && !popMethods.isEmpty()) {
             // draft-10 §8: the array MUST NOT be empty when the parameter is present
             openidProvider.put("client_attestation_pop_methods_supported", popMethods);
         }
-        if (attestationMetadata.challengeEndpointEnabled()) {
+        if (attestation && attestationMetadata.challengeEndpointEnabled()) {
             // The authorization server's challenge endpoint (ABCA-10 §6.1; client-attestation's
             // ClientAttestationChallengeServlet). Never the attester's /federation/attestation/challenge: a challenge
             // from there is refused at the token endpoint (CAS §4.1).
-            openidProvider.put("challenge_endpoint", fedBase + "/federation/attestation-challenge");
+            openidProvider.put("challenge_endpoint", challengeEndpoint);
         }
         metadata.put("openid_provider", openidProvider);
-        metadata.put("oauth_authorization_server", this.discovered("oauth_authorization_server", oidcIssuer));
+        // RFC 8414 metadata too, so ABCA-10 §6.1's MUST holds here as well: PingFederate's own document with the same
+        // attestation members added, PingFederate's members kept as they are (F-0115). A document whose
+        // token_endpoint_auth_methods_supported is not an array of strings is published as PingFederate gave it.
+        LinkedHashMap<String, Object> authorizationServer = this.discovered("oauth_authorization_server", oidcIssuer);
+        Map<String, Object> extended = attestationMetadata.extend(authorizationServer, challengeEndpoint);
+        metadata.put("oauth_authorization_server", extended != null ? extended : authorizationServer);
         String attesterJwks = this.configuration.attesterJwks();
         if (attesterJwks != null) {
             // Publish the co-hosted Client Attester's signing keys so a remote AS can trust

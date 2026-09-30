@@ -113,7 +113,7 @@ is edited (F-0238, X-C02's to fix).
 | `pdpUrl` | `AUTHZEN_BASE_URL` | AuthZEN PDP base URL; `/access/v1/evaluation` is appended. **Required**. From 0.6.0 it must be `https` unless `OIDF_DEPLOYMENT_PROFILE=development`: an `http` URL under the production profile leaves GM_API `FAILED_CONFIG`, the reason naming `pdpUrl`. The shipped `web.xml`'s `http://host.docker.internal:9099` is a demo value, so a production deployment edits it |
 | `audience` | `GM_AUDIENCE` | the `aud` this API answers to (the token manager's audience claim). **REQUIRED** — the servlet refuses to start without it, because unset would accept any token this server signed, including one minted for a different API |
 | `pdpToken` | `AUTHZEN_BEARER_TOKEN` | credential for a protected PDP |
-| `pdpTimeoutMs` | — | default 10000 |
+| `pdpTimeoutMs` | — | default 10000. From 0.6.0 it bounds the whole PDP call, the answer's body included, and a value above 10 s holds; connecting, TLS included, takes at most 5 s of it (plan item S5d, [the PDP](../README.md#the-pdp)); zero or below, which meant no timeout, is the default |
 | `issuer`, `grantManagementEndpoint` (metadata servlet) | — | what `/.well-known/grant-management-configuration` advertises; endpoint defaults to `<base>/gm-api/grants`, and one that is not an http or https URL stops the metadata servlet |
 
 Events: every evaluation the PDP answers is `gm.grant.evaluated` (permit or deny, with the reason id), one the

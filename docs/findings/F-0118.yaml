@@ -3,10 +3,18 @@ title: The attester's discovery document no longer leads a client to a challenge
 severity: low
 area: attestation-issuer, openid-federation
 source: pr-review
-status: open
+status: closed
 plan_items: [S-4]
-prs: []
-verification: ''
+prs: [95]
+verification: >
+  2026-10-01, PR 95 (S4M): /.well-known/client-attester keeps its own challenge_endpoint (the attester's, GET
+  /federation/attestation/challenge) and now names the authorization server - authorization_servers, RFC 9728 section
+  2's member, carrying PingFederate's issuer, and authorization_server_metadata, that issuer's RFC 8414 section 3 URL -
+  whose document, extended by AttestationMetadataFilter (F-0115), names challenge_endpoint POST
+  <issuer>/federation/attestation-challenge, the one the token endpoint accepts.
+  ChallengeEndpointAdvertisementTest.theAttesterDocumentLeadsAClientToTheAuthorizationServersChallenge follows the
+  pointer from the attester's document to that challenge endpoint; the attestation-issuer README's "Which challenge is
+  which" says which document names which.
 target_release: 0.6.0
 notes: >
   Found on 2026-09-27 in the adversarial review of S4b. /.well-known/client-attester names the token endpoint,

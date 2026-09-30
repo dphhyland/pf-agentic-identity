@@ -28,7 +28,7 @@ formats it has always handled (`iss_sub`, `email`, `phone_number`, `opaque`, `ac
   boot), `LdmSsfStore` (Identity Object Model `idm.entry` schema, never creates tables). `PfJdbcStoreFactory`
   picks: direct `jdbcUrl` (dev) beats a PF-managed `dataStoreId` (production, PF's own pool).
 - **Kafka** - `KafkaSetPublisher` is reflection-only: no compile-time dependency, no Kafka class loaded
-  unless `kafkaEnabled`.
+  unless `kafkaEnabled`. TLS by default, and plaintext refused in production ([Kafka](#kafka)).
 - **Auth** - every management/poll call carries a receiver bearer, validated by PF's own RFC 7662
   introspection and required to hold `receiverScope`. The scope
   gets a client to the endpoints, not to every stream behind them: a stream is its creator's
@@ -63,13 +63,13 @@ account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Inte
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err`, `description` and `Content-Language` on failure - a SET carrying `exp` or `sub` among them). Active only when `receiverExpectedIssuer` is set. See [The receiver](#the-receiver). |
 | `GET/POST/PUT/PATCH/DELETE /ssf/scim/v2/Users[/*]` | `SsfScimSubjectServlet` | SCIM 2.0 `/Users` mapping provisioning to stream membership (`urn:ietf:params:scim:schemas:extension:ssf:2.0:Subject`): `GET` by id or with a `filter`, `PUT` replaces, `active:false`/`DELETE` emits RISC account-disabled and `active` back to true account-enabled; errors in the SCIM error schema ([SCIM](#scim)). Bearer must hold `provisionerScope` (unset by default = 403 for everyone; the receiver scope is refused). A provisioner acts across every receiver's streams. |
 | `POST /ssf/events:emit` | `SsfEventEmitServlet` | Raise an event the transmitter did not observe itself: `{"event_type", "subject", "event"?, "stream_id"?}` (`EmitRequest`). Bearer must hold `provisionerScope`, like SCIM and for the same reason - the transmitter signs a SET about a subject of the caller's choosing to every receiver. It admits nothing the emitter does not: a stream still has to subscribe (`SsfEventEmitter.subscribes`), and `stream_id` only narrows the fan-out (404 if absent). For the three interop events the subject is `email` or `iss_sub`, `reason_admin` is supplied if absent, and `credential_type`/`change_type`/`previous_status`/`current_status` take only their defined values (400 otherwise). Answers `{"event_type", "emitted":[{stream_id, jti, delivery}], "count"}`; a count of 0 is nothing subscribed, not an error. |
-| filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF processes an OIDC logout. Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
+| filter `SsfLogoutSignal` over `/idp/init_logout.openid` | `LogoutEventFilter` | Emits CAEP session-revoked after PF handles an OIDC logout with a recent, verified ID token hint, once ([The logout signal](#the-logout-signal)). Not annotated - registered in `pf-runtime.war`'s `web.xml` by `build/pingfederate/assemble-pf-runtime-war.sh`. Fail-open, fail-quiet: logout always proceeds. |
 
-`LogoutEventFilter` takes the subject from an `id_token_hint`/`logout_token`, verified (`PfIdTokenVerifier`)
-against this PF's own signing keys (asymmetric algorithms only; expiry is deliberately not enforced - a hint
-presented at logout is routinely expired, and its age says nothing about who it names). A bare `sub` request
-parameter is accepted only when a deployment opts in (`OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM=true`, for a dev rig
-with no real id tokens to hand); it is refused by default, closing the earlier unauthenticated-subject finding.
+`LogoutEventFilter` takes the subject from an `id_token_hint` verified by `PfIdTokenVerifier` against this PF's own
+signing keys and the issuer PF reports for the request, and raises the signal only under the rules in
+[The logout signal](#the-logout-signal). A bare `sub` request parameter is accepted only when a deployment opts in
+(`OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM=true`, for a dev rig with no real id tokens to hand); it is refused by default,
+closing the earlier unauthenticated-subject finding.
 
 The transmitter starts once, as the `SSF` component's part, from `SsfConfigurationServlet`'s `init`
 (`loadOnStartup=1`), and the receiver's part registers from `SsfReceiverServlet`'s (`loadOnStartup=2`), so both
@@ -100,8 +100,9 @@ development profile reads a switch's legacy spelling (`yes`, `no`, `1`, `0`, `on
 | Store | `dataStoreId` (PF JDBC data store id, on PostgreSQL) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory, which production allows only with the `in-memory-state` risk accepted |
 | Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or SSF is `FAILED_CONFIG`), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production) |
 | Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, `SSF_RECEIVER` is `FAILED_CONFIG` and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production), `receiverPollUrl`/`receiverPollIntervalSeconds` (10), `receiverPollToken` (development only; refused in production), `receiverTokenEndpoint`/`receiverClientId`/`receiverClientSecret` or `receiverClientKey`/`receiverClientScope` (the receiver's token by client credentials), `receiverTransmitterConfigurationUrl`/`receiverPushEndpointUrl`/`receiverEventsRequested` (the receiver's own stream), `receiverSubjectIssuers`, `receiverActionsEnabled` (true) - see [The receiver](#the-receiver) |
-| Sources | `auditEventsEnabled` (true), `auditEventMap` |
-| Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
+| Sources | `auditEventsEnabled` (true), `auditEventMap` ([The audit source](#the-audit-source)); the logout filter's `OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS` (86400) and `OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM` (false), in their own catalogue ([docs/configuration/ssf-logout-signal.md](../../docs/configuration/ssf-logout-signal.md)) |
+| Push headers | `secretKey` (`OIDF_SSF_SECRET_KEY`, 32 bytes base64; production does not start the tables or `ldm` store without it), `secretKeyPrevious` (during a rotation) - [Push headers at rest](#push-headers-at-rest) |
+| Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`SSL`; `PLAINTEXT` and `SASL_PLAINTEXT` refused in production), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword`, `kafkaSslTruststoreLocation`/`Password`/`Type`, `kafkaSslKeystoreLocation`/`Password`/`Type`, `kafkaSslKeyPassword`, `kafkaSslHostnameVerification` (true; false refused in production), `kafkaRequestTimeoutMs` (10000), `kafkaDeliveryTimeoutMs` (30000), `kafkaMaxBlockMs` (2000) - [Kafka](#kafka) |
 
 ## Push delivery
 
@@ -133,17 +134,25 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   the hold asks) and `dueForPush`, use that one order in all three stores; ordered by `issuedAt` alone,
   Postgres returned a burst in whatever order its rows lay, the retry moved from SET to SET, and five SETs of
   one second took 130 s to dead-letter (`SsfStoresOnPostgresTest`, 2026-09-27).
-- **A POST ends at its deadline.** Connect 2 s; 10 s for the whole exchange, body included; at most 4 KiB
-  of a response body read (only a 400's body is used, for the log line). `HttpRequest.timeout` alone bounds
-  the wait for the headers and nothing after them, so the exchange is waited on as a whole and cancelled
-  when the deadline passes. These are constants (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`,
-  `RESPONSE_BODY_CAP`) until S-5 makes them settings. Before this, `HttpClient.newHttpClient()` had no
-  timeout at all: a receiver that accepted the connection and never answered held the thread, and every
-  stream's delivery, for as long as it kept the socket open. The cancel closes the connection too, so a
-  receiver that stalls every body keeps none of ours: `PushDeliveryHttpTest` has one send its status line
-  and part of a body and see the socket close at the deadline, and by hand on JDK 17, 20 and 21.0.12.1 (the
-  runtime of the PingFederate 13.1.3 image) the socket stayed open without the cancel and closed with it
-  (2026-09-27).
+- **A POST ends at its deadline.** From 0.6.0 (plan item S5d) the POST goes through libs/platform's
+  `OutboundHttp`: connecting, TLS included, within 2 s, and the whole exchange, body included, within 10 s - S-10's
+  values (`PushDeliveryService.CONNECT_TIMEOUT`, `REQUEST_TIMEOUT`), constants here until S-10 catalogues them in
+  Phase 4. Every read waits no longer than what is left of the deadline, so a receiver that sends its status line
+  and then a byte every 100 ms is given up on at 10 s like one that never answers, and the socket is closed when
+  the attempt ends. At most 64 KiB of an answer is read (`RESPONSE_BODY_CAP`): RFC 8935 §2.2 on the 202, "The body of
+  the response MUST be empty", and §2.3 has a 400 carry a JSON object of `err` and `description`, so a larger
+  answer is a failed attempt, retried, and never read past the cap; only a 400's body is used, the first 4096
+  characters of it in the log line. No redirect is followed. A failed attempt is a
+  retry, as before, and its WARN names the reason (`HEADER_TIMEOUT`, `DEADLINE`, `TLS`, `BODY_TOO_LARGE`,
+  `CONNECT_FAILED` and the rest). An interrupt - the loop stopping - ends the wait within platform's 250 ms read
+  slice and stays set, so the loop posts nothing after it (`PushDeliveryHttpTest`). The endpoint is held to the
+  federation fetch rules (`OutboundUrlPolicy`, [outbound-fetch](../../docs/configuration/outbound-fetch.md)): https,
+  and public addresses only, which `OIDF_FETCH_ALLOW_HTTP`, `OIDF_FETCH_HOST_ALLOWLIST` and
+  `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS` widen; the host is resolved once, every address checked, and the connection
+  goes to a checked address, so a name cannot resolve publicly for the check and privately for the connection. A
+  refused endpoint is dropped, not retried, as before. The JVM's trust store decides the receiver's certificate,
+  which must name the endpoint's host. Before 0.6.0 the POST used the JDK's `HttpClient`, whose request timeout
+  stops at the headers; the exchange was waited on as a whole and cancelled at the deadline (U-0077).
 - **The loop starts at boot.** `SsfSupport.start` - what the `SSF` part's start runs - starts it once
   the store is open, from `SsfConfigurationServlet`, `loadOnStartup=1`.
   Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
@@ -223,6 +232,29 @@ subject's PingFederate grants, `InstanceRegistryReceiverHandler` suspends or rev
   HTTP over TLS [RFC2818]"), unless the configuration URL is itself http, which only the development profile allows;
   production refuses an http `receiverTokenEndpoint`, `receiverTransmitterConfigurationUrl` or
   `receiverPushEndpointUrl`.
+
+- **Its outbound calls.** From 0.6.0 (plan item S5d) the poll, the stream management calls, the token request and
+  the JWKS fetch go through libs/platform's `OutboundHttp`, each within a deadline on the whole exchange, body
+  included, and a cap:
+
+  | Call | Connect | Whole exchange | Most read | Why |
+  |---|---|---|---|---|
+  | Poll (`PollReceiverClient`) | 1 s | 5 s | 4 MiB | The poll asks `returnImmediately`, so the transmitter has nothing to wait for; 4 MiB is the default `maxEvents` of 100 at 40 KiB a SET; an answer over it fails every tick until `OIDF_SSF_POLL_MAX_EVENTS` is lowered ([F-0406](../../docs/findings/F-0406.yaml)) |
+  | Stream management (`ReceiverStreamClient`) | 1 s | 5 s | 256 KiB | It runs in the receiver's start, which the supervisor retries; 256 KiB is platform's default, a list of streams |
+  | Token (`ClientCredentialsToken`) | 1 s | 5 s | 256 KiB | As the stream calls, which it comes before; before 0.6.0 it had 10 s to connect and 10 s for the headers, and no bound on the body |
+  | JWKS (`JwksHttpSource`) | 1 s | 2.5 s | 64 KiB | It runs while a pushed SET waits to be verified; a key set is small |
+
+  A poll that fails - its token request included - is logged at WARN with its reason first (`HEADER_TIMEOUT`,
+  `DEADLINE`, `TLS`, `BODY_TOO_LARGE` and the rest) and asked again next tick with the same acknowledgements; a
+  stream or token call that fails in the receiver's start leaves `SSF_RECEIVER` in `FAILED_DEPENDENCY`, retried; a JWKS fetch that fails is logged with its reason and the SET is
+  refused, as one with no key is. The transmitter is the one the operator named and may be internal by design, so
+  these calls may reach any address - still resolved once, every address checked for the URL rules, and the
+  connection pinned to one of them - and no setting is needed to reach one. That includes the URLs the transmitter's
+  own answers name, its `configuration_endpoint` and a poll stream's `endpoint_url`, which get the receiver's bearer
+  too ([F-0407](../../docs/findings/F-0407.yaml)); the scheme is the settings' to govern
+  (above). `receiverInsecureTls` (`OIDF_SSF_RECEIVER_INSECURE_TLS`, forbidden in production) trusts any certificate
+  chain through platform's `TlsTrust.insecureIf`; otherwise the JVM's trust store decides. Either way the certificate
+  must name the host the URL names.
 
 Where `SSF_RECEIVER` stands while it sets its stream up is under [Start-up](#start-up).
 
@@ -456,6 +488,165 @@ From 0.6.0 (plan item H-SSF-3; SSF 1.0 final, 29 August 2025):
   reactivating a forgotten user is a POST, which emits no `account-enabled`. The model repo (idp-scim-service) is
   asked to declare the MAY attributes and a class for the records (F-0387).
 
+## Events and txn
+
+Every SET `SsfEventEmitter` mints carries a `txn` (plan item H-SSF-5). SSF 1.0 (final, August 2025) §4.1.9:
+"Transmitters SHOULD set the "txn" claim value in Security Event Tokens (SETs). If the value is present, it MUST be
+unique to the underlying event that caused the Transmitter to generate the Security Event Token (SET)." So every SET
+one PingFederate event raises - one per stream that hears it - carries the same `txn`:
+
+- an audit record's `transactionid` (PingFederate's `TransactionIdSupport` keeps it in log4j's thread context; on the
+  rig every audit record had its own), or the logout request's;
+- otherwise a random value the emitter mints for that one event.
+
+Never PingFederate's `trackingid`: PingFederate's own `log4j2.xml` calls it "tracking ID which is unique for a user
+session", and on the rig (2026-10-01) one browser's PAR, login, token and three logouts shared one. The verification
+SETs stream management mints carry none yet (finding F-0403).
+
+`assurance-level-change` (CAEP 1.0 §3.4) is raised only from outside: `POST /ssf/events:emit`, or
+`SsfEventBridge.onAssuranceLevelChange(subject, namespace, previous, current, direction)` from a hook. None of
+PingFederate 13.1.3's audit records carries a level - its audit fields (`AuditLogger$MDC_KEY`) have no `acr`, `amr` or
+assurance level - so the audit source cannot see an authentication at a different level than the session's. The
+bridge's payload is CAEP's: `namespace` and `current_level` required, `previous_level` optional, `change_direction`
+`increase` or `decrease` only as the caller says (shared-signals' `CaepRiscEvents.assuranceLevelChange`, which omits
+`namespace` and can write `unknown`, is not used; finding F-0400).
+
+The transmitter's own events are the `ssf` catalogue ([META-INF/oidf-events/ssf.json](src/main/resources/META-INF/oidf-events/ssf.json),
+plan item O-2), each counted in `oidf_events_total`:
+
+| Event | When | Reason / fields |
+|---|---|---|
+| `ssf.set.emitted` | a SET queued for one stream | `event_type` |
+| `ssf.set.dropped` | a PingFederate event that raised no SET | `duplicate`, `not_started`, `failed`, `credential_type`, `kafka`; `event_type`, `source` (`audit`, `logout`, `bridge`) |
+| `ssf.logout.signal.refused` | a logout that raised no session-revoked | `hint_invalid`, `hint_not_id_token`, `hint_too_old`, `logout_failed`, `replayed` |
+| `ssf.audit.source.attached` / `detached` | the audit source joining or leaving PingFederate's audit loggers | `loggers`, `trigger` (`start`, `reconfigure`, `undeploy`, `restart`) |
+
+No field carries a SET, its `jti` or `txn`, a subject or a token.
+
+## The audit source
+
+`SsfAuditLogSource` is a log4j2 appender on PingFederate's audit loggers. Its default vocabulary
+(`AuditEventMapper.DEFAULTS`) is every event name PingFederate 13.1.3 writes to them that means one CAEP or RISC event
+without ambiguity, read from its classes on 2026-10-01; only a record with `status=success` and a subject raises
+anything. `OIDF_SSF_AUDIT_EVENT_MAP` adds, changes or removes an entry (`EVENT=action`, `EVENT=` to remove), where the
+action is `session-revoked`, `session-established`, `credential-change:<credential_type>[:<change_type>]`,
+`account-disabled`, `account-enabled` or `account-purged`.
+
+| PingFederate event | Written by | Raises | Default |
+|---|---|---|---|
+| `SLO` | `AuditLogger.EVENT_SLO`: a single logout | CAEP session-revoked | mapped. On 13.1.3 an OIDC logout's record has no subject (the rig, 2026-10-01), so it raises nothing; the logout filter does ([The logout signal](#the-logout-signal)) |
+| `SRI_REVOKED` | `IdpAuditLogger.logSessionRevocation`: the session revocation API | CAEP session-revoked | mapped |
+| `AUTHN_SESSIONS_DELETED` | `IdpAuditLogger.logSessionDeleted`: the subject's authentication sessions deleted | CAEP session-revoked | mapped |
+| `AUTHN_SESSION_CREATED` | `IdpAuditLogger.logAuthnSession` | CAEP session-established (§3.6, "a new session for the subject") | mapped |
+| `PWD_CHANGE` | `LocalIdentityAuditLogger`: a local identity changed its password | CAEP credential-change, `password`, `update` | mapped |
+| `ACCOUNT_DELETE` | `LocalIdentityAuditLogger`: a local identity deleted | RISC account-purged (§2.2, "permanently deleted") | mapped |
+| `AUTHN_SOURCE_SESSION_DELETED` | `IdpAuditLogger` | - | not mapped: one authentication source's session; the subject's session can go on |
+| `SESSION_QUOTA_EXCEEDED` | `IdpAuditLogger` | - | not mapped: the record does not say which session ended |
+| `AUTHN_SESSION_USED` | `IdpAuditLogger` | CAEP session-presented (§3.7) | not mapped: this transmitter does not advertise session-presented |
+| `PWD_SET` | `LocalIdentityAuditLogger` | CAEP credential-change | not mapped: a first password (`create`) or a reset (`update`), and the record does not say which |
+| `PROFILE_ATTRIBUTE_CHANGE` | `LocalIdentityAuditLogger` | RISC identifier-changed, for some attributes | not mapped: the record does not say which attribute |
+| `REGISTER`, `AUTHN_SOURCE_CONNECT`, `AUTHN_SOURCE_DISCONNECT`, `EMAIL_ADDRESS_VERIFY`, `EMAIL_ADDRESS_VERIFICATION_SEND`, `VERIFY_OTP`, `SKIP_OTP`, `EXCEEDED_ATTEMPTS_FOR_OTP` | `LocalIdentityAuditLogger` | - | nothing in CAEP 1.0 or RISC 1.0 |
+| `AUTHN_ATTEMPT`, `AUTHN_REQUEST`, `SSO`, `OAuth`, `PAR`, `USER_KEY_AND_SRI_ASSOCIATED` | the IdP, SP and AS loggers | - | the start or use of a session, or bookkeeping |
+
+`SESSION_REVOKED`, `SESSION_DELETED` and `AUTHN_SESSION_DELETED`, defaults before 0.6.0, are gone: no PingFederate
+13.1.3 class writes them. A `credential-change` names its `credential_type`, because CAEP 1.0 §3.3.1 has it "MUST be one
+of the following strings, or any other credential type supported mutually by the Transmitter and the Receiver": one of
+the ten CAEP registers, or the mapping is refused; a mapping with none is accepted and never sent (an
+`ssf.set.dropped` with reason `credential_type`, and a WARN), and the old `"credential"` is no longer sent at all.
+RISC 1.0 §2.3's `reason` is `hijacking` or `bulk-account`, which no audit record says, so an audit-raised
+account-disabled carries none.
+
+**Reconfiguration and undeploy.** PingFederate's `log4j2.xml` has `monitorInterval="30"`, and an edited file replaces
+log4j's whole configuration, whose new loggers have no appender of ours. The source listens on the `LoggerContext` for
+`PROPERTY_CONFIG`, which log4j 2.25.4 - PingFederate 13.1.3's - fires from `setConfiguration` once the new configuration
+is started, and attaches a new instance to the new loggers (a listener rather than a re-check on a timer, so there is no
+window). On the rig on 2026-10-01 a `touch` of `log4j2.xml` was followed four seconds later by `ssf.audit.source.detached`
+and `ssf.audit.source.attached` with `trigger=reconfigure` and `loggers=6`; and on the rig started again with
+`AUTHN_ATTEMPT` mapped for the check, a login's audit record reached the bridge (an `ssf.set.dropped` from `source=audit`). Platform's lifecycle detaches the source and removes the listener when the webapp shuts down,
+so an undeployed webapp leaves no appender in the server's log4j context.
+
+## The logout signal
+
+`LogoutEventFilter` raises a CAEP session-revoked for a logout at `/idp/init_logout.openid` only when all of these hold
+(plan item H-SSF-6, finding F-0022):
+
+- **The hint verifies.** Signed by this PingFederate (its signing keys, asymmetric algorithms only) and issued by it,
+  as PingFederate reports its issuer for the request (`PfInternals.issuer`, F-0215). OpenID Connect RP-Initiated
+  Logout 1.0 (final, 12 September 2022) §2: "When an id_token_hint parameter is present, the OP MUST validate that it
+  was the issuer of the ID Token."
+- **It is an ID token**: no `typ` or `typ` `JWT`; `iss`, `sub`, `aud`, `exp` and `iat` (each "REQUIRED" in OpenID
+  Connect Core 1.0 §2); no `events` (a logout token, Back-Channel Logout 1.0 §2.4, or a SET), no `client_id` or
+  `scope` (an access token; RFC 9068 §2.2 makes `client_id` "REQUIRED" and §2.1 has it typed `at+jwt`). On the rig
+  the access token of the same login verified against the same keys and issuer, and until 0.6.0 raised a signal. A
+  `logout_token` parameter is no longer read: RP-Initiated Logout defines none at this endpoint.
+- **It is recent**: its `iat` within `OIDF_SSF_LOGOUT_HINT_MAX_AGE_SECONDS` (default 86400, 60 to 30 days), and no
+  more than five minutes in the future. Expiry is still not enforced: §2 has the OP "SHOULD accept ID Tokens when the
+  RP identified by the ID Token's aud claim and/or sid claim has a current session or had a recent session at the OP,
+  even when the exp time has passed".
+- **PingFederate's handling did not fail**: the chain returned, the status is below 400, and no redirect carries an
+  `error` parameter.
+- **Once**: at most one signal per session (`sid`, or the subject when the token has none - PingFederate 13.1.3's ID
+  token has no `sid`) and `iat` within the age bound. The memory is per node (finding F-0402).
+
+Each refusal is an `ssf.logout.signal.refused` with its reason. **What the response can show is limited** (the rig,
+2026-10-01): `/idp/init_logout.openid` answers 200 in every case - a hint PingFederate accepts gets an auto-submitting
+form to `/idp/startSLO.ping`, where it asks the user to confirm and signs them off on a later request this filter does
+not see; a hint it refuses gets its "Sign Off Error" page. It signs off "successfully" when no session exists too, and
+audits the OIDC logout as `SLO` success with no subject. So the filter holds a logout to what it can see, and whether
+the sign-off itself completed is finding F-0401.
+
+## Push headers at rest
+
+The `authorization_header` a receiver gives a push stream is the credential the transmitter presents at the receiver's
+endpoint (plan item H-SSF-7, finding F-0058). With `OIDF_SSF_SECRET_KEY` set (32 bytes, base64:
+`openssl rand -base64 32`), the tables and `ldm` stores keep it as `ssfenc:v1:<kid>:<nonce and AES-256-GCM
+ciphertext>`, the stream's id bound in as additional data, so a sealed value copied onto another stream does not open.
+`kid` is 16 characters of the key's SHA-256, naming it without revealing it.
+
+- **Rotation**: move the old key to `OIDF_SSF_SECRET_KEY_PREVIOUS` and set a new `OIDF_SSF_SECRET_KEY`. Values sealed
+  under either open; each is sealed under the new key on its stream's next write. Once every stream has been written
+  (or none has a header), drop the previous key.
+- **Migration**: a clear value an earlier version stored is read as it is and sealed on the stream's next write - any
+  update of the stream: the receiver's `PATCH` or `PUT` of its configuration, or a `POST` to `/ssf/status`. To seal
+  every one at once, have each receiver post its current status (`{"stream_id": ..., "status": "enabled"}`), or pause
+  and re-enable each stream.
+- **Production without the key**: SSF over a tables or `ldm` store does not start - it is `FAILED_CONFIG`, its
+  endpoints answer 503, and an ERROR names `OIDF_SSF_SECRET_KEY` and counts the headers the store already holds -
+  since any push stream a receiver creates may carry a header. Under development a header is stored in clear, with a
+  WARN.
+- **Only a stored value is kept sealed as it is.** A header a receiver sends that happens to start with `ssfenc:v1:` is
+  sealed like any other and opens back to what it sent; only a value read from the store that no key opens is written
+  back unchanged.
+- A value neither key opens stays sealed - so writing the stream does not lose it - and is what the receiver is sent,
+  which it refuses; an ERROR names the key id once. The in-memory store keeps headers in memory only, unsealed.
+- A sealed header is a third longer than the clear one, plus about 64 characters; the tables store's column holds 4096,
+  so a header over about 3000 characters no longer fits (finding F-0404).
+
+## Kafka
+
+With `OIDF_SSF_KAFKA_ENABLED=true`, every SET is also published to a Kafka topic (plan items H-SSF-7, S5d and PR-2).
+
+- **TLS by default.** `OIDF_SSF_KAFKA_SECURITY_PROTOCOL` is `SSL` unless set (Kafka's own default is `PLAINTEXT`), one
+  of Kafka 4.0's "(case insensitive) [SASL_SSL, PLAINTEXT, SSL, SASL_PLAINTEXT]". `PLAINTEXT` and `SASL_PLAINTEXT`
+  send SETs, and with SASL the password, in clear: the production profile refuses them - the start-up sweep for the
+  setting, and `KafkaSetPublisher` again when Kafka starts, for a value that reached it another way - and development
+  uses them with a WARN.
+- **The `ssl.*` settings** go through with `SSL` or `SASL_SSL`: `OIDF_SSF_KAFKA_SSL_TRUSTSTORE_LOCATION`,
+  `_PASSWORD`, `_TYPE`; `OIDF_SSF_KAFKA_SSL_KEYSTORE_LOCATION`, `_PASSWORD`, `_TYPE` and
+  `OIDF_SSF_KAFKA_SSL_KEY_PASSWORD` for mutual TLS; and `OIDF_SSF_KAFKA_SSL_HOSTNAME_VERIFICATION` (true: Kafka's
+  `ssl.endpoint.identification.algorithm` `https`; false, empty, refused in production). Each password may be a file.
+- **JAAS escaped.** `sasl.jaas.config` is `LoginModule required username="..." password="...";`, each value quoted for
+  the `java.io.StreamTokenizer` Kafka's `JaasConfig` parses it with: `\` and `"` escaped, a line break written `\n` or
+  `\r`. A password with a quote in it used to end the value and could add an option.
+- **Bounded timeouts.** `send()` blocks the thread that raised the event - a PingFederate request, or its audit
+  logging - for up to `max.block.ms` (Kafka's default a minute) while it fetches metadata or waits for buffer space.
+  `OIDF_SSF_KAFKA_MAX_BLOCK_MS` (2000, 0-10000), `OIDF_SSF_KAFKA_REQUEST_TIMEOUT_MS` (10000, 1000-60000) and
+  `OIDF_SSF_KAFKA_DELIVERY_TIMEOUT_MS` (30000, 1000-300000, at least the request timeout) set them, and `linger.ms` is
+  0, so Kafka's rule that `delivery.timeout.ms` "should be greater than or equal to the sum of request.timeout.ms and
+  linger.ms" holds whatever the client's own linger default.
+- A publish that fails is logged and counted (`ssf.set.dropped`, `kafka`); the streams have the SET regardless. The
+  producer's own I/O thread is plan item S-10's (F-0201).
+
 ## CAEP Interop
 
 The [CAEP Interoperability Profile 1.0](https://openid.net/specs/openid-caep-interoperability-profile-1_0.html)
@@ -521,8 +712,12 @@ push endpoint itself no longer has an open state: no configured token, no delive
 - **An https issuer** in production, **a cap on streams per receiver** (10), **`OIDF_SSF_BASE_PATH` removed** and
   **SCIM `PUT` replaces** (a provisioner that sent part of a user must send all of it): [Stream management](#stream-management)
   and [SCIM](#scim).
-- The whole list, with how to tell and the development escape, is in the 0.6.0 release notes (packages ST5C and
-  HSSF2).
+- **`OIDF_SSF_SECRET_KEY`** for SSF over a tables or `ldm` store in production, **Kafka over TLS**
+  (`SSL` is the default; `PLAINTEXT` and `SASL_PLAINTEXT` are refused in production), **the logout signal** only for a
+  recent, verified ID token hint, once, and **a wider audit vocabulary**: [Push headers at rest](#push-headers-at-rest),
+  [Kafka](#kafka), [The logout signal](#the-logout-signal) and [The audit source](#the-audit-source).
+- The whole list, with how to tell and the development escape, is in the 0.6.0 release notes (packages ST5C,
+  HSSF2 and HSSF3).
 
 ### Upgrading to this
 

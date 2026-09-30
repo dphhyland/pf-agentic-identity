@@ -1,5 +1,7 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
+import com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert;
+import com.pingidentity.ps.oidf.servlet.oauth.RefusalLog;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -119,10 +121,13 @@ class OpenIdRegistrationServletTest {
         OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet(service, req -> OP_ISSUER);
         Response resp = new Response();
 
-        servlet.doPost(post("application/entity-statement+jwt", untypedSignedEntityStatement(EXISTING_CLIENT)), resp.mock);
+        try (RefusalLog log = RefusalLog.open()) {
+            servlet.doPost(post("application/entity-statement+jwt", untypedSignedEntityStatement(EXISTING_CLIENT)), resp.mock);
 
-        verify(resp.mock).setStatus(400);
-        assertTrue(resp.body.toString().contains("typ"), resp.body.toString());
+            verify(resp.mock).setStatus(400);
+            PublicErrorsAssert.assertGeneric("invalid_request", resp.body.toString());
+            log.assertDetail("typ");
+        }
         verifyNoInteractions(store);
         verifyNoInteractions(validator);
     }
@@ -158,6 +163,47 @@ class OpenIdRegistrationServletTest {
 
         verify(resp.mock).setStatus(400);
         verifyNoInteractions(store);
+    }
+
+    /**
+     * H-FED-4 (F-0046): registration answers callers that have not authenticated. A content type, a rejection naming the
+     * entity, a statement that will not parse - whatever carried the marker, the body carries only the code's fixed
+     * description and a reference.
+     */
+    @Test
+    void aHostileMarkerNeverReachesTheResponse() throws Exception {
+        String marker = "hfede-marker-" + java.util.UUID.randomUUID();
+        ClientStore store = mock(ClientStore.class);
+        RegistrationService real = new RegistrationService(new RegistrationConfiguration("https://tc.example", false), mock(TrustChainValidator.class), store);
+        RegistrationService rejecting = mock(RegistrationService.class);
+        when(rejecting.explicitRegister(any(ExplicitRegistrationRequest.class), anyString()))
+                .thenThrow(new RegistrationRejectedException(400, "invalid_client_metadata", "https://rp.example/" + marker + " published scope <x>"));
+        RegistrationService failing = mock(RegistrationService.class);
+        when(failing.explicitRegister(any(ExplicitRegistrationRequest.class), anyString())).thenThrow(new IllegalStateException(marker));
+        List<Runnable> attempts = new java.util.ArrayList<>();
+        List<Response> responses = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            responses.add(new Response());
+        }
+        attempts.add(() -> run(new OpenIdRegistrationServlet(real, req -> OP_ISSUER), "text/" + marker, "hello", responses.get(0)));
+        attempts.add(() -> run(new OpenIdRegistrationServlet(real, req -> OP_ISSUER), "application/entity-statement+jwt", marker, responses.get(1)));
+        attempts.add(() -> run(new OpenIdRegistrationServlet(rejecting, req -> OP_ISSUER), "application/trust-chain+json", trustChainBody(), responses.get(2)));
+        attempts.add(() -> run(new OpenIdRegistrationServlet(failing, req -> OP_ISSUER), "application/trust-chain+json", trustChainBody(), responses.get(3)));
+        for (int i = 0; i < attempts.size(); i++) {
+            attempts.get(i).run();
+            String body = responses.get(i).body.toString();
+            org.junit.jupiter.api.Assertions.assertFalse(body.contains(marker), body);
+            Map<String, Object> json = org.jose4j.json.JsonUtil.parseJson(body);
+            com.pingidentity.ps.oidf.servlet.oauth.PublicErrorsAssert.assertGeneric((String) json.get("error"), body);
+        }
+    }
+
+    private static void run(OpenIdRegistrationServlet servlet, String contentType, String body, Response resp) {
+        try {
+            servlet.doPost(post(contentType, body), resp.mock);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 
     @Test
@@ -209,11 +255,13 @@ class OpenIdRegistrationServletTest {
                 .thenThrow(new RegistrationRejectedException(409, "invalid_client_metadata", "administered outside OpenID Federation"));
         Response resp = new Response();
 
-        new OpenIdRegistrationServlet(service, req -> OP_ISSUER).doPost(post("application/trust-chain+json", trustChainBody()), resp.mock);
+        try (RefusalLog log = RefusalLog.open()) {
+            new OpenIdRegistrationServlet(service, req -> OP_ISSUER).doPost(post("application/trust-chain+json", trustChainBody()), resp.mock);
 
-        verify(resp.mock).setStatus(409);
-        assertTrue(resp.body.toString().contains("\"invalid_client_metadata\""), resp.body.toString());
-        assertTrue(resp.body.toString().contains("administered outside"), resp.body.toString());
+            verify(resp.mock).setStatus(409);
+            PublicErrorsAssert.assertGeneric("invalid_client_metadata", resp.body.toString());
+            log.assertDetail("administered outside");
+        }
     }
 
     @Test

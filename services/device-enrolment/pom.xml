@@ -116,6 +116,8 @@
                                         <include>com.pingidentity.ps.oidf.enrolment.AuthorityCredentials.from(*</include>
                                         <!-- S8b: the token request, and production's refusal of a token bound to nothing. -->
                                         <include>com.pingidentity.ps.oidf.enrolment.AuthorityCredentials.ClientCredentials.fetch(*</include>
+                                        <!-- S5d: PingOne's JWKS fetch, each failure an enrolment error naming its reason. -->
+                                        <include>com.pingidentity.ps.oidf.enrolment.PingOneIdTokenVerifier.HttpJwksSource.fetch(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

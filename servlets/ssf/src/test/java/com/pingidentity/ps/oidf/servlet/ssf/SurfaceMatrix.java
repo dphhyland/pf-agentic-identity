@@ -85,7 +85,10 @@ final class SurfaceMatrix {
             "com.pingidentity.ps.oidf.servlet.fapi1.FapiResourceServerFilter",
             "no component and nothing to configure: it echoes x-fapi-interaction-id and refuses a token in the query",
             "com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorDescriptionFilter",
-            "no component and nothing to configure: it brings error_description inside RFC 6749's character set");
+            "no component and nothing to configure: it brings error_description inside RFC 6749's character set",
+            "com.pingidentity.ps.oidf.servlet.oauth.AttestationMetadataFilter",
+            "no component: it never refuses, and adds ATTESTATION_AUTH's metadata members to PingFederate's discovery documents"
+                    + " only while that component's switch allows them");
 
     /** A mapped class, as the war maps it. */
     record Surface(Class<?> type, boolean filter, List<String> paths, int loadOnStartup) {

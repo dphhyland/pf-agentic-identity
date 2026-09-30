@@ -51,7 +51,11 @@ import java.lang.annotation.Target;
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
  * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}, {@code RFC9126}, {@code OIDC-REG},
- * {@code RFC7644}, {@code RISC}.
+ * {@code RFC7644}, {@code RISC}, {@code RFC8414}, {@code RFC9728}.
+ *
+ * <p>{@code RFC8414} is OAuth 2.0 Authorization Server Metadata and {@code RFC9728} OAuth 2.0 Protected Resource
+ * Metadata, by section: {@code RFC8414 §3} is where the metadata is published, {@code RFC9728 §2} the resource's
+ * metadata members, {@code authorization_servers} among them (both read 2026-10-01, plan item S-4).
  *
  * <p>{@code RFC7644} is SCIM 2.0's protocol, by section ({@code RFC7644 §3.5.1} is PUT). {@code RISC} is OpenID RISC
  * Profile Specification 1.0 (final, 29 August 2025), by section: {@code RISC §2.4} is Account Enabled.
@@ -76,6 +80,10 @@ import java.lang.annotation.Target;
  * Implicitly Added Subjects, {@code §2.5} Event Subjects, {@code §2.8.1} the one-event rule, and
  * {@code §3.1}-{@code §3.3} the three profiled events. The suite's own ids ({@code CAEPIOP-2.5}) use the
  * same numbers.
+ *
+ * <p>{@code OIDC-RPL} is OpenID Connect RP-Initiated Logout 1.0 (final, 12 September 2022), and {@code OIDC-BCL} OpenID
+ * Connect Back-Channel Logout 1.0 incorporating errata set 1 (15 December 2023), each by section: {@code OIDC-RPL §2} is
+ * the logout request and its {@code id_token_hint}, {@code OIDC-BCL §2.4} the logout token.
  *
  * <p>{@code OIDFED} uses the specification's section numbers. A requirement that sits in a section's
  * own text, before its first subsection, takes the paragraph number in the item notation above:

@@ -45,6 +45,28 @@ class AttesterConfigurationServletTest {
         return AttestationIssuanceConfig.fromProperties(props);
     }
 
+    /**
+     * RFC 8414 §3 (read 2026-10-01): the metadata is at "a path formed by inserting a well-known URI string into the
+     * authorization server's issuer identifier between the host component and the path component, if any", after "any
+     * terminating "/" MUST be removed".
+     */
+    @Test
+    @Requirement("RFC8414 §3")
+    void theAuthorizationServersMetadataIsWhereRfc8414PutsIt() {
+        assertEquals("https://pf.example.com/.well-known/oauth-authorization-server",
+                AttesterConfigurationServlet.authorizationServerMetadata("https://pf.example.com"));
+        assertEquals("https://pf.example.com:9031/.well-known/oauth-authorization-server",
+                AttesterConfigurationServlet.authorizationServerMetadata("https://pf.example.com:9031/"));
+        assertEquals("https://example.com/.well-known/oauth-authorization-server/issuer1",
+                AttesterConfigurationServlet.authorizationServerMetadata("https://example.com/issuer1/"));
+        for (String notAnIssuer : new String[] {null, "https://pf.example.com/?q=1", "https://pf.example.com/#f", "urn:example:as",
+                "/relative", "https://pf example.com"}) {
+            assertNull(AttesterConfigurationServlet.authorizationServerMetadata(notAnIssuer), String.valueOf(notAnIssuer));
+        }
+        Map<String, Object> noPointer = AttesterConfigurationServlet.metadata("https://pf.example.com", true, false, "urn:example:as");
+        assertFalse(noPointer.containsKey("authorization_servers"), "no issuer the client could fetch metadata for, so no pointer");
+    }
+
     @Test
     @Requirement("CAS §4.3")
     void globalDocumentAdvertisesEndpointsAndProofRequirements() {

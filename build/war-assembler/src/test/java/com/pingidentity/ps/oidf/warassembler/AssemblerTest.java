@@ -56,10 +56,10 @@ class AssemblerTest {
         assertEquals(1, shell.split(java.util.regex.Pattern.quote(Fixtures.CLIENT_ATTESTATION_FILTER_START), -1).length - 1);
         assertEquals(stock.substring(0, end) + shell.replace(Fixtures.CLIENT_ATTESTATION_MAPPING_SHELL, Fixtures.CLIENT_ATTESTATION_MAPPING)
                 .replace(Fixtures.CLIENT_ATTESTATION_FILTER_START, Fixtures.ISSUED_DETAILS_BELT_BLOCK + Fixtures.CLIENT_ATTESTATION_FILTER_START)
-                + Fixtures.LIFECYCLE_LISTENER_BLOCK + stock.substring(end), merged,
+                + Fixtures.ATTESTATION_METADATA_BLOCK + Fixtures.LIFECYCLE_LISTENER_BLOCK + stock.substring(end), merged,
                 "PingFederate's text untouched, and the block inserted before </web-app> is the shell script's with"
-                        + " ClientAttestationAuth's wider mapping (S4d) and the response belt just before it (S4D3), then F-2's"
-                        + " listener");
+                        + " ClientAttestationAuth's wider mapping (S4d) and the response belt just before it (S4D3), the"
+                        + " attestation metadata filter after it (S4M), then F-2's listener");
         assertNotNull(Fixtures.entry(out, "WEB-INF/lib/oidf.jar"));
         assertNotNull(Fixtures.entry(out, "WEB-INF/lib/ssf-0.5.0-SNAPSHOT.jar"));
         assertNotNull(Fixtures.entry(out, "META-INF/MANIFEST.MF"));
@@ -421,6 +421,26 @@ class AssemblerTest {
                         + " > responseCaching")) {
             assertTrue(r.out().contains(chain), chain + " in " + r.out());
         }
+    }
+
+    /**
+     * The attestation metadata filter (plan item S-4, S4M) runs over both discovery documents, served in PingFederate by an
+     * exact mapping to one servlet: after the request-wide filters and before any mapped by that servlet's name, and the
+     * mapped-path check finds both paths served by name rather than by a wildcard.
+     */
+    @Test
+    void theAttestationMetadataFilterRunsOverBothDiscoveryDocuments() throws IOException {
+        Path out = dir.resolve("out.war");
+        Fixtures.Run r = run("--filters", filters(), stockLike("stock-like-web.xml").toString(), Fixtures.stage(dir).toString(), "-",
+                out.toString());
+        assertEquals(0, r.exit(), r.err());
+        for (String path : List.of("/.well-known/openid-configuration", "/.well-known/oauth-authorization-server")) {
+            assertTrue(r.out().contains("chain " + path + " (discovery): requestTracing > AttestationMetadata\n"), r.out());
+        }
+        assertTrue(r.out().contains("web.xml: registered AttestationMetadata over /.well-known/openid-configuration,"
+                + " /.well-known/oauth-authorization-server"), r.out());
+        String wildcard = r.out().lines().filter(l -> l.startsWith("web.xml: served only by a wildcard")).findFirst().orElse("");
+        assertFalse(wildcard.contains("/.well-known/"), wildcard);
     }
 
     /** Each of the three order rules S4d added is enforced: the assembler refuses a war that breaks it, and says why. */
