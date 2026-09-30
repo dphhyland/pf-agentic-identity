@@ -334,8 +334,8 @@ class JwtCodecTest {
 
         // A tampered signature must not stop unverified inspection - that is the whole point of this
         // method - but a verified path (verifyAgainstInlineJwks) must still reject the same token.
-        JwtClaims claims = JwtCodec.parseUnverifiedClaims(tampered);
-        assertEquals(ISSUER, claims.getIssuer());
+        UnverifiedClaims claims = JwtCodec.parseUnverifiedClaims(tampered);
+        assertEquals(ISSUER, claims.unverifiedIssuer());
         assertThrows(JwtVerificationException.class, () -> JwtCodec.verifyAgainstInlineJwks(tampered, jwks(key), ISSUER));
     }
 

@@ -438,8 +438,11 @@ it is left visible rather than filled with a plausible guess.
 | `RFC8693 §1.1` | Principal is the subject, agent is the actor | `plugins/rar-paz-plugin` | Implemented |
 | — | RFC 7800 `cnf` | Attestation `cnf.jwk`; access token `cnf.jkt` | Implemented |
 | `RFC7515 §4.1.9` | `typ` matching is case-insensitive and tolerates an `application/` prefix | `JwtCodec.requireType` | Implemented |
-| `RFC7518 §3.4` | ECDSA signatures are fixed-width `r‖s`, not ASN.1/DER | `LocalJwkSigner`, `OpenBaoTransitSigner` | Implemented |
-| `RFC8725 §3.1` | Algorithm verification — no confusion between key types, no `none` | `DelegatedTokenValidator`, `JwtCodec` | Implemented |
+| `RFC7518 §3.3` | RSASSA-PKCS1-v1_5 (`RS256`/`384`/`512`): "A key of size 2048 bits or larger MUST be used" | `LocalJwkSigner` refuses a smaller key when it is built | Implemented (0.6.0, HJOSE) |
+| `RFC7518 §3.4` | ECDSA signatures are fixed-width `r‖s`, not ASN.1/DER; P-256, P-384 and P-521 only, each with its own hash | `LocalJwkSigner`, `OpenBaoTransitSigner` | Implemented - `LocalJwkSigner` refuses another curve, and a declared `alg` that is not its curve's, since 0.6.0 (HJOSE) |
+| `RFC7518 §3.5` | RSASSA-PSS (`PS256`/`384`/`512`), MGF1 with the same hash, salt the hash's length; 2048 bits or larger | `LocalJwkSigner` | Implemented (0.6.0, HJOSE; F-0112) |
+| `RFC8725 §3.1` | Algorithm verification — no confusion between key types, no `none`; one algorithm per key | `DelegatedTokenValidator`, `JwtCodec`, `LocalJwkSigner` | Implemented - every `JwtCodec` verifier refuses `none` and the MAC algorithms, and tries only asymmetric keys not marked `enc`, since 0.6.0 (HJOSE) |
+| `RFC8725 §3.2` | Only algorithms the application accepts; the claims of an unverified JWT decide nothing | `JwtCodec`, `UnverifiedClaims` | Implemented (0.6.0, HJOSE) - the oidf-jose README lists every read before a signature is checked |
 | `RFC8725 §3.8` | Issuer validated | `DelegatedTokenValidator` | Implemented |
 | `RFC8725 §3.9` | Audience validated | `DelegatedTokenValidator` | Implemented |
 | `RFC6750 §2.1` | Bearer credentials in the `Authorization` header, and no other scheme | `SsfHttp.authorize` | Implemented |
