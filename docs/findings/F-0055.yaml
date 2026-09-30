@@ -3,10 +3,20 @@ title: 'SSF stream management: optional members, 429 on verify, a cap on streams
 severity: medium
 area: ssf
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-SSF-3]
 prs: []
-verification: ''
+verification: >
+  2026-09-30, branch prod/p3-ssf-streams-scim (package HSSF2): SSF 1.0 (final, 29 August 2025) §8.1.1's
+  description, min_verification_interval and inactivity_timeout are stored by all three stores (JDBC columns added by
+  ADD COLUMN IF NOT EXISTS; ldm attributes; SsfStoreContract on Postgres and the IOM fixture), returned, and held to
+  the Transmitter-Supplied rule on PATCH and PUT (StreamOptionalMembersTest). A verification inside the stream's
+  interval is 429 with Retry-After (a fake clock in StreamOptionalMembersTest; SsfStreamManagementServletTest).
+  OIDF_SSF_MAX_STREAMS_PER_CLIENT (10, 1-1000) caps streams per receiver with 409. The metadata was checked against
+  §7.1: no member missing, critical_subject_members omitted as empty (§7.2.3; SsfPathsTest). An http
+  OIDF_SSF_ISSUER is FAILED_CONFIG in production and a WARN in development (SsfComponentsTest). OIDF_SSF_BASE_PATH is
+  removed - the servlets' @WebServlet paths cannot move - and every URL is built from SsfPaths, each held to a mapped
+  pattern (SsfPathsTest).
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

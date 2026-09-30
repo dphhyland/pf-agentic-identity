@@ -1,0 +1,18 @@
+id: U-0395
+title: The SSF SCIM endpoint has not been driven by a real SCIM client
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-4]
+prs: []
+recorded_in: servlets/ssf/README.md, SCIM; ScimSubjectService
+verify_by: >
+  Point PingFederate's outbound SCIM provisioning (or another SCIM 2.0 client) at /ssf/scim/v2/Users with a
+  provisioner token, provision, disable and re-enable a user, and see the lookup filter answered, the user deactivated
+  (account-disabled queued) and reactivated (account-enabled queued on the streams it was put back on).
+verification: ''
+notes: >
+  On 2026-09-30 the GET, filter, PUT, PATCH and reactivation paths were tested through the servlet with Mockito
+  (ScimEndpointTest) and the service against all three stores, not by a SCIM client. Which filter a provisioner sends to
+  look a user up (userName eq, externalId eq), whether it sends PATCH or PUT to disable and re-enable, and whether it
+  sends active as a boolean or the string "False", are assumptions from RFC 7644 and common practice.

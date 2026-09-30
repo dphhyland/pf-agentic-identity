@@ -27,8 +27,9 @@ import java.util.function.Function;
  * {@code emails[type eq "work"]}, another attribute, a value of the wrong type, a filter that does not parse - is
  * refused with 400 and {@code scimType} {@code invalidFilter}, which Table 9 defines as "The specified filter syntax was
  * invalid (does not comply with Figure 1), or the specified attribute and filter comparison combination is not
- * supported." String comparisons follow each attribute's {@code caseExact} in RFC 7643 §4.1 and §8.7.1: {@code id},
- * {@code externalId} and stream ids exactly, {@code userName} and e-mail addresses ignoring case.
+ * supported." String comparisons follow each attribute's {@code caseExact} in RFC 7643 - §3.1 for {@code id} and
+ * {@code externalId} ("caseExact" as "true"), §4.1.1 for {@code userName} ("case insensitive"), §8.7.1 for
+ * {@code emails.value} ({@code "caseExact" : false}) - and stream ids exactly.
  */
 public final class ScimFilter {
 

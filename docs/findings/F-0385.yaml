@@ -1,0 +1,16 @@
+id: F-0385
+title: SSF's verification interval is counted per node, so n nodes admit n verifications per interval
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-3]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF2. StreamManagementService keeps each stream's last accepted verification request in
+  memory, which the Phase 3 plan (decision 9) allows a rate limit: a per-node count is weaker, not unsafe. A receiver
+  whose requests are spread over n nodes can have up to n verification SETs signed per min_verification_interval. SSF
+  1.0 §8.1.1 makes the 429 a MAY, so this is not a conformance gap. C-1 (Phase 4) decides what is shared when
+  clustered; the interval would move to the store or Redis then.

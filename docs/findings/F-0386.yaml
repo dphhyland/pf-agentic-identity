@@ -1,0 +1,16 @@
+id: F-0386
+title: The cap on SSF streams per receiver is read before the insert, so racing creates can leave a receiver one over
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-3]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF2. StreamManagementService.createStream counts the caller's streams and then inserts;
+  two creates that pass the count together both land. The cap (OIDF_SSF_MAX_STREAMS_PER_CLIENT) bounds what one receiver
+  can make the transmitter hold, which one extra stream per race does not undo. Closing it needs the count and the
+  insert in one transaction, which the stores do not offer today (S-10's store work, or DB-2's schema, could add a
+  per-owner counter).

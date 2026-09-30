@@ -3,10 +3,17 @@ title: 'SSF SCIM: GET and filter, the SCIM error schema, PUT that replaces, reac
 severity: medium
 area: ssf
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-SSF-4]
 prs: []
-verification: ''
+verification: >
+  2026-09-30, branch prod/p3-ssf-streams-scim (package HSSF2): /ssf/scim/v2/Users answers GET by id and GET
+  with filter, startIndex and count (a ListResponse; the RFC 7644 §3.4.2.2 subset written down in ScimFilter and the
+  README, 400 invalidFilter for the rest), every error in the §3.12 schema, token refusals included
+  (ScimEndpointTest), PUT that replaces with absent attributes removed and 404 for an unknown id (§3.5.1), and
+  account-enabled on active false to true after the subject is put back on its streams (ScimSubjectServiceTest). The
+  endpoint keeps a record per user (ssf_scim_users; the ldm store's parent-less ssfStreamSubject entries), held to
+  SsfStoreContract on each store.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the
