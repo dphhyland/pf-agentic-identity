@@ -391,4 +391,30 @@ class FederationAdminServletTest {
         assertEquals("server_error", this.get("/keys", Map.of()).json(500).get("error"));
         assertEquals("server_error", this.post("/keys/revoke", "{\"kid\": \"pf-1\"}").json(500).get("error"));
     }
+
+    /** H-FED-3: a change another operator's beat to the store is 409 stale_update, and nothing is announced for it. */
+    @Test
+    void aChangeThatLostARaceIsAConflictAndEmitsNothing() throws Exception {
+        this.keyHistory = new KeyHistory(new com.pingidentity.ps.oidf.keyhistory.KeyHistoryStore() {
+            @Override
+            public Optional<com.pingidentity.ps.oidf.keyhistory.HistoricalKey> rotateTo(Map<String, Object> publicJwk, Instant now, Instant until) {
+                return Optional.empty();
+            }
+
+            @Override
+            public com.pingidentity.ps.oidf.keyhistory.HistoricalKey revoke(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException {
+                throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE, "key pf-1 was revoked while this revocation was being made");
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.keyhistory.HistoricalKey> retired() {
+                return List.of();
+            }
+        }, this.clock, Duration.ZERO);
+
+        Map<String, Object> conflict = this.post("/keys/revoke", "{\"kid\": \"pf-1\", \"reason\": \"compromised\"}").json(409);
+
+        assertEquals("stale_update", conflict.get("error"));
+        assertTrue(this.events.withCode(FederationEvents.KEY_REVOKED).isEmpty(), "no revocation is announced for a change that wrote nothing");
+    }
 }

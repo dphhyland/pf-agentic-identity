@@ -102,6 +102,8 @@ public final class FederationService {
         }
     });
     private final Clock clock;
+    /** The resolve endpoint's cap and cache; built from the settings on the first resolve request. */
+    private volatile ResolveGuard resolveGuard;
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     public FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -737,6 +739,56 @@ public final class FederationService {
      * values"). With {@code client} null, as for an unauthenticated request, it carries no {@code aud}.
      */
     public String resolve(ResolveRequest request, String oidcIssuer, String client) throws JoseException {
+        return this.signClaims(this.resolved(request, oidcIssuer, client).claims(), RESOLVE_RESPONSE_TYP);
+    }
+
+    /**
+     * {@link #resolve(ResolveRequest, String, String)} for a request from {@code callerAddress}, as the resolve endpoint
+     * receives it: counted against the caller's minute and answered from the responses kept, when it can be
+     * ({@link ResolveGuard}, plan item H-FED-9).
+     *
+     * @throws ResolveGuard.Limited when the caller has asked about as many distinct subjects this minute as it may
+     */
+    public String resolve(ResolveRequest request, String oidcIssuer, String client, String callerAddress) throws JoseException {
+        if (request.subject() == null || request.subject().isBlank()) {
+            return this.resolve(request, oidcIssuer, client);
+        }
+        ResolveGuard guard = this.resolveGuard();
+        guard.admit(callerAddress, request.subject());
+        String kept = guard.kept(request, oidcIssuer, client);
+        if (kept != null) {
+            return kept;
+        }
+        Resolved resolved = this.resolved(request, oidcIssuer, client);
+        String jwt = this.signClaims(resolved.claims(), RESOLVE_RESPONSE_TYP);
+        guard.keep(request, oidcIssuer, client, jwt, resolved.exp());
+        return jwt;
+    }
+
+    /** The resolve endpoint's cap and cache, read from the settings on first use. */
+    ResolveGuard resolveGuard() {
+        ResolveGuard local = this.resolveGuard;
+        if (local == null) {
+            synchronized (this) {
+                if (this.resolveGuard == null) {
+                    this.resolveGuard = ResolveGuard.fromProcess(this.clock);
+                }
+                local = this.resolveGuard;
+            }
+        }
+        return local;
+    }
+
+    /** Test seam: a guard of the test's own. */
+    void resolveGuard(ResolveGuard guard) {
+        this.resolveGuard = guard;
+    }
+
+    /** A resolve response's claims, and the {@code exp} among them. */
+    private record Resolved(JwtClaims claims, long exp) {
+    }
+
+    private Resolved resolved(ResolveRequest request, String oidcIssuer, String client) {
         String subject = request.subject();
         if (subject == null || subject.isBlank()) {
             throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
@@ -772,7 +824,8 @@ public final class FederationService {
         claims.setIssuedAt(NumericDate.fromSeconds(this.clock.instant().getEpochSecond()));
         // §8.3.2: "the minimum of the exp value of the Trust Chain ..., as well as any Trust Mark included in the response".
         long marksExpire = marks.earliestExpiry();
-        claims.setExpirationTime(NumericDate.fromSeconds(marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire)));
+        long exp = marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire);
+        claims.setExpirationTime(NumericDate.fromSeconds(exp));
         if (client != null) {
             claims.setAudience(client);
         }
@@ -784,7 +837,7 @@ public final class FederationService {
         LOGGER.info("Resolved " + subject + " to trust anchor " + result.trustAnchorIssuer() + " (" + result.trustChain().size()
                 + " statements, " + result.fetchesUsed() + " fetches, " + marks.verified().size() + " of "
                 + (marks.verified().size() + marks.rejected().size()) + " Trust Marks verified)");
-        return this.signClaims(claims, RESOLVE_RESPONSE_TYP);
+        return new Resolved(claims, exp);
     }
 
     private boolean isKnown(String subject, String oidcIssuer) {
