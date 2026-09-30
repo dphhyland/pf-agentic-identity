@@ -89,7 +89,7 @@ What moved, each through its caller's existing seam so that no wiring changed: `
 and `PdpClient`. oidf-jose's `OutboundUrlPolicy` makes `addressPolicy()` and `refusal()` public, so push delivery and
 PingOne's JWKS send through the same rules the federation fetches do.
 
-Tested on JDK 20 and 17 (the reactor's `mvn clean verify`, 2026-10-01), each site against a peer that stalls before
+Tested on JDK 20 and 17 (the whole reactor's `mvn clean verify`, 2026-10-01, green on both), each site against a peer that stalls before
 its headers and one that sends its head and then a byte every 100 ms, each given up on at its deadline - the
 shipped deadlines for the receiver's JWKS (2.5 s), poll (5 s), stream and token calls (5 s) and OpenBao (2.5 s), and
 through each site's test seam for the others - with the connection seen closed by the peer; the body cap, declared
@@ -101,7 +101,10 @@ the reason in the message; gm-api: `PdpUnavailableException`); an interrupt endi
 under them not. The jacoco METHOD gates hold; ssf's gate now names `PushDeliveryService.deliver` in place of the
 removed `send` and `CappedBody.onNext`.
 
-IMAGE_JAVA_RESULT
+Tested on the pinned image's own java, OpenJDK 21.0.12.1 (`pingidentity/pingfederate:13.1.3-alpine_3.24.1-al21-latest`,
+JUnit's launcher, 2026-10-01): the TLS, deadline and cap tests of every site and the tests beside them - ssf 50,
+oidf-jose 10, device-enrolment 23, gm-api 16 - 99 of 99. `tools/pf-linkcheck.py` against PingFederate 13.1.3's
+libraries: nothing unresolved.
 
 Two things this package kept as they were and recorded: a push endpoint whose host does not resolve is refused, not
 retried, so its SET is dropped ([F-0405](../../findings/F-0405.yaml), for S-10); and request bodies are written
