@@ -85,7 +85,17 @@
   `access_evaluation_endpoint` for the life of the process; it now reads it again once ten minutes have passed, and a
   read that fails is no decision, retried on the next request. A PDP configured by URL
   (`OIDF_FEDERATION_POLICY_PDP_URL` without discovery) fetches nothing and is unchanged.
-- **Verified.** `openid-federation` and `pf-integration` on JDK 17 and 20 with the Postgres service, coverage gates met,
-  the conditional updates exercised by two threads whose updates were held until both had read (each race lost by
-  the old unconditional update, checked by reverting it); the abandoned-route and policy-order tests fail against the
-  previous commit and code. The rig result is recorded below.
+- **Verified.** `openid-federation` (657 tests) and `pf-integration` (895) on JDK 17, 20 and 21.0.12 with Postgres 16,
+  coverage gates met. The conditional updates were exercised by two threads whose updates were held until both had
+  read; with the hosted-entity update made unconditional again, all four hosted-entity races failed. The
+  abandoned-route test fails when the validator commits every staged statement, as it did before.
+- **On the rig, 2026-09-30.** Slot 3 (`pfai-p3-hfedl`, PingFederate 13.1.3, `PF_PROFILE=federation-op`, so
+  `OIDF_FEDERATION_ENABLED=true`, modules built from 65235d83 with the change committed as e0e81ca9), against this
+  repo's own suite (release-v5.3.1): `openid-federation-deployed-entity-test-plan`, plan `gbHA7qdHXshoT`, 5 of 5
+  WARNING, 0 FAILED; `openid-federation-entity-joined-to-test-federation-op-test-plan`, plan `FwQV9d5MFfYQH`, 20 of 20
+  WARNING, 0 FAILED - the same results as 0.5.0's, every warning the known
+  `CheckForUnexpectedParametersInServerMetadata` on PingFederate's vendor metadata. `/.well-known/openid-federation`
+  and `/federation/entity?sub=<PF>` both carried no `authority_hints` (PF names itself among its anchors). Thirty
+  resolve requests about thirty subjects, each with a different `X-Forwarded-For`, were followed by a 503 with
+  `Retry-After: 60`, so the caller is the connection's address (U-0390); a repeated resolve three seconds later came
+  back identical, `iat` included.

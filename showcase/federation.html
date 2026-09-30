@@ -179,7 +179,7 @@ footer{max-width:1080px;margin:0 auto;padding:0 24px 40px;color:var(--faint);fon
   is bounded - at most 24 requests and 45 seconds by default, over https, never to a private address - so a stranger can't make PingFederate
   crawl the internet for them.</p>
   <a class="src" href="../docs/federation/how-it-works.md">docs/federation/how-it-works.md</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="255-292">TrustChainValidator.java:255-292</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustChainValidator.java" data-lines="279-316">TrustChainValidator.java:279-316</a>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/EntityStatementChecks.java" data-lines="15-57">EntityStatementChecks.java:15-57</a>
 </section>
 
@@ -239,7 +239,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
   the issuer still says the mark is active. A mark that fails is simply ignored. A deployment can require marks
   before it registers anyone; PingFederate can issue them too, to the entities an operator grants them to.</p>
   <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/TrustMarkValidator.java" data-lines="125-170">TrustMarkValidator.java:125-170</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/trustmark/TrustMarkIssuer.java" data-lines="73-159">TrustMarkIssuer.java:73-159</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/trustmark/TrustMarkIssuer.java" data-lines="72-163">TrustMarkIssuer.java:72-163</a>
 </section>
 
 <section id="arriving">
@@ -276,7 +276,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
     </tbody>
   </table></div>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationExpirySweeper.java" data-lines="54-75">RegistrationExpirySweeper.java:54-75</a>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/authority/AuthoritySupport.java" data-lines="174-186">AuthoritySupport.java:174-186</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/authority/AuthoritySupport.java" data-lines="178-190">AuthoritySupport.java:178-190</a>
 </section>
 
 <section id="pdp">
@@ -299,7 +299,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
   "context":  {"scope": "read write", ...}
 }</code></pre>
   </div>
-  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/policy/AuthZenFederationPolicyDecisionPoint.java" data-lines="123-170">AuthZenFederationPolicyDecisionPoint.java:123-170</a>
+  <a class="src" href="../libs/openid-federation/src/main/java/com/pingidentity/ps/oidf/federation/policy/AuthZenFederationPolicyDecisionPoint.java" data-lines="146-193">AuthZenFederationPolicyDecisionPoint.java:146-193</a>
   <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/RegistrationPolicy.java" data-lines="64-94">RegistrationPolicy.java:64-94</a>
 </section>
 
