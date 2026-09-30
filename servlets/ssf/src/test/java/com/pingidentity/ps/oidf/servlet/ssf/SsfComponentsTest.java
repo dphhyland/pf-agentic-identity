@@ -345,6 +345,27 @@ class SsfComponentsTest {
         assertTrue(store == SsfSupport.store(), "the state is published once");
     }
 
+    /**
+     * Finding F-0295: a part the production profile refused when it registered runs no start, so nothing is configured,
+     * and its gate answers 503 - the SSF servlets no longer serve past a refusal.
+     */
+    @Test
+    void aRefusedPartConfiguresNothingAndItsServletsAnswer503() throws IOException {
+        ComponentParts.Part part = this.parts.begin(Startup.SSF, "SsfConfigurationServlet");
+        part.refused("refused by the production profile: OIDF_SSF_JDBC_URL is set");
+        Settings settings = settings(ISSUER);
+        SsfComponents.Context context = development();
+
+        assertEquals(ComponentState.REFUSED, part.start(() -> SsfComponents.transmitter(part, settings, context)));
+
+        assertFalse(SsfSupport.isConfigured(), "the start function never ran");
+        SsfComponents.transmitterPart(part);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        when(resp.getOutputStream()).thenReturn(mock(ServletOutputStream.class));
+        assertTrue(SsfHttp.gate(resp));
+        verify(resp).setStatus(503);
+    }
+
     @Test
     void dependencyFailuresAreIoSqlTimeoutAndLinkage() {
         assertTrue(SsfComponents.dependency(new IllegalStateException("x", new SQLException("down"))));

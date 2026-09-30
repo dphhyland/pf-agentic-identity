@@ -3,10 +3,15 @@ title: The catalogue format cannot name 42 of the SSF transmitter's system prope
 severity: medium
 area: ssf, platform
 source: design
-status: open
+status: closed
 plan_items: [ST-5, ST-3]
 prs: [63]
-verification: ''
+verification: >
+  2026-09-30, package ST5C. ssf-transmitter.json names all three sources of each of its 43 entries - the
+  init-param, the system property oidf.ssf.<init-param> (the 42 camelCase ones included, which PR5's format allows)
+  and OIDF_SSF_<UPPER_SNAKE> - in the order SsfConfiguration.param read them, and SsfConfiguration reads through
+  platform.settings (SsfSettingsTest.everyEntryIsReadFromTheNamesParamRead, everySettingIsReadFromEachOfItsSources).
+  tools/settings-scan.py no longer lets an entry leave such a property out.
 target_release: 0.6.0
 notes: >
   Found by ST3C (2026-09-28) while cataloguing servlets/ssf. SsfConfiguration.param resolves each of its 43

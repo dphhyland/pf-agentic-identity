@@ -1,0 +1,20 @@
+id: U-0340
+title: That the SSF store's production refusals - in memory without the risk, not PostgreSQL - show REFUSED on a running PingFederate
+area: ssf
+source: design
+status: open
+plan_items: [PR-2, ST-5]
+prs: []
+recorded_in: servlets/ssf/README.md, Start-up; docs/releases/unreleased/ST5C.md
+verify_by: >
+  Boot a PingFederate built from 0.6.0 with OIDF_DEPLOYMENT_PROFILE=production, an encrypted archive (data.zip.age),
+  OIDF_SSF_ENABLED=true, OIDF_SSF_ISSUER set and no store: expect SSF REFUSED in the start-up audit with a reason naming
+  in-memory-state, 503 on /.well-known/ssf-configuration, and READY once OIDF_ACCEPTED_RISKS names in-memory-state.
+  Then point OIDF_SSF_DATA_STORE_ID at a PingFederate data store on a database that is not PostgreSQL: expect SSF
+  REFUSED naming the database's product name.
+verification: ''
+notes: >
+  ST5C (2026-09-30) tested both refusals in both profiles in unit tests (SsfComponentsTest, PfJdbcStoreFactoryTest)
+  and ran the rest of the start-up on the rig in the development profile. The rig could not boot in production: the
+  image's entrypoint refuses a plaintext data.zip there ("a plaintext archive ... is refused when
+  OIDF_DEPLOYMENT_PROFILE is production"), and the rig ships its archive plain.

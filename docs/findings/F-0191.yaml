@@ -3,10 +3,15 @@ title: An SSF setting that does not parse reads as SSF not configured, so the tr
 severity: low
 area: ssf, platform
 source: design
-status: open
+status: closed
 plan_items: [S9a, ST-5]
 prs: [53]
-verification: ''
+verification: >
+  2026-09-30, package ST5C. OIDF_SSF_ENABLED applies (the part's switch), and a setting that does not parse is
+  FAILED_CONFIG with an ERROR naming it, never "not configured": SsfComponentsTest.aValueThatDoesNotParseIsAFailedConfigurationNamingTheSetting,
+  and on the rig (slot 3, PingFederate 13.1.3.0, the branch at 2d952243) OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS=lots gave
+  "SSF transmitter NOT started: OIDF_SSF_PUSH_RETRY_MAX_ATTEMPTS must be a whole number, not lots" at ERROR, SSF
+  FAILED_CONFIG in the start-up audit, and 503 on /.well-known/ssf-configuration and /ssf/poll.
 target_release: 0.6.0
 notes: >
   Found by package O4 (2026-09-28). SsfHttp.bootstrap catches every IllegalArgumentException from

@@ -292,6 +292,18 @@ class SsfSettingsTest {
         assertTrue(read(development, Map.of(), init).introspectionInsecureTls());
     }
 
+    /**
+     * Finding F-0297: a receiver setting the production profile refuses refuses the receiver, not the transmitter it
+     * runs inside; a transmitter setting refuses both, since the receiver cannot run without the transmitter.
+     */
+    @Test
+    void theReceiversSettingsRefuseTheReceiverOnly() {
+        for (Setting s : CATALOGUE.settings()) {
+            boolean receiver = s.name().startsWith("OIDF_SSF_RECEIVER_") && !s.name().equals("OIDF_SSF_RECEIVER_SCOPE");
+            assertEquals(receiver ? List.of("SSF_RECEIVER") : List.of("SSF", "SSF_RECEIVER"), CATALOGUE.componentsOf(s), s.name());
+        }
+    }
+
     @Test
     void theDefaultsAreTheCataloguesAndTheBuilders() {
         SsfConfiguration read = read(Map.of("OIDF_SSF_ISSUER", "https://op.example.com"), Map.of(), Map.of());
