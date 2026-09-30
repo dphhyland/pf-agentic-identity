@@ -84,19 +84,25 @@ question goes to the model.
    failure reason, and a reset from the cause's class or the JDK's own message prefix, never by
    searching a message: wire text can reach a protocol error's message (F-0093). There is no
    "Deny unless PERMIT" switch any more; a stored value under that name is carried by PingFederate
-   and ignored.
+   and ignored (the settings catalogue lists it under `removed` from 0.6.0; F-0231). In production
+   "Fail open on engine error" needs `pdp-fail-open` in `OIDF_ACCEPTED_RISKS`: refused on save and at
+   configure without it.
 4. **The PDP URL must be https unless `OIDF_DEPLOYMENT_PROFILE=development`** (unset is production):
    refused by the field's validator in the console/API, and again at configure for an archive import.
-   "Skip TLS verification (dev only)" is inert outside development too (a WARNING at configure), so a
-   self-signed PDP is a TLS failure there, which denies. The rig runs as `development`, so the plugin
-   may dial the host's stub over http.
+   From 0.6.0 production also refuses "Skip TLS verification (dev only)" and "Trust a client-asserted
+   principal" on, the same two ways (`ProfileRules`, from the catalogue's classes). PingFederate 13.1.3
+   imports such an instance (HTTP 200), shows it in the admin API as saved, configures it at first use
+   and logs `Unexpected exception thrown attempting to configure plugin` at ERROR; a request with its
+   types gets `invalid_authorization_details`, and other flows keep serving (rig, 2026-09-30, U-0068).
+   The rig runs as `development`, so the plugin may dial the host's stub over http.
 5. **The shared secret is an encrypted field under the same name.** A plaintext value stored by an
    older jar survives an upgrade (one `PluginConfigUtil` deobfuscation ERROR, then used as stored;
    rehearsed on the rig 2026-09-27); save the instance again to store it obfuscated.
 6. **Plugin loading needs a `PF-INF/<type>` marker + shaded deps.** `src/main/resources/PF-INF/
-   authorization-detail-processors` lists the class. Jackson and `libs/rar-model` are relocated INTO
-   the jar (PF isolates each deploy jar's classloader); `ShadedJarCheck` fails the build if the model's
-   own package appears in it. A `META-INF/services` marker does NOT work.
+   authorization-detail-processors` lists the class. Jackson, `libs/rar-model` and `libs/platform` (with
+   its HttpCore) are relocated INTO the jar under `com.pingidentity.ps.oidf.rar.shaded` (PF isolates each
+   deploy jar's classloader); `ShadedJarCheck` fails the build on any unrelocated class or link, a
+   service file not relocated, or a resource twice. A `META-INF/services` marker does NOT work.
 7. **Binding a type to the instance is per type and per client on 13.1**: `/oauth/authorizationDetailTypes`
    (`authorizationDetailProcessorRef`), and the client's `authorizationDetailTypes` lists type names.
 8. **TLS to an internal PDP: give the PDP certificate a SAN that matches the host PF dials.** From
@@ -115,10 +121,11 @@ question goes to the model.
     in the plugin's lines; a PDP failure is carried as redacted text because PingFederate 13.1.3 logs
     a processor's exception with every cause at ERROR. The plugin's own lines arrive in `server.log`
     as `ERROR [SystemErr]` (java.util.logging on stderr), whatever their level.
-11. **Secret header spelling.** The plugin defaults to `CLIENT-TOKEN` (hyphen); the `paz/`
-    compose stack and every script there use `CLIENT_TOKEN` (underscore, the PDP's
-    `JSON_API_HEADER_NAME`). Mixing the two defaults gives auth failures that look like policy
-    failures - and from 0.4.0 they deny rather than fail open.
+11. **Secret header spelling.** The plugin defaults to `CLIENT-TOKEN` (hyphen); a PingAuthorize Server
+    configured with `JSON_API_HEADER_NAME=CLIENT_TOKEN` (underscore) wants that. Mixing the two gives
+    auth failures that look like policy failures - and from 0.4.0 they deny rather than fail open.
+    Nothing in `paz/` or `probe-decision.sh` has a default secret: they read `PAZ_DECISION_SECRET` /
+    `PAZ_PDP_SECRET` or the `_FILE` variant and refuse to run without one.
 12. **`isPermit()` trusts `authorised` over `decision`.** `{"authorised":true,"decision":"DENY"}`
     is a PERMIT (governance engine). `authorised` must be a JSON boolean and `decision` a string,
     or the answer is refused. AuthZEN needs a boolean `decision`. Either dialect refuses content
@@ -127,8 +134,11 @@ question goes to the model.
     an unmodelled type (outside `development`), a flat `amount` without `currency` or a negative limit
     is refused before any PDP call. After a PERMIT, a statement may lower, drop or add a constraint the
     request left open; one that raises, adds or changes what was requested, or writes a field the type
-    does not declare (an AuthZEN `context` member other than `id`/`reason_*` is a statement), is
-    refused. A new field needs a models document with `extends` (`OIDF_RAR_MODELS_FILE`), and a new
+    does not declare, is refused. An AuthZEN `context` member (and a `context.statements` entry, by
+    the first part of its name) reaches the detail only when "AuthZEN context members merged into
+    details" names it for the type - default `sales_agent: @model; account_information: @model`, so
+    nothing for `payment_initiation`; any other is dropped, counted in
+    `oidf_rar_context_dropped_total` and logged by name. A new field needs a models document with `extends` (`OIDF_RAR_MODELS_FILE`), and a new
     type also needs `OIDF_RAR_EXTRA_TYPES` for PingFederate to bind it.
 14. **The attestation filter and the plugin must load one model set.** The filter publishes
     `rar_models_fingerprint` in the attestation context (0.4.0 on); the plugin refuses a context
@@ -166,6 +176,9 @@ question goes to the model.
     cache types" never takes `payment_initiation` or a type requiring an authenticated principal.
     Metrics `oidf_rar_pdp_calls_total`, `oidf_rar_pdp_answers_total` and `oidf_rar_pdp_breakers` are in
     the plugin's own MXBean, `com.pingidentity.ps.oidf:type=Metrics,copy="com.pingidentity.ps.oidf.rar.shaded.platform.metrics from ..."`.
+    So are `oidf_events_total{code, outcome}` for the decision events (`rar.decision.permitted`,
+    `.denied` with a reason class, `.failopen`; catalogue `META-INF/oidf-events/rar.json`), which go to
+    `server.log` only: the plugin's copy of platform has no audit sink.
 
 ## How to build
 ```bash
@@ -191,7 +204,11 @@ This repo deploys nothing; the recipe lives in `idp-agentic-demo/pingfederate/ra
   The plugin does not need it, and a production deployment refuses it.
 - Create the processor instance + the types + enable them on the client:
   `idp-agentic-demo/pingfederate/rar-paz/config-as-code/{create-processor-instance,enable-on-client}.sh`.
-- Author the PDP policy in `paz/` (PAP REST API). Wire contract: top-level `README.md`.
+- Start from the reference policies in `paz/policies` (one per built-in type): `paz/author-policies.py`
+  writes them into a Policy Editor and `paz/decision-tests.py` runs their permit, deny and narrowing
+  cases; `paz/paz-compose.yml` brings up a Policy Editor for both. Never compare the space-joined
+  `req_`/`att_` mirrors with `Contains` - it is a substring test (`EMEA APAC` contains `MEA`); the
+  reference policies use `Equals` and whole-value `RegularExpression` (paz/README.md). Wire contract: top-level `README.md`.
 - Confirm the jar that runs is the one you built: compare its size or hash in
   `server/default/deploy/` with the fresh build - a platform can go on serving the last
   good image.

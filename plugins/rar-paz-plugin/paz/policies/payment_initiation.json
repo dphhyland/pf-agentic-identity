@@ -1,0 +1,67 @@
+{
+  "type": "payment_initiation",
+  "name": "RAR payment_initiation",
+  "description": "A payment needs a person PingFederate authenticated and an amount of at most 1000, and an agent may only initiate it. A request for initiate alone is permitted; one that asks for initiate and other actions is narrowed to initiate; any other action list, a larger amount or no authenticated person is denied.",
+  "domain": "idpartners.authorization_details.payment_initiation",
+  "combining": "DenyUnlessPermit",
+  "rules": [
+    {
+      "name": "narrow to initiate",
+      "description": "An agent may initiate a payment for the person; cancelling one, or anything else, is the person's.",
+      "when": {
+        "all": [
+          [
+            "principal_source",
+            "Equals",
+            "authenticated"
+          ],
+          [
+            "idp.payment_initiation.amount",
+            "LesserThanOrEqual",
+            1000
+          ],
+          [
+            "req_actions",
+            "RegularExpression",
+            "(.* )?initiate( .*)?"
+          ],
+          [
+            "req_actions",
+            "NotEquals",
+            "initiate"
+          ]
+        ]
+      },
+      "statements": [
+        {
+          "name": "actions",
+          "payload": [
+            "initiate"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "permit a person's payment up to 1000",
+      "when": {
+        "all": [
+          [
+            "principal_source",
+            "Equals",
+            "authenticated"
+          ],
+          [
+            "idp.payment_initiation.amount",
+            "LesserThanOrEqual",
+            1000
+          ],
+          [
+            "req_actions",
+            "Equals",
+            "initiate"
+          ]
+        ]
+      }
+    }
+  ]
+}

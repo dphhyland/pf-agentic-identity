@@ -1,0 +1,18 @@
+id: F-0376
+title: The RAR plugin's decision events reach server.log only, never PingFederate's audit log
+severity: low
+area: rar-paz-plugin, platform
+source: design
+status: open
+plan_items: [O-2]
+prs: [92]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found by package PLG (2026-09-30). rar.decision.permitted, rar.decision.denied and rar.decision.failopen are
+  emitted through the plugin's relocated copy of platform.events, catalogued in the plugin's rar catalogue and
+  counted in its own oidf_events_total. The plugin's classloader has no audit sink: platform-pf, which holds
+  PfAuditSink, is not in its jar, so its Events copy uses platform's LoggingSink, and the catalogue marks the three
+  codes audit: false rather than promise an audit row nobody writes. An operator who reads decisions from the audit
+  log sees none from this plugin. A fix is either an audit sink the plugin can reach through the PingFederate SDK
+  (the SDK's audit accessors, not yet read for this) or a documented server.log category route.

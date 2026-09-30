@@ -4,16 +4,16 @@
  */
 package com.pingidentity.ps.oidf.federation;
 
-import java.util.ArrayList;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
 import java.util.List;
-import jakarta.servlet.ServletConfig;
 
 /**
  * Capability lists advertised under {@code metadata.openid_provider} for attestation-based client
  * authentication (draft-ietf-oauth-attestation-based-client-auth Section 8): the supported token
  * endpoint auth methods, the attestation / PoP / DPoP signing algorithm sets, the accepted
  * proof-of-possession methods (draft-10 registry), plus whether the challenge endpoint is
- * advertised. All values default sensibly and may be overridden via servlet init-params.
+ * advertised. All values default sensibly and may be overridden via servlet init-params, read through the
+ * {@code federation-entity} settings catalogue ({@link #from}).
  */
 public final class AttestationMetadataConfig {
     private static final List<String> DEFAULT_AUTH_METHODS = List.of("private_key_jwt", "attest_jwt_client_auth", "attest_jwt_client_auth_dpop");
@@ -51,15 +51,20 @@ public final class AttestationMetadataConfig {
         return new AttestationMetadataConfig(DEFAULT_AUTH_METHODS, DEFAULT_ATTESTATION_ALGS, DEFAULT_POP_ALGS, DEFAULT_DPOP_ALGS, DEFAULT_FORMATS, DEFAULT_POP_METHODS, true);
     }
 
-    static AttestationMetadataConfig fromServletConfig(ServletConfig config) {
-        List<String> authMethods = AttestationMetadataConfig.parseList(config.getInitParameter("tokenEndpointAuthMethodsSupported"), DEFAULT_AUTH_METHODS);
-        List<String> attestationAlgs = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationSigningAlgValuesSupported"), DEFAULT_ATTESTATION_ALGS);
-        List<String> popAlgs = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationPopSigningAlgValuesSupported"), DEFAULT_POP_ALGS);
-        List<String> dpopAlgs = AttestationMetadataConfig.parseList(config.getInitParameter("dpopSigningAlgValuesSupported"), DEFAULT_DPOP_ALGS);
-        List<String> formats = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationFormatsSupported"), DEFAULT_FORMATS);
-        List<String> popMethods = AttestationMetadataConfig.parseList(config.getInitParameter("clientAttestationPopMethodsSupported"), DEFAULT_POP_METHODS);
-        boolean challengeEnabled = AttestationMetadataConfig.parseBoolean(config.getInitParameter("attestationChallengeEndpointEnabled"), true);
-        return new AttestationMetadataConfig(authMethods, attestationAlgs, popAlgs, dpopAlgs, formats, popMethods, challengeEnabled);
+    /**
+     * The capability lists and the challenge switch as {@code settings} (the federation servlet's, init-params included)
+     * give them: each an init-param of the {@code federation-entity} catalogue, parsed strictly - a list of nothing, or
+     * a switch that is not {@code true} or {@code false}, stops the servlet starting, naming it (plan item ST-5).
+     */
+    static AttestationMetadataConfig from(Settings settings) {
+        return new AttestationMetadataConfig(
+                List.copyOf(settings.words("tokenEndpointAuthMethodsSupported")),
+                List.copyOf(settings.words("clientAttestationSigningAlgValuesSupported")),
+                List.copyOf(settings.words("clientAttestationPopSigningAlgValuesSupported")),
+                List.copyOf(settings.words("dpopSigningAlgValuesSupported")),
+                List.copyOf(settings.words("clientAttestationFormatsSupported")),
+                List.copyOf(settings.words("clientAttestationPopMethodsSupported")),
+                settings.bool("attestationChallengeEndpointEnabled"));
     }
 
     List<String> tokenEndpointAuthMethodsSupported() {
@@ -88,26 +93,5 @@ public final class AttestationMetadataConfig {
 
     boolean challengeEndpointEnabled() {
         return this.challengeEndpointEnabled;
-    }
-
-    private static List<String> parseList(String value, List<String> fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        ArrayList<String> result = new ArrayList<>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result.isEmpty() ? fallback : List.copyOf(result);
-    }
-
-    private static boolean parseBoolean(String value, boolean fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        return Boolean.parseBoolean(value.trim());
     }
 }

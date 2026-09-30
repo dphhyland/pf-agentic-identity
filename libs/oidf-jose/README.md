@@ -28,8 +28,14 @@ standalone services).
 ## Configuration
 
 `OutboundUrlPolicy.fromEnvironment()` reads `OIDF_FETCH_ALLOW_HTTP`, `OIDF_FETCH_ALLOW_PRIVATE_NETWORKS`,
-`OIDF_FETCH_HOST_ALLOWLIST` and `OIDF_FETCH_MAX_BODY_BYTES` directly — `JdkHttpGetClient`'s single-arg
-constructor builds one from it. Nothing else here reads the environment: vault address, token and key
+`OIDF_FETCH_HOST_ALLOWLIST` and `OIDF_FETCH_MAX_BODY_BYTES` through their entries in the `outbound-fetch` settings
+catalogue ([docs/configuration/outbound-fetch.md](../../docs/configuration/outbound-fetch.md)) -
+`JdkHttpGetClient`'s single-arg constructor builds one from it. From 0.6.0 they are parsed strictly (plan item
+ST-5): a switch that is not `true` or `false`, a body cap that is not a whole number of at least 1, or an allow-list
+of nothing is refused, naming the setting, where the reader before took anything but `true` as `false` and a bad cap
+as the default; under development a legacy spelling such as `yes` is still read as it was, with a warning. The
+federation runtime reads `OIDF_FETCH_ALLOW_HTTP` from the same entry (`OutboundUrlPolicy.settings`), for a
+plaintext development PDP. Nothing else here reads a setting: vault address, token and key
 name are constructor arguments to `OpenBaoTransitSigner`; the callers do that env resolution
 (`RegistryHostedEntitySigner.fromEnvironment()` in `openid-federation`,
 `AttesterSigningKey.fromEnvironment()` in `servlets/attestation-issuer`).

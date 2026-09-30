@@ -1,8 +1,11 @@
 package com.pingidentity.ps.oidf.servlet.clientregistration;
 
-import java.util.ArrayList;
 import java.util.Set;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import jakarta.servlet.ServletConfig;
 
 /**
@@ -19,8 +22,13 @@ import jakarta.servlet.ServletConfig;
 public final class RegistrationConfiguration {
     static final String SUBORDINATE_CACHE_MAX_ENTRIES_PARAM = "subordinateStatementCacheMaxEntries";
     static final String TRUST_CHAIN_ENTRY_MAX_AGE_PARAM = "trustChainEntryMaxAgeSeconds";
+    static final String SIGNING_ALGORITHM_PARAM = "signingAlgorithm";
+    static final String ACCEPTED_SIGNING_ALGORITHMS_PARAM = "acceptedSigningAlgorithms";
+    static final String TRUST_CONTROLLER_HOST_PARAM = "trustControllerHost";
+    static final String TRUST_CONTROLLER_BASE_URL_PARAM = "trustControllerBaseUrl";
+    /** The settings catalogue these init-params are in ({@code META-INF/oidf-settings/registration.json}, S5C's). */
+    static final String CATALOGUE = "registration";
     private static final String DEFAULT_SIGNING_ALGORITHM = "RS256";
-    private static final Set<String> SUPPORTED_SIGNING_ALGORITHMS = Set.of("RS256", "PS256");
     private final boolean ignoreSslErrors;
     private final String trustControllerHost;
     private final String trustControllerBaseUrl;
@@ -78,28 +86,33 @@ public final class RegistrationConfiguration {
      * process-wide one is a configuration error, because two components would then be validating
      * chains against two different anchors. Fail at init rather than at some later request.
      */
-    private static void requireAgreement(ServletConfig config, String initParam, String actual) {
-        String declared = config.getInitParameter(initParam);
-        if (declared != null && !declared.isBlank() && !declared.trim().equals(actual)) {
-            throw new IllegalArgumentException("init-param " + initParam + "=\"" + declared.trim()
+    static void requireAgreement(Settings settings, String initParam, String actual) {
+        String declared = settings.string(initParam);
+        if (declared != null && !declared.equals(actual)) {
+            throw new IllegalArgumentException("init-param " + initParam + "=\"" + declared
                     + "\" conflicts with the deployment-wide value \"" + actual
                     + "\"; configure it once, in the environment");
         }
     }
 
+    /**
+     * This component's settings from its init-params, through the {@value #CATALOGUE} catalogue (plan item ST-5): each
+     * parsed strictly, so a value its entry refuses stops the servlet or filter starting, naming it.
+     */
+    static Settings settings(java.util.function.Function<String, String> initParams) {
+        return Settings.load(RegistrationConfiguration.class.getClassLoader(), CATALOGUE)
+                .with(Sources.process().withInitParams(initParams));
+    }
+
     static RegistrationConfiguration fromServletConfig(ServletConfig config) {
         try {
             FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
-            requireAgreement(config, "trustControllerHost", runtime.trustControllerHost());
-            requireAgreement(config, "trustControllerBaseUrl", runtime.trustControllerBaseUrl());
-            String trustControllerHost = runtime.trustControllerHost();
-            String trustControllerBaseUrl = runtime.trustControllerBaseUrl();
-            boolean ignoreSslErrors = runtime.ignoreSslErrors();
-            int cacheMaxEntries = parseCacheMaxEntries(config.getInitParameter(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM));
-            long trustChainEntryMaxAge = parseTrustChainEntryMaxAge(config.getInitParameter(TRUST_CHAIN_ENTRY_MAX_AGE_PARAM));
-            String signingAlgorithm = parseSigningAlgorithm(config.getInitParameter("signingAlgorithm"));
-            Set<String> acceptedSigningAlgorithms = parseAcceptedSigningAlgorithms(config.getInitParameter("acceptedSigningAlgorithms"));
-            return new RegistrationConfiguration(trustControllerHost, trustControllerBaseUrl, ignoreSslErrors, cacheMaxEntries, trustChainEntryMaxAge, signingAlgorithm, acceptedSigningAlgorithms);
+            Settings settings = settings(InitParams.of(config));
+            requireAgreement(settings, TRUST_CONTROLLER_HOST_PARAM, runtime.trustControllerHost());
+            requireAgreement(settings, TRUST_CONTROLLER_BASE_URL_PARAM, runtime.trustControllerBaseUrl());
+            return new RegistrationConfiguration(runtime.trustControllerHost(), runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(),
+                    cacheMaxEntries(settings), settings.duration(TRUST_CHAIN_ENTRY_MAX_AGE_PARAM).toSeconds(),
+                    settings.choice(SIGNING_ALGORITHM_PARAM), acceptedSigningAlgorithms(settings));
         }
         catch (Exception e) {
             throw new IllegalArgumentException("Invalid registration servlet configuration", e);
@@ -112,51 +125,23 @@ public final class RegistrationConfiguration {
      * starting rather than quietly meaning the default.
      */
     static RegistrationConfiguration forFilter(FederationRuntimeConfig runtime, jakarta.servlet.FilterConfig config) {
+        Settings settings = settings(InitParams.of(config));
         return new RegistrationConfiguration(runtime.trustControllerHost(), runtime.trustControllerBaseUrl(), runtime.ignoreSslErrors(),
-                parseCacheMaxEntries(config.getInitParameter(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM)),
-                parseTrustChainEntryMaxAge(config.getInitParameter(TRUST_CHAIN_ENTRY_MAX_AGE_PARAM)),
-                DEFAULT_SIGNING_ALGORITHM,
-                parseAcceptedSigningAlgorithms(config.getInitParameter("acceptedSigningAlgorithms")));
+                cacheMaxEntries(settings), settings.duration(TRUST_CHAIN_ENTRY_MAX_AGE_PARAM).toSeconds(),
+                DEFAULT_SIGNING_ALGORITHM, acceptedSigningAlgorithms(settings));
     }
 
-    private static Set<String> parseAcceptedSigningAlgorithms(String value) {
-        if (value == null || value.isBlank()) {
-            return Set.of();
-        }
-        ArrayList<String> result = new ArrayList<String>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim();
-            if (!trimmed.isEmpty()) {
-                result.add(trimmed);
-            }
-        }
-        return result.isEmpty() ? Set.of() : Set.copyOf(result);
+    static Set<String> acceptedSigningAlgorithms(Settings settings) {
+        Set<String> words = settings.words(ACCEPTED_SIGNING_ALGORITHMS_PARAM);
+        return words == null ? Set.of() : Set.copyOf(words);
     }
 
-    private static String parseSigningAlgorithm(String value) {
-        if (value == null || value.isBlank()) {
-            return DEFAULT_SIGNING_ALGORITHM;
-        }
-        String trimmed = value.trim();
-        if (!SUPPORTED_SIGNING_ALGORITHMS.contains(trimmed)) {
-            throw new IllegalArgumentException("signingAlgorithm must be RS256 or PS256, got: " + trimmed);
-        }
-        return trimmed;
-    }
-
-    private static int parseCacheMaxEntries(String raw) {
-        int parsed;
-        if (raw == null || raw.isBlank()) {
-            return 256;
-        }
-        try {
-            parsed = Integer.parseInt(raw.trim());
-        }
-        catch (NumberFormatException e) {
-            throw new IllegalArgumentException("subordinateStatementCacheMaxEntries must be an integer, got \"" + raw + "\"", e);
-        }
-        if (parsed != -1 && parsed <= 0) {
-            throw new IllegalArgumentException("subordinateStatementCacheMaxEntries must be > 0, or -1 for unbounded, got " + parsed);
+    /** {@value #SUBORDINATE_CACHE_MAX_ENTRIES_PARAM}: at least 1, or -1 for no bound; its entry's range admits 0, which is refused here. */
+    static int cacheMaxEntries(Settings settings) {
+        int parsed = settings.integer(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM);
+        if (parsed == 0) {
+            throw new SettingRefused(SUBORDINATE_CACHE_MAX_ENTRIES_PARAM, SUBORDINATE_CACHE_MAX_ENTRIES_PARAM
+                    + " must be > 0, or -1 for unbounded, got 0");
         }
         return parsed;
     }
@@ -188,22 +173,4 @@ public final class RegistrationConfiguration {
     long trustChainEntryMaxAgeSeconds() {
         return this.trustChainEntryMaxAgeSeconds;
     }
-
-    private static long parseTrustChainEntryMaxAge(String raw) {
-        long parsed;
-        if (raw == null || raw.isBlank()) {
-            return 60L;
-        }
-        try {
-            parsed = Long.parseLong(raw.trim());
-        }
-        catch (NumberFormatException e) {
-            throw new IllegalArgumentException("trustChainEntryMaxAgeSeconds must be an integer (seconds), got \"" + raw + "\"", e);
-        }
-        if (parsed <= 0L) {
-            throw new IllegalArgumentException("trustChainEntryMaxAgeSeconds must be positive (seconds), got " + parsed);
-        }
-        return parsed;
-    }
 }
-

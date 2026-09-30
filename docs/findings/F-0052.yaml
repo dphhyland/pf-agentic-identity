@@ -5,7 +5,7 @@ area: openid-federation
 source: reviewer-report
 status: open
 plan_items: [H-FED-10]
-prs: []
+prs: [91]
 verification: ''
 target_release: 0.6.0
 notes: >
@@ -13,3 +13,7 @@ notes: >
   register's rule for these items. ClientEntityAuthorizer, fetchMembers and fetchEntityConfiguration (/list),
   dead FederationConfiguration methods, deprecated overloads, BridgeSigners.require, public resetForTests. The
   exposure is maintenance, not security; medium is the rule, not a judgement of risk.
+  ST5F (PR #91, 2026-09-30) removed FederationConfiguration's dead methods - trustControllerHost(),
+  trustAnchorIssuers(), defaultTrustAnchorIssuer(), findTrustAnchor(String), the 4-, 9- and 10-argument
+  constructors and the trustControllerHost field - with the greps in the PR body showing them unused; the rest of
+  H-FED-10 is HFEDD's, and this finding stays open for it.

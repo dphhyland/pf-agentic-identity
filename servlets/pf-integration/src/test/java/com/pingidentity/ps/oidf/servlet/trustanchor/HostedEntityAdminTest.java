@@ -10,7 +10,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.pingidentity.ps.oidf.authority.AuthoritySupport;
+import com.pingidentity.ps.oidf.authority.EntityStatus;
 import com.pingidentity.ps.oidf.authority.HostedEntity;
+import com.pingidentity.ps.oidf.authority.HostedEntityRegistry;
 import com.pingidentity.ps.oidf.federation.event.FederationEvents;
 import com.pingidentity.ps.oidf.federation.testkit.EventCapture;
 import com.pingidentity.ps.oidf.federation.testkit.MutableClock;
@@ -22,8 +24,12 @@ import java.io.BufferedReader;
 import java.io.PrintWriter;
 import java.io.StringReader;
 import java.io.StringWriter;
+import java.lang.reflect.Field;
+import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.Proxy;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import org.jose4j.json.JsonUtil;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -162,6 +168,35 @@ class HostedEntityAdminTest {
         assertEquals("key lost", this.events.only(FederationEvents.HOSTED_ENTITY_REVOKED).description());
         assertEquals(1, this.events.withCode(FederationEvents.HOSTED_ENTITY_SUSPENDED).size());
         assertEquals(1, this.events.withCode(FederationEvents.HOSTED_ENTITY_REACTIVATED).size());
+    }
+
+    /**
+     * H-FED-3: the admin API moves an entity only from the status it read. Another operator suspends the entity after
+     * this request read it active; the revocation decided on "active" is 409 stale_update, and nothing is announced.
+     */
+    @Test
+    void aChangeDecidedOnAStatusAnotherOperatorHasSinceChangedIsAConflict() throws Exception {
+        HostedEntityRegistry live = AuthoritySupport.registry();
+        HostedEntity read = live.find(AGENT).orElseThrow();
+        live.setStatus(AGENT, EntityStatus.SUSPENDED, "the other operator", "admin:other");
+        HostedEntityRegistry staleReads = (HostedEntityRegistry) Proxy.newProxyInstance(HostedEntityRegistry.class.getClassLoader(),
+                new Class<?>[]{HostedEntityRegistry.class}, (proxy, method, args) -> {
+                    if ("find".equals(method.getName())) {
+                        return Optional.of(read);
+                    }
+                    try {
+                        return method.invoke(live, args);
+                    } catch (InvocationTargetException e) {
+                        throw e.getCause();
+                    }
+                });
+        Field holder = AuthoritySupport.class.getDeclaredField("registry");
+        holder.setAccessible(true);
+        holder.set(null, staleReads);
+
+        assertEquals("stale_update", this.post("revoke", body("reason", "\"key lost\"")).json(409).get("error"));
+        assertEquals(EntityStatus.SUSPENDED, live.find(AGENT).orElseThrow().status(), "the other operator's change stands");
+        assertTrue(this.events.withCode(FederationEvents.HOSTED_ENTITY_REVOKED).isEmpty(), "and no revocation is announced");
     }
 
     @Test

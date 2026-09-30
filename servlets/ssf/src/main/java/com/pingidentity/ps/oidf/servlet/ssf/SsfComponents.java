@@ -22,6 +22,8 @@ import com.pingidentity.ps.oidf.ssf.SsfConfiguration;
 import com.pingidentity.ps.oidf.ssf.SsfSupport;
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.sql.SQLException;
 import java.util.Collections;
 import java.util.IdentityHashMap;
@@ -139,6 +141,13 @@ final class SsfComponents {
             part.failedConfig(e.getMessage());
             return;
         }
+        String issuerProblem = issuerProblem(cfg.issuer(), context);
+        if (issuerProblem != null) {
+            context.errors().accept("SSF transmitter NOT started: " + issuerProblem + ". Its endpoints answer 503 until the"
+                    + " setting is corrected and PingFederate restarted");
+            part.failedConfig(issuerProblem);
+            return;
+        }
         refuseTheStore(cfg, context);
         try {
             SsfSupport.start(cfg, context.receiverAllowed(), SsfHttp::afterConfigure);
@@ -153,6 +162,38 @@ final class SsfComponents {
                 part.failedConfig(reason);
             }
         }
+    }
+
+    /**
+     * What is wrong with the transmitter's issuer, or null (plan item H-SSF-3). SSF 1.0 §7.1 has the {@code issuer}
+     * "URL using the https scheme with no query or fragment component that the Transmitter asserts as its Issuer
+     * Identifier", and every endpoint the metadata advertises is the issuer and a path, each one a URL that "MUST use
+     * HTTP over TLS". So an issuer with a query or fragment, or no host, or a scheme other than http or https, is
+     * refused in any profile, and an http issuer in production; in development an http issuer is started with a WARN,
+     * for a transmitter on a laptop or in a container network without certificates.
+     */
+    static String issuerProblem(String issuer, Context context) {
+        URI uri;
+        try {
+            uri = new URI(issuer);
+        } catch (URISyntaxException e) {
+            return SsfConfiguration.ISSUER + " is not a URL";
+        }
+        String scheme = uri.getScheme();
+        if (uri.getHost() == null || uri.getRawQuery() != null || uri.getRawFragment() != null
+                || !("https".equalsIgnoreCase(scheme) || "http".equalsIgnoreCase(scheme))) {
+            return SsfConfiguration.ISSUER + " must be an https URL with a host and no query or fragment (SSF 1.0 §7.1)";
+        }
+        if ("http".equalsIgnoreCase(scheme)) {
+            if (!context.profile().isDevelopment()) {
+                return SsfConfiguration.ISSUER + " is http: SSF 1.0 §7.1 requires an https issuer, and the endpoints it"
+                        + " advertises are https only when it is (the development profile allows http, with a warning)";
+            }
+            LOG.warn((Object) ("SSF transmitter issuer " + LogSafe.value(issuer) + " is http: receivers are sent to http"
+                    + " endpoints and SETs name an http issuer. Allowed only because " + DeploymentProfile.SETTING
+                    + " is development; production refuses it (SSF 1.0 §7.1)"));
+        }
+        return null;
     }
 
     /** Whether {@code settings} name a receiver; a value that cannot be read counts as one, so it is not hidden. */

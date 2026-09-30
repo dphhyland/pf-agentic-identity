@@ -50,7 +50,11 @@ import java.lang.annotation.Target;
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
- * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}, {@code RFC9126}, {@code OIDC-REG}.
+ * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}, {@code RFC9126}, {@code OIDC-REG},
+ * {@code RFC7644}, {@code RISC}.
+ *
+ * <p>{@code RFC7644} is SCIM 2.0's protocol, by section ({@code RFC7644 §3.5.1} is PUT). {@code RISC} is OpenID RISC
+ * Profile Specification 1.0 (final, 29 August 2025), by section: {@code RISC §2.4} is Account Enabled.
  *
  * <p>{@code OIDC-REG} is OpenID Connect Dynamic Client Registration 1.0 incorporating errata set 2, by section:
  * {@code OIDC-REG §2} is the client metadata and the defaults it gives what a client omits.

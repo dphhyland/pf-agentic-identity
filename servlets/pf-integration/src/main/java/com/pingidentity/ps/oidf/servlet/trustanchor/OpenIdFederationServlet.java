@@ -36,6 +36,7 @@ import com.pingidentity.ps.oidf.federation.FederationError;
 import com.pingidentity.ps.oidf.federation.FederationException;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
 import com.pingidentity.ps.oidf.federation.ListRequest;
+import com.pingidentity.ps.oidf.federation.ResolveGuard;
 import com.pingidentity.ps.oidf.federation.ResolveRequest;
 import com.pingidentity.ps.oidf.federation.TrustAnchorSet;
 import com.pingidentity.ps.oidf.federation.ValidatorOptions;
@@ -173,9 +174,8 @@ extends RequestScopedServlet {
             if (!marks.types().isEmpty()) {
                 // The grants live in the authority's store; HostedEntityServlet points the registry at it too, but starts
                 // only on its first request, so the store is resolved here as well - whichever runs first configures it.
-                if (!TrustMarkSupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(TrustMarkSupport::configureJdbcRegistry);
-                }
+                // In memory, or not PostgreSQL, is refused under production (PR-2).
+                AuthorityDataSource.trustMarkRegistry(Startup.FEDERATION);
                 service.trustMarkIssuing(new TrustMarkIssuer(marks.types(), TrustMarkSupport.shared(), AuthoritySupport::isActiveHostedEntity,
                         java.time.Clock.systemUTC()));
                 log.info("Issuing Trust Marks of types " + marks.types().keySet());
@@ -183,9 +183,7 @@ extends RequestScopedServlet {
             FederationRuntimeConfig.KeyHistorySettings keyHistory = runtime.keyHistory();
             KeyHistory history = null;
             if (keyHistory.enabled()) {
-                if (!KeyHistorySupport.isConfigured()) {
-                    AuthorityDataSource.fromEnvironment().ifPresent(KeyHistorySupport::configureJdbcStore);
-                }
+                AuthorityDataSource.keyHistoryStore(Startup.FEDERATION);
                 history = new KeyHistory(KeyHistorySupport.shared(), java.time.Clock.systemUTC(), java.time.Duration.ofSeconds(keyHistory.graceSeconds()));
                 service.historicalKeys(history);
             }
@@ -491,11 +489,19 @@ extends RequestScopedServlet {
 
     /**
      * §8.3: a signed {@code resolve-response+jwt}; {@code trust_anchor} and {@code entity_type} may repeat. A client that
-     * authenticated is its audience (§8.3.2).
+     * authenticated is its audience (§8.3.2). Each caller address is answered about a capped number of distinct subjects a
+     * minute, and a response is kept a short while for the same request (plan item H-FED-9, {@code ResolveGuard}); a
+     * caller over its share is told when to ask again.
      */
     private void handleResolve(HttpServletRequest req, HttpServletResponse resp, String oidcIssuer, String client) throws Exception {
         ResolveRequest request = new ResolveRequest(optional(req, "sub"), repeated(req, "trust_anchor"), repeated(req, "entity_type"));
-        String jwt = this.federationService.resolve(request, oidcIssuer, client);
+        String jwt;
+        try {
+            jwt = this.federationService.resolve(request, oidcIssuer, client, req.getRemoteAddr());
+        } catch (ResolveGuard.Limited e) {
+            resp.setHeader("Retry-After", Long.toString(e.retryAfterSeconds()));
+            throw e;
+        }
         resp.setStatus(200);
         resp.setContentType("application/resolve-response+jwt");
         try (PrintWriter out = resp.getWriter()) {

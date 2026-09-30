@@ -1,0 +1,17 @@
+id: F-0388
+title: The SSF SCIM list reads every stream's subjects on each query, and userName is not held unique
+severity: low
+area: ssf
+source: design
+status: open
+plan_items: [H-SSF-4]
+prs: [90]
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found 2026-09-30 by package HSSF2. ScimSubjectService.query builds the list from the SCIM records and every stream's
+  subjects (one listSubjects per stream) and filters in memory; a single user's read asks hasSubject of every stream.
+  That is one query per stream per request, which is fine for tens of streams and not for thousands. The page is capped
+  at 200, but the work is not. Separately, RFC 7643 §4.1.1 has userName unique ("MUST be unique across the service
+  provider's entire set of Users"); here the id is the subject, and two users with different e-mail addresses may carry
+  the same userName. A store query by subject key and a uniqueness check on userName would close both.

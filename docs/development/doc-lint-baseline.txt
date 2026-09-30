@@ -27,8 +27,7 @@ libs/device-instance/src/test/resources/idm/README.md em-dash 2
 libs/oidf-jose/README.md em-dash 9
 libs/openid-federation/README.md em-dash 35
 plugins/instance-registry-datasource/README.md em-dash 17
-plugins/rar-paz-plugin/README.md em-dash 14
-plugins/rar-paz-plugin/paz/README.md em-dash 5
+plugins/rar-paz-plugin/README.md em-dash 8
 services/demo-rs/README.md em-dash 10
 services/device-enrolment/README.md em-dash 19
 services/gm-api/README.md em-dash 13

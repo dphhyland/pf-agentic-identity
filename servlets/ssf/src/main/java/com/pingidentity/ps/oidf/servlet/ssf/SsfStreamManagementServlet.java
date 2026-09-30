@@ -117,6 +117,12 @@ public class SsfStreamManagementServlet extends HttpServlet {
             writeError(resp, 404, "not_found", e.getMessage());
         } catch (StreamManagementService.ForbiddenException e) {
             writeError(resp, 403, "access_denied", e.getMessage());
+        } catch (StreamManagementService.StreamLimitException e) {
+            writeError(resp, 409, "conflict", e.getMessage());
+        } catch (StreamManagementService.TooManyRequestsException e) {
+            // SSF 1.0 Table 10: 429 "if the Event Receiver is sending too many requests in a given amount of time"
+            resp.setHeader("Retry-After", Long.toString(e.retryAfterSeconds()));
+            writeError(resp, 429, "too_many_requests", e.getMessage());
         } catch (IllegalArgumentException | IllegalStateException e) {
             writeError(resp, 400, "invalid_request", e.getMessage());
         } catch (Exception e) {

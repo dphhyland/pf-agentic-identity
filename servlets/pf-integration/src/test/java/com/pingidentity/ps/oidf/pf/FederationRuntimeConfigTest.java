@@ -61,8 +61,15 @@ class FederationRuntimeConfigTest {
     @Test
     void ignoreSslErrorsIsOffUnlessExplicitlyTrue() {
         assertFalse(of(Map.of(), Map.of()).ignoreSslErrors());
-        assertFalse(of(Map.of(FederationRuntimeConfig.IGNORE_SSL_ENV, "no"), Map.of()).ignoreSslErrors());
         assertTrue(of(Map.of(FederationRuntimeConfig.IGNORE_SSL_ENV, "true"), Map.of()).ignoreSslErrors());
+        // Strict from 0.6.0 (plan item ST-5): the reader before read anything but true as false; now anything but true or
+        // false is refused, naming it - and under development a legacy spelling is read as it was, false, with a warning.
+        assertRefused(Map.of(FederationRuntimeConfig.IGNORE_SSL_ENV, "no"), FederationRuntimeConfig.IGNORE_SSL_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.IGNORE_SSL_ENV, "sometimes", "OIDF_DEPLOYMENT_PROFILE", "development"),
+                FederationRuntimeConfig.IGNORE_SSL_ENV);
+        FederationRuntimeConfig legacy = of(Map.of(FederationRuntimeConfig.IGNORE_SSL_ENV, "yes", "OIDF_DEPLOYMENT_PROFILE", "development"), Map.of());
+        assertFalse(legacy.ignoreSslErrors());
+        assertTrue(legacy.deprecationWarnings().get(0).contains("a spelling only the reader before 0.6.0 took"), legacy.deprecationWarnings().toString());
     }
 
     @Test
@@ -121,10 +128,14 @@ class FederationRuntimeConfigTest {
     @Test
     void theGuardingSwitchesAreTrueOrFalseAndNothingElse() {
         for (String guard : java.util.List.of(FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV,
-                FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV, FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV)) {
+                FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV)) {
             assertRefused(Map.of(guard, "yes"), guard);
             assertRefused(Map.of(guard, "1"), guard);
         }
+        // OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY is OIDF_ATTESTATION_AUTH_ENABLED's superseded name (S9A): refused under the
+        // switch's name, whichever name held the value.
+        assertRefused(Map.of(FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV, "yes"), "OIDF_ATTESTATION_AUTH_ENABLED");
+        assertRefused(Map.of(FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV, "1"), "OIDF_ATTESTATION_AUTH_ENABLED");
         FederationRuntimeConfig off = of(Map.of(FederationRuntimeConfig.REQUIRE_METADATA_POLICY_ENV, " False ",
                 FederationRuntimeConfig.REQUIRE_BRIDGE_KEY_ENV, "false", FederationRuntimeConfig.REQUIRE_ATTESTER_BINDING_ENV, "FALSE"), Map.of());
         assertFalse(off.requireMetadataPolicy());
@@ -398,8 +409,12 @@ class FederationRuntimeConfigTest {
             assertEquals(null, jacksonRead(unset));
             assertEquals(null, platformRead(unset), "unset, blank and the literal null all read as unset, as they did");
         }
-        assertEquals(Map.of(), of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, "null"), Map.of()).authorityMetadataPolicy());
-        assertEquals(null, of(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, "null"), Map.of()).subordinateConstraints());
+        // Through platform.settings (plan item ST-5) the literal null is a value that is not a JSON object, and refused, naming
+        // the setting; unset and blank are still unset.
+        assertRefused(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, "null"), FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV);
+        assertRefused(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, "null"), FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV);
+        assertEquals(Map.of(), of(Map.of(FederationRuntimeConfig.AUTHORITY_METADATA_POLICY_ENV, " "), Map.of()).authorityMetadataPolicy());
+        assertEquals(null, of(Map.of(FederationRuntimeConfig.SUBORDINATE_CONSTRAINTS_ENV, " "), Map.of()).subordinateConstraints());
     }
 
     /**

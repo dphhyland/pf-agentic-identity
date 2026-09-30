@@ -78,7 +78,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The password for OIDF_AUTHORITY_JDBC_URL",
+      "description": "The password for OIDF_AUTHORITY_JDBC_URL, or read from the file OIDF_AUTHORITY_JDBC_PASSWORD_FILE names",
       "when_wrong": {"effect": "first-request", "detail": "Wrong: the first use of the store fails"},
       "profile": "any",
       "security": true,
@@ -88,7 +88,7 @@
         {"from": "env", "name": "OIDF_AUTHORITY_JDBC_PASSWORD"}
       ],
       "aliases": [],
-      "file": false
+      "file": true
     },
     {
       "name": "OIDF_AUTHORITY_DATA_STORE_ID",

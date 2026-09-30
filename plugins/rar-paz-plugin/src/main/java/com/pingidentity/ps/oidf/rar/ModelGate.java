@@ -3,13 +3,18 @@
  */
 package com.pingidentity.ps.oidf.rar;
 
+import com.pingidentity.ps.oidf.rar.model.FieldRule;
 import com.pingidentity.ps.oidf.rar.model.RarModelException;
 import com.pingidentity.ps.oidf.rar.model.RarModels;
+import com.pingidentity.ps.oidf.rar.model.Rule;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.logging.Logger;
 
 /**
@@ -223,6 +228,29 @@ final class ModelGate {
             return models.contains(listOf(ceiling), listOf(candidate)) ? Verdict.CONTAINED : Verdict.NOT_CONTAINED;
         } catch (RarModelException e) {
             return Verdict.refused(e.reason(), e.getMessage());
+        }
+    }
+
+    /**
+     * The top-level members {@code type}'s model declares, a forbidden one (the two markers) left out: what the AuthZEN
+     * context allow-list's {@code @model} stands for (package PLG, H-RAR-1). Empty when the model set did not load or
+     * no model names the type. A read of the model, never a question about a detail; added here, in this class's own
+     * structure, because the model set is held nowhere else in the plugin.
+     */
+    Set<String> declaredMembers(String type) {
+        if (models == null) {
+            return Set.of();
+        }
+        try {
+            Set<String> members = new LinkedHashSet<>();
+            for (Map.Entry<String, FieldRule> field : models.model(type).fields().entrySet()) {
+                if (field.getValue().rule() != Rule.FORBIDDEN) {
+                    members.add(field.getKey());
+                }
+            }
+            return Collections.unmodifiableSet(members);
+        } catch (RarModelException e) {
+            return Set.of();
         }
     }
 
