@@ -25,8 +25,11 @@
   `OIDF_FEDERATION_RESOLUTION_MAX_AUTHORITY_HINTS` (10), `OIDF_FEDERATION_RESOLUTION_MAX_ROUTE_ATTEMPTS` (8) and
   `OIDF_FEDERATION_RESOLUTION_CLOCK_SKEW_SECONDS` (60). `ValidatorOptions` gains a seventh component,
   `resolutionWallClock`, and `withResolutionWallClock`; the package-private `TrustChainValidator.FetchBudget` is gone.
-- U-0195 is closed: on the image's java 21.0.12.1 a lookup against a resolver that never answers gives up after
-  about 5 s, and a connected socket's send buffer is larger than the 1 MiB request-body cap.
+- `TrustMarkValidator` rejects a Trust Mark larger than 8192 bytes (`MAX_STATUS_MARK_BYTES`) rather than send it to
+  its issuer's status endpoint: a socket write has no timeout, and a larger body could wait past the budget on an
+  endpoint that never reads. A Trust Mark check whose budget runs out while it resolves the anchor's configuration
+  now says so in each mark's reason. U-0195 stays open: other `OutboundHttp` writes above about 14 KiB can still wait
+  on a peer that does not read.
 
 ## Before you deploy
 
@@ -62,11 +65,19 @@
    configuration, every issuer it resolves (up to 8) and every status call spend from it. An entity carrying marks
    from several issuers, with status checking on, can now have marks rejected that verified before, and if
    `TrustMarkPolicy` requires one of those marks the registration is refused. To tell, look for a rejected mark
-   whose reason reads "its issuer ... was not resolved: trust chain resolution ran out of requests" or "its status
-   was not asked: trust chain resolution ran out of requests". Raise `OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS` if
+   whose reason reads "its issuer ... was not resolved: trust chain resolution ran out of requests", "the trust
+   anchor's configuration, which says whose Trust Marks it recognises, was not read: trust chain resolution ran out
+   of requests" or "its status was not asked: trust chain resolution ran out of requests". Raise `OIDF_FEDERATION_RESOLUTION_MAX_REQUESTS` if
    your entities carry marks from many issuers. There is no development-profile escape, for the reason the item
    **A federation resolution now has a wall-clock budget** gives.
-4. **Out-of-range federation-resolution settings stop a validator being built.** Each `OIDF_FEDERATION_RESOLUTION_*`
+4. **A Trust Mark larger than 8 KiB is no longer sent to a status endpoint.** With Trust Mark status checking on
+   and an issuer that publishes `federation_trust_mark_status_endpoint`, a mark whose JWT is larger than 8192 bytes
+   is now rejected, with the reason "its status was not asked: it is larger than the 8192 bytes a status request
+   carries", and is never sent. Before this release it was posted whatever its size. A write has no timeout, so a
+   large body sent to an endpoint that accepts and never reads - one a self-issued mark can name - could hold a
+   request thread past the resolution's wall clock. To tell whether your marks are affected, look for that reason
+   among the rejected marks, or measure the `trust_mark` values in your entities' configurations. The limit is a constant, a safety bound, so there is no setting and no development-profile escape.
+5. **Out-of-range federation-resolution settings stop a validator being built.** Each `OIDF_FEDERATION_RESOLUTION_*`
    setting is read, and refused naming the setting, when a trust chain validator is built: at start-up for most of
    them, and on the first request that needs one for the rest. A value
    outside its range, or one that is not a whole number, fails that start-up or request instead of being ignored.
@@ -74,7 +85,7 @@
    checks them against [docs/configuration/federation-resolution.md](../../configuration/federation-resolution.md)
    first. The development profile does not relax a range: a range is a safety bound on how much work a stranger's
    chain can cause.
-5. **Code that constructs `ValidatorOptions` passes the wall clock.** `ValidatorOptions` is a record whose canonical
+6. **Code that constructs `ValidatorOptions` passes the wall clock.** `ValidatorOptions` is a record whose canonical
    constructor now takes a seventh argument, `Duration resolutionWallClock`. Code built against an earlier release
    that calls `new ValidatorOptions(...)` with six arguments does not compile, and a jar compiled against it fails
    with `NoSuchMethodError` when it runs. Nothing in this repository does; a consumer that does - a sibling repository
@@ -101,11 +112,16 @@ plan `1IagM1TIgHkl4`, 20 modules, 20 WARNING, 0 FAILED, PingFederate resolving t
 registering it automatically; `openid-federation-deployed-entity-test-plan`, plan `1xjZtsQkLc3B2`, 5 modules, 5
 WARNING, 0 FAILED. The warning is the suite's note on PingFederate's vendor metadata, as on 0.5.0.
 
-**The bound the budget cannot enforce** (2026-09-30, the image's java 21.0.12.1, `docker run --dns 10.255.255.1`):
-`InetAddress.getAllByName` against a resolver that never answers gave up after 5017 ms, and a connected loopback
-socket's send buffer was 1,313,280 bytes, above the 1 MiB request-body cap. `OutboundHttp` refuses to start a request
-once its deadline has passed, so a resolution overruns its wall clock by at most one lookup, about 5 s. U-0195 is
-closed with these figures.
+**The bound the budget cannot enforce** (2026-09-30). On the image's java 21.0.12.1 with `docker run --dns
+10.255.255.1`, `InetAddress.getAllByName` against a resolver that never answers gave up after 5017 ms; `OutboundHttp`
+refuses to start a request once its deadline has passed, so a lookup costs at most about 5 s past it. A write has no
+timeout either. A connected loopback socket's send buffer on Docker Desktop was 1,313,280 bytes, but that is
+loopback's: between two python:3.13-alpine containers on a Docker bridge with MTU 1500 it was 46,080 bytes at connect
+(MSS 1448), and writing 1 KiB at a time to a peer that never read, the first write to wait came after 611,328 bytes
+with the peer's receive buffer at its default, 27,648 with it at 4096 and 14,336 with it at 1 (MSS 576). A 9 KiB
+write returned at once in all three. The resolution's one request body, the Trust Mark status call, is held to a
+mark of 8192 bytes, so a resolution overruns its wall clock by at most one lookup. U-0195 stays open for the other
+`OutboundHttp` writes.
 
 **Tuning and safety bounds.** The five settings are tuning. `TrustChainValidator.MAX_ROUTE_STATEMENTS` (16),
 `MAX_SEARCH_STEPS` (128), `TrustMarkValidator.MAX_MARKS_EXAMINED` (16) and `MAX_ISSUERS_RESOLVED` (8) stay constants:
@@ -117,9 +133,14 @@ its Trust Marks on a second (F-0280); S5c passes one budget through registration
 for S5c and S5d. U-0215 (whether 32 places an origin are enough) was not measured.
 
 **Tests.** `TrustChainValidatorBudgetTest` (a slow-body peer across a multi-hop chain cut off at the wall clock, a body still
-arriving at the deadline cut off there, every gateway request carrying the resolution's deadline, the gateway's
-authority-configuration and key-mismatch fetches counted, a peer chain sharing the budget),
-`TrustMarkValidatorTest` (several issuers bounded by one parent budget, the status call spent),
+arriving at the deadline cut off there, every gateway request carrying the resolution's deadline and paid from the
+caller's budget - directly and through `LocalFirstTrustControllerGateway`, a refresh of a presented statement and a
+requested anchor configuration retrieved twice included - the gateway's authority-configuration and key-mismatch
+fetches counted, a peer chain sharing the budget),
+`TrustMarkValidatorTest` (several issuers bounded by one parent budget, the status call spent, the anchor's
+configuration refused saying the budget ran out, a mark too large to send never sent),
 `ResolutionBudgetTest` (concurrent spends, children, what ran out), `ValidatorOptionsSettingsTest` (defaults and
-ranges) and `JdkHttpClientDeadlineTest` (a caller's deadline ends a slow body). Run on JDK 17 and 20, and the
-networking tests on the image's java 21.
+ranges) and `JdkHttpClientDeadlineTest` (a caller's deadline ends a slow body). On 2026-09-30 at the final code
+the two modules' whole suites passed on JDK 17 with their coverage gates, and `TrustChainValidatorBudgetTest`,
+`TrustMarkValidatorTest`, `ResolutionBudgetTest` and `JdkHttpClientDeadlineTest` passed on JDK 20.0.2 and on Temurin
+21.0.12 (the image's java line).

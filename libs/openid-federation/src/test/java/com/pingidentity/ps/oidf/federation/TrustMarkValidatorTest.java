@@ -610,6 +610,22 @@ class TrustMarkValidatorTest {
                 this.answering(200, this.statusResponse(this.tmiKey, mark, "active", s -> s.claim("iss", RP)), new ArrayList<>())), "not its issuer's answer");
     }
 
+    /**
+     * A socket write has no timeout, so a request larger than the connection's send buffer could wait on an endpoint
+     * that never reads, past the budget: a mark too large to send is rejected, and nothing is sent.
+     */
+    @Test
+    void aMarkTooLargeToSendIsNotSentToTheStatusEndpoint() {
+        String large = this.mark(s -> s.claim("ref", "https://tmi.example.com/" + "x".repeat(TrustMarkValidator.MAX_STATUS_MARK_BYTES)));
+        List<String> asked = new ArrayList<>();
+
+        TrustMarkValidator.Result result = this.validate(this.withStatusEndpoint(large),
+                this.answering(200, this.statusResponse(this.tmiKey, large, "active", s -> { }), asked));
+
+        this.assertRejected(result, "larger than the " + TrustMarkValidator.MAX_STATUS_MARK_BYTES + " bytes a status request carries");
+        assertEquals(List.of(), asked);
+    }
+
     @Test
     void anIssuerWithoutAStatusEndpointIsNotAsked() {
         List<String> asked = new ArrayList<>();
@@ -702,7 +718,9 @@ class TrustMarkValidatorTest {
                 .validate(chain, ResolutionBudget.of(java.time.Duration.ofSeconds(30), 0));
 
         assertEquals(0, result.verified().size());
-        assertTrue(result.rejected().get(0).reason().contains("could not be read"), result.rejected().toString());
+        // The budget's own words, which say what ran out and name no peer.
+        assertTrue(result.rejected().get(0).reason().contains("was not read: trust chain resolution ran out of requests"),
+                result.rejected().toString());
         assertEquals(List.of(), f.http().requests());
     }
 

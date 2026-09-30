@@ -59,6 +59,14 @@ public final class TrustMarkValidator {
     public static final int MAX_MARKS_EXAMINED = 16;
     /** Distinct issuers resolved per validation, whether or not they validate (§18.1). */
     public static final int MAX_ISSUERS_RESOLVED = 8;
+    /**
+     * The largest mark sent to a status endpoint (§8.4). A socket write has no timeout, so a request that does not
+     * fit the connection's send buffer waits on the peer reading it, past the budget's deadline; a status endpoint the
+     * mark itself can name (a self-issued mark, when the anchor lets anyone issue its type) could accept and never
+     * read. On a 1500-MTU Linux link on 2026-09-30 a 9 KiB write returned at once whatever the peer's receive buffer,
+     * and the first write to wait came after 14,336 bytes, so a request carrying a mark of this size fits.
+     */
+    public static final int MAX_STATUS_MARK_BYTES = 8192;
 
     /** A Trust Mark that validated. {@code expiresAt} is -1 for a mark that does not expire. */
     public record Verified(String type, String issuer, String subject, long issuedAt, long expiresAt, String jwt) {
@@ -138,7 +146,7 @@ public final class TrustMarkValidator {
         if (!(raw instanceof List<?> marks) || marks.isEmpty()) {
             return new Result(verified, rejected);
         }
-        JwtClaims anchor = anchorConfiguration(subject);
+        Object anchor = anchorConfiguration(subject);
         if (anchor == null) {
             anchor = this.resolveAnchorConfiguration(subject.trustAnchorIssuer(), budget);
         }
@@ -169,11 +177,13 @@ public final class TrustMarkValidator {
         return new Result(verified, rejected);
     }
 
-    private Verified validateOne(String type, String jwt, TrustChainValidationResult subject, JwtClaims anchor,
+    /** {@code anchorOutcome} is the anchor's configuration, or the refusal that says why it could not be had. */
+    private Verified validateOne(String type, String jwt, TrustChainValidationResult subject, Object anchorOutcome,
                                  Map<String, Object> issuerConfigurations, ResolutionBudget budget) throws Refusal {
-        if (anchor == null) {
-            throw new Refusal("the trust anchor's configuration, which says whose Trust Marks it recognises, could not be read");
+        if (anchorOutcome instanceof Refusal refusal) {
+            throw refusal;
         }
+        JwtClaims anchor = (JwtClaims) anchorOutcome;
         signedHeader(jwt, "the Trust Mark", TRUST_MARK_TYP);
         JwtClaims claims = unverifiedClaims(jwt, "the Trust Mark");
         String issuer = requiredString(claims, "iss");
@@ -262,14 +272,20 @@ public final class TrustMarkValidator {
 
     /**
      * The anchor's configuration, from the anchor resolved as its own subject from a child of the validation's
-     * budget: verified against its pinned keys.
+     * budget: verified against its pinned keys. Or why not - saying so when the budget ran out, in the budget's own
+     * words, which name no peer.
      */
-    private JwtClaims resolveAnchorConfiguration(String anchor, ResolutionBudget budget) {
+    private Object resolveAnchorConfiguration(String anchor, ResolutionBudget budget) {
         try {
             return this.issuers.validate(ValidationRequest.forSubject(anchor).requestedAnchors(List.of(anchor))
                     .budget(budget.child()).build()).leafEntityStatement();
-        } catch (FederationException e) {
-            return null;
+        } catch (TrustChainValidationException e) {
+            // A validator refuses only with this, as resolveIssuer relies on too.
+            if (e.kind() == TrustChainValidationException.Kind.BUDGET) {
+                return new Refusal("the trust anchor's configuration, which says whose Trust Marks it recognises, was not read: "
+                        + e.getMessage());
+            }
+            return new Refusal("the trust anchor's configuration, which says whose Trust Marks it recognises, could not be read");
         }
     }
 
@@ -324,6 +340,10 @@ public final class TrustMarkValidator {
         Object endpoint = federationEntity(issuerConfiguration).get("federation_trust_mark_status_endpoint");
         if (!(endpoint instanceof String url)) {
             return;
+        }
+        if (jwt.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > MAX_STATUS_MARK_BYTES) {
+            throw new Refusal("its status was not asked: it is larger than the " + MAX_STATUS_MARK_BYTES
+                    + " bytes a status request carries");
         }
         if (!budget.trySpend("the trust mark status endpoint of " + issuer)) {
             // The budget's own refusal text: time, or the requests of whichever budget has none left; no peer text.

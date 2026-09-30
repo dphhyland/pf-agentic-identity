@@ -122,10 +122,17 @@ Spending is thread-safe.
   statement asked for; the requests it makes inside a call are its own to bound. `LocalFirstTrustControllerGateway`
   answers this deployment's own statements with no request and passes the budget to its delegate.
 - **What the budget does not bound.** Name resolution and writing a request have no timeout in the JDK
-  ([U-0195](../../docs/findings/U-0195.yaml)); `OutboundHttp` refuses to start a request once its deadline has
-  passed, so a resolution overruns its wall clock by at most one lookup. On the pinned image's java 21.0.12.1 a
-  lookup against a resolver that never answers gave up after 5.05 s (2026-09-29) and 5.02 s (2026-09-30), and a connected socket's send
-  buffer is 1,313,280 bytes, larger than the 1 MiB request-body cap.
+  ([U-0195](../../docs/findings/U-0195.yaml)). A lookup is short enough: `OutboundHttp` refuses to start a request
+  once its deadline has passed, and on the pinned image's java 21.0.12.1 a lookup against a resolver that never
+  answers gave up after 5.05 s (2026-09-29) and 5.02 s (2026-09-30). A write is not: it waits on a peer that does
+  not read once the body outgrows the connection's send buffer, which on a 1500-MTU Linux link starts at 46,080
+  bytes. On 2026-09-30, between two containers on such a link, the first 1 KiB write to wait on a peer that never
+  read came after 14,336 bytes when that peer shrank its receive buffer to the least it could, and a 9 KiB write
+  returned at once however small the peer made it. Every request a resolution makes is a GET but one, the Trust
+  Mark status call (§8.4), whose body is the mark - chosen by whoever issued it, the entity itself for a
+  self-issued mark. So `TrustMarkValidator` rejects a mark larger than `MAX_STATUS_MARK_BYTES` (8192) rather than
+  send it, its reason saying so, and a resolution overruns its wall clock by at most one lookup, about 5 s. Other
+  `OutboundHttp` writes above about 14 KiB stay unbounded; U-0195 stays open for them.
 
 **The settings.** `ValidatorOptions.defaults()` reads the `federation-resolution` catalogue
 ([docs/configuration/federation-resolution.md](../../docs/configuration/federation-resolution.md)), so every
@@ -137,7 +144,8 @@ tuning: how much work one resolution is worth depends on the federations a deplo
 stay constants are safety bounds, which hold whatever the tuning says: `TrustChainValidator.MAX_ROUTE_STATEMENTS`
 (16 Subordinate Statements on one route) and `MAX_SEARCH_STEPS` (128 statements added to routes, which bounds the
 work presented statements cause at no request at all), and `TrustMarkValidator.MAX_MARKS_EXAMINED` (16) and
-`MAX_ISSUERS_RESOLVED` (8). Nothing measured says they must move.
+`MAX_ISSUERS_RESOLVED` (8), and `MAX_STATUS_MARK_BYTES` (8192, the largest mark sent to a status endpoint, sized
+from the send-buffer measurement above). Nothing measured says they must move.
 
 **The measurement behind the wall clock** (2026-09-29, this branch, `DEBUG` on `TrustChainValidator`). On the
 conformance rig (`PF_PROFILE=federation-op`, PingFederate 13.1.3, the suite at release-v5.3.1 on the same Docker

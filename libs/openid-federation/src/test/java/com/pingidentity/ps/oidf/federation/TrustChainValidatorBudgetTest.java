@@ -168,42 +168,137 @@ class TrustChainValidatorBudgetTest {
         }
     }
 
+    /** Records each request the gateway makes, and the deadline it was made by, answering from {@code f}. */
+    private static final class Recording implements HttpGetClient {
+        private final Federation f;
+        final List<String> urls = new java.util.ArrayList<>();
+        final List<Deadline> deadlines = new java.util.ArrayList<>();
+
+        Recording(Federation f) {
+            this.f = f;
+        }
+
+        @Override
+        public String get(String url, String accept) throws Exception {
+            return this.get(url, accept, null);
+        }
+
+        @Override
+        public synchronized String get(String url, String accept, Deadline deadline) throws Exception {
+            this.urls.add(url);
+            this.deadlines.add(deadline);
+            return this.f.http().get(url, accept);
+        }
+
+        /** Every request was made by {@code budget}'s deadline (a gateway's own would have the settings' 45 s left). */
+        void assertEachMadeBy(ResolutionBudget budget) {
+            assertFalse(this.urls.isEmpty());
+            for (int i = 0; i < this.urls.size(); i++) {
+                Deadline deadline = this.deadlines.get(i);
+                assertTrue(deadline != null && deadline.remainingNanos() <= budget.deadline().remainingNanos() + 50_000_000L,
+                        this.urls.get(i) + " was made by the resolution's deadline, not " + deadline);
+            }
+        }
+    }
+
+    /** Nothing answered locally: the production wiring of the resolve endpoint, with every statement from the network. */
+    private static TrustControllerGateway localFirst(HttpGetClient http) {
+        return new LocalFirstTrustControllerGateway(new HttpTrustControllerGateway(http, TA), new LocalStatementSource() {
+            @Override
+            public String entityConfiguration(String entityId) {
+                return null;
+            }
+
+            @Override
+            public String subordinateStatement(String issuer, String subject) {
+                return null;
+            }
+        });
+    }
+
+    private static TrustChainValidator validator(TrustControllerGateway gateway, Federation f) {
+        return new TrustChainValidator(gateway, TrustAnchorSet.of(f.trustAnchor(TA)), Set.of(), ValidatorOptions.defaults());
+    }
+
     /**
-     * Every request the gateway makes carries the resolution's deadline, not one of its own: the subject's and an
-     * authority's Entity Configuration, the statements, and the §11.3 second retrieval of the anchor's.
+     * Every request the gateway makes carries the resolution's deadline, not one of its own, and is paid for from the
+     * caller's budget: the subject's and an authority's Entity Configuration, the statements, and the §11.3 second
+     * retrieval of the anchor's. The same through the local-first gateway the resolve endpoint uses.
      */
     @Test
     @Requirement("OIDFED §11.3")
     void everyRequestTheGatewayMakesCarriesTheResolutionsDeadline() throws Exception {
-        Federation f = threeLevels();
-        String anchorUrl = TA + "/.well-known/openid-federation";
-        f.http().sequence(anchorUrl, Federation.builder().anchor(TA).build().entityConfiguration(TA), f.entityConfiguration(TA));
-        List<String> urls = new java.util.ArrayList<>();
-        List<Deadline> deadlines = new java.util.ArrayList<>();
-        HttpGetClient recording = new HttpGetClient() {
-            @Override
-            public String get(String url, String accept) throws Exception {
-                return this.get(url, accept, null);
-            }
+        for (boolean wrapped : new boolean[] {false, true}) {
+            Federation f = threeLevels();
+            String anchorUrl = TA + "/.well-known/openid-federation";
+            f.http().sequence(anchorUrl, Federation.builder().anchor(TA).build().entityConfiguration(TA), f.entityConfiguration(TA));
+            Recording recording = new Recording(f);
+            TrustControllerGateway gateway = wrapped ? localFirst(recording) : new HttpTrustControllerGateway(recording, TA);
+            // A caller's budget far shorter than the settings' 45 s, so a deadline of the gateway's own would show.
+            ResolutionBudget mine = ResolutionBudget.of(Duration.ofSeconds(5), 24);
 
-            @Override
-            public synchronized String get(String url, String accept, Deadline deadline) throws Exception {
-                urls.add(url);
-                deadlines.add(deadline);
-                return f.http().get(url, accept);
-            }
-        };
-        // A caller's budget far shorter than the settings' 45 s, so a deadline of the gateway's own would show.
-        ResolutionBudget mine = ResolutionBudget.of(Duration.ofSeconds(5), 24);
+            TrustChainValidationResult result = validator(gateway, f).validate(ValidationRequest.forSubject(LEAF).budget(mine).build());
 
-        validator(recording, f, ValidatorOptions.defaults()).validate(ValidationRequest.forSubject(LEAF).budget(mine).build());
+            List<String> urls = recording.urls;
+            assertEquals(2, urls.stream().filter(anchorUrl::equals).count(), "the anchor's configuration was retrieved twice: " + urls);
+            assertTrue(urls.contains(INT + "/.well-known/openid-federation"), "the authority's configuration was looked up: " + urls);
+            recording.assertEachMadeBy(mine);
+            assertEquals(result.fetchesUsed(), mine.used());
+            assertTrue(urls.size() <= mine.used(), "every request paid for from the caller's budget: " + urls + ", " + mine.used());
+        }
+    }
 
-        assertEquals(2, urls.stream().filter(anchorUrl::equals).count(), "the anchor's configuration was retrieved twice: " + urls);
-        assertTrue(urls.contains(INT + "/.well-known/openid-federation"), "the authority's configuration was looked up: " + urls);
-        for (int i = 0; i < urls.size(); i++) {
-            Deadline deadline = deadlines.get(i);
-            assertTrue(deadline != null && deadline.remaining().compareTo(Duration.ofSeconds(5)) <= 0,
-                    urls.get(i) + " was made by the resolution's deadline, not " + deadline);
+    /**
+     * A presented statement close to expiry is fetched afresh within the resolution's budget: the authority's
+     * configuration and the statement both paid for from it and made by its deadline.
+     */
+    @Test
+    void aRefreshOfAPresentedStatementSpendsTheResolutionsBudget() throws Exception {
+        for (boolean wrapped : new boolean[] {false, true}) {
+            Federation f = threeLevels();
+            long now = java.time.Instant.now().getEpochSecond();
+            String expiring = com.pingidentity.ps.oidf.federation.testkit.Statements.spec(
+                            com.pingidentity.ps.oidf.federation.testkit.Statements.ENTITY_STATEMENT_TYP)
+                    .claim("iss", INT).claim("sub", LEAF).claim("jwks", f.publicJwks(LEAF)).exp(now + 120).sign(f.key(INT), f.clock());
+            List<String> presented = List.of(f.entityConfiguration(LEAF), expiring, f.subordinateStatement(TA, INT));
+            Recording recording = new Recording(f);
+            TrustControllerGateway gateway = wrapped ? localFirst(recording) : new HttpTrustControllerGateway(recording, TA);
+            ResolutionBudget mine = ResolutionBudget.of(Duration.ofSeconds(5), 24);
+
+            TrustChainValidationResult result = validator(gateway, f)
+                    .validate(ValidationRequest.forSubject(LEAF).presentedChain(presented).budget(mine).build());
+
+            assertEquals(f.subordinateStatement(INT, LEAF), result.trustChain().get(1), "the fresh copy replaces the expiring one");
+            assertTrue(recording.urls.contains(INT + "/.well-known/openid-federation"), "the authority's configuration: " + recording.urls);
+            recording.assertEachMadeBy(mine);
+            assertEquals(recording.urls.size(), mine.used(), "the refresh and its lookup were paid for: " + recording.urls);
+        }
+    }
+
+    /**
+     * The anchor configuration a caller asks to end the chain with, retrieved again when the first copy does not
+     * verify (§11.3): both retrievals paid for from the caller's budget and made by its deadline.
+     */
+    @Test
+    @Requirement("OIDFED §11.3")
+    void anAnchorConfigurationAskedForIsRetrievedAgainWithinTheBudget() throws Exception {
+        for (boolean wrapped : new boolean[] {false, true}) {
+            String anchorUrl = TA + "/.well-known/openid-federation";
+            Federation f = Federation.builder().anchor(TA).leaf(LEAF, TA).build();
+            f.http().sequence(anchorUrl, Federation.builder().anchor(TA).build().entityConfiguration(TA), f.entityConfiguration(TA));
+            Recording recording = new Recording(f);
+            TrustControllerGateway gateway = wrapped ? localFirst(recording) : new HttpTrustControllerGateway(recording, TA);
+            ResolutionBudget mine = ResolutionBudget.of(Duration.ofSeconds(5), 24);
+
+            TrustChainValidationResult result = validator(gateway, f).validate(ValidationRequest.forSubject(LEAF)
+                    .presentedChain(List.of(f.entityConfiguration(LEAF), f.subordinateStatement(TA, LEAF)))
+                    .includeAnchorConfiguration(true).budget(mine).build());
+
+            assertEquals(3, result.trustChain().size());
+            assertEquals(f.entityConfiguration(TA), result.trustChain().get(2));
+            assertEquals(List.of(anchorUrl, anchorUrl), recording.urls);
+            recording.assertEachMadeBy(mine);
+            assertEquals(2, mine.used(), "the configuration and its second retrieval");
         }
     }
 
@@ -295,7 +390,10 @@ class TrustChainValidatorBudgetTest {
         assertEquals(1, g.http().hits(anchorUrl), "the second retrieval was not made");
     }
 
-    /** The anchor configuration a caller asks to end the chain with is paid for, and its retrieval again too. */
+    /**
+     * The anchor configuration a caller asks to end the chain with is paid for (its second retrieval too:
+     * anAnchorConfigurationAskedForIsRetrievedAgainWithinTheBudget).
+     */
     @Test
     void anAnchorConfigurationAskedForIsPaidFor() {
         Federation f = Federation.builder().anchor(TA).leaf(LEAF, TA).build();
