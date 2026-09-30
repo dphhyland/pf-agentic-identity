@@ -44,7 +44,7 @@
    - `BridgeSigners.require(clientId)` - `BridgeSigners.forClient(clientId)`, which is empty when the client has no
      bridge key.
    - `resetForTests()` on the five classes above - in a test, `<Class>TestAccess.reset()` from the
-     `openid-federation` or `pf-integration` artifact of type `test-jar`.
+     `openid-federation` or `pf-integration` artefact of type `test-jar`.
 
    There is no development-profile escape: these are compile-time removals, with no setting or runtime behaviour to
    choose.
