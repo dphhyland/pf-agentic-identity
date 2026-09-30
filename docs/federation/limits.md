@@ -37,8 +37,10 @@ before you promise a partner something. Each item says what happens instead.
 - **Being a relying party in someone else's federation.** PingFederate registers others; it doesn't register
   itself with other OPs.
 - **Keeping state without a database.** Hosted agents, Trust Mark grants and the key history live in the
-  authority's database when one is configured, and in memory - with a warning at start-up - when not. In memory
-  they are gone at the next restart.
+  authority's database when one is configured, and in memory when not: with a warning under the development
+  profile, and under production only with the `in-memory-state` risk accepted (the component that keeps them is
+  refused otherwise, from 0.6.0). In memory they are gone at the next restart. A database must be PostgreSQL in
+  production.
 
 ## Stricter than the specification
 
