@@ -1,0 +1,26 @@
+# The outbound clients tools/outbound-scan.py admits outside platform.http (plan item ST-6): each, and why.
+#
+# The forms and rules are tools/direct-read-scan.py's (tools/direct-read-allow.txt has the summary):
+#   <module>: <why it is never shipped>               in the "not shipped" group only; admits every hit in the module
+#   <path> | <pattern> | <finding id, or why>         a hit in that file whose line contains the pattern
+# CI runs the scan with --check-allow-list, so a line that admits nothing fails the build. A new client is a failure
+# until it calls through platform.http's OutboundHttp, or is admitted here with a finding or a reason a reviewer
+# accepts.
+
+# group not shipped
+libs/testkit: DB1's Postgres test support, a test-scoped dependency never staged into the image; Migrations reads its SQL off the class path
+services/harness: verification CLIs run by hand with mvn exec:java against a rig; nothing stages or releases it and its pom skips deploy
+
+# group not an outbound call
+# URL.openConnection and openStream on a URL a class loader gave: a jar: or file: read of the class path, with the
+# JDK's jar cache off so a webapp's jar is not held open after an undeploy. Nothing leaves the host.
+libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/events/EventCatalogues.java | url.openConnection() | an event catalogue index the class loader's getResources found
+libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/settings/Catalogue.java | url.openStream() | a settings catalogue the class loader's getResources found
+libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/settings/Catalogues.java | directory.openConnection() | the listing of a jar: directory of settings catalogues the class loader's getResources found
+libs/platform-pf/src/main/java/com/pingidentity/ps/oidf/platform/pf/health/BuildInfo.java | .openConnection() | the manifest and pom.properties of a module's own jar, beside a resource the class loader found; the build facts the health detail reports
+libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/tls/InsecureTls.java | java.net.http.HttpClient | an HttpClient.Builder hook that sets a trust-all context for a caller that asked by name (the trust scan's one trust-all); it builds no client and sends nothing
+
+# group not HTTP
+libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/redis/RedisConnection.java | new Socket() | platform's Redis client (RESP over TCP or TLS), with its own deadline on the connect and each read; not HTTP
+libs/platform/src/main/java/com/pingidentity/ps/oidf/platform/redis/RedisConnection.java | createSocket(plain, tlsName, port, true) | the TLS layer over that Redis socket
+servlets/ssf/src/main/java/com/pingidentity/ps/oidf/ssf/KafkaSetPublisher.java | "org.apache.kafka. | Kafka's own producer client, loaded by reflection when the SSF Kafka fan-out is on; it speaks Kafka's protocol, not HTTP, and its timeouts are the producer properties KafkaSetPublisher sets

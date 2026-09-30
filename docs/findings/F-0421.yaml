@@ -1,0 +1,21 @@
+id: F-0421
+title: pf-integration's OperatorApi.setting reads init-param, system property and environment by hand, and the registered-clients switch parses leniently
+severity: medium
+area: pf-integration
+source: pr-review
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found on 2026-10-01 by ST6's direct-read scan on main e377dbae. OperatorApi.setting(config, initParam, sysProp,
+  envVar) calls config.getInitParameter, System.getProperty and System.getenv itself. Two readers use it:
+  OperatorApi.staticBearer (adminToken, oidf.authority.admin_token, OIDF_AUTHORITY_ADMIN_TOKEN, a secret the
+  hosted-entities catalogue declares forbidden-in-production; the operator authenticator never accepts it in
+  production, whoever read it) and RegisteredClientsServlet.init, which parses registeredClientsEnabled,
+  oidf.registered.clients.enabled or OIDF_REGISTERED_CLIENTS_ENABLED with Boolean.parseBoolean. The registration
+  catalogue types that setting `bool`, and platform.settings' Parsers.bool refuses anything but true or false; here
+  `yes`, `1` or `True ` (a trailing space) leave the surface off without a word. The fix is to read both through their
+  catalogue entries (InitParams.sources(config) and Settings), delete OperatorApi.setting, and delete the three lines
+  of tools/direct-read-allow.txt that name this finding.

@@ -1,0 +1,21 @@
+id: F-0420
+title: attestation-issuer's IssuedTtlCap and AttesterResolvers read their settings by hand, not through platform.settings
+severity: medium
+area: attestation-issuer
+source: pr-review
+status: open
+plan_items: [ST-5]
+prs: []
+verification: ''
+target_release: 0.7.0
+notes: >
+  Found on 2026-10-01 by ST6's direct-read scan (tools/direct-read-scan.py) on main e377dbae. IssuedTtlCap.fromEnvironment
+  reads oidf.attester.max.issued.ttl, then OIDF_ATTESTER_MAX_ISSUED_TTL, through System::getProperty and
+  System::getenv and parses the value with Long.parseLong; AttesterResolvers.fromEnvironment reads
+  OIDF_ATTESTER_SIGNING_JWK (a secret), OIDF_ATTESTER_FEDERATION_ENTITY and OIDF_ATTESTER_CIMD_URL and their
+  oidf.attester.* properties the same way, with firstSet. Each name is declared in the attestation-issuer catalogue
+  (settings-scan is clean), but these two readers are a second definition of how it is read beside the entry: the
+  resolver's rules - the entry's source order, blank as unset, the typed parse of `seconds`, a removed name refused -
+  hold only while the two agree. ST5A converted the rest of the module and missed these. The fix is to read each
+  through Settings.of over the attestation-issuer catalogue, as EvidencePolicy does, and delete the two lines of
+  tools/direct-read-allow.txt that name this finding.
