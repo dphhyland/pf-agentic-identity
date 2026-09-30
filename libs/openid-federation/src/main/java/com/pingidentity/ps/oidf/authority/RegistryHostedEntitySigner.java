@@ -6,6 +6,9 @@ package com.pingidentity.ps.oidf.authority;
 import com.pingidentity.ps.oidf.jose.JwsSigner;
 import com.pingidentity.ps.oidf.jose.OpenBaoTransitSigner;
 import java.util.concurrent.ConcurrentHashMap;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 
 /**
  * The default {@link HostedEntitySigner}: for a {@link HostingMode#AUTHORITY_SIGNED} entity, resolves
@@ -29,15 +32,29 @@ public final class RegistryHostedEntitySigner implements HostedEntitySigner {
         this.baoToken = blankToNull(baoToken);
     }
 
+    /** The settings catalogue OpenBao's address and token are in ({@code META-INF/oidf-settings/hosted-entity-signing.json}). */
+    public static final String CATALOGUE = "hosted-entity-signing";
+    static final String URL = "OIDF_OPENBAO_URL";
+    static final String TOKEN = "OIDF_OPENBAO_TOKEN";
+
     /**
-     * Resolves the OpenBao address/token the same way {@code AttesterSigningKey.fromEnvironment()}
-     * does: system property, then environment variable, sharing the same names — one vault serves both
-     * attestation issuance and hosted-entity signing.
+     * OpenBao's address and token from this process: {@code OIDF_OPENBAO_URL} and {@code OIDF_OPENBAO_TOKEN}, each read
+     * through its entry in the {@value #CATALOGUE} catalogue - the system property, then the environment variable, then
+     * the superseded {@code OPENBAO_*}, {@code BAO_*} and {@code VAULT_*} names with a warning (plan item ST-5). The
+     * attestation issuer's signing key reads the same two entries, so one vault serves both.
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a value its entry refuses: a superseded name
+     *                                                                   holding another value, a token file that cannot be read
      */
     public static RegistryHostedEntitySigner fromEnvironment() {
-        return new RegistryHostedEntitySigner(
-                resolve("oidf.openbao.url", "OIDF_OPENBAO_URL", "OPENBAO_ADDR", "BAO_ADDR", "VAULT_ADDR"),
-                resolve("oidf.openbao.token", "OIDF_OPENBAO_TOKEN", "OPENBAO_TOKEN", "BAO_TOKEN", "VAULT_TOKEN"));
+        return from(Sources.process());
+    }
+
+    /** As {@link #fromEnvironment}, from {@code sources}. */
+    static RegistryHostedEntitySigner from(Sources sources) {
+        Settings settings = Settings.load(RegistryHostedEntitySigner.class.getClassLoader(), CATALOGUE).with(sources);
+        Secret token = settings.secret(TOKEN);
+        return new RegistryHostedEntitySigner(settings.string(URL), token == null ? null : token.reveal());
     }
 
     @Override
@@ -57,20 +74,6 @@ public final class RegistryHostedEntitySigner implements HostedEntitySigner {
             throw new IllegalStateException(
                     "OpenBao transit signer unavailable for entity " + entity.entityId() + ": " + e.getMessage(), e);
         }
-    }
-
-    private static String resolve(String sysProp, String... envVars) {
-        String value = System.getProperty(sysProp);
-        if (value != null && !value.isBlank()) {
-            return value.trim();
-        }
-        for (String env : envVars) {
-            value = System.getenv(env);
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     private static String blankToNull(String s) {

@@ -5,6 +5,9 @@ package com.pingidentity.ps.oidf.servlet.fapi2;
 
 import com.pingidentity.ps.oidf.platform.health.ComponentParts;
 import com.pingidentity.ps.oidf.platform.health.Startup;
+import com.pingidentity.ps.oidf.platform.pf.settings.InitParams;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.platform.pf.component.ComponentGate;
 import com.pingidentity.ps.oidf.platform.pf.internals.PfInternals;
 import com.pingidentity.ps.oidf.servlet.fapi2.Fapi2RequestPolicy.Violation;
@@ -68,6 +71,8 @@ public final class Fapi2ProfileFilter implements Filter {
     private static final Log LOGGER = LogFactory.getLog(Fapi2ProfileFilter.class);
     static final String CLIENTS_ENV = "OIDF_FAPI2_CLIENTS";
     static final String CLIENTS_PROPERTY = "oidf.fapi2.clients";
+    /** The settings catalogue the client list is in ({@code META-INF/oidf-settings/fapi2-profile.json}). */
+    static final String CATALOGUE = "fapi2-profile";
     private static final String EVERY_CLIENT = "*";
 
     private final Function<HttpServletRequest, String> issuerResolver;
@@ -105,14 +110,7 @@ public final class Fapi2ProfileFilter implements Filter {
      * by each supervisor retry after a dependency failure. What it throws is the part's state, never the container's.
      */
     private void init(FilterConfig config, ComponentParts.Part part) throws ServletException {
-        String setting = config == null ? null : config.getInitParameter("clients");
-        if (setting == null || setting.isBlank()) {
-            setting = System.getProperty(CLIENTS_PROPERTY);
-        }
-        if (setting == null || setting.isBlank()) {
-            setting = this.environment.apply(CLIENTS_ENV);
-        }
-        this.clients = listed(setting);
+        this.clients = this.clients(InitParams.of(config));
         if (this.clients.isEmpty()) {
             part.notConfigured(CLIENTS_ENV + " names no client");
         }
@@ -145,15 +143,17 @@ public final class Fapi2ProfileFilter implements Filter {
         chain.doFilter(request, response);
     }
 
-    /** The client list a setting names: comma-separated ids, {@value #EVERY_CLIENT} for every client, empty for none. */
-    static Set<String> listed(String setting) {
-        Set<String> listed = new LinkedHashSet<>();
-        for (String id : (setting == null ? "" : setting).split(",")) {
-            if (!id.isBlank()) {
-                listed.add(id.trim());
-            }
-        }
-        return Set.copyOf(listed);
+    /**
+     * The client list, through {@value #CLIENTS_ENV}'s entry in the {@value #CATALOGUE} catalogue (plan item ST-5): the
+     * init-param {@code clients}, then the system property, then the environment variable, space- or comma-separated ids,
+     * {@value #EVERY_CLIENT} for every client; empty when none is set. A list of nothing (a comma alone) is refused,
+     * naming the setting.
+     */
+    Set<String> clients(Function<String, String> initParams) {
+        Settings settings = Settings.load(Fapi2ProfileFilter.class.getClassLoader(), CATALOGUE)
+                .with(Sources.of(this.environment, System::getProperty, initParams));
+        Set<String> listed = settings.words(CLIENTS_ENV);
+        return listed == null ? Set.of() : Set.copyOf(listed);
     }
 
     /**
@@ -165,8 +165,7 @@ public final class Fapi2ProfileFilter implements Filter {
     boolean fromAListedClient(HttpServletRequest request) {
         Set<String> listed;
         try {
-            String setting = System.getProperty(CLIENTS_PROPERTY);
-            listed = listed(setting == null || setting.isBlank() ? this.environment.apply(CLIENTS_ENV) : setting);
+            listed = this.clients(name -> null);
         } catch (RuntimeException e) {
             // The list cannot be read: nobody can say whose request this is, so every one is FAPI's.
             return true;

@@ -103,22 +103,37 @@ public final class JdbcKeyHistoryStore implements KeyHistoryStore {
 
     @Override
     public HistoricalKey revoke(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException {
-        return this.inTransaction("revoke a historical key", c -> revokeIn(c, kid, revokedAt, reason));
+        return this.inTransaction("revoke a historical key", c -> revokeIn(c, kid, revokedAt, reason, false));
     }
 
-    private static HistoricalKey revokeIn(Connection c, String kid, Instant revokedAt, String reason) throws SQLException, AuthorityRegistryException {
+    @Override
+    public HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) throws AuthorityRegistryException {
+        return this.inTransaction("revoke a historical key", c -> revokeIn(c, kid, revokedAt, reason, true));
+    }
+
+    /** {@code unrevokedOnly}: a key already revoked is stale rather than returned as it is. */
+    private static HistoricalKey revokeIn(Connection c, String kid, Instant revokedAt, String reason, boolean unrevokedOnly)
+            throws SQLException, AuthorityRegistryException {
         Optional<HistoricalKey> found = find(c, kid);
         if (found.isEmpty()) {
             throw new AuthorityRegistryException(AuthorityRegistryException.NOT_FOUND, "no retired key " + kid);
         }
         if (found.get().revokedAt() != null) {
+            if (unrevokedOnly) {
+                throw stale(kid);
+            }
             return found.get();
         }
-        try (PreparedStatement ps = c.prepareStatement("UPDATE federation_key_history SET revoked_at = ?, reason = ? WHERE kid = ?")) {
+        // Only a key still unrevoked when read is revoked (plan item H-FED-3): of two revocations at once, the second to
+        // commit finds it revoked and changes nothing - its reason included.
+        try (PreparedStatement ps = c.prepareStatement("UPDATE federation_key_history SET revoked_at = ?, reason = ? WHERE kid = ?"
+                + " AND revoked_at IS NULL")) {
             ps.setTimestamp(1, Timestamp.from(revokedAt));
             ps.setString(2, reason);
             ps.setString(3, kid);
-            ps.executeUpdate();
+            if (ps.executeUpdate() != 1) {
+                throw stale(kid);
+            }
         }
         return find(c, kid).orElseThrow();
     }
@@ -126,6 +141,11 @@ public final class JdbcKeyHistoryStore implements KeyHistoryStore {
     @Override
     public List<HistoricalKey> retired() throws AuthorityRegistryException {
         return this.inTransaction("read the key history", c -> list(c, SELECT + " ORDER BY expires_at, kid"));
+    }
+
+    private static AuthorityRegistryException stale(String kid) {
+        return new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                "key " + kid + " was revoked while this revocation was being made; read it again");
     }
 
     private static Optional<HistoricalKey> find(Connection c, String kid) throws SQLException {

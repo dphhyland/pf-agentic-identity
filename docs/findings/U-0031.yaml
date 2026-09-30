@@ -2,12 +2,28 @@ id: U-0031
 title: 'OpenID Federation 1.0: the six passages the key designs rest on'
 area: openid-federation
 source: design
-status: open
+status: closed
 plan_items: [S6a, S7a, H-FED-8]
-prs: []
+prs: [88]
 recorded_in: the plan, To verify before relying on it, verbatim from the primary source, OIDF 1.0
-verify_by: Quote the section verbatim from the primary source before the code or the docs assert it.
-verification: ''
+verify_by: Nothing further is needed.
+verification: >
+  Fetched verbatim 2026-09-30 from https://openid.net/specs/openid-federation-1_0.html (Final, 17 February 2026).
+  §11.1: "The expiration time (exp) of an Entity Configuration is used to control how often it needs to be retrieved
+  to fetch an updated set of Federation Keys from its jwks member." §8.7: "Each Federation Entity MAY publish its
+  previously used Federation Entity Keys at the historical keys endpoint ... Note that an expired key can be later
+  additionally marked as revoked, to indicate a key compromise event discovered after the expiration of the key."
+  §8.4.2, status: "active" (the Trust Mark is active), "expired", "revoked", "invalid" ("Signature validation failed
+  or another error was detected"), and "Additional status values MAY be defined and used in addition to those
+  above." Where a Subordinate Statement's jwks comes from: §3.1.1 defines jwks as "A JSON Web Key Set (JWKS)
+  [RFC7517] representing the public part of the subject's Federation Entity signing keys"; the Final text does not
+  say how a superior learns its subordinate's keys (searched for "out of scope", "out-of-band" and "beyond the
+  scope" around the claim). §18.1: "Some of the interfaces defined in this specification could be used for
+  Denial-of-Service attacks (DoS), most notably, the resolve endpoint (Section 8.3), Explicit Client Registration
+  (Section 12.2), and Automatic Client Registration (Section 12.1) can be exploited as vectors of HTTP propagation
+  attacks." §3.1.1, after jwks: "These Federation Entity Keys SHOULD NOT be used in other protocols."
 notes: >
   Section 11.1 (rollover), 8.7, the 8.4.2 status values, where a Subordinate Statement's jwks comes from,
-  18.1, and the sentence that Federation Entity Keys SHOULD NOT serve other protocols.
+  18.1, and the sentence that Federation Entity Keys SHOULD NOT serve other protocols. Closed by HFEDL with the
+  passages for H-FED-8; S6a and S7a quote them from here. §8.4.2's "invalid" is a status this issuer's
+  TrustMarkIssuer never returns (it answers an unknown mark 404); that is S7a's to weigh, not a gap in the quotes.

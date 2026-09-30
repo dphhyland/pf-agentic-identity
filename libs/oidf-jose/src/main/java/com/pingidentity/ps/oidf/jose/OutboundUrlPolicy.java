@@ -2,6 +2,8 @@ package com.pingidentity.ps.oidf.jose;
 
 import com.pingidentity.ps.oidf.platform.http.AddressPolicy;
 import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import java.net.InetAddress;
 import java.net.URI;
 import java.net.URISyntaxException;
@@ -90,19 +92,47 @@ public final class OutboundUrlPolicy {
                 .build();
     }
 
+    /** The settings catalogue the fetch rules are in ({@code META-INF/oidf-settings/outbound-fetch.json}). */
+    public static final String CATALOGUE = "outbound-fetch";
+
     public static OutboundUrlPolicy fromEnvironment() {
-        return from(System::getenv);
+        return from(Sources.process());
     }
 
-    /** Test seam: build from a supplied environment lookup. */
+    /** Test seam: build from a supplied environment lookup, and no system properties. */
     public static OutboundUrlPolicy from(Function<String, String> env) {
         Objects.requireNonNull(env, "env");
+        return from(Sources.of(env, name -> null, null));
+    }
+
+    /** The fetch rules' settings, read from {@code sources}; the federation runtime reads {@link #ALLOW_HTTP_ENV} here too. */
+    public static Settings settings(Sources sources) {
+        return Settings.load(OutboundUrlPolicy.class.getClassLoader(), CATALOGUE).with(sources);
+    }
+
+    /**
+     * The policy {@code sources} give, each setting through its {@value #CATALOGUE} catalogue entry and parsed strictly
+     * (plan item ST-5): a switch that is not {@code true} or {@code false}, a body limit that is not a whole number of at
+     * least 1, or an allow-list of nothing is refused, naming the setting, where the reader before 0.6.0 read the switch
+     * as false and the limit as its default.
+     *
+     * @throws com.pingidentity.ps.oidf.platform.settings.SettingRefused for a value its entry refuses
+     */
+    public static OutboundUrlPolicy from(Sources sources) {
+        Settings settings = settings(sources);
+        java.util.Set<String> allowlist = settings.words(HOST_ALLOWLIST_ENV);
+        List<String> hosts = new ArrayList<>();
+        if (allowlist != null) {
+            for (String host : allowlist) {
+                hosts.add(host.toLowerCase(Locale.ROOT));
+            }
+        }
         return new OutboundUrlPolicy(
-                Boolean.parseBoolean(env.apply(ALLOW_HTTP_ENV)),
-                Boolean.parseBoolean(env.apply(ALLOW_PRIVATE_ENV)),
-                csv(env.apply(HOST_ALLOWLIST_ENV)),
+                settings.bool(ALLOW_HTTP_ENV),
+                settings.bool(ALLOW_PRIVATE_ENV),
+                hosts,
                 List.<String>of(),
-                parseLong(env.apply(MAX_BODY_ENV), DEFAULT_MAX_BODY_BYTES),
+                settings.longValue(MAX_BODY_ENV),
                 OutboundUrlPolicy::resolveAll);
     }
 
@@ -223,33 +253,6 @@ public final class OutboundUrlPolicy {
         }
         catch (UnknownHostException e) {
             throw new IllegalArgumentException("cannot resolve " + host, e);
-        }
-    }
-
-    private static List<String> csv(String value) {
-        if (value == null || value.isBlank()) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>();
-        for (String token : value.split(",")) {
-            String trimmed = token.trim().toLowerCase(Locale.ROOT);
-            if (!trimmed.isEmpty()) {
-                out.add(trimmed);
-            }
-        }
-        return out;
-    }
-
-    private static long parseLong(String value, long fallback) {
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        try {
-            long parsed = Long.parseLong(value.trim());
-            return parsed > 0 ? parsed : fallback;
-        }
-        catch (NumberFormatException e) {
-            return fallback;
         }
     }
 }

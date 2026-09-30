@@ -51,7 +51,7 @@ class FederationServiceListSubordinatesTest {
     void noHostedIdsFunctionConfiguredBehavesExactlyAsBeforeThisChange() throws Exception {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), List.of("https://static.example.com"), null, false, false,
+                List.of(ANCHOR), List.of("https://static.example.com"), false, false,
                 null, null, null, 0, "RS256", null);
         FederationService anchor = new FederationService(anchorConfig, anchorKeys);
 
@@ -63,7 +63,7 @@ class FederationServiceListSubordinatesTest {
             java.util.function.Function<String, List<String>> hostedSubordinateIds) throws Exception {
         SigningKeyProvider anchorKeys = testSigningKeys("anchor-key");
         FederationConfiguration anchorConfig = new FederationConfiguration(
-                List.of(ANCHOR), staticSubordinates, null, false, false, null, null, null, 0, "RS256", null);
+                List.of(ANCHOR), staticSubordinates, false, false, null, null, null, 0, "RS256", null);
         return new FederationService(anchorConfig, anchorKeys, null, null, hostedSubordinateIds);
     }
 

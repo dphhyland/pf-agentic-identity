@@ -38,6 +38,10 @@ import java.io.StringReader;
 import java.io.StringWriter;
 import java.util.Map;
 import org.jose4j.json.JsonUtil;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.profile.ProfileRefusals;
+import com.pingidentity.ps.oidf.platform.settings.ProfileAudit;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -55,11 +59,22 @@ class HostedEntityServletEnrolTest {
         this.events = EventCapture.install();
         AuthoritySupport.resetForTests();
         TrustMarkSupport.resetForTests();
+        // These tests configure an authority without a durable store, which the production profile refuses without the
+        // in-memory-state risk (PR-2): they run as a development deployment does.
+        // underProductionAnAuthorityInMemoryRefusesHosting covers production.
+        ProfileRefusals.resetForTests();
+        ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.DEVELOPMENT, java.util.List.of(), java.util.List.of()));
+    }
+
+    /** These init-params, this process's system properties, and a development environment. */
+    private static Sources developmentSources(Map<String, String> params) {
+        return Sources.of(Map.of("OIDF_DEPLOYMENT_PROFILE", "development")::get, System::getProperty, params::get);
     }
 
     @AfterEach
     void release() {
         this.events.close();
+        ProfileRefusals.resetForTests();
         AuthoritySupport.resetForTests();
         TrustMarkSupport.resetForTests();
         FederationRuntimeConfig.resetForTests();
@@ -235,7 +250,7 @@ class HostedEntityServletEnrolTest {
                 "{\"oauth_client\": {\"token_endpoint_auth_method\": {\"value\": \"private_key_jwt\"}}}")::get, name -> null));
         Map<String, String> params = Map.of("authorityEntityId", AUTHORITY, "jdbcUrl", "jdbc:nowhere:authority");
 
-        assertTrue(HostedEntityServlet.configureAuthority(params::get));
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(params)));
 
         assertTrue(AuthoritySupport.isHostingConfigured());
         assertTrue(AuthoritySupport.registry() instanceof JdbcHostedEntityRegistry);
@@ -247,14 +262,54 @@ class HostedEntityServletEnrolTest {
                 com.pingidentity.ps.oidf.authority.EntityStatus.ACTIVE, false, null, java.time.Instant.now(), null)), "the domain default is in force");
     }
 
+    /**
+     * A PingFederate data store is asked what its database is on one connection when the authority is configured (PR-2):
+     * one that cannot be reached is a dependency failure - the part is FAILED_DEPENDENCY and retried - and nothing is
+     * published. PingFederate's pool cannot be reached outside a running server.
+     */
     @Test
-    void aPingFederateDataStoreIsUsedWhenThereIsNoJdbcUrl() {
+    void aPingFederateDataStoreIsAskedWhatItIsWhenThereIsNoJdbcUrl() {
         Map<String, String> params = Map.of("authorityEntityId", AUTHORITY, "dataStoreId", "pf-store", "openBaoUrl", "https://bao.example",
                 "openBaoToken", "token");
 
-        assertTrue(HostedEntityServlet.configureAuthority(params::get));
+        IllegalStateException unreachable = assertThrows(IllegalStateException.class, () -> HostedEntityServlet.configureAuthority(params::get));
 
-        assertTrue(AuthoritySupport.registry() instanceof JdbcHostedEntityRegistry);
+        assertTrue(unreachable.getCause() instanceof java.sql.SQLException, String.valueOf(unreachable.getCause()));
+        assertFalse(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
+    }
+
+    /**
+     * PR-2 (Phase 3 plan, decisions 9 and 15): under production an authority with no store - its hosted entities and Trust
+     * Mark grants in memory - refuses HOSTING unless the in-memory-state risk is accepted, and nothing is published. The
+     * accepted risk's pass is ProfileRefusals.requireRisk's, tested in platform.
+     */
+    @Test
+    void underProductionAnAuthorityInMemoryRefusesHosting() {
+        ProfileRefusals.resetForTests();
+        ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.PRODUCTION, java.util.List.of(), java.util.List.of()));
+        Sources production = Sources.of(Map.of("OIDF_DEPLOYMENT_PROFILE", "production")::get, name -> null,
+                Map.of("authorityEntityId", AUTHORITY)::get);
+
+        com.pingidentity.ps.oidf.platform.settings.ProfileRefused refused = assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.ProfileRefused.class, () -> HostedEntityServlet.configureAuthorityFrom(production));
+
+        assertTrue(refused.getMessage().contains("the hosted-entity registry and its Trust Mark grants are in memory"), refused.getMessage());
+        assertTrue(refused.getMessage().contains("in-memory-state"), refused.getMessage());
+        assertEquals(java.util.List.of(com.pingidentity.ps.oidf.platform.health.Startup.HOSTING), refused.violation().components());
+        assertFalse(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.registryIfConfigured().isEmpty());
+        assertFalse(TrustMarkSupport.isConfigured());
+    }
+
+    /** The servlet's two OpenBao init-params, used together, name the vault; either alone leaves it to the environment. */
+    @Test
+    void theServletsOwnVaultIsUsedWhenBothInitParamsAreSet() {
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl",
+                "jdbc:nowhere:authority", "openBaoUrl", "http://127.0.0.1:1", "openBaoToken", "token"))));
+
+        assertTrue(AuthoritySupport.isHostingConfigured());
+        assertTrue(AuthoritySupport.hostedEntitySigner() instanceof com.pingidentity.ps.oidf.authority.RegistryHostedEntitySigner);
     }
 
     @Test
@@ -376,8 +431,8 @@ class HostedEntityServletEnrolTest {
     void aTrustMarkStoreAlreadyChosenIsKeptAndAHalfConfiguredVaultIsTheEnvironments() {
         com.pingidentity.ps.oidf.trustmark.TrustMarkRegistry chosen = TrustMarkSupport.registry();
 
-        assertTrue(HostedEntityServlet.configureAuthority(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl", "jdbc:nowhere:authority",
-                "openBaoUrl", "https://bao.example")::get));
+        assertTrue(HostedEntityServlet.configureAuthorityFrom(developmentSources(Map.of("authorityEntityId", AUTHORITY, "jdbcUrl",
+                "jdbc:nowhere:authority", "openBaoUrl", "https://bao.example"))));
 
         assertTrue(chosen == TrustMarkSupport.registry(), "the grants stay where they were first kept");
         assertTrue(AuthoritySupport.isHostingConfigured(), "a vault URL without its token leaves the signer to the environment");

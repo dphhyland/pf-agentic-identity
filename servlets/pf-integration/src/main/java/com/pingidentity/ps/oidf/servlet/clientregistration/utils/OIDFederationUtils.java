@@ -187,7 +187,7 @@ public final class OIDFederationUtils {
         List<String> trustChainList = extractTrustChainFromClientAssertion(request);
         long maxLeafNodeTime = longSetting(inParameters, "extproperties.trust_chain_leaf_max_time", -1L);
         long maxTrustAnchorNodeTime = longSetting(inParameters, "extproperties.trust_chain_trustanchor_max_time", -1L);
-        long maxTrustChainEntryAgeSeconds = longSetting(inParameters, "extproperties.trust_chain_request_max_age", 60L);
+        long maxTrustChainEntryAgeSeconds = trustChainRequestMaxAge(inParameters);
         if (registrationExpired(inParameters, rpEntityId)) {
             return false;
         }
@@ -284,6 +284,23 @@ public final class OIDFederationUtils {
      * when the client has no value for it, so a blank, {@code "null"} or non-numeric value falls back to
      * {@code fallback} with a warning naming the key - it never throws out of the criterion.
      */
+    /**
+     * The default of the per-client extended property {@code trust_chain_request_max_age}, in seconds: the catalogue
+     * entry's (client-properties.json), which {@code TrustChainRequestMaxAgeTest} holds this to. One default for every
+     * reader (F-0198): the OGNL chain criterion, the attestation criterion's attester chain and the token-endpoint
+     * filter's attester chain. The validator drops a presented statement older than this and fetches it again
+     * ({@code TrustChainValidator}'s presented index), so the limit costs a stale chain a fetch and never refuses one.
+     */
+    public static final long TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT = 60L;
+
+    /**
+     * The client's {@code trust_chain_request_max_age}, or {@link #TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT} when it has none
+     * (or one that is not a whole number, with a warning); -1 is no limit.
+     */
+    public static long trustChainRequestMaxAge(Map inParameters) {
+        return longSetting(inParameters, "extproperties.trust_chain_request_max_age", TRUST_CHAIN_REQUEST_MAX_AGE_DEFAULT);
+    }
+
     static long longSetting(Map inParameters, String key, long fallback) {
         if (!inParameters.containsKey(key)) {
             return fallback;

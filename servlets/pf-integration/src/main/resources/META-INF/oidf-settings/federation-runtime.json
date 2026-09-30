@@ -74,24 +74,6 @@
       "file": false
     },
     {
-      "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS",
-      "kind": "env",
-      "type": "bool",
-      "default": false,
-      "description": "Whether federation fetches skip certificate checks, for a test federation only; PDP calls always check",
-      "when_wrong": {"effect": "not-checked", "detail": "Anything but true, in any case, means false; the superseded name set to a different value stops PingFederate starting"},
-      "profile": "forbidden-in-production",
-      "security": true,
-      "sources": [
-        {"from": "system-property", "name": "oidf.federation.ignore.ssl.errors"},
-        {"from": "env", "name": "OIDF_FEDERATION_IGNORE_SSL_ERRORS"}
-      ],
-      "aliases": [
-        {"name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL", "sources": [{"from": "system-property", "name": "oidf.trust.controller.ignore.ssl"}, {"from": "env", "name": "OIDF_TRUST_CONTROLLER_IGNORE_SSL"}]}
-      ],
-      "file": false
-    },
-    {
       "name": "OIDF_ATTESTATION_REQUIRE_ATTESTER_BINDING",
       "kind": "env",
       "type": "bool",
@@ -678,7 +660,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The bearer token or shared secret OIDF_PDP_AUTH sends",
+      "description": "The bearer token or shared secret OIDF_PDP_AUTH sends, or read from the file OIDF_PDP_AUTH_TOKEN_FILE names",
       "when_wrong": {"effect": "per-request", "detail": "The PDP refuses every call, which counts as no decision"},
       "profile": "any",
       "security": true,
@@ -687,7 +669,7 @@
         {"from": "env", "name": "OIDF_PDP_AUTH_TOKEN"}
       ],
       "aliases": [],
-      "file": false
+      "file": true
     },
     {
       "name": "OIDF_PDP_AUTH_HEADER",
@@ -894,7 +876,7 @@
       "kind": "env",
       "type": "secret",
       "default": null,
-      "description": "The OpenBao token, for the vault backing",
+      "description": "The OpenBao token, for the vault backing, or read from the file OIDF_BRIDGE_VAULT_TOKEN_FILE names",
       "when_wrong": {"effect": "per-request", "detail": "Refused: token requests that need a bridge key fail (500)"},
       "profile": "any",
       "security": true,
@@ -903,7 +885,7 @@
         {"from": "env", "name": "OIDF_BRIDGE_VAULT_TOKEN"}
       ],
       "aliases": [],
-      "file": false
+      "file": true
     }
   ],
   "removed": [

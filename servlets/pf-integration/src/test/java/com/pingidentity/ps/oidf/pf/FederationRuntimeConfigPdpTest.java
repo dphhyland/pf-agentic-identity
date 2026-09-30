@@ -104,8 +104,8 @@ class FederationRuntimeConfigPdpTest {
 
     @Test
     void aPdpUrlHasAHost() {
-        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_URL_ENV, "https:///access")).contains("not a URL with a host"));
-        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_EVALUATION_URL_ENV, "https://pdp example/eval")).contains("not a URL with a host"));
+        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_URL_ENV, "https:///access")).contains("with a host"));
+        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_EVALUATION_URL_ENV, "https://pdp example/eval")).contains("with a host"));
     }
 
     @Test
@@ -113,9 +113,10 @@ class FederationRuntimeConfigPdpTest {
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_MODE_ENV, "remote")).contains("off, local, authzen"));
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_AUTH_ENV, "basic")).contains("none, bearer, header"));
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_UNKNOWN_CONTEXT_ENV, "warn")).contains("ignore, reject"));
-        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CACHE_TTL_ENV, "-1")).contains("positive"));
-        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CONNECT_TIMEOUT_ENV, "0")).contains("positive"));
-        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_REQUEST_TIMEOUT_ENV, "0")).contains("positive"));
+        // Held to the catalogue's range, naming the setting (plan item ST-5).
+        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CACHE_TTL_ENV, "-1")).contains(FederationRuntimeConfig.PDP_CACHE_TTL_ENV + " must be between 0"));
+        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CONNECT_TIMEOUT_ENV, "0")).contains(FederationRuntimeConfig.PDP_CONNECT_TIMEOUT_ENV + " must be between 1"));
+        assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_REQUEST_TIMEOUT_ENV, "0")).contains(FederationRuntimeConfig.PDP_REQUEST_TIMEOUT_ENV + " must be between 1"));
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_CACHE_TTL_ENV, "soon")).contains("whole number"));
         assertTrue(refusal(Map.of(FederationRuntimeConfig.PDP_DECISION_POINTS_ENV, "resolve")).contains("resolve"));
         assertEquals(Set.of(DecisionPoint.TOKEN_ISSUANCE), pdp(Map.of(FederationRuntimeConfig.PDP_DECISION_POINTS_ENV, "token_issuance"))

@@ -45,7 +45,7 @@ One of these happens, and each generated row says which, in bold, at the start o
 |---|---|
 | Trust anchors | [federation-runtime](../configuration/federation-runtime.md), [federation-entity](../configuration/federation-entity.md) (`OIDF_FEDERATION_TRUST_ANCHORS`) |
 | This entity | [federation-entity](../configuration/federation-entity.md), [federation-runtime](../configuration/federation-runtime.md) (`OIDF_FEDERATION_SUBORDINATE_CONSTRAINTS`) |
-| Fetching | [outbound-fetch](../configuration/outbound-fetch.md), [federation-runtime](../configuration/federation-runtime.md) (`OIDF_FEDERATION_IGNORE_SSL_ERRORS`), [federation-entity](../configuration/federation-entity.md) (the init-param `ignoreSslErrors`) |
+| Fetching | [outbound-fetch](../configuration/outbound-fetch.md), [federation-entity](../configuration/federation-entity.md) (`OIDF_FEDERATION_IGNORE_SSL_ERRORS`, one setting for every reader, and its init-param `ignoreSslErrors`) |
 | Registration and its lifetime | [federation-runtime](../configuration/federation-runtime.md), [registration](../configuration/registration.md) (the init-params of `/federation/register` and the registration filters) |
 | Trust Marks and key history | [federation-runtime](../configuration/federation-runtime.md) |
 | Hosted entities and the admin API | [hosted-entities](../configuration/hosted-entities.md), [hosted-entity-signing](../configuration/hosted-entity-signing.md) (OpenBao), [federation-runtime](../configuration/federation-runtime.md) (`OIDF_AUTHORITY_METADATA_POLICY`), [registration](../configuration/registration.md) (`OIDF_REGISTERED_CLIENTS_ENABLED`) |
@@ -69,8 +69,9 @@ What follows, part by part, is what the rows leave out.
   does PingFederate.
 - `OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL` is for a controller served under a context path, such as
   `https://pf.example/oidf`.
-- `OIDF_FEDERATION_TRUST_ANCHORS` is required, though its row's default reads "Unset": unset or blank, the
-  federation servlet doesn't start.
+- `OIDF_FEDERATION_TRUST_ANCHORS` is required, though its row's default reads "Unset": unset or blank, or with an
+  entry that is not an Entity Identifier, the federation servlet doesn't start. An issuer is matched to an anchor
+  with or without a trailing slash and whatever the case of its scheme and host.
 - The superseded `OIDF_TRUST_CONTROLLER_HOST`, `OIDF_TRUST_ANCHOR_JWKS` and `OIDF_TRUST_CONTROLLER_IGNORE_SSL` are
   compared with their new names as strings, so the same JSON written differently counts as different, and
   PingFederate doesn't start.
@@ -86,8 +87,9 @@ What follows, part by part, is what the rows leave out.
   `clientAttestationPopSigningAlgValuesSupported`, `dpopSigningAlgValuesSupported`,
   `clientAttestationPopMethodsSupported` and `attestationChallengeEndpointEnabled` default to the attestation
   profile's values.
-- Two init-params the federation servlet reads have no effect: `trustControllerHost` (the controller comes from
-  `OIDF_FEDERATION_TRUST_CONTROLLER_HOST`) and `clientAttestationFormatsSupported`.
+- The init-param `clientAttestationFormatsSupported` has no effect. `trustControllerHost` had none either (the
+  controller comes from `OIDF_FEDERATION_TRUST_CONTROLLER_HOST`) and was removed in 0.6.0: set, the federation servlet
+  doesn't start.
 
 ## Fetching
 

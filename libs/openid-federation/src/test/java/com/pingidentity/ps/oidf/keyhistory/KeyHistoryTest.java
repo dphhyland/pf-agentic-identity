@@ -86,6 +86,15 @@ class KeyHistoryTest {
         assertEquals("compromised", revoked.get("reason"));
         assertEquals("admin:1234abcd", this.events.only(FederationEvents.KEY_REVOKED).fields().get("actor"));
         assertEquals(List.of("k1"), history.retired().stream().map(HistoricalKey::kid).toList());
+
+        this.events.clear();
+        this.clock.advance(Duration.ofHours(1));
+        HistoricalKey again = history.revoke("k1", "superseded", "admin:5678abcd");
+        assertEquals("compromised", again.reason(), "revoking a revoked key changes nothing");
+        assertTrue(this.events.withCode(FederationEvents.KEY_REVOKED).isEmpty(), "and announces nothing");
+
+        history.observe(com.pingidentity.ps.oidf.federation.testkit.Keys.publicJwk(com.pingidentity.ps.oidf.federation.testkit.Keys.rsa("k3")));
+        assertEquals("superseded", history.revoke("k2", "superseded", "admin:5678abcd").reason(), "another retired key is revoked on its own");
     }
 
     @Test
@@ -109,6 +118,11 @@ class KeyHistoryTest {
 
             @Override
             public HistoricalKey revoke(String kid, Instant revokedAt, String reason) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason) {
                 throw new UnsupportedOperationException();
             }
 

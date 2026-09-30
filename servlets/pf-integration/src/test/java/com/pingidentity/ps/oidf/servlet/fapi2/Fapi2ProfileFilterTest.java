@@ -88,12 +88,27 @@ class Fapi2ProfileFilterTest {
     @Test
     void withNoClientNamedItPassesEverythingThrough() throws Exception {
         HttpServletRequest bad = tokenRequest(assertion(FAPI_CLIENT, TOKEN_ENDPOINT), RS256_PROOF);
-        for (String setting : new String[] { null, "", "  ", " , ,, " }) {
+        for (String setting : new String[] { null, "", "  " }) {
             FilterChain c = mock(FilterChain.class);
             filterFor(setting).doFilter(bad, response, c);
             verify(c).doFilter(bad, response);
         }
         verify(response, never()).setStatus(anyInt());
+    }
+
+    /**
+     * The list is read through its catalogue entry (plan item ST-5): the init-param, then the system property, then the
+     * environment variable, space- or comma-separated; a list of nothing (a comma alone) is refused, naming the setting,
+     * where the reader before 0.6.0 read it as nobody.
+     */
+    @Test
+    void theClientListIsReadInOrderAndAListOfNothingIsRefused() {
+        Fapi2ProfileFilter f = new Fapi2ProfileFilter(request -> ISSUER, name -> Fapi2ProfileFilter.CLIENTS_ENV.equals(name) ? "env-client" : null);
+        assertEquals(java.util.Set.of("from-init", "another"), f.clients(name -> "clients".equals(name) ? "from-init another" : null));
+        assertEquals(java.util.Set.of("env-client"), f.clients(name -> null));
+        Fapi2ProfileFilter nothing = new Fapi2ProfileFilter(request -> ISSUER, name -> Fapi2ProfileFilter.CLIENTS_ENV.equals(name) ? " , ,, " : null);
+        assertEquals(Fapi2ProfileFilter.CLIENTS_ENV, org.junit.jupiter.api.Assertions.assertThrows(
+                com.pingidentity.ps.oidf.platform.settings.SettingRefused.class, () -> nothing.clients(name -> null)).setting());
     }
 
     /**

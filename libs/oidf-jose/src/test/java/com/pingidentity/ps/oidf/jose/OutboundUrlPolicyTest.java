@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
 import java.net.InetAddress;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
@@ -163,9 +164,13 @@ class OutboundUrlPolicyTest {
     void bodyCapDefaultsAndIsOverridable() {
         assertEquals(OutboundUrlPolicy.DEFAULT_MAX_BODY_BYTES, strict().maxBodyBytes());
         assertEquals(4096L, policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, "4096"), Map.of()).maxBodyBytes());
-        assertEquals(OutboundUrlPolicy.DEFAULT_MAX_BODY_BYTES,
-                policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, "rubbish"), Map.of()).maxBodyBytes(),
-                "an unparseable cap must fall back to the default, never to unbounded");
+        // From 0.6.0 (plan item ST-5) a cap that is not a whole number of at least 1 is refused, naming it, where the reader
+        // before read it as the default: never unbounded either way.
+        for (String wrong : new String[] {"rubbish", "0", "-1", "9223372036854775808"}) {
+            SettingRefused refused = assertThrows(SettingRefused.class,
+                    () -> policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, wrong), Map.of()), wrong);
+            assertEquals(OutboundUrlPolicy.MAX_BODY_ENV, refused.setting());
+        }
     }
 
     @Test
@@ -176,14 +181,31 @@ class OutboundUrlPolicyTest {
     @Test
     void settingsThatSayNothingUsefulFallBack() {
         assertEquals(OutboundUrlPolicy.DEFAULT_MAX_BODY_BYTES,
-                policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, "0"), Map.of()).maxBodyBytes(), "zero is not a cap");
-        assertEquals(OutboundUrlPolicy.DEFAULT_MAX_BODY_BYTES,
                 policy(Map.of(OutboundUrlPolicy.MAX_BODY_ENV, "  "), Map.of()).maxBodyBytes());
-        OutboundUrlPolicy lists = policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, " , SPIRE.internal,, "),
+        OutboundUrlPolicy lists = policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, " , SPIRE.internal,, other.internal"),
                 Map.of("spire.internal", "10.0.0.9"));
         assertDoesNotThrow(() -> lists.check("https://spire.internal/x"), "empty entries are skipped, case is not kept");
         assertThrows(IllegalArgumentException.class, () -> policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, "   "),
                 Map.of("spire.internal", "10.0.0.9")).check("https://spire.internal/x"));
+    }
+
+    /** The two switches are strict from 0.6.0: anything but true or false is refused, naming the switch (plan item ST-5). */
+    @Test
+    void theSwitchesAreStrictAndALegacySpellingIsReadOnlyUnderDevelopment() {
+        for (String name : new String[] {OutboundUrlPolicy.ALLOW_HTTP_ENV, OutboundUrlPolicy.ALLOW_PRIVATE_ENV}) {
+            assertEquals(name, assertThrows(SettingRefused.class, () -> policy(Map.of(name, "yes"), Map.of())).setting());
+            // Under development yes is read as the reader before 0.6.0 read it, false, with a warning.
+            OutboundUrlPolicy development = policy(Map.of(name, "yes", "OIDF_DEPLOYMENT_PROFILE", "development"),
+                    Map.of("private.example", "10.0.0.1"));
+            assertThrows(IllegalArgumentException.class, () -> development.check("http://private.example/x"));
+            assertEquals(name, assertThrows(SettingRefused.class, () -> policy(Map.of(name, "maybe", "OIDF_DEPLOYMENT_PROFILE",
+                    "development"), Map.of())).setting());
+        }
+        assertThrows(SettingRefused.class, () -> policy(Map.of(OutboundUrlPolicy.HOST_ALLOWLIST_ENV, ","), Map.of()));
+        OutboundUrlPolicy open = OutboundUrlPolicy.from(com.pingidentity.ps.oidf.platform.settings.Sources.of(
+                Map.of(OutboundUrlPolicy.ALLOW_HTTP_ENV, "TRUE", OutboundUrlPolicy.ALLOW_PRIVATE_ENV, "true"), Map.of()))
+                .withResolver(host -> new InetAddress[] {InetAddress.getLoopbackAddress()});
+        assertDoesNotThrow(() -> open.check("http://anywhere.example/x"));
     }
 
     @Test

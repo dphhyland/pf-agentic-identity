@@ -4,16 +4,22 @@
 package com.pingidentity.ps.oidf.trustmark;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
+import com.pingidentity.ps.oidf.authority.HostedEntityConfigurationCache;
+import com.pingidentity.ps.oidf.federation.EntityId;
 import java.time.Clock;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 
-/** A {@link TrustMarkRegistry} for tests and a single-node demo: nothing survives a restart. */
+/**
+ * A {@link TrustMarkRegistry} for tests and a single-node demo: nothing survives a restart. Every change holds the lock
+ * from what it reads to what it writes, so two changes never interleave and the second reads the first's outcome.
+ */
 public final class InMemoryTrustMarkRegistry implements TrustMarkRegistry {
     private final Clock clock;
     private final Map<String, TrustMarkGrant> grants = new LinkedHashMap<>();
@@ -34,6 +40,7 @@ public final class InMemoryTrustMarkRegistry implements TrustMarkRegistry {
         this.grants.put(key(type, subject), granted);
         this.audit.add(new TrustMarkAuditEntry(type, subject, TrustMarkAuditEntry.GRANTED, notAfter == null ? null : "not_after=" + notAfter,
                 actor, now));
+        HostedEntityConfigurationCache.changed(subject);
         return granted;
     }
 
@@ -53,10 +60,31 @@ public final class InMemoryTrustMarkRegistry implements TrustMarkRegistry {
     }
 
     @Override
+    public synchronized List<TrustMarkGrant> standing(String type, String subject, Instant now) {
+        return this.grants.values().stream()
+                .filter(g -> g.type().equals(type) && g.activeAt(now) && (subject == null || EntityId.same(g.subject(), subject)))
+                .sorted(Comparator.comparing(TrustMarkGrant::subject)).toList();
+    }
+
+    @Override
     public synchronized TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException {
+        return this.revokeFrom(type, subject, null, reason, actor);
+    }
+
+    @Override
+    public synchronized TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
+        return this.revokeFrom(expected.type(), expected.subject(), expected, reason, actor);
+    }
+
+    private TrustMarkGrant revokeFrom(String type, String subject, TrustMarkGrant expected, String reason, String actor)
+            throws AuthorityRegistryException {
         TrustMarkGrant current = this.grants.get(key(type, subject));
         if (current == null) {
             throw new AuthorityRegistryException(AuthorityRegistryException.NOT_FOUND, "no grant of " + type + " to " + subject);
+        }
+        if (expected != null && !TrustMarkGrant.sameGrant(current, expected)) {
+            throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE,
+                    "the grant of " + type + " to " + subject + " changed while this change was being made; read it again");
         }
         if (current.status() == TrustMarkGrant.Status.REVOKED) {
             return current;
@@ -66,6 +94,7 @@ public final class InMemoryTrustMarkRegistry implements TrustMarkRegistry {
                 now, reason, actor);
         this.grants.put(key(type, subject), revoked);
         this.audit.add(new TrustMarkAuditEntry(type, subject, TrustMarkAuditEntry.REVOKED, reason, actor, now));
+        HostedEntityConfigurationCache.changed(subject);
         return revoked;
     }
 

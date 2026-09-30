@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
 import com.pingidentity.ps.oidf.testkit.Migrations;
 import com.pingidentity.ps.oidf.testkit.PostgresDatabase;
 import java.sql.Connection;
@@ -93,5 +94,23 @@ class JdbcKeyHistoryStoreTest extends KeyHistoryStoreContract {
         } finally {
             KeyHistorySupport.resetForTests();
         }
+    }
+
+    /** H-FED-3: two revocations whose transactions overlap - the second to commit is refused and changes nothing. */
+    @Test
+    void twoRevocationsThatOverlapOneIsRefusedAsStale() throws Exception {
+        KeyHistoryStore setup = this.newStore();
+        setup.rotateTo(K1, T0, T0.plusSeconds(60));
+        setup.rotateTo(K2, T1, T1.plusSeconds(60));
+        KeyHistoryStore racing = new JdbcKeyHistoryStore(Racing.meetingAt(this.dataSource, "UPDATE federation_key_history"));
+
+        List<Object> outcomes = Racing.together(() -> racing.revoke("k1", T1, "compromised"), () -> racing.revoke("k1", T2, "superseded"));
+
+        HistoricalKey winner = (HistoricalKey) outcomes.stream().filter(o -> o instanceof HistoricalKey).reduce((a, b) -> {
+            throw new AssertionError("both applied: " + outcomes);
+        }).orElseThrow();
+        assertEquals(AuthorityRegistryException.STALE_UPDATE, assertInstanceOf(AuthorityRegistryException.class,
+                outcomes.get(outcomes.indexOf(winner) == 0 ? 1 : 0)).reason());
+        assertEquals(List.of(winner), setup.retired(), "the stored revocation is the winner's, reason and time");
     }
 }

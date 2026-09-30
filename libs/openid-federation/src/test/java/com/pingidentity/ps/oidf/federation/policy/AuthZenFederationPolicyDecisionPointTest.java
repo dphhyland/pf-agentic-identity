@@ -174,6 +174,43 @@ class AuthZenFederationPolicyDecisionPointTest {
         assertEquals(List.of("https://pdp.example.com/.well-known/authzen-configuration/tenant1"), fetched, "the well-known path goes after the host");
     }
 
+    /** H-FED-9: a discovered endpoint is used for ten minutes at most, then the metadata is read again; a failed read is no decision. */
+    @Test
+    @Requirement("AUTHZEN-1.0 §9.2")
+    void theDiscoveredEndpointIsReadAgainOnceItsTimeIsUp() throws Exception {
+        List<String> answers = new ArrayList<>(List.of("v1", "v2"));
+        List<String> fetched = new ArrayList<>();
+        HttpGetClient metadata = (url, accept) -> {
+            fetched.add(url);
+            if (answers.isEmpty()) {
+                throw new java.io.IOException("down");
+            }
+            return "{\"policy_decision_point\": \"https://pdp.example.com\","
+                    + " \"access_evaluation_endpoint\": \"https://pdp.example.com/" + answers.remove(0) + "/evaluate\"}";
+        };
+        com.pingidentity.ps.oidf.federation.testkit.MutableClock clock = new com.pingidentity.ps.oidf.federation.testkit.MutableClock(
+                java.time.Instant.ofEpochSecond(1_800_000_000L));
+        AuthZenFederationPolicyDecisionPoint.Endpoint endpoint = AuthZenFederationPolicyDecisionPoint.discovered(metadata,
+                "https://pdp.example.com", AuthZenFederationPolicyDecisionPoint.DISCOVERY_TTL, clock);
+
+        assertEquals(URI.create("https://pdp.example.com/v1/evaluate"), endpoint.resolve());
+        clock.advance(java.time.Duration.ofMinutes(10).minusSeconds(1));
+        assertEquals(URI.create("https://pdp.example.com/v1/evaluate"), endpoint.resolve());
+        clock.advance(java.time.Duration.ofSeconds(1));
+        assertEquals(URI.create("https://pdp.example.com/v2/evaluate"), endpoint.resolve(), "ten minutes on, read again");
+        assertEquals(2, fetched.size());
+        clock.advance(java.time.Duration.ofMinutes(10));
+        assertThrows(PolicyDecisionException.class, endpoint::resolve, "an endpoint past its time is not used on an older read");
+        assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
+                java.time.Duration.ofMinutes(11), clock));
+        assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
+                java.time.Duration.ZERO, clock));
+        assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
+                java.time.Duration.ofSeconds(-1), clock));
+        assertThrows(IllegalArgumentException.class, () -> AuthZenFederationPolicyDecisionPoint.discovered(metadata, "https://pdp.example.com",
+                null, clock));
+    }
+
     @Test
     @Requirement("AUTHZEN-1.0 §9.2.3")
     void metadataThatNamesAnotherDecisionPointIsNotUsed() throws Exception {

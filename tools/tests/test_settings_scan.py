@@ -680,8 +680,10 @@ class RepositoryTest(unittest.TestCase):
         with redirect_stdout(out):
             self.assertEqual(0, scan.main(["--root", REPO, "--list"]))
         listed = out.getvalue()
-        for line in ("env OIDF_PDP_MODE  servlets/pf-integration/", "system-property oidf.pdp.mode  servlets/pf-integration/",
-                     "init-param trustAnchorIssuers  libs/openid-federation/", "extended-property status  servlets/pf-integration/",
+        # From 0.6.0 (ST5F) the federation readers read through platform.settings: a setting read, not a property's or
+        # an init-param's.
+        for line in ("env OIDF_PDP_MODE  servlets/pf-integration/", "setting OIDF_PDP_MODE  servlets/pf-integration/",
+                     "setting OIDF_FEDERATION_TRUST_ANCHORS  libs/openid-federation/", "extended-property status  servlets/pf-integration/",
                      "setting OIDF_REDIS_URL  libs/platform/", "setting REDIS_URL  libs/platform/",
                      "setting OIDF_SSF_SIGNING_ALGORITHM  servlets/ssf/", "setting OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM  servlets/ssf/"):
             self.assertIn(line, listed)

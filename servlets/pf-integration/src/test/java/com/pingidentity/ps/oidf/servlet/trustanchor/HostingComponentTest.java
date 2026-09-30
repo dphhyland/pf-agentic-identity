@@ -21,6 +21,8 @@ class HostingComponentTest {
 
     @Test
     void noAuthorityMeansHostingIsDisabledNotFailed() {
+        // A refusal in code another test made (an in-memory store under production) must not refuse this part.
+        com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.resetForTests();
         // A PingFederate that hosts nothing must not look failed, and so not ready; its init returns (S-9), at deploy.
         assertDoesNotThrow(() -> new HostedEntityServlet().init(mock(ServletConfig.class)));
         assertEquals(ComponentState.DISABLED, part("HostedEntityServlet").state());

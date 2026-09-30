@@ -202,6 +202,24 @@ class OpenIdFederationServletTest {
         assertEquals("resolve-response+jwt", JwtCodec.getJwtHeaders(exchange.body.toString()).get("typ"));
     }
 
+    /**
+     * H-FED-9: one caller is answered about at most the settings' number of distinct subjects a minute (30 unset); one more
+     * is 503 temporarily_unavailable with the seconds to wait. Each refused subject still counted: it cost a lookup.
+     */
+    @Test
+    @Requirement({"OIDFED §18.1(1)", "OIDFED §8.9(2.2.2.6)"})
+    void aCallerOverItsShareOfSubjectsIsToldWhenToAskAgain() throws Exception {
+        OpenIdFederationServlet servlet = servlet(false);
+        for (int i = 0; i < 30; i++) {
+            assertError(new Exchange(servlet, "/federation/resolve", Map.of("sub", new String[] {"https://s" + i + ".example"},
+                    "trust_anchor", new String[] {PF})), 404, "invalid_subject");
+        }
+        Exchange limited = new Exchange(servlet, "/federation/resolve", Map.of("sub", new String[] {HOSTED}, "trust_anchor", new String[] {PF}));
+
+        assertError(limited, 503, "temporarily_unavailable");
+        verify(limited.response).setHeader(org.mockito.ArgumentMatchers.eq("Retry-After"), org.mockito.ArgumentMatchers.matches("[1-9][0-9]*"));
+    }
+
     @Test
     @Requirement({"OIDFED §8.3.1(2.4)", "OIDFED §8.9(2.2.4.7)"})
     void resolveRefusalsAreJsonWithTheirStatus() throws Exception {

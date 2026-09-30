@@ -46,7 +46,7 @@ class FederationServiceClientAuthTest {
     }
 
     private static FederationConfiguration configuration(FederationConfiguration.ResolveDiscovery discovery) {
-        return new FederationConfiguration(List.of(PF), List.of(), null, false, false, null, null, null, 0, "RS256",
+        return new FederationConfiguration(List.of(PF), List.of(), false, false, null, null, null, 0, "RS256",
                 AttestationMetadataConfig.defaults(), null, null, FederationConfiguration.DEFAULT_CLIENT_REGISTRATION_TYPES, discovery);
     }
 
