@@ -4,7 +4,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.pingidentity.ps.oidf.federation.EntityId;
 import com.pingidentity.ps.oidf.federation.FederationException;
 import com.pingidentity.ps.oidf.federation.HttpTrustControllerGateway;
+import com.pingidentity.ps.oidf.federation.ResolutionBudget;
 import com.pingidentity.ps.oidf.federation.SubordinateStatementCache;
+import com.pingidentity.ps.oidf.federation.TrustChainValidationException;
 import com.pingidentity.ps.oidf.federation.TrustChainValidationResult;
 import com.pingidentity.ps.oidf.federation.TrustChainValidator;
 import com.pingidentity.ps.oidf.federation.TrustMarkValidator;
@@ -67,13 +69,24 @@ final class RegistrationService {
     private static final String OAUTH_CLIENT = "oauth_client";
     /** A registration renewed this recently is not renewed again for being due: its chain may simply be short-lived. */
     static final long RENEWAL_MIN_INTERVAL_SECONDS = 60L;
-    /** A failed attempt is not repeated with the same hint for this long: the request that triggers it is unauthenticated. */
+    /** A failed attempt is not repeated with the same chain for this long: the request that triggers it is unauthenticated. */
     static final long TRUST_FAILURE_BACKOFF_SECONDS = 60L;
     static final long TRANSPORT_FAILURE_BACKOFF_SECONDS = 15L;
     /** A chain that validated is used again for this long (or until it expires), so repeating a request repeats no fetch. */
     static final long RESOLUTION_REUSE_SECONDS = 60L;
-    private static final int ATTEMPT_MEMORY = 4096;
+    /**
+     * The attempts remembered, and the failures remembered across every client and chain: both are the caller's to
+     * choose, so the total is what bounds what an unauthenticated stranger can make this server hold.
+     */
+    static final int ATTEMPT_MEMORY = 4096;
     private static final int RESOLUTION_MEMORY = 1024;
+    /**
+     * How TrustMarkValidator's refusal of a mark ends when the budget, not the mark, stopped it: ResolutionBudget's
+     * requests or time ("... refusing to keep resolving"), the validator's search steps ("... refusing to keep
+     * searching"), or a status endpoint cut off by the deadline. Every other refusal ends in the validator's own words.
+     */
+    static final List<String> BUDGET_REFUSAL_ENDINGS = List.of("refusing to keep resolving", "refusing to keep searching",
+            "budget ran out of time");
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     static final Log LOGGER = LogFactory.getLog(RegistrationService.class);
 
@@ -89,12 +102,17 @@ final class RegistrationService {
     /** Whoever decides, beyond the federation's own checks, whether a registration goes ahead and what it may keep. */
     private final RegistrationPolicy policy;
     private final Channel tokenChannel = new TokenChannel();
-    /**
-     * Recent attempts: a failure under its client and hint, so a caller's bad chain never stands in for the client's
-     * own or for discovery, and a success under its client alone.
-     */
+    /** When each client last registered or renewed automatically. */
     private final Map<String, Attempt> recentAttempts = lru(ATTEMPT_MEMORY);
-    /** Chains that validated, under the same keys, with the RP keys resolved from them. */
+    /**
+     * Recent failures, under the client and the whole chain the attempt started from ({@link #chainKey}): a caller's
+     * bad chain never stands in for the client's own, for another chain or for discovery. One map of at most
+     * {@link #ATTEMPT_MEMORY} light records in all, however many clients and chains a stranger names - a flood evicts
+     * older failures, which costs each of them one fresh attempt through the coordinator, never more memory. A success
+     * clears the client's.
+     */
+    private final Map<FailureKey, Failure> recentFailures = lru(ATTEMPT_MEMORY);
+    /** Chains that validated, under their client and chain, with the RP keys resolved from them. */
     private final Map<String, Resolution> resolutions = lru(RESOLUTION_MEMORY);
 
     /** What the endpoint may do with a request naming a client. */
@@ -114,7 +132,25 @@ final class RegistrationService {
     }
 
     /** One registration attempt: when, and why it failed - null when it did not. */
-    private record Attempt(long at, RegistrationRejectedException failure) {
+    private record Attempt(long at) {
+    }
+
+    /** Where a failure is remembered: the client, and the key of the whole chain its attempt started from. */
+    private record FailureKey(String clientId, String chain) {
+    }
+
+    /**
+     * A remembered failure: when, and what to answer - not the exception, whose cause and stack trace would make each
+     * entry many times the size. It is answered with a new exception built from these.
+     */
+    private record Failure(long at, int status, String error, String description, RegistrationRejectedException.Kind kind) {
+        private static Failure of(long at, RegistrationRejectedException e) {
+            return new Failure(at, e.status(), e.error(), e.getMessage(), e.kind());
+        }
+
+        private RegistrationRejectedException rejection() {
+            return new RegistrationRejectedException(this.status, this.error, this.description, this.kind, null);
+        }
     }
 
     /** A chain that validated, and the keys resolved from it once they were needed. */
@@ -186,8 +222,14 @@ final class RegistrationService {
         this.policy = Objects.requireNonNull(policy, "policy");
     }
 
+    /**
+     * The bound on one component's registration work: the automatic-registration pool and lock wait (explicit
+     * registration is held to the same), each registration's budget from the {@code federation-resolution} settings -
+     * the ones the validator is built with - and the registration deadline.
+     */
     static RegistrationCoordinator coordinatorFor(AutoRegistrationSettings settings) {
-        return new RegistrationCoordinator(settings.maxConcurrentResolutions(), settings.lockWaitMillis());
+        return new RegistrationCoordinator(settings.maxConcurrentResolutions(), settings.lockWaitMillis(), ValidatorOptions.defaults(),
+                RegistrationCoordinator.configuredDeadline(), System::nanoTime);
     }
 
     RegistrationLifetime lifetime() {
@@ -201,17 +243,53 @@ final class RegistrationService {
      * metadata is what is registered, §12.2.2), then the client created or refreshed in place - which is how
      * "that registration MUST be invalidated" is met for a repeat request: the old one is replaced whole.
      *
+     * <p>The posted statement is self-signed, so nobody has authenticated the request, and it is bounded as automatic
+     * registration is: through the coordinator (one registration of the client at a time, so many at once, a budget
+     * that ends by the deadline), and not repeated with the same chain within its backoff - the failure is answered
+     * again without resolving anything. A success clears the client's remembered failures.
+     *
      * @return the registration and the signed {@code explicit-registration-response+jwt} for it (§12.2.3)
      */
     RegisteredClient explicitRegister(ExplicitRegistrationRequest request, String opIssuer) throws Exception {
         Objects.requireNonNull(request, "request");
+        String clientId = request.sub();
+        String chain = explicitChainKey(request);
+        RegistrationRejectedException recent = this.recentFailure(clientId, chain);
+        if (recent != null) {
+            throw recent;
+        }
+        RegisteredClient[] registered = new RegisteredClient[1];
+        this.coordinator.register(clientId, budget -> {
+            // Again under the lock: a request that waited for the same chain's attempt finds its failure here.
+            RegistrationRejectedException failed = this.recentFailure(clientId, chain);
+            if (failed != null) {
+                throw failed;
+            }
+            try {
+                registered[0] = this.explicitRegister(request, opIssuer, clientId, budget);
+            } catch (RegistrationRejectedException e) {
+                this.remember(clientId, chain, e);
+                throw e;
+            }
+            this.forgetFailures(clientId);
+        });
+        return registered[0];
+    }
+
+    /** The key of an explicit registration's chain: the posted statement, the chain it presents, and its peer chain. */
+    static String explicitChainKey(ExplicitRegistrationRequest request) {
+        return chainKey("explicit", request.presentedChain(), request.peerTrustChain());
+    }
+
+    private RegisteredClient explicitRegister(ExplicitRegistrationRequest request, String opIssuer, String clientId, ResolutionBudget budget)
+            throws Exception {
         TrustChainValidationResult validation = this.validate(ValidationRequest.forSubject(request.issuer())
                 .presentedChain(request.presentedChain())
                 .opIssuer(opIssuer)
                 .peerTrustChain(request.peerTrustChain())
                 .maxPresentedEntryAgeSeconds(this.configuration.trustChainEntryMaxAgeSeconds())
+                .budget(budget)
                 .build());
-        String clientId = request.sub();
         String trustAnchorIssuer = validation.trustAnchorIssuer();
         String rpSubject = validation.leafSubject();
         String entityType = clientEntityType(validation, RELYING_PARTY);
@@ -226,7 +304,7 @@ final class RegistrationService {
         // Deliberately after the 409: a client that is not ours to touch should be told so, rather than
         // told its chain lacks a policy - the first is the actionable answer and the more specific one.
         requireConstrainedByPolicy(validation, entityType, clientId);
-        PresentedMarks marks = new PresentedMarks(validation);
+        PresentedMarks marks = new PresentedMarks(validation, budget);
         this.requireTrustMarks(marks, FederationRuntimeConfig.get().requiredTrustMarks().requiredFor(entityType), entityType, clientId,
                 "registering it as " + entityType);
         NarrowingObligations obligations = this.policy.decide(DecisionPoint.EXPLICIT_REGISTRATION, clientId, opIssuer, "registration",
@@ -328,7 +406,7 @@ final class RegistrationService {
             return this.admitted(channel, existing, Admission.CURRENT);
         }
         List<String> renewFrom = predatesRegistration(presented, existing, clientId) ? List.of() : presented;
-        boolean known = this.recentFailure(clientId, renewFrom) != null;
+        boolean known = this.recentFailure(clientId, hintKey(renewFrom)) != null;
         try {
             this.register(renewFrom, clientId, opIssuer, existing, channel, due);
             return Admission.RENEWED;
@@ -364,12 +442,12 @@ final class RegistrationService {
     private void register(List<String> hint, String clientId, String opIssuer, Client existing, Channel channel, boolean discover)
             throws Exception {
         channel.precheck();
-        this.coordinator.register(clientId, () -> {
+        this.coordinator.register(clientId, budget -> {
             if (!sameRecord(this.clientStore.get(clientId), existing)) {
                 return;
             }
             if (!hint.isEmpty()) {
-                RegistrationRejectedException presented = this.attempt(hint, 0, clientId, opIssuer, existing, channel);
+                RegistrationRejectedException presented = this.attempt(hint, 0, clientId, opIssuer, existing, channel, budget);
                 if (presented == null) {
                     return;
                 }
@@ -377,7 +455,7 @@ final class RegistrationService {
                     throw presented;
                 }
             }
-            RegistrationRejectedException discovered = this.attempt(List.of(), -1, clientId, opIssuer, existing, channel);
+            RegistrationRejectedException discovered = this.attempt(List.of(), -1, clientId, opIssuer, existing, channel, budget);
             if (discovered != null) {
                 throw discovered;
             }
@@ -386,37 +464,39 @@ final class RegistrationService {
 
     /**
      * One attempt from {@code hint} (empty: discovery) with at most {@code maxFetches} fetches (-1: the validator's
-     * limit). Null when it registered; its failure otherwise, remembered when it concerns the client. A failure of
-     * the request itself - its proof - is thrown: no chain would change it.
+     * limit), spending from {@code budget}. Null when it registered; its failure otherwise, remembered when it concerns
+     * the client. A failure of the request itself - its proof - is thrown: no chain would change it.
      */
     private RegistrationRejectedException attempt(List<String> hint, int maxFetches, String clientId, String opIssuer, Client existing,
-                                                  Channel channel) throws Exception {
-        RegistrationRejectedException recent = this.recentFailure(clientId, hint);
+                                                  Channel channel, ResolutionBudget budget) throws Exception {
+        String chain = hintKey(hint);
+        RegistrationRejectedException recent = this.recentFailure(clientId, chain);
         if (recent != null) {
             return recent;
         }
         try {
-            this.registerFrom(hint, maxFetches, clientId, opIssuer, existing, channel);
+            this.registerFrom(hint, chain, maxFetches, clientId, opIssuer, existing, channel, budget);
         } catch (RegistrationRejectedException e) {
             if (!e.concernsTheClient()) {
                 throw e;
             }
-            this.recentAttempts.put(failureKey(clientId, hint), new Attempt(this.lifetime.now(), e));
+            this.remember(clientId, chain, e);
             return e;
         }
-        this.recentAttempts.put(renewalKey(clientId), new Attempt(this.lifetime.now(), null));
+        this.forgetFailures(clientId);
+        this.recentAttempts.put(renewalKey(clientId), new Attempt(this.lifetime.now()));
         return null;
     }
 
-    private void registerFrom(List<String> hint, int maxFetches, String clientId, String opIssuer, Client existing, Channel channel)
-            throws Exception {
-        Resolution resolution = this.resolution(clientId, hint, maxFetches, opIssuer);
+    private void registerFrom(List<String> hint, String chain, int maxFetches, String clientId, String opIssuer, Client existing,
+                              Channel channel, ResolutionBudget budget) throws Exception {
+        Resolution resolution = this.resolution(clientId, hint, chain, maxFetches, opIssuer, budget);
         TrustChainValidationResult validation = resolution.validation;
         String entityType = channel.entityType(validation);
         Map<String, Object> leafMetadata = federationClientMetadata(validation, entityType, clientId);
         requireRegistrationType(leafMetadata, clientId, "automatic");
         requireConstrainedByPolicy(validation, entityType, clientId);
-        PresentedMarks marks = new PresentedMarks(validation);
+        PresentedMarks marks = new PresentedMarks(validation, budget);
         this.requireTrustMarks(marks, FederationRuntimeConfig.get().requiredTrustMarks().requiredFor(entityType), entityType, clientId,
                 "registering it as " + entityType);
         NarrowingObligations obligations = this.policy.decide(DecisionPoint.AUTOMATIC_REGISTRATION, clientId, opIssuer, channel.endpoint(),
@@ -446,9 +526,10 @@ final class RegistrationService {
                 clientId, validation.trustAnchorIssuer(), "automatic", channel.endpoint(), entityType, expiresAt, existing, client);
     }
 
-    /** The chain for {@code clientId} from {@code hint}: one that validated moments ago, or validated now. */
-    private Resolution resolution(String clientId, List<String> hint, int maxFetches, String opIssuer) throws RegistrationRejectedException {
-        String key = failureKey(clientId, hint);
+    /** The chain for {@code clientId} from {@code hint}: one that validated moments ago, or validated now from {@code budget}. */
+    private Resolution resolution(String clientId, List<String> hint, String chain, int maxFetches, String opIssuer, ResolutionBudget budget)
+            throws RegistrationRejectedException {
+        String key = clientId + "\n" + chain;
         long now = this.lifetime.now();
         Resolution kept = this.resolutions.get(key);
         // No expiry check needed here: a registration from it still has to outlive RegistrationLifetime's minimum.
@@ -460,6 +541,7 @@ final class RegistrationService {
                 .opIssuer(opIssuer)
                 .maxPresentedEntryAgeSeconds(this.configuration.trustChainEntryMaxAgeSeconds())
                 .maxFetches(maxFetches)
+                .budget(budget)
                 .build());
         Resolution fresh = new Resolution(now, validation);
         this.resolutions.put(key, fresh);
@@ -517,43 +599,84 @@ final class RegistrationService {
         return renewal != null && this.lifetime.now() - renewal.at() < RENEWAL_MIN_INTERVAL_SECONDS;
     }
 
-    /** The failure of the same attempt - this client, this hint - within its backoff, or null. */
-    private RegistrationRejectedException recentFailure(String clientId, List<String> hint) {
-        String key = failureKey(clientId, hint);
-        Attempt attempt = this.recentAttempts.get(key);
-        if (attempt == null) {
+    /**
+     * The failure of the same attempt - this client, this whole chain - within its backoff, or null: the trust backoff
+     * for a chain that did not validate or a registration refused, the transport backoff for a federation that could
+     * not be reached or a budget that ran out.
+     */
+    private RegistrationRejectedException recentFailure(String clientId, String chain) {
+        FailureKey key = new FailureKey(clientId, chain);
+        Failure failure = this.recentFailures.get(key);
+        if (failure == null) {
             return null;
         }
-        long backoff = attempt.failure().isTransport() ? TRANSPORT_FAILURE_BACKOFF_SECONDS : TRUST_FAILURE_BACKOFF_SECONDS;
-        if (this.lifetime.now() - attempt.at() >= backoff) {
-            this.recentAttempts.remove(key);
+        long backoff = failure.kind() == RegistrationRejectedException.Kind.TRANSPORT
+                ? TRANSPORT_FAILURE_BACKOFF_SECONDS : TRUST_FAILURE_BACKOFF_SECONDS;
+        if (this.lifetime.now() - failure.at() >= backoff) {
+            this.recentFailures.remove(key);
             return null;
         }
-        return attempt.failure();
+        return failure.rejection();
+    }
+
+    /** Remembers {@code failure} of {@code clientId}'s attempt from {@code chain}, when it says something about the client. */
+    private void remember(String clientId, String chain, RegistrationRejectedException failure) {
+        if (failure.concernsTheClient()) {
+            this.recentFailures.put(new FailureKey(clientId, chain), Failure.of(this.lifetime.now(), failure));
+        }
+    }
+
+    /** Forgets every failure remembered for {@code clientId}: it has just registered. */
+    private void forgetFailures(String clientId) {
+        this.recentFailures.keySet().removeIf(key -> key.clientId().equals(clientId));
+    }
+
+    /** How many failures are remembered, across every client and chain. */
+    int rememberedFailures() {
+        return this.recentFailures.size();
     }
 
     private static String renewalKey(String clientId) {
         return "renewed\n" + clientId;
     }
 
-    /** A failure is keyed by the statement the attempt started from: another caller's chain is another attempt. */
-    private static String failureKey(String clientId, List<String> hint) {
-        return "failed\n" + clientId + "\n" + (hint.isEmpty() ? "" : sha256Hex(hint.get(0)));
+    /** The key of an automatic attempt's chain: the presented one, or discovery when none was. */
+    static String hintKey(List<String> hint) {
+        return hint.isEmpty() ? "discovery" : chainKey("presented", hint, List.of());
     }
 
-    private static String sha256Hex(String value) {
+    /**
+     * The SHA-256, in hex, of every statement of {@code chain} in order, then of {@code peerChain}, each preceded by its
+     * length and each list by its size, under {@code kind}: two attempts share a key only when they present the same
+     * statements in the same order. Keyed on the first statement alone, a caller who varied the rest of a chain would
+     * get a fresh resolution each time.
+     */
+    static String chainKey(String kind, List<String> chain, List<String> peerChain) {
+        java.security.MessageDigest digest = sha256();
+        digest.update((kind + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        for (List<String> part : List.of(chain, peerChain)) {
+            digest.update((part.size() + "\n").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            for (String statement : part) {
+                byte[] bytes = statement.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                digest.update((bytes.length + ":").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+                digest.update(bytes);
+            }
+        }
+        return java.util.HexFormat.of().formatHex(digest.digest());
+    }
+
+    private static java.security.MessageDigest sha256() {
         try {
-            byte[] digest = java.security.MessageDigest.getInstance("SHA-256").digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            return java.util.HexFormat.of().formatHex(digest);
+            return java.security.MessageDigest.getInstance("SHA-256");
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is unavailable", e);
         }
     }
 
-    private static <V> Map<String, V> lru(int capacity) {
+    private static <K, V> Map<K, V> lru(int capacity) {
         return java.util.Collections.synchronizedMap(new LinkedHashMap<>(16, 0.75f, true) {
             @Override
-            protected boolean removeEldestEntry(Map.Entry<String, V> eldest) {
+            protected boolean removeEldestEntry(Map.Entry<K, V> eldest) {
                 return this.size() > capacity;
             }
         });
@@ -795,14 +918,26 @@ final class RegistrationService {
 
     // ---- shared ------------------------------------------------------------------------------------------
 
+    /**
+     * Validates {@code request}'s chain. A resolution that ran out of its budget is a federation that could not be
+     * answered in time, not one that said no: {@link RegistrationRejectedException.Kind#TRANSPORT}, 503
+     * {@code temporarily_unavailable} (OpenID Federation 1.0 §8.9: "The HTTP response status code SHOULD be 503"),
+     * remembered for the transport backoff.
+     */
     private TrustChainValidationResult validate(ValidationRequest request) throws RegistrationRejectedException {
         try {
             return this.trustChainValidator.validate(request);
         } catch (FederationException e) {
-            FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure(e.error().code()).subject(request.subject())
+            RegistrationRejectedException refusal = e instanceof TrustChainValidationException t && t.kind() == TrustChainValidationException.Kind.BUDGET
+                    ? budgetSpent(e.description(), e) : RegistrationRejectedException.from(e);
+            FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure(refusal.error()).subject(request.subject())
                     .role("OP").audit().description(e.description()).emit();
-            throw RegistrationRejectedException.from(e);
+            throw refusal;
         }
+    }
+
+    private static RegistrationRejectedException budgetSpent(String description, Throwable cause) {
+        return new RegistrationRejectedException(503, "temporarily_unavailable", description, RegistrationRejectedException.Kind.TRANSPORT, cause);
     }
 
     /**
@@ -982,13 +1117,18 @@ final class RegistrationService {
                         + "=false to accept unconstrained federation metadata.", RegistrationRejectedException.Kind.POLICY, null);
     }
 
-    /** The Trust Marks an entity presents, validated at most once per registration, and only when something requires one. */
+    /**
+     * The Trust Marks an entity presents, validated at most once per registration, and only when something requires one,
+     * spending from the registration's budget.
+     */
     private final class PresentedMarks {
         private final TrustChainValidationResult validation;
+        private final ResolutionBudget budget;
         private TrustMarkValidator.Result result;
 
-        private PresentedMarks(TrustChainValidationResult validation) {
+        private PresentedMarks(TrustChainValidationResult validation, ResolutionBudget budget) {
             this.validation = validation;
+            this.budget = budget;
         }
 
         /** Each mark verified against the anchor its chain reached (§7.3) and, when the deployment checks status, active (§8.4). */
@@ -997,9 +1137,21 @@ final class RegistrationService {
                 FederationRuntimeConfig runtime = FederationRuntimeConfig.get();
                 this.result = new TrustMarkValidator(RegistrationService.this.trustChainValidator,
                         RegistrationService.this.configuration.acceptedSigningAlgorithms(), RegistrationService.this.lifetime.clock(),
-                        runtime.trustMarkStatusCheck() ? RegistrationService.this.trustMarkStatusClient : null).validate(this.validation);
+                        runtime.trustMarkStatusCheck() ? RegistrationService.this.trustMarkStatusClient : null).validate(this.validation, this.budget);
             }
             return this.result;
+        }
+
+        /**
+         * Whether a mark of a type in {@code missing} may have gone unchecked because the budget ran out, as against one
+         * checked and found wanting: the budget's time has passed (the registration has outlived its deadline, whatever
+         * the marks came to), or a missing type's mark was refused by the budget. Not from the requests the budget has
+         * left: a resolution can spend exactly its last request and still check every mark. The validator words a
+         * budget refusal in the budget's own text, which names no peer ({@link #BUDGET_REFUSAL_ENDINGS}).
+         */
+        boolean leftUnchecked(List<String> missing) {
+            return this.budget.expired() || this.validated().rejected().stream().anyMatch(rejected -> missing.contains(rejected.type())
+                    && BUDGET_REFUSAL_ENDINGS.stream().anyMatch(rejected.reason()::endsWith));
         }
 
         /** The types of the marks that verified, or null when none were checked. */
@@ -1024,6 +1176,12 @@ final class RegistrationService {
         List<String> missing = required.stream().filter(type -> !result.has(type)).toList();
         if (missing.isEmpty()) {
             return;
+        }
+        if (marks.leftUnchecked(missing)) {
+            // A mark the budget left unchecked is not a mark the entity lacks: the registration's time or requests ran out.
+            FederationEvents.event(FederationEvents.REGISTRATION_REFUSED).failure("temporarily_unavailable").subject(clientId).role("OP").audit()
+                    .field("entity_type", entityType).description("the resolution budget ran out before the Trust Marks were checked").emit();
+            throw budgetSpent("the Trust Marks " + missing + " could not be checked: the registration's resolution budget ran out", null);
         }
         StringBuilder why = new StringBuilder();
         for (TrustMarkValidator.Rejected rejected : result.rejected()) {

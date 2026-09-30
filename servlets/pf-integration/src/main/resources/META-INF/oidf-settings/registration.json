@@ -104,6 +104,60 @@
       ],
       "aliases": [],
       "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_MAX_BODY_BYTES",
+      "kind": "env",
+      "type": "int",
+      "default": 65536,
+      "min": 4096,
+      "max": 524288,
+      "description": "The largest request body POST /federation/register reads, in bytes (64 KiB by default, 4-512 KiB); a body declared or found larger is answered 413 with no more of it read",
+      "when_wrong": {
+        "effect": "first-request",
+        "detail": "Not a whole number from 4096 to 524288: refused, naming the setting, on the first explicit registration request, which is answered 500"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "system-property",
+          "name": "oidf.registration.max.body.bytes"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_REGISTRATION_MAX_BODY_BYTES"
+        }
+      ],
+      "aliases": [],
+      "file": false
+    },
+    {
+      "name": "OIDF_REGISTRATION_DEADLINE_SECONDS",
+      "kind": "env",
+      "type": "seconds",
+      "default": 25,
+      "min": 2,
+      "max": 300,
+      "description": "How long one registration - explicit, or automatic at the token, authorization or PAR endpoint - may take from asking to register: its wait for the client's lock plus its trust chain resolution, whose wall clock is OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS or what is left of this, whichever is shorter. Keep it under PingFederate's pf.runtime.http.idleTimeout (30000 ms by default) and any proxy's timeout; it must be longer than OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS",
+      "when_wrong": {
+        "effect": "doesnt-start",
+        "detail": "Not a whole number of seconds from 2 to 300, or not longer than OIDF_AUTO_REGISTRATION_LOCK_WAIT_MS: /federation/register and the automatic-registration filters do not start"
+      },
+      "profile": "any",
+      "security": true,
+      "sources": [
+        {
+          "from": "system-property",
+          "name": "oidf.registration.deadline.seconds"
+        },
+        {
+          "from": "env",
+          "name": "OIDF_REGISTRATION_DEADLINE_SECONDS"
+        }
+      ],
+      "aliases": [],
+      "file": false
     }
   ],
   "removed": []

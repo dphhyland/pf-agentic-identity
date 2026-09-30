@@ -1,0 +1,18 @@
+id: F-0316
+title: A registration's deadline does not cover its PDP decision, an RP's jwks_uri fetch or the client store writes
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [S-5]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  Recorded 2026-09-30 by package S5C. OIDF_REGISTRATION_DEADLINE_SECONDS (25 s) bounds the wait for the client's
+  lock and the resolution's budget - its chain, peer chain and Trust Marks. What runs after the resolution has its
+  own timeouts and is not charged to the budget: the AuthZEN PDP call (OIDF_PDP_REQUEST_TIMEOUT_MS, 3000 ms), the
+  front channel's fetch of an RP's jwks_uri or signed_jwks_uri (the outbound client's 15 s), and the client store's
+  reads and writes through PingFederate's management API. A registration can so answer up to about 18 s after its
+  deadline, past PingFederate's 30 s pf.runtime.http.idleTimeout with the defaults. Passing the registration's
+  Deadline to the PDP call and the RP key fetch would close it.

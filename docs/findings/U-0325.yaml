@@ -1,0 +1,22 @@
+id: U-0325
+title: That PingFederate's pf.runtime.http.idleTimeout is the deadline a registration request has to answer within
+area: pf-integration
+source: design
+status: open
+plan_items: [S5c]
+prs: []
+recorded_in: servlets/pf-integration/README.md, Configuration (Registration work limits); docs/releases/unreleased/S5C.md
+verify_by: >
+  On the rig, with OIDF_REGISTRATION_DEADLINE_SECONDS and OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS at 120 and a
+  federation peer that accepts and never answers, post an explicit registration whose chain needs that peer and time
+  when curl gets an answer or loses the connection, directly and through whatever proxy a deployment uses. An end
+  near 30 s means the idle timeout ends a request whose handler does no I/O and the 25 s default is right; an answer
+  near 120 s means it does not, and the deadline is bounded only by the caller's and the proxy's timeouts.
+verification: ''
+notes: >
+  S5C sized OIDF_REGISTRATION_DEADLINE_SECONDS (25 s) under the only request-lifetime setting PingFederate 13.1.3
+  has that we could find: pf.runtime.http.idleTimeout=30000 in bin/run.properties ("HTTP idle timeout in
+  milliseconds"), which etc/jetty-runtime.xml sets as the idleTimeout of each runtime connector (read from the image
+  on 2026-09-30). An idle timeout is Jetty 12.0.36's timeout on a connection with no I/O; whether it ends a request
+  whose servlet is busy resolving a chain, or only one waiting on a read or write, was not checked. Whichever it is,
+  a load balancer or the RP's own client usually gives up first, which is why the deadline is a setting.
