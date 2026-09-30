@@ -31,6 +31,19 @@ final class Fixtures {
     /** What the assembler inserts for it, after the filters. */
     static final String LIFECYCLE_LISTENER_BLOCK = "  <listener>\n    <listener-class>" + LIFECYCLE_LISTENER
             + "</listener-class>\n  </listener>\n";
+    /** ClientAttestationAuth's mapping as the shell assembler wrote it (golden/shell-assembler-additions.txt): token and PAR. */
+    static final String CLIENT_ATTESTATION_MAPPING_SHELL = "  <filter-mapping>\n    <filter-name>ClientAttestationAuth</filter-name>\n"
+            + "    <url-pattern>/as/token.oauth2</url-pattern>\n    <url-pattern>/as/par.oauth2</url-pattern>\n  </filter-mapping>\n";
+    /**
+     * ClientAttestationAuth's mapping as the shipped filters.xml declares it since plan item S4d (2026-09-30): every PF
+     * endpoint that authenticates a client, and the authorization endpoint. The golden comparisons swap it for the
+     * shell's and compare the rest, as they take F-2's listener out.
+     */
+    static final String CLIENT_ATTESTATION_MAPPING = "  <filter-mapping>\n    <filter-name>ClientAttestationAuth</filter-name>\n"
+            + "    <url-pattern>/as/token.oauth2</url-pattern>\n    <url-pattern>/as/par.oauth2</url-pattern>\n"
+            + "    <url-pattern>/as/bc-auth.ciba</url-pattern>\n    <url-pattern>/as/device_authz.oauth2</url-pattern>\n"
+            + "    <url-pattern>/as/introspect.oauth2</url-pattern>\n    <url-pattern>/as/revoke_token.oauth2</url-pattern>\n"
+            + "    <url-pattern>/as/authorization.oauth2</url-pattern>\n  </filter-mapping>\n";
     static final long TIME = 1_790_000_000_000L;
 
     record Run(int exit, String out, String err) {

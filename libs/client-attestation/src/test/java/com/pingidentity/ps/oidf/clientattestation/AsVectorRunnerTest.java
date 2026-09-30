@@ -98,6 +98,44 @@ class AsVectorRunnerTest {
         return asked.stream().map(c -> DynamicTest.dynamicTest(c.name(), () -> run(c)));
     }
 
+    /**
+     * The {@code authorize} cases under {@code INHERIT}, through the gate's {@code INHERIT} entry point - what the
+     * token-endpoint filter asks at PAR, CIBA, the device authorization endpoint and the token endpoint, and then
+     * forwards in place of the request's details (plan item S4d). The gate grants what the library grants, and
+     * refuses what it refuses with the library's reason; the grant is within the ceiling by the strict check.
+     */
+    @TestFactory
+    @Requirement({"CAS §7(1)", "CAS §7.1", "RFC9396 §5", "RFC9396 §6"})
+    Stream<DynamicTest> theInheritGateGrantsWhatTheLibraryGrants() {
+        List<Vectors.Case> inherit = Vectors.load().stream()
+                .filter(c -> c.op().equals("authorize") && c.mode() == com.pingidentity.ps.oidf.rar.model.Omission.INHERIT)
+                .toList();
+        assertTrue(inherit.size() >= 20, "the INHERIT cases were read: " + inherit.size());
+        return inherit.stream().map(c -> DynamicTest.dynamicTest(c.name(), () -> runInherit(c)));
+    }
+
+    private static void runInherit(Vectors.Case c) throws Exception {
+        RarModels models = c.models();
+        String request = JSON.writeValueAsString(c.list("candidate"));
+        Object ceiling = c.list("ceiling");
+        Answer answer = ask(models, request, ceiling, com.pingidentity.ps.oidf.rar.model.Omission.INHERIT);
+        RarModelException.Reason refusal = c.expectedRefusal();
+        if (refusal != null) {
+            assertEquals(refusal, answer.reason, "'" + c.name() + "': " + answer.error + ": " + answer.description);
+            String error = ceilingIsTheFault(models, request, ceiling)
+                    ? ClientAttestationException.INVALID_CLIENT : ClientAttestationException.INVALID_AUTHORIZATION_DETAILS;
+            assertEquals(error, answer.error, c.name());
+            if (refusal == RarModelException.Reason.EXCEEDS_CEILING) {
+                assertEquals(AuthorizationDetailsGate.EXCEEDS, answer.description, c.name());
+            }
+            return;
+        }
+        assertNull(answer.error, "'" + c.name() + "' was refused: " + answer.error + ": " + answer.description);
+        Object want = ((Map<?, ?>) c.expect()).get("granted");
+        assertEquals(Vectors.canonical(want), Vectors.canonical(answer.granted), c.name());
+        assertTrue(models.contains(RarModels.details(ceiling), answer.granted), "the grant is within the ceiling: " + c.name());
+    }
+
     /** Every divergence names a case that exists, so renaming one in the file cannot quietly drop the check. */
     @Test
     void everyDivergenceNamesACaseInTheFile() {
@@ -236,12 +274,17 @@ class AsVectorRunnerTest {
     }
 
     private static Answer ask(RarModels models, String request, Object ceiling) throws Exception {
+        return ask(models, request, ceiling, com.pingidentity.ps.oidf.rar.model.Omission.STRICT);
+    }
+
+    private static Answer ask(RarModels models, String request, Object ceiling, com.pingidentity.ps.oidf.rar.model.Omission omission)
+            throws Exception {
         ClientAttestationVerifier verifier = ClientAttestationVerifier.withRarModels(resolver,
                 ClientAttestationConfig.builder().expectedAudience(OP_ISSUER).expectedHtu(TOKEN_ENDPOINT).build(),
                 new InMemoryAttestationReplayCache(), null, models);
         try {
             ClientAttestationResult result = verifier.verify(attestation(ceiling), pop(), null, "POST",
-                    TOKEN_ENDPOINT, CLIENT_ID, request);
+                    TOKEN_ENDPOINT, CLIENT_ID, request, omission);
             assertEquals(models.fingerprint(), result.rarModelsFingerprint());
             return new Answer(result.grantedAuthorizationDetails(), null, null, null);
         } catch (ClientAttestationException e) {
