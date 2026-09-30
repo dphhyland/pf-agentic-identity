@@ -64,6 +64,13 @@ final class SsfComponents {
     /** The part the transmitter's servlets are gated by: {@code SsfConfigurationServlet}'s, once its init has run. */
     private static volatile ComponentParts.Part transmitterPart;
 
+    /**
+     * Whether the transmitter's settings name a receiver ({@code OIDF_SSF_RECEIVER_EXPECTED_ISSUER}), as its last start
+     * read them; null before it has read them. The receiver's part asks it when the transmitter is not up, so a
+     * deployment with no receiver has its receiver {@code DISABLED}, not failed or waiting with the transmitter.
+     */
+    private static volatile Boolean receiverWanted;
+
     private SsfComponents() {
     }
 
@@ -111,6 +118,7 @@ final class SsfComponents {
         if (SsfSupport.isConfigured()) {
             return; // a second init of the servlet, or a retry that raced a start: the state is published once
         }
+        receiverWanted = receiverWanted(settings);
         SsfConfiguration cfg;
         try {
             if (!SsfConfiguration.issuerSet(settings)) {
@@ -140,6 +148,21 @@ final class SsfComponents {
                 part.failedConfig(reason);
             }
         }
+    }
+
+    /** Whether {@code settings} name a receiver; a value that cannot be read counts as one, so it is not hidden. */
+    static boolean receiverWanted(Settings settings) {
+        try {
+            return settings.string(SsfConfiguration.RECEIVER_EXPECTED_ISSUER) != null;
+        } catch (RuntimeException e) {
+            return true;
+        }
+    }
+
+    /** Test hook: forget the part and what the last start read. */
+    static void resetForTests() {
+        transmitterPart = null;
+        receiverWanted = null;
     }
 
     /**
@@ -211,6 +234,11 @@ final class SsfComponents {
         if (!SsfSupport.isConfigured()) {
             Optional<ComponentStatus> transmitter = ssf.get();
             ComponentState state = transmitter.map(ComponentStatus::state).orElse(ComponentState.STARTING);
+            if (state != ComponentState.DISABLED && Boolean.FALSE.equals(receiverWanted)) {
+                // No receiver is configured: it is off whatever became of the transmitter (FAILED_CONFIG when switched on).
+                part.notConfigured(SsfConfiguration.RECEIVER_EXPECTED_ISSUER + " is not set");
+                return;
+            }
             switch (state) {
                 case DISABLED -> part.notConfigured("the SSF transmitter it runs inside is off");
                 case FAILED_CONFIG, REFUSED -> {

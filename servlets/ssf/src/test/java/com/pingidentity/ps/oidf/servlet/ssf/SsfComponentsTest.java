@@ -67,6 +67,7 @@ class SsfComponentsTest {
     void fresh() {
         SsfSupportTestAccess.reset();
         SsfHttp.resetForTests();
+        SsfComponents.resetForTests();
         ProfileRefusals.resetForTests();
         Supervisor supervisor = new Supervisor((delay, task) -> {
             this.waits.add(delay);
@@ -82,6 +83,7 @@ class SsfComponentsTest {
     void cleanUp() {
         SsfSupportTestAccess.reset();
         SsfHttp.resetForTests();
+        SsfComponents.resetForTests();
         ProfileRefusals.resetForTests();
     }
 
@@ -476,6 +478,29 @@ class SsfComponentsTest {
         assertEquals(ComponentState.READY, tx.status().state());
         retry(); // the receiver
         assertEquals(ComponentState.READY, rx.status().state());
+    }
+
+    /** Seen on the rig (2026-09-30): a transmitter down on its database took an unconfigured receiver down with it. */
+    @Test
+    void aReceiverNobodyConfiguredIsDisabledWhateverBecameOfTheTransmitter() {
+        profile(DeploymentProfile.DEVELOPMENT);
+        Map<String, String> env = new HashMap<>(ISSUER);
+        env.put("OIDF_SSF_DATA_STORE_ID", "pf-ds");
+        transmitter(env, context(DeploymentProfile.DEVELOPMENT, config -> {
+            throw new IllegalStateException(new SQLException("down"));
+        }));
+        assertEquals(ComponentState.DISABLED, receiver(ssf()).status().state(), "the transmitter failed on a dependency");
+
+        Map<String, String> bad = new HashMap<>(ISSUER);
+        bad.put("OIDF_SSF_SIGNING_ALGORITHM", "ES512");
+        SsfSupportTestAccess.reset();
+        transmitter(bad, development());
+        assertEquals(ComponentState.DISABLED, receiver(ssf()).status().state(), "the transmitter failed on its configuration");
+
+        this.switches.put(Startup.SSF_RECEIVER, ComponentSwitches.Kind.ENABLED);
+        ComponentParts.Part on = receiver(ssf());
+        assertEquals(ComponentState.FAILED_CONFIG, on.status().state(), "switched on with nothing to run");
+        assertEquals("OIDF_SSF_RECEIVER_ENABLED=true but OIDF_SSF_RECEIVER_EXPECTED_ISSUER is not set", on.status().reason());
     }
 
     @Test

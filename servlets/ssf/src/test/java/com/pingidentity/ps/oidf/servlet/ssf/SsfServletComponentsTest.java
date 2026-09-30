@@ -37,6 +37,7 @@ class SsfServletComponentsTest {
         System.clearProperty("oidf.ssf.issuer");
         SsfSupportTestAccess.reset();
         SsfHttp.resetForTests();
+        SsfComponents.resetForTests();
         ProfileRefusals.resetForTests();
         // The in-memory store these tests run on is refused under production without the risk; development warns.
         ProfileRefusals.publish(new ProfileAudit.Result(DeploymentProfile.DEVELOPMENT, List.of(), List.of()));
@@ -46,6 +47,7 @@ class SsfServletComponentsTest {
     void cleanUp() {
         SsfSupportTestAccess.reset();
         SsfHttp.resetForTests();
+        SsfComponents.resetForTests();
         ProfileRefusals.resetForTests();
     }
 

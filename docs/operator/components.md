@@ -30,9 +30,11 @@ saying so.
 and leaves `OIDF_HOSTING_ENABLED` unset has `HOSTING` `FAILED_CONFIG` in production, with the switch named; set
 `OIDF_HOSTING_ENABLED=false`.
 
-**The SSF switches are not applied yet.** `OIDF_SSF_ENABLED` and `OIDF_SSF_RECEIVER_ENABLED` are catalogued and
-parsed, but the SSF servlets start as their own settings say until ST-5 moves their start-up onto the component
-parts (Phase 3, wave 3); until then setting either changes nothing ([F-0271](../findings/F-0271.yaml)).
+The SSF switches apply as the others do from ST-5 (package ST5C): the transmitter and the receiver start through
+their parts ([servlets/ssf/README.md](../../servlets/ssf/README.md#start-up)), so `OIDF_SSF_ENABLED=false` disables SSF
+and its servlets answer 404, and `OIDF_SSF_RECEIVER_ENABLED=false` keeps the transmitter from building the receiver
+([F-0271](../findings/F-0271.yaml)). The receiver runs inside the transmitter: with SSF off, a receiver switched on
+is `FAILED_CONFIG`.
 
 ## How a switch is read
 
@@ -142,8 +144,9 @@ and `AttestationIssuanceServlet`. They are now `loadOnStartup = 1`. The alternat
 registers their parts at deploy while the servlets still start lazily - would split a part's registration from the
 start function the supervisor retries, and leave a window in which the part says `READY` for a servlet that has not
 started. Load-on-startup is safe now because their `init` never throws: before S9a, a load-on-startup servlet whose
-`init` threw took the whole war down (below). `SsfReceiverServlet` is the fifth lazy servlet; ST-5 moves it with the
-rest of the SSF start-up.
+`init` threw took the whole war down (below). `SsfReceiverServlet`, the fifth lazy servlet, moved with the rest of
+the SSF start-up (ST-5): it is `loadOnStartup = 2`, after `SsfConfigurationServlet`, whose transmitter builds the
+receiver.
 
 ## Verified on the rig
 
