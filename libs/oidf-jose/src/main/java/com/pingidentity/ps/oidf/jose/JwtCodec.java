@@ -92,10 +92,10 @@ public final class JwtCodec {
      * resolved set of issuer keys. Requires {@code iss}/{@code sub}/{@code exp} (as entity statements
      * and client attestations do) and applies a 60s clock skew. Audience is not validated here.
      *
-     * <p>The {@link VerificationPolicy} ({@link VerificationPolicy#legacy()} when null): when it requires {@code kid} the key is selected by an exact match before any verification is
-     * attempted (never by jose4j's key-type heuristics); when it requires {@code iat}, a missing or
-     * future {@code iat} is refused; when it names a {@code typ}, any other type is refused before the
-     * signature is looked at.
+     * <p>The {@link VerificationPolicy} ({@link VerificationPolicy#legacy()} when null): when it requires {@code kid}
+     * the key is selected by an exact match before any verification is attempted (never by jose4j's key-type
+     * heuristics); when it requires {@code iat}, a missing or future {@code iat} is refused; when it names a
+     * {@code typ}, any other type is refused before the signature is looked at.
      *
      * <p>Whatever the policy, the verifier chooses the algorithm and the key, never the token (RFC 8725 §3.1, §3.2):
      * {@code none} and the MAC algorithms are refused even when {@code acceptedAlgorithms} names them, and only an
