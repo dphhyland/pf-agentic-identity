@@ -4,6 +4,8 @@
 
 The settings of the `issuance-client-properties` component of `servlets/attestation-issuer`, read by package `com.pingidentity.ps.oidf.servlet.attestation`: generated from its catalogue, [issuance-client-properties.json](../../servlets/attestation-issuer/src/main/resources/META-INF/oidf-settings/issuance-client-properties.json), by `tools/config-reference.py`, and checked in CI. [How to read a row](README.md#reading-a-row).
 
+Under the production profile a violation by one of these settings refuses `ATTESTATION_ISSUER` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `attestation_issuer` (extended property) | Unset | The iss of the attestations minted for this client; a client without it is not an attestation client | **Per request**: Missing: the client is unknown to the attester. PingFederate drops an extended property it has not been told about (F-0041), so each is declared server-side | Any | Yes |

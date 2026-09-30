@@ -6,6 +6,8 @@ The settings of the `hosted-entity-signing` component of `libs/openid-federation
 
 Families: `OIDF_OPENBAO_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `HOSTING`, `ATTESTATION_ISSUER` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_OPENBAO_URL` (system property `oidf.openbao.url`, then env `OIDF_OPENBAO_URL`); superseded, still read: `OPENBAO_ADDR`; superseded, still read: `BAO_ADDR`; superseded, still read: `VAULT_ADDR` | Unset | OpenBao's address, for hosted agents' signing keys (one transit key each) and the attester's; unset, the first of OPENBAO_ADDR, BAO_ADDR and VAULT_ADDR that is set | **Per request**: Missing or wrong: a hosted agent's configuration answers 500 | Any | Yes |

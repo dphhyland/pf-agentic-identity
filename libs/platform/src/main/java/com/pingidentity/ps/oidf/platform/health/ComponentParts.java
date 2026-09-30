@@ -9,6 +9,7 @@ import com.pingidentity.ps.oidf.platform.component.ComponentStatus;
 import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
 import com.pingidentity.ps.oidf.platform.component.Supervisor;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
+import com.pingidentity.ps.oidf.platform.settings.ProfileRefused;
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.sql.SQLException;
@@ -215,13 +216,17 @@ public final class ComponentParts {
 
     /**
      * Moves a part. Nothing happens, and the answer is {@code false}, when the handle is from an earlier
-     * registration or the part is disabled.
+     * registration or the part is disabled, or when it is refused and the move is to anything but disabled or a
+     * failed configuration: a refusal by the production profile holds until the part registers again (PR-5), so a
+     * part whose {@code init} reports its own outcome outside {@link Part#start} - the SSF servlets until ST-5 - cannot
+     * report itself ready past it.
      */
     boolean move(String component, String part, long generation, ComponentState to, String reason, Probe probe) {
         synchronized (this) {
             // Never null: a handle exists only for a registered part, and nothing removes one.
             Entry e = this.components.get(component).get(part);
-            if (e.generation != generation || e.state == ComponentState.DISABLED) {
+            if (e.generation != generation || e.state == ComponentState.DISABLED || (e.state == ComponentState.REFUSED
+                    && to != ComponentState.DISABLED && to != ComponentState.FAILED_CONFIG)) {
                 return false;
             }
             String why = to.needsReason() ? clean(reason) : "";
@@ -284,7 +289,8 @@ public final class ComponentParts {
     }
 
     /**
-     * What an exception out of {@code init} says about the part: {@link ComponentState#FAILED_DEPENDENCY} when it,
+     * What an exception out of {@code init} says about the part: {@link ComponentState#REFUSED} when it, or one of its
+     * causes, is the production profile's {@link ProfileRefused} (PR-5); {@link ComponentState#FAILED_DEPENDENCY} when it,
      * or one of its causes, is an I/O, SQL or timeout failure, or a class that would not link (a jar missing where
      * it runs); {@link ComponentState#FAILED_CONFIG} for anything else - a setting refused, a key that does not
      * parse, a required value missing.
@@ -293,6 +299,9 @@ public final class ComponentParts {
         Set<Throwable> seen = java.util.Collections.newSetFromMap(new IdentityHashMap<>());
         Throwable t = thrown;
         while (t != null && seen.size() < MAX_CAUSES && seen.add(t)) {
+            if (t instanceof ProfileRefused) {
+                return ComponentState.REFUSED;
+            }
             if (t instanceof IOException || t instanceof UncheckedIOException || t instanceof SQLException
                     || t instanceof TimeoutException || t instanceof LinkageError) {
                 return ComponentState.FAILED_DEPENDENCY;
@@ -402,6 +411,12 @@ public final class ComponentParts {
                 LOG.warn("Component " + this.component + ": " + this.part + " not started - " + verdict.note());
                 this.failedConfig(verdict.note());
                 return this.status().state();
+            }
+            if (this.status().state() == ComponentState.REFUSED) {
+                // The production profile refused the component when the part registered (Startup.begin): its start
+                // function configures nothing, and the part stays refused until the deployment changes and it starts again.
+                LOG.warn("Component " + this.component + ": " + this.part + " not started - " + this.status().reason());
+                return ComponentState.REFUSED;
             }
             this.attempt(start);
             ComponentState now = this.status().state();

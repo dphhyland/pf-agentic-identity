@@ -6,6 +6,8 @@ The settings of the `federation-resolution` component of `libs/openid-federation
 
 Families: `OIDF_FEDERATION_RESOLUTION_`. A name under one of these that no catalogue declares is an unknown key.
 
+Under the production profile a violation by one of these settings refuses `FEDERATION`, `AUTO_REGISTRATION` ([components](../development/settings-catalogue.md#components)).
+
 | Setting | Default | What it does | When it's wrong | Profile | Security |
 |---|---|---|---|---|---|
 | `OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS` | `45`; seconds, 1 to 300 | How long one trust chain resolution may spend on the network, from when it starts: every fetch it causes, its peer chain and a Trust Mark validation's issuers and status calls included, ends by then; a resolution that runs out is refused as invalid_trust_chain | **First request**: Not a whole number of seconds from 1 to 300: refused, naming the setting, when a trust chain validator is built - at start-up for most, on the first request that needs one for the rest | Any | Yes |

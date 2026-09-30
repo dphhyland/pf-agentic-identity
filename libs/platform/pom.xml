@@ -258,6 +258,44 @@
                                         <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.refuseRemoved(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.read(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.Setting.pathOf(*</include>
+                                        <!-- settings (PR-5): the format's governed values and components, the sweep, legacy spellings, Preflight -->
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Governed.matches(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Governed.describe(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Governed.isScheme(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Governed.equals(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.componentsOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.refuseRemovedFields(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.components(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogue.Reader.governed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogues.onClassPath(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogues.listed(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogues.list(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Catalogues.add(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.evaluate(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.judge(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.presentButBlank(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.atRead(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.governedViolation(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.unreadable(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.unknown(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.undo(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.Result.refuses(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.ProfileAudit.Result.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.resolveRaw(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Setting.legacy(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Parsers.legacyBoolean(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.refuseAtRead(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Settings.legacySpellings(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Sources.environmentNames(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Removed.source(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.EntryKind.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.DefaultComponents.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Preflight.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Preflight.report(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Preflight.readEnvFile(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Preflight.unquote(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.settings.Preflight.systemProperties(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.Secret.toString(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.settings.Settings.of(*</include>
                                         <!-- profile (PR-1): add gate includes below this line -->
@@ -272,6 +310,17 @@
                                         <include>com.pingidentity.ps.oidf.platform.profile.ProfileGuard.forbidInProduction(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.profile.ProfileGuard.requireInProduction(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.profile.ProfileGuard.requireRisk(*</include>
+                                        <!-- profile (PR-5): the refusals, Startup's hook and the one component event -->
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.publish(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.current(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.reason(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refusing(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refuse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.requireRisk(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refuses(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.Startup.refuseIfRefused(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.changed(*</include>
                                         <!-- tls (PR-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.trustAnyCertificate(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.tls.InsecureTls.disableJdkHostnameVerification(*</include>

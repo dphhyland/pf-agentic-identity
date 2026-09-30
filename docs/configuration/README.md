@@ -20,7 +20,7 @@ written by hand is this page, outside its generated list.
 | Component | Module | Package | Settings |
 |---|---|---|---|
 | [components](components.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.component` | 9 |
-| [deployment-profile](deployment-profile.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.profile` | 2 |
+| [deployment-profile](deployment-profile.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.profile` | 3 |
 | [platform-redis](platform-redis.md) | `libs/platform` | `com.pingidentity.ps.oidf.platform.redis` | 9 |
 | [rar-models](rar-models.md) | `libs/rar-model` | `com.pingidentity.ps.oidf.rar.model` | 2 |
 | [outbound-fetch](outbound-fetch.md) | `libs/oidf-jose` | `com.pingidentity.ps.oidf.jose` | 4 |
@@ -79,8 +79,11 @@ The columns are the style guide's four ([style-guide.md](../development/style-gu
   - **Per request** - nothing at start-up; the requests that need it fail.
   - **Not checked** - nothing checks the value; the sentence says what a wrong one does instead.
 - **Profile** - how the setting stands with the deployment profile (`OIDF_DEPLOYMENT_PROFILE`): Any; Not in
-  production; Required in production; or In production only as an accepted risk, whose id names it. The catalogue
-  records it now; the start-up audit acts on it from plan item PR-5.
+  production; Required in production; or In production only as an accepted risk, whose id names it - followed, for
+  the two that act on values, by the values they act on (`true`, `log` or `disable`, a `redis://` URL, any value),
+  and by the components the setting refuses when they are not its page's. From 0.6.0 production enforces it: a
+  violation refuses the components named at the top of the page
+  ([deployment-profile.md](../operator/deployment-profile.md)).
 - **Security** - Yes when a wrong value weakens a security property: what is trusted, checked, refused or kept
   secret.
 

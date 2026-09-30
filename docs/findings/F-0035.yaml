@@ -3,10 +3,21 @@ title: 'idp-agentic-demo''s image turns off TLS hostname verification for the wh
 severity: high
 area: consumers
 source: design
-status: open
+status: closed
 plan_items: [PR-2]
-prs: []
-verification: ''
+prs: [77]
+verification: >
+  2026-09-30, PR #77 (package PR5): the production profile refuses the flag. It is catalogued in platform's
+  deployment-profile catalogue as a system property forbidden in production with any value, refusing every
+  component; the start-up sweep reads it before any init. On the rig in production profile (slot pfai-p3-pr5,
+  PingFederate 13.1.3.0 on java 21.0.12.1) with -Djdk.internal.httpclient.disableHostnameVerification=false in
+  JAVA_OPTS, server.log listed it at ERROR before the first component registered, and every component not switched
+  off was REFUSED except SSF, which reports its state outside the component start (F-0295). The JDK's own reading,
+  quoted from jdk.internal.net.http.common.Utils (openjdk/jdk21u master and the JDK 17 src.zip, read 2026-09-30):
+  "String prop = getProperty("jdk.internal.httpclient.disableHostnameVerification"); if (prop == null) return false;
+  return prop.isEmpty() ? true : Boolean.parseBoolean(prop);". The consumer's image still sets the flag: removing it
+  from idp-agentic-demo's pingfederate/Dockerfile and rar-paz/Dockerfile.fragment is an owner action named in the PR
+  and the release note, and until then that image cannot run production.
 target_release: 0.6.0
 notes: >
   Found while designing, item 6: `-Djdk.internal.httpclient.disableHostnameVerification=true` in that
