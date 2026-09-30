@@ -80,7 +80,10 @@
    is while the feature is on. Until 0.6.0 all three passed to PingFederate, which authenticated the client by
    whatever else it sent. Why: nothing verifies the attestation, or keeps the federation client's registration current and enforces
    its expiry, while the feature is off. What to change: switch the feature on for the clients that use it, or move
-   those clients to another authentication method. How to tell: the 401 body names the feature. No
+   those clients to another authentication method; clients made through explicit registration count as federation
+   clients, so a deployment that registers explicitly also needs `OIDF_AUTO_REGISTRATION_ENABLED=true`. With
+   attestation authentication off, every request that names a client still asks the client store for its
+   `attestation_required`, and answers 503 when the store cannot say. How to tell: the 401 body names the feature. No
    development-profile escape is needed: the rule is the same in both profiles.
 
 ## Notes

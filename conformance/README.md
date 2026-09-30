@@ -63,8 +63,8 @@ the SSF servlet validates receiver tokens with. Scopes are in `oauth-server.tf`;
 filters pass every token request to PF's own client authentication, which is what the FAPI, SSF and CIBA plans
 test, its endpoints answer 404, and ready ignores it. Before 0.6.0 the rig kept federation inert by naming PF
 itself trust anchor and trust controller with no pinned keys, because a module that could not start took
-`pf-runtime.war` down; from 0.6.0 that leaves both components enabled and failed, and ready answers 503
-([F-0192](../docs/findings/F-0192.yaml)). `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`, the old way to switch
+`pf-runtime.war` down; from 0.6.0 that leaves `AUTO_REGISTRATION` enabled and `FAILED_CONFIG` (no pinned
+keys) and `FEDERATION` `DEGRADED`, and ready answers 503 ([F-0192](../docs/findings/F-0192.yaml)). `OIDF_ATTESTATION_REQUIRE_BRIDGE_KEY=false`, the old way to switch
 attestation off, is a superseded name for the third switch.
 
 **The federation profile makes PF a trust anchor.** `PF_PROFILE=federation ./up.sh` adds

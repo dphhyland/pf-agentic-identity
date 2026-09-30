@@ -104,7 +104,7 @@ nothing. Otherwise:
 | Federation endpoints (`FEDERATION`: the Entity Configuration, fetch, list, resolve, Trust Mark and historical-keys endpoints, `/federation/register`; `HOSTING`: `/federation/agents/*`, `/federation/resources/*`; `OPERATOR_API`: `/federation/admin/*`) | 404 `{"error":"not_found",...}` | 503 `{"error":"temporarily_unavailable",...}` |
 | SSF (`SSF`, `SSF_RECEIVER`), the attester (`ATTESTATION_ISSUER`) and the challenge endpoints | 404, no body | 503 `{"error":"temporarily_unavailable",...}` |
 | Automatic registration filters (`AUTO_REGISTRATION`, over `/as/token.oauth2`, `/as/authorization.oauth2`, `/as/par.oauth2`) | a request naming a federation client: 401 `invalid_client`; every other request goes on to PingFederate | a request naming a federation client: 503; every other request goes on |
-| Attestation filter (`ATTESTATION_AUTH`, where it authenticates clients) | a request with `OAuth-Client-Attestation` or its PoP: 401 `invalid_client`; a client that authenticates only with an attestation: the filter's own 401; every other request goes on | attestation traffic: 503; such a client: 401; every other request goes on |
+| Attestation filter (`ATTESTATION_AUTH`, where it authenticates clients) | a request with `OAuth-Client-Attestation` or its PoP: 401 `invalid_client`; a client that authenticates only with an attestation: the filter's own 401; a client whose policy the client store cannot read: 503; every other request goes on | attestation traffic: 503; such a client: 401; a client whose policy cannot be read: 503; every other request goes on |
 | FAPI filter (`FAPI`) | every request goes on | a request from a client `OIDF_FAPI2_CLIENTS` names: 503; every other request goes on |
 | Logout filter (`SSF`, over `/idp/init_logout.openid`) | the logout goes on; nothing is emitted | the logout goes on; nothing is emitted |
 | OGNL criteria (`validateClientAttestation`, `attestationClaim`: `ATTESTATION_AUTH`; `validateTrustChain`, `federationPolicy`: `FEDERATION`) | `false` (`attestationClaim`: empty) | `false` (`attestationClaim`: empty) |
@@ -149,7 +149,12 @@ client's registration current or enforces its expiry, so its client may not auth
 6749 §5.2's "Client authentication failed (e.g., unknown client, no client authentication included, or unsupported
 authentication method)". A client that sends an attestation to a server with `attest_jwt_client_auth` off is told
 the same way - an unsupported authentication method - with the `WWW-Authenticate` §5.2 asks for when it used the
-`Authorization` header. A failed component answers 503: it may come back.
+`Authorization` header. A failed component answers 503: it may come back. This covers clients made through explicit
+registration too (`status` `registered`): expiry is enforced in the automatic registration filters, so a deployment
+that runs `FEDERATION` for explicit registration also needs `OIDF_AUTO_REGISTRATION_ENABLED=true` for those clients to
+authenticate. While attestation authentication is off or failed, the attestation filter still asks the client store
+for the `attestation_required` of each client a request without an attestation names, and answers 503 when the store
+cannot say.
 
 **The FAPI filter** decides FAPI's traffic from its client list, which it reads as its start does - the system
 property `oidf.fapi2.clients`, then `OIDF_FAPI2_CLIENTS` - so a failed FAPI closes only the clients it names and
