@@ -2,7 +2,9 @@
 #
 # The forms and rules are tools/direct-read-scan.py's (tools/direct-read-allow.txt has the summary):
 #   <module>: <why it is never shipped>               in the "not shipped" group only; admits every hit in the module
-#   <path> | <pattern> | <finding id, or why>         a hit in that file whose line contains the pattern
+#                                                     (the scan checks only that stage-modules.sh does not stage it: a
+#                                                     module shipped another way is kept out of this group by review)
+#   <path> | <pattern> | <finding id, or why>         a hit in that file whose line, comments removed, contains the pattern
 # CI runs the scan with --check-allow-list, so a line that admits nothing fails the build. A new client is a failure
 # until it calls through platform.http's OutboundHttp, or is admitted here with a finding or a reason a reviewer
 # accepts.

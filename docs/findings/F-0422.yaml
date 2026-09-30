@@ -18,5 +18,8 @@ notes: >
   OIDF_AUTHORITY_ADMIN_TOKEN, through staticBearer the same way. The production profile's sweep still evaluates
   OIDF_EVENTS_AUDIT's accepted-risk rule from the catalogue, and the operator authenticator never accepts the
   static bearer in production, so neither read skips a profile rule; what is skipped is the strict parse and the one reading of each
-  name. The fix is to read them through Settings over pf-audit and hosted-entities (platform-pf's settings package, or
-  platform.settings directly) and delete the three lines of tools/direct-read-allow.txt that name this finding.
+  name. The fix is to read the audit settings through Settings over platform-pf's own pf-audit catalogue. The static
+  bearer is catalogued only in pf-integration's hosted-entities.json, which platform-pf cannot rely on (gm-api's war
+  ships platform-pf without it), so its entry has to be declared in, or moved to, platform-pf's operator-auth
+  catalogue before OperatorAuthenticator reads it through Settings - or OperatorAuthenticator's callers hand it the
+  value they read. Then delete the three lines of tools/direct-read-allow.txt that name this finding.

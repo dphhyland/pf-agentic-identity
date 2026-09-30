@@ -108,6 +108,18 @@ class WhatIsARead(unittest.TestCase):
         self.assertEqual(whats("public String getInitParameter(String name) { return null; }"
                                " public java.util.Enumeration<String> getInitParameterNames() { return null; }"), [])
 
+    def test_a_call_after_a_lambda_or_switch_arrow_is_a_read(self):
+        # The '>' of an arrow is not the end of a generic return type.
+        self.assertEqual(whats("Function<String, String> g = n -> getInitParameter(n);"),
+                         ["getInitParameter reads an init-param"])
+        self.assertEqual(whats("Supplier<Object> g = () ->getInitParameterNames();"),
+                         ["getInitParameterNames takes every init-param"])
+        self.assertEqual(whats('Object a = switch (k) { case 1 -> getInitParameter("a"); default -> null; };'),
+                         ["getInitParameter reads an init-param"])
+        for imports in ("import static java.lang.System.getenv;\n", "import static java.lang.System.*;\n"):
+            self.assertEqual(whats(java("Function<String, String> g = n -> getenv(n);", imports=imports)),
+                             ["getenv (statically imported from System) reads the environment"])
+
     def test_a_return_of_a_call_is_a_read(self):
         self.assertEqual(len(whats('String a() { return getInitParameter("p"); }')), 1)
 
@@ -180,6 +192,17 @@ class TheReactor(unittest.TestCase):
         hits, _admitted, _problems, _u = tree.scan()
         self.assertEqual(hits, [])
 
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0, "root reads a file whatever its mode")
+    def test_an_unreadable_source_is_exit_2(self):
+        tree = Tree(self)
+        path = tree.source("libs/a", "A", "  int a = 1;")
+        full = os.path.join(tree.root, path)
+        os.chmod(full, 0)
+        self.addCleanup(os.chmod, full, 0o644)
+        status, _out, err = tree.run("--check-allow-list")
+        self.assertEqual(status, 2)
+        self.assertIn(f"{path}: cannot read", err)
+
     def test_a_new_module_is_held_at_once(self):
         tree = Tree(self)
         tree.source("services/c", "C", '  String a = System.getenv("X");')
@@ -197,6 +220,13 @@ class TheAllowList(unittest.TestCase):
         tree.allow(f'# group g\n{path} | System.getenv("X") | a JVM property the JDK defines\n')
         hits, admitted, problems, _u = tree.scan(check=True)
         self.assertEqual(([h.line for h in hits], admitted, problems), ([5], 1, []))
+
+    def test_a_pattern_in_a_comment_admits_nothing(self):
+        tree = Tree(self)
+        path = tree.source("libs/a", "A", '  String a = System.getenv("X"); // not ALLOWED_HERE')
+        tree.allow(f"# group g\n{path} | ALLOWED_HERE | why\n")
+        hits, admitted, _problems, _u = tree.scan()
+        self.assertEqual(([h.line for h in hits], admitted), ([4], 0))
 
     def test_whitespace_in_the_pattern_is_one_space(self):
         tree = Tree(self)

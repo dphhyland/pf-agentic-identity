@@ -27,12 +27,15 @@ The allow-list, tools/direct-read-allow.txt, has lines of two forms, each under 
 
   <module>: <why it is never shipped>                   in the group "not shipped" only: every hit in the module is
                                                         admitted. The module is in the reactor and is not one that
-                                                        build/pingfederate/stage-modules.sh stages
-  <path> | <pattern> | <finding id, or why>             in any other group: a hit in that file whose source line
-                                                        contains the pattern (whitespace runs count as one space) is
-                                                        admitted. A finding id (F-NNNN or U-NNNN) must name a file in
-                                                        docs/findings that is not closed: a read its finding fixed
-                                                        should have gone with it
+                                                        build/pingfederate/stage-modules.sh stages. That is the whole
+                                                        of the check: a module shipped another way (a plugin or war
+                                                        the release publishes, device-enrolment) is kept out of the
+                                                        group by review alone
+  <path> | <pattern> | <finding id, or why>             in any other group: a hit in that file whose source line,
+                                                        with its comments removed, contains the pattern (whitespace
+                                                        runs count as one space) is admitted. A finding id (F-NNNN or
+                                                        U-NNNN) must name a file in docs/findings that is not closed:
+                                                        a read its finding fixed should have gone with it
 
 A line the scan cannot parse, a path that is not a main source of a reactor module or that EXCLUDED covers already,
 a class line in a module the "not shipped" group admits, a finding id with no file or a closed one, and a line given
@@ -190,7 +193,12 @@ def is_declaration(bare, offset):
     """Whether the name at `offset` is declared there (`String getInitParameter(String name) {`), not called."""
     c, word = before(bare, offset)
     if c == ">":
-        return True
+        # The end of a generic return type (`Enumeration<String> getInitParameterNames()`), unless it is the arrow of
+        # a lambda or a switch rule (`n -> getInitParameter(n)`, `case 1 -> getenv("X")`), which calls it.
+        i = offset - 1
+        while bare[i] in " \t\r\n":
+            i -= 1
+        return not (i > 0 and bare[i - 1] == "-")
     return bool(word) and word not in KEYWORDS and not word[0].isdigit()
 
 
@@ -416,15 +424,18 @@ def scan(root, finder, exclusions, allow_rel, check_allow_list=False):
         found = finder(text)
         if not found:
             continue
-        _code, bare = strip_java(text)
+        code, bare = strip_java(text)
         source_lines = text.split("\n")
+        code_lines = code.split("\n")
         module = module_of(path, modules)
         for start, end, what in found:
             number = line_of(text, start)
             source_line = normalise(source_lines[number - 1])
+            # The pattern is matched against the line with its comments blanked, so a comment cannot admit a hit.
+            code_line = normalise(code_lines[number - 1])
             hit = Hit(path, number, what, snippet(text, bare, start, end), source_line)
             hit.module = module
-            admits = [line for line in by_path.get(path, []) if line.pattern in source_line]
+            admits = [line for line in by_path.get(path, []) if line.pattern in code_line]
             if module in exempt:
                 exempt[module].admitted += 1
                 admitted += 1

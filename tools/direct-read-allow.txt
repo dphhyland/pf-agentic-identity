@@ -2,7 +2,9 @@
 #
 # Two forms, each under a `# group <name>` line (the scan's docstring has the rules):
 #   <module>: <why it is never shipped>               in the "not shipped" group only; admits every hit in the module
-#   <path> | <pattern> | <finding id, or why>         a hit in that file whose line contains the pattern
+#                                                     (the scan checks only that stage-modules.sh does not stage it: a
+#                                                     module shipped another way is kept out of this group by review)
+#   <path> | <pattern> | <finding id, or why>         a hit in that file whose line, comments removed, contains the pattern
 # CI runs the scan with --check-allow-list, so a line that admits nothing fails the build: when you convert a read,
 # delete its line; when a finding here closes, its lines go with it (the scan refuses a closed finding's id).
 # A new direct read is a failure until it is converted - read it through platform.settings - or admitted here with
