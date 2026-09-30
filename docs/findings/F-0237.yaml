@@ -3,10 +3,16 @@ title: A wrong SSF setting turns the transmitter off at INFO, often without nami
 severity: medium
 area: ssf
 source: design
-status: open
+status: closed
 plan_items: [ST-5]
-prs: [63]
-verification: ''
+prs: [63, 82]
+verification: >
+  2026-09-30, package ST5C. Every SSF setting is read through its catalogue entry: the seven switches are true or
+  false (the development profile reads a legacy spelling as false with a WARN; production refuses it), the numbers
+  refuse anything but a whole number naming the setting, and a wrong value makes SSF FAILED_CONFIG with an ERROR naming
+  the setting (SsfSettingsTest.everyRefusalNamesItsSetting, theSwitchesAreStrictInProductionAndLegacyLenientInDevelopment).
+  On the rig (slot 3, development profile, 2026-09-30) OIDF_SSF_VERIFICATION_EVENT_ENABLED=yes was read as false with
+  the legacy WARN and listed under "legacy values" in the start-up banner; SSF READY.
 target_release: 0.6.0
 notes: >
   Found by ST3C (2026-09-28) while recording what a wrong value does. SsfHttp.bootstrap catches every

@@ -429,6 +429,7 @@ class BothWaysTest(unittest.TestCase):
                                                    {"from": "system-property", "name": "oidf.ssf.issuer"},
                                                    {"from": "env", "name": "OIDF_SSF_ISSUER"}])
         store = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "init-param", "name": "dataStoreId"},
+                                                         {"from": "system-property", "name": "oidf.ssf.dataStoreId"},
                                                          {"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
         self.assertEqual([], Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [issuer, store])]).problems())
 
@@ -443,14 +444,18 @@ class BothWaysTest(unittest.TestCase):
         self.assertTrue(any("no catalogue entry of servlets/ssf" in p for p in problems), problems)
         self.assertTrue(any("system-property oidf.ssf.issuer is read but no catalogue declares it" in p for p in problems), problems)
 
-    def test_a_computed_name_a_catalogue_cannot_name_is_declared_only_by_a_matching_entry(self):
+    def test_an_entry_that_leaves_out_a_camel_case_property_no_longer_matches(self):
+        """F-0235's tolerance went with ST5C: every oidf.ssf.<camelCase> property is catalogued, so none may be left out."""
         reads = {"x/A.java": java(SSF_PARAM + 'void f(javax.servlet.ServletConfig c) { param(c, "dataStoreId"); }')}
-        wrong = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
-        problems = Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [wrong])]).problems()
+        without = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "init-param", "name": "dataStoreId"},
+                                                           {"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
+        problems = Tree(self).module("servlets/ssf", reads, [catalogue("ssf", "servlets/ssf", "x", [without])]).problems()
         text = "\n".join(problems)
-        self.assertIn("(with or without oidf.ssf.dataStoreId, which F-0235 leaves uncatalogued until ST5C)", text)
+        self.assertIn('param("dataStoreId") reads init-param dataStoreId, system-property oidf.ssf.dataStoreId, env'
+                      ' OIDF_SSF_DATA_STORE_ID, in that order, and no catalogue entry of servlets/ssf has exactly those'
+                      ' sources in that order', text)
+        self.assertNotIn("F-0235", text)
         self.assertIn("system-property oidf.ssf.dataStoreId is read but no catalogue declares it", text)
-        self.assertIn("init-param dataStoreId is read but no catalogue declares it", text)
 
         elsewhere = entry("OIDF_SSF_DATA_STORE_ID", sources=[{"from": "init-param", "name": "dataStoreId"},
                                                              {"from": "env", "name": "OIDF_SSF_DATA_STORE_ID"}])
@@ -678,8 +683,7 @@ class RepositoryTest(unittest.TestCase):
         for line in ("env OIDF_PDP_MODE  servlets/pf-integration/", "system-property oidf.pdp.mode  servlets/pf-integration/",
                      "init-param trustAnchorIssuers  libs/openid-federation/", "extended-property status  servlets/pf-integration/",
                      "setting OIDF_REDIS_URL  libs/platform/", "setting REDIS_URL  libs/platform/",
-                     "init-param signingAlgorithm  servlets/ssf/", "system-property oidf.ssf.signingAlgorithm  servlets/ssf/",
-                     "env OIDF_SSF_SIGNING_ALGORITHM  servlets/ssf/"):
+                     "setting OIDF_SSF_SIGNING_ALGORITHM  servlets/ssf/", "setting OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM  servlets/ssf/"):
             self.assertIn(line, listed)
 
 

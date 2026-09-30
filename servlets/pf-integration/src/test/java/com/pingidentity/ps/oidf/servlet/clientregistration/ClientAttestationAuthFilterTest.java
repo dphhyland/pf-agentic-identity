@@ -865,8 +865,10 @@ class ClientAttestationAuthFilterTest {
 
     @Test
     void theVerifiedAgentRidesInEveryEntryAndAClientCannotPlantItsOwn() throws Exception {
-        String marked = ClientAttestationAuthFilter.markAgent(
-                "[{\"type\":\"a\",\"_agent_id\":\"forged\"},{\"type\":\"b\",\"purpose\":\"p\"}]", "agent-7");
+        java.util.List<Map<String, Object>> granted = java.util.List.of(
+                new java.util.LinkedHashMap<>(Map.of("type", "a", "_agent_id", "forged")),
+                new java.util.LinkedHashMap<>(Map.of("type", "b", "purpose", "p")));
+        String marked = GrantedDetails.forwarded(granted, java.util.List.of(), "agent-7");
         java.util.List<Map<String, Object>> parsed = entries(marked);
         assertEquals("agent-7", parsed.get(0).get(ClientAttestationAuthFilter.AGENT_MARKER));
         assertEquals("agent-7", parsed.get(1).get(ClientAttestationAuthFilter.AGENT_MARKER));
@@ -874,12 +876,11 @@ class ClientAttestationAuthFilterTest {
     }
 
     @Test
-    void anUnverifiedAgentCarriesNoMarkerAndNonsenseIsLeftForPingFederateToRefuse() throws Exception {
-        assertTrue(!entries(ClientAttestationAuthFilter.markAgent("[{\"type\":\"a\",\"_agent_id\":\"forged\"}]", null))
-                .get(0).containsKey(ClientAttestationAuthFilter.AGENT_MARKER));
-        assertEquals("[not json", ClientAttestationAuthFilter.markAgent("[not json", "agent-7"));
-        assertEquals("{\"type\":\"a\"}", ClientAttestationAuthFilter.markAgent("{\"type\":\"a\"}", "agent-7"));
-        assertEquals("[\"x\"]", ClientAttestationAuthFilter.markAgent("[\"x\"]", "agent-7"));
+    void anUnverifiedAgentCarriesNoMarkerAndNothingGrantedForwardsNothing() throws Exception {
+        assertTrue(!entries(GrantedDetails.forwarded(java.util.List.of(new java.util.LinkedHashMap<>(Map.of("type", "a",
+                "_agent_id", "forged"))), java.util.List.of(), null)).get(0).containsKey(ClientAttestationAuthFilter.AGENT_MARKER));
+        assertEquals(null, GrantedDetails.forwarded(java.util.List.of(), java.util.List.of(), "agent-7"));
+        assertEquals(null, GrantedDetails.forwarded(null, java.util.List.of(), "agent-7"));
     }
 
     // ---- S3a: the status a verification failure answers with -----------------------------------------

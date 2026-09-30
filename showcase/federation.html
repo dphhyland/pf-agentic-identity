@@ -246,7 +246,7 @@ OIDF_FEDERATION_SELF_ANCHOR=https://pf.example.com</code></pre>
   <h2>Arriving with a chain</h2>
   <div class="grid">
     <div class="card"><h3>Agents, at the token endpoint</h3><p>An agent asks for a token with a signed client assertion that can carry its chain. PingFederate checks the chain, registers the agent, and lets the same request through to authenticate it as normal.</p>
-      <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/TokenEndpointAutoRegistrationFilter.java" data-lines="160-207">TokenEndpointAutoRegistrationFilter.java:160-207</a></div>
+      <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/TokenEndpointAutoRegistrationFilter.java" data-lines="164-211">TokenEndpointAutoRegistrationFilter.java:164-211</a></div>
     <div class="card"><h3>Relying parties, at sign-in</h3><p>A relying party sends a signed request to the authorization or PAR endpoint. The signature proves it holds its keys; PingFederate checks the request's claims before it fetches anything, then the chain, then registers it.</p>
       <a class="src" href="../servlets/pf-integration/src/main/java/com/pingidentity/ps/oidf/servlet/clientregistration/FrontChannelAutoRegistrationFilter.java" data-lines="143-191">FrontChannelAutoRegistrationFilter.java:143-191</a></div>
     <div class="card"><h3>And every time after</h3><p>A relying party proves itself on every request, not just the first: each one signed with a key it registered, with an identifier it hasn't used before. A request PingFederate can't trust gets an error page - never a redirect to an address it can't vouch for.</p>

@@ -1,0 +1,20 @@
+id: F-0336
+title: The attester has no event for a client whose attestation configuration is refused
+severity: low
+area: attestation-issuer
+source: design
+status: open
+plan_items: [O-2]
+prs: [80]
+verification: ''
+target_release: 0.6.0
+notes: >
+  Found by ST5A (2026-09-30). A client's attestation_* extended property that its issuance-client-properties
+  catalogue entry refuses is that client's invalid_client, whose message names the property and never the value, and
+  PfIssuanceClientResolver skips the client with a WARN in server.log; ST5A's spec asked for the property to be named
+  in an event rather than in the response, but the attester's event catalogue (servlets/attestation-issuer,
+  attestation-issuer.json) has only attestation.evidence.conflict, and the issuance request path is HATT2's (wave 5).
+  An event such as attestation.issuer.client_refused (the client, the property, the reason; never the value), audited,
+  would let an operator see a misconfigured client before its workloads fail, as pf-integration's
+  attestation.policy.invalid does for the token endpoint (S4C). Whether the response should stop naming the property
+  is the same package's call: the property is the client's own configuration and carries no value.

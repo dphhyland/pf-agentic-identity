@@ -27,7 +27,7 @@ class DeclarationTest {
     private static final String B = "<filter name=\"B\" class=\"x.B\"><url-pattern>/b</url-pattern></filter>";
 
     @Test
-    void theShippedDeclarationIsTheShellScriptsSevenFiltersPathsAndOrder() throws Exception {
+    void theShippedDeclarationIsTheSevenFiltersPathsAndOrder() throws Exception {
         Declaration d = Declaration.parse(Files.readAllBytes(Fixtures.shippedFilters()), "filters.xml");
         assertEquals(List.of(
                 new Declaration.Filter("SsfLogoutSignal", Fixtures.SSF_FILTER, List.of("/idp/init_logout.openid")),
@@ -44,11 +44,14 @@ class DeclarationTest {
                 new Declaration.Filter("OidfAutoRegistration", Fixtures.PFI + "clientregistration.TokenEndpointAutoRegistrationFilter",
                         List.of("/as/token.oauth2")),
                 new Declaration.Filter("ClientAttestationAuth", Fixtures.PFI + "clientregistration.ClientAttestationAuthFilter",
-                        List.of("/as/token.oauth2", "/as/par.oauth2"))), d.filters);
+                        List.of("/as/token.oauth2", "/as/par.oauth2", "/as/bc-auth.ciba", "/as/device_authz.oauth2",
+                                "/as/introspect.oauth2", "/as/revoke_token.oauth2", "/as/authorization.oauth2"))), d.filters);
         // The script's three checks: auto-registration before attestation; Fapi2Profile before auto-registration;
-        // and front-channel registration after both Fapi2Profile and the description sanitiser.
+        // and front-channel registration after both Fapi2Profile and the description sanitiser. Then S4d's two:
+        // Fapi2Profile, and front-channel registration, before ClientAttestationAuth on every path they share.
         assertEquals(List.of("OidfAutoRegistration<ClientAttestationAuth", "Fapi2Profile<OidfAutoRegistration",
-                        "Fapi2Profile<OidfFrontChannelAutoRegistration", "OAuthErrorDescription<OidfFrontChannelAutoRegistration"),
+                        "Fapi2Profile<OidfFrontChannelAutoRegistration", "OAuthErrorDescription<OidfFrontChannelAutoRegistration",
+                        "Fapi2Profile<ClientAttestationAuth", "OidfFrontChannelAutoRegistration<ClientAttestationAuth"),
                 d.orders.stream().map(o -> o.earlier() + "<" + o.later()).toList());
         assertTrue(d.orders.stream().allMatch(o -> !o.reason().isBlank() && !o.reason().contains("\n")));
         assertEquals(List.of(Fixtures.LIFECYCLE_LISTENER), d.listeners, "F-2's lifecycle listener, and no other");

@@ -1,0 +1,39 @@
+{
+  "component": "challenge",
+  "module": "libs/client-attestation",
+  "description": "The attestation challenge endpoints: the authorization server's (POST /federation/attestation-challenge, ABCA-10 §6.1) and the attester's (GET /federation/attestation/challenge, CAS §4.1), each issuing into its own store. A challenge is issued, or refused before one is made. The challenge value is never an event field.",
+  "logger": "com.pingidentity.ps.oidf.attestation.challenge.event",
+  "auditProtocol": "Client Attestation",
+  "fields": {
+    "surface": {
+      "pii": "OPERATIONAL",
+      "description": "Which endpoint answered: AS, the authorization server's, or CAS, the attester's."
+    }
+  },
+  "events": {
+    "attestation.challenge.issued": {
+      "description": "A challenge endpoint issued a challenge and recorded it in its surface's store.",
+      "audit": false,
+      "outcomes": [
+        "success"
+      ],
+      "level": "debug",
+      "fields": [
+        "surface"
+      ],
+      "declaredOnly": false
+    },
+    "attestation.challenge.refused": {
+      "description": "A challenge endpoint issued nothing: rate_limited (the caller's cap, 429 slow_down), store_unavailable (the store could not record it, 503) or method_not_allowed (another method than the endpoint's one, 405).",
+      "audit": false,
+      "outcomes": [
+        "failure"
+      ],
+      "level": "info",
+      "fields": [
+        "surface"
+      ],
+      "declaredOnly": false
+    }
+  }
+}

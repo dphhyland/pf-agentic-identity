@@ -3,10 +3,19 @@ title: Explicit relying-party registration lacks OIDC defaults and PKCE
 severity: medium
 area: pf-integration
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-FED-5]
-prs: []
-verification: ''
+prs: [78]
+verification: >
+  Closed 2026-09-30 by HFEDR (PR #78). FederationClientBuilder.agent gives an explicitly registered
+  openid_relying_party (status registered) OpenID Connect Registration 1.0 §2's defaults for what it omits -
+  response_types ["code"], grant_types ["authorization_code"], id_token_signed_response_alg RS256, each quoted in
+  the code from the errata-set-2 text read 2026-09-30 - restricts it to its response types, and requires PKCE
+  unless OIDF_AUTO_REGISTRATION_REQUIRE_PKCE=false (production allows that only with pkce-off accepted). The
+  §12.2.3 response reports the defaults (FederationClientBuilder.narrowed). An agent, and an RP registered at the
+  token endpoint, are unchanged. Tests: FederationClientBuilderTest (anExplicitRpGetsOidcDefaultsAndPkce,
+  anExplicitRpKeepsWhatItDeclared, onlyAnExplicitRpGetsTheDefaults, theExplicitRpsPkceComesFromTheSetting,
+  theExplicitResponseReportsAnRpsDefaults); JDK 17 and 20, 2026-09-30.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

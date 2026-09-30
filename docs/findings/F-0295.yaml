@@ -3,10 +3,15 @@ title: A refused SSF or SSF_RECEIVER component is shown refused, but its servlet
 severity: medium
 area: ssf, platform
 source: design
-status: open
+status: closed
 plan_items: [PR-5, ST-5]
-prs: [77]
-verification: ''
+prs: [77, 82]
+verification: >
+  2026-09-30, package ST5C. SsfConfigurationServlet and SsfReceiverServlet start through Part.start, which runs
+  nothing for a part Startup.begin refused, and every SSF servlet's request methods start with a gate (the receiver's
+  part for SsfReceiverServlet, the transmitter's for the rest), so a refused SSF configures nothing and answers 503
+  (SsfComponentsTest.aRefusedPartConfiguresNothingAndItsServletsAnswer503). S9B replaces the floor with each surface's
+  own rule.
 target_release: 0.6.0
 notes: >
   Found by PR5 on the rig (2026-09-30). SsfConfigurationServlet and SsfReceiverServlet register their parts with

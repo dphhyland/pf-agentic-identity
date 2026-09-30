@@ -29,6 +29,7 @@ import java.util.Map;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
+@org.junit.jupiter.api.extension.ExtendWith(InMemoryStateAccepted.class)
 class IssuerComponentTest {
 
     @AfterEach

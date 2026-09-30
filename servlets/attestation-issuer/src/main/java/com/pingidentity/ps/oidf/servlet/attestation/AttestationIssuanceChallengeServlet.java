@@ -24,7 +24,9 @@ import jakarta.servlet.annotation.WebServlet;
  * {@link AttesterConfigurationServlet}; the path sits under {@code /federation/attestation}, the issuance
  * endpoint it serves.
  */
-@WebServlet(urlPatterns = {AttestationIssuanceChallengeServlet.PATH})
+// loadOnStartup: its part of ATTESTATION_ISSUER registers at deploy, not on the first request (finding F-0193); its
+// init never throws.
+@WebServlet(urlPatterns = {AttestationIssuanceChallengeServlet.PATH}, loadOnStartup = 1)
 public class AttestationIssuanceChallengeServlet extends ChallengeEndpointServlet {
     private static final long serialVersionUID = 1L;
 

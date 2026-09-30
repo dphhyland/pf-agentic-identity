@@ -1,8 +1,10 @@
 package com.pingidentity.ps.oidf.servlet.ssf;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -129,6 +131,22 @@ class LogoutSubjectVerificationTest {
 
         assertNotNull(LogoutEventFilter.extractSubject(request(null, "alice"), verifier),
                 "the dev-rig escape hatch still works when deliberately switched on");
+    }
+
+    /** Plan item ST-5: the switch is read through its catalogue, strictly; a value that does not parse takes nothing. */
+    @Test
+    void theSubParameterSwitchIsStrict() {
+        com.pingidentity.ps.oidf.platform.settings.Catalogue catalogue = com.pingidentity.ps.oidf.platform.settings.Catalogue
+                .load(LogoutEventFilter.class.getClassLoader(), LogoutEventFilter.CATALOGUE);
+        java.util.function.Function<java.util.Map<String, String>, Boolean> read = env -> LogoutEventFilter.allowSubParameter(
+                com.pingidentity.ps.oidf.platform.settings.Settings.of(catalogue,
+                        com.pingidentity.ps.oidf.platform.settings.Sources.of(env::get, name -> null, name -> null)));
+        assertTrue(read.apply(java.util.Map.of("OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM", "TRUE")));
+        assertFalse(read.apply(java.util.Map.of()));
+        assertFalse(read.apply(java.util.Map.of("OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM", "yes")), "refused in production: not taken");
+        assertFalse(read.apply(java.util.Map.of("OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM", "yes", "OIDF_DEPLOYMENT_PROFILE", "development")),
+                "a legacy spelling in development: false, as the old reader read it");
+        assertFalse(read.apply(java.util.Map.of("OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM", "ture", "OIDF_DEPLOYMENT_PROFILE", "development")));
     }
 
     @Test

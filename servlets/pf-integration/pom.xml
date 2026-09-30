@@ -170,6 +170,8 @@
                                              and what it is told when the answer is no. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.attestedClientOf(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.extractTrustChain(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(*</include>
                                         <!-- Registration at the authorization and PAR endpoints (§12.1.1): which requests
@@ -186,6 +188,9 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.checkProfile(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.onlyAudience(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.verify(*</include>
+                                        <!-- H-FED-1: what an encrypted proof registers, and which alg a proof is signed with (never a JWE one). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.algorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.registeringFromEncrypted(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.resolve(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.verifiedSignedJwks(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.signingKeys(*</include>
@@ -194,6 +199,10 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.relyingParty(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.bypassApprovalPage(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.strings(*</include>
+                                        <!-- H-FED-1 and H-FED-5: request_object_signing_alg is a JWS algorithm or nothing; which clients get OIDC
+                                             Registration's defaults and PKCE. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.requestObjectSigningAlgorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.isExplicitRelyingParty(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator.register(*</include>
                                         <!-- S5c: explicit registration bounded as automatic is - the budget each registration spends, the failure
                                              memory's keys, and the registration body's cap. -->
@@ -411,6 +420,25 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.namedClients(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.unverifiedSubject(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.subjectChanged(*</include>
+                                        <!-- S4d1: which endpoint a request is, and so what the filter does there; the details it
+                                             forwards in place of the client's, and a request object's held to the attestation's
+                                             as it stands; a repeated parameter refused; and, at the authorization endpoint, which
+                                             requests are an attestation-required client's details that did not come through PAR,
+                                             and the page that answers them. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.AttestedEndpoint.of(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.repeatedParameter(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.present(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.ClientAttestationAuthFilter.errorPage(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.forwarded(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.requested(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.requestObjectWithin(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.requestObjectDetails(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.ceilingOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.GrantedDetails.payload(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.asksForUnpushedDetails(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.namedClients(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.PushedDetailsRule.add(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -57,7 +57,7 @@ account-enabled - the first three are the CAEP Interop Profile's (see [CAEP Inte
 
 | Path | Class | What |
 |---|---|---|
-| `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that bootstraps `SsfSupport` at boot, so the logout filter can emit immediately and the [push loop](#push-delivery) runs before any request arrives. |
+| `GET /.well-known/ssf-configuration`, `/ssf/.well-known/ssf-configuration` | `SsfConfigurationServlet` (`loadOnStartup=1`) | Transmitter metadata; also the servlet that starts the transmitter at deploy ([Start-up](#start-up)), so the logout filter can emit immediately and the [push loop](#push-delivery) runs before any request arrives. |
 | `POST/GET/PATCH/PUT/DELETE /ssf/streams`, `/ssf/status`, `/ssf/subjects:add`, `/ssf/subjects:remove`, `/ssf/verify` | `SsfStreamManagementServlet` | Stream Management API. `aud` is assigned from the caller's `client_id` when the create names none; `GET` without `stream_id` returns a bare array; PATCH and PUT take `stream_id` in the body (PATCH still reads the query parameter); PUT cannot change `delivery.method`; add-subject answers 200, remove-subject and verify 204. Every operation is scoped to the caller's own streams; another receiver's stream is a 404, and a create from a token naming no client a 403. |
 | `POST /ssf/poll?stream_id=` | `SsfPollServlet` | RFC 8936 poll: `maxEvents` (0 = acknowledge only), `returnImmediately`, `ack`. Only the stream's owner can poll it; anyone else gets a 404 and acknowledges nothing. |
 | `POST/GET /ssf/receiver/events` | `SsfReceiverServlet` | RFC 8935 receiver (`application/secevent+jwt`; 202 on accept, 400 with `err` on failure). Active only when `receiverExpectedIssuer` is set. |
@@ -71,23 +71,35 @@ presented at logout is routinely expired, and its age says nothing about who it 
 parameter is accepted only when a deployment opts in (`OIDF_SSF_LOGOUT_ALLOW_SUB_PARAM=true`, for a dev rig
 with no real id tokens to hand); it is refused by default, closing the earlier unauthenticated-subject finding.
 
-Every servlet calls `SsfHttp.bootstrap` in `init()`: fail-soft. No issuer means the SSF endpoints stay
-disabled and PF boots regardless - SSF must never take the runtime web application down. A store that
-cannot be opened at boot is the same promise kept ([Boot](#boot)).
+The transmitter starts once, as the `SSF` component's part, from `SsfConfigurationServlet`'s `init`
+(`loadOnStartup=1`), and the receiver's part registers from `SsfReceiverServlet`'s (`loadOnStartup=2`), so both
+are in the health detail and the start-up audit from deploy ([Start-up](#start-up)). No `init` throws: SSF must
+never take the runtime web application down. The other SSF servlets start nothing and answer through the
+transmitter's part: 503 while it is starting, failed or refused, 404 while it is off.
 
 ## Configuration
 
-Every `SsfConfiguration` setting resolves init-param → sysprop `oidf.ssf.<name>` (PF loads `run.properties`
-as system properties) → env `OIDF_SSF_<UPPER_SNAKE>`, so an image-baked PF needs no `web.xml`. Only
-`issuer` is required (`OIDF_SSF_ISSUER` - the SET `iss` and the base of `jwks_uri`, so it must be the
-external base receivers use).
+Every setting is read through the `ssf-transmitter` catalogue ([docs/configuration/ssf-transmitter.md](../../docs/configuration/ssf-transmitter.md),
+generated from it) with platform's `Settings`: the servlet's init-param, then the system property
+`oidf.ssf.<init-param>` (PF loads `run.properties` as system properties), then `OIDF_SSF_<UPPER_SNAKE>` - the
+order `SsfConfiguration.param` used before 0.6.0, and all 43 names of each are catalogued, so an image-baked PF
+needs no `web.xml` (only `SsfConfigurationServlet`'s init-params count; the other servlets read none). Each of the
+five secrets may be given as a file, through its `_FILE` variant in any source (`OIDF_SSF_JDBC_PASSWORD_FILE`,
+`oidf.ssf.jdbcPassword.file` or the init-param `jdbcPasswordFile`). Only `issuer` is required (`OIDF_SSF_ISSUER` - the
+SET `iss` and the base of `jwks_uri`, so it must be the external base receivers use). `OIDF_SSF_ENABLED` and
+`OIDF_SSF_RECEIVER_ENABLED` switch the two components ([docs/operator/components.md](../../docs/operator/components.md)).
+
+Every value is parsed strictly, and a wrong one names its setting: a switch is `true` or `false` in any case, a
+number a whole number, a choice one of its choices in any case, a URL an http or https URL with a host. The
+development profile reads a switch's legacy spelling (`yes`, `no`, `1`, `0`, `on`, `off`) as `false`, as
+`Boolean.parseBoolean` did, with a WARN naming the strict spelling; production refuses it.
 
 | Group | Settings (defaults) |
 |---|---|
 | Transmitter | `signingAlgorithm` (RS256/PS256), `basePath` (`/ssf`), `setTtlSeconds` (7 days), `defaultEventTypes`, `defaultSubjects` (`NONE`; `ALL` = every enabled stream hears every subject without an add-subject, SSF §7.1.1, and is what [CAEP Interop](#caep-interop) needs), `verificationEventEnabled` (true), `pollMaxEvents` (100), `pushRetryMaxAttempts` (5), `pushRetryBackoffSeconds` (5) |
-| Store | `dataStoreId` (PF JDBC data store id) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory |
-| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or boot fails), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked) |
-| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, the receiver does not start and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked), `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
+| Store | `dataStoreId` (PF JDBC data store id, on PostgreSQL) or `jdbcUrl`+`jdbcUsername`+`jdbcPassword`; `storeDialect` (`tables` \| `ldm`); blank = in-memory, which production allows only with the `in-memory-state` risk accepted |
+| Receiver auth | `receiverScope` (`ssf.manage`), `provisionerScope` (unset - nobody may use SCIM; suggested `ssf.provision`, must differ from `receiverScope` or SSF is `FAILED_CONFIG`), `allowedAudiences` (`clientA=aud1,aud2;clientB=aud3` - the `aud` values a client may name on create besides its own id, see [What the transmitter signs](#what-the-transmitter-signs)), `unownedStreamOwner` (unset - see [Stream ownership](#stream-ownership)), `introspectionEndpoint` (`<issuer>/as/introspect.oauth2`), `introspectionClientId`/`introspectionClientSecret` (deployed as secrets), `introspectionInsecureTls` (false; `true` trusts any certificate chain on the introspection call through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production) |
+| Receiver | `receiverExpectedIssuer` (turns the receiver on), `receiverJwksUrl`, `receiverAudience` and `receiverEndpointAuthToken` (**both required once the receiver is on** - missing either, `SSF_RECEIVER` is `FAILED_CONFIG` and an ERROR says which),  `receiverJwksCacheSeconds` (300), `receiverInsecureTls` (false; `true` trusts any certificate chain on the JWKS fetch, the poll and the stream calls through libs/platform's `InsecureTls`, which warns once - the host name is still checked; refused in production), `receiverPollUrl`/`receiverPollToken`/`receiverPollIntervalSeconds` (10), `receiverActionsEnabled` (true) |
 | Sources | `auditEventsEnabled` (true), `auditEventMap` |
 | Kafka | `kafkaEnabled` (false), `kafkaBootstrapServers`, `kafkaTopic` (`sse-events`), `kafkaSecurityProtocol` (`PLAINTEXT`), `kafkaSaslMechanism`/`kafkaSaslUsername`/`kafkaSaslPassword` |
 
@@ -132,8 +144,8 @@ Phase 1 stopgap for the review's B5; the leased engine that replaces the loop is
   and part of a body and see the socket close at the deadline, and by hand on JDK 17, 20 and 21.0.12.1 (the
   runtime of the PingFederate 13.1.3 image) the socket stayed open without the cancel and closed with it
   (2026-09-27).
-- **The loop starts at boot.** `SsfSupport.start` - what every servlet's `bootstrap` runs - starts it once
-  the store is open, and the first servlet to run it is `SsfConfigurationServlet`, `loadOnStartup=1`.
+- **The loop starts at boot.** `SsfSupport.start` - what the `SSF` part's start runs - starts it once
+  the store is open, from `SsfConfigurationServlet`, `loadOnStartup=1`.
   Until 0.4.0 the loop started from `SsfStreamManagementServlet.init`, which is lazy: nothing was pushed
   until a receiver's first management request, and nothing at all on a node no receiver managed streams on.
   Verified 2026-09-27 on the rig (PingFederate 13.1.3, this branch's jars at `e858f9e`): `SSF push delivery
@@ -163,24 +175,53 @@ a stream that is not enabled, so every event raised while it is paused is lost, 
 S10d). Push delivery has still not been run against the conformance suite: it needs a suite PingFederate
 can call back ([conformance/README.md](../../conformance/README.md)).
 
-## Boot
+## Start-up
 
-`SsfSupport.start` never throws. It configures the transmitter (which, for the `tables` store, applies the
-DDL), runs the servlet layer's wiring (the receiver's PingFederate actions and polling, the audit source),
-and starts the push loop. A store that cannot be opened - the data store down at boot, the DDL refused - is
-one ERROR line naming the cause, SSF endpoints that fail, and another try every 30 s
-(`SsfSupport.bootRetrySeconds`, a constant until S-5) until the store opens; the loops start on the try that
-succeeds. While it is down the SSF endpoints throw `IllegalStateException` on use (the container's 500, with
-`SsfSupport.NOT_CONFIGURED` in the log), the same as a transmitter with no issuer, and PingFederate's own
-endpoints are untouched. The events PingFederate raises in that window are lost, not queued: a logout's SET
-is skipped with a WARN (`SSF session-revoked emission skipped`), the audit source is attached only once the
-store opens, and a SCIM change answers 500 (F-0017; S10d). The ERROR line names the cause chain, with the
-`jdbcUrl` replaced by `<jdbcUrl>` - a JDBC URL can carry a password, and the driver's messages repeat it.
-The stack trace goes with the first failure only, and never for a `jdbcUrl` store. A failure no retry can
-cure, such as a missing JDBC driver, is still retried: the line says what it is.
+`SsfConfigurationServlet.init` registers the `SSF` part and hands `SsfComponents.transmitter` to
+`Part.start` (plan item S-9), which never throws. The part applies `OIDF_SSF_ENABLED` first: `false` is `DISABLED`
+and nothing runs; unset in production with `OIDF_SSF_ISSUER`, `OIDF_SSF_JDBC_URL` or `OIDF_SSF_DATA_STORE_ID` set
+is `FAILED_CONFIG` naming the switch. Then:
 
-Seen on the rig on 2026-09-27 (PingFederate 13.1.3, the branch's jars at `e858f9e`), with a `tables` store on a
-`jdbcUrl` whose database was started about two seconds after PingFederate: the ERROR at 03:42:28,675 UTC,
+| What it finds | The `SSF` part | The log |
+|---|---|---|
+| No `OIDF_SSF_ISSUER` | `DISABLED`; `FAILED_CONFIG` with `OIDF_SSF_ENABLED=true` | INFO "not configured" in development only; ERROR when switched on |
+| A setting that does not parse, or a combination refused (Kafka on with no bootstrap servers, the provisioner scope equal to the receiver scope, an allowed-audiences entry that is not `clientId=aud[,aud]`) | `FAILED_CONFIG`, the reason naming the setting | ERROR `SSF transmitter NOT started: <the setting and why>` |
+| The store in memory in production without `in-memory-state` in `OIDF_ACCEPTED_RISKS`; a `jdbcUrl` that is not `jdbc:postgresql:` in production; a database whose driver does not report `PostgreSQL` in production | `REFUSED` | ERROR from `ProfileRefusals`, listed in the start-up audit |
+| A database that cannot be reached, or a DDL refused | `FAILED_DEPENDENCY`; the supervisor runs the start again after a wait of up to 5 s doubling to 300 s | ERROR `SSF transmitter NOT started: <the cause chain>` each time, the stack trace with the first only |
+| Everything built | `READY` | INFO naming the store |
+
+Everything the transmitter shares - the configuration, the store, the minter, the services, the receiver and the
+receiver authenticator - is built first and published in one write (`SsfSupport.State`), so a request sees all of it
+or none (finding F-0040). Only after that are the servlet layer's wiring (the receiver's PingFederate actions and
+polling, the audit source) and the push loop started. The store is checked on one connection before it is used
+(`PfJdbcStoreFactory.checkDatabase`): a database that is down fails at start-up for either dialect, and the product
+name the JDBC driver reports (`DatabaseMetaData.getDatabaseProductName()`, `PostgreSQL` for PostgreSQL's driver) says
+what a data store id points at, which no URL shows. H2 and HSQLDB are refused in every profile, as since 0.5.0. The
+`ldm` dialect is the Identity Object Model's PostgreSQL schema, so it is held to the same rule.
+
+While SSF is not `READY` every transmitter servlet answers 503 `temporarily_unavailable` (404 while it is off),
+through the part's gate, and PingFederate's own endpoints are untouched. The events PingFederate raises in that
+window are lost, not queued: a logout's SET is skipped with a WARN (`SSF session-revoked emission skipped`), the
+audit source is attached only once the store opens, and SCIM answers 503 (F-0017; S10d). The ERROR line names the
+cause chain with the `jdbcUrl` replaced by `<jdbcUrl>` - a JDBC URL can carry a password, and the driver's messages
+repeat it - and the part's reason is the same line; the stack trace goes with the first failure only, and never for
+a `jdbcUrl` store. A store failure that is the configuration's (a missing driver class, H2) is `FAILED_CONFIG` and
+not retried.
+
+The receiver runs inside the transmitter. `SsfReceiverServlet` loads after it and its part says what became of the
+receiver: `FAILED_DEPENDENCY` while the transmitter is starting or failed on a dependency (the supervisor asks again),
+`DISABLED` when the transmitter is off or no `OIDF_SSF_RECEIVER_EXPECTED_ISSUER` is set (or `FAILED_CONFIG` with
+`OIDF_SSF_RECEIVER_ENABLED=true`), `FAILED_CONFIG` when the transmitter failed on its configuration or was refused,
+or the receiver's audience or endpoint token is missing. `OIDF_SSF_RECEIVER_ENABLED=false` keeps the transmitter
+from building the receiver at all. The receiver's JWKS is fetched on the first SET, not at start-up, so a JWKS that
+is down is not a start-up failure: each SET is refused until it answers.
+
+Until 0.6.0 SSF kept its own boot retry (every 30 s) and every SSF servlet's `init` started the transmitter, a
+setting that did not parse turned SSF off with an INFO line that blamed the issuer (findings F-0191, F-0237), and the
+shared state was published one member at a time.
+
+Seen on the rig on 2026-09-27, with the 0.4.0 boot retry (PingFederate 13.1.3, the branch's jars at `e858f9e`), with a
+`tables` store on a `jdbcUrl` whose database was started about two seconds after PingFederate: the ERROR at 03:42:28,675 UTC,
 `PingFederate started` at 03:42:31,105, the SSF endpoints answering 500 while discovery, the heartbeat and the
 federation endpoints answered 200, and at 03:42:58,677 - the try 30 s after the ERROR - the store opened, the
 audit source attached and the push loop started; `/.well-known/ssf-configuration` answered 200 from then on.
@@ -299,6 +340,18 @@ revoked on it. With `receiverExpectedIssuer` set and either missing, the receive
 endpoint is 404, nothing is polled, the transmitter is unaffected) and an ERROR names the setting. The
 push endpoint itself no longer has an open state: no configured token, no delivery accepted.
 
+### Upgrading to 0.6.0
+
+- **Strict settings**: a switch is `true` or `false`, a number a whole number, a URL an http or https URL. A value
+  that does not parse makes SSF `FAILED_CONFIG` (503 on its endpoints, ERROR naming the setting) where it used to
+  turn SSF off at INFO or be read as `false`. The development profile still reads `yes`/`no`/`1`/`0`/`on`/`off` for
+  a switch, as `false`, with a warning.
+- **`OIDF_SSF_ENABLED`, `OIDF_SSF_RECEIVER_ENABLED`**: set them in production; unset beside SSF's settings is
+  `FAILED_CONFIG` naming the switch ([docs/operator/components.md](../../docs/operator/components.md)).
+- **The store in production**: a PostgreSQL data store (`OIDF_SSF_DATA_STORE_ID`), or `in-memory-state` in
+  `OIDF_ACCEPTED_RISKS` for the in-memory store; anything else is `REFUSED`.
+- The whole list, with how to tell and the development escape, is in the 0.6.0 release notes (package ST5C).
+
 ### Upgrading to this
 
 - **Provisioning clients**: add a PF scope (`ssf.provision`), grant it to the provisioning client and to
@@ -327,7 +380,7 @@ Nothing to configure. What changes on the first boot after the upgrade:
   that SET first. Until 0.4.0 the SETs behind it were tried in the meantime, and could arrive first. SETs
   issued in the same second go in `jti` order, not the order they were generated in (F-0095).
 - A data store that is down when PingFederate boots no longer stops `pf-runtime.war` starting - until 0.4.0
-  every runtime endpoint answered 503 ([Boot](#boot)). Watch for `SSF transmitter NOT started` in the server
+  every runtime endpoint answered 503 ([Start-up](#start-up)). Watch for `SSF transmitter NOT started` in the server
   log: the SSF endpoints answer 500 until a retry opens the store, and the logouts and audit events
   PingFederate serves in the meantime send no SET.
 
@@ -335,7 +388,7 @@ Nothing to configure. What changes on the first boot after the upgrade:
 
 | Store | What changes |
 |---|---|
-| `tables` | `owner_client_id` is added to an existing `ssf_streams` at boot - one nullable column, checked for first, so it is safe on every boot and on two nodes booting together. If it cannot be added the store does not come up, and since 0.4.0 that is a logged retry rather than a failed boot ([Boot](#boot)). |
+| `tables` | `owner_client_id` is added to an existing `ssf_streams` at boot - one nullable column, checked for first, so it is safe on every boot and on two nodes booting together. If it cannot be added the store does not come up, and since 0.4.0 that is a logged retry rather than a failed boot ([Start-up](#start-up)). |
 | `ldm` | Nothing to apply. The owner is the `ownerClientId` attribute in `attrs`, and the entry trigger enforces MUST attributes only. The model repo should declare it a MAY attribute of `ssfStream` so `validate_entry` stops reporting it undeclared - **never a MUST**: the trigger runs on UPDATE, and the streams already there have none. It is deliberately not `clientId`, which `idm.entry` turns into its indexed `client_id` column. |
 | in-memory | Nothing. Streams do not survive a restart. |
 

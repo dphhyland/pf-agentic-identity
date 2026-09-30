@@ -383,4 +383,49 @@ class AuthorizationDetailsGateTest {
                     "inside RFC 6749 §5.2's error_description character set: " + text);
         }
     }
+
+    // ---- INHERIT: what the filter forwards in place of the request's details (plan item S4d) --------------
+
+    @Test
+    @Requirement({"CAS §7.1", "RFC9396 §6"})
+    void inheritFillsEveryConstrainedFieldTheRequestLeftOutAndStaysWithin() throws Exception {
+        List<Map<String, Object>> granted = AuthorizationDetailsGate.check(MODELS,
+                "[{\"type\":\"sales_agent\",\"actions\":[\"read_accounts\"],\"_agent_id\":\"forged\"}]",
+                withCeiling(SALES_CEILING), com.pingidentity.ps.oidf.rar.model.Omission.INHERIT);
+        assertEquals(1, granted.size());
+        Map<String, Object> detail = granted.get(0);
+        assertEquals(List.of("read_accounts"), detail.get("actions"), "what the request named is kept");
+        assertEquals(List.of("EMEA"), detail.get("sales_regions"), "the omitted set is the ceiling's");
+        assertEquals(0, new java.math.BigDecimal("5000").compareTo((java.math.BigDecimal) detail.get("max_txn_eur")),
+                "the omitted limit is the ceiling's");
+        assertFalse(detail.containsKey("_agent_id"), "a marker is never granted");
+        assertTrue(MODELS.contains(RarModels.parseDetails(SALES_CEILING), granted), "contains(ceiling, granted)");
+    }
+
+    @Test
+    @Requirement({"CAS §7.1", "RFC9396 §6"})
+    void inheritRefusesARequestOverTheCeilingAsStrictDoes() {
+        ClientAttestationException e = assertThrows(ClientAttestationException.class, () -> AuthorizationDetailsGate.check(MODELS,
+                "[{\"type\":\"sales_agent\",\"sales_regions\":[\"AMER\"]}]", withCeiling(SALES_CEILING),
+                com.pingidentity.ps.oidf.rar.model.Omission.INHERIT));
+        assertEquals(ClientAttestationException.INVALID_AUTHORIZATION_DETAILS, e.error());
+        assertEquals(AuthorizationDetailsGate.EXCEEDS, e.getMessage());
+        assertEquals(Reason.EXCEEDS_CEILING, causeOf(e));
+        ClientAttestationException none = assertThrows(ClientAttestationException.class, () -> AuthorizationDetailsGate.check(MODELS,
+                "[{\"type\":\"sales_agent\"}]", attestation("{\"sub\":\"x\"}"), com.pingidentity.ps.oidf.rar.model.Omission.INHERIT));
+        assertEquals(AuthorizationDetailsGate.EXCEEDS, none.getMessage(), "nothing is within an attestation with no details");
+    }
+
+    @Test
+    @Requirement("RFC9396 §5")
+    void inheritRefusesAnUndeclaredFieldAndGrantsNothingForAnEmptyRequest() throws Exception {
+        ClientAttestationException e = assertThrows(ClientAttestationException.class, () -> AuthorizationDetailsGate.check(MODELS,
+                "[{\"type\":\"sales_agent\",\"discount\":50}]", withCeiling(SALES_CEILING),
+                com.pingidentity.ps.oidf.rar.model.Omission.INHERIT));
+        assertEquals(Reason.UNDECLARED_FIELD, causeOf(e));
+        assertEquals(List.of(), AuthorizationDetailsGate.check(MODELS, null, withCeiling(SALES_CEILING),
+                com.pingidentity.ps.oidf.rar.model.Omission.INHERIT));
+        assertEquals(List.of(), AuthorizationDetailsGate.check(MODELS, "[]", withCeiling(SALES_CEILING),
+                com.pingidentity.ps.oidf.rar.model.Omission.INHERIT));
+    }
 }

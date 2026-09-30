@@ -47,6 +47,9 @@
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId></dependency>
         <!-- The shared vector file and its reader: the authorization server's runner (AsVectorRunnerTest). -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>rar-model</artifactId><type>test-jar</type><scope>test</scope></dependency>
+        <!-- The challenge endpoints' part, gate and init-params (plan items S-9 and ST-5): platform.health's parts,
+             platform-pf's ComponentGate and InitParams. stage-modules.sh stages platform-pf beside this jar already. -->
+        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform-pf</artifactId></dependency>
         <dependency><groupId>org.bitbucket.b_c</groupId><artifactId>jose4j</artifactId></dependency>
         <dependency><groupId>com.fasterxml.jackson.core</groupId><artifactId>jackson-databind</artifactId></dependency>
         <dependency><groupId>commons-logging</groupId><artifactId>commons-logging</artifactId></dependency>
@@ -156,9 +159,17 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.service(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.issue(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.init(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseInt(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseLong(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.init(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.configure(*</include>
+                                        <!-- ST5A: the endpoints' settings read strictly, each endpoint a part of the component
+                                             that consumes its challenges, and its events; the in-memory rule of PR-2 - which
+                                             component a namespace's in-memory stores refuse, and when. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.partName(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.refused(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.refuseMethod(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.componentOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.inMemoryStores(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.AttestationSupport.requireSharedState(*</include>
                                         <!-- S4c (proof side): a jti is remembered until its proof's window ends, not for a
                                              time from first use; the stores evict by that absolute time, refuse a past one
                                              without asking, and a PoP or DPoP proof's age is always bounded. -->

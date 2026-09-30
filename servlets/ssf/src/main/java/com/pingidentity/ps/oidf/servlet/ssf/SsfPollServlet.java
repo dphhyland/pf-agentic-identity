@@ -42,6 +42,9 @@ public class SsfPollServlet extends HttpServlet {
 
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (SsfHttp.gate(resp)) {
+            return; // the transmitter is starting, failed, refused (503) or off (404)
+        }
         SsfConfiguration cfg = SsfSupport.configuration();
         AuthContext auth = SsfHttp.authorize(req, resp, cfg);
         if (auth == null) {

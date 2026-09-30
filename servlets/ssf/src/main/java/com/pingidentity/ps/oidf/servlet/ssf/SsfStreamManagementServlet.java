@@ -77,6 +77,9 @@ public class SsfStreamManagementServlet extends HttpServlet {
     }
 
     private void dispatch(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        if (SsfHttp.gate(resp)) {
+            return; // the transmitter is starting, failed, refused (503) or off (404)
+        }
         SsfConfiguration cfg = SsfSupport.configuration();
         AuthContext auth = authorize(req, resp, cfg);
         if (auth == null) {
