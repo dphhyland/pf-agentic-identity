@@ -174,4 +174,25 @@ class OpenIdRegistrationBodyCapTest {
             System.clearProperty("oidf.registration.max.body.bytes");
         }
     }
+
+    @Test
+    void aTrustChainBodyWhoseStatementIsNotAJwtIsA400NotA500() throws Exception {
+        OpenIdRegistrationServlet servlet = new OpenIdRegistrationServlet(mock(RegistrationService.class), req -> OP, 65_536);
+        byte[] json = "[\"a.b.c\"]".getBytes(java.nio.charset.StandardCharsets.UTF_8);
+        java.io.ByteArrayInputStream bytes = new java.io.ByteArrayInputStream(json);
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getServletPath()).thenReturn("/federation/register");
+        when(req.getContentType()).thenReturn("application/trust-chain+json");
+        when(req.getContentLengthLong()).thenReturn((long) json.length);
+        when(req.getInputStream()).thenReturn(new ServletInputStream() {
+            @Override public int read() { return bytes.read(); }
+            @Override public boolean isFinished() { return bytes.available() == 0; }
+            @Override public boolean isReady() { return true; }
+            @Override public void setReadListener(ReadListener l) { }
+        });
+
+        String written = refuse(servlet, req, 400);
+
+        assertTrue(written.contains("invalid_request") && written.contains("not a JWT"), written);
+    }
 }

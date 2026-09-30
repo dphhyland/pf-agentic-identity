@@ -1,0 +1,21 @@
+id: F-0315
+title: Each registration component keeps its own pool and failure memory, so one client can be registered through two at once
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [S-5]
+prs: []
+verification: ''
+target_release: 1.0.0
+notes: >
+  Recorded 2026-09-30 by package S5C. /federation/register, the token endpoint filter and the front-channel filter
+  each build a RegistrationService, and each has its own RegistrationCoordinator (per-client stripe locks and a
+  semaphore of OIDF_AUTO_REGISTRATION_MAX_CONCURRENT_RESOLUTIONS) and its own failure memory. So an explicit
+  registration of a client and an automatic renewal of it at the token endpoint do not exclude each other, a chain
+  that failed at one component is resolved again at another, and a node resolves up to three times the setting at
+  once. S5C bounded the explicit path the way the automatic ones already were - per component, as the pf-integration
+  README said of the two filters - rather than change the filters, which were outside its files. The store write
+  that ends a registration is last-writer-wins either way. A process-wide coordinator and memory, shared by the
+  three, would close it; the modules are merged into one web app (pf-runtime.war), so a static holder would be seen
+  by all three.

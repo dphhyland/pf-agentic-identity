@@ -127,7 +127,18 @@ final class ExplicitRegistrationRequest {
             throw new IllegalArgumentException("trust-chain+json body has " + trustChain.size()
                     + " statements; at most " + MAX_TRUST_CHAIN_LENGTH + " are accepted");
         }
-        JwtClaims leafClaims = TrustChainValidator.selectLeafEntityStatement(trustChain);
+        JwtClaims leafClaims;
+        try {
+            leafClaims = TrustChainValidator.selectLeafEntityStatement(trustChain);
+        }
+        catch (IllegalArgumentException e) {
+            throw e;
+        }
+        catch (Exception e) {
+            // A statement that is not a JWT is a malformed request (400), not a server fault; it was a 500 until
+            // 0.6.0 (F-0317). The description names no statement: the caller chose them.
+            throw new IllegalArgumentException("trust-chain+json body has a statement that is not a JWT", e);
+        }
         String rpIssuer = Claims.requireNonBlank(leafClaims.getIssuer(), "iss");
         String leafSubject = Claims.requireNonBlank(leafClaims.getSubject(), "sub");
         return new ExplicitRegistrationRequest(rpIssuer, leafSubject, trustChain, Map.of());

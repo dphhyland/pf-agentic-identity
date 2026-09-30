@@ -1,0 +1,23 @@
+id: U-0326
+title: That PingFederate's request body limit bounds the token and PAR endpoints' forms but not /federation/register's body
+area: pf-integration
+source: design
+status: closed
+plan_items: [S5c]
+prs: []
+recorded_in: servlets/pf-integration/README.md, Configuration (Registration work limits); docs/releases/unreleased/S5C.md
+verify_by: Nothing further is needed.
+verification: >
+  Checked 2026-09-30 on the conformance rig (slot 5, PingFederate 13.1.3, Jetty 12.0.36, the image built from
+  prod/p3-registration-hardening at 6dcdf420). bin/run.properties sets pf.runtime.http.maxRequestBodySize=200000
+  ("the maximum request body size for inbound runtime requests") and etc/jetty-runtime.xml gives it to the
+  pf-runtime WebAppContext as maxFormContentSize. A form of about 300 KB posted to /as/token.oauth2 and to
+  /as/par.oauth2 was answered 400 "Unable to parse form content"; one of about 150 KB reached this module's filters,
+  which answered 401 invalid_client. A 300 KB trust-chain+json body posted to
+  /federation/register, with a Content-Length and again chunked, was answered 413 by this package's cap
+  (OIDF_REGISTRATION_MAX_BODY_BYTES, 65536), so the stream read is this module's to bound: before 0.6.0 it read
+  the whole body.
+notes: >
+  The authorization endpoint's request object arrives in the query string, which Jetty bounds by
+  pf.runtime.request.header.size (16384 bytes by default, in jetty-runtime.xml); that was read from the image, not
+  exercised. The filters also cap a request object or client assertion at OIDF_AUTO_REGISTRATION_MAX_REQUEST_OBJECT_BYTES.
