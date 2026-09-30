@@ -52,8 +52,10 @@ library's package, so it can never be the class another jar's code links to. `Sh
 jar to that after `package` (no entry and no class reference under `com/pingidentity/ps/oidf/rar/model/`, and
 the relocated copy computes the library's fingerprint), and `tools/pf-linkcheck.py` against the 13.1.3 jars
 finds nothing unresolved in it (1,141 own classes, 2026-09-27).
-The PF SDK and servlet API are `provided`; HTTP is the JDK's `java.net.http`. The package name is in the
-descriptor, so it was left alone by the split-package unwind that renamed the libraries.
+The PF SDK and servlet API are `provided`. HTTP is libs/platform's `OutboundHttp` (from 0.6.0; the JDK's
+`java.net.http` before), shaded with platform under `com.pingidentity.ps.oidf.rar.shaded.platform`, and platform
+carries its own relocated HttpCore, so the jar holds no `org/apache/hc/` class (`ShadedJarCheck`). The package
+name is in the descriptor, so it was left alone by the split-package unwind that renamed the libraries.
 
 ## Architecture
 
@@ -70,7 +72,9 @@ authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
    ├─ ModelGate: the detail must be one its type's RAR model reads    (refused before any PDP call)
    ├─ types requiring an authenticated principal: refused before any PDP call when none or client
    ├─ GovernanceEngineRequestBuilder | AuthZenRequestBuilder   (PDP Dialect field)
-   ├─ GovernanceEngineClient | AuthZenPdpClient  ─POST─▶ PDP    (PdpClient seam, JdkHttpTransport)
+   ├─ PdpDecisions: the request's memo, the decision cache (types listed), else the AuthZEN batch or one call
+   ├─ GovernanceEngineClient | AuthZenPdpClient  ─POST─▶ PDP    (PdpClient seam)
+   │     CircuitBreaker.Guarded ▶ PdpTransport: platform OutboundHttp, 2.5 s total, 64 KiB, 32 at once
    ├─ deny unless decision.isPermit()   (fail-open only when the PDP is unreachable, and only if configured)
    ├─ StatementApplier: merge statements/obligations into a deep copy of the detail (dot-path)
    └─ ModelGate: the result must be within the request               (the PDP may narrow, never widen)
@@ -237,8 +241,9 @@ and the user key replaced by their hashes, and chains no PDP exception. The plug
 ## What fails open, and what does not
 
 "Fail open on engine error" grants the cleaned detail through exactly one failure class, the PDP being
-unreachable (`PdpUnavailableException`): a connection refused or reset, an unresolved name, a connect or
-request deadline, or HTTP 429, 502, 503 or 504. Everything else refuses whatever the switch says:
+unreachable (`PdpUnavailableException`): a connection refused or reset, an unresolved name, the connect or
+total deadline, all 32 call places taken until the deadline, the circuit breaker open, or HTTP 429, 502, 503
+or 504. Everything else refuses whatever the switch says:
 
 | Answer | Result |
 |---|---|
@@ -247,13 +252,73 @@ request deadline, or HTTP 429, 502, 503 or 504. Everything else refuses whatever
 | any other status - 401/403 from a wrong secret, 400, 404, 500, a redirect | denied |
 | 2xx with another content type, an empty or malformed body, no boolean `decision` (AuthZEN), a `decision` that is not a string or an `authorised` that is not a boolean (governance engine) | denied |
 | a body with content after the JSON object, or a member named twice | denied |
-| a status line or header the client cannot parse (`ProtocolException` anywhere in the cause chain), whatever text it carries | denied |
-| TLS failure (`SSLException` anywhere in the cause chain), even before a byte is sent | denied |
+| a status line or header platform's client cannot parse (`MALFORMED_RESPONSE`), whatever text it carries | denied |
+| a body over 64 KiB (`BODY_TOO_LARGE`) | denied |
+| TLS failure (`TLS`), a certificate that does not name the PDP URL's host included, even before a byte is sent | denied |
 
-The JDK client copies wire text it cannot parse into its protocol error's message, so the plugin reads a
-reset from the exception's class, or from a message that starts with the JDK's own "Connection reset", and
-never searches a message for it. Before this, a DENY carrying a header named `connection reset` was granted
-with fail-open on (F-0093, found in review on 2026-09-27 and closed in the same change).
+`PdpTransport.classify` sorts platform's `OutboundHttpException` by its reason: `UNRESOLVED`, `BULKHEAD_FULL`,
+`CONNECT_FAILED`, `CONNECT_TIMEOUT`, `HEADER_TIMEOUT`, `DEADLINE` and `BUDGET_EXHAUSTED` are unreachable, and
+an `IO` or `MALFORMED_RESPONSE` failure is unreachable only when its cause chain says the peer reset or closed
+the connection - a `SocketException`, `EOFException` or `ClosedChannelException`, HttpCore's
+`NoHttpResponseException` or `ConnectionClosedException` by simple name, or a message that starts with the
+JDK's own "Connection reset". It never searches a message for wire text: before 0.4.0 a DENY carrying a header
+named `connection reset` was granted with fail-open on (F-0093, found in review on 2026-09-27 and closed in the
+same change).
+
+## The PDP call
+
+From 0.6.0 (plan item S2c, and S5d's call site in this plugin) each processor instance calls its PDP through
+platform's `OutboundHttp` ([libs/platform#http](../../libs/platform/README.md#http)), in these layers:
+
+- **Deadlines and a cap.** "Request timeout (ms)" is the call's total deadline, from connecting to the last
+  byte of the answer: 2500 by default, held to 1000-10000. Connecting, TLS included, gets at most 1 s of it.
+  The JDK client this replaced stopped timing when the headers arrived, so a PDP that sent its headers and then
+  dribbled the body held the token request as long as it liked (F-0010). An answer over 64 KiB is refused.
+  HTTP/1.1, one request per connection, no redirects.
+- **Host names, always.** Platform's transport sets HTTPS endpoint identification on every connection and has
+  no switch to turn it off: the PDP's certificate must name the host in the PDP URL in every trust mode (below).
+- **A bulkhead of 32.** At most 32 PDP calls at once per instance, the batch URL's included. A call that finds
+  every place taken waits for one until its own deadline and is then unreachable, so a PDP that stops answering
+  holds at most 32 of PingFederate's request threads for longer than a moment.
+- **A circuit breaker.** After "Circuit breaker failures" (5) unreachable calls in a row it opens for "Circuit
+  breaker open (s)" (30): the PDP is not called and every decision is unreachable at once. Then one trial call
+  goes through; its success closes the breaker and its failure opens it again. Only a transport failure counts,
+  the set `classify` reads as unreachable (above). Any HTTP answer - 429 and 502-504 included, which still read as
+  unreachable for fail-open - a malformed or oversized answer and a TLS failure fail as before, never trip the
+  breaker, and end the run of failures (plan item S2a's rule).
+- **One decision per question per request.** PingFederate calls `enrich` once per detail, in order, on the
+  request's thread (`AuthorizationDetailsUtil.enrich` runs a `List.forEach` over the details; javap of
+  pf-protocolengine 13.1.3.0, 2026-09-29). A memo kept as a request attribute, one per instance, answers any
+  repeat of the same question - the type, the detail with its keys sorted, the principal and how it was
+  established, the client and the whole attestation context - from the first answer, a failure included, so
+  PingFederate asking twice never makes two calls.
+- **The AuthZEN batch.** With "AuthZEN batch URL" set (the `authzen` dialect only; the PDP's
+  `/access/v1/evaluations`), the first `enrich` of a request whose `authorization_details` parameter carries
+  two or more details this processor would ask about sends them all in one Access Evaluations call, and the
+  memo answers the rest. The request is `{"evaluations": [...]}`, each element the evaluation a single call
+  would send. OpenID AuthZEN Authorization API 1.0 (Final, 11 January 2026), section 7.2: the response "adds an
+  evaluations array that lists the decisions in the same order they were provided in the evaluations array in
+  the request". So an answer with no `evaluations` array, with more or fewer decisions than were asked, or with
+  one that is not an object holding a boolean `decision`, is malformed: every detail of that request is denied,
+  and the breaker is not touched. Position is the only correlation AuthZEN 1.0 gives, so a PDP that answered the
+  right number in another order cannot be told apart ([F-0290](../../docs/findings/F-0290.yaml)). At the
+  authorization endpoint PingFederate reads the details from the pushed request, not a parameter, so there each
+  detail is asked on its own. The governance-engine dialect is unchanged: one call per detail.
+- **An optional decision cache.** "Decision cache types" lists the types whose decisions may be reused, for
+  "Decision cache TTL (s)" (30, at most 60), across requests; blank, the default, caches nothing. The key is the
+  memo's question with the PDP URL and the RAR models fingerprint, so an attester, a principal, a client or a
+  model set that differs is a different entry; at most 1024 entries. `payment_initiation` and every type in
+  "Types requiring an authenticated principal" are refused, on save and again at configure: those are decided on
+  every request.
+
+**Metrics.** `oidf_rar_pdp_calls_total{mode, outcome}` (mode `evaluation` or `evaluations`; outcome
+`answered`, `unreachable`, `failed` or `breaker_open`), `oidf_rar_pdp_answers_total{source}` (`pdp`, `memo` or
+`cache`) and the gauge `oidf_rar_pdp_breakers{state}` (instances whose breaker is `closed`, `open` or
+`half_open`). No label carries a principal, a client or a detail value. The plugin shades platform, so they are in
+the plugin's own registry, not the webapp's: in a JMX console, the MBean
+`com.pingidentity.ps.oidf:type=Metrics,copy="com.pingidentity.ps.oidf.rar.shaded.platform.metrics from <the jar's
+location>"`, attribute `Samples`. The plugin emits no events yet; the `rar.decision.*` family arrives with the
+plugin's GUI package (Phase 3, PLG).
 
 The switch that turned deny-unless-PERMIT off ("Deny unless PERMIT") is gone; the decision is always
 deny-unless-PERMIT. A value stored under the old name is carried by PingFederate and never read: 13.1.3
@@ -323,7 +388,13 @@ fail-open, timeout and the shared-secret header are dialect-independent.
 | Fail open on engine error | off | grants through an unreachable PDP only (above); never a wrong secret, a bad answer or a TLS failure |
 | Trust a client-asserted principal | off | `login_hint` / `_principal_sub` as the subject when nobody else is known - in development only, inert elsewhere, gone at 1.0 |
 | Trust the PAR-carried agent marker | off | where the attestation is not in the request (the authorization endpoint), take the agent instance from the `_agent_id` the attestation filter put in each entry at PAR; only for clients that must use PAR |
-| Skip TLS verification (dev only) / Request timeout (ms) | off / 10000 | trusts any PDP certificate only with `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere it is inert and configure logs a WARNING. The JDK client checks the hostname either way (below) |
+| Skip TLS verification (dev only) | off | trusts any PDP certificate only with `OIDF_DEPLOYMENT_PROFILE=development`; elsewhere it is inert and configure logs a WARNING. The host name is checked either way (below) |
+| Request timeout (ms) | 2500 | the call's total deadline, connect to last byte, held to 1000-10000; past it the PDP is unreachable. Was 10000 per call, not counting the body, before 0.6.0 |
+| PDP TLS trust | `jvm-default` | `jvm-default`, `pingfederate-trusted-cas` or `pinned-ca` (below); anything else is refused on save and at configure |
+| PDP CA certificates (PEM) | blank | the CAs `pinned-ca` trusts; blank or not a certificate with `pinned-ca` is refused |
+| AuthZEN batch URL | blank | `authzen` only; https unless development; refused with the governance-engine dialect |
+| Decision cache types / Decision cache TTL (s) | blank / 30 | never `payment_initiation` or a type requiring an authenticated principal; TTL 1-60 |
+| Circuit breaker failures / Circuit breaker open (s) | 5 / 30 | 1-1000 / 1-3600 |
 
 A switch missing from a stored configuration - an instance saved before the field existed (a 0.3.0 instance
 has no "Types requiring an authenticated principal"), or an archive written by hand that leaves it out -
@@ -384,18 +455,25 @@ So a stored plaintext value survives the switch; save each instance again after 
 encrypted. `OLD_PLUGIN_JAR=<the v0.3.0 jar> conformance/verify-rar-principal.sh` repeats the rehearsal and
 prints each of those facts, never the secret.
 
-**TLS to the PDP.** Give the PDP a certificate whose subject alternative name is the host PF dials. "Skip
-TLS verification" trusts any certificate, but the JDK HTTP client still checks the hostname during the
-handshake. Do not switch that check off with `-Djdk.internal.httpclient.disableHostnameVerification=true`,
-as older notes for this plugin said: the JDK reads the property once for the whole JVM, so every
-`java.net.http` client in that PingFederate stops checking hostnames - this repo's federation fetches, the
-OpenBao signer and the SSF servlet's push, poll and introspection calls, not only this plugin's. Any
-certificate from a trusted CA would then pass for any host. (Read from the JDK in the 13.1.3 image,
-OpenJDK 21.0.12.1: `AbstractAsyncSSLConnection` takes the flag from a static field, 2026-09-26; run in that
-image's JDK against a self-signed certificate for another name on 2026-09-28: refused without the flag, accepted
-with it.) The trust-all itself is libs/platform's `InsecureTls` (plan item PR-1), shaded into the jar: the
-first instance configured with it honoured logs one WARN naming the field, and the use is recorded for the
-start-up audit. `JdkHttpTransportInsecureTlsTest` holds the hostname check to a certificate for the wrong name.
+**TLS to the PDP.** Give the PDP a certificate whose subject alternative name is the host PF dials: the
+plugin checks it on every call, in every trust mode and with "Skip TLS verification" on, and nothing turns
+that off. "PDP TLS trust" chooses whom the certificate must chain to:
+
+| Mode | Trusts |
+|---|---|
+| `jvm-default` (default) | the CA certificates of the JVM PingFederate runs on |
+| `pingfederate-trusted-cas` | PingFederate's trust anchors as the SDK hands them to a plugin, `com.pingidentity.access.TrustedCAAccessor.getAllTrustAnchors()` (public in pingfederate-sdk 13.1.3.0; javap, 2026-09-29): the CAs under Security, Trusted CAs, and the JVM's own (`TrustedCAsManagerImpl.loadConfig` adds both; javap of pf-protocolengine 13.1.3.0). Read on every call, so a CA added in the console is used without saving the instance again ([U-0300](../../docs/findings/U-0300.yaml)) |
+| `pinned-ca` | only the CA certificates in "PDP CA certificates (PEM)", nothing from the JVM |
+
+The JVM-wide `-Djdk.internal.httpclient.disableHostnameVerification=true`, which older notes for this plugin
+recommended, is neither needed nor wanted. It only ever governed the JDK's `java.net.http` client, which this
+plugin no longer uses, and it switches the check off for every `java.net.http` client in that PingFederate at
+once (read from the JDK in the 13.1.3 image, OpenJDK 21.0.12.1: `AbstractAsyncSSLConnection` takes the flag from
+a static field, 2026-09-26). From 0.6.0 a production deployment refuses it (plan item PR-5; F-0035). The
+trust-all behind "Skip TLS verification" is libs/platform's `InsecureTls` (plan item PR-1), shaded into the
+jar: the first instance configured with it honoured logs one WARN naming the field, and the use is recorded for
+the start-up audit. `PdpTlsTest` holds each mode, and the trust-all, to a certificate for the wrong name, and
+refuses it.
 
 ## Verified on the rig
 
@@ -438,6 +516,18 @@ with nothing of the PDP's answer: `APAC` appears nowhere in `server.log`. The at
 was not exercised there: the probe client is secret-authenticated, and the filter publishes the fingerprint only
 from S1b on (U-0116).
 
+**The AuthZEN batch on the rig (2026-09-30, PingFederate 13.1.3.0, this jar at 0.6.0-SNAPSHOT).** The rig on
+slot 5 (`PF_RIG_NAME=pfai-p3-s2c`), configured by `ONLY_CONFIGURE=1 conformance/verify-rar-principal.sh`, with the
+instance switched through the admin API to a stub AuthZEN PDP on the host that answers both
+`/access/v1/evaluation` and `/access/v1/evaluations` (one `{"decision": true}` per evaluation, in order) and
+"AuthZEN batch URL" set. The admin API filled the instance's seven new fields with their defaults, and the
+configure line read `tlsTrust=jvm-default totalMillis=5000 batch=true cacheTypes=[] breaker=5/30s`. One
+client-credentials token request with three `sales_agent` details (EMEA, APAC, AMER): 200, the token carrying all
+three; PingFederate called `enrich` three times (three `RAR governance: type=sales_agent` lines), and the PDP
+received exactly one request, a `POST /access/v1/evaluations` with three evaluations in the order asked, and
+nothing on the single-evaluation path. PingAuthorize's own AuthZEN servlet could not be run: the licence in the
+`paz/` profile expired on 2026-08-12 ([U-0302](../../docs/findings/U-0302.yaml)).
+
 Not verified there: the device flow's user key (U-0066), the JWT-bearer grant (U-0017; `javap` finds no call
 to enrich in `JwtGrantProcessor`), the `subject` recipe on an authentication *policy* contract rather than an
 adapter mapping (U-0067), and what PingFederate makes of an instance whose `configure` threw (U-0068; the rig
@@ -452,7 +542,8 @@ mvn -pl plugins/rar-paz-plugin -am package     # → target/pf.plugins.pf-rar-pa
 Versions come from the repo BOM (`bom/pom.xml`); the two `provided` PF jars must be in `~/.m2` — the
 `install:install-file` lines in `.github/actions/pf-provided-jars/action.yml`. Deploy recipe in
 [`idp-agentic-demo/pingfederate/rar-paz/`](https://github.com/dphhyland/idp-agentic-demo/blob/main/pingfederate/rar-paz) — the config-as-code moved there on 2026-08-21, beside the PingAuthorize services that answer it. Its
-`Dockerfile.fragment` still adds the JVM-wide hostname flag the TLS note above warns against (checked
-2026-09-26); removing it is that repo's change. Note this repo's own `build/pingfederate/` image is
+`Dockerfile.fragment` still adds the JVM-wide hostname flag the TLS note above says to take out (checked
+2026-09-26): this plugin does not need it from 0.6.0, and a production deployment refuses it. Removing it is that
+repo's change (F-0035). Note this repo's own `build/pingfederate/` image is
 the OIDF-only AS and deliberately does **not** bake this plugin; the rig borrows it through the compose
 override above.

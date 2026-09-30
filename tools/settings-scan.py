@@ -34,8 +34,9 @@ What counts as a read, in main Java code with comments removed:
   an OIDF_ literal      a string literal that is nothing but an environment variable's name under OIDF_, such as
                         "OIDF_PDP_MODE" - read as env. A literal is a read only when the name is the whole of it,
                         so a message that mentions a name ("set OIDF_PDP_URL") is not one, and neither is a prefix
-                        ending in an underscore ("OIDF_SSF_"). The rule is the one ConfigurationDocumentedTest has
-                        used since 2026-08: in main code a bare OIDF_ literal exists only to name the variable.
+                        ending in an underscore ("OIDF_SSF_"). The rule is the one ConfigurationDocumentedTest used
+                        from 2026-08 until tools/config-reference.py replaced it: in main code a bare OIDF_ literal
+                        exists only to name the variable.
   a read call           System.getenv(x) (env); System.getProperty(x), Boolean.getBoolean(x), Integer.getInteger(x)
                         and Long.getLong(x) (system-property); getInitParameter(x) on anything (init-param); the
                         PingFederate plugin configuration's getFieldValue family and a FieldDescriptor's
@@ -96,8 +97,8 @@ yet, one per line under a `# group <name>` comment line for the package that wil
 "not shipped" group whose lines give a reason after a colon. A missing file means no exemptions. The scan refuses
 an exemption for a module not in the reactor, for one that already has a catalogue (a stale line), for one that
 reads nothing, and a "not shipped" line without a reason or naming a module build/pingfederate/stage-modules.sh
-stages. The line `refuse-shipped-exemptions: yes` (ST-4 sets it) refuses every exemption outside the "not
-shipped" group.
+stages. The line `refuse-shipped-exemptions: yes` (ST-4 set it) refuses every exemption outside the "not
+shipped" group, and the scan then says every shipped module is held to its catalogues.
 
 What it does not see. It reads Java only, and only the shapes above: a name built by formatting, or by
 concatenation other than a computed name's, a Spring or MicroProfile binding, a read in a shell script or a Dockerfile, and a name passed through a
@@ -1208,6 +1209,9 @@ def scan(root):
         if catalogue.entries and not any(p == catalogue.package or p.startswith(catalogue.package + ".") for p in packages):
             problems.append(f"{catalogue.path}: package {catalogue.package} reads none of its settings; the owning package"
                             f" is one of {', '.join(sorted(packages)) or 'none'}")
+    if refuse_shipped:
+        notes.append("every shipped module is held to its catalogues: only modules that are not shipped may be exempt"
+                     + (f" ({', '.join(sorted(exempt))})" if exempt else ""))
     if unresolved or reads:
         notes.append(f"{len(reads)} read(s) in {len(reading_modules)} module(s), {len(catalogues)} catalogue(s),"
                      f" {len(declared)} declared name(s), {len(exempt)} exempt module(s)")

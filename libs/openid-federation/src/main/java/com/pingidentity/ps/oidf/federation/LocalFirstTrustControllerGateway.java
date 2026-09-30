@@ -49,6 +49,14 @@ public final class LocalFirstTrustControllerGateway implements TrustControllerGa
         return jwt != null ? jwt : this.delegate.fetchEntityStatement(issuer, maxAgeFromIatSeconds, pendingWrites);
     }
 
+    /** This deployment's own statement costs nothing on the network; any other goes to the delegate with the budget. */
+    @Override
+    public String fetchEntityStatement(String issuer, long maxAgeFromIatSeconds, SubordinateStatementCache.PendingWrites pendingWrites,
+            ResolutionBudget budget) throws Exception {
+        String jwt = this.local.entityConfiguration(issuer);
+        return jwt != null ? jwt : this.delegate.fetchEntityStatement(issuer, maxAgeFromIatSeconds, pendingWrites, budget);
+    }
+
     @Override
     public String fetchSubordinateStatement(String authorityIssuer, String subject) throws Exception {
         return this.fetchSubordinateStatement(authorityIssuer, subject, -1L, null);
@@ -59,6 +67,21 @@ public final class LocalFirstTrustControllerGateway implements TrustControllerGa
             SubordinateStatementCache.PendingWrites pendingWrites) throws Exception {
         String jwt = this.local.subordinateStatement(authorityIssuer, subject);
         return jwt != null ? jwt : this.delegate.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites);
+    }
+
+    @Override
+    public String fetchSubordinateStatement(String authorityIssuer, String subject, long maxAgeFromIatSeconds,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
+        String jwt = this.local.subordinateStatement(authorityIssuer, subject);
+        return jwt != null ? jwt
+                : this.delegate.fetchSubordinateStatement(authorityIssuer, subject, maxAgeFromIatSeconds, pendingWrites, budget);
+    }
+
+    @Override
+    public String anchorConfiguration(TrustAnchor anchor, Set<String> acceptedSigningAlgorithms,
+            SubordinateStatementCache.PendingWrites pendingWrites, ResolutionBudget budget) throws Exception {
+        String jwt = this.local.entityConfiguration(anchor.entityId());
+        return jwt != null ? jwt : this.delegate.anchorConfiguration(anchor, acceptedSigningAlgorithms, pendingWrites, budget);
     }
 
     @Override

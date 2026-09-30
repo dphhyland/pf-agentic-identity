@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>platform</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>platform</name>
@@ -28,13 +28,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -57,6 +60,14 @@
         <plugins>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-compiler-plugin</artifactId><version>3.13.0</version></plugin>
             <plugin><groupId>org.apache.maven.plugins</groupId><artifactId>maven-surefire-plugin</artifactId><version>3.2.5</version></plugin>
+            <!-- Rebuild the plain jar every time. Shade replaces it with the shaded one under the same name, so a
+                 second build that found it up to date would shade the shaded jar again. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <version>3.4.1</version>
+                <configuration><forceCreation>true</forceCreation></configuration>
+            </plugin>
 
             <!-- http (S5a): httpcore5 shaded in and relocated under platform.http.internal.hc5; the jar replaces the
                  plain one under the same name. A plugin that shades platform relocates com.pingidentity.ps.oidf.platform.
@@ -147,6 +158,26 @@
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.checkName(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.clean(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentState.needsReason(*</include>
+                                        <!-- component (S-9, S9A): the supervisor, the enable switches and a part's start -->
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.note(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.retry(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.schedule(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.run(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.backoff(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.ceiling(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.count(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.WebappScheduler.schedule(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.Supervisor.WebappScheduler.executor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.verdict(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.value(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.component.ComponentSwitches.present(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.start(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.retry(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.attempt(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.notConfigured(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentState(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.Part.componentRefused(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.health.ComponentParts.verdict(*</include>
                                         <!-- json (F-1): add gate includes below this line -->
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.parse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.json.Json.readValue(*</include>
@@ -475,6 +506,21 @@
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.every(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.after(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.exec.ManagedExecutors.startDaemon(*</include>
+                                        <!-- auth (S8a): add gate includes below this line -->
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.introspect(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.formEncode(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.ask(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.parse(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.string(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.object(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.audience(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.seconds(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.cached(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.remember(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.cacheUntil(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.TokenIntrospector.Builder.cacheFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.clientSecretBasic(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.auth.ClientAuthentication.privateKeyJwt(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

@@ -51,6 +51,8 @@ authorization_details entry ─▶ AttestationAwareRarProcessor.enrich()
   ├─ PdpClient — the dialect seam, chosen at configure() time:
   │    · governance-engine (default) → GovernanceEngineRequestBuilder + GovernanceEngineClient
   │    · authzen                     → AuthZenRequestBuilder + AuthZenPdpClient
+  │    PdpDecisions in front of it: per-request memo, optional decision cache, AuthZEN batch;
+  │    under it CircuitBreaker.Guarded over PdpTransport (platform's OutboundHttp, shaded)
   ├─ deny unless decision.isPermit(); fail open ONLY on PdpUnavailableException, if configured
   ├─ StatementApplier: merge obligations into a deep copy of the detail
   └─ ModelGate: the result must be within the request (contains, the request as the ceiling)
@@ -74,11 +76,13 @@ question goes to the model.
 2. **Client credentials is the client, and a payment for a client is refused before the PDP.** The
    default type list is `payment_initiation,account_information`; a single `-` empties it. Token
    exchange is `none` until the token-endpoint filter publishes `verified_subject_token_sub`.
-3. **Fail-open means unreachable, nothing else.** Connection refused/reset, unresolved name, a
-   deadline, HTTP 429/502/503/504. A 401 from a wrong secret, a non-JSON body, a 500, a status line
-   or header the client cannot parse (`ProtocolException`) and a TLS failure all deny, whatever the
-   switch says. A reset is read from the exception's class or the JDK's own message prefix, never by
-   searching a message: the client copies wire text into its protocol errors (F-0093). There is no
+3. **Fail-open means unreachable, nothing else.** Connection refused/reset, unresolved name, the
+   connect or total deadline, all 32 call places taken, the circuit breaker open, HTTP
+   429/502/503/504. A 401 from a wrong secret, a non-JSON body, a 500, a response over 64 KiB, a
+   status line or header platform's client cannot parse and a TLS failure all deny, whatever the
+   switch says, and none of them counts towards the breaker. `PdpTransport.classify` reads platform's
+   failure reason, and a reset from the cause's class or the JDK's own message prefix, never by
+   searching a message: wire text can reach a protocol error's message (F-0093). There is no
    "Deny unless PERMIT" switch any more; a stored value under that name is carried by PingFederate
    and ignored.
 4. **The PDP URL must be https unless `OIDF_DEPLOYMENT_PROFILE=development`** (unset is production):
@@ -95,10 +99,13 @@ question goes to the model.
    own package appears in it. A `META-INF/services` marker does NOT work.
 7. **Binding a type to the instance is per type and per client on 13.1**: `/oauth/authorizationDetailTypes`
    (`authorizationDetailProcessorRef`), and the client's `authorizationDetailTypes` lists type names.
-8. **TLS to an internal PDP: give the PDP certificate a SAN that matches the host PF dials.** The
-   JDK HttpClient checks the hostname even when "Skip TLS verification" trusts every certificate (in
-   development, the only place it does). Never set
-   `-Djdk.internal.httpclient.disableHostnameVerification=true`: it is JVM-wide.
+8. **TLS to an internal PDP: give the PDP certificate a SAN that matches the host PF dials.** From
+   0.6.0 the plugin calls the PDP through platform's `OutboundHttp`, which checks the host name on
+   every connection and has no switch to stop it, in every "PDP TLS trust" mode (`jvm-default`,
+   `pingfederate-trusted-cas`, `pinned-ca`) and with "Skip TLS verification (dev only)". The JVM-wide
+   `jdk.internal.httpclient.disableHostnameVerification` only ever governed `java.net.http`, so it
+   does nothing for this plugin, and the production profile refuses it (PR5, F-0035): take it out.
+   The call's total deadline is "Request timeout (ms)", 2500 by default, held to 1000-10000.
 9. **Reserved attribute names (governance engine).** `UserID`, `principal_source`, `actor`,
    `actor_iss`, `client_id`, `attestation.*`, and `req_<field>`/`att_<field>` for every set-valued
    field whether or not the request writes that mirror: the server writes them last, and a requested
@@ -137,6 +144,17 @@ question goes to the model.
     (javap, 13.1.3).
 16. **`validate` still checks only `type`.** On the JWT-bearer grant PingFederate calls `validate` and
     never `enrich`, so those details reach the token without the model or the PDP (F-0108).
+17. **One PDP decision per detail per HTTP request, and one call for all of them with a batch URL.**
+    PingFederate calls `enrich` once per detail, in order, on the request's thread
+    (`AuthorizationDetailsUtil.enrich`, a `List.forEach`; javap, 13.1.3). The memo, a request
+    attribute per instance, answers a repeat of the same (type, canonical detail, principal, client).
+    With "AuthZEN batch URL" set (authzen only), the first `enrich` of a token request sends every
+    detail in its `authorization_details` parameter in one AuthZEN 1.0 `evaluations` call; an answer
+    with the wrong number of evaluations, or one that is not a boolean decision, denies them all. At
+    the authorization endpoint the details are not a parameter, so each is asked on its own. "Decision
+    cache types" never takes `payment_initiation` or a type requiring an authenticated principal.
+    Metrics `oidf_rar_pdp_calls_total`, `oidf_rar_pdp_answers_total` and `oidf_rar_pdp_breakers` are in
+    the plugin's own MXBean, `com.pingidentity.ps.oidf:type=Metrics,copy="com.pingidentity.ps.oidf.rar.shaded.platform.metrics from ..."`.
 
 ## How to build
 ```bash
@@ -159,6 +177,7 @@ rehearsal; `SKIP_UP=1 KEEP_RIG=1` reuses a running rig. Read the README's "Verif
 This repo deploys nothing; the recipe lives in `idp-agentic-demo/pingfederate/rar-paz/`.
 - Bake the jar with its `Dockerfile.fragment` (jar → `server/default/deploy/`, optional
   consent template). That fragment also adds the JVM-wide hostname flag - leave it out (fact 8).
+  The plugin does not need it, and a production deployment refuses it.
 - Create the processor instance + the types + enable them on the client:
   `idp-agentic-demo/pingfederate/rar-paz/config-as-code/{create-processor-instance,enable-on-client}.sh`.
 - Author the PDP policy in `paz/` (PAP REST API). Wire contract: top-level `README.md`.

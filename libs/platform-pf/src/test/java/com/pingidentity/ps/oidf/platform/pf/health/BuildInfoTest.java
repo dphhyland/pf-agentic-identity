@@ -1,5 +1,6 @@
 /*
- * The versions come from the jars' pom.properties; one that cannot be read is null.
+ * The versions come from the jars' pom.properties and the commit from platform-pf's manifest; one that cannot be read
+ * is null.
  */
 package com.pingidentity.ps.oidf.platform.pf.health;
 
@@ -11,6 +12,11 @@ import java.net.URL;
 import java.net.URLClassLoader;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.charset.StandardCharsets;
+import java.util.jar.Attributes;
+import java.util.jar.JarEntry;
+import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -31,8 +37,60 @@ class BuildInfoTest {
         Map<String, Object> info = BuildInfo.read(loader);
         assertEquals("0.5.0", info.get("agentic-identity"));
         assertEquals("13.1.3.0", info.get("pingfederate"));
-        assertNull(info.get("commit"), "no build records the commit yet (F-0190)");
+        assertNull(info.get("commit"), "no manifest beside the pom.properties: no commit");
         assertEquals(Runtime.version().toString(), info.get("java"));
+    }
+
+    @Test
+    void theCommitIsTheBuildCommitOfPlatformPfsOwnManifest(@TempDir Path root) throws IOException {
+        loaderWith(root, BuildInfo.OWN_POM, "version=0.6.0\n");
+        ClassLoader loader = loaderWith(root, "META-INF/MANIFEST.MF", "Manifest-Version: 1.0\nBuild-Commit:  0123abcd \n\n");
+        assertEquals("0123abcd", BuildInfo.commit(loader));
+        assertEquals("0123abcd", BuildInfo.read(loader).get("commit"));
+    }
+
+    @Test
+    void theCommitIsReadFromTheJarThePomIsIn(@TempDir Path root) throws IOException {
+        // Another jar's manifest comes first on the loader; the commit is still platform-pf's.
+        Path other = root.resolve("other.jar");
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(other), manifest("fedcba98"))) {
+            out.putNextEntry(new JarEntry("x.txt"));
+        }
+        Path own = root.resolve("platform-pf.jar");
+        try (JarOutputStream out = new JarOutputStream(Files.newOutputStream(own), manifest("0123abcd"))) {
+            out.putNextEntry(new JarEntry(BuildInfo.OWN_POM));
+            out.write("version=0.6.0\n".getBytes(StandardCharsets.UTF_8));
+        }
+        ClassLoader loader = new URLClassLoader(new URL[] {other.toUri().toURL(), own.toUri().toURL()}, null);
+        assertEquals("0123abcd", BuildInfo.commit(loader));
+    }
+
+    @Test
+    void aCommitThatIsUnknownOrCannotBeReadIsNull(@TempDir Path root) throws IOException {
+        assertNull(BuildInfo.commit(null));
+        assertNull(BuildInfo.commit(new URLClassLoader(new URL[0], null)), "no pom.properties to find the jar by");
+        assertNull(BuildInfo.commit(loaderWith(root.resolve("none"), BuildInfo.OWN_POM, "version=0.6.0\n")), "no manifest");
+        for (String manifest : new String[] {"Manifest-Version: 1.0\n\n", "Manifest-Version: 1.0\nBuild-Commit: \n\n",
+                "Manifest-Version: 1.0\nBuild-Commit: unknown\n\n"}) {
+            Path dir = root.resolve("m" + manifest.length());
+            loaderWith(dir, BuildInfo.OWN_POM, "version=0.6.0\n");
+            assertNull(BuildInfo.commit(loaderWith(dir, "META-INF/MANIFEST.MF", manifest)), manifest);
+        }
+        URL odd = new URL("file:/a b/" + BuildInfo.OWN_POM);
+        ClassLoader unparseable = new ClassLoader(null) {
+            @Override
+            public URL getResource(String name) {
+                return odd;
+            }
+        };
+        assertNull(BuildInfo.commit(unparseable), "a location that is not a URI");
+    }
+
+    private static Manifest manifest(String commit) {
+        Manifest manifest = new Manifest();
+        manifest.getMainAttributes().put(Attributes.Name.MANIFEST_VERSION, "1.0");
+        manifest.getMainAttributes().putValue(BuildInfo.COMMIT, commit);
+        return manifest;
     }
 
     @Test

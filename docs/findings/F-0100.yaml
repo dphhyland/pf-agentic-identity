@@ -7,7 +7,7 @@ status: open
 plan_items: [S-1, S1c]
 prs: [37]
 verification: ''
-target_release: 0.5.0
+target_release: 0.6.0
 notes: >
   Found while implementing S1b (PR #37), 2026-09-27. The token gate and the attester ask libs/rar-model, so nothing
   in main code calls RarEntitlement. plugins/rar-paz-plugin's RarContainmentContractTest reads
@@ -23,3 +23,8 @@ notes: >
   pf-integration assertion, and the session making the release was not permitted to remove tests. It removes
   public members of libs/client-attestation too, so it goes in a code pull request of its own, with David's say-so
   on the test removal; nothing calls the class.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: no Phase 2 package owned the deletion, and the release
+  package changes no code. RarEntitlement.java, RarEntitlementTest.java and ClientAttestationException's accessDenied
+  and ACCESS_DENIED are all still in libs/client-attestation on origin/main 4b1fd979. The deletion removes a test
+  class and public members, so it waits for David's say-so in a code pull request of its own.

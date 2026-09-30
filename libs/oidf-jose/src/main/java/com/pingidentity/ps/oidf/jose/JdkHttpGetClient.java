@@ -1,5 +1,6 @@
 package com.pingidentity.ps.oidf.jose;
 
+import com.pingidentity.ps.oidf.platform.http.Deadline;
 import java.util.Objects;
 
 /**
@@ -38,5 +39,11 @@ public final class JdkHttpGetClient implements HttpGetClient {
     @Override
     public String get(String url, String acceptHeader) throws Exception {
         return this.delegate.get(url, acceptHeader);
+    }
+
+    /** The GET, by the sooner of {@code deadline} and the request timeout (see {@link JdkHttpClient#get(String, String, Deadline)}). */
+    @Override
+    public String get(String url, String acceptHeader, Deadline deadline) throws Exception {
+        return this.delegate.get(url, acceptHeader, deadline);
     }
 }

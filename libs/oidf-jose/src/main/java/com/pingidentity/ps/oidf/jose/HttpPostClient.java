@@ -3,6 +3,8 @@
  */
 package com.pingidentity.ps.oidf.jose;
 
+import com.pingidentity.ps.oidf.platform.http.Deadline;
+import com.pingidentity.ps.oidf.platform.http.OutboundHttpException;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -33,6 +35,28 @@ public interface HttpPostClient {
     /** POSTs {@code form} as {@code application/x-www-form-urlencoded}. */
     default Response postForm(String url, Map<String, String> form, Map<String, String> headers, String accept) throws Exception {
         return post(url, "application/x-www-form-urlencoded", formEncode(form), headers, accept);
+    }
+
+    /**
+     * {@link #post} ending by {@code deadline}, the response body included: see {@link HttpGetClient#get(String, String,
+     * Deadline)}. This default, for an implementation that cannot bound a request, refuses to start once the deadline
+     * has passed and otherwise makes the unbounded request.
+     *
+     * @throws OutboundHttpException with {@link OutboundHttpException.Reason#DEADLINE} when the deadline has passed
+     */
+    default Response post(String url, String contentType, String body, Map<String, String> headers, String accept,
+            Deadline deadline) throws Exception {
+        if (deadline.expired()) {
+            throw new OutboundHttpException(OutboundHttpException.Reason.DEADLINE,
+                    "not posting to " + url + ": the deadline has already passed");
+        }
+        return post(url, contentType, body, headers, accept);
+    }
+
+    /** {@link #postForm} ending by {@code deadline}. */
+    default Response postForm(String url, Map<String, String> form, Map<String, String> headers, String accept,
+            Deadline deadline) throws Exception {
+        return post(url, "application/x-www-form-urlencoded", formEncode(form), headers, accept, deadline);
     }
 
     /** {@code application/x-www-form-urlencoded} encoding of {@code form}, in iteration order. */

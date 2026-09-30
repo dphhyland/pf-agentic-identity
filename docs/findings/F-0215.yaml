@@ -7,7 +7,7 @@ status: open
 plan_items: [F-1]
 prs: [56]
 verification: ''
-target_release: 0.5.0
+target_release: 0.6.0
 notes: >
   Found by package PFI (2026-09-28). F-1 puts every call into PingFederate's internal services behind platform-pf's
   PfInternals, so a PingFederate release that changes one changes one class. PFI moved the ten issuer lookups in
@@ -20,3 +20,8 @@ notes: >
   one, and InternalsBoundaryTest (libs/platform-pf) carries the file as its one recorded exception. The fix is one
   line - PfInternals.issuer(request) - and removing the test's entry, which the test then demands; it closes this
   finding.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open: PfIdTokenVerifier.forThisDeployment in servlets/ssf on
+  origin/main 4b1fd979 still calls org.sourceid.oauth20.issuer.OAuthIssuerUtils.getInstance().getIssuerValue(request)
+  (line 63). The fix is one line of code and one test entry, which the release package, changing no code, does not
+  make.

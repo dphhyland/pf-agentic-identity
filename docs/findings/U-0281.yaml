@@ -1,0 +1,15 @@
+id: U-0281
+title: A filter whose init throws
+area: pf-integration
+source: design
+status: closed
+plan_items: [S9a]
+prs: [72]
+recorded_in: docs/operator/components.md, Verified on the rig
+verify_by: 'On the rig: a filter in pf-runtime.war whose init throws, and what the merged war does.'
+verification: >
+  The merged war fails whole, as for a load-on-startup servlet (U-0023). Seen on the rig 2026-09-29 (PingFederate
+  13.1.3, main at a5a2d49e): with no trust controller configured FrontChannelAutoRegistrationFilter.init threw
+  jakarta.servlet.ServletException "OpenID Federation automatic registration: No trust controller configured ...",
+  and Jetty ee9 logged "Failed startup of context" for pf-runtime.war (FilterHolder.initialize in the stack).
+notes: ''

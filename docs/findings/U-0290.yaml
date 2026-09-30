@@ -1,0 +1,21 @@
+id: U-0290
+title: That a 45 second wall clock is enough for a resolution against the federations a deployment joins
+area: openid-federation
+source: design
+status: open
+plan_items: [S5b]
+prs: [69]
+recorded_in: libs/openid-federation/README.md, The resolution budget; docs/releases/unreleased/S5B.md
+verify_by: >
+  After a week of traffic on a deployment that joins a federation over the internet, search the PingFederate server
+  log for "ran out of time" (the WARN TrustChainValidator writes when a resolution runs out of its wall clock) and,
+  with DEBUG on com.pingidentity.ps.oidf.federation.TrustChainValidator for a day, read the "resolved in" times. No
+  WARN and a longest resolution well under 45 s means the default holds; otherwise raise
+  OIDF_FEDERATION_RESOLUTION_WALL_CLOCK_SECONDS for that deployment, or the default if every deployment needs it.
+verification: ''
+notes: >
+  The default is three times the longest resolution measured on 2026-09-29: 14.5 s, from this machine in Australia,
+  for a relying party under the Italian public-sector anchor https://oidc.registry.servizicie.interno.gov.it (eight
+  of ten entities chosen at random took 4.3 s to 14.5 s before a check unrelated to time refused them). The rig's
+  resolutions took 5 ms to 179 ms on loopback. Neither is a deployment's own federation, whose depth, fan-out and
+  distance decide the figure.

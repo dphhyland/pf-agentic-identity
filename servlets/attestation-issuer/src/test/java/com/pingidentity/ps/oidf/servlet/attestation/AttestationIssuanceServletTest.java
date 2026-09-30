@@ -1821,16 +1821,17 @@ class AttestationIssuanceServletTest {
 
     /**
      * A models document the attester cannot read would have it mint against something other than what the
-     * deployment wrote, so the servlet does not start (plan item S-9, Phase 3, gives it a state of its own instead).
+     * deployment wrote, so the servlet does not start: its part is FAILED_CONFIG and its init returns (plan item S-9).
      */
     @Test
     void initRefusesToStartWithAModelsDocumentItCannotRead() throws Exception {
         try {
             rarModelsFrom(Map.of(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS, "{\"types\":"));
             ServletConfig config = mock(ServletConfig.class);
-            jakarta.servlet.ServletException e = assertThrows(jakarta.servlet.ServletException.class,
-                    () -> new AttestationIssuanceServlet().init(config));
-            assertTrue(e.getMessage().contains(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS_FILE), e.getMessage());
+            org.junit.jupiter.api.Assertions.assertDoesNotThrow(() -> new AttestationIssuanceServlet().init(config));
+            String reason = com.pingidentity.ps.oidf.platform.health.Startup.parts().parts().stream()
+                    .filter(p -> p.part().equals("AttestationIssuanceServlet")).findFirst().orElseThrow().reason();
+            assertTrue(reason.contains(com.pingidentity.ps.oidf.rar.model.RarModels.ENV_MODELS_FILE), reason);
 
             AttestationIssuanceServlet uninitialised = new AttestationIssuanceServlet();
             assertEquals("server_error", assertThrows(IssuanceException.class, uninitialised::rarModels).error(),

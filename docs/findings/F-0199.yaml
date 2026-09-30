@@ -3,10 +3,22 @@ title: The configuration reference and docs/extended-properties.json disagree wi
 severity: medium
 area: docs, pf-integration
 source: design
-status: open
+status: closed
 plan_items: [ST-4]
-prs: []
-verification: ''
+prs: [64]
+verification: >
+  Closed at the 0.5.0 release on 2026-09-29, by ST4 (PR #64) with one sentence corrected on the release branch. ST4
+  generates docs/configuration/*.md and docs/extended-properties.json from the catalogues, and the Build workflow's
+  lint job fails when either is not current (`python3 tools/config-reference.py --check`, "current: 24 component
+  page(s)" on origin/main 4b1fd979). Each of the four points, read on the generated files that day: (1)
+  docs/configuration/attestation-token-endpoint.md names OIDF_ATTESTATION_REQUIRE_HOSTED_AGENT's property as
+  oidf.attestation.require_hosted_agent, and docs/federation/configuration.md's "How a setting is read" no longer says
+  every property is the lower-cased name (corrected on the release branch, which says a generated row names the
+  property and gives this one as the example); (2) docs/configuration/fapi2-profile.md reads OIDF_FAPI2_CLIENTS from
+  init-param clients first, then the system property, then the environment; (3) docs/extended-properties.json lists
+  trust_chain_leaf_max_time, trust_chain_trustanchor_max_time and trust_chain_request_max_age (F-0041, closed by the
+  same PR); (4) docs/configuration/federation-runtime.md's OIDF_FEDERATION_TRUST_CONTROLLER_BASE_URL row says its
+  origin and path prefix are exempt from the fetch rules and marks it as bearing on security.
 target_release: 0.5.0
 notes: >
   Found by ST3A (2026-09-28) transcribing docs/federation/configuration.md into the catalogues, the code winning

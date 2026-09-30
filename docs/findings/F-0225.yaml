@@ -3,10 +3,17 @@ title: DpopProofValidator lives in client-attestation, so a module that shares i
 severity: low
 area: rs-validation, client-attestation, platform-pf
 source: pr-review
-status: open
+status: closed
 plan_items: [S8a]
-prs: [59]
-verification: ''
+prs: [59, 71]
+verification: >
+  2026-09-30, branch prod/p3-operator-authenticator (PR 71): DpopProofValidator and DpopProof are in
+  libs/oidf-jose as com.pingidentity.ps.oidf.jose.dpop, with DpopProofValidatorTest and HtuComparisonTest and
+  their methods in oidf-jose's 100% METHOD gate. libs/rs-validation's pom names oidf-jose and platform and not
+  client-attestation; client-attestation imports the moved classes. The oidf-jose, rs-validation and
+  client-attestation suites pass on JDK 17 (397 tests in client-attestation, 117 in rs-validation) and 21.
+  platform-pf's OperatorAuthenticator checks proofs through rs-validation and oidf-jose, with no path to
+  client-attestation.
 target_release: 0.6.0
 notes: >
   Found while building XD01 (2026-09-28). libs/rs-validation checks DPoP proofs with

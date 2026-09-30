@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>client-attestation</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>client-attestation</name>
@@ -26,13 +26,16 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
@@ -84,8 +87,8 @@
 
                         Gated per METHOD, not per class, so the members whose remaining branches are
                         genuinely untested stay honestly out of scope rather than being hidden behind
-                        a class-level average. StaticAttesterKeyResolver's file and trust-chain paths, and DpopProofValidator.normalizeHtu's URL edge cases
-                        are the next work queue; adding a method here is how that work gets banked.
+                        a class-level average. StaticAttesterKeyResolver's file and trust-chain paths are the next work queue
+                        (DpopProofValidator moved to oidf-jose, with its gate); adding a method here is how that work gets banked.
                     -->
                     <execution>
                         <id>coverage-gate</id>
@@ -135,11 +138,6 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyPopMode(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.requireSoleAudience(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.verifyDpopMode(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizeHtu(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.normalizePercentEncoding(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(*</include>
-                                        <include>com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(*</include>
                                         <!-- S3a: which store each surface gets and the remembered refusal of plaintext or of
                                              a Redis setting, the holder a conflict names, and the challenge endpoint's 503.
                                              Which CA a rediss:// connection trusts, the transport rule and the redaction

@@ -6,7 +6,7 @@
 
     <groupId>com.pingidentity.ps.oidf</groupId>
     <artifactId>rs-validation</artifactId>
-    <version>0.5.0-SNAPSHOT</version>
+    <version>0.6.0-SNAPSHOT</version>
     <packaging>jar</packaging>
 
     <name>rs-validation</name>
@@ -26,22 +26,24 @@
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.release>17</maven.compiler.release>
+        <!-- The date written on every archive entry, so a rebuild of this commit is byte-identical. tools/set-version.py
+             sets it with the version: HEAD's commit time for a release, 2000-01-01T00:00:00Z for a snapshot. -->
+        <project.build.outputTimestamp>2000-01-01T00:00:00Z</project.build.outputTimestamp>
     </properties>
 
     <!-- Shared dependency versions come from the repo BOM (bom/pom.xml). This pom stays standalone
          otherwise: no parent, plugin config kept local. -->
     <dependencyManagement>
         <dependencies>
-            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.5.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
+            <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>pf-agentic-identity-bom</artifactId><version>0.6.0-SNAPSHOT</version><type>pom</type><scope>import</scope></dependency>
         </dependencies>
     </dependencyManagement>
 
     <dependencies>
+        <!-- oidf-jose, for the JOSE helpers and, since S8a, DpopProofValidator: RFC 9449's proof checks, moved there from
+             client-attestation (finding F-0225) so that this library, and platform-pf's operator authenticator through
+             it, no longer take client-attestation and rar-model with them. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>oidf-jose</artifactId></dependency>
-        <!-- DpopProofValidator already implements RFC 9449's proof checks here, with tests. No reason to write it
-             twice. It stays in client-attestation for now; F-0225 records moving it, so that platform-pf's operator
-             authenticator (S8a) can share it without depending on client-attestation. -->
-        <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>client-attestation</artifactId></dependency>
         <!-- platform.redis for RedisReplayStore, platform.http for RemoteJwks, platform.profile for the legacy act
              switch. -->
         <dependency><groupId>com.pingidentity.ps.oidf</groupId><artifactId>platform</artifactId></dependency>
@@ -106,6 +108,8 @@
                                         <include>com.pingidentity.ps.oidf.rs.ActChain.Parsed.priorActors(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.validate(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.verifyAccessToken(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.introspected(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.acceptsBearer(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.selectKey(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkClaims(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.checkAct(*</include>
@@ -121,6 +125,7 @@
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Presentation.requireMethodAndUri(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.build(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowLegacyStringAct(*</include>
+                                        <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.allowUnbound(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.clockSkew(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.proofMaxAge(*</include>
                                         <include>com.pingidentity.ps.oidf.rs.DelegatedTokenValidator.Builder.asymmetric(*</include>

@@ -99,8 +99,11 @@ The stash is shared by every worktree: prefer a temporary WIP commit to `git sta
   the SDK version the reactor compiles against, and the product version the Terraform provider is told.
   `tools/pf-version-check.py` checks every other place that names the version agrees with it;
   `tools/pf-version-sync.py` rewrites them when it changes.
-- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, `0.5.0-SNAPSHOT` to bump.
-  gm-api is in the lockstep.
+- `tools/set-version.py` keeps every pom on one project version: `--check` in CI, a version such as `0.6.0-SNAPSHOT` to bump.
+  gm-api is in the lockstep. It sets each pom's `project.build.outputTimestamp` with the version, the date written
+  on every jar and war entry so that a rebuild is byte-identical: HEAD's commit time, in UTC, for a release, and
+  `2000-01-01T00:00:00Z` for a snapshot. `--check` fails when a pom has none, when they disagree or do not parse,
+  and when a release carries the snapshot's date. Never edit the version or the date by hand.
 - `tools/pf-provided-versions.py` compares the BOM's `version.pf.*` properties with the jars the image ships.
 
 Each has unit tests under `tools/tests/`, run by CI before the tool itself is trusted:
@@ -235,11 +238,14 @@ release notes. The maintainer merges.
 
 The maintainer cuts a release. A pull request folds the fragments (`python3 tools/release-notes.py assemble
 <version>`, which appends them to `docs/releases/<version>.md` and CHANGELOG.md's `Unreleased` section and
-deletes them), sets every pom to the version (`python3 tools/set-version.py <version>`), gives the changelog's
+deletes them), sets every pom to the version and its outputTimestamp (`python3 tools/set-version.py <version>`), gives the changelog's
 `Unreleased` heading the version and date, and finishes `docs/releases/<version>.md`; its merge commit is tagged `v<version>` and the tag pushed. The tag starts
 [release.yml](.github/workflows/release.yml), which publishes the build it verified and nothing before it; the
-order is in the workflow's header. A `workflow_dispatch` with `dry_run` runs the same steps and stops once
-`dist/` is assembled, publishing nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
+order is in the workflow's header. Once `dist/` is assembled, and before anything is published, it makes the
+rebuild the deploy will make with `mvn install` and compares every rebuilt jar and war with `dist/` byte for byte,
+so a build that is not reproducible stops the release before a draft or a package exists; after the deploy it
+compares again. A `workflow_dispatch` with `dry_run` runs the same steps up to and including that first
+comparison, and publishes nothing. Afterwards a pull request moves the poms to the next `-SNAPSHOT`.
 
 The release's second gate, after the tag-version check, is a green Build on the tagged commit. The newest Build
 run that a push to `main` or a dispatch started there must have concluded success, and so must the latest attempt

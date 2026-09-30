@@ -5,7 +5,7 @@ area: ci, release
 source: review-2026-09-26
 status: open
 plan_items: [P0-3, P0-5, P0-6, P0-8, R-CI1, R-CI2, R-CI3, R-CI4, R-CI5, R-CI6, R-CI7, R-CI10]
-prs: [10, 11, 14, 33]
+prs: [10, 11, 14, 33, 40, 58]
 verification: >
   In progress, checked 2026-09-27: release.yml runs `mvn -B verify` and requires a green Build on the tagged
   commit (PR #10, merged as 11e9780 on 2026-09-26), and its 0.3.0 dry run was green (run 36234516459 on
@@ -23,3 +23,13 @@ notes: >
   Five parts: a release on the 13.1 line (P0-8), the release built from what was verified (P0-6, done), the
   image built and scanned in CI (R-CI6) and booted under licence (R-CI7), the licence secrets and branch rules
   that only David can set (R-CI10), and the action, dependency and secret hygiene of R-CI1 to R-CI4.
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package): RCI5 (PR #40) gates the coverage dashboard
+  (`tools/coverage-report.py --gate`) and ratchets it against the newest successful push Build on main (`--baseline`,
+  tools/ci/coverage-baseline.sh), both in Build's java job; RCI6 (PR #58) gives Build an image job that builds the
+  capability image for both staging profiles, runs the entrypoint tests and the war assembler's stock-war test inside
+  them, builds the default target, publishes a syft SBOM and scans with grype, and .github/required-checks.txt names
+  it, so a release needs it green. The 13.1 line has releases (v0.3.0 and v0.4.0, `gh release list`). Still open on
+  2026-09-29: booting the image under a licence in CI (R-CI7, Phase 4); `gh secret list` is empty, so the licensed
+  conformance workflow has never run; main answers "Branch not protected"; private vulnerability reporting is off
+  (F-0068) (R-CI10).

@@ -5,7 +5,7 @@ area: cluster
 source: review-2026-09-26
 status: open
 plan_items: [C-1, C-2, C-3, C-4, C-6, C-7, S-10]
-prs: [38]
+prs: [38, 43, 51, 54]
 verification: ''
 target_release: 0.7.0
 notes: >
@@ -27,3 +27,11 @@ notes: >
   data store both push loops can post the same SET, since dueForPush takes no lock and nothing leases the loop,
   and each node's failed attempt counts towards the dead-letter; the federation authority's registries are per
   node without a database; and client replication is U-0027.
+
+  Phase 2 (0.5.0, recorded 2026-09-29 by the release package) delivered the platform pieces the cluster story is built
+  on, and no cluster behaviour: F1 (PR #43) the per-classloader lifecycle and component registries; C3 (PR #51)
+  managed executors, one of each job per JVM through a system-property claim, with the registration sweeper and the
+  SSF poll client left for C-4's leaderEvery; C2 (PR #54) the platform Redis client with a bounded pool, deadlines,
+  key prefixes, the lease and rate-limit commands and scripts C-4 and X-A11 need, and Sentinel, under which
+  client-attestation's stores now run with 0.4.0's keys. Nothing takes a lease yet, so every item on
+  docs/operator/deployment-limits.md still holds; 0.5.0 supports one PingFederate node only, as 0.4.0 did.

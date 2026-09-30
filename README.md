@@ -17,9 +17,11 @@ checked out as a sibling) - it is not tied to PingFederate, so it does not live 
 
 ## Status
 
-**Beta, at 0.4.0** ([release notes](docs/releases/0.4.0.md)). The production-readiness review of 2026-09-26 found
-seven blockers: 0.4.0 closes B1 to B3, mitigates B4 and B5, and leaves B6 (the image built and booted in CI) and
-B7 (clustering) for 0.7.0. The [findings register](docs/findings/README.md) is the record of what is still open,
+**Beta, at 0.5.0** ([release notes](docs/releases/0.5.0.md)). The production-readiness review of 2026-09-26 found
+seven blockers: 0.4.0 closed B1 to B3 and mitigated B4 and B5; 0.5.0 lays the foundations the rest is built on
+(every module on the shared platform libraries, the configuration reference generated from the code, PostgreSQL
+only, the image built, tested and scanned in CI) and leaves B6 (the image booted in CI) and B7 (clustering) for
+0.7.0. The [findings register](docs/findings/README.md) is the record of what is still open,
 and the release notes' "Known gaps" say what a deployment should plan around.
 
 **One PingFederate node only, until 0.7.0.** Attestation challenges and replay state (without Redis), the

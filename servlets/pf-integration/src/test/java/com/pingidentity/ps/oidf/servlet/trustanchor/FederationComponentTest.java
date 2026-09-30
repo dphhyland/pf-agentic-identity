@@ -1,11 +1,11 @@
 /*
  * The operator API and the federation entity register their parts at init: the operator API is disabled without an
- * admin token and ready with one, and a federation init that throws still throws and is recorded as failed.
+ * admin token and ready with one, and a federation init that fails returns and is recorded as failed.
  */
 package com.pingidentity.ps.oidf.servlet.trustanchor;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -16,7 +16,6 @@ import com.pingidentity.ps.oidf.platform.component.Components;
 import com.pingidentity.ps.oidf.platform.health.PartStatus;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 import jakarta.servlet.ServletConfig;
-import jakarta.servlet.ServletException;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -57,12 +56,13 @@ class FederationComponentTest {
     // ---- FEDERATION ----------------------------------------------------------------------------------
 
     @Test
-    void aFederationInitThatThrowsStillThrowsAndIsAFailedConfiguration() {
-        // No trust anchor issuer configured: the servlet refuses to start, as before.
-        ServletException e = assertThrows(ServletException.class, () -> new OpenIdFederationServlet().init(mock(ServletConfig.class)));
+    void aFederationInitThatFailsReturnsAndIsAFailedConfiguration() {
+        // No trust anchor issuer configured: the servlet does not start, and its init returns (S-9).
+        assertDoesNotThrow(() -> new OpenIdFederationServlet().init(mock(ServletConfig.class)));
         assertEquals(ComponentState.FAILED_CONFIG, part("OpenIdFederationServlet").state());
         assertEquals(Startup.FEDERATION, part("OpenIdFederationServlet").component());
-        assertTrue(part("OpenIdFederationServlet").reason().startsWith(e.getMessage()), part("OpenIdFederationServlet").reason());
+        assertTrue(part("OpenIdFederationServlet").reason().startsWith("Failed to initialize OpenID Federation servlet"),
+                part("OpenIdFederationServlet").reason());
         assertEquals(ComponentState.FAILED_CONFIG, Components.status(Startup.FEDERATION).orElseThrow().state());
     }
 }

@@ -4,10 +4,10 @@ severity: low
 area: rar-paz-plugin
 source: pr-review
 status: open
-plan_items: [PR-1]
+plan_items: [PR-1, PR-2]
 prs: []
 verification: ''
-target_release: 0.5.0
+target_release: 0.6.0
 notes: >
   Found on 2026-09-27 in PR #36. GovernanceEngineConfig.profileOf takes "development" in any case, trimmed, while
   libs/rar-model (RarModels.fromEnvironment) takes exactly "development", trimmed. So OIDF_DEPLOYMENT_PROFILE=Development
@@ -17,3 +17,9 @@ notes: >
   direction is the lenient one, and an operator who capitalises the value gets development switches on a
   server that otherwise looks like production. PR-1 centralises the profile in the platform library; until
   then the README says which reading each part uses.
+
+  Retargeted from 0.5.0 to 0.6.0 on 2026-09-29, still open. PR1 (PR #50) moved both readings onto libs/platform's
+  DeploymentProfile and kept the difference on purpose: GovernanceEngineConfig.profileOf now calls
+  DeploymentProfile.parse (development trimmed, any case) and RarModels.fromEnvironment calls
+  DeploymentProfile.isExactlyDevelopment (exactly development, trimmed), both read on origin/main 4b1fd979. That
+  difference is now F-0160 (target 0.6.0, PR-2), which decides whether the two meet; this finding closes with it.

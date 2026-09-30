@@ -11,7 +11,8 @@ import java.time.Instant;
  * @param name    the name it was registered under
  * @param enabled whether it was registered enabled
  * @param state   where it stands
- * @param reason  why, for a state that {@linkplain ComponentState#needsReason() needs one}; empty otherwise
+ * @param reason  why, for a state that {@linkplain ComponentState#needsReason() needs one}; for any other, a note on how
+ *                its enable switch was read, or empty
  * @param since   when it entered this state
  */
 public record ComponentStatus(String name, boolean enabled, ComponentState state, String reason, Instant since) {
