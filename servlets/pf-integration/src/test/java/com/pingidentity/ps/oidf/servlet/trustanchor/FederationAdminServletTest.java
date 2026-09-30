@@ -313,7 +313,17 @@ class FederationAdminServletTest {
             }
 
             @Override
+            public List<TrustMarkGrant> standing(String type, String subject, Instant now) throws AuthorityRegistryException {
+                throw this.down();
+            }
+
+            @Override
             public TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException {
+                throw this.down();
+            }
+
+            @Override
+            public TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
                 throw this.down();
             }
 
@@ -378,6 +388,12 @@ class FederationAdminServletTest {
             }
 
             @Override
+            public com.pingidentity.ps.oidf.keyhistory.HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason)
+                    throws AuthorityRegistryException {
+                throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE, "down");
+            }
+
+            @Override
             public List<com.pingidentity.ps.oidf.keyhistory.HistoricalKey> retired() throws AuthorityRegistryException {
                 throw new AuthorityRegistryException(AuthorityRegistryException.STORAGE_FAILURE, "down");
             }
@@ -385,5 +401,96 @@ class FederationAdminServletTest {
 
         assertEquals("server_error", this.get("/keys", Map.of()).json(500).get("error"));
         assertEquals("server_error", this.post("/keys/revoke", "{\"kid\": \"pf-1\"}").json(500).get("error"));
+    }
+
+    /** H-FED-3: a change another operator's beat to the store is 409 stale_update, and nothing is announced for it. */
+    @Test
+    void aChangeThatLostARaceIsAConflictAndEmitsNothing() throws Exception {
+        this.keyHistory = new KeyHistory(new com.pingidentity.ps.oidf.keyhistory.KeyHistoryStore() {
+            @Override
+            public Optional<com.pingidentity.ps.oidf.keyhistory.HistoricalKey> rotateTo(Map<String, Object> publicJwk, Instant now, Instant until) {
+                return Optional.empty();
+            }
+
+            @Override
+            public com.pingidentity.ps.oidf.keyhistory.HistoricalKey revoke(String kid, Instant revokedAt, String reason) {
+                throw new UnsupportedOperationException();
+            }
+
+            @Override
+            public com.pingidentity.ps.oidf.keyhistory.HistoricalKey revokeUnrevoked(String kid, Instant revokedAt, String reason)
+                    throws AuthorityRegistryException {
+                throw new AuthorityRegistryException(AuthorityRegistryException.STALE_UPDATE, "key pf-1 was revoked while this revocation was being made");
+            }
+
+            @Override
+            public List<com.pingidentity.ps.oidf.keyhistory.HistoricalKey> retired() {
+                return List.of();
+            }
+        }, this.clock, Duration.ZERO);
+
+        Map<String, Object> conflict = this.post("/keys/revoke", "{\"kid\": \"pf-1\", \"reason\": \"compromised\"}").json(409);
+
+        assertEquals("stale_update", conflict.get("error"));
+        assertTrue(this.events.withCode(FederationEvents.KEY_REVOKED).isEmpty(), "no revocation is announced for a change that wrote nothing");
+    }
+
+    /**
+     * H-FED-3: a revocation decided on a grant another operator revoked in the meantime - this request read it active, and
+     * the store no longer holds that grant - is 409 stale_update, with no second revocation announced.
+     */
+    @Test
+    void aTrustMarkRevocationThatLostARaceIsAConflict() throws Exception {
+        this.registry.grant(OPEN, RP, null, "admin:0");
+        TrustMarkGrant read = this.registry.find(OPEN, RP).orElseThrow();
+        this.registry.revoke(OPEN, RP, "the other operator", "admin:other");
+        TrustMarkRegistry staleRead = new TrustMarkRegistry() {
+            @Override
+            public TrustMarkGrant grant(String type, String subject, Instant notAfter, String actor) throws AuthorityRegistryException {
+                return FederationAdminServletTest.this.registry.grant(type, subject, notAfter, actor);
+            }
+
+            @Override
+            public Optional<TrustMarkGrant> find(String type, String subject) {
+                return Optional.of(read);
+            }
+
+            @Override
+            public List<TrustMarkGrant> grantsTo(String subject) {
+                return FederationAdminServletTest.this.registry.grantsTo(subject);
+            }
+
+            @Override
+            public List<TrustMarkGrant> grantsOf(String type) {
+                return FederationAdminServletTest.this.registry.grantsOf(type);
+            }
+
+            @Override
+            public List<TrustMarkGrant> standing(String type, String subject, Instant now) {
+                return FederationAdminServletTest.this.registry.standing(type, subject, now);
+            }
+
+            @Override
+            public TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException {
+                return FederationAdminServletTest.this.registry.revoke(type, subject, reason, actor);
+            }
+
+            @Override
+            public TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException {
+                return FederationAdminServletTest.this.registry.revoke(expected, reason, actor);
+            }
+
+            @Override
+            public List<TrustMarkAuditEntry> auditTrail(String type, String subject) {
+                return FederationAdminServletTest.this.registry.auditTrail(type, subject);
+            }
+        };
+
+        Map<String, Object> conflict = new Exchange(staleRead, "POST", "/trust-marks/revoke", TOKEN,
+                "{\"trust_mark_type\": \"" + OPEN + "\", \"sub\": \"" + RP + "\"}", Map.of(), null).json(409);
+
+        assertEquals("stale_update", conflict.get("error"));
+        assertTrue(this.events.withCode(FederationEvents.TRUST_MARK_REVOKED).isEmpty());
+        assertEquals("admin:other", this.registry.find(OPEN, RP).orElseThrow().actor(), "the other operator's revocation stands");
     }
 }

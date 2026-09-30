@@ -32,7 +32,11 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   statement above it asserts; the anchor's own statement with its pinned keys; the subject's configuration
   with its own keys as well. A route that fails does not end the search, so an entity in two federations
   resolves through whichever validates. Resolution applies the immediate superior's `metadata`, then every
-  statement's `constraints` (`Constraints`, §6.2), then the merged `metadata_policy`. The result carries the
+  statement's `constraints` (`Constraints`, §6.2), then the merged `metadata_policy`. A statement's
+  `metadata_policy` is checked for its shape with the other claims, but its operators are parsed only once every
+  statement on the route has verified, so nothing an unverified statement says is interpreted, and a policy that does
+  not parse fails the chain after the signature check, never before it (§10.2: "After the preceding validation,
+  metadata MUST be resolved to the subject of the Trust Chain"). The result carries the
   chain in §4 shape, when it expires (§10.4), and the resolved metadata per entity type. Every refusal is a
   `TrustChainValidationException` naming the check and the statement, with the §8.9 error it maps to.
 - **`MetadataPolicy`** — `metadata_policy` merging and application exactly as the Final text defines them:
@@ -54,8 +58,11 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   (`{"*": [...], "openid_relying_party": [...]}`); every mark listed is required, and only a verified one counts.
 - **`TrustControllerGateway` / `HttpTrustControllerGateway`** — fetch entity configurations, member lists
   and subordinate statements (resolving each authority's `federation_fetch_endpoint`), over a bounded LRU
-  **`SubordinateStatementCache`** with expiry-buffer and max-age eviction; writes are staged as
-  `PendingWrites` and committed only once a chain validates. The validator binds its anchors to the
+  **`SubordinateStatementCache`** with expiry-buffer and max-age eviction, keyed on the two identifiers'
+  `EntityId.comparable` forms so either spelling of one entity is one entry; writes are staged as `PendingWrites` and
+  committed only once a chain validates, and only the validated route's: its statements and the Entity
+  Configurations of the entities they name. A statement fetched on a route the search abandoned is dropped with the
+  walk, so it can never answer a later resolution from the cache. The validator binds its anchors to the
   gateway, which verifies each anchor's entity configuration against that anchor's pinned keys before
   using its fetch endpoint (§10.2), and retrieves it once more before refusing on a mismatch (§11.3). Within a
   resolution each of those requests is paid for from the resolution's budget and made by its deadline.
@@ -82,9 +89,48 @@ PingFederate — the PF signer, the `OpenIdFederationServlet` transport and the 
   entity and nothing else, an `exp` at most ten minutes off, a `jti` spent once and remembered until then - against the
   keys the client's Entity Configuration publishes, once its chain has validated to an anchor the resolver trusts,
   eight look-ups at a time. So client authentication needs a resolver.
+- **`ResolveGuard`** - the resolve endpoint's cap and cache (below).
 - **`FederationConfiguration` / `AttestationMetadataConfig`** — parsed from servlet init-params (below).
   The latter is the `openid_provider` attestation capability set the entity configuration advertises:
   auth methods, per-JWT algorithm lists, `attestation_pop_jwt` + `dpop_combined`, challenge endpoint.
+
+### This entity's `authority_hints`
+
+OpenID Federation 1.0 §3.1.2 (Final, February 2026) on `authority_hints`: "This Claim is REQUIRED in Entity
+Configurations of the Entities that have at least one Superior above them, such as Leaf and Intermediate Entities. Its
+value MUST contain the Entity Identifiers of its Immediate Superiors and MUST NOT be the empty array []. This Claim MUST
+NOT be present in Entity Configurations of Trust Anchors with no Superiors."
+
+This entity's superiors are its configured trust anchors (`OIDF_FEDERATION_TRUST_ANCHORS`). The rule, in
+`FederationService.authorityHints`:
+
+- when this entity is one of those anchors (compared with `EntityId.same`) it is a Trust Anchor, and nothing in its
+  configuration names a superior of it: no `authority_hints`;
+- otherwise its Entity Configuration names each configured anchor once, in the order configured;
+- an entity with none configured publishes none - never `[]`.
+
+`/.well-known/openid-federation` and the non-standard `/federation/entity?sub=<this entity>` serve the same Entity
+Configuration, so the two cannot disagree (plan item H-FED-8). Before 0.6.0 the second always carried the configured
+list, `[]` and this entity itself included.
+
+### The resolve endpoint's cap and cache
+
+§18.1 names the resolve endpoint first among the interfaces that "could be used for Denial-of-Service attacks", and
+says an unauthenticated one "should only respond to unauthenticated Client requests with cached information about
+Entities that have already been evaluated". Two settings of the `federation-resolution` catalogue
+([its page](../../docs/configuration/federation-resolution.md)) bound it (plan item H-FED-9):
+
+- **`OIDF_FEDERATION_RESOLUTION_RESOLVE_SUBJECTS_PER_MINUTE`** (30): one caller address is answered about at most this
+  many distinct subjects in any minute. One more is `503 temporarily_unavailable` (§8.9: "unable to handle the request
+  due to temporary overloading") with a `Retry-After` of the seconds until its oldest subject leaves the minute; a
+  subject already counted costs nothing more - even asked with other trust anchors or entity types, each of which
+  misses the cache and resolves again, so the cap bounds distinct subjects, not resolutions (F-0383). The address is the connection's (`getRemoteAddr()`), so every client
+  behind one proxy shares one minute.
+- **`OIDF_FEDERATION_RESOLUTION_RESOLVE_CACHE_SECONDS`** (60, at most 60; 0 keeps none): a resolve response is kept this
+  long, or until its own `exp` if that is sooner, and answers the same request - subject, trust anchors, entity types
+  and the client it is addressed to - without resolving again.
+
+The resolution budget below still bounds what each resolution costs.
 
 ### The resolution budget
 
@@ -169,13 +215,26 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
 - **`HostedEntityRegistry`** — `InMemoryHostedEntityRegistry` (tests, single node) or
   **`JdbcHostedEntityRegistry`** over `db/migration/V100__hosted_entity.sql` and `V101__hosted_entity_actor.sql`:
   `hosted_entity` plus an append-only `hosted_entity_audit_log` that records who made each change, written in the
-  same transaction as the change; JSON stored as text rather than as a database-specific JSON type.
+  same transaction as the change; JSON stored as text rather than as a database-specific JSON type. A status change
+  applies only to the status it read (`UPDATE ... WHERE entity_id = ? AND status = ?`, the row count checked): of two
+  operators suspending, reactivating or revoking one entity at once, the second to commit is refused `STALE_UPDATE`
+  (409 `stale_update` at the admin API) and writes nothing, its audit line included (plan item H-FED-3). The admin
+  API decides on the entity it read and passes that status in (`setStatus(id, expected, status, ...)`), so of two
+  operators who both read it active and revoke it, the second is refused however far apart the two requests
+  arrive. Asking for the status an entity already has changes nothing and succeeds, as before. The in-memory registry
+  holds a lock from what it reads to what it writes, so its changes never overlap.
   Numbered V100 so it never collides with `agent-registry`'s V200 on the shared classpath (both land on
   `servlets/attestation-issuer`); `device-instance` uses a separate, non-Flyway IDM/SCIM migration
   scheme, so it isn't part of this numbering at all.
 - **`HostedEntitySigner` / `RegistryHostedEntitySigner`** — resolves an entity's `hostingKeyRef` to an
   `OpenBaoTransitSigner` on one deployment-wide vault; **`HostedEntityConfigurationBuilder`** signs the
   entity configuration with it (60 min lifetime), with the Trust Marks this authority issues the entity.
+  **`HostedEntityConfigurationCache`** keeps a signed configuration while more than three quarters of its lifetime
+  remains - its first 15 minutes - for the exact registry record it was built from, and drops it when this process
+  changes the entity or grants or revokes a Trust Mark to it (plan item H-FED-9). A change made on another node is
+  seen at once for the entity itself (its record differs) and within those 15 minutes for its Trust Marks. The
+  lifetime counted ends at the earlier of the configuration's `exp` and that of the first Trust Mark it carries to
+  expire, so a configuration with a five-minute mark is renewed after 75 seconds and never serves a mark past its `exp`.
   **`AuthoritySupport`** holds the process-wide registry, signer, domain-default policy and Trust Mark lookup so
   every servlet shares one state across classloaders. Nothing is looked up before hosting is configured, so a
   request that arrives first cannot leave the in-memory fallback in place of the durable registry.
@@ -188,11 +247,18 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
 - **`TrustMarkGrant`**, **`TrustMarkRegistry`** — who is granted which type, until when, by whom:
   `InMemoryTrustMarkRegistry` or **`JdbcTrustMarkRegistry`** over `db/migration/V102__trust_mark.sql`
   (`trust_mark_grant` plus an append-only `trust_mark_audit_log`, each change and its audit line in one
-  transaction). Granting again starts a grant afresh. **`TrustMarkSupport`** holds the process-wide one.
+  transaction). Granting again starts a grant afresh. Revoking, and granting again, apply only to the grant read
+  (its status and `granted_at` in the `WHERE`), and a first grant racing another finds the row there: the second of two
+  such changes is `STALE_UPDATE` and writes nothing (plan item H-FED-3); the admin API revokes the grant it read
+  (`revoke(expected, ...)`), so a revocation decided on a grant revoked or given again since is refused too. `standing(type, subject, now)` reads the
+  grants of a type that stand, to one subject or to anyone, in one query. **`TrustMarkSupport`** holds the process-wide
+  one.
 - **`TrustMarkIssuer`** — the issuing decisions behind `FederationService`: a mark only under a grant that stands
   and, for a hosted-only type, to an active hosted entity; `exp` never past the grant's end. No mark is recorded:
   its status is its signature plus its grant - revoked, or granted again since it was minted, is `revoked`; past
-  its `exp` or its grant's end, `expired`; no grant, unknown (404).
+  its `exp` or its grant's end, `expired`; no grant, unknown (404). `marked` (§8.5) is one registry query for a type
+  and a subject, or a whole type; for a hosted-only type each subject it returns is then checked to be an active hosted
+  entity.
 - **`TrustMarkClaims`** — the claims an operator has this entity publish (`trust_marks` it carries from other
   issuers, `trust_mark_issuers`, `trust_mark_owners`), held to the shape a receiving entity's statement checks
   demand.
@@ -203,8 +269,10 @@ before it a resolution could hold one for up to 24 requests of 15 s each.
   (§8.7.3's `unspecified`, `compromised`, `superseded`), rendered as §8.7.2 wants it.
 - **`KeyHistoryStore`** — the key in use and the retired ones: `InMemoryKeyHistoryStore` or **`JdbcKeyHistoryStore`** over
   `db/migration/V103__federation_key_history.sql`. A rotation - the old key retired, the new one recorded - is one step;
-  a retired key that signs again is no longer history, and a revoked one is refused. **`KeyHistorySupport`** holds the
-  process-wide store.
+  a retired key that signs again is no longer history, and a revoked one is refused. A revocation applies only to a key
+  still unrevoked when read (`WHERE revoked_at IS NULL`): of two at once, the second is `STALE_UPDATE` and the first's
+  reason stands (plan item H-FED-3). `KeyHistory.revoke` returns a key already revoked as it is, announcing nothing,
+  and revokes one it read unrevoked only while it still is (`revokeUnrevoked`). **`KeyHistorySupport`** holds the process-wide store.
 - **`KeyHistory`** — what the endpoint publishes, the rotation check made at start-up (a retired key stays valid for a
   grace period, so what it signed can be checked until it expires), and revocation.
 
@@ -228,7 +296,9 @@ question for a policy engine, and this package is how one is asked - with no Pin
   with every default already in - so it can only take away. Two sets of obligations combine by intersection.
 - **`AuthZenFederationPolicyDecisionPoint`** — the AuthZEN client: POST JSON with `X-Request-ID`; only a 200 with a
   boolean `decision` is a decision (§10.1.2); the evaluation endpoint at the default path, configured outright, or read
-  from the PDP's `/.well-known/authzen-configuration` with the §9.2.3 identifier check. Context it doesn't understand
+  from the PDP's `/.well-known/authzen-configuration` with the §9.2.3 identifier check - read again once ten minutes
+  have passed, so a PDP that moves its endpoint is followed; a read that fails is no decision, and the next request
+  tries again (plan item H-FED-9). Context it doesn't understand
   is listed as ignored, or refuses the permit when the deployment says so (§5.5).
 - **`LocalFederationPolicyDecisionPoint`** (an allow-list of scopes), **`CompositePolicyDecisionPoint`** (local first; a
   local refusal is final, and both permits' obligations apply), **`CachingPolicyDecisionPoint`** (permits and denials

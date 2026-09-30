@@ -17,6 +17,9 @@ public interface TrustMarkRegistry {
     /**
      * Grants {@code type} to {@code subject} until {@code notAfter} ({@code null}: until revoked), or grants it again -
      * which starts it afresh, so marks minted under an earlier grant stay revoked.
+     *
+     * @throws AuthorityRegistryException {@link AuthorityRegistryException#STALE_UPDATE} when the grant changed between
+     *                                    being read and being written, which then writes nothing
      */
     TrustMarkGrant grant(String type, String subject, Instant notAfter, String actor) throws AuthorityRegistryException;
 
@@ -29,11 +32,29 @@ public interface TrustMarkRegistry {
     List<TrustMarkGrant> grantsOf(String type) throws AuthorityRegistryException;
 
     /**
+     * The grants of {@code type} that stand at {@code now} ({@link TrustMarkGrant#activeAt}) - to {@code subject}, in
+     * either spelling {@link com.pingidentity.ps.oidf.federation.EntityId#same} equates, or to anyone when it is null -
+     * in one read of the store (plan item H-FED-9), ordered by subject.
+     */
+    List<TrustMarkGrant> standing(String type, String subject, Instant now) throws AuthorityRegistryException;
+
+    /**
      * Revokes the grant. Revoking a revoked grant changes nothing.
+     *
+     * @throws AuthorityRegistryException {@link AuthorityRegistryException#NOT_FOUND} when there is no such grant;
+     *                                    {@link AuthorityRegistryException#STALE_UPDATE} when the grant changed between
+     *                                    being read and being revoked, which then writes nothing
+     */
+    TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException;
+
+    /**
+     * Revokes {@code expected} - the grant the caller read and decided on - only while it stands unchanged: the same
+     * status (active) and {@code granted_at}. Anything else is {@link AuthorityRegistryException#STALE_UPDATE} and writes
+     * nothing (plan item H-FED-3).
      *
      * @throws AuthorityRegistryException {@link AuthorityRegistryException#NOT_FOUND} when there is no such grant
      */
-    TrustMarkGrant revoke(String type, String subject, String reason, String actor) throws AuthorityRegistryException;
+    TrustMarkGrant revoke(TrustMarkGrant expected, String reason, String actor) throws AuthorityRegistryException;
 
     /** The history of one grant, oldest first. */
     List<TrustMarkAuditEntry> auditTrail(String type, String subject) throws AuthorityRegistryException;

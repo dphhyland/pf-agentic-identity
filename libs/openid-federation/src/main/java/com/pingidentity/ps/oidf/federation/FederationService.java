@@ -102,6 +102,8 @@ public final class FederationService {
         }
     });
     private final Clock clock;
+    /** The resolve endpoint's cap and cache; built from the settings on the first resolve request. */
+    private final java.util.concurrent.atomic.AtomicReference<ResolveGuard> resolveGuard = new java.util.concurrent.atomic.AtomicReference<>();
     private final ConcurrentHashMap<String, CachedSubordinateConfig> subordinateConfigCache = new ConcurrentHashMap<String, CachedSubordinateConfig>();
 
     public FederationService(FederationConfiguration configuration, SigningKeyProvider signingKeyProvider) {
@@ -211,12 +213,37 @@ public final class FederationService {
         JwtClaims claims = this.baseClaims(oidcIssuer, oidcIssuer);
         claims.setClaim("jwks", this.buildInlineJwks());
         claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
-        List<String> authorityHints = this.configuration.authorityHints();
-        if (!authorityHints.isEmpty() && !this.configuration.isTrustAnchor(oidcIssuer)) {
+        List<String> authorityHints = this.authorityHints(oidcIssuer);
+        if (!authorityHints.isEmpty()) {
             claims.setClaim("authority_hints", authorityHints);
         }
         this.addTrustMarkClaims(claims, oidcIssuer);
         return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+    }
+
+    /**
+     * This entity's Immediate Superiors, for its Entity Configuration's {@code authority_hints} - OpenID Federation 1.0
+     * §3.1.2: "This Claim is REQUIRED in Entity Configurations of the Entities that have at least one Superior above them,
+     * such as Leaf and Intermediate Entities. Its value MUST contain the Entity Identifiers of its Immediate Superiors and
+     * MUST NOT be the empty array []. This Claim MUST NOT be present in Entity Configurations of Trust Anchors with no
+     * Superiors."
+     *
+     * <p>The configuration names this entity's superiors in its trust anchors ({@code OIDF_FEDERATION_TRUST_ANCHORS}).
+     * When this entity is one of them it is a Trust Anchor, and nothing in the configuration names a superior of it, so
+     * it has none: no hints. Otherwise its superiors are the anchors named, each once ({@link EntityId#same}). Empty means
+     * the claim is left out, never published as {@code []}.
+     */
+    List<String> authorityHints(String oidcIssuer) {
+        List<String> hints = new ArrayList<>();
+        for (String anchor : this.configuration.authorityHints()) {
+            if (EntityId.same(anchor, oidcIssuer)) {
+                return List.of();
+            }
+            if (hints.stream().noneMatch(h -> EntityId.same(h, anchor))) {
+                hints.add(anchor);
+            }
+        }
+        return hints;
     }
 
     /**
@@ -379,21 +406,17 @@ public final class FederationService {
     }
 
     /**
-     * The non-standard {@code /federation/entity} statement: this entity's self statement when
-     * {@code subject} is itself, otherwise the same Subordinate Statement the fetch endpoint issues.
-     * {@code requestedIssuer} is ignored - a statement signed with this entity's key names this entity as
-     * issuer, whatever the caller asked for.
+     * The non-standard {@code /federation/entity} statement: this entity's Entity Configuration when {@code subject} is
+     * itself - the same statement {@code /.well-known/openid-federation} serves, {@code authority_hints} included, so the
+     * two cannot disagree (plan item H-FED-8) - otherwise the same Subordinate Statement the fetch endpoint issues.
+     * {@code requestedIssuer} is ignored - a statement signed with this entity's key names this entity as issuer, whatever
+     * the caller asked for.
      */
     public String createEntityStatement(String subject, String requestedIssuer, String oidcIssuer) throws JoseException {
         if (!EntityId.same(subject, oidcIssuer)) {
             return this.subordinateStatement(subject, oidcIssuer);
         }
-        JwtClaims claims = this.baseClaims(oidcIssuer, subject);
-        claims.setClaim("jwks", this.buildInlineJwks());
-        claims.setClaim("metadata", this.selfMetadata(oidcIssuer));
-        claims.setClaim("authority_hints", this.configuration.authorityHints());
-        this.addTrustMarkClaims(claims, oidcIssuer);
-        return this.signClaims(claims, ENTITY_STATEMENT_TYP);
+        return this.createEntityConfigurationJwt(oidcIssuer);
     }
 
     private String subordinateStatement(String subject, String oidcIssuer) throws JoseException {
@@ -716,6 +739,54 @@ public final class FederationService {
      * values"). With {@code client} null, as for an unauthenticated request, it carries no {@code aud}.
      */
     public String resolve(ResolveRequest request, String oidcIssuer, String client) throws JoseException {
+        return this.signClaims(this.resolved(request, oidcIssuer, client).claims(), RESOLVE_RESPONSE_TYP);
+    }
+
+    /**
+     * {@link #resolve(ResolveRequest, String, String)} for a request from {@code callerAddress}, as the resolve endpoint
+     * receives it: counted against the caller's minute and answered from the responses kept, when it can be
+     * ({@link ResolveGuard}, plan item H-FED-9).
+     *
+     * @throws ResolveGuard.Limited when the caller has asked about as many distinct subjects this minute as it may
+     */
+    public String resolve(ResolveRequest request, String oidcIssuer, String client, String callerAddress) throws JoseException {
+        if (request.subject() == null || request.subject().isBlank()) {
+            // Refused before it is counted: a request without a subject costs nothing.
+            throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
+        }
+        ResolveGuard guard = this.resolveGuard();
+        guard.admit(callerAddress, request.subject());
+        String kept = guard.kept(request, oidcIssuer, client);
+        if (kept != null) {
+            return kept;
+        }
+        Resolved resolved = this.resolved(request, oidcIssuer, client);
+        String jwt = this.signClaims(resolved.claims(), RESOLVE_RESPONSE_TYP);
+        guard.keep(request, oidcIssuer, client, jwt, resolved.exp());
+        return jwt;
+    }
+
+    /** The resolve endpoint's cap and cache, read from the settings on first use. */
+    ResolveGuard resolveGuard() {
+        ResolveGuard local = this.resolveGuard.get();
+        if (local == null) {
+            // Two first requests may both read the settings; one guard wins, and both use it.
+            this.resolveGuard.compareAndSet(null, ResolveGuard.fromProcess(this.clock));
+            local = this.resolveGuard.get();
+        }
+        return local;
+    }
+
+    /** Test seam: a guard of the test's own. */
+    void resolveGuard(ResolveGuard guard) {
+        this.resolveGuard.set(guard);
+    }
+
+    /** A resolve response's claims, and the {@code exp} among them. */
+    private record Resolved(JwtClaims claims, long exp) {
+    }
+
+    private Resolved resolved(ResolveRequest request, String oidcIssuer, String client) {
         String subject = request.subject();
         if (subject == null || subject.isBlank()) {
             throw new FederationException(FederationError.INVALID_REQUEST, "sub is required");
@@ -751,7 +822,8 @@ public final class FederationService {
         claims.setIssuedAt(NumericDate.fromSeconds(this.clock.instant().getEpochSecond()));
         // §8.3.2: "the minimum of the exp value of the Trust Chain ..., as well as any Trust Mark included in the response".
         long marksExpire = marks.earliestExpiry();
-        claims.setExpirationTime(NumericDate.fromSeconds(marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire)));
+        long exp = marksExpire < 0 ? result.expEpochSeconds() : Math.min(result.expEpochSeconds(), marksExpire);
+        claims.setExpirationTime(NumericDate.fromSeconds(exp));
         if (client != null) {
             claims.setAudience(client);
         }
@@ -763,7 +835,7 @@ public final class FederationService {
         LOGGER.info("Resolved " + subject + " to trust anchor " + result.trustAnchorIssuer() + " (" + result.trustChain().size()
                 + " statements, " + result.fetchesUsed() + " fetches, " + marks.verified().size() + " of "
                 + (marks.verified().size() + marks.rejected().size()) + " Trust Marks verified)");
-        return this.signClaims(claims, RESOLVE_RESPONSE_TYP);
+        return new Resolved(claims, exp);
     }
 
     private boolean isKnown(String subject, String oidcIssuer) {

@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.pingidentity.ps.oidf.authority.AuthorityRegistryException;
 import com.pingidentity.ps.oidf.conformance.Requirement;
 import com.pingidentity.ps.oidf.federation.testkit.Keys;
+import com.pingidentity.ps.oidf.federation.testkit.Racing;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -102,5 +103,37 @@ abstract class KeyHistoryStoreContract {
 
         assertEquals(AuthorityRegistryException.STALE_UPDATE, e.reason());
         assertTrue(store.rotateTo(K2, T2, T2).isEmpty(), "and the key in use is still the one it was");
+    }
+
+    /** H-FED-3: two revocations of one retired key at once leave one revocation, the reason of whichever applied. */
+    @Test
+    void twoRevocationsAtOnceLeaveOneRevocation() throws Exception {
+        KeyHistoryStore store = this.newStore();
+        store.rotateTo(K1, T0, T0.plusSeconds(60));
+        store.rotateTo(K2, T1, T1.plusSeconds(60));
+
+        List<Object> outcomes = Racing.together(() -> store.revoke("k1", T1, "compromised"), () -> store.revoke("k1", T2, "superseded"));
+
+        for (Object outcome : outcomes) {
+            assertTrue(outcome instanceof HistoricalKey || outcome instanceof AuthorityRegistryException e
+                    && AuthorityRegistryException.STALE_UPDATE.equals(e.reason()), String.valueOf(outcome));
+        }
+        HistoricalKey revoked = store.retired().get(0);
+        assertTrue(outcomes.contains(revoked), "the key stored is the one a caller was answered with");
+    }
+
+    /** H-FED-3: a revocation decided on a key read unrevoked is stale once the key is revoked, and changes nothing. */
+    @Test
+    void aKeyRevokedSinceItWasReadIsStale() throws Exception {
+        KeyHistoryStore store = this.newStore();
+        store.rotateTo(K1, T0, T0.plusSeconds(60));
+        store.rotateTo(K2, T1, T1.plusSeconds(60));
+
+        HistoricalKey first = store.revokeUnrevoked("k1", T1, "compromised");
+        assertEquals(AuthorityRegistryException.STALE_UPDATE,
+                assertThrows(AuthorityRegistryException.class, () -> store.revokeUnrevoked("k1", T2, "superseded")).reason());
+        assertEquals(List.of(first), store.retired(), "the first revocation's time and reason stand");
+        assertEquals(AuthorityRegistryException.NOT_FOUND,
+                assertThrows(AuthorityRegistryException.class, () -> store.revokeUnrevoked("k9", T2, null)).reason());
     }
 }

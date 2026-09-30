@@ -1,0 +1,19 @@
+id: F-0382
+title: The resolve endpoint's per-caller cap counts the connection's address, so every client behind one proxy shares a minute
+severity: low
+area: openid-federation, pf-integration
+source: design
+status: open
+plan_items: [H-FED-9]
+prs: [88]
+verification: ''
+target_release: 0.7.0
+notes: >
+  From 0.6.0 (package HFEDL, 2026-09-30) /federation/resolve answers one caller about at most
+  OIDF_FEDERATION_RESOLUTION_RESOLVE_SUBJECTS_PER_MINUTE distinct subjects a minute, the caller being
+  HttpServletRequest.getRemoteAddr(). Behind a reverse proxy or a load balancer that terminates TCP, every client
+  arrives from the proxy's address and shares its minute; a header naming the client (X-Forwarded-For, Forwarded)
+  is ignored, which is right until a deployment says which proxies it trusts. HATT2 (wave 5) adds a trusted-proxies
+  rule to libs/platform; once it has merged, the servlet's resolve path should take the caller from it. Until then an
+  operator behind a proxy raises the cap. On the rig (2026-09-30, U-0390) thirty requests with thirty different
+  X-Forwarded-For values were counted against one caller.

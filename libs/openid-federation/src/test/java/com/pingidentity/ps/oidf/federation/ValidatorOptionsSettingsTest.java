@@ -52,19 +52,26 @@ class ValidatorOptionsSettingsTest {
         assertEquals(Duration.ofSeconds(12), options.resolutionWallClock());
     }
 
+    /** What reads the catalogue: the validator's options and the resolve endpoint's guard (H-FED-9). */
+    private static void readAll(Map<String, String> env) {
+        read(env);
+        ResolveGuard.fromSettings(Settings.of(CATALOGUE, Sources.of(env::get, null, null)), java.time.Clock.systemUTC());
+    }
+
     /** Every setting has a range; each end is accepted and one past it refused, naming the setting. */
     @Test
     void eachSettingIsHeldToItsRange() {
         List<String> names = List.of(ValidatorOptions.MAX_REQUESTS_SETTING, ValidatorOptions.MAX_AUTHORITY_HINTS_SETTING,
-                ValidatorOptions.MAX_ROUTE_ATTEMPTS_SETTING, ValidatorOptions.CLOCK_SKEW_SETTING, ValidatorOptions.WALL_CLOCK_SETTING);
+                ValidatorOptions.MAX_ROUTE_ATTEMPTS_SETTING, ValidatorOptions.CLOCK_SKEW_SETTING, ValidatorOptions.WALL_CLOCK_SETTING,
+                ResolveGuard.SUBJECTS_PER_MINUTE_SETTING, ResolveGuard.CACHE_SECONDS_SETTING);
         assertEquals(names.size(), CATALOGUE.settings().size(), "the catalogue holds these settings and no others");
         for (String name : names) {
             Setting setting = CATALOGUE.setting(name);
             assertTrue(setting.min() != null && setting.max() != null, name + " has a range");
-            read(Map.of(name, String.valueOf(setting.min())));
-            read(Map.of(name, String.valueOf(setting.max())));
+            readAll(Map.of(name, String.valueOf(setting.min())));
+            readAll(Map.of(name, String.valueOf(setting.max())));
             for (String wrong : List.of(String.valueOf(setting.min() - 1), String.valueOf(setting.max() + 1), "ten")) {
-                SettingRefused refused = assertThrows(SettingRefused.class, () -> read(Map.of(name, wrong)), name + "=" + wrong);
+                SettingRefused refused = assertThrows(SettingRefused.class, () -> readAll(Map.of(name, wrong)), name + "=" + wrong);
                 assertEquals(name, refused.setting());
             }
         }

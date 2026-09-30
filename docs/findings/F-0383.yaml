@@ -1,0 +1,20 @@
+id: F-0383
+title: The resolve endpoint's per-caller cap counts subjects, so one subject asked with varied anchors or entity types resolves again each time
+severity: low
+area: openid-federation
+source: pr-review
+status: open
+plan_items: [H-FED-9]
+prs: [88]
+verification: ''
+target_release: 0.7.0
+notes: >
+  From 0.6.0 (package HFEDL) ResolveGuard.admit counts distinct subjects per caller address a minute, as H-FED-9
+  specifies, while the response cache is keyed on the subject, the trust anchors (in order), the entity types, the
+  issuer and the client. A caller that has been counted for one subject can ask about it again with the anchors
+  reordered or any entity_type string, and each variation misses the cache and runs a full resolution without being
+  counted; a thousand of them also push every other caller's responses out of the 1,000-entry cache. The validator's
+  budget and the subordinate statement cache still bound each resolution's outbound fetches, so this weakens the
+  OpenID Federation 1.0 §18.1 mitigation rather than opening a new path. Found in the adversarial review of PR #88
+  (2026-10-01). Fix: count admissions per resolution key (or cap cache misses per caller a minute), and describe the
+  setting accordingly.

@@ -3,10 +3,20 @@ title: 'Federation load: TrustMarkIssuer.marked in one query, the hosted-entity 
 severity: medium
 area: openid-federation
 source: reviewer-report
-status: open
+status: closed
 plan_items: [H-FED-9]
-prs: []
-verification: ''
+prs: [88]
+verification: >
+  2026-09-30, package HFEDL. TrustMarkIssuer.marked reads TrustMarkRegistry.standing, one statement for a type and a
+  subject or a whole type (JdbcTrustMarkRegistryTest.theIssuerAnswersMarkedInOneStatement, a counting data source,
+  20 grants); HostedEntityConfigurationCache keeps a signed hosted configuration while more than three quarters of
+  its lifetime remains, per exact registry record, dropped by every registry transition and Trust Mark change
+  (HostedEntityConfigurationCacheTest); ResolveGuard caps /federation/resolve at
+  OIDF_FEDERATION_RESOLUTION_RESOLVE_SUBJECTS_PER_MINUTE distinct subjects a minute per caller address (503
+  temporarily_unavailable with Retry-After) and keeps a response for the shorter of its exp and
+  OIDF_FEDERATION_RESOLUTION_RESOLVE_CACHE_SECONDS (ResolveGuardTest, OpenIdFederationServletTest); AuthZEN
+  discovery is read again after ten minutes (AuthZenFederationPolicyDecisionPointTest). Listing a hosted-only type
+  still checks each subject's hosting one at a time: F-0381.
 target_release: 0.6.0
 notes: >
   From the seven reviewer reports of 2026-09-26, as Workstream H of the plan lists it (Phase 3). Medium by the

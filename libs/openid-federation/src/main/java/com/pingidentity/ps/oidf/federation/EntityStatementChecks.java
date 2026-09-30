@@ -221,18 +221,14 @@ final class EntityStatementChecks {
         if (!(raw.get("metadata_policy") instanceof Map<?, ?> types)) {
             throw refuse(Kind.SYNTAX, iss, sub, "metadata_policy is not a JSON object (§6.1.2)");
         }
+        // Its shape only. The operators themselves are parsed once the statement's signature has verified, when the chain's
+        // policy is resolved (TrustChainValidator): nothing a statement says is interpreted before a key vouches for it, and
+        // a policy that does not parse fails the chain there, after the signature (plan item H-FED-8). §3.2 lets the steps
+        // run "in a different order, provided that the result - accepting or rejecting the Entity Statement - is the same".
         for (Map.Entry<?, ?> type : types.entrySet()) {
             if (!(type.getValue() instanceof Map<?, ?>)) {
                 throw refuse(Kind.SYNTAX, iss, sub, "metadata_policy for " + LogSafe.value(String.valueOf(type.getKey()))
                         + " is not a JSON object (§6.1.2)");
-            }
-            try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> policy = (Map<String, Object>) type.getValue();
-                MetadataPolicy.parse(policy, null);
-            } catch (MetadataPolicy.PolicyException e) {
-                throw new TrustChainValidationException(Kind.POLICY, iss, sub, "metadata_policy for "
-                        + LogSafe.value(String.valueOf(type.getKey())) + " is not valid: " + e.getMessage(), e);
             }
         }
     }

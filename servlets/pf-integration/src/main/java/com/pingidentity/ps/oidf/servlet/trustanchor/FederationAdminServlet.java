@@ -248,6 +248,11 @@ public class FederationAdminServlet extends RequestScopedServlet {
                 default -> writeError(resp, 404, "not_found", "no such endpoint");
             }
         } catch (AuthorityRegistryException e) {
+            if (AuthorityRegistryException.STALE_UPDATE.equals(e.reason())) {
+                // Another operator's change to the same entity, grant or key committed first; this one wrote nothing (H-FED-3).
+                writeError(resp, 409, AuthorityRegistryException.STALE_UPDATE, e.getMessage());
+                return;
+            }
             FederationErrors.write(resp, 500, "server_error", e.getMessage(), e);
         }
     }
@@ -336,7 +341,8 @@ public class FederationAdminServlet extends RequestScopedServlet {
             return;
         }
         String reason = Optional.ofNullable(text(body, "reason")).orElse("revoked by the operator");
-        TrustMarkGrant revoked = this.registry.revoke(type, subject, reason, actor);
+        // Only the grant read above: one revoked or granted again since is a 409, not a second event (H-FED-3).
+        TrustMarkGrant revoked = this.registry.revoke(current.get(), reason, actor);
         FederationEvents.event(FederationEvents.TRUST_MARK_REVOKED).subject(subject).role("TMI").audit().field("trust_mark_type", type)
                 .field("actor", actor).description(reason).emit();
         writeJson(resp, 200, json(revoked));
