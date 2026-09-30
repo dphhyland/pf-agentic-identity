@@ -493,4 +493,69 @@ class TokenEndpointAutoRegistrationFilterTest {
         assertNull(TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null));
         verify(this.service, never()).admit(eq(CLIENT_ID), anyList(), anyString());
     }
+
+    /**
+     * The client an attested request names when it sends no client_id: the OAuth-Client-Attestation header's sub, read
+     * last and unverified - ClientAttestationAuth, mapped after this filter, refuses the request unless the verified sub
+     * is the same. Several attestation headers, or one that is not a JWT, name nothing.
+     */
+    @Test
+    void clientIdOfReadsTheAssertionThenClientIdThenTheAttestation() throws Exception {
+        String attestation = clientAssertion(List.of(), "https://attested.example");
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of(attestation)));
+        when(this.request.getParameter("client_id")).thenReturn("https://other.example");
+
+        assertEquals(CLIENT_ID, TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, clientAssertion(List.of(), CLIENT_ID)));
+        assertEquals("https://other.example", TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, "not a jwt"));
+        when(this.request.getParameter("client_id")).thenReturn(" ");
+        assertEquals("https://attested.example", TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, clientAssertion(List.of(), " ")));
+        assertEquals("https://attested.example", TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null));
+
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of(attestation, attestation)));
+        assertNull(TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null), "two attestations name nothing");
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of("not.a.jwt")));
+        assertNull(TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null));
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of(clientAssertion(List.of(), ""))));
+        assertNull(TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null), "an attestation with no sub names nothing");
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.emptyEnumeration());
+        assertNull(TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null));
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER)).thenReturn(null);
+        assertNull(TokenEndpointAutoRegistrationFilter.clientIdOf(this.request, null));
+    }
+
+    /**
+     * §12.3: an attested token request that names its client only in its attestation has that client's expired
+     * explicit registration enforced, as a request naming it by client_id always had - before, it went on to
+     * PingFederate, which authenticated it through the attestation bridge.
+     */
+    @Test
+    @Requirement("OIDFED §12.3")
+    void anAttestedRequestForAnExpiredRegistrationIsRefused() throws Exception {
+        com.pingidentity.ps.oidf.federation.testkit.MutableClock clock = com.pingidentity.ps.oidf.federation.testkit.MutableClock.startingNow();
+        com.pingidentity.ps.oidf.pf.testkit.FakeClientStore store = new com.pingidentity.ps.oidf.pf.testkit.FakeClientStore();
+        store.with(RegistrationFixtures.federationClient(CLIENT_ID, "registered", clock.epochSecond() - 10, List.of("leaf")));
+        RegistrationService real = RegistrationFixtures.service(mock(com.pingidentity.ps.oidf.federation.TrustChainValidator.class), store, clock,
+                FederationRuntimeConfig.ExpiryEnforcement.REFUSE);
+        String attestation = clientAssertion(List.of(), CLIENT_ID);
+        when(this.request.getHeaders(TokenEndpointAutoRegistrationFilter.ATTESTATION_HEADER))
+                .thenAnswer(i -> java.util.Collections.enumeration(List.of(attestation)));
+
+        new TokenEndpointAutoRegistrationFilter(real, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
+
+        verify(this.response).setStatus(401);
+        assertEquals("invalid_client", this.answered().get("error"));
+        assertTrue(String.valueOf(this.answered().get("error_description")).contains("explicit registration has expired"),
+                this.body.toString());
+        verify(this.chain, never()).doFilter(any(), any());
+
+        // Current, the same request goes on to ClientAttestationAuth and PingFederate.
+        store.with(RegistrationFixtures.federationClient(CLIENT_ID, "registered", clock.epochSecond() + 3600, List.of("leaf")));
+        new TokenEndpointAutoRegistrationFilter(real, FIXED_ISSUER, true).doFilter(this.request, this.response, this.chain);
+        verify(this.chain).doFilter(this.request, this.response);
+    }
 }

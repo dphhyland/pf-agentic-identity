@@ -12,6 +12,7 @@ import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,6 +60,9 @@ import org.apache.commons.logging.LogFactory;
  * }</pre>
  */
 public final class TokenEndpointAutoRegistrationFilter implements Filter {
+    /** The header an attested request names its client in (OAuth 2.0 Attestation-Based Client Authentication). */
+    static final String ATTESTATION_HEADER = "OAuth-Client-Attestation";
+
     private static final Log LOGGER = LogFactory.getLog(TokenEndpointAutoRegistrationFilter.class);
     private volatile RegistrationService service;
     private final Function<HttpServletRequest, String> issuerResolver;
@@ -215,23 +219,49 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
     /**
-     * The client the request names: the {@code sub} of its {@code client_assertion} (not yet verified - PingFederate
-     * does that next), else its {@code client_id} parameter. Null when it names none.
+     * The client the request names, in this order: the {@code sub} of its {@code client_assertion}, its {@code client_id}
+     * parameter, and the {@code sub} of its {@code OAuth-Client-Attestation} header. Null when it names none - such a
+     * request is left to PingFederate.
+     *
+     * <p>None of them is verified yet: PingFederate verifies the assertion next, and ClientAttestationAuth, mapped after
+     * this filter, verifies the attestation and refuses the request unless the verified {@code sub} is the one it read
+     * first (and, when there is one, the {@code client_id} parameter). Here the name only chooses which registration is
+     * looked up - renewed when due, its expiry enforced when past it. A lie can only name another client, which the
+     * {@code client_id} parameter could always do; and the request it came with is then refused, or fails
+     * authentication, as that client. The attestation's {@code sub} is read so that an attested request, which need send
+     * no {@code client_id}, is not let past its client's expired registration. More than one attestation header names
+     * nothing: ClientAttestationAuth refuses that request.
      */
     static String clientIdOf(HttpServletRequest request, String clientAssertion) {
-        if (clientAssertion != null && !clientAssertion.isBlank()) {
-            try {
-                String sub = JwtCodec.parseUnverifiedClaims(clientAssertion).getSubject();
-                if (sub != null && !sub.isBlank()) {
-                    return sub;
-                }
-            }
-            catch (Exception e) {
-                // Not a JWT PingFederate will accept either; fall back to client_id.
-            }
+        String fromAssertion = unverifiedSubject(clientAssertion);
+        if (fromAssertion != null) {
+            return fromAssertion;
         }
         String clientId = request.getParameter("client_id");
-        return clientId == null || clientId.isBlank() ? null : clientId;
+        if (clientId != null && !clientId.isBlank()) {
+            return clientId;
+        }
+        Enumeration<String> attestations = request.getHeaders(ATTESTATION_HEADER);
+        if (attestations == null || !attestations.hasMoreElements()) {
+            return null;
+        }
+        String attestation = attestations.nextElement();
+        return attestations.hasMoreElements() ? null : unverifiedSubject(attestation);
+    }
+
+    /** A JWT's {@code sub}, not verified; null when it has none or is not a JWT. */
+    private static String unverifiedSubject(String jwt) {
+        if (jwt == null || jwt.isBlank()) {
+            return null;
+        }
+        try {
+            String sub = JwtCodec.parseUnverifiedClaims(jwt).getSubject();
+            return sub == null || sub.isBlank() ? null : sub;
+        }
+        catch (Exception e) {
+            // Not a JWT PingFederate (or ClientAttestationAuth) will accept either.
+            return null;
+        }
     }
 
     private static List<String> extractTrustChain(String clientAssertion) {
