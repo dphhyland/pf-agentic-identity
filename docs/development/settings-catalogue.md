@@ -291,6 +291,15 @@ From 0.6.0 (plan item PR-5) the production profile is enforced from the catalogu
 
 What an operator sees is in [docs/operator/deployment-profile.md](../operator/deployment-profile.md).
 
+**The ratchet.** From 0.6.0 (plan item ST-6) a setting is read only through `platform.settings`, and CI holds that:
+`tools/direct-read-scan.py` fails on `System.getenv`, `System.getProperty`, `getInitParameter` and their kin -
+called, statically imported, or handed on as a method reference such as `System::getenv` - in main code outside
+`libs/platform` and platform-pf's `settings` package, unless `tools/direct-read-allow.txt` admits it by file and line
+pattern with a finding or a reason. The settings scan checks that each name read is catalogued; this one checks that
+it is read through the catalogue. A servlet reads its init-params with `InitParams.sources(config)`, and a class
+that needs a seam for its tests takes a `Sources` or the `Function<String, String>` platform's own API takes, and
+says so in the allow-list.
+
 ## Legacy spellings
 
 The readers ST-5 converts parsed leniently, and strict parsing would refuse values a deployment has set for years.

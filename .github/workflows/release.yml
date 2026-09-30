@@ -308,6 +308,8 @@ jobs:
           cp plugins/rar-paz-plugin/target/pf.plugins.pf-rar-paz-plugin.jar dist/
           cp plugins/instance-registry-datasource/target/pf.plugins.instance-registry-datasource.jar dist/
           cp services/gm-api/servlet/target/gm-api.war dist/
+          # The preflight an operator runs on an env file before upgrading (docs/operator/preflight.md); never staged.
+          cp tools/preflight/target/oidf-preflight.jar dist/
           # MANIFEST/2 carries a header and [section] lines; only the "<sha256>  <file>" lines are jars.
           MODULES=$(grep -cE '^[0-9a-f]{64}  ' "$MANIFEST")
           echo "MODULES=$MODULES" >> "$GITHUB_ENV"
@@ -338,7 +340,8 @@ jobs:
             sed 's/^/  /' "$MANIFEST"
             echo
             echo "also in this release: oidf.war (the modules as a standalone war, for a demo),"
-            echo "pf.plugins.pf-rar-paz-plugin.jar, pf.plugins.instance-registry-datasource.jar, gm-api.war."
+            echo "pf.plugins.pf-rar-paz-plugin.jar, pf.plugins.instance-registry-datasource.jar, gm-api.war, and"
+            echo "oidf-preflight.jar: run java -jar oidf-preflight.jar --env-file FILE on the env file before upgrading."
           } > dist/PROVENANCE.txt
 
           ( cd dist && sha256sum -- * > SHA256SUMS )
@@ -351,7 +354,7 @@ jobs:
           # resolution fails this step, not the byte comparisons after it.
           ( for f in dist/*.jar dist/*.war; do
               b="$(basename "$f")"
-              src="$(find libs servlets plugins services -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
+              src="$(find libs servlets plugins services tools -path "*/target/$b" -not -path "*/oidf-war/target/*.jar")"
               case "$(printf '%s\n' "$src" | grep -c .)" in
                 1) ;;
                 0) echo "::error::no reactor source for $b"; exit 1 ;;

@@ -3,10 +3,22 @@ title: A production container that restarts refuses to boot, because the entrypo
 severity: medium
 area: build
 source: design
-status: open
+status: closed
 plan_items: [R-I3]
-prs: [75]
-verification: ''
+prs: [75, 98]
+verification: >
+  2026-10-01 on the conformance rig (slot 4, PingFederate 13.1.3, the rig's image rebuilt with data.zip.age in the
+  drop-in directory, OIDF_DEPLOYMENT_PROFILE=production, the identity from PF_ARCHIVE_AGE_KEY_FILE). Reproduced with
+  the entrypoint as main had it at e377dbae (image sha256:70703db2d38e3df9c6725b2805606ca6a1b8a81c8b7e85d1b13fb82efc2fdfc8):
+  the first start answered 200 on /pf/heartbeat.ping and /agentic-identity/health/live, and `docker restart` exited 1
+  with "FATAL: a plaintext archive (/opt/in/instance/server/default/data/drop-in-deployer/data.zip) is refused when
+  OIDF_DEPLOYMENT_PROFILE is production". With branch prod/p3-entrypoint-restart (image
+  sha256:397539fc73473d50554e3b4c127a4fe8507f0c1563405941b97dc92a413b223a) the restart decrypted the kept ciphertext
+  again, the bootstrap's run plan was RESTART with no merge into /opt/out, and the container answered 200 on both
+  paths and was healthy by the image's healthcheck; with /opt/out on a tmpfs the restart was a run plan START, the
+  archive was imported again and both paths answered 200. test-entrypoint.sh --image has restart cases for both
+  profiles (encrypted, identity file, mounted PF_ARCHIVE_FILE, no or wrong identity on the restart, the ciphertext
+  removed, plaintext in development): 87 checks pass in the fixed image, and ten fail against the old entrypoint.
 target_release: 0.6.0
 notes: >
   Found by package S8B on the conformance rig (2026-09-30, PingFederate 13.1.3.0, an image built from this
@@ -20,3 +32,12 @@ notes: >
   image's owner): remove the decrypted archive once the base image's bootstrap has copied it, or keep the ciphertext
   and decrypt again on every start, or tell the file this script wrote from one an operator supplied; and a
   test-entrypoint.sh case that restarts.
+  Fixed by keeping the ciphertext (option two of the three above): every start decrypts it again over the plaintext
+  the last start wrote, so the plaintext is never what a start boots from and no marker file is needed to tell it
+  from an operator's. Removing the plaintext once the bootstrap had copied it (the entrypoint execs the bootstrap,
+  but a 07-apply-server-profile.sh.post hook, which the base image's run_hook runs, could do it) was rejected because
+  a restart with /opt/out on a tmpfs - which the image README recommends - is a first start that must import the
+  archive again, so the ciphertext has to survive the first start either way. A marker was rejected because
+  whoever can write a data.zip into the drop-in directory can write the marker beside it. PingFederate's drop-in
+  deployer ignores the data.zip.age the bootstrap now copies to /opt/out: it deploys data.zip only (seen on the rig).
+  Every start now needs the identity, a restart included.

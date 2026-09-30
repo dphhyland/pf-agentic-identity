@@ -139,6 +139,19 @@ jobs:
         # shipped may be exempt, each with its reason, in tools/settings-scan-exemptions.txt (plan item ST-4 set its
         # refuse-shipped-exemptions flag). tools/tests/test_settings_scan.py holds the scan to its fixtures.
         run: python3 tools/settings-scan.py
+      - name: no direct setting read outside platform
+        # Plan item ST-6: System.getenv, System.getProperty, getInitParameter and the rest, called or handed on as a
+        # method reference, appear in shipped main code only in libs/platform and platform-pf's settings package, or
+        # where tools/direct-read-allow.txt admits them by class with a finding or a reason. --check-allow-list also
+        # fails a line that admits nothing, so the list shrinks as reads are converted.
+        # tools/tests/test_direct_read_scan.py holds it to its fixtures.
+        run: python3 tools/direct-read-scan.py --check-allow-list
+      - name: no outbound client outside platform.http
+        # Plan item ST-6: java.net.http, HttpURLConnection, URL.openConnection and openStream, raw sockets and the
+        # third-party clients the scan names appear in shipped main code only in libs/platform's http package, or
+        # where tools/outbound-allow.txt admits them with a reason (class-path reads, Redis, Kafka).
+        # tools/tests/test_outbound_scan.py holds it to its fixtures.
+        run: python3 tools/outbound-scan.py --check-allow-list
       - name: the configuration reference and docs/extended-properties.json are what the catalogues generate
         # Plan item ST-4: docs/configuration/<component>.md, the README's list of components and the extended-
         # property contract a consumer's Terraform is diffed against are generated from the same catalogues, and
@@ -336,6 +349,33 @@ jobs:
             servlets/attestation-issuer/target/attestation-issuer-*.jar
             servlets/ssf/target/ssf-*.jar
             services/gm-api/servlet/target/gm-api.war
+      - name: oidf-preflight.jar on java 17, java 21 and the PingFederate image's java
+        # The reactor build packed tools/preflight/target/oidf-preflight.jar, the release asset an operator runs before
+        # an upgrade (docs/operator/preflight.md), and its PreflightJarCheck ran it on this job's java. Here it runs on
+        # that java, on the runner image's Temurin 21 and on the java in PingFederate's image (pulled above) against
+        # the two fixtures: the clean file must exit 0, and the file with one line of each violation kind must exit 1
+        # with 8 lines refusing a component.
+        run: |
+          fail() { echo "::error::$1"; exit 1; }
+          : "${JAVA_HOME_21_X64:?the runner image has no Temurin 21}"
+          check() {  # check LABEL ROOT COMMAND...: COMMAND runs java; ROOT is tools/preflight as COMMAND sees it.
+            label="$1" root="$2"; shift 2
+            status=0; "$@" -jar "$root/target/oidf-preflight.jar" --env-file "$root/src/test/resources/fixtures/clean.env" \
+              > "$RUNNER_TEMP/clean.out" 2>&1 || status=$?
+            cat "$RUNNER_TEMP/clean.out"
+            [ "$status" -eq 0 ] || fail "$label: the clean fixture exited $status, not 0"
+            status=0; "$@" -jar "$root/target/oidf-preflight.jar" --env-file "$root/src/test/resources/fixtures/violations.env" \
+              > "$RUNNER_TEMP/violations.out" 2>&1 || status=$?
+            cat "$RUNNER_TEMP/violations.out"
+            [ "$status" -eq 1 ] || fail "$label: the violations fixture exited $status, not 1"
+            refusing="$(grep -c '^REFUSED: ' "$RUNNER_TEMP/violations.out" || true)"
+            [ "$refusing" -eq 8 ] || fail "$label: the violations fixture printed $refusing REFUSED lines, not 8"
+            echo "$label: clean exit 0, violations exit 1 with $refusing REFUSED lines"
+          }
+          check "java 17 ($JAVA_HOME)" tools/preflight "$JAVA_HOME/bin/java"
+          check "java 21 ($JAVA_HOME_21_X64)" tools/preflight "$JAVA_HOME_21_X64/bin/java"
+          check "PingFederate's java (${PF_IMAGE})" /w docker run --rm -v "$PWD/tools/preflight:/w:ro" \
+            --entrypoint /opt/java/bin/java "${PF_IMAGE}@${PF_IMAGE_DIGEST}"
 
   # The PingFederate image (plan item R-CI6, part of F-0006): the Dockerfile's capability target - the image with no
   # configuration archive, which R-I3 (Phase 3) makes the image this repository ships - built for both staging profiles, its entrypoint

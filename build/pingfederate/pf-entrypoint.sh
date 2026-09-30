@@ -21,6 +21,12 @@
 # /opt/out/instance, so the plaintext archive and the keys exist in three places for the life of the
 # container. What this script guarantees is narrower and holds: none of them is in an image layer.
 #
+# EVERY START DECRYPTS. The ciphertext is kept, and each start of the container - the first, and every
+# restart that keeps its writable layer - decrypts it again over the plaintext the last start wrote, so each
+# start needs the identity (F-0313). The plaintext a start wrote is never what a later start boots from:
+# while the ciphertext is there it is chosen and the plaintext overwritten. A plaintext archive is chosen
+# only when no ciphertext is, and production refuses it.
+#
 # THE ONE SECRET. pf.jwk is NOT supplied separately. It is extracted from the archive, which keeps the
 # invariant that matters: the running key is by construction the key the archive was encrypted under.
 # Supplying them separately is how an archive and a key drift apart, and a PF whose key does not match
@@ -154,8 +160,12 @@ elif is_age "$SOURCE"; then
     else
         die "$SOURCE is age-encrypted but neither PF_ARCHIVE_AGE_KEY_FILE nor PF_ARCHIVE_AGE_KEY is set"
     fi
-    # The ciphertext has served its purpose; only the copy the image carries is ours to remove.
-    [ "$SOURCE" != "$ENCRYPTED" ] || rm -f "$ENCRYPTED"
+    # The ciphertext stays, wherever it came from, and every start decrypts it again (F-0313). A start that
+    # removed it left the next start of the same container - docker restart, a restart policy, a node reboot -
+    # only the plaintext written here, which production refuses, as it must refuse one an operator supplies:
+    # the two are the same bytes in the same place. Keeping the ciphertext needs no marker to tell them apart,
+    # and it also serves a restart that finds /opt/out empty (a tmpfs there, README.md), which the base
+    # image's bootstrap treats as a first start and imports the archive again.
     log "config archive ready"
 
 else
