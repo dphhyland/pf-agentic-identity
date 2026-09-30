@@ -64,5 +64,9 @@
   (libs/platform) and three other public test seams in pf-integration are F-0432.
 - The showcase: the limitation that said the overloads without a `VerificationPolicy` remain is gone, and the citations
   into every file this package edits were re-pointed, the `JwtCodec` and `FederationService` ones by reading the lines.
+- For whoever folds the fragments: HJOSE's fragment says the `JwtCodec` overloads without a `VerificationPolicy` are
+  deprecated and "go in a later release"; this package removes them in the same release, 0.6.0. Its changelog bullet
+  and its Before-you-deploy item on `UnverifiedClaims` should say they are removed, and point at this fragment's
+  **Removed public methods** item for the replacement.
 - Plan decisions this package builds on as the plan recommends, not yet confirmed by the owner: decision 16 (H-* is
   Phase 3, grouped by module; H-FED-10's rest is HFEDD, last).
