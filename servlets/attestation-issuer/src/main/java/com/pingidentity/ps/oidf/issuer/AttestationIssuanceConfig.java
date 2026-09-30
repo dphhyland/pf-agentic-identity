@@ -131,6 +131,25 @@ public final class AttestationIssuanceConfig {
      */
     public static AttestationIssuanceConfig fromProperties(Map<String, String> props, RarModels models)
             throws IssuanceException {
+        IssuedTtlCap cap;
+        try {
+            cap = IssuedTtlCap.fromEnvironment();
+        } catch (IllegalArgumentException e) {
+            throw IssuanceException.serverError(e.getMessage());
+        }
+        return fromProperties(props, models, cap);
+    }
+
+    /**
+     * As {@link #fromProperties(Map, RarModels)}, holding the client's {@code attestation_issued_ttl} to the cap
+     * given ({@link IssuedTtlCap}: refused above it in production, clamped to it with a WARN in development, and
+     * refused above 64800 s in both).
+     *
+     * @throws IssuanceException {@code invalid_client} if a required property is missing or malformed, a ceiling is
+     *                           one the model refuses, or the TTL is above what the cap allows
+     */
+    public static AttestationIssuanceConfig fromProperties(Map<String, String> props, RarModels models,
+                                                           IssuedTtlCap cap) throws IssuanceException {
         String issuer = trimmed(props.get(P_ISSUER));
         if (issuer == null) {
             throw IssuanceException.invalidClient("missing " + P_ISSUER);
@@ -141,12 +160,13 @@ public final class AttestationIssuanceConfig {
             try {
                 ttl = Long.parseLong(ttlRaw);
             } catch (NumberFormatException e) {
-                throw IssuanceException.invalidClient(P_TTL + " is not a number: " + ttlRaw);
+                throw IssuanceException.invalidClient(P_TTL + " is not a whole number of seconds");
             }
             if (ttl <= 0) {
                 throw IssuanceException.invalidClient(P_TTL + " must be positive");
             }
         }
+        ttl = cap.apply(issuer, ttl);
 
         // What a given evidence type is and requires is the validator's own declaration — see
         // InstanceAttestationValidators. Nothing about the supported set is restated here.

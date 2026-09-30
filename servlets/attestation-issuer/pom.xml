@@ -193,6 +193,14 @@
                                         <include>com.pingidentity.ps.oidf.issuer.AzureManagedIdentityValidator.selectorNames(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.selectors(*</include>
                                         <include>com.pingidentity.ps.oidf.issuer.WalletInstanceAttestationValidator.selectorNames(*</include>
+                                        <!-- S4c (proof side): an instance-key proof needs iat and exp at most 300 s apart and
+                                             is accepted only inside them; its jti is kept until exp + skew; and the TTL a
+                                             client configures is held to OIDF_ATTESTER_MAX_ISSUED_TTL and the 18-hour ceiling. -->
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator.checkWindow(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.InstanceKeyProofValidator.&lt;init&gt;(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.apply(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.fromEnvironment(*</include>
+                                        <include>com.pingidentity.ps.oidf.issuer.IssuedTtlCap.&lt;init&gt;(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

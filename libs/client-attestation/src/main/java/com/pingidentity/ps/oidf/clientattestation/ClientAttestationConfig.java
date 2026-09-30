@@ -3,7 +3,9 @@
  */
 package com.pingidentity.ps.oidf.clientattestation;
 
+import java.time.Clock;
 import java.util.LinkedHashSet;
+import java.util.Objects;
 import java.util.Set;
 
 /**
@@ -35,6 +37,7 @@ public final class ClientAttestationConfig {
     private final boolean challengeRequired;
     private final Set<String> requiredDisclosedClaims;
     private final long maxAttestationLifetimeSeconds;
+    private final Clock clock;
 
     private ClientAttestationConfig(Builder b) {
         this.attestationAlgorithms = Set.copyOf(b.attestationAlgorithms);
@@ -49,6 +52,7 @@ public final class ClientAttestationConfig {
         this.challengeRequired = b.challengeRequired;
         this.requiredDisclosedClaims = Set.copyOf(b.requiredDisclosedClaims);
         this.maxAttestationLifetimeSeconds = b.maxAttestationLifetimeSeconds;
+        this.clock = b.clock;
     }
 
     public static Builder builder() {
@@ -71,12 +75,25 @@ public final class ClientAttestationConfig {
         return this.allowedClockSkewSeconds;
     }
 
+    /**
+     * How old a PoP JWT's {@code iat} may be, in seconds, beyond the clock skew. Always positive: the PoP is
+     * refused once it is older, and its {@code jti} is remembered until then (plan item S4c).
+     */
     public long popMaxAgeSeconds() {
         return this.popMaxAgeSeconds;
     }
 
+    /** As {@link #popMaxAgeSeconds()}, for a DPoP proof in combined mode. Always positive. */
     public long dpopMaxAgeSeconds() {
         return this.dpopMaxAgeSeconds;
+    }
+
+    /**
+     * The clock proofs are judged by: their age, and the time until which their {@code jti} is remembered. The
+     * system's UTC clock unless a test gives another.
+     */
+    public Clock clock() {
+        return this.clock;
     }
 
     /**
@@ -145,6 +162,7 @@ public final class ClientAttestationConfig {
         private int allowedClockSkewSeconds = DEFAULT_CLOCK_SKEW_SECONDS;
         private long popMaxAgeSeconds = DEFAULT_POP_MAX_AGE_SECONDS;
         private long dpopMaxAgeSeconds = DEFAULT_DPOP_MAX_AGE_SECONDS;
+        private Clock clock = Clock.systemUTC();
         private String expectedAudience;
         private String expectedHtu;
         private String expectedHtm = DEFAULT_HTTP_METHOD;
@@ -181,13 +199,39 @@ public final class ClientAttestationConfig {
             return this;
         }
 
+        /**
+         * Sets how old a PoP may be. Before S4c a value of {@code 0} or less switched the age check off, and the
+         * replay store then forgot the {@code jti} after the clock skew alone, so the same PoP authenticated again
+         * a minute later; it is refused now.
+         *
+         * @throws IllegalArgumentException if {@code seconds} is {@code 0} or less
+         */
         public Builder popMaxAgeSeconds(long seconds) {
-            this.popMaxAgeSeconds = seconds;
+            this.popMaxAgeSeconds = positiveAge("popMaxAgeSeconds", seconds);
             return this;
         }
 
+        /**
+         * Sets how old a DPoP proof may be; as {@link #popMaxAgeSeconds(long)}.
+         *
+         * @throws IllegalArgumentException if {@code seconds} is {@code 0} or less
+         */
         public Builder dpopMaxAgeSeconds(long seconds) {
-            this.dpopMaxAgeSeconds = seconds;
+            this.dpopMaxAgeSeconds = positiveAge("dpopMaxAgeSeconds", seconds);
+            return this;
+        }
+
+        private static long positiveAge(String name, long seconds) {
+            if (seconds <= 0L) {
+                throw new IllegalArgumentException(name + " must be positive: a proof with no age limit cannot be "
+                        + "held to one replay window, got " + seconds);
+            }
+            return seconds;
+        }
+
+        /** Sets the clock proofs are judged by (see {@link ClientAttestationConfig#clock()}). */
+        public Builder clock(Clock clock) {
+            this.clock = Objects.requireNonNull(clock, "clock");
             return this;
         }
 

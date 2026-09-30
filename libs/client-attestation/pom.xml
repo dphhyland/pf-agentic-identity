@@ -159,6 +159,16 @@
                                         <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseInt(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.servlet.ChallengeEndpointServlet.parseLong(*</include>
                                         <include>com.pingidentity.ps.oidf.clientattestation.servlet.ClientAttestationChallengeServlet.init(*</include>
+                                        <!-- S4c (proof side): a jti is remembered until its proof's window ends, not for a
+                                             time from first use; the stores evict by that absolute time, refuse a past one
+                                             without asking, and a PoP or DPoP proof's age is always bounded. -->
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache.recordUntil(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.InMemoryAttestationReplayCache.evictExpired(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.RedisAttestationStore.recordUntil(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.retentionFor(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.saturatingAdd(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationVerifier.assertFresh(*</include>
+                                        <include>com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig$Builder.positiveAge(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>

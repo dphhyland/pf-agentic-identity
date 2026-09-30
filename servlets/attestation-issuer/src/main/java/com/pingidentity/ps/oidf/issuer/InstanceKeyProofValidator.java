@@ -4,12 +4,13 @@
 package com.pingidentity.ps.oidf.issuer;
 
 import java.security.Key;
+import java.time.Clock;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import org.jose4j.jwa.AlgorithmConstraints;
 import org.jose4j.jwt.JwtClaims;
-import org.jose4j.jwt.NumericDate;
 import org.jose4j.jws.JsonWebSignature;
 import com.pingidentity.ps.oidf.clientattestation.ClientAttestationConfig;
 import com.pingidentity.ps.oidf.jose.Jwks;
@@ -20,33 +21,86 @@ import com.pingidentity.ps.oidf.jose.Jwks;
  * (header {@code typ=oauth-attestation-instance-proof+jwt}) with its instance private key; this validator
  * verifies that signature against the <em>presented</em> instance public JWK — so a caller cannot ask for
  * a key it does not control — and checks the proof's {@code aud} (the attester issuer), {@code jti}
- * (returned for replay detection), freshness ({@code iat}), and optional server {@code challenge}.
+ * (returned for replay detection), its validity window ({@code iat} and {@code exp}), and optional server
+ * {@code challenge}.
  *
- * <p>Freshness/replay state (challenge consumption, {@code jti}) is enforced by the caller via
- * {@link AttestationSupport}; this validator is pure (signature + claim shape) and unit-testable.
+ * <p><b>The window</b> (plan item S4c, finding F-0036). CAS §4.3 lists the proof's claims as "{@code aud} (the CAS
+ * issuer identifier, REQUIRED), {@code iat} (REQUIRED), {@code exp} (REQUIRED, SHOULD be ≤ 5 minutes after
+ * {@code iat}), {@code jti} (REQUIRED, unique)" and says "The CAS MUST [...] enforce {@code exp} with small clock
+ * skew, and reject replayed {@code jti} values within the proof validity window". CAS §5.3.1 contradicts it:
+ * "{@code iat} is not listed as required but, when present, MUST be validated for freshness (Section 4.3);
+ * {@code exp}, when present, MUST be honoured." This validator follows §4.3 and makes its SHOULD a limit: both
+ * claims are required, {@code exp} must be after {@code iat} and at most {@link #MAX_WINDOW_SECONDS} after it, and
+ * the proof is refused before {@code iat - skew} and after {@code exp + skew}. It still meets every MUST of §5.3.1
+ * ({@code aud} and {@code jti} required, {@code iat} validated, {@code exp} honoured). Without the rule a proof
+ * with no {@code iat} had no end, and was accepted again once the replay store forgot its {@code jti}.
+ *
+ * <p>Replay state (challenge consumption, {@code jti}) is enforced by the caller through its
+ * {@code AttestationReplayCache}, retained until {@link Result#retainUntilEpochSeconds()}: the last second the
+ * proof could be accepted. This validator is pure (signature + claim shape + the clock) and unit-testable.
  */
 public final class InstanceKeyProofValidator {
 
     public static final String TYP = "oauth-attestation-instance-proof+jwt";
+    /** The longest {@code exp - iat} accepted: CAS §4.3's "SHOULD be ≤ 5 minutes after {@code iat}", as a limit. */
+    public static final long MAX_WINDOW_SECONDS = 300L;
+    /**
+     * The one description every window refusal carries. CAS §4.6 gives {@code invalid_instance_proof} as "The
+     * Instance Key Proof failed (signature, {@code aud}, expiry, replay, challenge)"; the description says what a
+     * client has to send and never echoes the values it sent.
+     */
+    public static final String WINDOW_REFUSED = "the instance key proof is outside its validity window: 'iat' and "
+            + "'exp' are required, with 'exp' after 'iat' by at most " + MAX_WINDOW_SECONDS + " s";
     private static final Set<String> PERMITTED_ALGORITHMS = ClientAttestationConfig.DEFAULT_ASYMMETRIC_ALGORITHMS;
 
-    private final long maxAgeSeconds;
+    private final long maxWindowSeconds;
     private final long allowedClockSkewSeconds;
+    private final Clock clock;
 
     public InstanceKeyProofValidator() {
-        this(ClientAttestationConfig.DEFAULT_POP_MAX_AGE_SECONDS, ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS);
+        this(MAX_WINDOW_SECONDS, ClientAttestationConfig.DEFAULT_CLOCK_SKEW_SECONDS);
     }
 
-    public InstanceKeyProofValidator(long maxAgeSeconds, long allowedClockSkewSeconds) {
-        this.maxAgeSeconds = maxAgeSeconds;
+    /**
+     * @param maxWindowSeconds        the longest {@code exp - iat} accepted, at most {@link #MAX_WINDOW_SECONDS}
+     * @param allowedClockSkewSeconds the skew allowed at each end of the window
+     */
+    public InstanceKeyProofValidator(long maxWindowSeconds, long allowedClockSkewSeconds) {
+        this(maxWindowSeconds, allowedClockSkewSeconds, Clock.systemUTC());
+    }
+
+    /**
+     * As {@link #InstanceKeyProofValidator(long, long)}, judging the window by {@code clock}.
+     *
+     * @throws IllegalArgumentException if the window is not between 1 and {@link #MAX_WINDOW_SECONDS}, or the skew
+     *                                  is negative
+     */
+    public InstanceKeyProofValidator(long maxWindowSeconds, long allowedClockSkewSeconds, Clock clock) {
+        if (maxWindowSeconds <= 0L || maxWindowSeconds > MAX_WINDOW_SECONDS) {
+            throw new IllegalArgumentException("the proof window must be 1 to " + MAX_WINDOW_SECONDS + " s, got "
+                    + maxWindowSeconds);
+        }
+        if (allowedClockSkewSeconds < 0L) {
+            throw new IllegalArgumentException("the clock skew must not be negative, got " + allowedClockSkewSeconds);
+        }
+        this.maxWindowSeconds = maxWindowSeconds;
         this.allowedClockSkewSeconds = allowedClockSkewSeconds;
+        this.clock = Objects.requireNonNull(clock, "clock");
     }
 
     /**
      * The validated proof's replay-relevant fields, plus the full claim map so the caller can apply
      * deployment-specific claim requirements (custom claims ride in the proof, signed by the instance key).
+     *
+     * @param retainUntilEpochSeconds {@code exp + skew}: the last second the proof can be accepted, and so how long
+     *                                its {@code jti} has to be remembered
      */
-    public record Result(String jti, String challenge, Map<String, Object> claims) {
+    public record Result(String jti, String challenge, Map<String, Object> claims, long retainUntilEpochSeconds) {
+    }
+
+    /** The clock this validator judges windows by, for a caller that must agree with it. */
+    public Clock clock() {
+        return this.clock;
     }
 
     /**
@@ -128,24 +182,49 @@ public final class InstanceKeyProofValidator {
             throw IssuanceException.invalidInstanceProof("proof has no 'jti'");
         }
 
-        long now = NumericDate.now().getValue();
+        long retainUntil = this.checkWindow(claims);
+
+        String challenge = claims.getClaimValueAsString("challenge");
+        return new Result(jti, challenge, claims.getClaimsMap(), retainUntil);
+    }
+
+    /**
+     * Holds the proof to its window and returns the last second it can be accepted, {@code exp + skew}.
+     *
+     * @throws IssuanceException {@code invalid_instance_proof} with {@link #WINDOW_REFUSED} when {@code iat} or
+     *                           {@code exp} is missing or not a number, {@code exp} is not after {@code iat} or is
+     *                           more than the window after it, or now is before {@code iat - skew} or after
+     *                           {@code exp + skew}
+     */
+    private long checkWindow(JwtClaims claims) throws IssuanceException {
+        long iat;
+        long exp;
         try {
-            if (claims.hasClaim("iat")) {
-                long iat = claims.getIssuedAt().getValue();
-                if (iat - this.allowedClockSkewSeconds > now) {
-                    throw IssuanceException.invalidInstanceProof("proof 'iat' is in the future");
-                }
-                if (iat + this.maxAgeSeconds + this.allowedClockSkewSeconds < now) {
-                    throw IssuanceException.invalidInstanceProof("proof is stale");
-                }
+            if (claims.getIssuedAt() == null || claims.getExpirationTime() == null) {
+                throw IssuanceException.invalidInstanceProof(WINDOW_REFUSED);
             }
+            iat = claims.getIssuedAt().getValue();
+            exp = claims.getExpirationTime().getValue();
         } catch (IssuanceException e) {
             throw e;
         } catch (Exception e) {
-            throw IssuanceException.invalidInstanceProof("proof 'iat' is malformed");
+            throw IssuanceException.invalidInstanceProof(WINDOW_REFUSED);
         }
-
-        String challenge = claims.getClaimValueAsString("challenge");
-        return new Result(jti, challenge, claims.getClaimsMap());
+        long now = this.clock.millis() / 1000L;
+        // Compared by differences, and the one difference that two absurd claims could overflow is checked, so an
+        // iat far in the past and an exp far in the future are refused rather than wrapped into a short window.
+        long window;
+        try {
+            window = Math.subtractExact(exp, iat);
+        } catch (ArithmeticException e) {
+            throw IssuanceException.invalidInstanceProof(WINDOW_REFUSED);
+        }
+        boolean windowShape = window > 0L && window <= this.maxWindowSeconds;
+        boolean started = iat <= now || iat - now <= this.allowedClockSkewSeconds;
+        boolean ended = exp < now && now - exp > this.allowedClockSkewSeconds;
+        if (!windowShape || !started || ended) {
+            throw IssuanceException.invalidInstanceProof(WINDOW_REFUSED);
+        }
+        return exp + this.allowedClockSkewSeconds;
     }
 }

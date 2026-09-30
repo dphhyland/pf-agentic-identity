@@ -152,6 +152,113 @@ class AttestationIssuanceServletTest {
         assertEquals("invalid_instance_proof", e.error());
     }
 
+    /**
+     * Retention from the proof's window on the attester (plan item S4c, F-0036): the jti is remembered until
+     * {@code exp + skew}, so a replay one second before that is refused as a replay, and one second after it the
+     * proof is refused as outside its window. Before S4c a proof with no {@code exp} and no {@code iat} was
+     * remembered for 300 s from first use and then accepted again.
+     */
+    @Test
+    @Requirement("CAS §4.3")
+    void aCasProofIsARefusedReplayUntilItsWindowEndsAndStaleAfter() throws Exception {
+        long t0 = Instant.now().getEpochSecond();
+        MutableClock clock = new MutableClock(Instant.ofEpochSecond(t0));
+        servlet.setProofValidator(new InstanceKeyProofValidator(300L, 60L, clock));
+        servlet.setReplayCache(new InMemoryAttestationReplayCache(64, clock));
+        String proof = windowProof(t0, t0 + 300L);
+        servlet.issue(request(SPIFFE_ID, ISSUER, proof, List.of()));
+
+        clock.set(Instant.ofEpochSecond(t0 + 300L + 60L - 1L));
+        IssuanceException replay = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, proof, List.of())));
+        assertEquals("invalid_instance_proof", replay.error());
+        assertTrue(replay.getMessage().contains("replay"), replay.getMessage());
+
+        clock.set(Instant.ofEpochSecond(t0 + 300L + 60L + 1L));
+        IssuanceException stale = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, proof, List.of())));
+        assertEquals("invalid_instance_proof", stale.error());
+        assertEquals(InstanceKeyProofValidator.WINDOW_REFUSED, stale.getMessage());
+    }
+
+    @Test
+    @Requirement("CAS §4.3")
+    void aCasProofWithoutExpIsRefusedWithTheGenericDescription() throws Exception {
+        JwtClaims claims = new JwtClaims();
+        claims.setAudience(ISSUER);
+        claims.setJwtId(UUID.randomUUID().toString());
+        claims.setIssuedAtToNow();
+        String proof = signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, claims);
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, proof, List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+        assertEquals(InstanceKeyProofValidator.WINDOW_REFUSED, e.getMessage());
+    }
+
+    @Test
+    void aProofWhoseWindowClosedBeforeTheStoreIsAskedIsStale() throws Exception {
+        long t0 = Instant.now().getEpochSecond();
+        MutableClock clock = new MutableClock(Instant.ofEpochSecond(t0));
+        servlet.setProofValidator(new InstanceKeyProofValidator(300L, 5L, clock));
+        AttestationReplayCache never = (clientId, jti, retainUntil) -> {
+            throw new AssertionError("the store was asked about a proof whose window had closed");
+        };
+        servlet.setReplayCache(never);
+        // The challenge is consumed between validation and the replay check; the window closes meanwhile.
+        servlet.setChallengeService(new AttestationChallengeService() {
+            @Override
+            public String issue() {
+                return "c";
+            }
+
+            @Override
+            public Consumption consumeChallenge(String challenge) {
+                clock.set(Instant.ofEpochSecond(t0 + 200L));
+                return Consumption.CONSUMED;
+            }
+
+            @Override
+            public long ttlSeconds() {
+                return 60L;
+            }
+        });
+        String proof = proof(instanceKey, ISSUER, UUID.randomUUID().toString(), "c");
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, proof, List.of())));
+        assertEquals(InstanceKeyProofValidator.WINDOW_REFUSED, e.getMessage());
+    }
+
+    @Test
+    void aStoreThatFindsTheRetentionPastRefusesTheProofAsStale() throws Exception {
+        servlet.setReplayCache((clientId, jti, retainUntil) -> AttestationReplayCache.Verdict.STALE);
+        IssuanceException e = assertThrows(IssuanceException.class,
+                () -> servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of())));
+        assertEquals("invalid_instance_proof", e.error());
+        assertEquals(InstanceKeyProofValidator.WINDOW_REFUSED, e.getMessage());
+    }
+
+    /** S3b's rule still holds under the cap: the TTL a client configures is never longer than the evidence. */
+    @Test
+    @Requirement("CAS §4.5")
+    void theIssuedTtlIsCappedAndNeverPastTheEvidence() throws Exception {
+        Map<String, String> props = new HashMap<>();
+        props.put(AttestationIssuanceConfig.P_ISSUER, ISSUER);
+        props.put(AttestationIssuanceConfig.P_BUNDLE,
+                new JsonWebKeySet(JsonWebKey.Factory.newJwk(publicParams(bundleKey))).toJson());
+        props.put(AttestationIssuanceConfig.P_SIGNING_JWK, JsonUtil.toJson(privateParams(attesterKey)));
+        props.put(AttestationIssuanceConfig.P_INSTANCES, "[{\"spiffe_id\":\"" + SPIFFE_ID + "\"}]");
+        props.put(AttestationIssuanceConfig.P_TTL, "7200");
+        AttestationIssuanceConfig clamped = AttestationIssuanceConfig.fromProperties(props,
+                com.pingidentity.ps.oidf.clientattestation.AttestationRarModels.get(),
+                new com.pingidentity.ps.oidf.issuer.IssuedTtlCap(3600L, false));
+        assertEquals(3600L, clamped.ttlSeconds(), "development clamps 7200 to the cap");
+        servlet.setClientResolver(fixedResolver(clamped));
+        Map<String, Object> body = servlet.issue(request(SPIFFE_ID, ISSUER, newProof(null), List.of()));
+        long expiresIn = ((Number) body.get("expires_in")).longValue();
+        assertTrue(expiresIn <= 600L && expiresIn >= 590L, "the SVID lives 600 s, and so does the attestation: " + expiresIn);
+        assertTrue(expOf((String) body.get("attestation")) <= Instant.now().getEpochSecond() + 600L);
+    }
+
     @Test
     @Requirement("CAS §7")
     void requestExceedingEntitlementIsDenied() throws Exception {
@@ -729,6 +836,7 @@ class AttestationIssuanceServletTest {
         proofClaims.setAudience(ISSUER);
         proofClaims.setJwtId(UUID.randomUUID().toString());
         proofClaims.setIssuedAtToNow();
+        proofClaims.setExpirationTime(NumericDate.fromSeconds(proofClaims.getIssuedAt().getValue() + 120L));
         proofClaims.setClaim("agent_id", "attacker-chosen-via-proof");
         String proof = signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, proofClaims);
 
@@ -1087,6 +1195,7 @@ class AttestationIssuanceServletTest {
         claims.setAudience(ISSUER);
         claims.setJwtId(UUID.randomUUID().toString());
         claims.setIssuedAtToNow();
+        claims.setExpirationTime(NumericDate.fromSeconds(claims.getIssuedAt().getValue() + 120L));
         claims.setClaim(claim, value);
         return signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, claims);
     }
@@ -1148,10 +1257,47 @@ class AttestationIssuanceServletTest {
         claims.setAudience(audience);
         claims.setJwtId(jti);
         claims.setIssuedAtToNow();
+        claims.setExpirationTime(NumericDate.fromSeconds(claims.getIssuedAt().getValue() + 120L));
         if (challenge != null) {
             claims.setClaim("challenge", challenge);
         }
         return signCompact(signingKey, "ES256", InstanceKeyProofValidator.TYP, claims);
+    }
+
+    private String windowProof(long iat, long exp) throws Exception {
+        JwtClaims claims = new JwtClaims();
+        claims.setAudience(ISSUER);
+        claims.setJwtId(UUID.randomUUID().toString());
+        claims.setIssuedAt(NumericDate.fromSeconds(iat));
+        claims.setExpirationTime(NumericDate.fromSeconds(exp));
+        return signCompact(instanceKey, "ES256", InstanceKeyProofValidator.TYP, claims);
+    }
+
+    private static final class MutableClock extends java.time.Clock {
+        private volatile Instant now;
+
+        MutableClock(Instant now) {
+            this.now = now;
+        }
+
+        void set(Instant instant) {
+            this.now = instant;
+        }
+
+        @Override
+        public java.time.ZoneId getZone() {
+            return java.time.ZoneOffset.UTC;
+        }
+
+        @Override
+        public java.time.Clock withZone(java.time.ZoneId zone) {
+            return this;
+        }
+
+        @Override
+        public Instant instant() {
+            return this.now;
+        }
     }
 
     private static String signCompact(PublicJsonWebKey signingKey, String alg, String typ, JwtClaims claims)
