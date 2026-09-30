@@ -5,7 +5,9 @@ package com.pingidentity.ps.oidf.servlet.clientregistration;
 
 import com.pingidentity.ps.oidf.federation.policy.ClientDraft;
 import com.pingidentity.ps.oidf.federation.policy.NarrowingObligations;
+import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig;
 import com.pingidentity.ps.oidf.pf.FederationRuntimeConfig.AutoRegistrationSettings;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -13,6 +15,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeSet;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 import org.sourceid.oauth20.domain.Client;
 import org.sourceid.oauth20.domain.ClientAuthenticationType;
 import org.sourceid.oauth20.domain.ParamValues;
@@ -28,10 +33,33 @@ import org.sourceid.oauth20.domain.ParamValues;
  * the chain it came from, in extended properties every deployment must declare ({@link FederationClientParams}).
  */
 final class FederationClientBuilder {
+    private static final Log LOGGER = LogFactory.getLog(FederationClientBuilder.class);
+
+    /**
+     * The JWS algorithms a client's {@code request_object_signing_alg} may name: the asymmetric ones (OpenID Federation
+     * 1.0 §12.1: "asymmetric cryptography MUST be used"). OpenID Connect Registration 1.0 §2 defines the parameter as the
+     * "JWS [JWS] alg algorithm [JWA] that MUST be used for signing Request Objects sent to the OP", so a JWE
+     * key-management algorithm ({@code RSA-OAEP}, {@code ECDH-ES}, {@code A128KW}, {@code dir} and the rest) is never
+     * one; nor is {@code none}, nor a MAC, for a client that holds no shared secret.
+     */
+    static final Set<String> REQUEST_OBJECT_SIGNING_ALGORITHMS = Set.of("RS256", "RS384", "RS512", "PS256", "PS384", "PS512",
+            "ES256", "ES384", "ES512", "EdDSA");
+
+    /**
+     * OpenID Connect Registration 1.0 §2's defaults, applied to an explicitly registered relying party for what its
+     * metadata omits: {@code response_types} - "If omitted, the default is that the Client will use only the code
+     * Response Type."; {@code grant_types} - "If omitted, the default is that the Client will use only the
+     * authorization_code Grant Type."; {@code id_token_signed_response_alg} - "The default, if omitted, is RS256."
+     */
+    static final List<String> DEFAULT_RESPONSE_TYPES = List.of("code");
+    static final List<String> DEFAULT_GRANT_TYPES = List.of("authorization_code");
+    static final String DEFAULT_ID_TOKEN_SIGNED_RESPONSE_ALG = "RS256";
 
     /** Where a registration came from and when it ends: what every federation client records. */
     record Provenance(String status, List<String> trustChain, long expiresAt, String trustAnchor, String entityType) {
     }
+
+    private static final String RELYING_PARTY = "openid_relying_party";
 
     private FederationClientBuilder() {
     }
@@ -42,6 +70,18 @@ final class FederationClientBuilder {
      * registered keys through the attestation bridge, and marked so the bridge knows it.
      */
     static Client agent(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, Provenance provenance) {
+        // Read only where it applies: the PKCE rule is an explicitly registered RP's alone.
+        return agent(clientId, metadata, keys, provenance,
+                !isExplicitRelyingParty(provenance) || FederationRuntimeConfig.get().autoRegistration().requirePkce());
+    }
+
+    /**
+     * {@link #agent(String, Map, RpKeyMaterial.Keys, Provenance)} with the PKCE rule for an explicitly registered relying
+     * party given: {@code OIDF_AUTO_REGISTRATION_REQUIRE_PKCE}, which is on unless it is set to {@code false} - and the
+     * production profile allows that only with the {@code pkce-off} risk accepted.
+     */
+    static Client agent(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, Provenance provenance, boolean requirePkce) {
+        boolean explicitRelyingParty = isExplicitRelyingParty(provenance);
         Client client = new Client();
         String tokenEndpointAuthMethod = metadataString(metadata, "token_endpoint_auth_method");
         boolean attestationAuth = isAttestation(tokenEndpointAuthMethod);
@@ -68,16 +108,29 @@ final class FederationClientBuilder {
         // An oauth_client doing client_credentials legitimately has no redirect_uris / response_types,
         // but PF's XML client store iterates these lists unguarded at save time — never pass null.
         client.setRedirectUris(strings(metadata.get("redirect_uris")));
-        client.setRestrictedResponseTypes(strings(metadata.get("response_types")));
+        // An explicitly registered RP that omits these gets OpenID Connect Registration 1.0 §2's defaults (see
+        // DEFAULT_RESPONSE_TYPES), as an RP registered at the authorization endpoint always has: without them it
+        // was registered able to use no response type and no grant, or - before the flag below - any.
+        List<String> responseTypes = strings(metadata.get("response_types"));
+        client.setRestrictedResponseTypes(explicitRelyingParty && responseTypes.isEmpty() ? new ArrayList<>(DEFAULT_RESPONSE_TYPES) : responseTypes);
         // The list alone restricts nothing: PingFederate consults restrictedResponseTypes only when
         // restrictResponseTypes is set. Until this flag was set a federation client could use any response
         // type the server allows, whatever its (policy-constrained) metadata said.
         client.setRestrictResponseTypes(true);
         List<String> grantTypes = strings(metadata.get("grant_types"));
+        if (explicitRelyingParty && grantTypes.isEmpty()) {
+            grantTypes = new ArrayList<>(DEFAULT_GRANT_TYPES);
+        }
         client.setGrantTypes(new HashSet<>(grantTypes));
         client.setTokenEndpointAuthSigningAlgorithm(metadataString(metadata, "token_endpoint_auth_signing_alg"));
-        client.setIdTokenSigningAlgorithm(metadataString(metadata, "id_token_signed_response_alg"));
-        client.setRequestObjectSigningAlgorithm(metadataString(metadata, "request_object_signing_alg"));
+        String idTokenAlg = metadataString(metadata, "id_token_signed_response_alg");
+        client.setIdTokenSigningAlgorithm(explicitRelyingParty && idTokenAlg == null ? DEFAULT_ID_TOKEN_SIGNED_RESPONSE_ALG : idTokenAlg);
+        client.setRequestObjectSigningAlgorithm(requestObjectSigningAlgorithm(clientId, metadata, null));
+        if (explicitRelyingParty) {
+            // RFC 7636 and FAPI 2.0 §5.3.1.2: an RP with a user in front of it proves the code is its own. The same
+            // setting holds an RP registered at the authorization endpoint to it.
+            client.setRequireProofKeyForCodeExchange(requirePkce);
+        }
         client.setRestrictedScopes(scopes(metadataString(metadata, "scope")));
         // Likewise for scopes: without the flag PF ignores the list and the client may request any scope the
         // server defines - exactly what a superior's metadata_policy on `scope` exists to prevent. With it, a
@@ -116,6 +169,19 @@ final class FederationClientBuilder {
      * client has, in the order the entity gave them.
      */
     static void narrowed(Map<String, Object> registered, Client client) {
+        if (RELYING_PARTY.equals(extendedParamValue(client, FederationClientParams.ENTITY_TYPE))) {
+            // §12.2.3: "The OP SHOULD include metadata parameters that have a default value". An RP registered without
+            // them has OpenID Connect Registration 1.0 §2's; say so, as narrowed below.
+            if (!(registered.get("response_types") instanceof List)) {
+                registered.put("response_types", new ArrayList<>(client.getRestrictedResponseTypes()));
+            }
+            if (!(registered.get("grant_types") instanceof List)) {
+                registered.put("grant_types", new ArrayList<>(new TreeSet<>(client.getGrantTypes())));
+            }
+            if (registered.get("id_token_signed_response_alg") == null && client.getIdTokenSigningAlgorithm() != null) {
+                registered.put("id_token_signed_response_alg", client.getIdTokenSigningAlgorithm());
+            }
+        }
         if (registered.get("scope") instanceof String) {
             registered.put("scope", String.join(" ", client.getRestrictedScopes()));
         }
@@ -136,12 +202,28 @@ final class FederationClientBuilder {
      * declared - {@code code} and {@code settings.defaultScopes()} when it declared none.
      *
      * @param proofKind how it proved it holds its keys
-     * @param proofAlg  the {@code alg} of that proof, used when its metadata names no request-object algorithm
+     * @param proofAlg  the JWS {@code alg} of that proof, used when its metadata names no request-object algorithm; null
+     *                  for an encrypted proof
      * @throws RegistrationRejectedException {@code invalid_client_metadata} for an RP this path cannot register
      */
     static Client relyingParty(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, Provenance provenance,
                                AutoRegistrationSettings settings, RequestObject.Kind proofKind, String proofAlg)
             throws RegistrationRejectedException {
+        return relyingParty(clientId, metadata, keys, provenance, settings, proofKind, proofAlg, DeploymentProfile.current());
+    }
+
+    /**
+     * {@link #relyingParty(String, Map, RpKeyMaterial.Keys, Provenance, AutoRegistrationSettings, RequestObject.Kind, String)}
+     * under {@code profile}. A proof with no algorithm is an encrypted one ({@link RequestObject#algorithm()}; a signed
+     * proof without one never gets past {@link RequestObject#checkProfile}), which registers nothing in production
+     * ({@link RequestObject#registeringFromEncrypted}).
+     */
+    static Client relyingParty(String clientId, Map<String, Object> metadata, RpKeyMaterial.Keys keys, Provenance provenance,
+                               AutoRegistrationSettings settings, RequestObject.Kind proofKind, String proofAlg, DeploymentProfile profile)
+            throws RegistrationRejectedException {
+        if (proofAlg == null) {
+            RequestObject.registeringFromEncrypted(clientId, profile);
+        }
         String authMethod = metadataString(metadata, "token_endpoint_auth_method");
         if (authMethod != null && !"private_key_jwt".equals(authMethod) && !isAttestation(authMethod)) {
             throw new RegistrationRejectedException(400, "invalid_client_metadata", "token_endpoint_auth_method " + authMethod
@@ -168,8 +250,7 @@ final class FederationClientBuilder {
         client.setRestrictScopes(true);
         client.setTokenEndpointAuthSigningAlgorithm(metadataString(metadata, "token_endpoint_auth_signing_alg"));
         client.setIdTokenSigningAlgorithm(metadataString(metadata, "id_token_signed_response_alg"));
-        String requestObjectAlg = metadataString(metadata, "request_object_signing_alg");
-        client.setRequestObjectSigningAlgorithm(requestObjectAlg != null ? requestObjectAlg : proofAlg);
+        client.setRequestObjectSigningAlgorithm(requestObjectSigningAlgorithm(clientId, metadata, proofAlg));
         // §12.1.1: every authentication request "MUST demonstrate" key control. PingFederate can hold a client to
         // signed request objects or to PAR (whose endpoint authenticates it), not to "either"; the RP chose by how
         // it first proved itself.
@@ -181,6 +262,30 @@ final class FederationClientBuilder {
         client.setBypassApprovalPage(false);
         client.setExtendedParams(extendedParams(metadata, provenance, isAttestation(authMethod) ? authMethod : null));
         return client;
+    }
+
+    /**
+     * The {@code request_object_signing_alg} a client is registered with: its metadata's, else the signed proof's, when
+     * that is a JWS algorithm this OP accepts ({@link #REQUEST_OBJECT_SIGNING_ALGORITHMS}); otherwise none, and
+     * PingFederate's default applies. Never a JWE algorithm: the proof's is null when it is encrypted, and one in the
+     * metadata is left out with a warning.
+     */
+    static String requestObjectSigningAlgorithm(String clientId, Map<String, Object> metadata, String proofAlg) {
+        String declared = metadataString(metadata, "request_object_signing_alg");
+        if (declared != null) {
+            if (REQUEST_OBJECT_SIGNING_ALGORITHMS.contains(declared)) {
+                return declared;
+            }
+            LOGGER.warn((Object)(clientId + " declares request_object_signing_alg " + declared + ", which is not an asymmetric JWS algorithm;"
+                    + " it is registered without one, and PingFederate's default applies"));
+            return null;
+        }
+        return proofAlg != null && REQUEST_OBJECT_SIGNING_ALGORITHMS.contains(proofAlg) ? proofAlg : null;
+    }
+
+    /** Whether {@code provenance} is an explicit registration (§12.2) of an {@code openid_relying_party}. */
+    static boolean isExplicitRelyingParty(Provenance provenance) {
+        return RegistrationService.STATUS_REGISTERED.equals(provenance.status()) && RELYING_PARTY.equals(provenance.entityType());
     }
 
     private static boolean isAttestation(String authMethod) {

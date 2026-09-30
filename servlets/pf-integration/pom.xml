@@ -170,6 +170,8 @@
                                              and what it is told when the answer is no. -->
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.doFilter(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.clientIdOf(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.unverifiedSubject(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.attestedClientOf(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.TokenEndpointAutoRegistrationFilter.extractTrustChain(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter.write(*</include>
                                         <!-- Registration at the authorization and PAR endpoints (§12.1.1): which requests
@@ -186,6 +188,9 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.checkProfile(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.onlyAudience(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.verify(*</include>
+                                        <!-- H-FED-1: what an encrypted proof registers, and which alg a proof is signed with (never a JWE one). -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.algorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.RequestObject.registeringFromEncrypted(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.resolve(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.verifiedSignedJwks(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RpKeyMaterial.signingKeys(*</include>
@@ -194,6 +199,10 @@
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.relyingParty(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.bypassApprovalPage(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.strings(*</include>
+                                        <!-- H-FED-1 and H-FED-5: request_object_signing_alg is a JWS algorithm or nothing; which clients get OIDC
+                                             Registration's defaults and PKCE. -->
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.requestObjectSigningAlgorithm(*</include>
+                                        <include>com.pingidentity.ps.oidf.servlet.clientregistration.FederationClientBuilder.isExplicitRelyingParty(*</include>
                                         <include>com.pingidentity.ps.oidf.servlet.clientregistration.RegistrationCoordinator.register(*</include>
                                         <!-- S5c: explicit registration bounded as automatic is - the budget each registration spends, the failure
                                              memory's keys, and the registration body's cap. -->

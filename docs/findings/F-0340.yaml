@@ -1,0 +1,22 @@
+id: F-0340
+title: A due renewal from an encrypted request object is refused in production, not deferred
+severity: low
+area: pf-integration
+source: design
+status: open
+plan_items: [H-FED-1]
+prs: [78]
+verification: ''
+target_release: 0.7.0
+notes: >
+  HFEDR (2026-09-30) refuses a registration from an encrypted proof where the client is built
+  (FederationClientBuilder.relyingParty), because RegistrationService - S5C's, which HFEDR may not edit - is the only
+  place that knows whether the client exists. So an RP registered at the authorization endpoint whose registration is
+  in its last OIDF_REGISTRATION_REFRESH_BEFORE_EXPIRY_SECONDS (300 by default), or past it, and whose request is
+  encrypted, is refused 400 invalid_request_object in production, where before it was renewed from the request's
+  unverified header. That is consistent with §12.1.1 - a renewal writes a registration as a first one does - and it
+  is safe (a REQUEST failure is never remembered against the RP), but an RP that only sends encrypted request objects
+  must send a signed one, or use PAR, at least once per registration. The kinder rule - let the request go ahead on
+  the current registration and leave the renewal to a signed request - needs the channel to know it is renewing:
+  RegistrationService's FrontChannel.build could pass `existing != null`, or throw a kind admit defers. Recorded in
+  docs/releases/unreleased/HFEDR.md.

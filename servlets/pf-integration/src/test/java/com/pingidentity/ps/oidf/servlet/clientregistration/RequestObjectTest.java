@@ -127,11 +127,42 @@ class RequestObjectTest {
 
         assertTrue(encrypted.encrypted());
         assertEquals(List.of("x"), encrypted.trustChain());
-        assertEquals("RSA-OAEP-256", encrypted.algorithm());
+        assertNull(encrypted.algorithm(), "RSA-OAEP-256 manages the content key; it says nothing about how the request inside is signed");
         assertDoesNotThrow(() -> encrypted.checkProfile(RP, OP, NOW, MAX), "its claims are PingFederate's to check once decrypted");
         assertDoesNotThrow(() -> encrypted.verify(List.of(), RP, (c, j, t) -> false, NOW));
         RequestObject noAlg = RequestObject.read(RequestObject.Kind.REQUEST_OBJECT, jwe(Map.of("enc", "A256GCM")));
         assertNull(noAlg.algorithm());
+    }
+
+    /** No JWE key-management algorithm is ever reported as the algorithm a request object is signed with. */
+    @Test
+    void anEncryptedObjectsAlgorithmIsNeverItsSigningAlgorithm() {
+        for (String alg : FederationClientBuilderTest.JWE_ALGORITHMS) {
+            for (RequestObject.Kind kind : RequestObject.Kind.values()) {
+                RequestObject encrypted = assertDoesNotThrow(() -> RequestObject.read(kind, jwe(Map.of("alg", alg, "enc", "A256GCM"))));
+                assertNull(encrypted.algorithm(), alg);
+            }
+        }
+    }
+
+    /**
+     * OpenID Federation 1.0 §12.1.1: "Authentication requests MUST demonstrate that the requesting Entity controls the
+     * Entity's RP keys ... Attempted authentication requests that do not do so MUST be rejected." An encrypted proof
+     * demonstrates nothing this module can check before a registration is written: production refuses to register from
+     * one, as a failure of the request - never held against the RP - and development registers with a warning.
+     */
+    @Test
+    @Requirement("OIDFED §12.1.1(2)")
+    void anEncryptedProofRegistersNothingInProduction() {
+        RegistrationRejectedException e = assertThrows(RegistrationRejectedException.class,
+                () -> RequestObject.registeringFromEncrypted(RP, com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.PRODUCTION));
+        assertEquals("invalid_request_object", e.error());
+        assertEquals(400, e.status());
+        assertEquals(RegistrationRejectedException.Kind.REQUEST, e.kind(), "a stranger can send one in anyone's name");
+        assertFalse(e.concernsTheClient());
+        assertTrue(e.getMessage().contains("signed request object"), e.getMessage());
+
+        assertDoesNotThrow(() -> RequestObject.registeringFromEncrypted(RP, com.pingidentity.ps.oidf.platform.profile.DeploymentProfile.DEVELOPMENT));
     }
 
     // ---- the profile (§12.1.1.1) --------------------------------------------------------------------------

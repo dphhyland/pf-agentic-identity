@@ -12,6 +12,7 @@ import com.pingidentity.ps.oidf.servlet.oauth.OAuthErrorWriter;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Enumeration;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -59,6 +60,9 @@ import org.apache.commons.logging.LogFactory;
  * }</pre>
  */
 public final class TokenEndpointAutoRegistrationFilter implements Filter {
+    /** The header an attested request names its client in (OAuth 2.0 Attestation-Based Client Authentication). */
+    static final String ATTESTATION_HEADER = "OAuth-Client-Attestation";
+
     private static final Log LOGGER = LogFactory.getLog(TokenEndpointAutoRegistrationFilter.class);
     private volatile RegistrationService service;
     private final Function<HttpServletRequest, String> issuerResolver;
@@ -177,7 +181,16 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
                 return;
             }
             try {
-                this.service.admit(clientId, extractTrustChain(clientAssertion), this.issuerResolver.apply(http));
+                String issuer = this.issuerResolver.apply(http);
+                this.service.admit(clientId, extractTrustChain(clientAssertion), issuer);
+                // An attested request authenticates as its attestation's sub, whatever else it names: ClientAttestationAuth
+                // never compares a client_assertion with the attestation, and replaces it with the bridge's. So that
+                // client's registration is checked too, or a decoy client_assertion naming another client would carry
+                // the request past its expiry. It presents no chain of its own.
+                String attested = attestedClientOf(http);
+                if (attested != null && !attested.equals(clientId)) {
+                    this.service.admit(attested, List.of(), issuer);
+                }
             }
             catch (RegistrationRejectedException e) {
                 if (!this.failClosed) {
@@ -215,23 +228,60 @@ public final class TokenEndpointAutoRegistrationFilter implements Filter {
     }
 
     /**
-     * The client the request names: the {@code sub} of its {@code client_assertion} (not yet verified - PingFederate
-     * does that next), else its {@code client_id} parameter. Null when it names none.
+     * The client the request names, in this order: the {@code sub} of its {@code client_assertion}, its {@code client_id}
+     * parameter, and the {@code sub} of its {@code OAuth-Client-Attestation} header. Null when it names none - such a
+     * request is left to PingFederate.
+     *
+     * <p>None of them is verified yet: PingFederate verifies the assertion next, and ClientAttestationAuth, mapped after
+     * this filter, verifies the attestation and refuses the request unless the verified {@code sub} is the one it read
+     * first (and, when there is one, the {@code client_id} parameter). Here the name only chooses which registration is
+     * looked up - renewed when due, its expiry enforced when past it. The attestation's {@code sub} is read so that an
+     * attested request, which need send no {@code client_id}, is not let past its client's expired registration.
+     *
+     * <p>An attested request is not bound to the name this returns: ClientAttestationAuth ignores the
+     * {@code client_assertion} and forwards the request as the attestation's {@code sub}. So {@link #doFilter} also checks
+     * {@link #attestedClientOf} when it differs - a decoy assertion naming another client then adds a lookup, and never
+     * takes one away.
      */
     static String clientIdOf(HttpServletRequest request, String clientAssertion) {
-        if (clientAssertion != null && !clientAssertion.isBlank()) {
-            try {
-                String sub = JwtCodec.parseUnverifiedClaims(clientAssertion).getSubject();
-                if (sub != null && !sub.isBlank()) {
-                    return sub;
-                }
-            }
-            catch (Exception e) {
-                // Not a JWT PingFederate will accept either; fall back to client_id.
-            }
+        String fromAssertion = unverifiedSubject(clientAssertion);
+        if (fromAssertion != null) {
+            return fromAssertion;
         }
         String clientId = request.getParameter("client_id");
-        return clientId == null || clientId.isBlank() ? null : clientId;
+        if (clientId != null && !clientId.isBlank()) {
+            return clientId;
+        }
+        return attestedClientOf(request);
+    }
+
+    /**
+     * The unverified {@code sub} of the request's {@code OAuth-Client-Attestation} header - the client an attested
+     * request authenticates as, once ClientAttestationAuth has verified it. Null when there is none, when it is not a
+     * JWT with a {@code sub}, and when there is more than one header: ClientAttestationAuth refuses that request.
+     */
+    static String attestedClientOf(HttpServletRequest request) {
+        Enumeration<String> attestations = request.getHeaders(ATTESTATION_HEADER);
+        if (attestations == null || !attestations.hasMoreElements()) {
+            return null;
+        }
+        String attestation = attestations.nextElement();
+        return attestations.hasMoreElements() ? null : unverifiedSubject(attestation);
+    }
+
+    /** A JWT's {@code sub}, not verified; null when it has none or is not a JWT. */
+    private static String unverifiedSubject(String jwt) {
+        if (jwt == null || jwt.isBlank()) {
+            return null;
+        }
+        try {
+            String sub = JwtCodec.parseUnverifiedClaims(jwt).getSubject();
+            return sub == null || sub.isBlank() ? null : sub;
+        }
+        catch (Exception e) {
+            // Not a JWT PingFederate (or ClientAttestationAuth) will accept either.
+            return null;
+        }
     }
 
     private static List<String> extractTrustChain(String clientAssertion) {

@@ -50,7 +50,10 @@ import java.lang.annotation.Target;
  * {@code RFC6750}, {@code RFC7662}, {@code RFC8725},
  * {@code OIDFED}, {@code SSF}, {@code CAEP}, {@code CAEPIOP}, {@code GRANT-MGMT}, {@code AUTHZEN-1.0},
  * {@code OIDC-CORE}, {@code NIST-800-63B}, {@code OID4VCI}, {@code APPLE-APPATTEST},
- * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}, {@code RFC9126}.
+ * {@code FAPI2-SP}, {@code FAPI1-BASE}, {@code CIBA}, {@code RFC6749}, {@code PF-SDK}, {@code RFC9126}, {@code OIDC-REG}.
+ *
+ * <p>{@code OIDC-REG} is OpenID Connect Dynamic Client Registration 1.0 incorporating errata set 2, by section:
+ * {@code OIDC-REG §2} is the client metadata and the defaults it gives what a client omits.
  *
  * <p>{@code FAPI2-SP} is the FAPI 2.0 Security Profile, Final. Its requirements are bullets with no
  * printed number, but each has an anchor, and that is the id, in the item notation above:

@@ -26,8 +26,11 @@ before you promise a partner something. Each item says what happens instead.
   fetched - it would let anyone make PingFederate fetch any URL.
 - **Checking an encrypted request object's claims.** Only its header can be read before PingFederate decrypts
   it, so the §12.1.1.1 checks on its claims can't be made there. PingFederate still decrypts it and checks the
-  signature inside against the keys the relying party registered. `OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS=refuse`
-  turns such requests away instead.
+  signature inside against the keys the relying party registered - but only after the relying party is registered,
+  so under the production profile an encrypted request object never registers or renews one (it is refused with
+  `invalid_request_object`; development registers it with a warning). A relying party registers with a signed request
+  object or at PAR, and may then send encrypted ones. `OIDF_AUTO_REGISTRATION_ENCRYPTED_REQUEST_OBJECTS=refuse`
+  turns every such request away instead.
 - **A log of the Trust Marks PingFederate has issued.** Whether a mark is active comes from PingFederate's own
   signature on it and the grant it was issued under. A mark someone was given before its grant was revoked
   verifies until it expires, for anyone who doesn't ask the status endpoint.
