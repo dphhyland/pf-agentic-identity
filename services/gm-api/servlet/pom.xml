@@ -139,6 +139,8 @@
                                         <include>au.com.idpartners.gm.servlet.PfTokenVerifier.PfTokenVerifier(com.pingidentity.access.JwksEndpointKeyAccessor*</include>
                                         <!-- The path parse that decides which grant a caller is acting on. -->
                                         <include>au.com.idpartners.gm.servlet.GrantsServlet.evaluateGrantIdFrom(*</include>
+                                        <!-- The settings, strictly, and the PDP over https unless development (ST-5, PR-3). -->
+                                        <include>au.com.idpartners.gm.servlet.McpServlet.ServletConfigs.from(*</include>
                                     </includes>
                                     <limits>
                                         <limit><counter>LINE</counter><value>COVEREDRATIO</value><minimum>1.00</minimum></limit>
