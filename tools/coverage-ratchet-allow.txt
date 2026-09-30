@@ -34,3 +34,7 @@ method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopPr
 method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.removeDotSegments(java.lang.String)
 method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.requireHtu(java.lang.String,java.lang.String)
 method libs/client-attestation com.pingidentity.ps.oidf.clientattestation.DpopProofValidator.shown(java.lang.String)
+# S5D (S5d, F-0010): push delivery sends through platform's OutboundHttp; the JDK client's send and CappedBody are gone,
+# and ssf's gate names PushDeliveryService.deliver, which maps each answer and failure, in their place.
+method servlets/ssf com.pingidentity.ps.oidf.ssf.PushDeliveryService.CappedBody.onNext(java.util.List)
+method servlets/ssf com.pingidentity.ps.oidf.ssf.PushDeliveryService.send(java.net.http.HttpClient,java.net.http.HttpRequest,java.time.Duration,int)
