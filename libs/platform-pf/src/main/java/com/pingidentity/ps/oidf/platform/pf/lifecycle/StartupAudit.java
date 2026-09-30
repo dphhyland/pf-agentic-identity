@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Function;
+import java.util.function.Predicate;
 
 /**
  * The start-up audit (plan item F-2): this repository's version and commit, PingFederate's version, the deployment
@@ -53,6 +54,7 @@ final class StartupAudit {
      * @param topology      {@value #STANDALONE} until C-1
      * @param risks         {@code OIDF_ACCEPTED_RISKS}, parsed
      * @param audit         the production profile's sweep, as the listener published it
+     * @param refusing      which of its violations refuse something (not a required setting of a component not switched on)
      * @param codeRefusals  the refusals made in code so far ({@code ProfileRefusals.refuse})
      * @param legacy        the settings read from a legacy spelling so far
      * @param insecureTls   the settings that asked for insecure TLS in this copy so far
@@ -63,7 +65,8 @@ final class StartupAudit {
      * @param platformFrom  where this copy of platform was loaded from
      */
     record Facts(String war, Map<String, Object> versions, DeploymentProfile profile, String profileSaid, String topology,
-            AcceptedRisks risks, ProfileAudit.Result audit, List<ProfileAudit.Violation> codeRefusals, List<String> legacy,
+            AcceptedRisks risks, ProfileAudit.Result audit, Predicate<ProfileAudit.Violation> refusing,
+            List<ProfileAudit.Violation> codeRefusals, List<String> legacy,
             List<InsecureTls.Use> insecureTls, boolean hostnamesOff, List<ComponentStatus> components,
             List<ManagedExecutor.Status> executors, Optional<String> mxBean, String platformFrom) {
     }
@@ -73,11 +76,11 @@ final class StartupAudit {
 
     /** The profile and the accepted risks, as an environment and a date give them; the rest as passed. */
     static Facts collect(String war, Map<String, Object> versions, Function<String, String> env, LocalDate today,
-            ProfileAudit.Result audit, List<ProfileAudit.Violation> codeRefusals, List<String> legacy,
-            List<InsecureTls.Use> insecureTls, boolean hostnamesOff, List<ComponentStatus> components,
+            ProfileAudit.Result audit, Predicate<ProfileAudit.Violation> refusing, List<ProfileAudit.Violation> codeRefusals,
+            List<String> legacy, List<InsecureTls.Use> insecureTls, boolean hostnamesOff, List<ComponentStatus> components,
             List<ManagedExecutor.Status> executors, Optional<String> mxBean, String platformFrom) {
         return new Facts(war, versions, DeploymentProfile.of(env), DeploymentProfile.describe(env), STANDALONE,
-                AcceptedRisks.of(env, today), audit, codeRefusals, legacy, insecureTls, hostnamesOff, components, executors,
+                AcceptedRisks.of(env, today), audit, refusing, codeRefusals, legacy, insecureTls, hostnamesOff, components, executors,
                 mxBean, platformFrom);
     }
 
@@ -93,8 +96,8 @@ final class StartupAudit {
         lines(out, "accepted risks", accepted(f.risks()));
         line(out, "risk refusals", f.risks().refusals().isEmpty() ? "none"
                 : f.risks().refusals().size() + ", each logged at WARN; those risks are not accepted");
-        lines(out, "violations", violations(f.audit()));
-        lines(out, "refused in code", refusedInCode(f.codeRefusals()));
+        lines(out, "violations", violations(f.audit(), f.refusing()));
+        lines(out, "code refusals", refusedInCode(f.codeRefusals()));
         lines(out, "profile notes", f.audit().warnings());
         lines(out, "legacy values", f.legacy());
         lines(out, "insecure TLS", insecure(f.insecureTls()));
@@ -118,16 +121,22 @@ final class StartupAudit {
         return out;
     }
 
-    /**
-     * Each violation of the sweep, as {@code REFUSED: <line>} under production and {@code not refused (development):
-     * <line>} under development.
-     */
-    static List<String> violations(ProfileAudit.Result audit) {
+    /** Each violation of the sweep, labelled ({@link #label}). */
+    static List<String> violations(ProfileAudit.Result audit, Predicate<ProfileAudit.Violation> refusing) {
         List<String> out = new ArrayList<>();
         for (ProfileAudit.Violation v : audit.violations()) {
-            out.add((audit.refuses() ? "REFUSED: " : "not refused (development): ") + v.line());
+            out.add(label(v, audit, refusing) + v.line());
         }
         return out;
+    }
+
+    /**
+     * How a violation is labelled: {@code REFUSED: } when it refuses something, {@code not refused (development): } under
+     * development, and {@code not refused (not switched on): } for a required setting of a component not switched on.
+     */
+    static String label(ProfileAudit.Violation v, ProfileAudit.Result audit, Predicate<ProfileAudit.Violation> refusing) {
+        return refusing.test(v) ? "REFUSED: " : audit.profile().isDevelopment() ? "not refused (development): "
+                : "not refused (not switched on): ";
     }
 
     static List<String> refusedInCode(List<ProfileAudit.Violation> refusals) {

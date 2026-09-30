@@ -318,6 +318,7 @@
                                         <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refusing(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refuse(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.requireRisk(*</include>
+                                        <include>com.pingidentity.ps.oidf.platform.profile.ProfileRefusals.refuses(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.health.Startup.refuseIfRefused(*</include>
                                         <include>com.pingidentity.ps.oidf.platform.component.ComponentRegistry.changed(*</include>
                                         <!-- tls (PR-1): add gate includes below this line -->

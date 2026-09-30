@@ -82,6 +82,10 @@ class ProfileRefusalsTest {
         ProfileRefusals.publish(production(violation(ProfileAudit.Kind.REQUIRED, "OIDF_OPERATOR_AUDIENCE", "OPERATOR_API")));
         assertNull(ProfileRefusals.reason("OPERATOR_API", false), "inferred: its start disables it, unconfigured");
         assertTrue(ProfileRefusals.reason("OPERATOR_API", true).contains("OIDF_OPERATOR_AUDIENCE"));
+        ProfileAudit.Violation required = violation(ProfileAudit.Kind.REQUIRED, "OIDF_R", "OPERATOR_API", "SSF");
+        assertTrue(ProfileRefusals.refuses(required, "SSF"::equals), "one of its components switched on");
+        assertFalse(ProfileRefusals.refuses(required, c -> false));
+        assertTrue(ProfileRefusals.refuses(violation(ProfileAudit.Kind.FORBIDDEN, "OIDF_F", "SSF"), c -> false));
     }
 
     @Test

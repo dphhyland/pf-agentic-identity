@@ -3,8 +3,10 @@
  */
 package com.pingidentity.ps.oidf.platform.pf.lifecycle;
 
+import com.pingidentity.ps.oidf.platform.component.ComponentSwitches;
 import com.pingidentity.ps.oidf.platform.component.Components;
 import com.pingidentity.ps.oidf.platform.events.Events;
+import com.pingidentity.ps.oidf.platform.health.Startup;
 import com.pingidentity.ps.oidf.platform.exec.ManagedExecutors;
 import com.pingidentity.ps.oidf.platform.lifecycle.Lifecycle;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import javax.management.ObjectName;
 
@@ -164,8 +167,9 @@ public class LifecycleListener implements ServletContextListener {
                             "SSF_RECEIVER", "OPERATOR_API", "FAPI"))), List.of());
         }
         ProfileRefusals.publish(result);
-        String list = sweepLog(war, result);
-        if (result.refuses()) {
+        Predicate<ProfileAudit.Violation> refusing = refusing(result);
+        String list = sweepLog(war, result, refusing);
+        if (result.violations().stream().anyMatch(refusing)) {
             LOG.error(list, null);
         } else if (list != null) {
             LOG.warn(list);
@@ -173,20 +177,31 @@ public class LifecycleListener implements ServletContextListener {
         return result;
     }
 
+    /**
+     * Which of {@code result}'s violations refuse something: none under development, and under production each but a
+     * {@code required-in-production} one whose components are none of them switched on ({@link ProfileRefusals#refuses}).
+     */
+    static Predicate<ProfileAudit.Violation> refusing(ProfileAudit.Result result) {
+        return v -> result.refuses() && ProfileRefusals.refuses(v,
+                c -> Startup.parts().verdict(c).kind() == ComponentSwitches.Kind.ENABLED);
+    }
+
     /** The sweep's one log entry: a heading and a line per violation and per warning; null when there is nothing. */
-    static String sweepLog(String war, ProfileAudit.Result result) {
+    static String sweepLog(String war, ProfileAudit.Result result, Predicate<ProfileAudit.Violation> refusing) {
         if (result.violations().isEmpty() && result.warnings().isEmpty()) {
             return null;
         }
+        long refused = result.violations().stream().filter(refusing).count();
         StringBuilder out = new StringBuilder("Deployment profile ").append(result.profile().value()).append(" for ").append(war)
-                .append(result.refuses()
-                ? " - " + result.violations().size() + " violation(s) refuse the components they name, which answer 503;"
-                        + " PingFederate's own endpoints keep serving:"
-                : result.violations().isEmpty() ? " - nothing refused:"
+                .append(refused > 0
+                ? " - " + refused + " violation(s) refuse the components they name, which answer 503; PingFederate's own"
+                        + " endpoints keep serving:"
+                : result.violations().isEmpty() || result.profile().isProduction() ? " - nothing refused:"
                 : " - " + result.violations().size() + " violation(s) the production profile would refuse; the development"
                         + " profile refuses nothing:");
         for (ProfileAudit.Violation v : result.violations()) {
-            out.append(System.lineSeparator()).append("  ").append(StartupAudit.oneLine(v.line(), SWEEP_LINE));
+            out.append(System.lineSeparator()).append("  ").append(StartupAudit.label(v, result, refusing))
+                    .append(StartupAudit.oneLine(v.line(), SWEEP_LINE));
         }
         for (String warning : result.warnings()) {
             out.append(System.lineSeparator()).append("  warning: ").append(StartupAudit.oneLine(warning, SWEEP_LINE));
@@ -219,7 +234,8 @@ public class LifecycleListener implements ServletContextListener {
     private String logAudit(String war) {
         ClassLoader loader = LifecycleListener.class.getClassLoader();
         StartupAudit.Facts facts = StartupAudit.collect(war, BuildInfo.read(loader), this.env, this.today.get(),
-                ProfileRefusals.current(), ProfileRefusals.codeRefusals(), Settings.legacySpellings(),
+                ProfileRefusals.current(), refusing(ProfileRefusals.current()), ProfileRefusals.codeRefusals(),
+                Settings.legacySpellings(),
                 InsecureTls.uses(), InsecureTls.jdkHostnameVerificationDisabled(), Components.snapshot(),
                 ManagedExecutors.snapshot(), Metrics.registerMXBean().map(ObjectName::toString),
                 where(Lifecycle.class.getProtectionDomain().getCodeSource()));
@@ -229,7 +245,7 @@ public class LifecycleListener implements ServletContextListener {
             LOG.warn("Start-up audit: " + StartupAudit.oneLine(refusal) + " - that risk is not accepted");
         }
         if (facts.audit().profile().isProduction()) {
-            List<ProfileAudit.Violation> refused = new ArrayList<>(facts.audit().violations());
+            List<ProfileAudit.Violation> refused = new ArrayList<>(facts.audit().violations().stream().filter(facts.refusing()).toList());
             refused.addAll(facts.codeRefusals());
             for (ProfileAudit.Violation v : refused) {
                 Events.event(EVENTS, PROFILE_REFUSED).audit().failure(v.kind().name().toLowerCase(java.util.Locale.ROOT))

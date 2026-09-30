@@ -8,6 +8,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import com.pingidentity.ps.oidf.platform.log.PlatformLog;
 import com.pingidentity.ps.oidf.platform.settings.Catalogues;
@@ -97,6 +98,14 @@ public final class ProfileRefusals {
         return !refusing(component, switchedOn).isEmpty();
     }
 
+    /**
+     * Whether {@code v} refuses anything under production, given which components are switched on: every violation
+     * does, but a {@code required-in-production} setting left unset refuses only a component switched on.
+     */
+    public static boolean refuses(ProfileAudit.Violation v, Predicate<String> switchedOn) {
+        return v.kind() != ProfileAudit.Kind.REQUIRED || v.components().stream().anyMatch(switchedOn);
+    }
+
     /** The violations that refuse {@code component}; empty under development. */
     static List<ProfileAudit.Violation> refusing(String component, boolean switchedOn) {
         ProfileAudit.Result now = current();
@@ -105,7 +114,7 @@ public final class ProfileRefusals {
             return out;
         }
         for (ProfileAudit.Violation v : now.of(component)) {
-            if (switchedOn || v.kind() != ProfileAudit.Kind.REQUIRED) {
+            if (refuses(v, c -> switchedOn)) {
                 out.add(v);
             }
         }
