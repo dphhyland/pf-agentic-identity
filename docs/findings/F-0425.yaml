@@ -5,7 +5,7 @@ area: platform
 source: design
 status: open
 plan_items: [ST-7]
-prs: []
+prs: [101]
 verification: ''
 target_release: 0.7.0
 notes: >
