@@ -119,7 +119,7 @@ public final class AttestationPolicyResolver {
         Map<String, List<String>> properties;
         try {
             properties = this.source.properties(clientId);
-        } catch (Exception | LinkageError e) {
+        } catch (Exception | LinkageError | java.util.ServiceConfigurationError e) {
             throw new Unavailable("the client manager could not be asked for client " + clientId + " ("
                     + e.getClass().getSimpleName() + ")", e);
         }

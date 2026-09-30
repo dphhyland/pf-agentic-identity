@@ -115,7 +115,7 @@ public final class AttestationPolicyScan {
                 part.degraded(AttestationPolicyScan.detail(named));
             }
             return bad;
-        } catch (Exception | LinkageError e) {
+        } catch (Exception | LinkageError | java.util.ServiceConfigurationError e) {
             part.degraded("the scan of client attestation properties could not read PingFederate's clients ("
                     + e.getClass().getSimpleName() + ")");
             return null;

@@ -88,7 +88,7 @@ public final class SubjectTokenVerifier {
             LOGGER.info((Object) ("subject_token did not verify as this PingFederate's ("
                     + com.pingidentity.ps.oidf.jose.JwtCodec.safe(e).code() + ")"));
             return null;
-        } catch (Exception | LinkageError e) {
+        } catch (Exception | LinkageError | java.util.ServiceConfigurationError e) {
             LOGGER.info((Object) ("subject_token could not be verified (" + e.getClass().getSimpleName() + ")"));
             return null;
         }
