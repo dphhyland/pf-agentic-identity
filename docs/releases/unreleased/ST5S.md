@@ -11,8 +11,9 @@
   (plan items PR-3 and PR-5). Under production `REQUIRE_COMPLIANT_DEVICE=false`, `APPLE_ALLOW_DEVELOPMENT=true`,
   `PF_AUTHORITY_INSECURE_TLS=true`, a set `PF_AUTHORITY_ADMIN_TOKEN`, a value of any of those four that does not
   parse, and `REGISTRY=memory` without the `in-memory-state` risk each stop the process with exit status 1, every
-  violation listed on stderr at once. Under development each is a warning. A `jdbc:` URL in `IDM_DATABASE_URL` for
-  a database other than PostgreSQL is refused in every profile, naming only its scheme.
+  violation listed on stderr at once. Under development each is a warning. An `IDM_DATABASE_URL` for a database
+  other than PostgreSQL is refused in every profile naming only its scheme, and a malformed DSN naming only why it
+  does not parse: neither shows the value, which carries the password.
 - gm-api reads `pdpUrl`, `pdpToken`, `audience`, `pdpTimeoutMs`, `issuer` and `grantManagementEndpoint` through its
   `gm-api` catalogue, strictly, init-param first and then the environment as before. The PDP URL must be `https`
   unless `OIDF_DEPLOYMENT_PROFILE=development` (plan item PR-3); an `http` one fails init and leaves `GM_API`
