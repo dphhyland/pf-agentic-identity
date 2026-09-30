@@ -441,13 +441,13 @@ class FederationServiceEndpointsTest {
     @Requirement("OIDFED §3.1.2(1.2)")
     void bothSelfStatementsCarryTheAuthorityHintsOfThisEntitysRole() throws Exception {
         // A Trust Anchor: it names itself among the anchors, in the other spelling too.
-        FederationConfiguration anchor = new FederationConfiguration(List.of(PF + "/", OTHER_TA), List.of(), null, false, false, null,
+        FederationConfiguration anchor = new FederationConfiguration(List.of(PF + "/", OTHER_TA), List.of(), false, false, null,
                 null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
         // A Leaf or Intermediate under two superiors, one named twice.
         FederationConfiguration subordinate = new FederationConfiguration(List.of(OTHER_TA, OTHER_TA + "/", "https://ta3.example"),
-                List.of(), null, false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
+                List.of(), false, false, null, null, null, 0, "RS256", AttestationMetadataConfig.defaults(), null);
         // Neither: nothing configured above it.
-        FederationConfiguration none = new FederationConfiguration(List.of(), List.of(), null, false, false, null, null, null, 0,
+        FederationConfiguration none = new FederationConfiguration(List.of(), List.of(), false, false, null, null, null, 0,
                 "RS256", AttestationMetadataConfig.defaults(), null);
 
         for (FederationConfiguration configuration : List.of(anchor, none)) {
