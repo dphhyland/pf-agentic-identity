@@ -45,10 +45,12 @@ endpoint);
 without it a random key is used, which any real deployment correctly rejects with
 `attestation_validation_failed`); `OIDF_SALES_REGION`; `OIDF_NO_CHALLENGE=1`;
 `OIDF_HARNESS_INSECURE_TLS=true` to accept a self-signed local PF (verification is on by default and
-the flag warns loudly - never set it against a real deployment). Both go through libs/platform's `InsecureTls`.
-`AttestationFlowHarness` also turns the JDK HTTP client's host name check off for the whole run, every run
-(`jdk.internal.httpclient.disableHostnameVerification`, as it always has - F-0162), so in `live` mode a
-certificate is checked for its chain unless the flag above is set, and never for its name.
+the flag warns loudly - never set it against a real deployment; it is `true` or `false`, and anything else
+stops the run naming it). With the flag on, `AttestationFlowHarness` also turns the JDK HTTP client's host name
+check off for the run (`jdk.internal.httpclient.disableHostnameVerification`), since a local PF behind the TCP
+proxy serves a certificate for `localhost` whatever name is dialled. Without it, from 0.6.0, a `live` run checks
+both the chain and the name (before 0.6.0 the name was never checked - F-0162). Both go through libs/platform's
+`InsecureTls`.
 
 All three self-verify walks also run under surefire (`AttestationFlowHarnessSmokeTest`,
 `AttestationIssuanceHarnessSmokeTest`, `SsfSelfVerifySmokeTest`) - each calls the harness's

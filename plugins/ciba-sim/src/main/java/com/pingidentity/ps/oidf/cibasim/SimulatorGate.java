@@ -4,6 +4,10 @@
 package com.pingidentity.ps.oidf.cibasim;
 
 import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.SettingRefused;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.InvalidPathException;
@@ -16,7 +20,10 @@ import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
 import java.util.EnumSet;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * The simulator is an approval oracle keyed by nothing but an {@code auth_req_id}: whoever can reach the
@@ -24,10 +31,15 @@ import java.util.function.Function;
  * all three of these hold, and both halves - the servlet in {@code pf-runtime.war} and the plugin loose in
  * {@code deploy/} - ask before every request:
  * <ol>
- *   <li>{@code OIDF_CIBA_SIM_ENABLED=true}: off unless a deployment says it is a rig;</li>
  *   <li>{@code OIDF_DEPLOYMENT_PROFILE=development}: never in production, which is what an unset variable
  *       means, and what any value other than {@code development} means too - a typo lands on the safe
- *       side;</li>
+ *       side. It is asked first, so production refuses whatever {@code OIDF_CIBA_SIM_ENABLED} says (plan item
+ *       PR-3): the image never stages this jar (R-I1), but a consumer's image can, and the setting being
+ *       forbidden in production refuses nothing if the plugin itself does not. The first refusal in production
+ *       logs one ERROR; the rest are silent, since each request would say the same;</li>
+ *   <li>{@code OIDF_CIBA_SIM_ENABLED=true}: off unless a deployment says it is a rig. Read strictly through
+ *       the {@code ciba-simulator} settings catalogue: {@code true} or {@code false}, and a value only the old
+ *       reader took ({@code yes}, {@code 1}) is read as false with a warning under development;</li>
  *   <li>{@code OIDF_CIBA_SIM_DIR}: an absolute path to an existing directory that is not a symbolic link,
  *       is owned by the user this process runs as and has no group or other permission bits, on a POSIX
  *       filesystem. The directory is the handoff between the two classloaders, and anyone else who can
@@ -42,6 +54,12 @@ final class SimulatorGate {
     static final String ENABLED_ENV = "OIDF_CIBA_SIM_ENABLED";
     static final String PROFILE_ENV = DeploymentProfile.SETTING;
     static final String DIR_ENV = "OIDF_CIBA_SIM_DIR";
+    /** The settings catalogue this gate reads its two settings through. */
+    static final String CATALOGUE = "ciba-simulator";
+
+    private static final Log LOGGER = LogFactory.getLog(SimulatorGate.class);
+    /** How many times this copy has refused for the production profile; the first of them logs the ERROR. */
+    private static final AtomicInteger PRODUCTION_REFUSALS = new AtomicInteger();
 
     private static final Set<PosixFilePermission> OWNER_BITS = EnumSet.of(
             PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE, PosixFilePermission.OWNER_EXECUTE);
@@ -57,37 +75,54 @@ final class SimulatorGate {
 
     /** The same, told who this process is; null for {@code processUser} means nobody could say. */
     static String refusal(Function<String, String> env, UserPrincipal processUser) {
-        if (!enabled(env)) {
-            return ENABLED_ENV + " is not true";
-        }
         if (isProduction(env)) {
-            return DeploymentProfile.describe(env) + "; the simulator never runs there";
+            String reason = DeploymentProfile.describe(env) + "; the simulator never runs there, whatever "
+                    + ENABLED_ENV + " says";
+            if (PRODUCTION_REFUSALS.getAndIncrement() == 0) {
+                LOGGER.error((Object) ("CIBA simulator refused by the production profile: " + reason + ". Its decision"
+                        + " endpoint answers 404 and its authenticator fails every request; remove pf.plugins.ciba-sim.jar"
+                        + " from this deployment. Logged once."));
+            }
+            return reason;
         }
-        String configured = env.apply(DIR_ENV);
-        if (configured == null || configured.isBlank()) {
+        Settings settings = settings(env);
+        Path dir;
+        try {
+            // Strict: true or false (PR-5's legacy spellings read as false, with a warning, under development only).
+            if (!settings.bool(ENABLED_ENV)) {
+                return ENABLED_ENV + " is not true";
+            }
+            dir = settings.path(DIR_ENV);
+        } catch (SettingRefused e) {
+            return e.getMessage();
+        }
+        if (dir == null) {
             return DIR_ENV + " is not set";
         }
         if (processUser == null) {
             return "the user this process runs as could not be determined, so the owner of " + DIR_ENV + " cannot be checked";
         }
-        Path dir;
-        try {
-            dir = Path.of(configured.trim());
-        } catch (InvalidPathException e) {
-            return DIR_ENV + " is not a path: " + e.getMessage();
-        }
         return directoryRefusal(dir, processUser);
     }
 
-    /** {@code OIDF_CIBA_SIM_ENABLED} is {@code true}, in any case; nothing else counts. */
-    static boolean enabled(Function<String, String> env) {
-        String value = env.apply(ENABLED_ENV);
-        return value != null && "true".equalsIgnoreCase(value.trim());
+    /** The two settings, read from {@code env} through this jar's {@code ciba-simulator} catalogue. */
+    static Settings settings(Function<String, String> env) {
+        return Settings.of(Holder.CATALOGUE, Sources.of(env, name -> null, null));
+    }
+
+    /** The catalogue, loaded once from this class's own loader: the jar in {@code deploy/} or in the war. */
+    private static final class Holder {
+        static final Catalogue CATALOGUE = Catalogue.load(SimulatorGate.class.getClassLoader(), SimulatorGate.CATALOGUE);
     }
 
     /** Everything but {@code OIDF_DEPLOYMENT_PROFILE=development} is production, an unset variable included. */
     static boolean isProduction(Function<String, String> env) {
         return DeploymentProfile.of(env).isProduction();
+    }
+
+    /** How many times this copy has refused for the production profile. */
+    static int productionRefusals() {
+        return PRODUCTION_REFUSALS.get();
     }
 
     /** Why {@code dir} may not hold decisions, or null when it may. Every failure to look counts as a refusal. */
@@ -126,7 +161,7 @@ final class SimulatorGate {
 
     /** The directory, once {@link #refusal} has passed it. */
     static Path directory(Function<String, String> env) {
-        return Path.of(env.apply(DIR_ENV).trim());
+        return settings(env).path(DIR_ENV);
     }
 
     /**

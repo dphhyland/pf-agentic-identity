@@ -1,6 +1,11 @@
 package au.com.idpartners.gm.servlet;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.pingidentity.ps.oidf.platform.profile.DeploymentProfile;
+import com.pingidentity.ps.oidf.platform.settings.Catalogue;
+import com.pingidentity.ps.oidf.platform.settings.Secret;
+import com.pingidentity.ps.oidf.platform.settings.Settings;
+import com.pingidentity.ps.oidf.platform.settings.Sources;
 import com.pingidentity.ps.oidf.platform.health.Startup;
 
 import jakarta.servlet.ServletConfig;
@@ -11,9 +16,12 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.URI;
+import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.Function;
 import java.util.jar.Manifest;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -511,23 +519,47 @@ public class McpServlet extends HttpServlet {
         return o == null ? null : o.toString();
     }
 
-    /** Shared reading of the init-params both servlets take. */
+    /**
+     * Shared reading of the settings both servlets take, through the {@code gm-api} catalogue (plan item ST-5): each
+     * init-param first, then its environment variable (F-0238: the shipped web.xml sets pdpUrl and audience, so their
+     * variables are read only once web.xml is edited - X-C02's to fix). Every value is read strictly, and the PDP URL
+     * must be https unless the deployment profile is development (plan item PR-3): its answers decide every
+     * evaluation, and its bearer token travels with each request.
+     */
     record ServletConfigs(String pdpUrl, String pdpToken, String audience, int pdpTimeoutMs) {
+
+        /** The settings catalogue both servlets read. */
+        static final String CATALOGUE = "gm-api";
+
         static ServletConfigs of(ServletConfig config) throws ServletException {
-            String pdpUrl = param(config, "pdpUrl", System.getenv("AUTHZEN_BASE_URL"));
-            if (pdpUrl == null || pdpUrl.isBlank()) {
-                throw new ServletException("pdpUrl init-param (or AUTHZEN_BASE_URL) is required");
-            }
-            return new ServletConfigs(
-                    pdpUrl,
-                    param(config, "pdpToken", System.getenv("AUTHZEN_BEARER_TOKEN")),
-                    param(config, "audience", System.getenv("GM_AUDIENCE")),
-                    Integer.parseInt(param(config, "pdpTimeoutMs", "10000")));
+            return from(System::getenv, config::getInitParameter);
         }
 
-        private static String param(ServletConfig config, String name, String fallback) {
-            String v = config.getInitParameter(name);
-            return v == null || v.isBlank() ? fallback : v;
+        /** The same, from an environment and init-params a caller supplies; the profile is {@code env}'s. */
+        static ServletConfigs from(Function<String, String> env, Function<String, String> initParams) throws ServletException {
+            Settings settings = settings(env, initParams);
+            URI pdpUrl = settings.url("pdpUrl");
+            if (pdpUrl == null) {
+                throw new ServletException("pdpUrl init-param (or AUTHZEN_BASE_URL) is required");
+            }
+            DeploymentProfile profile = DeploymentProfile.of(env);
+            if (!"https".equalsIgnoreCase(pdpUrl.getScheme()) && profile.isProduction()) {
+                throw new ServletException("pdpUrl (init-param, or AUTHZEN_BASE_URL) is an " + pdpUrl.getScheme()
+                        + " URL, and the production profile requires the PDP to be reached over https: its answers decide"
+                        + " every grant evaluation and its bearer token travels with each request. Point pdpUrl at the PDP's"
+                        + " https URL (" + DeploymentProfile.describe(env) + "; OIDF_DEPLOYMENT_PROFILE=development allows"
+                        + " http)");
+            }
+            Secret token = settings.secret("pdpToken");
+            Duration timeout = settings.duration("pdpTimeoutMs");
+            return new ServletConfigs(pdpUrl.toString(), token == null ? null : token.reveal(), settings.string("audience"),
+                    Math.toIntExact(timeout.toMillis()));
+        }
+
+        /** The {@code gm-api} catalogue read from {@code env}, with {@code initParams} first where an entry names one. */
+        static Settings settings(Function<String, String> env, Function<String, String> initParams) {
+            return Settings.of(Catalogue.load(ServletConfigs.class.getClassLoader(), CATALOGUE),
+                    Sources.of(env, System::getProperty, initParams));
         }
     }
 }

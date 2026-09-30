@@ -17,9 +17,15 @@ import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.nio.file.attribute.UserPrincipal;
 import java.nio.file.attribute.UserPrincipalNotFoundException;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import java.util.logging.LogRecord;
+import java.util.logging.Logger;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -68,13 +74,59 @@ class SimulatorGateTest {
     }
 
     @Test
-    void theSwitchMustSayTrueAndNothingElse() {
-        assertTrue(SimulatorGate.enabled(k -> "true"));
-        assertTrue(SimulatorGate.enabled(k -> " TRUE "));
-        assertFalse(SimulatorGate.enabled(k -> "yes"));
-        assertFalse(SimulatorGate.enabled(k -> "1"));
-        assertFalse(SimulatorGate.enabled(k -> ""));
-        assertFalse(SimulatorGate.enabled(k -> null));
+    void theSwitchIsReadStrictlyWithTheDevelopmentEscapeForLegacySpellings(@TempDir Path dir) {
+        Map<String, String> env = rig(dir);
+        env.put(SimulatorGate.ENABLED_ENV, " TRUE ");
+        assertNull(SimulatorGate.refusal(env(env)), "true in any case, trimmed");
+        for (String legacy : new String[] {"yes", "1", "on"}) {
+            env.put(SimulatorGate.ENABLED_ENV, legacy);
+            assertEquals(SimulatorGate.ENABLED_ENV + " is not true", SimulatorGate.refusal(env(env)),
+                    "under development the old reader's spelling '" + legacy + "' is read as false, with a warning");
+        }
+        env.put(SimulatorGate.ENABLED_ENV, "maybe");
+        String refused = SimulatorGate.refusal(env(env));
+        assertNotNull(refused);
+        assertTrue(refused.contains(SimulatorGate.ENABLED_ENV) && refused.contains("true or false"), refused);
+        env.put(SimulatorGate.ENABLED_ENV, "false");
+        assertEquals(SimulatorGate.ENABLED_ENV + " is not true", SimulatorGate.refusal(env(env)));
+    }
+
+    @Test
+    void productionRefusesWhateverTheSwitchSaysWithOneError(@TempDir Path dir) {
+        List<LogRecord> errors = new ArrayList<>();
+        Handler handler = new Handler() {
+            @Override
+            public void publish(LogRecord record) {
+                if (record.getLevel() == Level.SEVERE) {
+                    errors.add(record);
+                }
+            }
+
+            @Override
+            public void flush() {
+            }
+
+            @Override
+            public void close() {
+            }
+        };
+        Logger logger = Logger.getLogger(SimulatorGate.class.getName());
+        logger.addHandler(handler);
+        try {
+            int before = SimulatorGate.productionRefusals();
+            for (String value : new String[] {"true", "false", "yes", "maybe", null}) {
+                Map<String, String> env = rig(dir);
+                env.put(SimulatorGate.PROFILE_ENV, "production");
+                env.put(SimulatorGate.ENABLED_ENV, value);
+                String refusal = SimulatorGate.refusal(env(env));
+                assertNotNull(refusal, String.valueOf(value));
+                assertTrue(refusal.contains("never runs there, whatever " + SimulatorGate.ENABLED_ENV + " says"), refusal);
+            }
+            assertEquals(before + 5, SimulatorGate.productionRefusals());
+            assertEquals(before == 0 ? 1 : 0, errors.size(), "one ERROR, at the first refusal this copy makes");
+        } finally {
+            logger.removeHandler(handler);
+        }
     }
 
     @Test
@@ -89,7 +141,7 @@ class SimulatorGateTest {
     }
 
     @Test
-    void offUnlessSwitchedOnThenNeverInProduction(@TempDir Path dir) {
+    void offUnlessSwitchedOnAndNeverInProduction(@TempDir Path dir) {
         Map<String, String> env = rig(dir);
         env.remove(SimulatorGate.ENABLED_ENV);
         assertEquals(SimulatorGate.ENABLED_ENV + " is not true", SimulatorGate.refusal(env(env)));
