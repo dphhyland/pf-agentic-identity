@@ -11,7 +11,8 @@
   request named, what to configure - is on one `server.log` line with the same reference. An operator authenticated
   by `OperatorAuthenticator` still gets the detail.
 - `FapiResourceServerFilter` (UserInfo) holds only the clients `OIDF_FAPI2_CLIENTS` names, as `Fapi2ProfileFilter`
-  does, and finds an access token in the query whatever the spelling of the parameter's name - `access%5Ftoken`,
+  does, and those a new setting, `OIDF_FAPI_RESOURCE_CLIENTS`, adds - FAPI 1.0 clients such as FAPI-CIBA's, which the
+  FAPI 2.0 token-endpoint rules would refuse - and finds an access token in the query whatever the spelling of the parameter's name - `access%5Ftoken`,
   `Access_Token`, repeated (H-FED-6, F-0048). Until now it refused a query token and set `x-fapi-interaction-id` for
   every client, and read the query as written.
 - `OAuthErrorDescriptionFilter` holds a response only when its status is an error when the body starts; a token
@@ -42,15 +43,18 @@
    at INFO. An operator page named by `OIDF_FEDERATION_ERROR_PAGE` gets the fixed text in `${errorDescription}` and
    the reference in `${trackingId}`. There is no development escape: the detail is in the log in every profile.
 2. **The FAPI resource-server rules apply only to FAPI clients.** What to do: nothing, if `OIDF_FAPI2_CLIENTS` already
-   lists your FAPI clients or is `*`. Why: FAPI 1.0 Baseline section 6.2.1 and FAPI 2.0 section 5.3.4 are rules for FAPI
-   endpoints, and PingFederate's UserInfo serves every client. How to tell: with `OIDF_FAPI2_CLIENTS` unset, UserInfo
+   lists your FAPI clients or is `*` and you have no FAPI 1.0 clients; list any FAPI 1.0 clients (FAPI-CIBA's, for
+   example) in the new `OIDF_FAPI_RESOURCE_CLIENTS`, space- or comma-separated. Why: FAPI 1.0 Baseline section 6.2.1 and FAPI 2.0 section 5.3.4 are rules for FAPI
+   endpoints, and PingFederate's UserInfo serves every client. How to tell: with both lists unset, UserInfo
    no longer sets `x-fapi-interaction-id` and no longer refuses `?access_token=` - PingFederate answers as it does on
    its own - and the start-up line from `FapiResourceServerFilter` says the rules are off; with a list, a listed
    client's query token is refused 400 `invalid_request` and recorded as `fapi.request.refused`. The client is the
    `client_id` of a JWT access token; a reference (opaque) access token names no client, so its query token is refused
-   only under `*`. What to change: to keep the old behaviour for every client, set `OIDF_FAPI2_CLIENTS=*`, which also
-   holds every client to the FAPI 2.0 assertion-audience and DPoP-algorithm rules at the token endpoint. No
-   development escape: this is not a profile rule.
+   only under `*`. What to change: to keep the old behaviour for every client, set `OIDF_FAPI_RESOURCE_CLIENTS=*`,
+   which touches UserInfo only (`OIDF_FAPI2_CLIENTS=*` would also hold every client to the FAPI 2.0 assertion-audience
+   and DPoP-algorithm rules at the token endpoint). A list of nothing (a comma alone) in either holds every client at
+   UserInfo, with a warning. The conformance rig's `vars.env` now lists its FAPI-CIBA clients there. No development
+   escape: this is not a profile rule.
 
 ## Notes
 

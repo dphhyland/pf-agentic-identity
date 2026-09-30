@@ -63,8 +63,13 @@ class FapiResourceServerFilterTest {
 
     /** The filter, started with {@code OIDF_FAPI2_CLIENTS} set to {@code clients} (null: unset). */
     private static FapiResourceServerFilter filter(String clients) {
-        FapiResourceServerFilter filter = new FapiResourceServerFilter(
-                name -> "OIDF_FAPI2_CLIENTS".equals(name) ? clients : null);
+        return filter(clients, null);
+    }
+
+    /** The filter, started with {@code OIDF_FAPI2_CLIENTS} and {@code OIDF_FAPI_RESOURCE_CLIENTS} (null: unset). */
+    private static FapiResourceServerFilter filter(String fapi2Clients, String resourceClients) {
+        FapiResourceServerFilter filter = new FapiResourceServerFilter(name -> "OIDF_FAPI2_CLIENTS".equals(name) ? fapi2Clients
+                : "OIDF_FAPI_RESOURCE_CLIENTS".equals(name) ? resourceClients : null);
         filter.init(mock(FilterConfig.class));
         return filter;
     }
@@ -226,8 +231,25 @@ class FapiResourceServerFilterTest {
 
     @Test
     void aListThatCannotBeReadHoldsEveryClient() throws Exception {
-        FapiResourceServerFilter filter = filter(",");
-        assertTrue(refusal(filter, "access_token=opaque", null) != null);
+        assertTrue(refusal(filter(","), "access_token=opaque", null) != null);
+        assertTrue(refusal(filter(FAPI, ","), "access_token=opaque", null) != null);
+    }
+
+    /**
+     * A FAPI 1.0 client - FAPI-CIBA's on the conformance rig - is held to the resource-server rules through the second
+     * list, without being put on the first, whose FAPI 2.0 audience rule its token-endpoint assertion would fail.
+     */
+    @Test
+    @Requirement("FAPI1-BASE §6.2.1(3)")
+    void aFapi1ClientIsHeldThroughTheResourceClientList() throws Exception {
+        String ciba = "conformance-ciba-client1";
+        FapiResourceServerFilter both = filter(FAPI, ciba + " conformance-ciba-client2");
+        assertTrue(refusal(both, "access_token=" + token(ciba), null) != null);
+        assertTrue(refusal(both, "access_token=" + token(FAPI), null) != null, "the FAPI 2.0 clients are FAPI clients here too");
+        assertNull(refusal(both, "access_token=" + token(OTHER), null));
+        FapiResourceServerFilter onlyResource = filter(null, ciba);
+        assertTrue(refusal(onlyResource, "access_token=" + token(ciba), null) != null);
+        assertEquals(ciba, this.events.get(this.events.size() - 1).subject());
     }
 
     @Test

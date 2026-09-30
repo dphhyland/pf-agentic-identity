@@ -25,7 +25,10 @@ notes: >
   register's rule for these items. H-FED-6: FapiResourceServerFilter per client, checked on the
   percent-decoded query; OAuthErrorDescriptionFilter buffers only error responses and handles sendError and
   reset.
-  Closed by HFEDE (H-FED-6), 2026-10-01. The list is OIDF_FAPI2_CLIENTS rather than a new setting: FAPI 2.0 Security
-  Profile (final) section 5.3.4 has the same resource-server rule ("shall not accept access tokens in the query
-  parameters stated in Section 2.3 of OAuth 2.0 Bearer Token Usage [RFC6750]"), and a second list would be a second
-  place to leave a FAPI client out. A reference token names no client and is held to the rules only under *.
+  Closed by HFEDE (H-FED-6), 2026-10-01. The clients are OIDF_FAPI2_CLIENTS's - FAPI 2.0 Security Profile (final)
+  section 5.3.4 has the same resource-server rule ("shall not accept access tokens in the query parameters stated in
+  Section 2.3 of OAuth 2.0 Bearer Token Usage [RFC6750]") - and a new setting's, OIDF_FAPI_RESOURCE_CLIENTS, for FAPI
+  1.0 clients: the conformance rig's FAPI-CIBA clients need the rules at UserInfo (the plan fails its positive modules
+  without x-fapi-interaction-id, filters.xml records) but address their client assertions to the token endpoint, which
+  Fapi2ProfileFilter's audience rule would refuse if they were on the first list. A reference token names no client and
+  is held to the rules only under *.

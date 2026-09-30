@@ -47,13 +47,15 @@ import org.apache.commons.logging.LogFactory;
  *
  * <p><b>For FAPI clients only</b> (plan item H-FED-6, finding F-0048). Both provisions are of FAPI endpoints, and
  * PingFederate's UserInfo serves every client. The clients are the ones {@code OIDF_FAPI2_CLIENTS} names - the list
- * {@link Fapi2ProfileFilter} holds to the FAPI 2.0 rules at the token endpoint, {@code *} for every client - read and
- * attributed the way that filter reads them at UserInfo: the {@code client_id} claim of a JWT access token, unverified,
- * from the query or the {@code Authorization} header. One list, because the FAPI 2.0 profile has the same
- * resource-server rule, and a second list would be a second place for the same client to be left out. A request that
+ * {@link Fapi2ProfileFilter} holds to the FAPI 2.0 rules at the token endpoint, since the FAPI 2.0 profile has the same
+ * resource-server rule - and the ones {@code OIDF_FAPI_RESOURCE_CLIENTS} adds: FAPI 1.0 clients, such as FAPI-CIBA's,
+ * which need the resource-server rules but whose client assertions address the token endpoint and would fail the FAPI
+ * 2.0 audience rule if they were on the first list. {@code *} on either is every client. A client is attributed the way
+ * {@link Fapi2ProfileFilter} attributes one at UserInfo: the {@code client_id} claim of a JWT access token, unverified,
+ * from the query or the {@code Authorization} header. A request that
  * names another client to escape the rules has to be served by PingFederate as that client, with a token PingFederate
- * issued to it; a token that names no client (a reference token) is held to them only under {@code *}. With the list
- * unset, nothing here happens and UserInfo answers as PingFederate does.
+ * issued to it; a token that names no client (a reference token) is held to them only under {@code *}. With both
+ * lists unset, nothing here happens and UserInfo answers as PingFederate does.
  *
  * <p>Mapped over {@code /idp/userinfo.openid} by {@code build/pingfederate/assemble-pf-runtime-war.sh}. The header is
  * set before the chain runs, because a response PingFederate has already committed cannot take one afterwards; a
@@ -69,6 +71,7 @@ public final class FapiResourceServerFilter implements Filter {
     static final String HEADER = "x-fapi-interaction-id";
     static final String TOKEN_PARAMETER = "access_token";
     static final String CLIENTS_ENV = "OIDF_FAPI2_CLIENTS";
+    static final String RESOURCE_CLIENTS_ENV = "OIDF_FAPI_RESOURCE_CLIENTS";
     private static final String CATALOGUE = "fapi2-profile";
     private static final String EVERY_CLIENT = "*";
     private static final Log LOGGER = LogFactory.getLog(FapiResourceServerFilter.class);
@@ -90,28 +93,34 @@ public final class FapiResourceServerFilter implements Filter {
     public void init(FilterConfig config) {
         this.clients = this.clients(InitParams.of(config));
         LOGGER.info((Object) (this.clients.isEmpty()
-                ? "FAPI resource-server rules at UserInfo off (" + CLIENTS_ENV + " names no client)"
+                ? "FAPI resource-server rules at UserInfo off (" + CLIENTS_ENV + " and " + RESOURCE_CLIENTS_ENV + " name no client)"
                 : "FAPI resource-server rules at UserInfo ON for "
                         + (this.clients.contains(EVERY_CLIENT) ? "every client" : this.clients)
                         + ": x-fapi-interaction-id set, access tokens in the query refused"));
     }
 
     /**
-     * The FAPI clients, from {@value #CLIENTS_ENV}'s entry in the {@code fapi2-profile} catalogue, read as
-     * {@link Fapi2ProfileFilter} reads it. A value that cannot be read (a list of nothing) holds every client, since
-     * FAPI's own filter refuses to start on it and nobody can then say which clients are FAPI's.
+     * The FAPI clients: {@value #CLIENTS_ENV}'s and {@value #RESOURCE_CLIENTS_ENV}'s, from their entries in the
+     * {@code fapi2-profile} catalogue, the first read as {@link Fapi2ProfileFilter} reads it. A list that cannot be read
+     * (a list of nothing) holds every client, since nobody can then say which clients are FAPI's.
      */
     Set<String> clients(Function<String, String> initParams) {
-        try {
-            Settings settings = Settings.load(FapiResourceServerFilter.class.getClassLoader(), CATALOGUE)
-                    .with(Sources.of(this.environment, System::getProperty, initParams));
-            Set<String> listed = settings.words(CLIENTS_ENV);
-            return listed == null ? Set.of() : Set.copyOf(listed);
-        } catch (RuntimeException e) {
-            LOGGER.warn((Object) (CLIENTS_ENV + " cannot be read (" + e.getMessage()
-                    + "); the FAPI resource-server rules apply to every client at UserInfo until it is fixed"));
-            return Set.of(EVERY_CLIENT);
+        Settings settings = Settings.load(FapiResourceServerFilter.class.getClassLoader(), CATALOGUE)
+                .with(Sources.of(this.environment, System::getProperty, initParams));
+        Set<String> clients = new java.util.LinkedHashSet<>();
+        for (String name : List.of(CLIENTS_ENV, RESOURCE_CLIENTS_ENV)) {
+            try {
+                Set<String> listed = settings.words(name);
+                if (listed != null) {
+                    clients.addAll(listed);
+                }
+            } catch (RuntimeException e) {
+                LOGGER.warn((Object) (name + " cannot be read (" + e.getMessage()
+                        + "); the FAPI resource-server rules apply to every client at UserInfo until it is fixed"));
+                return Set.of(EVERY_CLIENT);
+            }
         }
+        return Set.copyOf(clients);
     }
 
     @Override
