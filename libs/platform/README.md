@@ -275,7 +275,9 @@ Under development every answer is null. `RedisClient` asks `forbidInProduction` 
 lifecycle listener `publish`es the sweep (`settings.ProfileAudit`) in `contextInitialized`, before any `init`; a copy
 nothing publishes to - the engine's, where the OGNL criteria run - evaluates it itself on first use (`current()`),
 from the same process-wide sources, so both give one answer. `health.Startup.begin` asks `reason(component,
-switchedOn)` and makes a refused component's part `REFUSED` before its start runs; a component switched off stays
+switchedOn)`, which reads the published sweep only - a copy nothing published to, such as a unit test's, refuses
+nothing for a setting, whatever its process holds at that moment - and makes a refused component's part `REFUSED`
+before its start runs; a component switched off stays
 disabled, and a `required-in-production` violation refuses only a component switched on (unswitched in production, a
 component is inferred only while none of its settings is set, and its start disables it). `refused(component,
 switchedOn)` is the same question for a caller with no part. A condition that is not a setting is refused in code:

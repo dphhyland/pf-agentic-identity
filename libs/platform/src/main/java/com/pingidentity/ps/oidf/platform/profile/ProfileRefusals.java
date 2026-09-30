@@ -32,9 +32,12 @@ import com.pingidentity.ps.oidf.platform.settings.Sources;
  * </ul>
  *
  * <p>{@code platform.health.Startup.begin} asks {@link #reason} for each part it registers, and a part of a refused
- * component is {@code REFUSED} before its start function runs, so its {@code init} configures nothing. Under the
- * development profile nothing is refused: the sweep's violations are warnings, and {@link #refuse} logs a WARN and
- * returns.
+ * component is {@code REFUSED} before its start function runs, so its {@code init} configures nothing. {@link #reason}
+ * reads the published sweep only: the webapp's copy always has one before its first {@code init}, and a copy nothing
+ * published to - a unit test's, or a war that does not register the listener, which no war this repository ships is -
+ * refuses nothing for a setting, whatever its process happens to hold at that moment. {@link #refused} and
+ * {@link #current} are the engine copy's way in, and evaluate. Under the development profile nothing is refused: the
+ * sweep's violations are warnings, and {@link #refuse} logs a WARN and returns.
  *
  * <p>A {@code required-in-production} setting left unset refuses its component only when the component's switch
  * says {@code true}. Unswitched, a component in production is inferred only while none of its settings is set, so its
@@ -46,7 +49,8 @@ public final class ProfileRefusals {
     private static final PlatformLog LOG = PlatformLog.get(ProfileRefusals.class);
     private static final Object LOCK = new Object();
 
-    private static volatile ProfileAudit.Result result;
+    private static ProfileAudit.Result published;
+    private static ProfileAudit.Result result;
     private static Supplier<ProfileAudit.Result> evaluation = ProfileRefusals::evaluateProcess;
     private static final List<ProfileAudit.Violation> CODE = new ArrayList<>();
     private static final Set<String> WARNED = new LinkedHashSet<>();
@@ -62,9 +66,10 @@ public final class ProfileRefusals {
     }
 
     /** Publishes the sweep's result, as the lifecycle listener does before any {@code init}; a later publish replaces it. */
-    public static void publish(ProfileAudit.Result published) {
+    public static void publish(ProfileAudit.Result sweep) {
         synchronized (LOCK) {
-            result = Objects.requireNonNull(published, "published");
+            published = Objects.requireNonNull(sweep, "sweep");
+            result = sweep;
         }
     }
 
@@ -84,7 +89,11 @@ public final class ProfileRefusals {
      * ones only when {@code switchedOn} - and the refusals made in code for it.
      */
     public static String reason(String component, boolean switchedOn) {
-        List<ProfileAudit.Violation> refusing = refusing(component, switchedOn);
+        ProfileAudit.Result sweep;
+        synchronized (LOCK) {
+            sweep = published;
+        }
+        List<ProfileAudit.Violation> refusing = refusing(component, switchedOn, sweep);
         if (refusing.isEmpty()) {
             return null;
         }
@@ -95,7 +104,7 @@ public final class ProfileRefusals {
 
     /** Whether {@code component} is refused, for a caller that has no part to ask - an OGNL criterion. */
     public static boolean refused(String component, boolean switchedOn) {
-        return !refusing(component, switchedOn).isEmpty();
+        return !refusing(component, switchedOn, current()).isEmpty();
     }
 
     /**
@@ -106,14 +115,16 @@ public final class ProfileRefusals {
         return v.kind() != ProfileAudit.Kind.REQUIRED || v.components().stream().anyMatch(switchedOn);
     }
 
-    /** The violations that refuse {@code component}; empty under development. */
-    static List<ProfileAudit.Violation> refusing(String component, boolean switchedOn) {
-        ProfileAudit.Result now = current();
+    /**
+     * The violations of {@code sweep} that refuse {@code component}, and the refusals made in code for it; nothing
+     * from the sweep when there is none, and nothing at all under development.
+     */
+    static List<ProfileAudit.Violation> refusing(String component, boolean switchedOn, ProfileAudit.Result sweep) {
         List<ProfileAudit.Violation> out = new ArrayList<>();
-        if (now.profile().isDevelopment()) {
+        if (sweep != null && sweep.profile().isDevelopment()) {
             return out;
         }
-        for (ProfileAudit.Violation v : now.of(component)) {
+        for (ProfileAudit.Violation v : sweep == null ? List.<ProfileAudit.Violation>of() : sweep.of(component)) {
             if (refuses(v, c -> switchedOn)) {
                 out.add(v);
             }
@@ -143,7 +154,7 @@ public final class ProfileRefusals {
         Objects.requireNonNull(reason, "reason");
         ProfileAudit.Violation violation = new ProfileAudit.Violation(ProfileAudit.Kind.CODE, component, reason,
                 "The start-up audit lists it", List.of(component));
-        boolean production = current().profile().isProduction();
+        boolean production = profile().isProduction();
         boolean first;
         synchronized (LOCK) {
             first = WARNED.add(component + " " + reason);
@@ -183,6 +194,13 @@ public final class ProfileRefusals {
                 + AcceptedRisks.SETTING);
     }
 
+    /** The profile a refusal in code is judged under: the published sweep's, or this process's environment's. */
+    static DeploymentProfile profile() {
+        synchronized (LOCK) {
+            return published != null ? published.profile() : DeploymentProfile.current();
+        }
+    }
+
     /** The refusals made in code so far, in the order they were made. */
     public static List<ProfileAudit.Violation> codeRefusals() {
         synchronized (LOCK) {
@@ -193,6 +211,7 @@ public final class ProfileRefusals {
     /** Tests only: forget what was published and refused, and evaluate with {@code with} on the next use. */
     static void reset(Supplier<ProfileAudit.Result> with) {
         synchronized (LOCK) {
+            published = null;
             result = null;
             evaluation = Objects.requireNonNull(with, "with");
             CODE.clear();

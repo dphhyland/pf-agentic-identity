@@ -50,6 +50,7 @@ class ProfileRefusalsTest {
         assertSame(lazy, ProfileRefusals.current());
         assertEquals(1, evaluations.get());
         assertTrue(ProfileRefusals.refused("FAPI", false));
+        assertNull(ProfileRefusals.reason("FAPI", false), "Startup asks the published sweep only; a unit test's copy has none");
         ProfileAudit.Result published = ProfileAudit.Result.empty(DeploymentProfile.PRODUCTION);
         ProfileRefusals.publish(published);
         assertSame(published, ProfileRefusals.current(), "a publish replaces it");
@@ -86,6 +87,21 @@ class ProfileRefusalsTest {
         assertTrue(ProfileRefusals.refuses(required, "SSF"::equals), "one of its components switched on");
         assertFalse(ProfileRefusals.refuses(required, c -> false));
         assertTrue(ProfileRefusals.refuses(violation(ProfileAudit.Kind.FORBIDDEN, "OIDF_F", "SSF"), c -> false));
+    }
+
+    @Test
+    void withNothingPublishedARefusalInCodeFollowsThisProcesssProfile() {
+        ProfileRefusals.reset(() -> {
+            throw new AssertionError("a refusal in code needs the profile, not the sweep");
+        });
+        if (DeploymentProfile.current().isProduction()) {
+            assertThrows(ProfileRefused.class, () -> ProfileRefusals.refuse("SSF", "in memory"));
+            assertTrue(ProfileRefusals.reason("SSF", false).contains("in memory"), "a code refusal needs no sweep");
+        } else {
+            ProfileRefusals.refuse("SSF", "in memory");
+            assertNull(ProfileRefusals.reason("SSF", false));
+        }
+        assertEquals(DeploymentProfile.current(), ProfileRefusals.profile());
     }
 
     @Test
